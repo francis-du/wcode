@@ -1,0 +1,116 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            platform: linux
+            artifact: wcode-linux-x86_64
+            archive: wcode-linux-x86_64.tar.gz
+          - name: macOS Universal
+            os: macos-latest
+            platform: macos
+            artifact: wcode-macos-universal
+            archive: wcode-macos-universal.tar.gz
+          - name: Windows x86_64
+            os: windows-latest
+            platform: windows
+            artifact: wcode-windows-x86_64
+            archive: wcode-windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build Linux
+        if: matrix.platform == 'linux'
+        run: |
+          cargo build --release --locked
+          mkdir -p dist/package
+          cp target/release/wcode dist/package/wcode
+          cp README.md dist/package/
+          tar -C dist/package -czf dist/${{ matrix.archive }} .
+
+      - name: Build macOS universal binary
+        if: matrix.platform == 'macos'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          mkdir -p dist/package
+          lipo -create \
+            target/aarch64-apple-darwin/release/wcode \
+            target/x86_64-apple-darwin/release/wcode \
+            -output dist/package/wcode
+          chmod +x dist/package/wcode
+          cp README.md dist/package/
+          tar -C dist/package -czf dist/${{ matrix.archive }} .
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          cargo build --release --locked
+          New-Item -ItemType Directory -Force -Path dist/package | Out-Null
+          Copy-Item target/release/wcode.exe dist/package/wcode.exe
+          Copy-Item README.md dist/package/README.md
+          Compress-Archive -Path dist/package/* -DestinationPath dist/${{ matrix.archive }} -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

@@ -1,0 +1,40 @@
+# Rust / Cargo build output
+/target/
+/dist/
+debug/
+**/*.rs.bk
+*.pdb
+rustc-ice-*.txt
+
+# IDE metadata
+/.idea/
+/.vscode/
+*.iml
+
+# OS / editor temporary files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+*.orig
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and local runtime files
+*.log
+*.pid
+
+# Coverage / profiling output
+/coverage/
+/coverage-report/
+*.profraw
+*.profdata
+
+# Cargo.lock is intentionally committed for this CLI application.
+
