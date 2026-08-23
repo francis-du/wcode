@@ -3,11 +3,13 @@ mod code_index;
 mod harness;
 mod mcp;
 mod monitor;
+mod power;
+mod runtime_control;
 mod workspace;
 
 use anyhow::{bail, Context, Result};
 use auth::AuthState;
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, Subcommand};
 use harness::ToolHarness;
 use mcp::AppState;
 use monitor::{MonitorConfig, MonitorRenderer, TaskMonitor};
@@ -112,6 +114,9 @@ impl Drop for AbortTaskOnDrop {
     after_help = HELP_FOOTER
 )]
 struct Args {
+    #[command(subcommand)]
+    command: Option<ControlCommand>,
+
     /// Local code directory exposed to connected MCP clients. Repeat to expose multiple roots.
     #[arg(short = 'w', long, value_name = "PATH", default_value = ".")]
     workspace: Vec<PathBuf>,
@@ -176,6 +181,10 @@ struct Args {
     #[arg(long = "no-open", action = ArgAction::SetFalse, default_value_t = true)]
     open_setup: bool,
 
+    /// Allow idle system sleep while wcode is running.
+    #[arg(long)]
+    allow_sleep: bool,
+
     /// Deprecated alias for --no-open, kept for CLI compatibility.
     #[arg(
         long = "no-install-chatgpt",
@@ -186,9 +195,35 @@ struct Args {
     legacy_open_setup: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Subcommand)]
+enum ControlCommand {
+    /// Restart the running wcode instance with its original arguments.
+    Restart,
+    /// Stop the running wcode instance.
+    Stop,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    if let Some(delay) = std::env::var_os("WCODE_INTERNAL_RESTART_DELAY_MS") {
+        std::env::remove_var("WCODE_INTERNAL_RESTART_DELAY_MS");
+        let delay = delay
+            .to_string_lossy()
+            .parse::<u64>()
+            .unwrap_or(750)
+            .min(5_000);
+        sleep(Duration::from_millis(delay)).await;
+    }
     let args = Args::parse();
+    if let Some(command) = args.command.as_ref() {
+        let action = match *command {
+            ControlCommand::Restart => runtime_control::ControlAction::Restart,
+            ControlCommand::Stop => runtime_control::ControlAction::Stop,
+        };
+        runtime_control::send(action)?;
+        println!("Requested wcode {}.", action.as_str());
+        return Ok(());
+    }
     let open_setup = args.open_setup && args.legacy_open_setup;
     if !args.input_token_price_per_million_usd.is_finite()
         || args.input_token_price_per_million_usd < 0.0
@@ -216,6 +251,17 @@ async fn main() -> Result<()> {
             .with_target(false)
             .init();
     }
+    let _awake_guard = if args.allow_sleep {
+        None
+    } else {
+        match power::prevent_idle_sleep() {
+            Ok(guard) => Some(guard),
+            Err(error) => {
+                eprintln!("  ! keep-awake   unavailable: {error}");
+                None
+            }
+        }
+    };
     let security = WorkspaceSecurity {
         allow_risky_exec: args.allow_risky_exec,
         allow_destructive_writes: args.allow_destructive_writes,
@@ -234,6 +280,8 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("cannot bind {}:{}", args.host, args.port))?;
     let local_url = format!("http://{}:{}", args.host, listener.local_addr()?.port());
+    let (control_router, mut control_rx, runtime_registration) =
+        runtime_control::register(listener.local_addr()?)?;
     let auth = Arc::new(AuthState::new_with_monitor(
         local_url.clone(),
         monitor.clone(),
@@ -244,7 +292,9 @@ async fn main() -> Result<()> {
         harness: harness.clone(),
         monitor: monitor.clone(),
     });
-    let app = auth::router(auth.clone()).merge(mcp::router(app_state));
+    let app = auth::router(auth.clone())
+        .merge(mcp::router(app_state))
+        .merge(control_router);
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
 
@@ -341,23 +391,41 @@ async fn main() -> Result<()> {
     }
 
     let monitor_interrupt = renderer.as_ref().map(MonitorRenderer::interrupt_receiver);
+    let mut restart_requested = false;
+    let mut server_task_finished = false;
     loop {
         tokio::select! {
             result = &mut server_task => {
                 result.context("local MCP server task failed")??;
+                server_task_finished = true;
                 break;
             },
             _ = tokio::signal::ctrl_c() => break,
             _ = wait_for_monitor_interrupt(monitor_interrupt.clone()) => break,
-            _ = sleep(Duration::from_secs(1)), if tunnel.is_some() => {
-                let stopped = match tunnel.as_mut().map(|child| child.try_wait()) {
-                    Some(Ok(Some(status))) => Some(format!("cloudflared exited with {status}")),
-                    Some(Err(error)) => Some(format!("cloudflared status check failed: {error}")),
-                    _ => None,
+            Some(action) = control_rx.recv() => {
+                restart_requested = action == runtime_control::ControlAction::Restart;
+                break;
+            },
+            _ = sleep(Duration::from_secs(1)) => {
+                let health_failed = monitor.connection_status().public_url_healthy == Some(false);
+                let stopped = if health_failed {
+                    if let Some(mut child) = tunnel.take() {
+                        let _ = child.start_kill();
+                        let _ = child.wait().await;
+                    }
+                    Some("public endpoint health failed three times; restarting wcode".to_owned())
+                } else {
+                    match tunnel.as_mut().map(|child| child.try_wait()) {
+                        Some(Ok(Some(status))) => Some(format!("cloudflared exited with {status}")),
+                        Some(Err(error)) => Some(format!("cloudflared status check failed: {error}")),
+                        _ => None,
+                    }
                 };
                 if let Some(reason) = stopped {
                     monitor.mark_tunnel_stopped(reason);
                     tunnel = None;
+                    restart_requested = true;
+                    break;
                 }
             },
         }
@@ -374,6 +442,16 @@ async fn main() -> Result<()> {
     if let Some(mut child) = tunnel.take() {
         let _ = child.start_kill();
         let _ = child.wait().await;
+    }
+    if !server_task_finished {
+        server_task.abort();
+        let _ = server_task.await;
+    }
+    if restart_requested {
+        drop(runtime_registration);
+        drop(_awake_guard);
+        drop(_server_abort);
+        spawn_replacement()?;
     }
     Ok(())
 }
@@ -692,6 +770,37 @@ async fn start_cloudflared(local_url: &str) -> Result<(Child, String)> {
     )
 }
 
+#[cfg(unix)]
+fn spawn_replacement() -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let executable = std::env::current_exe().context("cannot locate wcode for restart")?;
+    println!("  ↻ wcode restarting");
+    let error = StdCommand::new(executable)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Err(error).context("cannot replace the wcode process during restart")
+}
+
+#[cfg(windows)]
+fn spawn_replacement() -> Result<()> {
+    let executable = std::env::current_exe().context("cannot locate wcode for restart")?;
+    println!("  ↻ wcode restarting");
+    StdCommand::new(executable)
+        .args(std::env::args_os().skip(1))
+        .env("WCODE_INTERNAL_RESTART_DELAY_MS", "750")
+        .stdin(StdStdio::inherit())
+        .stdout(StdStdio::inherit())
+        .stderr(StdStdio::inherit())
+        .spawn()
+        .context("cannot restart wcode")?;
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn spawn_replacement() -> Result<()> {
+    bail!("automatic restart is supported on Unix-like systems and Windows")
+}
+
 async fn start_cloudflared_once(local_url: &str) -> Result<(Child, String)> {
     let mut child = Command::new("cloudflared")
         .args([
@@ -919,6 +1028,13 @@ mod tests {
         assert!(!args.allow_destructive_writes);
         assert!(!args.allow_overlapping_workspaces);
         assert!(!args.allow_broad_workspace);
+        assert!(!args.allow_sleep);
+        assert!(args.command.is_none());
+
+        let stop = Args::try_parse_from(["wcode", "stop"]).expect("stop command parses");
+        assert_eq!(stop.command, Some(ControlCommand::Stop));
+        let restart = Args::try_parse_from(["wcode", "restart"]).expect("restart command parses");
+        assert_eq!(restart.command, Some(ControlCommand::Restart));
 
         let overridden = Args::try_parse_from([
             "wcode",

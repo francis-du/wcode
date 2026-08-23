@@ -1,4 +1,6 @@
-# wcode
+<p align="center">
+  <img src="docs/assets/wcode-logo.svg" alt="wcode" width="320">
+</p>
 
 [![Build & Release](https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg)](https://github.com/francis-du/wcode/actions/workflows/release.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag)](https://github.com/francis-du/wcode/releases)
@@ -99,6 +101,19 @@ wcode --workspace "$PWD"
 
 That is the normal setup. `wcode` automatically starts the local MCP server, an HTTPS tunnel, OAuth, the terminal dashboard, and a client-neutral Setup Hub. The browser opens one page where you choose your AI client and reuse the same `/mcp` endpoint.
 
+The runtime keeps the machine out of idle system sleep while it is serving, without preventing the display from sleeping or the screen from locking. Pass `--allow-sleep` to opt out. Manual sleep and laptop-lid sleep remain operating-system decisions.
+
+The public endpoint is supervised. If `cloudflared` exits or the public health check fails three consecutive times, wcode shuts down the complete runtime cleanly and starts it again with the original arguments. A restarted Quick Tunnel can receive a new temporary URL, so use the new MCP URL shown by the refreshed TUI and reconnect the client. For an endpoint that survives restarts, pass a stable reverse-proxy URL with `--public-url`.
+
+From another terminal, the running instance can be controlled without finding or killing processes manually:
+
+```bash
+wcode restart
+wcode stop
+```
+
+These requests use a random local control token stored in a per-user runtime file. Restart restores the terminal/TUI state, stops the server and owned tunnel, and then launches the complete original command again; stop performs the same cleanup without relaunching it.
+
 Need more than one repository root?
 
 ```bash
@@ -107,7 +122,7 @@ wcode \
   --workspace ~/Code/frontend
 ```
 
-The everyday CLI stays intentionally small. Common overrides are `--public-url`, `--read-only`, `--no-exec`, `--no-open`, and `--no-monitor`; advanced trust and scheduler controls are kept out of the default help surface.
+The everyday CLI stays intentionally small. Common overrides are `--public-url`, `--read-only`, `--no-exec`, `--no-open`, `--no-monitor`, and `--allow-sleep`; advanced trust and scheduler controls are kept out of the default help surface.
 
 ## Supported AI clients
 

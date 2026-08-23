@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="96" viewBox="0 0 384 96" role="img" aria-labelledby="title description">
+  <title id="title">wcode</title>
+  <desc id="description">The wcode W mark and wordmark</desc>
+  <defs>
+    <linearGradient id="mark-gradient" x1="14" y1="12" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111827"/>
+      <stop offset="1" stop-color="#234052"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .wordmark { fill: #111827; }
+    .letter { fill: #f4f7fb; }
+    @media (prefers-color-scheme: dark) {
+      .wordmark { fill: #f4f7fb; }
+    }
+  </style>
+  <rect x="8" y="8" width="80" height="80" rx="24" fill="url(#mark-gradient)" stroke="#334155" stroke-width="1"/>
+  <text class="letter" x="48" y="63" text-anchor="middle" font-family="SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace" font-size="38" font-weight="700">W</text>
+  <text class="wordmark" x="112" y="66" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="54" font-weight="760" letter-spacing="-2">wcode</text>
+</svg>
