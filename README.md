@@ -2,14 +2,20 @@
   <img src="docs/assets/wcode-logo.svg" alt="wcode" width="320">
 </p>
 
-[![Build & Release](https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg)](https://github.com/francis-du/wcode/actions/workflows/release.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag)](https://github.com/francis-du/wcode/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-francis--du.github.io%2Fwcode-6bdcff)](https://francis-du.github.io/wcode/)
+<p align="center">
+  <a href="https://github.com/francis-du/wcode/actions/workflows/release.yml"><img src="https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg" alt="Build &amp; Release"></a>
+  <a href="https://github.com/francis-du/wcode/releases"><img src="https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag" alt="GitHub Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+  <a href="https://francis-du.github.io/wcode/"><img src="https://img.shields.io/badge/docs-francis--du.github.io%2Fwcode-6bdcff" alt="Docs"></a>
+</p>
 
-![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black)
-![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-000000?logo=apple&logoColor=white)
-![Windows](https://img.shields.io/badge/Windows-x86__64-0078D4?logo=windows11&logoColor=white)
+<p align="center">
+  <img src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&amp;logoColor=black" alt="Linux">
+  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-000000?logo=apple&amp;logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Windows-x86__64-0078D4?logo=windows11&amp;logoColor=white" alt="Windows">
+</p>
+
+---
 
 <p align="center">
   <strong>A lightweight Code Agent plugin for the AI client you already use.</strong>
@@ -43,6 +49,8 @@
 
 <p align="center"><sub>Setup Hub — choose an AI client and connect it with the shared Remote MCP URL.</sub></p>
 
+---
+
 ## Why wcode
 
 Most AI coding products already have a capable model and agent loop. `wcode` adds the missing local-code bridge without replacing the product you chose.
@@ -72,6 +80,8 @@ configured workspace roots only
 ```
 
 Runs on macOS, Linux, and Windows.
+
+---
 
 ## Install
 
@@ -124,6 +134,8 @@ wcode \
 
 The everyday CLI stays intentionally small. Common overrides are `--public-url`, `--read-only`, `--no-exec`, `--no-open`, `--no-monitor`, and `--allow-sleep`; advanced trust and scheduler controls are kept out of the default help surface.
 
+---
+
 ## Supported AI clients
 
 `wcode` speaks standards-based Remote MCP, so platform support is not tied to one model vendor.
@@ -159,6 +171,8 @@ Platform capabilities, authentication details, free/paid availability, quota beh
 **→ https://francis-du.github.io/wcode/#clients**
 
 `wcode` does not bypass provider billing or plan limits. Model calls remain subject to the AI client's own subscription, Credits, token/message limits, rate limits, or BYOK provider billing.
+
+---
 
 ## Fast without being noisy
 
@@ -206,6 +220,8 @@ Cloud-hosted AI clients cannot reach localhost, so `wcode` creates a temporary H
 The TUI and `/healthz` keep tunnel, OAuth, MCP connectivity, and task status observable when something goes wrong.
 
 Each process has an independent instance ID, local port, OAuth state, health monitor, and `cloudflared` child. Startup waits until the public health response matches that instance before presenting its MCP URL, so multiple `wcode --port …` processes can run without sharing readiness state.
+
+---
 
 ## Security
 
