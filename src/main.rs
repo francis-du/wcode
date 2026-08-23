@@ -477,13 +477,16 @@ fn ensure_cloudflared(install_missing: bool) -> Result<()> {
         bail!("cloudflared is missing; install it from Cloudflare and place it on PATH");
     }
 
-    if !command_succeeds("cloudflared", &["--version"]) {
-        bail!(
-            "the installer completed but cloudflared is still unavailable on PATH; restart the terminal or install it manually"
-        );
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        if !command_succeeds("cloudflared", &["--version"]) {
+            bail!(
+                "the installer completed but cloudflared is still unavailable on PATH; restart the terminal or install it manually"
+            );
+        }
+        println!("  ✓ cloudflared  installed");
+        Ok(())
     }
-    println!("  ✓ cloudflared  installed");
-    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

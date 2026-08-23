@@ -1,10 +1,12 @@
 # wcode
 
-`wcode` is a lightweight, authenticated MCP bridge that gives ChatGPT scoped coding tools over one or more local workspaces.
+[![Build & Release](https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg)](https://github.com/francis-du/wcode/actions/workflows/release.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag)](https://github.com/francis-du/wcode/releases)
+[![License](https://img.shields.io/github/license/francis-du/wcode)](LICENSE)
 
-Repository: https://github.com/francis-du/wcode
+`wcode` is a lightweight, authenticated MCP bridge that lets ChatGPT work directly with local codebases through workspace-scoped coding tools.
 
-Author: [@francis-du](https://github.com/francis-du)
+It runs as a single native binary and exposes only the workspace roots you explicitly configure. Built-in OAuth 2.1 + PKCE, bounded tool concurrency, project-aware verification, Tree-sitter code navigation, and a live terminal dashboard make it suitable for real coding workflows without requiring a database or separate web service. By default, `wcode` can also create a temporary HTTPS endpoint with Cloudflare Quick Tunnel so it can be connected to ChatGPT with minimal setup.
 
 ## Design
 
