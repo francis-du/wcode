@@ -29,6 +29,18 @@
   <a href="DEVELOPMENT.md"><strong>Development</strong></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/wcode-tui.png" alt="wcode live terminal dashboard showing tunnel, OAuth, MCP, task, and workspace status" width="100%">
+</p>
+
+<p align="center"><sub>Live terminal dashboard — local health, public tunnel readiness, OAuth pairing, MCP activity, and workspace tasks in one view.</sub></p>
+
+<p align="center">
+  <img src="docs/assets/wcode-setup-hub.png" alt="wcode Setup Hub for choosing and connecting a Remote MCP AI client" width="82%">
+</p>
+
+<p align="center"><sub>Setup Hub — choose an AI client and connect it with the shared Remote MCP URL.</sub></p>
+
 ## Why wcode
 
 Most AI coding products already have a capable model and agent loop. `wcode` adds the missing local-code bridge without replacing the product you chose.
