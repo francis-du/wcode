@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-labelledby="title description">
+  <title id="title">wcode</title>
+  <desc id="description">The wcode W icon</desc>
+  <defs>
+    <linearGradient id="icon-gradient" x1="12" y1="10" x2="84" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#665cff"/>
+      <stop offset="0.55" stop-color="#9b4dff"/>
+      <stop offset="1" stop-color="#f43f8f"/>
+    </linearGradient>
+  </defs>
+  <rect x="5" y="5" width="86" height="86" rx="27" fill="url(#icon-gradient)"/>
+  <path d="M20 31L32 66C34 71 39 72 42 67L48 56L54 67C57 72 62 71 64 66L76 31" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M76 18V25M72.5 21.5H79.5" fill="none" stroke="#ffcf5c" stroke-width="3.5" stroke-linecap="round"/>
+</svg>

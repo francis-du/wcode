@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="https://github.com/francis-du/wcode/actions/workflows/release.yml"><img src="https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg" alt="Build &amp; Release"></a>
-  <a href="https://github.com/francis-du/wcode/releases"><img src="https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag" alt="GitHub Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
-  <a href="https://francis-du.github.io/wcode/"><img src="https://img.shields.io/badge/docs-francis--du.github.io%2Fwcode-6bdcff" alt="Docs"></a>
+  <a href="https://github.com/francis-du/wcode/releases"><img src="https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag&amp;color=8b7cff" alt="GitHub Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-665cff.svg" alt="License"></a>
+  <a href="https://francis-du.github.io/wcode/"><img src="https://img.shields.io/badge/docs-francis--du.github.io%2Fwcode-f43f8f" alt="Docs"></a>
 </p>
 
 <p align="center">
