@@ -2,23 +2,53 @@
 name = "wcode"
 version = "0.1.0"
 edition = "2021"
+authors = ["francis-du"]
 description = "Authenticated local-code MCP bridge for ChatGPT Web"
 license = "MIT"
+repository = "https://github.com/francis-du/wcode"
+homepage = "https://github.com/francis-du/wcode"
+documentation = "https://github.com/francis-du/wcode#readme"
+readme = "README.md"
+keywords = ["mcp", "chatgpt", "coding", "developer-tools", "oauth"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.8", features = ["form", "json"] }
+axum = { version = "0.8", default-features = false, features = ["form", "http1", "json", "tokio"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
-rand = "0.8"
 rayon = "1"
 memchr = "2"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tokio = { version = "1", features = ["full"] }
+streaming-iterator = "0.1.9"
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt"] }
+tree-sitter = "0.26.12"
+tree-sitter-bash = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-css = "0.25.0"
+tree-sitter-dart = "0.2.0"
+tree-sitter-elixir = "0.3.5"
+tree-sitter-go = "0.25.0"
+tree-sitter-html = "0.23.2"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-lua = "0.5.0"
+tree-sitter-ocaml = "0.25.0"
+tree-sitter-php = "0.23"
+tree-sitter-python = "0.25.0"
+tree-sitter-r = "1.3.0"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24.2"
+tree-sitter-swift = "0.7.3"
+tree-sitter-typescript = "0.23.2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
@@ -28,3 +58,11 @@ windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false

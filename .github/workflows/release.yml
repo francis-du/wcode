@@ -10,9 +10,41 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
 jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Check
+        run: cargo check --locked
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
   build:
     name: Build ${{ matrix.name }}
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -43,42 +75,133 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Test
+      - name: Test on target OS
         run: cargo test --locked
 
       - name: Build Linux
         if: matrix.platform == 'linux'
+        shell: bash
         run: |
-          cargo build --release --locked
-          mkdir -p dist/package
-          cp target/release/wcode dist/package/wcode
-          cp README.md dist/package/
-          tar -C dist/package -czf dist/${{ matrix.archive }} .
+          set -euo pipefail
+          mkdir -p dist/package dist/candidates
+          for opt in z s; do
+            CARGO_PROFILE_RELEASE_OPT_LEVEL="$opt" cargo build --release --locked
+            install -m 755 target/release/wcode "dist/candidates/wcode-${opt}"
+          done
+          z_bytes=$(stat -c%s dist/candidates/wcode-z)
+          s_bytes=$(stat -c%s dist/candidates/wcode-s)
+          if (( s_bytes < z_bytes )); then
+            selected_opt=s
+          else
+            selected_opt=z
+          fi
+          install -m 755 "dist/candidates/wcode-${selected_opt}" dist/package/wcode
+          cp README.md dist/package/README.md
+          dist/package/wcode --version
+          tar -C dist/package -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
+          binary_bytes=$(stat -c%s dist/package/wcode)
+          archive_bytes=$(stat -c%s "dist/${{ matrix.archive }}")
+          {
+            echo "### ${{ matrix.name }}"
+            echo "- Size candidates: z=${z_bytes} bytes, s=${s_bytes} bytes"
+            echo "- Selected opt-level: ${selected_opt}"
+            echo "- Binary: ${binary_bytes} bytes"
+            echo "- Archive: ${archive_bytes} bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build macOS universal binary
         if: matrix.platform == 'macos'
+        shell: bash
         run: |
+          set -euo pipefail
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --release --locked --target aarch64-apple-darwin
-          cargo build --release --locked --target x86_64-apple-darwin
-          mkdir -p dist/package
+          mkdir -p dist/candidates dist/package-universal dist/package-arm64 dist/package-x86_64
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            for opt in z s; do
+              CARGO_PROFILE_RELEASE_OPT_LEVEL="$opt" cargo build --release --locked --target "$target"
+              install -m 755 "target/${target}/release/wcode" "dist/candidates/wcode-${target}-${opt}"
+            done
+          done
+
+          arm64_z_bytes=$(stat -f%z dist/candidates/wcode-aarch64-apple-darwin-z)
+          arm64_s_bytes=$(stat -f%z dist/candidates/wcode-aarch64-apple-darwin-s)
+          if (( arm64_s_bytes < arm64_z_bytes )); then
+            arm64_opt=s
+          else
+            arm64_opt=z
+          fi
+          x86_64_z_bytes=$(stat -f%z dist/candidates/wcode-x86_64-apple-darwin-z)
+          x86_64_s_bytes=$(stat -f%z dist/candidates/wcode-x86_64-apple-darwin-s)
+          if (( x86_64_s_bytes < x86_64_z_bytes )); then
+            x86_64_opt=s
+          else
+            x86_64_opt=z
+          fi
+
+          install -m 755 "dist/candidates/wcode-aarch64-apple-darwin-${arm64_opt}" dist/package-arm64/wcode
+          install -m 755 "dist/candidates/wcode-x86_64-apple-darwin-${x86_64_opt}" dist/package-x86_64/wcode
           lipo -create \
-            target/aarch64-apple-darwin/release/wcode \
-            target/x86_64-apple-darwin/release/wcode \
-            -output dist/package/wcode
-          chmod +x dist/package/wcode
-          cp README.md dist/package/
-          tar -C dist/package -czf dist/${{ matrix.archive }} .
+            dist/package-arm64/wcode \
+            dist/package-x86_64/wcode \
+            -output dist/package-universal/wcode
+          chmod +x dist/package-universal/wcode
+          cp README.md dist/package-universal/README.md
+          cp README.md dist/package-arm64/README.md
+          cp README.md dist/package-x86_64/README.md
+          dist/package-universal/wcode --version
+          COPYFILE_DISABLE=1 tar -C dist/package-universal -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
+          COPYFILE_DISABLE=1 tar -C dist/package-arm64 -cf - . | gzip -9n > dist/wcode-macos-aarch64.tar.gz
+          COPYFILE_DISABLE=1 tar -C dist/package-x86_64 -cf - . | gzip -9n > dist/wcode-macos-x86_64.tar.gz
+          universal_binary_bytes=$(stat -f%z dist/package-universal/wcode)
+          universal_archive_bytes=$(stat -f%z "dist/${{ matrix.archive }}")
+          arm64_binary_bytes=$(stat -f%z dist/package-arm64/wcode)
+          arm64_archive_bytes=$(stat -f%z dist/wcode-macos-aarch64.tar.gz)
+          x86_64_binary_bytes=$(stat -f%z dist/package-x86_64/wcode)
+          x86_64_archive_bytes=$(stat -f%z dist/wcode-macos-x86_64.tar.gz)
+          {
+            echo "### ${{ matrix.name }}"
+            echo "- Apple Silicon candidates: z=${arm64_z_bytes} bytes, s=${arm64_s_bytes} bytes; selected ${arm64_opt}"
+            echo "- Intel candidates: z=${x86_64_z_bytes} bytes, s=${x86_64_s_bytes} bytes; selected ${x86_64_opt}"
+            echo "- Universal binary: ${universal_binary_bytes} bytes"
+            echo "- Universal archive: ${universal_archive_bytes} bytes"
+            echo "- Apple Silicon binary: ${arm64_binary_bytes} bytes"
+            echo "- Apple Silicon archive: ${arm64_archive_bytes} bytes"
+            echo "- Intel binary: ${x86_64_binary_bytes} bytes"
+            echo "- Intel archive: ${x86_64_archive_bytes} bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build Windows
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          cargo build --release --locked
-          New-Item -ItemType Directory -Force -Path dist/package | Out-Null
-          Copy-Item target/release/wcode.exe dist/package/wcode.exe
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist/package, dist/candidates | Out-Null
+          $candidateBytes = @{}
+          foreach ($opt in @("z", "s")) {
+            $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = $opt
+            cargo build --release --locked
+            $candidate = "dist/candidates/wcode-$opt.exe"
+            Copy-Item target/release/wcode.exe $candidate
+            $candidateBytes[$opt] = (Get-Item $candidate).Length
+          }
+          if ($candidateBytes["s"] -lt $candidateBytes["z"]) {
+            $selectedOpt = "s"
+          } else {
+            $selectedOpt = "z"
+          }
+          Copy-Item "dist/candidates/wcode-$selectedOpt.exe" dist/package/wcode.exe
           Copy-Item README.md dist/package/README.md
-          Compress-Archive -Path dist/package/* -DestinationPath dist/${{ matrix.archive }} -Force
+          & dist/package/wcode.exe --version
+          Compress-Archive -Path dist/package/* -DestinationPath "dist/${{ matrix.archive }}" -CompressionLevel Optimal -Force
+          $binaryBytes = (Get-Item dist/package/wcode.exe).Length
+          $archiveBytes = (Get-Item "dist/${{ matrix.archive }}").Length
+          @(
+            "### ${{ matrix.name }}",
+            "- Size candidates: z=$($candidateBytes['z']) bytes, s=$($candidateBytes['s']) bytes",
+            "- Selected opt-level: $selectedOpt",
+            "- Binary: $binaryBytes bytes",
+            "- Archive: $archiveBytes bytes"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -86,6 +209,20 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.archive }}
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload macOS slim artifacts
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v7
+        with:
+          name: wcode-macos-slim
+          path: |
+            dist/wcode-macos-aarch64.tar.gz
+            dist/wcode-macos-x86_64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   release:
     name: Publish GitHub Release
