@@ -24,6 +24,13 @@ const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_SAFE_REMOVAL_BYTES: usize = 4 * 1024;
 const MAX_SAFE_REDUCTION_PERCENT: usize = 60;
 
+fn portable_relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct WorkspaceSecurity {
     pub allow_risky_exec: bool,
@@ -294,7 +301,7 @@ impl Workspace {
             bail!("source file changed while it was being read; retry the request");
         }
         Ok(SourceDocument {
-            path: file.strip_prefix(&self.root)?.to_string_lossy().to_string(),
+            path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256: sha256(content.as_bytes()),
             content,
             stamp: stamp_after,
@@ -308,10 +315,7 @@ impl Workspace {
     ) -> Result<(Vec<String>, bool)> {
         let start = self.existing_path(path)?;
         if start.is_file() {
-            let relative = start
-                .strip_prefix(&self.root)?
-                .to_string_lossy()
-                .to_string();
+            let relative = portable_relative_path(start.strip_prefix(&self.root)?);
             return Ok((vec![relative], false));
         }
         if !start.is_dir() {
@@ -341,13 +345,9 @@ impl Workspace {
                 truncated = true;
                 break;
             }
-            files.push(
-                entry
-                    .path()
-                    .strip_prefix(&self.root)?
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            files.push(portable_relative_path(
+                entry.path().strip_prefix(&self.root)?,
+            ));
         }
         files.sort();
         Ok((files, truncated))
@@ -490,11 +490,7 @@ impl Workspace {
             .filter_map(|entry| entry.ok())
         {
             if entry.file_type().is_file() {
-                let relative = entry
-                    .path()
-                    .strip_prefix(&self.root)?
-                    .to_string_lossy()
-                    .to_string();
+                let relative = portable_relative_path(entry.path().strip_prefix(&self.root)?);
                 files.push(relative);
                 if files.len() >= max_entries {
                     break;
@@ -571,7 +567,7 @@ impl Workspace {
                     return None;
                 }
                 let content = std::str::from_utf8(&bytes).ok()?;
-                let relative = file.strip_prefix(root).ok()?.to_string_lossy().to_string();
+                let relative = portable_relative_path(file.strip_prefix(root).ok()?);
                 let mut local = Vec::new();
                 'lines: for (index, line) in content.lines().enumerate() {
                     for query in queries {
@@ -668,7 +664,7 @@ impl Workspace {
         };
         let (selected, redacted) = redact_sensitive_text(&selected);
         Ok(FileView {
-            path: file.strip_prefix(&self.root)?.to_string_lossy().to_string(),
+            path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256: hash,
             start_line: start,
             end_line: end,
@@ -715,7 +711,7 @@ impl Workspace {
         reject_destructive_replacement(&content, &updated, self.security)?;
         atomic_write(&file, updated.as_bytes())?;
         Ok(EditResult {
-            path: file.strip_prefix(&self.root)?.to_string_lossy().to_string(),
+            path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256_before: Some(before),
             sha256_after: sha256(updated.as_bytes()),
             bytes_written: updated.len(),
@@ -738,7 +734,7 @@ impl Workspace {
         }
         atomic_create_new(&file, content.as_bytes())?;
         Ok(EditResult {
-            path: file.strip_prefix(&self.root)?.to_string_lossy().to_string(),
+            path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256_before: None,
             sha256_after: sha256(content.as_bytes()),
             bytes_written: content.len(),
@@ -1697,6 +1693,35 @@ mod tests {
             vec![".idea/workspace.xml", "main.rs", "server.log"]
         );
         assert!(workspace.search("secret", ".", 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn model_facing_paths_use_forward_slashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("nested").join("deeper");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("main.rs"), "fn needle() {}\n").unwrap();
+
+        let workspace = Workspace::new(dir.path(), true, false).unwrap();
+        let expected = "nested/deeper/main.rs";
+
+        assert_eq!(workspace.list_files(".", 100).unwrap(), vec![expected]);
+        assert_eq!(
+            workspace.read_file(expected, 1, None).unwrap().path,
+            expected
+        );
+        assert_eq!(
+            workspace.search("needle", ".", 10).unwrap()[0]["path"],
+            expected
+        );
+        let (source_files, truncated) = workspace.source_files(".", 100).unwrap();
+        assert!(!truncated);
+        assert_eq!(source_files, vec![expected]);
+
+        let created = workspace
+            .create_file("nested/deeper/created.rs", "fn created() {}\n")
+            .unwrap();
+        assert_eq!(created.path, "nested/deeper/created.rs");
     }
 
     #[test]

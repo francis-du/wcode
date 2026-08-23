@@ -97,7 +97,7 @@ Tests cover monitor lifecycle, current/peak slot accounting, token/savings accum
 
 ## Release artifacts
 
-`.github/workflows/release.yml` first runs formatting, locked dependency checking, tests, and Clippy with warnings denied. It then tests and builds optimized release artifacts for:
+`.github/workflows/release.yml` runs formatting, locked dependency checking, and Clippy on Linux, then runs the test suite on Linux, macOS, and Windows for ordinary pushes and pull requests. CLI binaries and archives are built only for `v*` release tags, after those CI gates pass. Release artifacts are produced for:
 
 - Linux x86_64
 - macOS Apple Silicon

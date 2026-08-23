@@ -39,19 +39,27 @@ Supported platforms: macOS, Linux, and Windows Terminal / PowerShell.
 
 ## Install
 
-Build and install from source:
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
+```
+
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
+```
+
+The installer downloads the latest GitHub Release for your platform, verifies it against `SHA256SUMS`, and installs `wcode` into `~/.local/bin` by default. Set `WCODE_INSTALL_DIR` to choose another directory.
+
+To build from source instead:
 
 ```bash
 cargo install --path .
 ```
 
-Release archives are available at:
-
-```text
-https://github.com/francis-du/wcode/releases
-```
-
-GitHub Actions runs locked checks, tests, and Clippy before producing Linux, Windows, and three macOS choices: Apple Silicon, Intel, and the existing Universal package. Release binaries keep all runtime features and use size-focused optimization, full LTO, a single codegen unit, abort-on-panic release code, and symbol stripping; each packaged executable is smoke-tested and its exact size is recorded in the workflow summary.
+Release archives are available from the GitHub Releases page. Ordinary pushes and pull requests run formatting, locked checks, Clippy, and tests across Linux, macOS, and Windows; optimized CLI packages are built only for `v*` release tags.
 
 ## Start
 

@@ -36,15 +36,48 @@ jobs:
       - name: Check
         run: cargo check --locked
 
-      - name: Test
-        run: cargo test --locked
-
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
-  build:
-    name: Build ${{ matrix.name }}
+      - name: Validate Unix installer
+        run: sh -n install.sh
+
+  test:
+    name: Test ${{ matrix.name }}
     needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+          - name: Windows x86_64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Validate Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '[scriptblock]::Create((Get-Content -Raw install.ps1)) | Out-Null'
+
+  build:
+    name: Build release ${{ matrix.name }}
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -74,9 +107,6 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-
-      - name: Test on target OS
-        run: cargo test --locked
 
       - name: Build Linux
         if: matrix.platform == 'linux'
