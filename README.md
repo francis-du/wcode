@@ -2,7 +2,11 @@
 
 [![Build & Release](https://github.com/francis-du/wcode/actions/workflows/release.yml/badge.svg)](https://github.com/francis-du/wcode/actions/workflows/release.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/francis-du/wcode?display_name=tag)](https://github.com/francis-du/wcode/releases)
-[![License](https://img.shields.io/github/license/francis-du/wcode)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-000000?logo=apple&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-x86__64-0078D4?logo=windows11&logoColor=white)
 
 `wcode` is a lightweight, authenticated MCP bridge that lets ChatGPT work directly with local codebases through workspace-scoped coding tools.
 
