@@ -1,7 +1,16 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = "francis-du/wcode"
-$BaseUrl = "https://github.com/$Repo/releases/latest/download"
+$Version = if ($env:WCODE_VERSION) { $env:WCODE_VERSION } else { "latest" }
+if ($Version -eq "latest") {
+    $BaseUrl = "https://github.com/$Repo/releases/latest/download"
+}
+elseif ($Version -match '^[A-Za-z0-9._-]+$') {
+    $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
+}
+else {
+    throw "wcode install: invalid WCODE_VERSION: $Version"
+}
 $InstallDir = if ($env:WCODE_INSTALL_DIR) { $env:WCODE_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".local\bin" }
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wcode-install-" + [System.Guid]::NewGuid().ToString("N"))
 $Archive = "wcode-windows-x86_64.zip"

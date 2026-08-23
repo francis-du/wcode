@@ -2,7 +2,6 @@
 set -eu
 
 REPO="francis-du/wcode"
-BASE_URL="https://github.com/${REPO}/releases/latest/download"
 INSTALL_DIR="${WCODE_INSTALL_DIR:-$HOME/.local/bin}"
 TMP_DIR="${TMPDIR:-/tmp}/wcode-install-$$"
 
@@ -19,6 +18,19 @@ fail() {
   printf 'wcode install: %s\n' "$1" >&2
   exit 1
 }
+
+version="${WCODE_VERSION:-latest}"
+case "$version" in
+  latest)
+    BASE_URL="https://github.com/${REPO}/releases/latest/download"
+    ;;
+  *[!A-Za-z0-9._-]*|'')
+    fail "invalid WCODE_VERSION: $version"
+    ;;
+  *)
+    BASE_URL="https://github.com/${REPO}/releases/download/${version}"
+    ;;
+esac
 
 if ! command_exists curl; then
   fail "curl is required"

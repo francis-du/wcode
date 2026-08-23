@@ -55,7 +55,17 @@ curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | 
 irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 ```
 
-The installer downloads the latest GitHub Release for your platform, verifies it against `SHA256SUMS`, and installs `wcode` into `~/.local/bin` by default. Set `WCODE_INSTALL_DIR` to choose another directory.
+The installer downloads the latest stable GitHub Release for your platform, verifies it against `SHA256SUMS`, and installs `wcode` into `~/.local/bin` by default. Set `WCODE_INSTALL_DIR` to choose another directory.
+
+To install a specific tag or pre-release such as `v0.1`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | WCODE_VERSION=v0.1 sh
+```
+
+```powershell
+$env:WCODE_VERSION = "v0.1"; irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
+```
 
 To build from source instead:
 
