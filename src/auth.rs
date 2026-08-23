@@ -1,5 +1,5 @@
 use crate::monitor::TaskMonitor;
-use crate::{AUTHOR_HANDLE, AUTHOR_URL, CHATGPT_CONNECTOR_SETUP_URL, PROJECT_URL};
+use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
 use axum::extract::{Form, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -31,6 +31,7 @@ const PAIRING_LOCKOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct AuthState {
+    instance_id: String,
     public_url: Arc<RwLock<String>>,
     pairing_code: String,
     pairing_attempts: Arc<Mutex<HashMap<String, PairingAttempt>>>,
@@ -133,6 +134,7 @@ impl AuthState {
     pub fn new(initial_public_url: String) -> Self {
         let pairing_code = format!("{:06}", Uuid::new_v4().as_u128() % 1_000_000);
         Self {
+            instance_id: Uuid::new_v4().simple().to_string(),
             public_url: Arc::new(RwLock::new(initial_public_url)),
             pairing_code,
             pairing_attempts: Default::default(),
@@ -155,6 +157,10 @@ impl AuthState {
             .read()
             .expect("public_url lock poisoned")
             .clone()
+    }
+
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
     }
 
     pub fn set_public_url(&self, value: String) {
@@ -306,7 +312,7 @@ async fn register_client(
         Json(json!({
             "client_id": client_id,
             "client_id_issued_at": issued_at,
-            "client_name": request.client_name.unwrap_or_else(|| "ChatGPT".into()),
+            "client_name": request.client_name.unwrap_or_else(|| "MCP client".into()),
             "redirect_uris": request.redirect_uris,
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code", "refresh_token"],
@@ -407,7 +413,7 @@ fn authorize_landing_html(state: &AuthState) -> String {
     let mcp_url = format!("{}/mcp", state.public_url());
     simple_auth_html(
         "OAuth is ready",
-        "Start authorization from ChatGPT Settings → Connectors in Developer mode. Add the MCP endpoint below, choose OAuth, and ChatGPT will return here with a signed request.",
+        "Add the MCP endpoint below to a compatible AI client and choose OAuth. The client will return here to complete the authorization flow.",
         Some(&mcp_url),
     )
 }
@@ -415,7 +421,7 @@ fn authorize_landing_html(state: &AuthState) -> String {
 fn authorize_error_html(error: &str) -> String {
     simple_auth_html(
         "Authorization request rejected",
-        &format!("ChatGPT sent an invalid OAuth request: {}. Remove the connection and add the MCP endpoint again.", html_escape(error)),
+        &format!("The MCP client sent an invalid OAuth request: {}. Remove the connection and add the MCP endpoint again.", html_escape(error)),
         None,
     )
 }
@@ -425,10 +431,9 @@ fn simple_auth_html(title: &str, message: &str, endpoint: Option<&str>) -> Strin
         .map(|value| format!(r#"<div class="endpoint">{}</div>"#, html_escape(value)))
         .unwrap_or_default();
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>{title} · wcode</title><style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#09090b;color:#f5f5f6;font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}}main{{width:min(100%,520px)}}.card{{padding:28px;border:1px solid #29292f;border-radius:18px;background:#111114;box-shadow:0 28px 80px #0008}}h1{{margin:0 0 8px;font-size:24px}}p{{margin:0;color:#a1a1aa}}.endpoint{{margin-top:20px;padding:13px 15px;border:1px solid #323239;border-radius:12px;background:#09090b;color:#fafafa;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}}.links{{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px}}a{{display:inline-block;color:#fff}}</style></head><body><main><section class="card"><h1>{title}</h1><p>{message}</p>{endpoint_html}<div class="links"><a href="{connector_url}" target="_blank" rel="noreferrer">Open ChatGPT Connectors ↗</a><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a><a href="{author_url}" target="_blank" rel="noreferrer">{author_handle} ↗</a></div></section></main></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>{title} · wcode</title><style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#09090b;color:#f5f5f6;font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}}main{{width:min(100%,520px)}}.card{{padding:28px;border:1px solid #29292f;border-radius:18px;background:#111114;box-shadow:0 28px 80px #0008}}h1{{margin:0 0 8px;font-size:24px}}p{{margin:0;color:#a1a1aa}}.endpoint{{margin-top:20px;padding:13px 15px;border:1px solid #323239;border-radius:12px;background:#09090b;color:#fafafa;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}}.links{{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px}}a{{display:inline-block;color:#fff}}</style></head><body><main><section class="card"><h1>{title}</h1><p>{message}</p>{endpoint_html}<div class="links"><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a><a href="{author_url}" target="_blank" rel="noreferrer">{author_handle} ↗</a></div></section></main></body></html>"##,
         title = html_escape(title),
         message = message,
-        connector_url = CHATGPT_CONNECTOR_SETUP_URL,
         project_url = PROJECT_URL,
         author_url = AUTHOR_URL,
         author_handle = AUTHOR_HANDLE,
@@ -464,7 +469,7 @@ button{{width:100%;height:48px;margin-top:12px;border:0;border-radius:12px;backg
 </head>
 <body><main class="shell">
 <div class="brand"><div class="mark">WC</div><div><strong>wcode</strong><span>Local MCP bridge</span></div></div>
-<section class="card"><h1>Authorize ChatGPT</h1><p>Confirm access to the local workspaces exposed by this wcode instance.</p>
+<section class="card"><h1>Authorize MCP client</h1><p>Confirm access to the local workspaces exposed by this wcode instance.</p>
 <div class="scope"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bdbdc6" stroke-width="1.7"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg><div><b>Workspace-scoped access</b><span>Paths remain limited to the configured roots. Write and command permissions follow the CLI flags.</span></div></div>
 {error_html}
 <form method="post" action="/authorize">
@@ -796,6 +801,15 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit()));
         }
+    }
+
+    #[test]
+    fn each_auth_state_has_an_independent_instance_id() {
+        let first = AuthState::new("https://first.example".to_owned());
+        let second = AuthState::new("https://second.example".to_owned());
+        assert_eq!(first.instance_id().len(), 32);
+        assert_eq!(second.instance_id().len(), 32);
+        assert_ne!(first.instance_id(), second.instance_id());
     }
 
     #[test]

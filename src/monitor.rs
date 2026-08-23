@@ -125,7 +125,8 @@ pub struct TaskTicket {
 
 pub struct MonitorConfig {
     pub version: String,
-    pub local_url: String,
+    pub instance_id: String,
+    pub local_health_url: String,
     pub mcp_url: String,
     pub setup_url: String,
     pub project_url: String,
@@ -264,7 +265,14 @@ impl TaskMonitor {
             .last_mcp_seen = Some(Instant::now());
     }
 
-    pub fn mark_chatgpt_connected(&self) {
+    pub fn mark_mcp_connected(&self) {
+        let now = Instant::now();
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        state.chatgpt_connected = true;
+        state.last_mcp_seen = Some(now);
+    }
+
+    pub fn mark_mcp_initialized(&self) {
         let now = Instant::now();
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         state.chatgpt_connected = true;
@@ -742,7 +750,7 @@ fn dashboard_link_at<'a>(
                 (6u16, config.project_url.as_str()),
                 (7, config.author_url.as_str()),
                 (8, config.setup_url.as_str()),
-                (9, config.local_url.as_str()),
+                (9, config.local_health_url.as_str()),
             ] {
                 if point_in_rect(point, Rect::new(inner.x, inner.y + row, inner.width, 1)) {
                     return Some(url);
@@ -757,7 +765,7 @@ fn dashboard_link_at<'a>(
                 (7u16, config.project_url.as_str()),
                 (8, config.author_url.as_str()),
                 (9, config.setup_url.as_str()),
-                (10, config.local_url.as_str()),
+                (10, config.local_health_url.as_str()),
             ] {
                 if point_in_rect(
                     point,
@@ -840,7 +848,7 @@ fn draw_dashboard(
 
     let compact = area.width < 92;
     let dense = area.height < 28;
-    let header_height = 7;
+    let header_height = 8;
     let setup_height = if snapshot.chatgpt_connected {
         0
     } else if compact || dense {
@@ -853,7 +861,7 @@ fn draw_dashboard(
     let fixed_height = header_height + setup_height + overview_height + minimum_activity_height + 1;
 
     if area.width < 40 || area.height < fixed_height {
-        render_too_small(frame, area);
+        render_too_small(frame, area, config);
         return;
     }
 
@@ -907,7 +915,7 @@ fn draw_dashboard(
     }
 }
 
-fn render_too_small(frame: &mut Frame<'_>, area: Rect) {
+fn render_too_small(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -926,7 +934,14 @@ fn render_too_small(frame: &mut Frame<'_>, area: Rect) {
                 " wcode ",
                 Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
             ),
-        ]));
+        ]))
+        .title(
+            Line::from(Span::styled(
+                format!(" INSTANCE {} ", truncate_end(&config.instance_id, 8)),
+                Style::default().fg(DIM),
+            ))
+            .right_aligned(),
+        );
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
@@ -984,9 +999,9 @@ fn render_header(
     } else if snapshot.chatgpt_connected && idle {
         (
             "◐",
-            "ChatGPT idle",
+            "MCP client idle",
             format!(
-                "last seen {} · Chat mode",
+                "last seen {} · Remote MCP",
                 last_seen_text(snapshot.last_mcp_seen)
             ),
             YELLOW,
@@ -994,9 +1009,9 @@ fn render_header(
     } else if snapshot.chatgpt_connected {
         (
             "●",
-            "ChatGPT connected",
+            "MCP client connected",
             format!(
-                "last seen {} · Chat mode",
+                "last seen {} · Remote MCP",
                 last_seen_text(snapshot.last_mcp_seen)
             ),
             GREEN,
@@ -1005,7 +1020,7 @@ fn render_header(
         (
             "◐",
             "OAuth authorized",
-            "waiting for ChatGPT initialize".to_owned(),
+            "waiting for MCP handshake".to_owned(),
             YELLOW,
         )
     } else {
@@ -1039,7 +1054,14 @@ fn render_header(
                 format!(" wcode {} ", config.version),
                 Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
             ),
-        ]));
+        ]))
+        .title(
+            Line::from(Span::styled(
+                format!(" INSTANCE {} ", truncate_end(&config.instance_id, 8)),
+                Style::default().fg(DIM),
+            ))
+            .right_aligned(),
+        );
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1058,6 +1080,16 @@ fn render_header(
                 Span::styled(
                     truncate_middle(&config.mcp_url, inner.width.saturating_sub(8) as usize),
                     Style::default().fg(BLUE),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("HEALTH  ", Style::default().fg(DIM)),
+                Span::styled(
+                    truncate_middle(
+                        &config.local_health_url,
+                        inner.width.saturating_sub(8) as usize,
+                    ),
+                    Style::default().fg(CYAN),
                 ),
             ]),
             Line::from(vec![
@@ -1122,6 +1154,16 @@ fn render_header(
                 Span::styled(
                     truncate_middle(&config.mcp_url, columns[0].width.saturating_sub(9) as usize),
                     Style::default().fg(BLUE),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("HEALTH  ", Style::default().fg(DIM)),
+                Span::styled(
+                    truncate_middle(
+                        &config.local_health_url,
+                        columns[0].width.saturating_sub(9) as usize,
+                    ),
+                    Style::default().fg(CYAN),
                 ),
             ]),
             Line::from(vec![
@@ -1326,8 +1368,8 @@ fn render_setup(
 
     if compact || inner.width < 78 || inner.height < 7 {
         let lines = vec![
-            setup_step(1, "Enable Developer mode in ChatGPT"),
-            setup_step(2, "Create a Connector and choose OAuth"),
+            setup_step(1, "Open this wcode setup page"),
+            setup_step(2, "Add the MCP URL and choose OAuth"),
             Line::from(vec![
                 Span::styled("  MCP  ", Style::default().fg(DIM)),
                 Span::styled(
@@ -1342,7 +1384,7 @@ fn render_setup(
                     Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    "   ·   Connector works in Chat mode",
+                    "   ·   Works with compatible Remote MCP clients",
                     Style::default().fg(GRAY),
                 ),
             ]),
@@ -1374,9 +1416,9 @@ fn render_setup(
                 "GET CONNECTED",
                 Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
             )),
-            setup_step(1, "Open ChatGPT Settings → Connectors"),
-            setup_step(2, "Enable Developer mode"),
-            setup_step(3, "Create Connector · Auth: OAuth"),
+            setup_step(1, "Open this setup page · press O"),
+            setup_step(2, "Choose a compatible AI client"),
+            setup_step(3, "Add MCP URL · Auth: OAuth"),
             Line::from(vec![
                 Span::styled("  MCP   ", Style::default().fg(DIM)),
                 Span::styled(
@@ -1426,14 +1468,14 @@ fn render_setup(
                 },
             ),
             setup_state(mcp_seen, "MCP", &mcp_detail),
-            setup_state(snapshot.chatgpt_connected, "ChatGPT", "initialize"),
+            setup_state(snapshot.chatgpt_connected, "MCP client", "connected"),
             Line::from(vec![
                 Span::styled("  LAST  ", Style::default().fg(DIM)),
                 Span::styled(
                     last_seen_text(snapshot.last_mcp_seen),
                     Style::default().fg(GRAY),
                 ),
-                Span::styled("   ·   Chat mode", Style::default().fg(PURPLE)),
+                Span::styled("   ·   Remote MCP", Style::default().fg(PURPLE)),
             ]),
         ]),
         columns[1],
@@ -2008,7 +2050,7 @@ fn render_help_overlay(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig
                 help_link_line("Project", &config.project_url, inner.width),
                 help_link_line("Author", &config.author_url, inner.width),
                 help_link_line("Setup", &config.setup_url, inner.width),
-                help_link_line("Local", &config.local_url, inner.width),
+                help_link_line("Health", &config.local_health_url, inner.width),
             ]),
             inner,
         );
@@ -2083,7 +2125,7 @@ fn render_help_overlay(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig
             help_link_line("Project", &config.project_url, columns[1].width),
             help_link_line("Author", &config.author_url, columns[1].width),
             help_link_line("Setup", &config.setup_url, columns[1].width),
-            help_link_line("Local", &config.local_url, columns[1].width),
+            help_link_line("Health", &config.local_health_url, columns[1].width),
         ]),
         columns[1],
     );
@@ -2670,7 +2712,8 @@ mod tests {
     fn mouse_hit_testing_opens_footer_and_help_links() {
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
-            local_url: "http://127.0.0.1:8765".to_owned(),
+            instance_id: "instance-one".to_owned(),
+            local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
@@ -2725,6 +2768,25 @@ mod tests {
             ),
             Some(config.project_url.as_str())
         );
+        let health_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 6,
+            row: 11,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            dashboard_link_at(
+                &health_click,
+                70,
+                14,
+                &DashboardState {
+                    help_open: true,
+                    ..DashboardState::default()
+                },
+                &config,
+            ),
+            Some(config.local_health_url.as_str())
+        );
     }
 
     #[test]
@@ -2732,7 +2794,8 @@ mod tests {
         let monitor = TaskMonitor::new(["backend".to_owned(), "frontend".to_owned()]);
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
-            local_url: "http://127.0.0.1:8765".to_owned(),
+            instance_id: "instance-one".to_owned(),
+            local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
@@ -2761,7 +2824,7 @@ mod tests {
     #[test]
     fn help_and_footer_render_project_and_author_links() {
         let monitor = TaskMonitor::new(["backend".to_owned()]);
-        monitor.mark_chatgpt_connected();
+        monitor.mark_mcp_initialized();
         let mut saved = monitor.queue("backend", "symbol_context", "saved context", 1);
         saved.start();
         saved.finish_with_context_savings(true, 400, 4_000);
@@ -2771,7 +2834,8 @@ mod tests {
         second.start();
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
-            local_url: "http://127.0.0.1:8765".to_owned(),
+            instance_id: "instance-one".to_owned(),
+            local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
@@ -2808,6 +2872,8 @@ mod tests {
         assert!(text.contains("SLOTS 2 / 8"));
         assert!(text.contains("PEAK 2"));
         assert!(text.contains("VERIFY CODE 123456"));
+        assert!(text.contains("INSTANCE"));
+        assert!(text.contains("127.0.0.1:8765/healthz"));
         assert!(text.contains("OVERVIEW"));
         assert!(text.contains("WORKSPACE ACTIVITY"));
         assert!(text.contains("THROUGHPUT"));
@@ -2835,7 +2901,8 @@ mod tests {
         assert!(text.contains("Project:"));
         assert!(text.contains("Author:"));
         assert!(text.contains("Setup:"));
-        assert!(text.contains("Local:"));
+        assert!(text.contains("Health:"));
+        assert!(text.contains("127.0.0.1:8765/healthz"));
     }
 
     #[test]
@@ -2867,7 +2934,8 @@ mod tests {
         let monitor = TaskMonitor::new(["backend".to_owned()]);
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
-            local_url: "http://127.0.0.1:8765".to_owned(),
+            instance_id: "instance-one".to_owned(),
+            local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
@@ -2888,8 +2956,8 @@ mod tests {
         monitor.mark_oauth_client_registered();
         monitor.mark_oauth_authorized();
         monitor.mark_mcp_seen();
-        monitor.mark_chatgpt_connected();
-        monitor.mark_chatgpt_connected();
+        monitor.mark_mcp_initialized();
+        monitor.mark_mcp_initialized();
         let status = monitor.connection_status();
         assert!(status.oauth_client_registered);
         assert!(status.oauth_authorized);

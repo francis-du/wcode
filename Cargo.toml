@@ -1,15 +1,15 @@
 [package]
 name = "wcode"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["francis-du"]
-description = "Authenticated local-code MCP bridge for ChatGPT Web"
+description = "Authenticated local-code MCP bridge for AI clients and coding agents"
 license = "Apache-2.0"
 repository = "https://github.com/francis-du/wcode"
-homepage = "https://github.com/francis-du/wcode"
-documentation = "https://github.com/francis-du/wcode#readme"
+homepage = "https://francis-du.github.io/wcode/"
+documentation = "https://francis-du.github.io/wcode/"
 readme = "README.md"
-keywords = ["mcp", "chatgpt", "coding", "developer-tools", "oauth"]
+keywords = ["mcp", "ai", "coding", "developer-tools", "oauth"]
 categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]

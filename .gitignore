@@ -36,5 +36,10 @@ Thumbs.db
 *.profraw
 *.profdata
 
+# Legacy local website drafts are ignored; GitHub Pages is sourced from /docs.
+/index.html
+/site.css
+/site.js
+
 # Cargo.lock is intentionally committed for this CLI application.
 

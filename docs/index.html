@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b10">
+  <meta name="description" content="wcode is a secure Remote MCP bridge that gives AI chats and coding agents workspace-scoped access to local code.">
+  <meta property="og:title" content="wcode — your code, available to any MCP client">
+  <meta property="og:description" content="One local binary. OAuth 2.1 + PKCE. Remote MCP for Grok, Claude, ChatGPT, LM Studio, Cherry Studio, Qoder and more.">
+  <meta property="og:type" content="website">
+  <title>wcode — secure local code for Remote MCP clients</title>
+  <link rel="alternate" hreflang="en" href="./">
+  <link rel="alternate" hreflang="zh-CN" href="./?lang=zh">
+  <link rel="stylesheet" href="./assets/site.css">
+  <script defer src="./assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <header class="site-header" id="top">
+    <div class="nav-shell">
+      <a class="brand" href="#top" aria-label="wcode home">
+        <span class="brand-mark" aria-hidden="true">W</span>
+        <span>wcode</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#quickstart">Quick start</a>
+        <a href="#clients">Clients</a>
+        <a href="#performance">Parallelism</a>
+        <a href="#design">Design</a>
+        <a href="#security">Security</a>
+        <a href="#reference">Reference</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="language-switch" id="languageToggle" type="button" aria-label="Switch language">中文</button>
+        <button class="icon-button" id="themeToggle" type="button" aria-label="Switch color theme" title="Switch color theme"><span aria-hidden="true">◐</span></button>
+        <a class="button button-ghost button-small" href="https://github.com/francis-du/wcode">GitHub ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section-shell">
+      <div class="hero-copy reveal">
+        <div class="eyebrow"><span class="pulse"></span> Remote MCP · OAuth 2.1 · local-first</div>
+        <h1>Your code.<br><span class="gradient-text">Any MCP client.</span></h1>
+        <p class="hero-lede">wcode is a single native binary that exposes only the code directories you choose, then gives compatible AI chats and coding agents a secure Remote MCP endpoint.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#quickstart">Start in 60 seconds <span>→</span></a>
+          <a class="button button-ghost" href="#clients">See compatible clients</a>
+        </div>
+        <div class="hero-trust" aria-label="Key properties">
+          <span><b>0</b> database</span><span><b>1</b> binary</span><span><b>5</b> MCP revisions</span><span><b>OAuth</b> + PKCE</span>
+        </div>
+      </div>
+
+      <div class="hero-stage reveal" aria-label="wcode terminal preview">
+        <div class="terminal-card">
+          <div class="terminal-bar">
+            <div class="traffic-lights"><i></i><i></i><i></i></div>
+            <div class="terminal-title">wcode · ~/Code</div>
+            <div class="terminal-live"><span></span> live</div>
+          </div>
+          <div class="terminal-body">
+            <div class="term-row muted"><span>PUBLIC MCP</span><em>READY</em></div>
+            <div class="term-endpoint">https://bright-river.trycloudflare.com/mcp</div>
+            <div class="term-grid">
+              <div><small>AUTH</small><strong>OAuth 2.1</strong><span>PKCE · DCR</span></div>
+              <div><small>WORKSPACES</small><strong>3 roots</strong><span>isolated</span></div>
+              <div><small>PROTOCOL</small><strong>2026 + legacy</strong><span>dual stack</span></div>
+              <div><small>VERIFY</small><strong>381204</strong><span>pairing code</span></div>
+            </div>
+            <div class="term-flow"><div class="flow-node active">Grok</div><span>→</span><div class="flow-node">OAuth</div><span>→</span><div class="flow-node accent">wcode</div><span>→</span><div class="flow-node">~/Code</div></div>
+            <div class="term-log">
+              <p><span>14:22:08</span> OAuth client registered</p>
+              <p><span>14:22:13</span> authorization granted</p>
+              <p><span>14:22:14</span> MCP tools/list <b>200</b></p>
+              <p><span>14:22:19</span> search_many · <b>completed</b></p>
+            </div>
+          </div>
+        </div>
+        <div class="floating-chip chip-a">Grok ✓</div><div class="floating-chip chip-b">Claude Free ✓</div><div class="floating-chip chip-c">LM Studio ✓</div>
+      </div>
+    </section>
+
+    <section class="client-strip" aria-label="Example clients">
+      <div class="marquee-shell">
+        <div class="client-pill"><span>✦</span> Grok</div><div class="client-pill"><span>◈</span> Claude</div><div class="client-pill"><span>◎</span> ChatGPT</div><div class="client-pill"><span>◫</span> Mistral Vibe</div><div class="client-pill"><span>⌘</span> Qoder</div><div class="client-pill"><span>◇</span> Cherry Studio</div><div class="client-pill"><span>▣</span> LM Studio</div><div class="client-pill"><span>⌁</span> Open WebUI</div><div class="client-pill"><span>◐</span> LibreChat</div><div class="client-pill"><span>⌁</span> Gemini CLI</div>
+      </div>
+    </section>
+
+    <section class="section section-shell" id="quickstart">
+      <div class="section-heading reveal"><div class="kicker">01 · QUICK START</div><h2>From local folder to Remote MCP.</h2><p>The default path uses a temporary Cloudflare Quick Tunnel. You keep the terminal open; wcode keeps the trust boundary local.</p></div>
+      <div class="quick-grid">
+        <article class="quick-card reveal"><span class="step-number">1</span><h3>Install</h3><div class="code-block" data-copy="curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh"><button class="copy-button" type="button">Copy</button><code>curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh</code></div><p>macOS and Linux. Windows has a PowerShell installer in the repository.</p></article>
+        <article class="quick-card reveal"><span class="step-number">2</span><h3>Run in your repository</h3><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div><p>The current directory is the default workspace. wcode starts tunneling, OAuth, the dashboard, and the Setup Hub automatically.</p></article>
+        <article class="quick-card reveal"><span class="step-number">3</span><h3>Connect your AI</h3><div class="code-block static-code"><code>https://…trycloudflare.com/mcp</code></div><p>Add that URL as a custom/remote MCP server, choose OAuth when offered, then enter the pairing code in wcode's authorization page.</p></article>
+      </div>
+      <div class="profile-tabs reveal" aria-label="Client launch examples">
+        <div class="tab-list" role="tablist"><button class="tab active" data-tab="grok" type="button">Grok</button><button class="tab" data-tab="claude" type="button">Claude</button><button class="tab" data-tab="mistral" type="button">Mistral</button><button class="tab" data-tab="generic" type="button">Generic</button></div>
+        <div class="tab-panel active" data-panel="grok"><div><strong>Grok is enabled by default</strong><p>Run <code>wcode</code>. The Setup Hub opens automatically; choose Grok, then use the shared MCP URL and OAuth pairing code.</p></div><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div></div>
+        <div class="tab-panel" data-panel="claude"><div><strong>Claude is enabled by default</strong><p>The same Setup Hub links to Claude's custom connector page. No Claude-specific wcode flag is needed.</p></div><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div></div>
+        <div class="tab-panel" data-panel="mistral"><div><strong>Mistral is enabled by default</strong><p>Choose Mistral from the same Setup Hub. The server, endpoint, OAuth flow, and tools are identical across clients.</p></div><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div></div>
+        <div class="tab-panel" data-panel="generic"><div><strong>Other Remote MCP clients use the same endpoint</strong><p>Open the Setup Hub's “Other MCP” option or copy the printed <code>/mcp</code> URL. No provider-specific flags are required.</p></div><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div></div>
+      </div>
+    </section>
+
+    <section class="section section-shell" id="clients">
+      <div class="section-heading reveal"><div class="kicker">02 · CLIENT COMPATIBILITY</div><h2>One server, many AI surfaces.</h2><p>Verified against current product documentation as of <b>August 23, 2026</b>. Each card separates protocol support from plan economics: Free availability, paid availability, and what actually consumes quota. Connecting wcode does not bypass a provider's subscription, Credits, token limits, message limits, or BYOK billing.</p></div>
+      <div class="filter-bar reveal" aria-label="Compatibility filters"><button class="filter active" data-filter="all" type="button">All</button><button class="filter" data-filter="free" type="button">Free plans</button><button class="filter" data-filter="china" type="button">China</button><button class="filter" data-filter="us" type="button">US</button><button class="filter" data-filter="chat" type="button">AI chat</button><button class="filter" data-filter="coding" type="button">Coding agent</button><button class="filter" data-filter="native" type="button">Native OAuth</button><label class="search-field"><span aria-hidden="true">⌕</span><input id="clientSearch" type="search" placeholder="Search clients…" autocomplete="off"></label></div>
+      <div id="clientGrid" class="client-grid" aria-live="polite"></div>
+      <p class="matrix-note">Not listed as “native” does not mean unsupported forever. Some products expose Streamable HTTP but do not yet implement MCP OAuth discovery. wcode intentionally does not weaken authentication just to make those clients appear green.</p>
+    </section>
+
+    <section class="section section-shell" id="performance">
+      <div class="section-heading reveal"><div class="kicker">03 · PARALLELISM & HARNESS</div><h2>Parallel where independent. Sequential where order matters.</h2><p>wcode uses a real global semaphore, efficient bulk operations, explicit fan-out, and phased verification. It does not simulate parallel activity or blindly fill every slot.</p></div>
+      <div class="performance-grid">
+        <article class="performance-card reveal"><span>64–128</span><h3>Adaptive global cap</h3><p>The default is eight times the logical CPU count, clamped to 64–128 slots. Use <code>-j N</code> only for an explicit override; the Harness accepts up to 256.</p></article>
+        <article class="performance-card reveal"><span>2–128</span><h3><code>parallel_tools</code></h3><p>Fans out already-known independent reads and discovery calls. Every child owns a real permit, result, lifecycle, and dashboard row.</p></article>
+        <article class="performance-card reveal"><span>1 pass</span><h3>Bulk before fan-out</h3><p><code>read_files</code> and <code>search_many</code> use one efficient traversal when separate MCP calls would only add round trips.</p></article>
+        <article class="performance-card reveal"><span>phased</span><h3>Verification barriers</h3><p><code>verify_project</code> overlaps cheap independent checks, then separates tests, Clippy, and builds to reduce compiler-cache contention.</p></article>
+      </div>
+      <div class="scheduler-flow reveal"><div><b>MCP request</b><small>queued</small></div><i>→</i><div><b>global permit</b><small>running</small></div><i>→</i><div><b>workspace tool</b><small>bounded</small></div><i>→</i><div><b>result + metrics</b><small>completed / failed</small></div></div>
+      <div class="parallel-notes reveal"><p>Dependent edits remain sequential and use SHA-256 preconditions plus per-file locks.</p><p>Composite tools do not hold a parent permit while waiting for children, preventing one-slot deadlocks.</p><p>The TUI’s Slots and Peak values come from actual permit ownership.</p></div>
+    </section>
+
+    <section class="section section-shell" id="design">
+      <div class="section-heading reveal"><div class="kicker">04 · DESIGN</div><h2>A bridge, not another agent runtime.</h2><p>wcode keeps protocol, authorization, tool scheduling, code intelligence, and filesystem policy separate so each layer can evolve without widening the trust boundary.</p></div>
+      <div class="architecture reveal" role="img" aria-label="wcode architecture diagram">
+        <div class="arch-column arch-clients"><div class="arch-label">MCP clients</div><div class="arch-node"><span>✦</span><div><b>AI chats</b><small>Grok · Claude · Vibe</small></div></div><div class="arch-node"><span>⌘</span><div><b>Coding agents</b><small>Qoder · Cursor · Cline</small></div></div><div class="arch-node"><span>◫</span><div><b>Self-hosted</b><small>Open WebUI · LibreChat</small></div></div></div>
+        <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
+        <div class="arch-core"><div class="arch-label">wcode</div><div class="core-stack"><div><b>OAuth 2.1 + PKCE</b><small>Protected Resource Metadata · DCR · issuer binding</small></div><div><b>MCP protocol router</b><small>2026-07-28 stateless + 2024/2025 compatibility</small></div><div><b>Positive coding harness</b><small>project context · change review · phased verification</small></div><div><b>Tree-sitter code index</b><small>lazy · multi-language · bounded AST cache</small></div><div><b>Workspace policy</b><small>canonical roots · atomic writes · command guardrails</small></div></div></div>
+        <div class="arch-arrow"><span>scoped I/O</span><i>→</i></div>
+        <div class="arch-column arch-workspaces"><div class="arch-label">Your machine</div><div class="folder-node"><span>▰</span><div><b>backend</b><small>/Users/me/Code/backend</small></div></div><div class="folder-node"><span>▰</span><div><b>frontend</b><small>/Users/me/Code/frontend</small></div></div><div class="folder-node"><span>▰</span><div><b>shared</b><small>/Users/me/Code/shared</small></div></div></div>
+      </div>
+      <div class="design-grid">
+        <article class="design-card reveal"><div class="design-icon">01</div><h3>Protocol dual-stack</h3><p>Modern requests use MCP <code>2026-07-28</code>: stateless POSTs, routing headers, request metadata, server identity metadata, and cache hints. Legacy clients still get their initialize handshake.</p></article>
+        <article class="design-card reveal"><div class="design-icon">02</div><h3>Standards-first OAuth</h3><p>The first unauthenticated MCP call returns a standards-shaped bearer challenge. Clients discover resource and authorization metadata, register, run PKCE, and receive a resource-bound token.</p></article>
+        <article class="design-card reveal"><div class="design-icon">03</div><h3>Bounded concurrency</h3><p>A single global semaphore reflects real work. Bulk reads, independent fan-out, Git review, and quality gates use controlled concurrency without hiding child tasks from observability.</p></article>
+        <article class="design-card reveal"><div class="design-icon">04</div><h3>Precision before context</h3><p>Tree-sitter symbols and project-aware context let models navigate source precisely before asking for broad file dumps, reducing latency and context pressure.</p></article>
+      </div>
+    </section>
+
+    <section class="section section-shell protocol-section" id="protocol">
+      <div class="section-heading reveal"><div class="kicker">04 · CONNECTION FLOW</div><h2>OAuth is part of the MCP experience.</h2><p>No API key pasted into a random client. A compatible client can discover the authorization server from the protected MCP endpoint.</p></div>
+      <div class="sequence reveal"><div class="seq-head"><span>AI client</span><span>wcode /mcp</span><span>wcode OAuth</span><span>Browser</span></div><div class="seq-row"><span class="seq-label">1 · Discover</span><i>POST /mcp</i><b>401 + resource_metadata</b><em></em></div><div class="seq-row"><span class="seq-label">2 · Metadata</span><i></i><b>/.well-known/…</b><em></em></div><div class="seq-row"><span class="seq-label">3 · Register</span><i></i><b>POST /register · DCR</b><em></em></div><div class="seq-row"><span class="seq-label">4 · Authorize</span><i></i><b>/authorize + PKCE</b><em>pairing code</em></div><div class="seq-row"><span class="seq-label">5 · Token</span><i></i><b>POST /token</b><em></em></div><div class="seq-row success"><span class="seq-label">6 · Use tools</span><i>Bearer + POST /mcp</i><b>tools/list · tools/call</b><em></em></div></div>
+      <div class="callout reveal"><strong>Why DCR in 2026?</strong><p>The latest MCP revision prefers Client ID Metadata Documents, but explicitly keeps Dynamic Client Registration for backward compatibility. wcode does not fetch arbitrary client-provided metadata URLs by default because doing that safely requires a new outbound-network/SSRF trust boundary.</p></div>
+    </section>
+
+    <section class="section section-shell" id="security">
+      <div class="section-heading reveal"><div class="kicker">05 · SECURITY MODEL</div><h2>Permission is a product feature.</h2><p>The model does not inherit your entire machine. Every path, edit, command, OAuth token, and concurrent task passes through explicit boundaries.</p></div>
+      <div class="security-grid">
+        <article class="security-card reveal"><span>⌂</span><h3>Workspace scoped</h3><p>Only roots passed with <code>--workspace</code> exist from the model's point of view. Absolute paths, parent traversal, symlink aliases, broad roots, and protected credential/VCS paths fail closed.</p></article>
+        <article class="security-card reveal"><span>↻</span><h3>Stale-write protection</h3><p>Existing files are edited with exact text replacement plus SHA-256 preconditions. Writes are atomic, bounded, permission-preserving, and destructive reductions require an explicit flag.</p></article>
+        <article class="security-card reveal"><span>⌘</span><h3>No shell by default</h3><p>Commands run as argument arrays without a shell. The default lane is intentionally narrow; repository-controlled execution stays behind <code>--allow-risky-exec</code> or the exact verification harness.</p></article>
+        <article class="security-card reveal"><span>◉</span><h3>OAuth + pairing</h3><p>PKCE protects authorization codes, redirect URIs are constrained, authorization codes are one-time and short-lived, refresh tokens rotate, and bearer tokens remain resource-bound.</p></article>
+        <article class="security-card reveal"><span>◎</span><h3>Origin validation</h3><p>If a Streamable HTTP request contains an <code>Origin</code> header, it must match the configured public MCP origin. This follows the MCP transport's DNS-rebinding guidance.</p></article>
+        <article class="security-card reveal"><span>≋</span><h3>Observable work</h3><p>The TUI reports real queued, active, completed, and failed operations from the same task lifecycle that owns semaphore permits. It never simulates agent activity.</p></article>
+      </div>
+    </section>
+
+    <section class="section section-shell" id="reference">
+      <div class="section-heading reveal"><div class="kicker">06 · USER REFERENCE</div><h2>Small surface. Useful primitives.</h2><p>wcode deliberately exposes a compact coding toolbox instead of a remote shell.</p></div>
+      <div class="reference-layout">
+        <aside class="reference-nav reveal" aria-label="Reference sections"><a href="#tool-reference">MCP tools</a><a href="#cli-reference">CLI flags</a><a href="#diagnostics">Diagnostics</a><a href="#faq">FAQ</a></aside>
+        <div class="reference-body">
+          <section id="tool-reference" class="doc-block reveal"><h3>MCP tools</h3><div class="tool-table"><div><code>workspace_info</code><span>Discover roots, permissions, security policy, and scheduler capabilities.</span></div><div><code>project_context</code><span>Detect project type, read bounded repository guidance, and infer quality checks.</span></div><div><code>file_outline</code><span>Tree-sitter definitions, qualified names, exact ranges, and parse state.</span></div><div><code>find_symbol</code><span>Search syntax-level definitions across supported source languages.</span></div><div><code>symbol_context</code><span>Expand one symbol into bounded source, nested definitions, and syntax-level calls.</span></div><div><code>read_file / read_files</code><span>Bounded UTF-8 reads with SHA-256 edit preconditions.</span></div><div><code>search_code / search_many</code><span>Fast exact-substring discovery, with a single-traversal bulk form.</span></div><div><code>parallel_tools</code><span>Fan out independent read/discovery operations without hiding child results.</span></div><div><code>replace_text / create_file</code><span>Atomic, bounded writes. No delete tool is exposed.</span></div><div><code>review_changes</code><span>Bounded Git working-tree risk review without returning the whole diff.</span></div><div><code>verify_project</code><span>Run inferred quick/full quality gates through an exact-shape verification lane.</span></div><div><code>run_command</code><span>Policy-checked no-shell execution for a tightly controlled program allowlist.</span></div></div></section>
+          <section id="cli-reference" class="doc-block reveal"><h3>CLI: zero-config first</h3><p>The normal path is just <code>wcode</code>. Tunnel, OAuth, Setup Hub, live dashboard, and all supported Remote MCP clients are enabled automatically.</p><div class="code-block" data-copy="wcode"><button class="copy-button" type="button">Copy</button><code>wcode</code></div><div class="cli-list"><div><code>-w, --workspace &lt;PATH&gt;</code><p>Optional: expose another root. Repeat only when you intentionally want multiple roots.</p></div><div><code>-j, --max-parallel-tools &lt;N&gt;</code><p>Optional: override the adaptive global parallelism cap.</p></div><div><code>--public-url https://…</code><p>Optional: use a stable reverse proxy instead of the default Quick Tunnel.</p></div><div><code>--read-only</code><p>Optional: remove file modification tools.</p></div><div><code>--no-exec</code><p>Optional: disable command execution.</p></div><div><code>--no-open</code><p>Optional: do not open the Setup Hub automatically.</p></div><div><code>--no-monitor</code><p>Optional: disable the live terminal dashboard.</p></div></div><p>Advanced transport, trust, and scheduler overrides remain available for exceptional deployments but are intentionally hidden from the default help surface.</p></section>
+          <section id="diagnostics" class="doc-block reveal"><h3>Connection diagnostics</h3><p>The public <code>/healthz</code> endpoint exposes layered status instead of flattening everything into “disconnected”: public URL health, tunnel process, OAuth registration, OAuth authorization, MCP connectivity, protocol revisions, initialize count for legacy clients, last-seen time, and task pressure.</p><pre class="json-example"><code>{
+  "ok": true,
+  "mcp_connected": true,
+  "oauth_authorized": true,
+  "modern_protocol_version": "2026-07-28",
+  "supported_protocol_versions": [
+    "2026-07-28", "2025-11-25", "2025-06-18",
+    "2025-03-26", "2024-11-05"
+  ]
+}</code></pre></section>
+          <section id="faq" class="doc-block reveal"><h3>FAQ</h3><details><summary>Why does wcode need a public URL?</summary><p>Cloud AI products such as Grok and Claude connect from their own infrastructure. A localhost address is unreachable to them. wcode can create a temporary HTTPS Quick Tunnel, or you can pass a stable <code>--public-url</code>.</p></details><details><summary>Does the tunnel bypass authentication?</summary><p>No. The tunnel only supplies reachability. The MCP endpoint still returns a bearer challenge and requires OAuth before tool calls are accepted.</p></details><details><summary>Why not support every client with a static API key?</summary><p>Because that would weaken wcode's default security model and create long-lived secrets users need to paste into third-party apps. Clients with only static-header support are documented as transport-compatible rather than silently downgrading authentication.</p></details><details><summary>Why keep old MCP versions?</summary><p>The ecosystem does not update in lockstep. wcode speaks the stateless 2026 revision and keeps the established 2024/2025 request path so current IDEs, desktop chats, and cloud connectors can migrate independently.</p></details><details><summary>Can I expose my entire home directory?</summary><p>Not by default. Broad roots and overlapping workspace roots are rejected unless you explicitly expand the trust boundary with dedicated flags.</p></details></section>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-shell sources-section"><div class="section-heading reveal"><div class="kicker">07 · VERIFIED SOURCES</div><h2>Compatibility claims link to primary docs.</h2><p>The ecosystem changes quickly. Every platform card links to the product or project documentation used to classify it. Re-check before relying on plan limits in production procurement.</p></div><div id="sourceList" class="source-list reveal"></div></section>
+
+    <section class="cta section-shell reveal"><div><div class="kicker">MAKE YOUR AI USEFUL</div><h2>Keep the code local.<br>Move the interface anywhere.</h2></div><div class="cta-actions"><a class="button button-primary" href="https://github.com/francis-du/wcode">View on GitHub ↗</a><div class="code-block compact-code" data-copy="cargo install --path ."><button class="copy-button" type="button">Copy</button><code>cargo install --path .</code></div></div></section>
+  </main>
+
+  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><span class="brand-mark">W</span><span>wcode</span></div><p>Apache-2.0 · built by <a href="https://github.com/francis-du">@francis-du</a></p><p>Remote MCP docs · updated Aug 23, 2026</p></div></footer>
+</body>
+</html>

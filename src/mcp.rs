@@ -2,17 +2,30 @@ use crate::auth::AuthState;
 use crate::harness::ToolHarness;
 use crate::monitor::TaskMonitor;
 use crate::workspace::{Workspace, Workspaces};
-use crate::{AUTHOR_HANDLE, AUTHOR_URL, CHATGPT_CONNECTOR_SETUP_URL, PROJECT_URL};
+use crate::{
+    AUTHOR_HANDLE, AUTHOR_URL, CHATGPT_CONNECTOR_SETUP_URL, CLAUDE_CONNECTOR_SETUP_URL, DOCS_URL,
+    GROK_CONNECTOR_SETUP_URL, MISTRAL_CONNECTOR_SETUP_URL, PROJECT_URL,
+};
 use anyhow::{anyhow, Result as AnyResult};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::task::JoinSet;
 
+const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
+const LEGACY_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
+    MODERN_PROTOCOL_VERSION,
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+];
+const DISCOVER_PROTOCOL_VERSIONS: &[&str] = &[MODERN_PROTOCOL_VERSION];
 const MAX_BATCH_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEM_BYTES: usize = 512 * 1024;
@@ -42,8 +55,24 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(setup_page))
         .route("/healthz", get(health))
-        .route("/mcp", post(mcp))
+        .route("/mcp", get(mcp_get).post(mcp))
         .with_state(state)
+}
+
+async fn mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !origin_allowed(&state.auth.public_url(), &headers) {
+        return forbidden_origin_response();
+    }
+    if !state.auth.authorized(&headers) {
+        return state.auth.unauthorized_response();
+    }
+    state.monitor.mark_mcp_seen();
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        [("allow", "POST")],
+        "wcode does not expose an MCP SSE listening stream; use Streamable HTTP POST",
+    )
+        .into_response()
 }
 
 async fn setup_page(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -56,13 +85,18 @@ async fn setup_page(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         .as_str()
         .unwrap_or("unknown");
     let base = state.auth.public_url();
+    let mcp_url = format!("{base}/mcp");
     axum::response::Html(format!(
         r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>wcode MCP</title>
-<style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(800px 450px at 50% -10%,#24242b,#09090b 65%);color:#f4f4f5;font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}}main{{width:min(100%,720px)}}.brand{{display:flex;align-items:center;gap:11px;margin:0 0 18px 4px}}.logo{{width:34px;height:34px;border:1px solid #3a3a42;border-radius:10px;display:grid;place-items:center;background:#151518;font:700 14px ui-monospace,monospace}}.muted{{color:#8d8d98}}.card{{border:1px solid #29292f;border-radius:18px;background:linear-gradient(180deg,#151519,#101013);padding:26px;box-shadow:0 28px 80px #0008}}h1{{margin:0 0 6px;font-size:23px}}.status{{display:inline-flex;align-items:center;gap:7px;color:#a7f3bd;font-size:12px;margin-bottom:22px}}.dot{{width:7px;height:7px;background:#5ee28a;border-radius:50%;box-shadow:0 0 12px #5ee28a88}}.endpoint{{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:13px 15px;border:1px solid #29292f;border-radius:12px;background:#09090b;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.stat{{padding:13px;border:1px solid #28282e;border-radius:12px;background:#111114}}.stat b{{display:block;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}.stat span{{font-size:11px;color:#84848f}}footer{{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:15px;padding:0 4px;color:#72727d;font-size:12px}}a{{color:#b8b8c0;text-decoration:none}}a:hover{{color:#fff}}@media(max-width:720px){{.grid{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:520px){{.grid{{grid-template-columns:1fr}}}}</style></head>
-<body><main><div class="brand"><div class="logo">WC</div><div><strong>wcode</strong><div class="muted">Local MCP bridge</div></div></div><section class="card"><div class="status"><i class="dot"></i>MCP server is ready</div><h1>Workspace bridge ready</h1><p class="muted">Authenticated local coding tools with bounded concurrency, multi-root routing, and a project-aware quality harness.</p><div style="height:20px"></div><div class="endpoint">{base}/mcp</div><div class="grid"><div class="stat"><b>{workspace_count}</b><span>workspace roots</span></div><div class="stat"><b>{}</b><span>parallel slots</span></div><div class="stat"><b>{quality_tool_count}</b><span>quality harness tools</span></div><div class="stat"><b>{default_workspace}</b><span>default workspace</span></div></div></section><footer><a href="{connector_url}" target="_blank" rel="noreferrer">Install in ChatGPT ↗</a><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a><a href="{author_url}" target="_blank" rel="noreferrer">{author_handle} ↗</a></footer></main></body></html>"##,
+<style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(800px 450px at 50% -10%,#24242b,#09090b 65%);color:#f4f4f5;font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}}main{{width:min(100%,720px)}}.brand{{display:flex;align-items:center;gap:11px;margin:0 0 18px 4px}}.logo{{width:34px;height:34px;border:1px solid #3a3a42;border-radius:10px;display:grid;place-items:center;background:#151518;font:700 14px ui-monospace,monospace}}.muted{{color:#8d8d98}}.card{{border:1px solid #29292f;border-radius:18px;background:linear-gradient(180deg,#151519,#101013);padding:26px;box-shadow:0 28px 80px #0008}}h1{{margin:0 0 6px;font-size:23px}}.status{{display:inline-flex;align-items:center;gap:7px;color:#a7f3bd;font-size:12px;margin-bottom:22px}}.dot{{width:7px;height:7px;background:#5ee28a;border-radius:50%;box-shadow:0 0 12px #5ee28a88}}.endpoint{{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:13px 15px;border:1px solid #29292f;border-radius:12px;background:#09090b;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.stat{{padding:13px;border:1px solid #28282e;border-radius:12px;background:#111114}}.stat b{{display:block;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}.stat span{{font-size:11px;color:#84848f}}.clients{{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:18px}}.client{{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 10px;border:1px solid #323239;border-radius:11px;background:#0c0c0f;color:#f4f4f5;font-weight:650;font-size:12px;text-decoration:none}}.client:hover{{border-color:#696973;background:#17171b}}.hint{{margin-top:12px;color:#73737d;font-size:11px}}footer{{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:15px;padding:0 4px;color:#72727d;font-size:12px}}a{{color:#b8b8c0;text-decoration:none}}a:hover{{color:#fff}}@media(max-width:720px){{.grid{{grid-template-columns:repeat(2,1fr)}}.clients{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.clients{{grid-template-columns:1fr}}}}</style></head>
+<body><main><div class="brand"><div class="logo">WC</div><div><strong>wcode</strong><div class="muted">Remote MCP setup</div></div></div><section class="card"><div class="status"><i class="dot"></i>Ready to connect</div><h1>Choose your AI client</h1><p class="muted">One wcode endpoint works across supported Remote MCP clients. Pick a client below, then use the shared MCP URL and OAuth pairing code.</p><div style="height:20px"></div><div class="endpoint">{mcp_url}</div><div class="clients"><a class="client" href="{grok_url}" target="_blank" rel="noreferrer">Grok ↗</a><a class="client" href="{claude_url}" target="_blank" rel="noreferrer">Claude ↗</a><a class="client" href="{chatgpt_url}" target="_blank" rel="noreferrer">ChatGPT ↗</a><a class="client" href="{mistral_url}" target="_blank" rel="noreferrer">Mistral ↗</a><a class="client" href="{docs_url}#clients" target="_blank" rel="noreferrer">Other MCP ↗</a></div><div class="hint">All clients use the same endpoint. No provider-specific wcode flags are required.</div><div class="grid"><div class="stat"><b>{workspace_count}</b><span>workspace roots</span></div><div class="stat"><b>{}</b><span>parallel slots</span></div><div class="stat"><b>{quality_tool_count}</b><span>quality harness tools</span></div><div class="stat"><b>{default_workspace}</b><span>default workspace</span></div></div></section><footer><a href="{docs_url}" target="_blank" rel="noreferrer">Docs ↗</a><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a><a href="{author_url}" target="_blank" rel="noreferrer">{author_handle} ↗</a></footer></main></body></html>"##,
         state.harness.max_parallel(),
         quality_tool_count = state.harness.quality_tool_count(),
-        connector_url = CHATGPT_CONNECTOR_SETUP_URL,
+        chatgpt_url = CHATGPT_CONNECTOR_SETUP_URL,
+        grok_url = GROK_CONNECTOR_SETUP_URL,
+        claude_url = CLAUDE_CONNECTOR_SETUP_URL,
+        mistral_url = MISTRAL_CONNECTOR_SETUP_URL,
+        docs_url = DOCS_URL,
         project_url = PROJECT_URL,
         author_url = AUTHOR_URL,
         author_handle = AUTHOR_HANDLE,
@@ -74,6 +108,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({
         "ok": true,
         "name": "wcode",
+        "instance_id": state.auth.instance_id(),
         "version": env!("CARGO_PKG_VERSION"),
         "workspaces": state.workspaces.capabilities(),
         "max_parallel_tools": state.harness.max_parallel(),
@@ -83,7 +118,11 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "author_url": AUTHOR_URL,
         "oauth_client_registered": connection.oauth_client_registered,
         "oauth_authorized": connection.oauth_authorized,
+        "mcp_connected": connection.chatgpt_initialized,
+        // Backward-compatible alias retained for existing health consumers.
         "chatgpt_initialized": connection.chatgpt_initialized,
+        "supported_protocol_versions": SUPPORTED_PROTOCOL_VERSIONS,
+        "modern_protocol_version": MODERN_PROTOCOL_VERSION,
         "initialize_count": connection.initialize_count,
         "last_initialize_seconds_ago": connection.last_initialize_seconds_ago,
         "last_mcp_seen_seconds_ago": connection.last_mcp_seen_seconds_ago,
@@ -105,16 +144,31 @@ async fn mcp(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
+    if !origin_allowed(&state.auth.public_url(), &headers) {
+        return forbidden_origin_response();
+    }
     if !state.auth.authorized(&headers) {
         return state.auth.unauthorized_response();
     }
-    state.monitor.mark_mcp_seen();
 
-    let protocol = headers
-        .get("mcp-protocol-version")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("2025-03-26")
-        .to_owned();
+    let protocol = request_protocol(&headers, &payload);
+    if !SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol.as_str()) {
+        return unsupported_protocol_response(&payload, &protocol);
+    }
+    let modern = protocol == MODERN_PROTOCOL_VERSION;
+    if modern {
+        if payload.is_array() {
+            return modern_bad_request(
+                &payload,
+                "JSON-RPC batches are not supported on the stateless 2026 protocol path",
+            );
+        }
+        if let Err(error) = validate_modern_request(&headers, &payload) {
+            return modern_bad_request(&payload, error);
+        }
+        state.monitor.mark_mcp_connected();
+    }
+    state.monitor.mark_mcp_seen();
 
     let response = if let Some(items) = payload.as_array() {
         if let Some(error) = batch_validation_error(items.len()) {
@@ -160,25 +214,165 @@ async fn mcp(
     }
 }
 
+fn request_protocol(headers: &HeaderMap, payload: &Value) -> String {
+    if let Some(value) = headers
+        .get("mcp-protocol-version")
+        .and_then(|value| value.to_str().ok())
+    {
+        return value.to_owned();
+    }
+    payload
+        .pointer("/params/protocolVersion")
+        .and_then(Value::as_str)
+        .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
+        .unwrap_or("2025-03-26")
+        .to_owned()
+}
+
+fn origin_allowed(public_url: &str, headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) else {
+        return true;
+    };
+    let (Ok(origin), Ok(public)) = (url::Url::parse(origin), url::Url::parse(public_url)) else {
+        return false;
+    };
+    origin.query().is_none()
+        && origin.fragment().is_none()
+        && origin.path() == "/"
+        && origin.scheme() == public.scheme()
+        && origin.host_str().is_some_and(|host| {
+            public
+                .host_str()
+                .is_some_and(|public_host| host.eq_ignore_ascii_case(public_host))
+        })
+        && origin.port_or_known_default() == public.port_or_known_default()
+}
+
+fn forbidden_origin_response() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(jsonrpc_error(
+            Value::Null,
+            -32600,
+            "Origin does not match the configured public MCP origin",
+        )),
+    )
+        .into_response()
+}
+
+fn validate_modern_request(headers: &HeaderMap, payload: &Value) -> Result<(), &'static str> {
+    let method = payload
+        .get("method")
+        .and_then(Value::as_str)
+        .ok_or("missing JSON-RPC method")?;
+    let header_method = headers
+        .get("mcp-method")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("missing Mcp-Method header")?;
+    if header_method != method {
+        return Err("Mcp-Method header does not match the JSON-RPC method");
+    }
+    let meta = payload
+        .pointer("/params/_meta")
+        .and_then(Value::as_object)
+        .ok_or("missing 2026 request _meta envelope")?;
+    if meta
+        .get("io.modelcontextprotocol/protocolVersion")
+        .and_then(Value::as_str)
+        != Some(MODERN_PROTOCOL_VERSION)
+    {
+        return Err("request _meta protocolVersion does not match MCP-Protocol-Version");
+    }
+    if !meta
+        .get("io.modelcontextprotocol/clientCapabilities")
+        .is_some_and(Value::is_object)
+    {
+        return Err("missing io.modelcontextprotocol/clientCapabilities metadata");
+    }
+    if method == "tools/call" {
+        let name = payload
+            .pointer("/params/name")
+            .and_then(Value::as_str)
+            .ok_or("tools/call is missing params.name")?;
+        let header_name = headers
+            .get("mcp-name")
+            .and_then(|value| value.to_str().ok())
+            .ok_or("tools/call is missing Mcp-Name header")?;
+        if header_name != name {
+            return Err("Mcp-Name header does not match tools/call params.name");
+        }
+    }
+    Ok(())
+}
+
+fn modern_bad_request(payload: &Value, message: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        [("mcp-protocol-version", MODERN_PROTOCOL_VERSION)],
+        Json(jsonrpc_error(
+            payload.get("id").cloned().unwrap_or(Value::Null),
+            -32600,
+            message,
+        )),
+    )
+        .into_response()
+}
+
+fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
+    let error = json!({
+        "jsonrpc": "2.0",
+        "id": payload.get("id").cloned().unwrap_or(Value::Null),
+        "error": {
+            "code": -32022,
+            "message": "Unsupported protocol version",
+            "data": {
+                "supported": SUPPORTED_PROTOCOL_VERSIONS,
+                "requested": requested,
+            }
+        }
+    });
+    (StatusCode::BAD_REQUEST, Json(error)).into_response()
+}
+
+const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots. Call workspace_info to discover root IDs, security policy, and capabilities, then call project_context before substantial coding work. Never attempt deletion: no delete tool is exposed, protected credential/VCS paths and symlink aliases are blocked, overlapping roots are rejected by default, and destructive replacements require an explicit operator opt-in. Do not try to bypass the selected workspace through absolute paths, parent traversal, command options, interpreters, package scripts, or Git mutation. run_command permits tightly constrained Git/ripgrep inspection plus exact default Cargo verification shapes (`cargo fmt --check` and `cargo check [--locked]`) inside the selected workspace. Other direct model-facing Cargo, Go, package-manager, interpreter, compiler, build, test, and repository-aware run_command calls require --allow-risky-exec for a trusted repository because project metadata can redirect reads or execute code. verify_project uses a separate exact-shape verification lane: only Harness-inferred quality checks are eligible, so normal check/test/Clippy/build gates can run without the global risky flag while arbitrary command arguments remain blocked. Read relevant implementation and tests before editing. Prefer find_symbol, file_outline, and symbol_context when navigating supported source languages so the model receives precise syntax ranges instead of broad file dumps. Prefer read_files or search_many when one bulk operation can answer the question efficiently; when two or more independent read/discovery operations are already known, use parallel_tools so they consume separate semaphore slots and appear separately in the monitor. Keep dependent edits sequential, use sha256 preconditions, and never parallelize operations whose inputs depend on earlier results. After changes, call review_changes to inspect the bounded Git change set, test coverage signals, whitespace errors, and risk level; then run verify_project with the recommended level. Verification uses phased parallelism to avoid running compiler-heavy checks together. Report checks actually run and any failures or assumptions that remain.";
+
 async fn handle_message(state: Arc<AppState>, message: Value, protocol: &str) -> Option<Value> {
     let id = message.get("id").cloned()?;
     let method = message.get("method").and_then(Value::as_str)?;
+    let modern = protocol == MODERN_PROTOCOL_VERSION;
     let result = match method {
-        "initialize" => {
-            state.monitor.mark_chatgpt_connected();
+        "server/discover" if modern => Ok(modern_cacheable_result(json!({
+            "supportedVersions": DISCOVER_PROTOCOL_VERSIONS,
+            "capabilities": {"tools": {"listChanged": false}},
+            "instructions": SERVER_INSTRUCTIONS,
+        }))),
+        "initialize" if !modern => {
+            state.monitor.mark_mcp_initialized();
+            let requested = message
+                .pointer("/params/protocolVersion")
+                .and_then(Value::as_str)
+                .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
+                .unwrap_or("2025-11-25");
             Ok(json!({
-                "protocolVersion": message
-                    .pointer("/params/protocolVersion")
-                    .and_then(Value::as_str)
-                    .unwrap_or(protocol),
+                "protocolVersion": requested,
                 "capabilities": {"tools": {"listChanged": false}},
                 "serverInfo": {"name": "wcode", "version": env!("CARGO_PKG_VERSION")},
-                "instructions": "Work only inside configured workspace roots. Call workspace_info to discover root IDs, security policy, and capabilities, then call project_context before substantial coding work. Never attempt deletion: no delete tool is exposed, protected credential/VCS paths and symlink aliases are blocked, overlapping roots are rejected by default, and destructive replacements require an explicit operator opt-in. Do not try to bypass the selected workspace through absolute paths, parent traversal, command options, interpreters, package scripts, or Git mutation. run_command permits tightly constrained Git/ripgrep inspection plus exact default Cargo verification shapes (`cargo fmt --check` and `cargo check [--locked]`) inside the selected workspace. Other direct model-facing Cargo, Go, package-manager, interpreter, compiler, build, test, and repository-aware run_command calls require --allow-risky-exec for a trusted repository because project metadata can redirect reads or execute code. verify_project uses a separate exact-shape verification lane: only Harness-inferred quality checks are eligible, so normal check/test/Clippy/build gates can run without the global risky flag while arbitrary command arguments remain blocked. Read relevant implementation and tests before editing. Prefer find_symbol, file_outline, and symbol_context when navigating supported source languages so the model receives precise syntax ranges instead of broad file dumps. Prefer read_files or search_many when one bulk operation can answer the question efficiently; when two or more independent read/discovery operations are already known, use parallel_tools so they consume separate semaphore slots and appear separately in the monitor. Keep dependent edits sequential, use sha256 preconditions, and never parallelize operations whose inputs depend on earlier results. After changes, call review_changes to inspect the bounded Git change set, test coverage signals, whitespace errors, and risk level; then run verify_project with the recommended level. Verification uses phased parallelism to avoid running compiler-heavy checks together. Report checks actually run and any failures or assumptions that remain.",
+                "instructions": SERVER_INSTRUCTIONS,
             }))
         }
-        "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": tools()})),
-        "tools/call" => call_tool(&state, message.get("params").cloned().unwrap_or_default()).await,
+        "ping" => Ok(if modern {
+            modern_result(json!({}))
+        } else {
+            json!({})
+        }),
+        "tools/list" => Ok(if modern {
+            modern_cacheable_result(json!({"tools": tools()}))
+        } else {
+            json!({"tools": tools()})
+        }),
+        "tools/call" => call_tool(&state, message.get("params").cloned().unwrap_or_default())
+            .await
+            .map(|value| if modern { modern_result(value) } else { value }),
         _ => {
             return Some(jsonrpc_error(
                 id,
@@ -191,6 +385,32 @@ async fn handle_message(state: Arc<AppState>, message: Value, protocol: &str) ->
         Ok(value) => json!({"jsonrpc": "2.0", "id": id, "result": value}),
         Err(error) => jsonrpc_error(id, -32602, error),
     })
+}
+
+fn modern_result(mut value: Value) -> Value {
+    let Some(object) = value.as_object_mut() else {
+        return value;
+    };
+    object
+        .entry("resultType".to_owned())
+        .or_insert_with(|| Value::String("complete".to_owned()));
+    let meta = object
+        .entry("_meta".to_owned())
+        .or_insert_with(|| json!({}));
+    if let Some(meta) = meta.as_object_mut() {
+        meta.entry("io.modelcontextprotocol/serverInfo".to_owned())
+            .or_insert_with(|| json!({"name": "wcode", "version": env!("CARGO_PKG_VERSION")}));
+    }
+    value
+}
+
+fn modern_cacheable_result(value: Value) -> Value {
+    let mut value = modern_result(value);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("ttlMs".to_owned(), json!(300_000));
+        object.insert("cacheScope".to_owned(), json!("private"));
+    }
+    value
 }
 
 async fn call_tool(state: &AppState, params: Value) -> Result<Value, String> {
@@ -1000,6 +1220,98 @@ fn string_array_arg(args: &Value, key: &str, max_items: usize) -> Result<Vec<Str
 mod tests {
     use super::*;
     use std::fs;
+
+    fn modern_headers(method: &str, name: Option<&str>) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "mcp-protocol-version",
+            MODERN_PROTOCOL_VERSION.parse().unwrap(),
+        );
+        headers.insert("mcp-method", method.parse().unwrap());
+        if let Some(name) = name {
+            headers.insert("mcp-name", name.parse().unwrap());
+        }
+        headers
+    }
+
+    fn modern_request(method: &str, params: Value) -> Value {
+        let mut request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        });
+        if let Some(object) = params.as_object() {
+            for (key, value) in object {
+                request["params"][key] = value.clone();
+            }
+        }
+        request
+    }
+
+    #[test]
+    fn protocol_detection_supports_modern_and_legacy_clients() {
+        let modern = modern_headers("tools/list", None);
+        assert_eq!(
+            request_protocol(&modern, &json!({})),
+            MODERN_PROTOCOL_VERSION
+        );
+
+        let legacy = json!({"params": {"protocolVersion": "2024-11-05"}});
+        assert_eq!(request_protocol(&HeaderMap::new(), &legacy), "2024-11-05");
+        assert_eq!(
+            request_protocol(&HeaderMap::new(), &json!({})),
+            "2025-03-26"
+        );
+    }
+
+    #[test]
+    fn origin_validation_accepts_same_origin_and_rejects_cross_origin() {
+        let mut headers = HeaderMap::new();
+        assert!(origin_allowed("https://example.com/gateway", &headers));
+
+        headers.insert("origin", "https://example.com".parse().unwrap());
+        assert!(origin_allowed("https://example.com/gateway", &headers));
+
+        headers.insert("origin", "https://grok.com".parse().unwrap());
+        assert!(!origin_allowed("https://example.com/gateway", &headers));
+    }
+
+    #[test]
+    fn modern_requests_require_routing_headers_and_metadata() {
+        let request = modern_request("tools/call", json!({"name": "workspace_info"}));
+        let headers = modern_headers("tools/call", Some("workspace_info"));
+        assert!(validate_modern_request(&headers, &request).is_ok());
+
+        let mut wrong_name = headers.clone();
+        wrong_name.insert("mcp-name", "read_file".parse().unwrap());
+        assert_eq!(
+            validate_modern_request(&wrong_name, &request),
+            Err("Mcp-Name header does not match tools/call params.name")
+        );
+
+        let missing_meta = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}});
+        assert!(
+            validate_modern_request(&modern_headers("tools/list", None), &missing_meta).is_err()
+        );
+    }
+
+    #[test]
+    fn modern_results_include_server_identity_and_private_cache_hints() {
+        let result = modern_cacheable_result(json!({"tools": []}));
+        assert_eq!(result["resultType"], "complete");
+        assert_eq!(result["cacheScope"], "private");
+        assert_eq!(result["ttlMs"], 300_000);
+        assert_eq!(
+            result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "wcode"
+        );
+    }
 
     #[test]
     fn task_details_explain_work_without_exposing_payloads() {
