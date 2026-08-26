@@ -5,7 +5,14 @@ on:
     branches: [main, master]
     tags: ["v*"]
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to build and publish
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +20,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
 
 jobs:
   quality:
@@ -21,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -46,11 +56,13 @@ jobs:
           intelligence --check --json
 
       - name: Validate release version consistency
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
         shell: bash
         run: |
           package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          test "v${package_version}" = "${GITHUB_REF_NAME}"
+          full_tag="v${package_version}"
+          short_tag="v${package_version%.0}"
+          test "${RELEASE_TAG}" = "${full_tag}" || test "${RELEASE_TAG}" = "${short_tag}"
           grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/plugin.json
           grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/.claude-plugin/plugin.json
 
@@ -77,6 +89,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -94,7 +108,7 @@ jobs:
 
   build:
     name: Build release ${{ matrix.name }}
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
     needs: test
     strategy:
       fail-fast: false
@@ -119,6 +133,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -274,7 +290,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -294,6 +310,7 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
             dist/*.tar.gz
