@@ -36,6 +36,24 @@ jobs:
       - name: Check
         run: cargo check --locked
 
+      - name: Validate Design, traceability, and Product Scope contract
+        run: >-
+          cargo run --quiet --locked --
+          --workspace "$PWD"
+          --read-only
+          --no-exec
+          --allow-sleep
+          intelligence --check --json
+
+      - name: Validate release version consistency
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          test "v${package_version}" = "${GITHUB_REF_NAME}"
+          grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/plugin.json
+          grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/.claude-plugin/plugin.json
+
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 

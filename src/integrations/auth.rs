@@ -34,6 +34,7 @@ pub struct AuthState {
     instance_id: String,
     public_url: Arc<RwLock<String>>,
     pairing_code: String,
+    ui_token: String,
     pairing_attempts: Arc<Mutex<HashMap<String, PairingAttempt>>>,
     clients: Arc<Mutex<HashMap<String, Client>>>,
     codes: Arc<Mutex<HashMap<String, AuthorizationCode>>>,
@@ -76,12 +77,22 @@ struct AuthorizationCode {
     expires_at: Instant,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct RegistrationRequest {
     #[serde(default)]
     redirect_uris: Vec<String>,
     #[serde(default)]
     client_name: Option<String>,
+    #[serde(default)]
+    application_type: Option<String>,
+    #[serde(default)]
+    grant_types: Vec<String>,
+    #[serde(default)]
+    response_types: Vec<String>,
+    #[serde(default)]
+    token_endpoint_auth_method: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -133,10 +144,12 @@ struct TokenForm {
 impl AuthState {
     pub fn new(initial_public_url: String) -> Self {
         let pairing_code = format!("{:06}", Uuid::new_v4().as_u128() % 1_000_000);
+        let ui_token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         Self {
             instance_id: Uuid::new_v4().simple().to_string(),
             public_url: Arc::new(RwLock::new(initial_public_url)),
             pairing_code,
+            ui_token,
             pairing_attempts: Default::default(),
             clients: Default::default(),
             codes: Default::default(),
@@ -171,25 +184,38 @@ impl AuthState {
         &self.pairing_code
     }
 
-    pub fn authorized(&self, headers: &HeaderMap) -> bool {
-        let Some(value) = headers
-            .get("authorization")
+    pub fn ui_token(&self) -> &str {
+        &self.ui_token
+    }
+
+    pub fn ui_authorized(&self, headers: &HeaderMap) -> bool {
+        headers
+            .get("x-wcode-ui-token")
             .and_then(|value| value.to_str().ok())
-        else {
-            return false;
-        };
-        let Some(token) = value.strip_prefix("Bearer ") else {
-            return false;
-        };
+            .is_some_and(|value| constant_time_text_eq(value, &self.ui_token))
+    }
+
+    pub fn authorized(&self, headers: &HeaderMap) -> bool {
+        self.authorized_client_fingerprint(headers).is_some()
+    }
+
+    pub fn authorized_client_fingerprint(&self, headers: &HeaderMap) -> Option<String> {
+        let value = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())?;
+        let token = value.strip_prefix("Bearer ")?;
         let expected_resource = format!("{}/mcp", self.public_url());
         let tokens = self.access_tokens.lock().expect("token lock poisoned");
-        tokens.get(token).is_some_and(|saved| {
-            !saved.client_id.is_empty()
-                && saved
-                    .resource
-                    .as_deref()
-                    .is_none_or(|resource| resource == expected_resource.as_str())
-        })
+        let saved = tokens.get(token)?;
+        if saved.client_id.is_empty()
+            || saved
+                .resource
+                .as_deref()
+                .is_some_and(|resource| resource != expected_resource.as_str())
+        {
+            return None;
+        }
+        Some(format!("{:x}", Sha256::digest(saved.client_id.as_bytes())))
     }
 
     pub fn unauthorized_response(&self) -> Response {
@@ -201,9 +227,14 @@ impl AuthState {
             StatusCode::UNAUTHORIZED,
             [(
                 "www-authenticate",
-                format!("Bearer resource_metadata=\"{metadata}\", scope=\"mcp\""),
+                format!(
+                    "Bearer error=\"invalid_token\", error_description=\"Authentication required\", resource_metadata=\"{metadata}\", scope=\"mcp\""
+                ),
             )],
-            Json(json!({"error": "unauthorized"})),
+            Json(json!({
+                "error": "invalid_token",
+                "error_description": "Authentication required"
+            })),
         )
             .into_response()
     }
@@ -247,6 +278,7 @@ async fn authorization_server_metadata(State(state): State<Arc<AuthState>>) -> J
         "authorization_endpoint": format!("{base}/authorize"),
         "token_endpoint": format!("{base}/token"),
         "registration_endpoint": format!("{base}/register"),
+        "client_id_metadata_document_supported": false,
         "authorization_response_iss_parameter_supported": true,
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -254,6 +286,86 @@ async fn authorization_server_metadata(State(state): State<Arc<AuthState>>) -> J
         "token_endpoint_auth_methods_supported": ["none"],
         "scopes_supported": ["mcp"],
     }))
+}
+
+struct RegistrationProfile {
+    application_type: String,
+    grant_types: Vec<String>,
+    response_types: Vec<String>,
+    scope: String,
+}
+
+fn registration_profile(
+    request: &RegistrationRequest,
+) -> Result<RegistrationProfile, &'static str> {
+    let application_type = request.application_type.as_deref().unwrap_or_else(|| {
+        if request.redirect_uris.iter().any(|uri| {
+            Url::parse(uri).ok().is_some_and(|url| {
+                url.scheme() == "http"
+                    && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+            })
+        }) {
+            "native"
+        } else {
+            "web"
+        }
+    });
+    if !matches!(application_type, "native" | "web") {
+        return Err("invalid_client_metadata");
+    }
+    if request
+        .token_endpoint_auth_method
+        .as_deref()
+        .is_some_and(|method| method != "none")
+    {
+        return Err("invalid_client_metadata");
+    }
+    if request
+        .grant_types
+        .iter()
+        .any(|grant| !matches!(grant.as_str(), "authorization_code" | "refresh_token"))
+        || (!request.grant_types.is_empty()
+            && !request
+                .grant_types
+                .iter()
+                .any(|grant| grant == "authorization_code"))
+    {
+        return Err("invalid_client_metadata");
+    }
+    if request
+        .response_types
+        .iter()
+        .any(|response| response != "code")
+    {
+        return Err("invalid_client_metadata");
+    }
+    if request.scope.as_deref().is_some_and(|scope| {
+        let scopes = scope.split_ascii_whitespace().collect::<Vec<_>>();
+        scopes.is_empty() || scopes.iter().any(|scope| *scope != "mcp")
+    }) {
+        return Err("invalid_client_metadata");
+    }
+    let grant_types = if request.grant_types.is_empty() {
+        vec!["authorization_code".to_owned(), "refresh_token".to_owned()]
+    } else {
+        let mut grants = request.grant_types.clone();
+        grants.sort();
+        grants.dedup();
+        grants
+    };
+    let response_types = if request.response_types.is_empty() {
+        vec!["code".to_owned()]
+    } else {
+        let mut responses = request.response_types.clone();
+        responses.dedup();
+        responses
+    };
+    Ok(RegistrationProfile {
+        application_type: application_type.to_owned(),
+        grant_types,
+        response_types,
+        scope: "mcp".to_owned(),
+    })
 }
 
 async fn register_client(
@@ -284,6 +396,12 @@ async fn register_client(
         )
             .into_response();
     }
+    let profile = match registration_profile(&request) {
+        Ok(profile) => profile,
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, Json(json!({"error": error}))).into_response()
+        }
+    };
     let client_id = format!("wcode-{}", Uuid::new_v4());
     let mut clients = state.clients.lock().expect("client lock poisoned");
     if clients.len() >= MAX_REGISTERED_CLIENTS {
@@ -314,9 +432,11 @@ async fn register_client(
             "client_id_issued_at": issued_at,
             "client_name": request.client_name.unwrap_or_else(|| "MCP client".into()),
             "redirect_uris": request.redirect_uris,
+            "application_type": profile.application_type,
+            "scope": profile.scope,
             "token_endpoint_auth_method": "none",
-            "grant_types": ["authorization_code", "refresh_token"],
-            "response_types": ["code"],
+            "grant_types": profile.grant_types,
+            "response_types": profile.response_types,
         })),
     )
         .into_response()
@@ -468,8 +588,8 @@ button{{width:100%;height:48px;margin-top:12px;border:0;border-radius:12px;backg
 </style>
 </head>
 <body><main class="shell">
-<div class="brand"><div class="mark">WC</div><div><strong>wcode</strong><span>Local MCP bridge</span></div></div>
-<section class="card"><h1>Authorize MCP client</h1><p>Confirm access to the local workspaces exposed by this wcode instance.</p>
+<div class="brand"><div class="mark">WC</div><div><strong>wcode</strong><span>Software Intelligence Runtime</span></div></div>
+<section class="card"><h1>Authorize model access</h1><p>Allow this model or agent to use the Software Intelligence Runtime for the configured local workspaces.</p>
 <div class="scope"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bdbdc6" stroke-width="1.7"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg><div><b>Workspace-scoped access</b><span>Paths remain limited to the configured roots. Write and command permissions follow the CLI flags.</span></div></div>
 {error_html}
 <form method="post" action="/authorize">
@@ -594,7 +714,7 @@ async fn authorize_submit(
             client_id: form.client_id,
             redirect_uri: form.redirect_uri.clone(),
             code_challenge: form.code_challenge,
-            resource: form.resource.filter(|value| !value.is_empty()),
+            resource: Some(format!("{}/mcp", state.public_url())),
             expires_at: now + AUTHORIZATION_CODE_TTL,
         },
     );
@@ -639,11 +759,12 @@ fn exchange_code(state: &AuthState, form: TokenForm) -> Response {
     if saved.expires_at < Instant::now()
         || saved.client_id != client_id
         || saved.redirect_uri != redirect_uri
+        || !valid_pkce_verifier(&verifier)
         || pkce_challenge(&verifier) != saved.code_challenge
-        || saved
+        || form
             .resource
             .as_deref()
-            .is_some_and(|resource| form.resource.as_deref() != Some(resource))
+            .is_some_and(|resource| Some(resource) != saved.resource.as_deref())
     {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
     }
@@ -743,12 +864,19 @@ fn validate_authorize_request(
 ) -> Result<(), (StatusCode, &'static str)> {
     if query.response_type.as_deref().unwrap_or("code") != "code"
         || query.code_challenge_method.as_deref().unwrap_or("S256") != "S256"
+        || !valid_pkce_challenge(&query.code_challenge)
         || query
             .resource
             .as_deref()
             .is_some_and(|resource| resource != format!("{}/mcp", state.public_url()))
     {
         return Err((StatusCode::BAD_REQUEST, "invalid_request"));
+    }
+    if query.scope.as_deref().is_some_and(|scope| {
+        let scopes = scope.split_ascii_whitespace().collect::<Vec<_>>();
+        scopes.is_empty() || scopes.iter().any(|scope| *scope != "mcp")
+    }) {
+        return Err((StatusCode::BAD_REQUEST, "invalid_scope"));
     }
     let clients = state.clients.lock().expect("client lock poisoned");
     let Some(client) = clients.get(&query.client_id) else {
@@ -758,6 +886,20 @@ fn validate_authorize_request(
         return Err((StatusCode::BAD_REQUEST, "invalid_redirect_uri"));
     }
     Ok(())
+}
+
+fn valid_pkce_challenge(challenge: &str) -> bool {
+    challenge.len() == 43
+        && challenge
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn valid_pkce_verifier(verifier: &str) -> bool {
+    (43..=128).contains(&verifier.len())
+        && verifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
 }
 
 fn pkce_challenge(verifier: &str) -> String {
@@ -785,6 +927,17 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+fn constant_time_text_eq(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .fold(0u8, |difference, (left, right)| difference | (left ^ right))
+        == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,6 +954,29 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit()));
         }
+    }
+
+    #[test]
+    fn ui_token_is_high_entropy_and_constant_time_checked() {
+        let state = AuthState::new("https://example.com".to_owned());
+        assert_eq!(state.ui_token().len(), 64);
+        assert!(state
+            .ui_token()
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit()));
+        let mut headers = HeaderMap::new();
+        headers.insert("x-wcode-ui-token", state.ui_token().parse().unwrap());
+        assert!(state.ui_authorized(&headers));
+        headers.insert(
+            "x-wcode-ui-token",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+                .parse()
+                .unwrap(),
+        );
+        assert!(!state.ui_authorized(&headers));
+        assert!(constant_time_text_eq("same", "same"));
+        assert!(!constant_time_text_eq("same", "diff"));
+        assert!(!constant_time_text_eq("same", "short"));
     }
 
     #[test]
@@ -916,7 +1092,7 @@ mod tests {
                 .expect("WWW-Authenticate header")
                 .to_str()
                 .expect("valid WWW-Authenticate header"),
-            "Bearer resource_metadata=\"https://example.com/.well-known/oauth-protected-resource/mcp\", scope=\"mcp\""
+            "Bearer error=\"invalid_token\", error_description=\"Authentication required\", resource_metadata=\"https://example.com/.well-known/oauth-protected-resource/mcp\", scope=\"mcp\""
         );
     }
 
@@ -929,6 +1105,20 @@ mod tests {
         assert_eq!(metadata["scopes_supported"][0], "mcp");
     }
 
+    #[tokio::test]
+    async fn authorization_metadata_prefers_dcr_until_cimd_is_safely_supported() {
+        let state = Arc::new(AuthState::new("https://example.com".to_owned()));
+        let Json(metadata) = authorization_server_metadata(State(state)).await;
+        assert_eq!(metadata["issuer"], "https://example.com");
+        assert_eq!(
+            metadata["registration_endpoint"],
+            "https://example.com/register"
+        );
+        assert_eq!(metadata["client_id_metadata_document_supported"], false);
+        assert_eq!(metadata["token_endpoint_auth_methods_supported"][0], "none");
+        assert_eq!(metadata["code_challenge_methods_supported"][0], "S256");
+    }
+
     #[test]
     fn redirect_uri_policy_allows_https_and_loopback_only() {
         assert!(valid_redirect_uri("https://chatgpt.com/callback"));
@@ -938,6 +1128,42 @@ mod tests {
         assert!(!valid_redirect_uri("file:///tmp/callback"));
         assert!(!valid_redirect_uri("https://user@example.com/callback"));
         assert!(!valid_redirect_uri("https://example.com/callback#fragment"));
+    }
+
+    #[test]
+    fn modern_mcp_registration_profiles_cover_web_and_native_agents() {
+        let web = RegistrationRequest {
+            redirect_uris: vec!["https://grok.com/oauth/callback".to_owned()],
+            client_name: Some("Grok".to_owned()),
+            application_type: Some("web".to_owned()),
+            grant_types: vec!["authorization_code".to_owned(), "refresh_token".to_owned()],
+            response_types: vec!["code".to_owned()],
+            token_endpoint_auth_method: Some("none".to_owned()),
+            scope: Some("mcp".to_owned()),
+        };
+        let web_profile = registration_profile(&web).unwrap();
+        assert_eq!(web_profile.application_type, "web");
+        assert_eq!(
+            web_profile.grant_types,
+            ["authorization_code", "refresh_token"]
+        );
+        assert_eq!(web_profile.response_types, ["code"]);
+        assert_eq!(web_profile.scope, "mcp");
+
+        let native = RegistrationRequest {
+            redirect_uris: vec!["http://127.0.0.1:43123/callback".to_owned()],
+            client_name: Some("Local coding agent".to_owned()),
+            ..Default::default()
+        };
+        let native_profile = registration_profile(&native).unwrap();
+        assert_eq!(native_profile.application_type, "native");
+
+        let confidential = RegistrationRequest {
+            redirect_uris: vec!["https://agent.example/callback".to_owned()],
+            token_endpoint_auth_method: Some("client_secret_basic".to_owned()),
+            ..Default::default()
+        };
+        assert!(registration_profile(&confidential).is_err());
     }
 
     #[tokio::test]
@@ -959,6 +1185,11 @@ mod tests {
             Json(RegistrationRequest {
                 redirect_uris: vec!["https://chatgpt.com/callback".to_owned()],
                 client_name: Some("ChatGPT".to_owned()),
+                application_type: Some("web".to_owned()),
+                grant_types: vec!["authorization_code".to_owned(), "refresh_token".to_owned()],
+                response_types: vec!["code".to_owned()],
+                token_endpoint_auth_method: Some("none".to_owned()),
+                scope: Some("mcp".to_owned()),
             }),
         )
         .await;
@@ -976,7 +1207,7 @@ mod tests {
                 redirect_uris: vec![redirect_uri.clone()],
             },
         );
-        let verifier = "test-verifier";
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let resource = "https://example.com/mcp".to_owned();
         let response = authorize_submit(
             State(state.clone()),
@@ -1046,9 +1277,44 @@ mod tests {
     }
 
     #[test]
+    fn resource_bound_authorization_code_allows_legacy_token_request_to_inherit_resource() {
+        let state = AuthState::new("https://example.com".to_owned());
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        state.codes.lock().unwrap().insert(
+            "legacy-resource-code".to_owned(),
+            AuthorizationCode {
+                client_id: "client".to_owned(),
+                redirect_uri: "https://agent.example/callback".to_owned(),
+                code_challenge: pkce_challenge(verifier),
+                resource: Some("https://example.com/mcp".to_owned()),
+                expires_at: Instant::now() + Duration::from_secs(60),
+            },
+        );
+        let response = exchange_code(
+            &state,
+            TokenForm {
+                grant_type: "authorization_code".to_owned(),
+                code: Some("legacy-resource-code".to_owned()),
+                redirect_uri: Some("https://agent.example/callback".to_owned()),
+                client_id: Some("client".to_owned()),
+                code_verifier: Some(verifier.to_owned()),
+                refresh_token: None,
+                resource: None,
+            },
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(state
+            .access_tokens
+            .lock()
+            .unwrap()
+            .values()
+            .all(|token| token.resource.as_deref() == Some("https://example.com/mcp")));
+    }
+
+    #[test]
     fn expired_authorization_code_is_rejected_and_removed() {
         let state = AuthState::new("https://example.com".to_owned());
-        let verifier = "expired-verifier";
+        let verifier = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
         state.codes.lock().unwrap().insert(
             "expired-code".to_owned(),
             AuthorizationCode {

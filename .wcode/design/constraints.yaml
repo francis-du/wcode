@@ -1,0 +1,189 @@
+- schema_version: 1
+  id: CONSTRAINT-ROOT-ISOLATION
+  title: Canonical workspace root isolation
+  statement: Model-facing paths must remain beneath the selected canonical workspace root and must reject absolute paths and parent traversal.
+  applies_to:
+    - component:workspace-security
+
+- schema_version: 1
+  id: CONSTRAINT-SYMLINK-REJECTION
+  title: Symlink aliases are rejected
+  statement: Model-facing filesystem operations must reject symlink path components rather than following aliases across trust boundaries.
+  applies_to:
+    - component:workspace-security
+
+- schema_version: 1
+  id: CONSTRAINT-SHA-PRECONDITION
+  title: Existing-file edits require SHA preconditions
+  statement: Replacements of existing files must fail when the supplied SHA-256 precondition is stale.
+  applies_to:
+    - component:workspace-security
+
+- schema_version: 1
+  id: CONSTRAINT-NO-SHELL
+  title: Command execution never invokes a shell
+  statement: Model-facing command execution must launch allowlisted programs directly with argument arrays and must not evaluate shell syntax.
+  applies_to:
+    - component:command-execution
+
+- schema_version: 1
+  id: CONSTRAINT-MCP-COMPATIBILITY
+  title: MCP revision handling is explicit
+  statement: Supported MCP protocol revisions are accepted intentionally and unknown revisions fail explicitly.
+  applies_to:
+    - component:mcp-runtime
+
+- schema_version: 1
+  id: CONSTRAINT-BOUNDED-VERIFICATION
+  title: Verification remains bounded
+  statement: Verification plans, output, concurrency and execution shapes must remain bounded and deterministic.
+  applies_to:
+    - component:verification-harness
+
+- schema_version: 1
+  id: CONSTRAINT-EXPLICIT-PRECISION
+  title: Software graph precision is explicit
+  statement: Software graph facts must expose provider, precision and revision and Tree-sitter facts must never imply compiler-level semantic precision.
+  applies_to:
+    - component:software-graph
+    - component:graph-persistence
+    - component:semantic-providers
+
+- schema_version: 1
+  id: CONSTRAINT-EVIDENCE-PROVENANCE
+  title: Evidence and imported facts retain provenance
+  statement: Evidence and semantic or runtime facts must retain their real producer, revision and artifact identity so lower-confidence claims cannot be promoted into stronger proof.
+  applies_to:
+    - component:evidence-runtime
+    - component:semantic-providers
+    - component:graph-persistence
+
+- schema_version: 1
+  id: CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  title: Required verification stages fail closed
+  statement: A required verification stage may clear only from real evidence and one producer failure or disagreement must not be hidden by another producer pass.
+  applies_to:
+    - component:verification-mesh
+
+- schema_version: 1
+  id: CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+  title: Repository-aware execution requires explicit trust
+  statement: Language servers and non-deterministic project verification executors that can load repository-controlled configuration require an explicit trust expansion before execution.
+  applies_to:
+    - component:semantic-providers
+    - component:verification-mesh
+
+- schema_version: 1
+  id: CONSTRAINT-SAFE-RECONCILIATION
+  title: Reconciliation cannot bypass normal write and evidence gates
+  statement: Reconciliation coordinates work but source mutations must use the bounded hash-guarded workspace write surface and Verification or HumanApproval tasks advance only from corresponding evidence.
+  applies_to:
+    - component:reconciliation-engine
+    - component:reconciliation-execution
+
+- schema_version: 1
+  id: CONSTRAINT-RECONCILIATION-BOUNDED
+  title: Reconciliation execution remains bounded and reviewable
+  statement: Durable reconciliation execution must enforce dependency order, bounded retries, real system evidence gates and explicit human approval where required.
+  applies_to:
+    - component:reconciliation-execution
+
+- schema_version: 1
+  id: CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  title: Product scopes are canonical across wcode surfaces
+  statement: Source architecture, semantic scope aliases, software context navigation, MCP tool metadata and project context must use one canonical Product Scope registry while preserving freeform business scopes.
+  applies_to:
+    - component:product-scopes
+    - component:semantic-registry
+    - component:mcp-capabilities
+    - component:convention-engine
+
+- schema_version: 1
+  id: CONSTRAINT-SCHEDULER-RESOURCES
+  title: Scheduler decisions come from explicit workspace resources
+  statement: Parallel scheduling must model reads, writes, creates, move sources, move destinations and deletes; independent work may fan out and conflicting resources must be dependency ordered.
+  applies_to:
+    - component:scheduler
+
+- schema_version: 1
+  id: CONSTRAINT-DESTRUCTIVE-AUTH
+  title: Destructive operations require exact authorization
+  statement: Delete and other dynamically gated destructive operations must bind approval to the exact operation fingerprint and consume one-shot grants once.
+  applies_to:
+    - component:authorization
+    - component:workspace-operations
+
+- schema_version: 1
+  id: CONSTRAINT-INTEROPERABILITY-STANDARDS
+  title: Agent and connector interoperability follows explicit standards
+  statement: Remote agent integration must retain explicit MCP revision handling, OAuth PKCE/resource binding, bounded DCR metadata, protected-resource metadata, safe Origin handling and portable local stdio support.
+  applies_to:
+    - component:mcp-capabilities
+    - component:oauth-interoperability
+    - component:agent-integration
+
+- schema_version: 1
+  id: CONSTRAINT-SCOPED-SEMANTICS
+  title: Semantic scopes change retrieval behavior
+  statement: Requested scopes must filter scoped semantic facts and recognized Product Scopes must narrow software-context source navigation; unscoped facts remain global and unknown business scopes remain representable.
+  applies_to:
+    - component:semantic-registry
+    - component:traceability-drift
+
+- schema_version: 1
+  id: CONSTRAINT-CONVENTION-BOUNDED
+  title: Convention governance is bounded and source-derived
+  statement: Convention and architecture findings must come from bounded workspace source inspection and must report rather than silently rewrite repository structure.
+  applies_to:
+    - component:convention-engine
+
+- schema_version: 1
+  id: CONSTRAINT-MAINTAINABILITY-REVIEW
+  title: Correct behavior alone is not sufficient approval
+  statement: Review must distinguish deterministic structural-growth signals from model judgment, escalate strong maintainability regressions into risk, and require independent review of code-judo simplification, branching/spaghetti growth, canonical ownership, type and abstraction boundaries, helper duplication, file-size growth, and parallel or atomic orchestration where relevant.
+  applies_to:
+    - component:actual-state-providers
+    - component:risk-engine
+    - component:verification-mesh
+
+- schema_version: 1
+  id: CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
+  title: Project observability is requirement-first
+  statement: Operator-facing architecture must organize each project and requirement as Desired State → Actual State → Change → Proof → Convergence, compare declared dependencies with current code-derived dependencies using explicit precision, count Proof only from revision-matching Evidence, expose convergence blockers plus bounded code/change statistics and revision history, and must not make an undifferentiated global node graph the primary project view.
+  applies_to:
+    - component:intelligence-ui
+    - component:traceability-drift
+    - component:software-graph
+
+- schema_version: 1
+  id: CONSTRAINT-SPARSE-DESIGN-STATE
+  title: Desired State files must carry meaning
+  statement: Design initialization must not create empty collection documents merely to satisfy a schema shape; absent collections represent no declared desired state and collection files are created only when meaningful design content exists.
+  applies_to:
+    - component:design-state
+
+- schema_version: 1
+  id: CONSTRAINT-LANGUAGE-CAPABILITY-HONESTY
+  title: Language support is a capability vector, not a checkbox
+  statement: wcode must reuse the canonical indexed-language surface and report syntax, semantics, format, lint, type/static analysis, tests, security and advanced verification coverage separately; repository-declared or language-native tooling outranks imposed defaults, unavailable providers remain visible, and language-quality execution must be check-only with no formatter fix/write mode.
+  applies_to:
+    - component:language-quality
+    - component:intelligence-ui
+    - component:agent-integration
+
+- schema_version: 1
+  id: CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+  title: Agent guidance is not policy enforcement
+  statement: Always-on agent guidance must remain a short map with detailed context loaded progressively through Skills and wcode retrieval; isolated agents may research or review independently, but model consensus cannot satisfy deterministic gates and mandatory policy must remain in Harness authorization verification and Evidence mechanisms.
+  applies_to:
+    - component:agent-integration
+    - component:mcp-capabilities
+    - component:verification-mesh
+
+- schema_version: 1
+  id: CONSTRAINT-DOCUMENTATION-GOVERNANCE
+  title: Documentation has canonical ownership and one hosted surface
+  statement: Maintained product integration architecture development and release documentation must live under docs/wiki, remain reachable from its WIKI index, render as HTML within the official Pages site, and keep vendor-specific commands in one integration guide; root Markdown is limited to the project README and repository policy while package-local documentation stays with its package.
+  applies_to:
+    - component:documentation-governance
+    - component:agent-integration

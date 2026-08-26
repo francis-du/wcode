@@ -1,10 +1,14 @@
+use crate::graph::{
+    EdgeKind, GraphBuildFailure, GraphEdge, GraphNode, GraphPrecision, GraphProvenance, NodeKind,
+    SoftwareGraph, SoftwareGraphSnapshot,
+};
 use crate::workspace::{redact_sensitive_text, SourceDocument, SourceStamp, Workspace};
 use anyhow::{anyhow, bail, Context, Result};
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use streaming_iterator::StreamingIterator;
@@ -16,6 +20,8 @@ const MAX_OUTLINE_SYMBOLS: usize = 1_000;
 const MAX_SYMBOL_RESULTS: usize = 200;
 const MAX_CONTEXT_BODY_LINES: usize = 500;
 const MAX_REPORTED_SCAN_ERRORS: usize = 8;
+const MAX_GRAPH_FILES: usize = 5_000;
+const MAX_GRAPH_SYMBOLS: usize = 5_000;
 
 const BASH_TAGS_QUERY: &str = r#"
 (function_definition
@@ -317,6 +323,16 @@ struct FileSearchOutcome {
     parsed: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SymbolResolution {
+    pub id: String,
+    pub name: String,
+    pub qualified_name: String,
+    pub kind: String,
+    pub path: String,
+    pub revision: String,
+}
+
 impl CodeIndex {
     pub fn new() -> Result<Self> {
         // The TypeScript grammar intentionally ships a narrow tags query focused on
@@ -468,6 +484,121 @@ impl CodeIndex {
         })
     }
 
+    pub fn software_graph(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+    ) -> Result<SoftwareGraphSnapshot> {
+        let workspace_id = workspace_id.into();
+        let max_files = max_files.clamp(1, MAX_GRAPH_FILES);
+        let max_symbols = max_symbols.clamp(1, MAX_GRAPH_SYMBOLS);
+        let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
+        let supported = paths
+            .into_iter()
+            .filter(|path| self.config_for_path(path).is_some())
+            .collect::<Vec<_>>();
+        let outcomes = supported
+            .par_iter()
+            .map(|file| self.ensure_indexed(workspace, file, false))
+            .collect::<Vec<_>>();
+
+        let mut graph = SoftwareGraph::default();
+        let mut files_indexed = 0usize;
+        let mut files_failed = 0usize;
+        let mut failures = Vec::new();
+        let mut symbols_added = 0usize;
+        let mut graph_truncated = false;
+        let mut indexed_records = Vec::new();
+
+        for (path, outcome) in supported.iter().zip(outcomes) {
+            match outcome {
+                Ok(ensured) => {
+                    files_indexed = files_indexed.saturating_add(1);
+                    let remaining = max_symbols.saturating_sub(symbols_added);
+                    let appended = append_file_graph(&mut graph, &ensured.record, remaining)?;
+                    symbols_added = symbols_added.saturating_add(appended);
+                    if appended < definition_count(&ensured.record) {
+                        graph_truncated = true;
+                    }
+                    indexed_records.push(ensured.record);
+                }
+                Err(error) => {
+                    files_failed = files_failed.saturating_add(1);
+                    if failures.len() < MAX_REPORTED_SCAN_ERRORS {
+                        failures.push(GraphBuildFailure {
+                            path: path.clone(),
+                            error: error.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        append_cross_file_call_edges(&mut graph, &indexed_records)?;
+        graph.validate()?;
+        let node_count = graph.nodes.len();
+        let edge_count = graph.edges.len();
+        Ok(SoftwareGraphSnapshot {
+            workspace: workspace_id,
+            path: path.to_owned(),
+            provider: "tree-sitter".to_owned(),
+            precision: GraphPrecision::Syntax,
+            files_considered: supported.len(),
+            files_indexed,
+            files_failed,
+            scan_truncated,
+            truncated: graph_truncated || files_failed > failures.len(),
+            node_count,
+            edge_count,
+            failures,
+            graph,
+        })
+    }
+
+    pub(crate) fn resolve_symbol(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        requested: &str,
+    ) -> Result<Option<SymbolResolution>> {
+        let requested = requested.trim();
+        if requested.is_empty() {
+            return Ok(None);
+        }
+        let ensured = self.ensure_indexed(workspace, path, false)?;
+        let definitions = ensured
+            .record
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.is_definition)
+            .collect::<Vec<_>>();
+        let qualified = definitions
+            .iter()
+            .copied()
+            .filter(|symbol| symbol.qualified_name == requested)
+            .collect::<Vec<_>>();
+        let selected = if qualified.len() == 1 {
+            qualified.first().copied()
+        } else {
+            let by_name = definitions
+                .iter()
+                .copied()
+                .filter(|symbol| symbol.name == requested)
+                .collect::<Vec<_>>();
+            (by_name.len() == 1).then(|| by_name[0])
+        };
+        Ok(selected.map(|symbol| SymbolResolution {
+            id: symbol.id.clone(),
+            name: symbol.name.clone(),
+            qualified_name: symbol.qualified_name.clone(),
+            kind: symbol.kind.clone(),
+            path: symbol.path.clone(),
+            revision: format!("sha256:{}", ensured.record.sha256),
+        }))
+    }
+
     pub fn invalidate(&self, root: &Path, path: &str) {
         let key = FileKey::new(root, path.to_owned());
         let Ok(mut state) = self.state.lock() else {
@@ -475,6 +606,27 @@ impl CodeIndex {
         };
         remove_file_record(&mut state, &key);
         state.ast_cache.remove(&key);
+    }
+
+    pub fn invalidate_prefix(&self, root: &Path, path: &str) {
+        let normalized = path.trim_end_matches('/');
+        let prefix = format!("{normalized}/");
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let keys = state
+            .files
+            .keys()
+            .filter(|key| {
+                key.root == root
+                    && (key.path == normalized || key.path.starts_with(prefix.as_str()))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in keys {
+            remove_file_record(&mut state, &key);
+            state.ast_cache.remove(&key);
+        }
     }
 
     pub fn file_outline(
@@ -1105,6 +1257,221 @@ impl CodeIndex {
             "ast_cache_limit": MAX_AST_CACHE_FILES,
         })
     }
+}
+
+fn append_file_graph(
+    graph: &mut SoftwareGraph,
+    record: &FileRecord,
+    max_symbols: usize,
+) -> Result<usize> {
+    let provenance = graph_provenance(record);
+    let file_id = format!("file:{}", record.path);
+    let mut file_attributes = BTreeMap::new();
+    file_attributes.insert("path".to_owned(), json!(record.path));
+    file_attributes.insert("language".to_owned(), json!(record.language.as_str()));
+    file_attributes.insert("sha256".to_owned(), json!(record.sha256));
+    file_attributes.insert("source_bytes".to_owned(), json!(record.source_bytes));
+    file_attributes.insert("line_count".to_owned(), json!(record.line_count));
+    file_attributes.insert("parse_errors".to_owned(), json!(record.parse_errors));
+    graph.add_node(GraphNode {
+        id: file_id.clone(),
+        kind: NodeKind::File,
+        label: record.path.clone(),
+        attributes: file_attributes,
+        provenance: provenance.clone(),
+    })?;
+
+    let definitions = record
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.is_definition)
+        .take(max_symbols)
+        .collect::<Vec<_>>();
+    let mut targets_by_name = HashMap::<&str, Vec<&CodeSymbol>>::new();
+    for symbol in &definitions {
+        targets_by_name
+            .entry(symbol.name.as_str())
+            .or_default()
+            .push(symbol);
+        let node_id = graph_symbol_id(symbol);
+        let mut attributes = BTreeMap::new();
+        attributes.insert("path".to_owned(), json!(symbol.path));
+        attributes.insert("name".to_owned(), json!(symbol.name));
+        attributes.insert("qualified_name".to_owned(), json!(symbol.qualified_name));
+        attributes.insert("symbol_kind".to_owned(), json!(symbol.kind));
+        attributes.insert("language".to_owned(), json!(symbol.language));
+        attributes.insert("range".to_owned(), serde_json::to_value(&symbol.range)?);
+        graph.add_node(GraphNode {
+            id: node_id.clone(),
+            kind: graph_node_kind(&symbol.kind),
+            label: symbol.qualified_name.clone(),
+            attributes,
+            provenance: provenance.clone(),
+        })?;
+        graph.add_edge(GraphEdge {
+            from: file_id.clone(),
+            to: node_id,
+            kind: EdgeKind::Defines,
+            provenance: provenance.clone(),
+        })?;
+    }
+
+    let included = definitions
+        .iter()
+        .map(|symbol| symbol.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut call_edges = HashSet::new();
+    for call in record
+        .symbols
+        .iter()
+        .filter(|symbol| !symbol.is_definition && symbol.kind == "call")
+    {
+        let Some(caller) = definitions
+            .iter()
+            .copied()
+            .filter(|symbol| {
+                symbol.start_byte <= call.start_byte && symbol.end_byte >= call.end_byte
+            })
+            .min_by_key(|symbol| symbol.end_byte.saturating_sub(symbol.start_byte))
+        else {
+            continue;
+        };
+        let Some(targets) = targets_by_name.get(call.name.as_str()) else {
+            continue;
+        };
+        if targets.len() != 1 {
+            continue;
+        }
+        let target = targets[0];
+        if caller.id == target.id
+            || !included.contains(caller.id.as_str())
+            || !included.contains(target.id.as_str())
+            || !call_edges.insert((caller.id.as_str(), target.id.as_str()))
+        {
+            continue;
+        }
+        graph.add_edge(GraphEdge {
+            from: graph_symbol_id(caller),
+            to: graph_symbol_id(target),
+            kind: EdgeKind::Calls,
+            provenance: provenance.clone(),
+        })?;
+    }
+
+    Ok(definitions.len())
+}
+
+fn append_cross_file_call_edges(
+    graph: &mut SoftwareGraph,
+    records: &[Arc<FileRecord>],
+) -> Result<()> {
+    let mut targets_by_name = HashMap::<&str, Vec<(&FileRecord, &CodeSymbol)>>::new();
+    for record in records {
+        for symbol in record.symbols.iter().filter(|symbol| symbol.is_definition) {
+            if graph.nodes.contains_key(&graph_symbol_id(symbol)) {
+                targets_by_name
+                    .entry(symbol.name.as_str())
+                    .or_default()
+                    .push((record, symbol));
+            }
+        }
+    }
+
+    let mut existing = graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::Calls)
+        .map(|edge| (edge.from.clone(), edge.to.clone()))
+        .collect::<HashSet<_>>();
+
+    for record in records {
+        let definitions = record
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.is_definition)
+            .collect::<Vec<_>>();
+        for call in record
+            .symbols
+            .iter()
+            .filter(|symbol| !symbol.is_definition && symbol.kind == "call")
+        {
+            let Some(caller) = definitions
+                .iter()
+                .copied()
+                .filter(|symbol| {
+                    symbol.start_byte <= call.start_byte && symbol.end_byte >= call.end_byte
+                })
+                .min_by_key(|symbol| symbol.end_byte.saturating_sub(symbol.start_byte))
+            else {
+                continue;
+            };
+            let Some(targets) = targets_by_name.get(call.name.as_str()) else {
+                continue;
+            };
+            if targets.len() != 1 {
+                continue;
+            }
+            let (target_record, target) = targets[0];
+            if record.path == target_record.path {
+                continue;
+            }
+            let from = graph_symbol_id(caller);
+            let to = graph_symbol_id(target);
+            if from == to
+                || !graph.nodes.contains_key(&from)
+                || !graph.nodes.contains_key(&to)
+                || !existing.insert((from.clone(), to.clone()))
+            {
+                continue;
+            }
+            graph.add_edge(GraphEdge {
+                from,
+                to,
+                kind: EdgeKind::Calls,
+                provenance: GraphProvenance {
+                    provider: "tree-sitter/global-name-resolution".to_owned(),
+                    precision: GraphPrecision::Syntax,
+                    revision: format!(
+                        "caller:{};target:{}",
+                        &record.sha256[..record.sha256.len().min(64)],
+                        &target_record.sha256[..target_record.sha256.len().min(64)]
+                    ),
+                },
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn graph_provenance(record: &FileRecord) -> GraphProvenance {
+    GraphProvenance {
+        provider: "tree-sitter".to_owned(),
+        precision: GraphPrecision::Syntax,
+        revision: format!("sha256:{}", record.sha256),
+    }
+}
+
+fn graph_symbol_id(symbol: &CodeSymbol) -> String {
+    format!("symbol:{}", symbol.id)
+}
+
+fn graph_node_kind(kind: &str) -> NodeKind {
+    match kind {
+        "function" | "method" => NodeKind::Function,
+        "struct" => NodeKind::Struct,
+        "trait" => NodeKind::Trait,
+        "class" => NodeKind::Class,
+        "interface" => NodeKind::Interface,
+        _ => NodeKind::Symbol,
+    }
+}
+
+fn definition_count(record: &FileRecord) -> usize {
+    record
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.is_definition)
+        .count()
 }
 
 fn remove_file_record(state: &mut IndexState, key: &FileKey) {
@@ -1786,6 +2153,98 @@ mod tests {
         assert_eq!(result["files_failed"], 10);
         assert_eq!(result["failures"].as_array().unwrap().len(), 8);
         assert_eq!(result["failures_truncated"], true);
+    }
+
+    #[test]
+    fn software_graph_reuses_indexed_symbols_and_marks_syntax_precision() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("engine.rs"),
+            "fn helper() -> u8 { 1 }\nfn compute() -> u8 { helper() }\n",
+        )
+        .unwrap();
+        let workspace = Workspace::new(dir.path(), false, false).unwrap();
+        let index = CodeIndex::new().unwrap();
+
+        let snapshot = index
+            .software_graph("demo", &workspace, ".", 100, 100)
+            .unwrap();
+        assert_eq!(snapshot.provider, "tree-sitter");
+        assert_eq!(snapshot.precision, GraphPrecision::Syntax);
+        assert_eq!(snapshot.files_indexed, 1);
+        assert!(!snapshot.truncated);
+
+        let file = snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.kind == NodeKind::File)
+            .unwrap();
+        let helper = snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.label == "helper")
+            .unwrap();
+        let compute = snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.label == "compute")
+            .unwrap();
+        assert_eq!(helper.provenance.precision, GraphPrecision::Syntax);
+        assert!(snapshot.graph.edges.iter().any(|edge| {
+            edge.kind == EdgeKind::Defines && edge.from == file.id && edge.to == helper.id
+        }));
+        assert!(snapshot.graph.edges.iter().any(|edge| {
+            edge.kind == EdgeKind::Calls && edge.from == compute.id && edge.to == helper.id
+        }));
+    }
+
+    #[test]
+    fn software_graph_resolves_unique_cross_file_calls_at_syntax_precision() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("helper.rs"),
+            "pub fn helper() -> u8 { 1 }\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("main.rs"),
+            "fn compute() -> u8 { helper() }\n",
+        )
+        .unwrap();
+        let workspace = Workspace::new(dir.path(), false, false).unwrap();
+        let index = CodeIndex::new().unwrap();
+
+        let snapshot = index
+            .software_graph("demo", &workspace, ".", 100, 100)
+            .unwrap();
+        let helper = snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.label == "helper")
+            .unwrap();
+        let compute = snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.label == "compute")
+            .unwrap();
+        let edge = snapshot
+            .graph
+            .edges
+            .iter()
+            .find(|edge| {
+                edge.kind == EdgeKind::Calls && edge.from == compute.id && edge.to == helper.id
+            })
+            .expect("unique cross-file call edge");
+        assert_eq!(edge.provenance.precision, GraphPrecision::Syntax);
+        assert_eq!(
+            edge.provenance.provider,
+            "tree-sitter/global-name-resolution"
+        );
     }
 
     #[test]

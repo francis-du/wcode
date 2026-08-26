@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "wcode",
+  "version": "0.3.0",
+  "description": "Portable wcode Software Intelligence skill for MCP-capable coding agents.",
+  "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
+  "homepage": "https://wcode.francis.run/",
+  "repository": "https://github.com/francis-du/wcode",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "software-intelligence", "verification", "agent-skills"]
+}

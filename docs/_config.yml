@@ -1,0 +1,6 @@
+title: wcode
+description: Software Intelligence Runtime documentation and WIKI
+url: https://wcode.francis.run
+baseurl: ""
+markdown: kramdown
+permalink: pretty

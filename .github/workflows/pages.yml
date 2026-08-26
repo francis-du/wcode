@@ -27,10 +27,16 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
+      - name: Build site and WIKI with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: docs
+          path: _site
 
   deploy:
     environment:

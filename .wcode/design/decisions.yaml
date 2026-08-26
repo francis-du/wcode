@@ -1,0 +1,29 @@
+- schema_version: 1
+  id: ADR-001
+  title: Structured Design State is the desired-state source of truth
+  status: accepted
+  decision: Requirements, components, constraints, decisions and acceptance criteria are stored as structured Design State; rendered documents are views rather than the authoritative machine state.
+  rationale: Software intelligence, drift detection and reconciliation require stable machine-readable identifiers and relationships.
+  affects:
+    - product:wcode
+
+- schema_version: 1
+  id: ADR-002
+  title: Software intelligence remains model-neutral
+  status: accepted
+  decision: Core design, graph, verification, evidence and risk contracts must not depend on a specific model vendor.
+  rationale: Models are replaceable builders and reviewers while wcode owns durable software intelligence state and evidence.
+  affects:
+    - component:mcp-runtime
+    - component:verification-harness
+    - component:software-graph
+
+- schema_version: 1
+  id: ADR-003
+  title: WIKI shares the official documentation site
+  status: accepted
+  decision: Maintained Markdown is organized under docs/wiki and built into HTML under the official Pages /wiki/ route using the same docs source and visual system as the product website.
+  rationale: One hosted surface gives users readable navigation while one source tree prevents scattered documents and conflicting integration instructions.
+  affects:
+    - component:documentation-governance
+    - component:agent-integration

@@ -1,0 +1,15 @@
+{
+  "name": "wcode-plugins",
+  "description": "Official wcode plugin marketplace.",
+  "plugins": [
+    {
+      "name": "wcode",
+      "source": ".",
+      "description": "Workspace-scoped wcode Software Intelligence skill and MCP server.",
+      "version": "0.3.0",
+      "category": "developer-tools",
+      "tags": ["mcp", "software-intelligence", "verification"],
+      "strict": true
+    }
+  ]
+}

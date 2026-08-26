@@ -1,0 +1,451 @@
+- schema_version: 1
+  id: REQ-SEC-001
+  title: Workspace root isolation
+  intent: Remote models must never escape the configured workspace root through model-facing file operations.
+  priority: critical
+  implemented_by:
+    - component:workspace-security
+  acceptance:
+    - AC-SEC-001
+  constraints:
+    - CONSTRAINT-ROOT-ISOLATION
+  risk:
+    security: critical
+    reliability: high
+
+- schema_version: 1
+  id: REQ-SEC-002
+  title: Symlink components are rejected
+  intent: Workspace isolation must not be bypassed through symlink aliases.
+  priority: critical
+  implemented_by:
+    - component:workspace-security
+  acceptance:
+    - AC-SEC-002
+  constraints:
+    - CONSTRAINT-SYMLINK-REJECTION
+  risk:
+    security: critical
+
+- schema_version: 1
+  id: REQ-SEC-003
+  title: No shell execution
+  intent: Model-facing command execution must not interpret shell syntax or invoke a shell as an execution primitive.
+  priority: critical
+  implemented_by:
+    - component:command-execution
+  acceptance:
+    - AC-SEC-003
+  constraints:
+    - CONSTRAINT-NO-SHELL
+  risk:
+    security: critical
+    reliability: high
+
+- schema_version: 1
+  id: REQ-SEC-004
+  title: SHA edit precondition
+  intent: Existing-file edits must reject stale callers so concurrent changes cannot be silently overwritten.
+  priority: critical
+  implemented_by:
+    - component:workspace-security
+  acceptance:
+    - AC-SEC-004
+  constraints:
+    - CONSTRAINT-SHA-PRECONDITION
+  risk:
+    security: high
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-MCP-001
+  title: Multiple MCP protocol revisions
+  intent: Remote clients using supported modern or compatibility MCP revisions must receive explicit protocol handling without silent downgrade of unknown revisions.
+  priority: high
+  implemented_by:
+    - component:mcp-runtime
+  acceptance:
+    - AC-MCP-001
+  constraints:
+    - CONSTRAINT-MCP-COMPATIBILITY
+  risk:
+    compatibility: critical
+    reliability: high
+
+- schema_version: 1
+  id: REQ-HARNESS-001
+  title: Verification must remain bounded
+  intent: Deterministic project verification must use bounded inferred checks, bounded output and controlled concurrency.
+  priority: critical
+  implemented_by:
+    - component:verification-harness
+  acceptance:
+    - AC-HARNESS-001
+  constraints:
+    - CONSTRAINT-BOUNDED-VERIFICATION
+  risk:
+    security: high
+    reliability: critical
+    performance: high
+
+- schema_version: 1
+  id: REQ-INDEX-001
+  title: Syntax precision must be explicit
+  intent: Tree-sitter software intelligence must identify itself as syntax precision and expose provenance rather than pretending to provide compiler semantics.
+  priority: critical
+  implemented_by:
+    - component:software-graph
+  acceptance:
+    - AC-INDEX-001
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+  risk:
+    reliability: critical
+    compatibility: high
+
+- schema_version: 1
+  id: REQ-SCOPE-001
+  title: Product Scopes drive wcode capability boundaries
+  intent: wcode must use one canonical Product Scope model across source architecture, semantic scope aliases, software-context navigation, MCP tool metadata and project context while retaining freeform business scopes.
+  priority: critical
+  implemented_by:
+    - component:product-scopes
+    - component:semantic-registry
+    - component:mcp-capabilities
+  acceptance:
+    - AC-SCOPE-001
+  constraints:
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+    - CONSTRAINT-SCOPED-SEMANTICS
+  risk:
+    reliability: critical
+    compatibility: high
+
+- schema_version: 1
+  id: REQ-WORKSPACE-001
+  title: Transactional workspace coding primitives
+  intent: Models must inspect, create, edit, batch, move and delete workspace paths through bounded hash-guarded primitives, while local operators may add validated Workspace roots and selectively authorize or revoke model-requested bare executable names per Workspace without bypassing no-shell execution, workspace security, protected-resource checks or risky-operation authorization.
+  priority: critical
+  implemented_by:
+    - component:workspace-operations
+    - component:workspace-security
+    - component:authorization
+  acceptance:
+    - AC-WORKSPACE-001
+  constraints:
+    - CONSTRAINT-ROOT-ISOLATION
+    - CONSTRAINT-SHA-PRECONDITION
+    - CONSTRAINT-DESTRUCTIVE-AUTH
+  risk:
+    security: critical
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-SCHEDULER-001
+  title: Dependency-aware parallel tool scheduling
+  intent: Independent workspace reads and writes must fan out under the global capacity cap while conflicting resources are dependency ordered and safe same-file edits are coalesced atomically.
+  priority: critical
+  implemented_by:
+    - component:scheduler
+    - component:verification-harness
+  acceptance:
+    - AC-SCHEDULER-001
+  constraints:
+    - CONSTRAINT-SCHEDULER-RESOURCES
+  risk:
+    reliability: critical
+    performance: high
+
+- schema_version: 1
+  id: REQ-AUTH-001
+  title: Dynamic destructive authorization
+  intent: Destructive and dynamically gated operations must require explicit human authorization bound to the exact operation, and one-shot grants must be consumed once.
+  priority: critical
+  implemented_by:
+    - component:authorization
+    - component:workspace-operations
+  acceptance:
+    - AC-AUTH-001
+  constraints:
+    - CONSTRAINT-DESTRUCTIVE-AUTH
+  risk:
+    security: critical
+    reliability: high
+
+- schema_version: 1
+  id: REQ-MCP-002
+  title: Complete MCP capability surface
+  intent: The shared MCP runtime must expose Tools, Prompts, Resources and durable owner-scoped Tasks and attach wcode Product Scope metadata so agents can discover capability boundaries.
+  priority: critical
+  implemented_by:
+    - component:mcp-runtime
+    - component:mcp-capabilities
+    - component:product-scopes
+  acceptance:
+    - AC-MCP-002
+  constraints:
+    - CONSTRAINT-MCP-COMPATIBILITY
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  risk:
+    compatibility: critical
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-MCP-003
+  title: Standards-based OAuth and connector interoperability
+  intent: Remote MCP registration and authorization must use PKCE, protected-resource metadata, resource binding, bounded DCR metadata and safe same-origin handling for portable web and native agents.
+  priority: critical
+  implemented_by:
+    - component:oauth-interoperability
+    - component:mcp-runtime
+  acceptance:
+    - AC-MCP-003
+  constraints:
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+  risk:
+    security: critical
+    compatibility: critical
+
+- schema_version: 1
+  id: REQ-GRAPH-001
+  title: Persistent composite Software Graph
+  intent: Software Graph revisions must persist with explicit provider precision, support bounded history/query/diff and keep meaningful structural changes separate from provenance revision churn.
+  priority: critical
+  implemented_by:
+    - component:software-graph
+    - component:graph-persistence
+  acceptance:
+    - AC-GRAPH-001
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  risk:
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-SEMANTIC-001
+  title: Cross-language scoped semantic runtime
+  intent: Every indexed language must have an explicit semantic provider candidate, and the persistent semantic registry must support scoped retrieval that integrates Product Scopes without losing freeform business scopes.
+  priority: high
+  implemented_by:
+    - component:semantic-providers
+    - component:semantic-registry
+    - component:product-scopes
+  acceptance:
+    - AC-SEMANTIC-001
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+    - CONSTRAINT-SCOPED-SEMANTICS
+  risk:
+    compatibility: high
+    reliability: high
+
+- schema_version: 1
+  id: REQ-ACTUAL-001
+  title: Bounded Actual State providers
+  intent: Git and runtime-facing providers must produce bounded current-change facts that feed drift, risk, impact and reconciliation without overstating precision.
+  priority: high
+  implemented_by:
+    - component:actual-state-providers
+  acceptance:
+    - AC-ACTUAL-001
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  risk:
+    reliability: high
+
+- schema_version: 1
+  id: REQ-INTELLIGENCE-001
+  title: Traceability drift impact risk and scoped context
+  intent: Design State, Actual State and the composite graph must produce bounded requirement traceability, drift, transitive impact, risk and Product-Scope-aware software context.
+  priority: critical
+  implemented_by:
+    - component:design-state
+    - component:actual-state-providers
+    - component:traceability-drift
+    - component:risk-engine
+    - component:semantic-registry
+  acceptance:
+    - AC-INTELLIGENCE-001
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-SCOPED-SEMANTICS
+  risk:
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-VERIFY-001
+  title: Fail-closed Verification Mesh
+  intent: Deterministic checks, independent reviewers and Property Mutation Fuzz Runtime-Canary stage evidence must aggregate fail closed by producer and revision, with explicit human approval where required.
+  priority: critical
+  implemented_by:
+    - component:verification-harness
+    - component:verification-mesh
+    - component:evidence-runtime
+  acceptance:
+    - AC-VERIFY-001
+  constraints:
+    - CONSTRAINT-BOUNDED-VERIFICATION
+    - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+    - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+  risk:
+    security: high
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-EVIDENCE-001
+  title: Persistent provenance-bearing evidence
+  intent: Deterministic, review, stage, human approval and reconciliation evidence must retain real producer/revision/artifact provenance and survive runtime reload without crossing workspace boundaries.
+  priority: critical
+  implemented_by:
+    - component:evidence-runtime
+  acceptance:
+    - AC-EVIDENCE-001
+  constraints:
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  risk:
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-RECONCILE-001
+  title: Durable dependency-aware reconciliation
+  intent: Drift and risk must become persisted reconciliation plans whose executable tasks follow dependency order and bounded retries while Verification and HumanApproval remain system evidence gates.
+  priority: critical
+  implemented_by:
+    - component:reconciliation-engine
+    - component:reconciliation-execution
+  acceptance:
+    - AC-RECONCILE-001
+  constraints:
+    - CONSTRAINT-SAFE-RECONCILIATION
+    - CONSTRAINT-RECONCILIATION-BOUNDED
+  risk:
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-UX-001
+  title: Operator-visible Software Intelligence
+  intent: TUI and protected local WebUI surfaces must expose live software-intelligence state, keep the TUI W shortcut discoverable, support explicit manual English / Simplified Chinese switching with English as the default, expose selectable pending authorization requests with per-request approve/deny controls, and remain usable under narrow terminal layouts without hiding project or connection status.
+  priority: high
+  implemented_by:
+    - component:intelligence-ui
+  acceptance:
+    - AC-UX-001
+  risk:
+    reliability: high
+
+- schema_version: 1
+  id: REQ-AGENT-001
+  title: Portable transparent agent integration
+  intent: wcode must export a portable coding-agent skill and MCP discovery surface that guides agents through workspace, design, Product Scope and verification capabilities without hidden executable behavior.
+  priority: high
+  implemented_by:
+    - component:agent-integration
+    - component:mcp-capabilities
+  acceptance:
+    - AC-AGENT-001
+  constraints:
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+    - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+  risk:
+    security: high
+    compatibility: high
+
+- schema_version: 1
+  id: REQ-CONVENTION-001
+  title: Cross-language convention and architecture governance
+  intent: wcode must expose language-appropriate conventions for all indexed languages and report architecture drift including oversized modules, flat Rust growth, unclassified root modules and Product Scope mapping gaps.
+  priority: high
+  implemented_by:
+    - component:convention-engine
+    - component:product-scopes
+  acceptance:
+    - AC-CONVENTION-001
+  constraints:
+    - CONSTRAINT-CONVENTION-BOUNDED
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  risk:
+    reliability: high
+
+- schema_version: 1
+  id: REQ-MAINTAINABILITY-001
+  title: Structural maintainability is an approval gate
+  intent: Change review must surface deterministic structural-growth signals and risk-adaptive verification must require independent maintainability evidence that looks for simplification, spaghetti growth, boundary leaks, unnecessary abstraction and canonical-helper duplication rather than approving on behavior alone.
+  priority: high
+  implemented_by:
+    - component:actual-state-providers
+    - component:risk-engine
+    - component:verification-mesh
+  acceptance:
+    - AC-MAINTAINABILITY-001
+  constraints:
+    - CONSTRAINT-MAINTAINABILITY-REVIEW
+  risk:
+    reliability: high
+
+- schema_version: 1
+  id: REQ-OBSERVABILITY-001
+  title: Requirement-first project observability
+  intent: The protected WebUI must act as a requirement-first project observatory organized as Desired State → Actual State → Change → Proof → Convergence, with current-revision Evidence, explicit per-requirement convergence state/blockers, component architecture and code-derived dependency alignment, code statistics, mapped Git changes, and structural revision history without relying on a generic node-ball graph.
+  priority: critical
+  implemented_by:
+    - component:intelligence-ui
+    - component:traceability-drift
+    - component:actual-state-providers
+    - component:software-graph
+  acceptance:
+    - AC-OBSERVABILITY-001
+  constraints:
+    - CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
+    - CONSTRAINT-EXPLICIT-PRECISION
+  risk:
+    reliability: critical
+
+- schema_version: 1
+  id: REQ-DESIGN-SPARSE-001
+  title: Desired State stays sparse and meaningful
+  intent: Design initialization must create only meaningful project and product state; empty requirement, component, constraint, acceptance, or decision collections must not be materialized as placeholder files.
+  priority: high
+  implemented_by:
+    - component:design-state
+  acceptance:
+    - AC-DESIGN-SPARSE-001
+  constraints:
+    - CONSTRAINT-SPARSE-DESIGN-STATE
+  risk:
+    reliability: medium
+
+- schema_version: 1
+  id: REQ-LANGUAGE-QUALITY-001
+  title: Language support is capability-complete and observable
+  intent: Every syntax-indexed language must participate in one explicit capability matrix covering syntax, semantic providers, repository-declared or language-native format/lint/type/static/test/security providers, and advanced Property/Mutation/Fuzz/Runtime verification stages; gaps must remain visible, and executable quality providers must be check-only, authorization-bound, and produce revision-exact Evidence.
+  priority: critical
+  implemented_by:
+    - component:language-quality
+    - component:intelligence-ui
+  acceptance:
+    - AC-LANGUAGE-QUALITY-001
+  constraints:
+    - CONSTRAINT-LANGUAGE-CAPABILITY-HONESTY
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  risk:
+    reliability: critical
+    compatibility: high
+
+- schema_version: 1
+  id: REQ-DOCS-001
+  title: Canonical WIKI is hosted with the documentation site
+  intent: Users must reach maintained documentation as HTML from the official website while contributors keep one organized Markdown source tree and do not duplicate changing vendor commands or scatter standalone project documents.
+  priority: high
+  implemented_by:
+    - component:documentation-governance
+  acceptance:
+    - AC-DOCS-001
+  constraints:
+    - CONSTRAINT-DOCUMENTATION-GOVERNANCE
+  risk:
+    reliability: high
+    compatibility: medium

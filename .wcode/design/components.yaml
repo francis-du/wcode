@@ -1,0 +1,564 @@
+- schema_version: 1
+  id: component:workspace-security
+  name: Workspace Security
+  responsibilities:
+    - keep model-facing filesystem operations inside configured roots
+    - reject symlink aliases and stale writes at trust boundaries
+  constraints:
+    - CONSTRAINT-ROOT-ISOLATION
+    - CONSTRAINT-SYMLINK-REJECTION
+    - CONSTRAINT-SHA-PRECONDITION
+  implementation:
+    - kind: symbol
+      path: src/workspace/roots.rs
+      symbol: Workspace::existing_path
+    - kind: symbol
+      path: src/workspace/roots.rs
+      symbol: Workspace::ensure_no_symlink_components
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::replace_text
+
+- schema_version: 1
+  id: component:command-execution
+  name: Command Execution Policy
+  responsibilities:
+    - execute commands without a shell
+    - preserve bounded and policy-checked execution
+  constraints:
+    - CONSTRAINT-NO-SHELL
+  implementation:
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::run_command
+
+- schema_version: 1
+  id: component:mcp-runtime
+  name: MCP Runtime
+  responsibilities:
+    - support modern and compatibility MCP protocol revisions explicitly
+    - reject unknown protocol revisions
+  constraints:
+    - CONSTRAINT-MCP-COMPATIBILITY
+  implementation:
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: request_protocol
+
+- schema_version: 1
+  id: component:verification-harness
+  name: Verification Harness
+  responsibilities:
+    - infer bounded verification checks
+    - run deterministic verification through the approved command lane
+  constraints:
+    - CONSTRAINT-BOUNDED-VERIFICATION
+  implementation:
+    - kind: symbol
+      path: src/runtime/harness.rs
+      symbol: ToolHarness::verify_project
+
+- schema_version: 1
+  id: component:software-graph
+  name: Software Graph
+  responsibilities:
+    - project indexed source into a provider-neutral software graph
+    - keep precision and provenance explicit
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+  implementation:
+    - kind: symbol
+      path: src/graph/code_index.rs
+      symbol: CodeIndex::software_graph
+
+- schema_version: 1
+  id: component:design-state
+  name: Design State Engine
+  responsibilities:
+    - load structured desired software state from versioned repository files
+    - validate stable identifiers and cross-document references
+    - initialize sparse meaningful Design State without empty collection placeholders
+  constraints:
+    - CONSTRAINT-SPARSE-DESIGN-STATE
+  implementation:
+    - kind: symbol
+      path: src/design/mod.rs
+      symbol: load_design
+    - kind: symbol
+      path: src/runtime/harness.rs
+      symbol: ToolHarness::design_init
+
+- schema_version: 1
+  id: component:graph-persistence
+  name: Composite Graph Persistence
+  responsibilities:
+    - persist bounded meaningful Software Graph revisions
+    - query and diff stable graph identities without provenance churn noise
+    - overlay provider revisions without losing precision metadata
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  implementation:
+    - kind: symbol
+      path: src/graph/graph_store.rs
+      symbol: persist
+    - kind: symbol
+      path: src/graph/graph_store.rs
+      symbol: diff
+    - kind: symbol
+      path: src/graph/graph_provider_store.rs
+      symbol: overlay_latest
+
+- schema_version: 1
+  id: component:semantic-providers
+  name: Semantic Provider Runtime
+  responsibilities:
+    - discover first-party language-server providers for indexed languages
+    - ingest real Document Symbol Call Hierarchy and Implementation facts
+    - reject stale semantic revisions from composite graph use
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+    - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+  implementation:
+    - kind: symbol
+      path: src/semantics/provider.rs
+      symbol: status
+    - kind: symbol
+      path: src/semantics/provider.rs
+      symbol: refresh
+
+- schema_version: 1
+  id: component:traceability-drift
+  name: Traceability Drift and Impact Engine
+  responsibilities:
+    - resolve requirement component implementation and verification chains
+    - detect design and implementation drift from current changes
+    - expand changed symbols through the bounded composite graph
+    - expose a fail-closed release check across Design Traceability Product Scope and required Convention state
+  implementation:
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::traceability_status
+    - kind: symbol
+      path: src/main.rs
+      symbol: intelligence_check_failures
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::drift_status
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::impact_analysis
+
+- schema_version: 1
+  id: component:risk-engine
+  name: Risk Adaptive Policy Engine
+  responsibilities:
+    - derive structured multi-dimensional risks from design git and graph state
+    - promote deterministic maintainability regressions into architecture risk instead of treating them as cosmetic nits
+    - select deeper verification profiles as risk increases
+  constraints:
+    - CONSTRAINT-MAINTAINABILITY-REVIEW
+  implementation:
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::risk_status
+    - kind: symbol
+      path: src/intelligence/risk.rs
+      symbol: VerificationProfile::for_risk
+
+- schema_version: 1
+  id: component:evidence-runtime
+  name: Evidence Runtime
+  responsibilities:
+    - persist immutable provenance-bearing verification evidence per workspace
+    - reload evidence across runtime restarts without mutating repositories
+  constraints:
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  implementation:
+    - kind: symbol
+      path: src/evidence/store.rs
+      symbol: persist
+    - kind: symbol
+      path: src/evidence/store.rs
+      symbol: load
+
+- schema_version: 1
+  id: component:verification-mesh
+  name: Verification Mesh
+  responsibilities:
+    - create persistent blind independent reviewer jobs
+    - aggregate deterministic reviewer and stage evidence fail closed
+    - discover and execute bounded property mutation fuzz and runtime-canary adapters
+  constraints:
+    - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+    - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+    - CONSTRAINT-MAINTAINABILITY-REVIEW
+  depends_on:
+    - component:verification-harness
+    - component:risk-engine
+    - component:evidence-runtime
+  implementation:
+    - kind: symbol
+      path: src/verification/mod.rs
+      symbol: VerificationState::create_plan
+    - kind: symbol
+      path: src/verification/mod.rs
+      symbol: VerificationState::status
+    - kind: symbol
+      path: src/verification/mod.rs
+      symbol: role_guidance
+    - kind: symbol
+      path: src/verification/stage_executor.rs
+      symbol: registry
+    - kind: symbol
+      path: src/verification/stage_executor.rs
+      symbol: execute
+
+- schema_version: 1
+  id: component:reconciliation-engine
+  name: Reconciliation Engine
+  responsibilities:
+    - turn drift impact and risk into durable convergence plans
+    - coordinate dependency-aware implementation design review and system evidence gates
+    - reject invalid or cyclic execution plans
+  constraints:
+    - CONSTRAINT-SAFE-RECONCILIATION
+  depends_on:
+    - component:traceability-drift
+    - component:risk-engine
+    - component:verification-mesh
+  implementation:
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::reconciliation_plan
+    - kind: symbol
+      path: src/reconciliation/mod.rs
+      symbol: ReconciliationExecution::claim
+    - kind: symbol
+      path: src/reconciliation/mod.rs
+      symbol: ReconciliationExecution::status
+
+- schema_version: 1
+  id: component:intelligence-ui
+  name: Software Intelligence UI
+  responsibilities:
+    - expose live design traceability risk evidence graph and reconciliation state in the TUI
+    - expose a protected requirement-first Project Observatory organized as Desired State → Actual State → Change → Proof → Convergence
+    - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
+    - compare declared component dependencies with code-derived dependency edges while retaining code statistics, mapped Git changes and structural revision history instead of making an undifferentiated node-ball graph the primary view
+    - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
+    - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management
+  constraints:
+    - CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
+    - CONSTRAINT-EXPLICIT-PRECISION
+  depends_on:
+    - component:traceability-drift
+    - component:actual-state-providers
+    - component:software-graph
+    - component:verification-mesh
+    - component:evidence-runtime
+    - component:reconciliation-engine
+  implementation:
+    - kind: symbol
+      path: src/ui/monitor_detail.rs
+      symbol: render_intelligence_overlay
+    - kind: symbol
+      path: src/ui/i18n.rs
+      symbol: UiLanguage::tr
+    - kind: symbol
+      path: src/runtime/harness_project.rs
+      symbol: ToolHarness::project_observatory
+    - kind: symbol
+      path: src/intelligence/observatory.rs
+      symbol: build_project_observatory
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: intelligence_web_project
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: intelligence_web_status
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: intelligence_web_scopes
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: intelligence_web_graph
+
+- schema_version: 1
+  id: component:actual-state-providers
+  name: Git and Runtime Actual State Providers
+  responsibilities:
+    - derive bounded current-change facts from Git status, diff-check and numstat probes
+    - feed real Actual State signals into drift, risk, impact and reconciliation planning
+  constraints:
+    - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+    - CONSTRAINT-MAINTAINABILITY-REVIEW
+  implementation:
+    - kind: symbol
+      path: src/runtime/harness.rs
+      symbol: ToolHarness::review_changes
+    - kind: symbol
+      path: src/runtime/harness_review.rs
+      symbol: append_maintainability_findings
+
+- schema_version: 1
+  id: component:product-scopes
+  name: Product Scope Registry
+  responsibilities:
+    - define canonical wcode capability scopes and aliases
+    - map source roots and MCP tools to the same product model
+    - preserve unknown freeform business scopes without confusing them with product scopes
+  constraints:
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  implementation:
+    - kind: symbol
+      path: src/scopes/mod.rs
+      symbol: registry
+    - kind: symbol
+      path: src/scopes/mod.rs
+      symbol: source_scope
+    - kind: symbol
+      path: src/scopes/mod.rs
+      symbol: tool_scopes
+    - kind: symbol
+      path: src/runtime/harness_scope.rs
+      symbol: ToolHarness::product_scope_status
+
+- schema_version: 1
+  id: component:workspace-operations
+  name: Transactional Workspace Operations
+  responsibilities:
+    - expose bounded create edit batch move metadata and delete primitives
+    - retain SHA preconditions, atomic commits and workspace safety on every mutation
+    - allow local runtime addition of validated Workspace roots and per-Workspace authorization/revocation of model-requested bare executable names while preserving no-shell and command-argument safety boundaries
+  constraints:
+    - CONSTRAINT-ROOT-ISOLATION
+    - CONSTRAINT-SHA-PRECONDITION
+    - CONSTRAINT-DESTRUCTIVE-AUTH
+  depends_on:
+    - component:workspace-security
+    - component:authorization
+  implementation:
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::apply_edits
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::create_files
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::move_paths
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::delete_path
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::add_workspace
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::allow_command
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::revoke_command
+
+- schema_version: 1
+  id: component:scheduler
+  name: Dependency-Aware Scheduler
+  responsibilities:
+    - model read write create move and delete resource sets for tool workloads
+    - fan out independent work and order conflicting resources through a dependency graph
+    - coalesce safe same-file same-SHA edits before execution
+  constraints:
+    - CONSTRAINT-SCHEDULER-RESOURCES
+  implementation:
+    - kind: symbol
+      path: src/workspace/scheduler.rs
+      symbol: dependency_graph
+    - kind: symbol
+      path: src/workspace/scheduler.rs
+      symbol: coalesce_apply_edits
+
+- schema_version: 1
+  id: component:authorization
+  name: Dynamic Authorization Manager
+  responsibilities:
+    - create exact operation-bound human authorization requests
+    - consume one-shot destructive grants once and preserve session grants explicitly
+  constraints:
+    - CONSTRAINT-DESTRUCTIVE-AUTH
+  implementation:
+    - kind: symbol
+      path: src/workspace/authorization.rs
+      symbol: AuthorizationManager::request
+    - kind: symbol
+      path: src/workspace/authorization.rs
+      symbol: AuthorizationManager::consume_one_shot_grant
+
+- schema_version: 1
+  id: component:mcp-capabilities
+  name: MCP Capability Surface
+  responsibilities:
+    - expose Tools Prompts Resources and durable Tasks over one shared runtime
+    - attach Product Scope metadata so agents can discover capability boundaries
+    - preserve owner-scoped task execution across modern MCP requests
+  constraints:
+    - CONSTRAINT-MCP-COMPATIBILITY
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  depends_on:
+    - component:mcp-runtime
+    - component:product-scopes
+  implementation:
+    - kind: symbol
+      path: src/integrations/mcp.rs
+      symbol: handle_message
+    - kind: symbol
+      path: src/integrations/mcp_tasks.rs
+      symbol: create_tool_task
+    - kind: symbol
+      path: src/integrations/mcp_catalog.rs
+      symbol: resources_list
+
+- schema_version: 1
+  id: component:oauth-interoperability
+  name: OAuth and Connector Interoperability
+  responsibilities:
+    - publish protected-resource and authorization-server metadata
+    - enforce PKCE resource binding and bounded dynamic client registration
+    - support safe web and native MCP registration profiles
+  constraints:
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+  implementation:
+    - kind: symbol
+      path: src/integrations/auth.rs
+      symbol: protected_resource_metadata
+    - kind: symbol
+      path: src/integrations/auth.rs
+      symbol: authorization_server_metadata
+    - kind: symbol
+      path: src/integrations/auth.rs
+      symbol: register_client
+
+- schema_version: 1
+  id: component:semantic-registry
+  name: Scoped Semantic Registry
+  responsibilities:
+    - persist candidate confirmed and retired workspace semantic facts
+    - normalize Product Scope aliases while preserving freeform business scopes
+    - filter scoped queries and keep unscoped facts globally visible
+  constraints:
+    - CONSTRAINT-SCOPED-SEMANTICS
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  implementation:
+    - kind: symbol
+      path: src/semantics/mod.rs
+      symbol: query_scoped
+    - kind: symbol
+      path: src/scopes/mod.rs
+      symbol: canonical_name
+
+- schema_version: 1
+  id: component:agent-integration
+  name: Portable Agent Integration
+  responsibilities:
+    - export a portable skill contract without hidden executable payloads
+    - guide MCP-capable agents through workspace design scope and verification surfaces
+  constraints:
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+    - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+  depends_on:
+    - component:mcp-capabilities
+  implementation:
+    - kind: symbol
+      path: src/integrations/agent_plugin.rs
+      symbol: export
+
+- schema_version: 1
+  id: component:language-quality
+  name: Language Quality Capability Runtime
+  responsibilities:
+    - represent every syntax-indexed language as a multidimensional quality capability surface instead of one support boolean
+    - discover repository-declared language-native and ecosystem check-only quality providers without executing them
+    - expose unavailable providers and missing quality dimensions as explicit gaps
+    - execute only declared available check-only providers through the trusted authorization boundary and persist current-revision Evidence
+  constraints:
+    - CONSTRAINT-LANGUAGE-CAPABILITY-HONESTY
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+  depends_on:
+    - component:semantic-providers
+    - component:verification-mesh
+    - component:evidence-runtime
+  implementation:
+    - kind: symbol
+      path: src/verification/quality_provider.rs
+      symbol: registry
+    - kind: symbol
+      path: src/verification/quality_provider.rs
+      symbol: execute
+    - kind: symbol
+      path: src/verification/quality_catalog.rs
+      symbol: candidates_for
+
+- schema_version: 1
+  id: component:convention-engine
+  name: Convention and Architecture Governance
+  responsibilities:
+    - expose conventions for all indexed languages without inventing one universal style
+    - classify architecture domains and Product Scopes from source paths
+    - report oversized flat unclassified and unmapped source architecture findings
+  constraints:
+    - CONSTRAINT-CONVENTION-BOUNDED
+    - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  depends_on:
+    - component:product-scopes
+  implementation:
+    - kind: symbol
+      path: src/workspace/conventions.rs
+      symbol: status
+    - kind: symbol
+      path: src/workspace/conventions.rs
+      symbol: language_convention
+
+- schema_version: 1
+  id: component:reconciliation-execution
+  name: Durable Reconciliation Execution
+  responsibilities:
+    - enforce dependency-ready task claiming and bounded retries across reconciliation runs
+    - keep Verification and HumanApproval as system evidence gates rather than model-claimable tasks
+    - persist resumable convergence state across runtime restarts
+  constraints:
+    - CONSTRAINT-SAFE-RECONCILIATION
+    - CONSTRAINT-RECONCILIATION-BOUNDED
+  depends_on:
+    - component:reconciliation-engine
+    - component:verification-mesh
+  implementation:
+    - kind: symbol
+      path: src/reconciliation/mod.rs
+      symbol: ReconciliationExecution::claim
+    - kind: symbol
+      path: src/reconciliation/mod.rs
+      symbol: ReconciliationExecution::status
+    - kind: symbol
+      path: src/reconciliation/execution_store.rs
+      symbol: persist
+
+- schema_version: 1
+  id: component:documentation-governance
+  name: Documentation Governance and Hosted WIKI
+  responsibilities:
+    - keep maintained project documentation under one docs/wiki source tree
+    - render the WIKI as HTML inside the existing GitHub Pages site
+    - route website and repository entry points to the canonical documentation
+    - prevent duplicate vendor command matrices and scattered project Markdown
+  constraints:
+    - CONSTRAINT-DOCUMENTATION-GOVERNANCE
+  implementation:
+    - kind: file
+      path: docs/wiki/README.md
+    - kind: file
+      path: docs/_layouts/wiki.html
+    - kind: file
+      path: .github/workflows/pages.yml

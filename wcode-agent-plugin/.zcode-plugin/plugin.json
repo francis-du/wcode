@@ -1,0 +1,16 @@
+{
+  "name": "wcode",
+  "version": "0.3.0",
+  "description": "wcode Software Intelligence skill and workspace-scoped MCP server for ZCode.",
+  "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
+  "repository": "https://github.com/francis-du/wcode",
+  "license": "Apache-2.0",
+  "skills": "skills",
+  "mcpServers": {
+    "wcode": {
+      "command": "wcode",
+      "args": ["--workspace", "${CLAUDE_PROJECT_DIR}", "mcp-stdio"],
+      "cwd": "${CLAUDE_PROJECT_DIR}"
+    }
+  }
+}

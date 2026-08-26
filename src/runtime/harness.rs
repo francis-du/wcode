@@ -1,9 +1,42 @@
 use crate::code_index::CodeIndex;
+use crate::conventions::{self, ConventionReport};
+use crate::design::{self, CodeRef, VerificationRef};
+use crate::evidence_store;
+use crate::graph::{
+    EdgeKind, GraphEdge, GraphNode, GraphPrecision, GraphProvenance, GraphProviderImport, NodeKind,
+    SoftwareGraphSnapshot,
+};
+use crate::graph_provider_store::{self, GraphProviderSummary, StoredGraphProvider};
+use crate::graph_store::{
+    self, GraphDiffInput, GraphDiffResult, GraphHistoryEntry, GraphQueryInput, GraphQueryResult,
+};
+use crate::intelligence::{
+    DesignStatus, DriftStatus, EvidenceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
+    SoftwareContextRequest, SoftwareIntelligenceRuntime, TraceabilityStatus,
+};
 use crate::monitor::TaskMonitor;
+use crate::quality_provider::{self, LanguageQualityRegistry, LanguageQualityRun};
+use crate::reconcile::{
+    ImpactAnalysis, ReconciliationExecutionStatus, ReconciliationPlan, ReconciliationTaskKind,
+    ReconciliationTaskRun, ReconciliationTaskSubmission,
+};
+use crate::reconciliation_execution_store;
+use crate::reconciliation_store;
+use crate::scopes::{self, ProductScopeDescriptor};
+use crate::semantic::{SemanticCandidateInput, SemanticFact, SemanticMatch};
+use crate::semantic_provider::{self, SemanticProviderRefresh, SemanticProviderStatus};
+use crate::semantic_store;
+use crate::stage_executor::{self, StageExecutionResult, StageExecutorRegistry};
+use crate::verification::{
+    ReviewSubmission, ReviewerRole, StageSubmission, VerificationJob, VerificationPlan,
+    VerificationStatus,
+};
+use crate::verification_store;
 use crate::workspace::{CommandResult, Workspace};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -23,13 +56,33 @@ const MAX_VERIFICATION_CHECKS: usize = 8;
 const MAX_REVIEW_FILES: usize = 500;
 const MAX_REVIEW_FINDINGS: usize = 64;
 const QUALITY_HARNESS_TOOLS: &[&str] = &["project_context", "review_changes", "verify_project"];
+const SOFTWARE_INTELLIGENCE_CAPABILITIES: &[&str] = &[
+    "design_state",
+    "software_graph",
+    "graph_history",
+    "semantic_registry",
+    "semantic_providers",
+    "traceability",
+    "software_context",
+    "drift",
+    "impact_analysis",
+    "risk",
+    "reconciliation",
+    "reconciliation_execution",
+    "verification_mesh",
+    "stage_executors",
+    "persistent_evidence",
+    "cli_intelligence",
+    "tui_intelligence",
+    "web_intelligence",
+];
 
 const GUIDANCE_FILES: &[&str] = &[
     "AGENTS.md",
     ".github/copilot-instructions.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
-    "DEVELOPMENT.md",
+    "docs/wiki/development.md",
     "README.md",
 ];
 
@@ -47,7 +100,7 @@ const PROFILE_FILES: &[&str] = &[
     ".github/copilot-instructions.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
-    "DEVELOPMENT.md",
+    "docs/wiki/development.md",
     "README.md",
     "Cargo.toml",
     "Cargo.lock",
@@ -71,6 +124,7 @@ pub struct ToolHarness {
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
     code_index: CodeIndex,
+    intelligence: SoftwareIntelligenceRuntime,
 }
 
 #[derive(Clone)]
@@ -103,6 +157,9 @@ pub struct ProjectContext {
     pub workflow: Vec<String>,
     pub write_enabled: bool,
     pub exec_enabled: bool,
+    pub product_scopes: Vec<ProductScopeDescriptor>,
+    pub conventions: ConventionReport,
+    pub language_quality: LanguageQualityRegistry,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -243,6 +300,7 @@ impl ToolHarness {
             max_parallel,
             project_cache: Default::default(),
             code_index: CodeIndex::new()?,
+            intelligence: SoftwareIntelligenceRuntime::default(),
         })
     }
 
@@ -250,8 +308,8 @@ impl ToolHarness {
         self.max_parallel
     }
 
-    pub fn quality_tool_count(&self) -> usize {
-        QUALITY_HARNESS_TOOLS.len()
+    pub fn intelligence_capability_count(&self) -> usize {
+        SOFTWARE_INTELLIGENCE_CAPABILITIES.len()
     }
 
     pub fn capabilities(&self) -> Value {
@@ -268,8 +326,730 @@ impl ToolHarness {
             "max_verification_checks": MAX_VERIFICATION_CHECKS,
             "max_review_files": MAX_REVIEW_FILES,
             "max_parallel_tools": self.max_parallel,
+            "software_intelligence": {
+                "design_state": true,
+                "software_graph": "composite-declared-syntax-external",
+                "graph_history": graph_store::capabilities(),
+                "graph_providers": graph_provider_store::capabilities(),
+                "semantic_providers": {
+                    "languages": 22,
+                    "adapter": "lsp-document-symbol-call-hierarchy",
+                    "precision": "semantic-when-provider-runs-syntax-fallback-otherwise",
+                    "requires_risky_exec": true
+                },
+                "traceability": true,
+                "software_context": true,
+                "drift": true,
+                "impact_analysis": true,
+                "risk": true,
+                "reconciliation_plan": true,
+                "verification_mesh": verification_store::capabilities(),
+                "stage_executors": {
+                    "builtin_discovery": true,
+                    "config": ".wcode/executors.yaml",
+                    "no_shell": true,
+                    "languages": 22,
+                    "stages": ["property", "mutation", "fuzz", "runtime_canary"],
+                    "requires_risky_exec": true
+                },
+                "evidence": evidence_store::capabilities(),
+                "semantics": semantic_store::capabilities(),
+                "reconciliation": reconciliation_store::capabilities(),
+                "reconciliation_execution": reconciliation_execution_store::capabilities(),
+                "persistent_store": ["verification-state", "evidence", "semantics", "graph-providers", "graph-history", "reconciliation-plans", "reconciliation-execution"],
+                "automatic_reconciliation": "orchestrated-safe-task-execution"
+            },
             "code_index": self.code_index.capabilities(),
         })
+    }
+
+    pub fn convention_status(&self, workspace: &Workspace) -> Result<ConventionReport> {
+        conventions::status(workspace)
+    }
+
+    pub fn design_status(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+    ) -> Result<DesignStatus> {
+        self.intelligence.design_status(workspace_id, workspace)
+    }
+
+    pub fn design_init(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        name: &str,
+        description: &str,
+    ) -> Result<DesignStatus> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 200 {
+            bail!("design project name must contain between 1 and 200 characters");
+        }
+        let existing = design::load_design(workspace)?;
+        if existing.initialized {
+            bail!("Design State is already initialized for this workspace");
+        }
+        let reserved_paths = [
+            design::PROJECT_FILE,
+            ".wcode/design/product.yaml",
+            ".wcode/design/requirements.yaml",
+            ".wcode/design/components.yaml",
+            ".wcode/design/constraints.yaml",
+            ".wcode/design/acceptance.yaml",
+            ".wcode/design/decisions.yaml",
+        ];
+        if let Some(path) = reserved_paths
+            .iter()
+            .find(|path| workspace.root().join(path).exists())
+        {
+            bail!("cannot initialize Design State because {path} already exists");
+        }
+        workspace.ensure_directory(".wcode")?;
+        workspace.ensure_directory(design::DESIGN_ROOT)?;
+        let project = design::ProjectDesign {
+            schema_version: 1,
+            name: name.to_owned(),
+            description: description.trim().to_owned(),
+        };
+        let product = design::ProductDesign {
+            schema_version: 1,
+            id: design_product_id(name),
+            name: format!("{name} Software Intelligence"),
+            vision:
+                "Software continuously converges toward intended design with verifiable evidence."
+                    .into(),
+            principles: vec![
+                "Design State is the desired software state.".into(),
+                "Models are replaceable executors, not the source of truth.".into(),
+                "Deterministic evidence outranks model consensus.".into(),
+            ],
+        };
+        workspace.create_file(
+            design::PROJECT_FILE,
+            &serde_yaml::to_string(&project).context("cannot encode project Design State")?,
+        )?;
+        workspace.create_file(
+            ".wcode/design/product.yaml",
+            &serde_yaml::to_string(&product).context("cannot encode product Design State")?,
+        )?;
+        // Empty collection documents are intentionally not materialized. Design State is
+        // sparse desired state: requirements/components/constraints/acceptance/decisions
+        // appear only when the project has something meaningful to declare in that domain.
+        self.design_status(workspace_id, workspace)
+    }
+
+    pub fn software_graph(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+    ) -> Result<SoftwareGraphSnapshot> {
+        let mut snapshot = self.code_index.software_graph(
+            workspace_id,
+            workspace,
+            path,
+            max_files,
+            max_symbols,
+        )?;
+        let load = design::load_design(workspace)?;
+        let mut composite = false;
+        if load.initialized {
+            overlay_design_graph(&mut snapshot, &load.state, &self.code_index, workspace)?;
+            composite = true;
+        }
+        if graph_provider_store::overlay_latest(workspace, &mut snapshot)? > 0 {
+            composite = true;
+        }
+        if composite {
+            snapshot.provider = "wcode-composite".to_owned();
+            snapshot.precision = GraphPrecision::Mixed;
+        }
+        snapshot.node_count = snapshot.graph.nodes.len();
+        snapshot.edge_count = snapshot.graph.edges.len();
+        snapshot.graph.validate()?;
+        graph_store::persist(workspace, &snapshot)?;
+        Ok(snapshot)
+    }
+
+    pub fn graph_provider_import(
+        &self,
+        workspace: &Workspace,
+        import: GraphProviderImport,
+    ) -> Result<StoredGraphProvider> {
+        graph_provider_store::persist(workspace, &import)
+    }
+
+    pub fn graph_provider_status(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Vec<GraphProviderSummary>> {
+        graph_provider_store::summaries(workspace)
+    }
+
+    pub fn semantic_provider_status(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Vec<SemanticProviderStatus>> {
+        semantic_provider::status(workspace)
+    }
+
+    pub async fn semantic_provider_refresh(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+    ) -> Result<SemanticProviderRefresh> {
+        let existing = graph_provider_store::load_latest(workspace)?
+            .into_iter()
+            .map(|stored| (stored.import.provider.clone(), stored.import))
+            .collect::<BTreeMap<_, _>>();
+        let refresh =
+            semantic_provider::refresh(workspace, path, max_files, max_symbols, &existing).await?;
+        for import in &refresh.imports {
+            graph_provider_store::persist(workspace, import)?;
+        }
+        Ok(refresh)
+    }
+
+    pub fn graph_history(
+        &self,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<Vec<GraphHistoryEntry>> {
+        graph_store::history(workspace, limit)
+    }
+
+    pub fn graph_query(
+        &self,
+        workspace: &Workspace,
+        input: &GraphQueryInput,
+    ) -> Result<GraphQueryResult> {
+        graph_store::query(workspace, input)
+    }
+
+    pub fn graph_diff(
+        &self,
+        workspace: &Workspace,
+        input: &GraphDiffInput,
+    ) -> Result<GraphDiffResult> {
+        graph_store::diff(workspace, input)
+    }
+
+    pub fn traceability_status(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+    ) -> Result<TraceabilityStatus> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.traceability_status(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+        )
+    }
+
+    pub fn drift_status(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+    ) -> Result<DriftStatus> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.drift_status(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            review,
+        )
+    }
+
+    pub fn risk_status(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+    ) -> Result<RiskStatus> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.risk_status(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            review,
+        )
+    }
+
+    pub fn impact_analysis(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+    ) -> Result<ImpactAnalysis> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.impact_analysis(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            review,
+        )
+    }
+
+    pub fn verification_plan(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+    ) -> Result<VerificationPlan> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.create_verification_plan(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            review,
+        )
+    }
+
+    pub fn software_context(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        query: &str,
+        intent: &str,
+        budget: usize,
+        requested_scopes: &[String],
+    ) -> Result<SoftwareContext> {
+        let known_checks = self.known_checks(workspace)?;
+        let request = SoftwareContextRequest {
+            query: query.to_owned(),
+            intent: intent.to_owned(),
+            budget,
+            scopes: requested_scopes.to_vec(),
+        };
+        self.intelligence.software_context(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            &request,
+        )
+    }
+
+    pub fn semantic_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<SemanticStatusView> {
+        self.intelligence
+            .semantic_status(workspace_id, workspace, limit)
+    }
+
+    pub fn semantic_query(
+        &self,
+        workspace: &Workspace,
+        query: &str,
+        requested_scopes: &[String],
+        include_candidates: bool,
+        limit: usize,
+    ) -> Result<Vec<SemanticMatch>> {
+        self.intelligence.semantic_query(
+            workspace,
+            query,
+            requested_scopes,
+            include_candidates,
+            limit,
+        )
+    }
+
+    pub fn semantic_record_candidate(
+        &self,
+        workspace: &Workspace,
+        input: SemanticCandidateInput,
+    ) -> Result<SemanticFact> {
+        self.intelligence
+            .semantic_record_candidate(workspace, input)
+    }
+
+    pub fn semantic_confirm(
+        &self,
+        workspace: &Workspace,
+        fact_id: &str,
+        attested_by: &str,
+    ) -> Result<SemanticFact> {
+        self.intelligence
+            .semantic_confirm(workspace, fact_id, attested_by)
+    }
+
+    pub fn semantic_retire(
+        &self,
+        workspace: &Workspace,
+        fact_id: &str,
+        attested_by: &str,
+    ) -> Result<SemanticFact> {
+        self.intelligence
+            .semantic_retire(workspace, fact_id, attested_by)
+    }
+
+    pub fn reconciliation_plan(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+    ) -> Result<ReconciliationPlan> {
+        let known_checks = self.known_checks(workspace)?;
+        self.intelligence.reconciliation_plan(
+            workspace_id,
+            workspace,
+            &self.code_index,
+            &known_checks,
+            review,
+        )
+    }
+
+    pub fn reconciliation_status(
+        &self,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<ReconciliationPlan> {
+        self.intelligence.reconciliation_status(workspace, plan_id)
+    }
+
+    pub fn reconciliation_history(
+        &self,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<Vec<ReconciliationPlan>> {
+        self.intelligence.reconciliation_history(workspace, limit)
+    }
+
+    pub fn reconciliation_execution_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<ReconciliationExecutionStatus> {
+        self.intelligence
+            .reconciliation_execution_status(workspace_id, workspace, plan_id)
+    }
+
+    pub fn reconciliation_claim(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        executor: &str,
+        kinds: &[ReconciliationTaskKind],
+    ) -> Result<ReconciliationTaskRun> {
+        self.intelligence
+            .reconciliation_claim(workspace_id, workspace, plan_id, executor, kinds)
+    }
+
+    pub fn reconciliation_submit(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        task_id: &str,
+        executor: &str,
+        submission: ReconciliationTaskSubmission,
+    ) -> Result<ReconciliationTaskRun> {
+        self.intelligence.reconciliation_submit(
+            workspace_id,
+            workspace,
+            plan_id,
+            task_id,
+            executor,
+            submission,
+        )
+    }
+
+    pub fn reconciliation_retry(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<ReconciliationTaskRun> {
+        self.intelligence
+            .reconciliation_retry(workspace_id, workspace, plan_id, task_id)
+    }
+
+    pub fn evidence_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        subject: Option<&str>,
+        limit: usize,
+    ) -> Result<EvidenceStatus> {
+        self.intelligence
+            .evidence_status(workspace_id, workspace, subject, limit)
+    }
+
+    pub fn verification_claim(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        reviewer: &str,
+        capabilities: &[String],
+        role: Option<ReviewerRole>,
+    ) -> Result<VerificationJob> {
+        self.intelligence
+            .verification_claim(workspace_id, workspace, reviewer, capabilities, role)
+    }
+
+    pub fn verification_submit(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        job_id: &str,
+        reviewer: &str,
+        submission: ReviewSubmission,
+    ) -> Result<VerificationJob> {
+        self.intelligence
+            .verification_submit(workspace_id, workspace, job_id, reviewer, submission)
+    }
+
+    pub fn verification_executor_status(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<StageExecutorRegistry> {
+        stage_executor::registry(workspace)
+    }
+
+    pub fn language_quality_status(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<LanguageQualityRegistry> {
+        quality_provider::registry(workspace)
+    }
+
+    pub async fn language_quality_run(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        language: crate::semantic_provider::SemanticLanguage,
+        provider_id: &str,
+        timeout_seconds: u64,
+    ) -> Result<LanguageQualityRun> {
+        let started = Instant::now();
+        let mut run =
+            quality_provider::execute(workspace, language, provider_id, timeout_seconds).await?;
+        let elapsed_ms = started.elapsed().as_millis();
+        let check = VerificationCheck {
+            id: format!("quality-{}-{}", run.capability.as_str(), run.provider_id),
+            phase: 0,
+            command: command_text(&run.command.program, &run.command.args),
+            reason: format!(
+                "Run the repository-declared {} provider for {}.",
+                run.capability.as_str(),
+                language.as_str()
+            ),
+            success: run.success,
+            exit_code: run.command.exit_code,
+            elapsed_ms,
+            stdout_tail: tail_chars(&run.command.stdout, MAX_CHECK_OUTPUT_CHARS).0,
+            stderr_tail: tail_chars(&run.command.stderr, MAX_CHECK_OUTPUT_CHARS).0,
+            output_truncated: run.command.truncated,
+        };
+        let report = VerificationReport {
+            workspace: workspace_id.to_owned(),
+            level: "language-quality".to_owned(),
+            execution: "repository-declared-check-only-provider".to_owned(),
+            phases_run: 1,
+            passed: run.success,
+            checks_run: 1,
+            checks_failed: usize::from(!run.success),
+            elapsed_ms,
+            summary: run.summary.clone(),
+            checks: vec![check],
+        };
+        run.evidence_records = self
+            .intelligence
+            .record_verification_report(workspace_id, workspace, &report)?
+            .len();
+        Ok(run)
+    }
+
+    pub async fn verification_execute_stages(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<Value> {
+        let before = self.verification_status(workspace_id, workspace, plan_id)?;
+        let registry = stage_executor::registry(workspace)?;
+        let mut required = Vec::new();
+        if before.plan.require_property {
+            required.push(crate::verification::VerificationStage::Property);
+        }
+        if before.plan.require_mutation {
+            required.push(crate::verification::VerificationStage::Mutation);
+        }
+        if before.plan.require_fuzz {
+            required.push(crate::verification::VerificationStage::Fuzz);
+        }
+        if before
+            .plan
+            .deterministic_checks
+            .iter()
+            .any(|check| check == "runtime-gate")
+        {
+            required.push(crate::verification::VerificationStage::RuntimeCanary);
+        }
+
+        let detected = registry
+            .detected_languages
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let mut results = Vec::<StageExecutionResult>::new();
+        let mut missing = Vec::new();
+        let mut skipped_passing = Vec::new();
+        let mut execution_errors = Vec::new();
+        for stage in required {
+            let key = format!("{stage:?}").to_ascii_lowercase();
+            let stage_already_passed = before
+                .stage_results
+                .get(&key)
+                .is_some_and(|result| *result == crate::evidence::EvidenceResult::Pass);
+            let executors = registry
+                .executors
+                .iter()
+                .filter(|executor| {
+                    executor.available
+                        && executor.spec.stage == stage
+                        && (executor.spec.languages.is_empty()
+                            || executor
+                                .spec
+                                .languages
+                                .iter()
+                                .any(|language| detected.contains(language)))
+                })
+                .collect::<Vec<_>>();
+            if executors.is_empty() {
+                if !stage_already_passed {
+                    missing.push(key);
+                }
+                continue;
+            }
+            for executor in executors {
+                let producer = format!("executor:{}", executor.spec.id);
+                if before
+                    .stage_producer_results
+                    .get(&key)
+                    .and_then(|results| results.get(&producer))
+                    .is_some_and(|result| *result == crate::evidence::EvidenceResult::Pass)
+                {
+                    skipped_passing.push(executor.spec.id.clone());
+                    continue;
+                }
+                let execution = match stage_executor::execute(workspace, &executor.spec).await {
+                    Ok(execution) => execution,
+                    Err(error) => {
+                        execution_errors.push(json!({
+                            "executor_id": executor.spec.id,
+                            "stage": key,
+                            "error": error.to_string(),
+                        }));
+                        continue;
+                    }
+                };
+                self.intelligence.verification_stage_submit(
+                    workspace_id,
+                    workspace,
+                    plan_id,
+                    StageSubmission {
+                        stage: execution.stage,
+                        producer,
+                        verdict: execution.verdict,
+                        summary: execution.summary.clone(),
+                        artifact_digest: execution.artifact_digest.clone(),
+                        model: None,
+                    },
+                )?;
+                results.push(execution);
+            }
+        }
+        let after = self.verification_status(workspace_id, workspace, plan_id)?;
+        Ok(json!({
+            "workspace": workspace_id,
+            "plan_id": plan_id,
+            "results": results,
+            "skipped_passing_executors": skipped_passing,
+            "execution_errors": execution_errors,
+            "missing_executors": missing,
+            "status": after,
+        }))
+    }
+
+    pub fn verification_stage_submit(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        submission: StageSubmission,
+    ) -> Result<crate::evidence::Evidence> {
+        self.intelligence
+            .verification_stage_submit(workspace_id, workspace, plan_id, submission)
+    }
+
+    pub fn verification_approve(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+    ) -> Result<crate::evidence::Evidence> {
+        self.intelligence.verification_approve(
+            workspace_id,
+            workspace,
+            plan_id,
+            approver,
+            statement,
+        )
+    }
+
+    pub fn verification_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<VerificationStatus> {
+        let status = self
+            .intelligence
+            .verification_status(workspace_id, workspace, plan_id)?;
+        if status.plan.workspace != workspace_id {
+            bail!("verification plan does not belong to the selected workspace");
+        }
+        Ok(status)
+    }
+
+    pub fn verification_history(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<Vec<VerificationStatus>> {
+        self.intelligence
+            .verification_history(workspace_id, workspace, limit)
+    }
+
+    fn known_checks(&self, workspace: &Workspace) -> Result<HashSet<String>> {
+        let (profile, _) = self.load_project_profile(workspace)?;
+        Ok(profile
+            .recommended_checks
+            .iter()
+            .map(|check| check.id.clone())
+            .collect())
     }
 
     pub fn file_outline(
@@ -311,6 +1091,10 @@ impl ToolHarness {
         self.code_index.invalidate(workspace.root(), path);
     }
 
+    pub fn invalidate_code_prefix(&self, workspace: &Workspace, path: &str) {
+        self.code_index.invalidate_prefix(workspace.root(), path);
+    }
+
     pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
         self.slots
             .clone()
@@ -325,6 +1109,12 @@ impl ToolHarness {
         workspace: &Workspace,
     ) -> Result<ProjectContext> {
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
+        let (conventions, language_quality) = rayon::join(
+            || self.convention_status(workspace),
+            || self.language_quality_status(workspace),
+        );
+        let conventions = conventions?;
+        let language_quality = language_quality?;
         Ok(ProjectContext {
             workspace: workspace_id.into(),
             cache_hit,
@@ -336,6 +1126,9 @@ impl ToolHarness {
             workflow: profile.workflow.clone(),
             write_enabled: profile.write_enabled,
             exec_enabled: profile.exec_enabled,
+            product_scopes: scopes::registry(),
+            conventions,
+            language_quality,
         })
     }
 
@@ -507,6 +1300,7 @@ impl ToolHarness {
         let untracked_files = files.iter().filter(|file| file.untracked).count();
         let files_changed = files.len();
         let total_lines = additions.saturating_add(deletions);
+        append_maintainability_findings(workspace, &files, &mut findings);
 
         if source_changed && !tests_changed {
             findings.push(ReviewFinding {
@@ -806,8 +1600,8 @@ impl ToolHarness {
             )
         };
 
-        Ok(VerificationReport {
-            workspace: workspace_id,
+        let report = VerificationReport {
+            workspace: workspace_id.clone(),
             level: level.to_owned(),
             execution: "phased-parallel".to_owned(),
             phases_run,
@@ -817,462 +1611,30 @@ impl ToolHarness {
             elapsed_ms: started.elapsed().as_millis(),
             summary,
             checks,
-        })
-    }
-}
-
-fn review_probe_specs() -> [ReviewProbeSpec; 5] {
-    [
-        ReviewProbeSpec {
-            id: "status",
-            args: ["status", "--short", "--untracked-files=all"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        },
-        ReviewProbeSpec {
-            id: "unstaged-check",
-            args: ["diff", "--check"].into_iter().map(str::to_owned).collect(),
-        },
-        ReviewProbeSpec {
-            id: "staged-check",
-            args: ["diff", "--cached", "--check"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        },
-        ReviewProbeSpec {
-            id: "unstaged-numstat",
-            args: ["diff", "--numstat"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        },
-        ReviewProbeSpec {
-            id: "staged-numstat",
-            args: ["diff", "--cached", "--numstat"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        },
-    ]
-}
-
-async fn run_review_probe(
-    harness: ToolHarness,
-    monitor: TaskMonitor,
-    workspace_id: String,
-    workspace: Workspace,
-    spec: ReviewProbeSpec,
-    timeout_seconds: u64,
-) -> ReviewProbeOutput {
-    let command = command_text("git", &spec.args);
-    let mut task = monitor.queue(
-        workspace_id,
-        format!("review:{}", spec.id),
-        command.clone(),
-        command.len() as u64,
-    );
-    let _permit = match harness.acquire().await {
-        Ok(permit) => permit,
-        Err(error) => {
-            task.finish(false, error.len() as u64);
-            return ReviewProbeOutput {
-                id: spec.id.to_owned(),
-                result: None,
-                elapsed_ms: 0,
-                error: Some(error),
-            };
-        }
-    };
-    task.start();
-    let started = Instant::now();
-
-    match workspace
-        .run_command("git", &spec.args, ".", timeout_seconds.clamp(1, 120))
-        .await
-    {
-        Ok(result) => {
-            let success = result.success;
-            let response_bytes = result.stdout.len().saturating_add(result.stderr.len()) as u64;
-            task.finish(success, response_bytes);
-            ReviewProbeOutput {
-                id: spec.id.to_owned(),
-                result: Some(result),
-                elapsed_ms: started.elapsed().as_millis(),
-                error: None,
-            }
-        }
-        Err(error) => {
-            let message = error.to_string();
-            task.finish(false, message.len() as u64);
-            ReviewProbeOutput {
-                id: spec.id.to_owned(),
-                result: None,
-                elapsed_ms: started.elapsed().as_millis(),
-                error: Some(message),
-            }
-        }
-    }
-}
-
-fn review_probe_summary(output: &ReviewProbeOutput) -> ReviewProbeSummary {
-    let success =
-        output.result.as_ref().is_some_and(|result| result.success) && output.error.is_none();
-    let error = output.error.clone().or_else(|| {
-        output
-            .result
-            .as_ref()
-            .filter(|result| !result.success)
-            .and_then(probe_failure_text)
-    });
-    ReviewProbeSummary {
-        id: output.id.clone(),
-        success,
-        elapsed_ms: output.elapsed_ms,
-        error,
-    }
-}
-
-fn probe_failure_text(result: &CommandResult) -> Option<String> {
-    let line = result
-        .stderr
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .or_else(|| result.stdout.lines().find(|line| !line.trim().is_empty()))?;
-    Some(truncate_chars(line.trim(), 300).0)
-}
-
-fn parse_git_status(output: &str) -> (BTreeMap<String, ChangedFileBuilder>, bool) {
-    let mut files = BTreeMap::new();
-    let mut truncated = false;
-    for (index, line) in output.lines().enumerate() {
-        if index >= MAX_REVIEW_FILES {
-            truncated = true;
-            break;
-        }
-        let bytes = line.as_bytes();
-        if bytes.len() < 3 {
-            continue;
-        }
-        let x = bytes[0] as char;
-        let y = bytes[1] as char;
-        let path = normalize_status_path(&line[3..]);
-        if path.is_empty() {
-            continue;
-        }
-        let untracked = x == '?' && y == '?';
-        let entry = files
-            .entry(path)
-            .or_insert_with(ChangedFileBuilder::default);
-        entry.status = git_status_name(x, y).to_owned();
-        entry.untracked |= untracked;
-        entry.staged |= !untracked && !matches!(x, ' ' | '?' | '!');
-        entry.unstaged |= !untracked && !matches!(y, ' ' | '?' | '!');
-    }
-    (files, truncated)
-}
-
-fn normalize_status_path(raw: &str) -> String {
-    let path = raw
-        .trim()
-        .rsplit_once(" -> ")
-        .map(|(_, destination)| destination)
-        .unwrap_or_else(|| raw.trim());
-    path.trim_matches('"').to_owned()
-}
-
-fn git_status_name(x: char, y: char) -> &'static str {
-    if x == '?' && y == '?' {
-        "untracked"
-    } else if x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D') {
-        "unmerged"
-    } else if x == 'D' || y == 'D' {
-        "deleted"
-    } else if x == 'R' || y == 'R' {
-        "renamed"
-    } else if x == 'C' || y == 'C' {
-        "copied"
-    } else if x == 'A' || y == 'A' {
-        "added"
-    } else if x == 'M' || y == 'M' || x == 'T' || y == 'T' {
-        "modified"
-    } else {
-        "changed"
-    }
-}
-
-fn merge_numstat(files: &mut BTreeMap<String, ChangedFileBuilder>, output: &str) -> bool {
-    let mut truncated = false;
-    for (index, line) in output.lines().enumerate() {
-        if index >= MAX_REVIEW_FILES {
-            truncated = true;
-            break;
-        }
-        let mut fields = line.splitn(3, '\t');
-        let Some(additions) = fields.next() else {
-            continue;
         };
-        let Some(deletions) = fields.next() else {
-            continue;
-        };
-        let Some(raw_path) = fields.next() else {
-            continue;
-        };
-        let path = normalize_numstat_path(raw_path);
-        if path.is_empty() {
-            continue;
-        }
-        let entry = files.entry(path).or_insert_with(|| ChangedFileBuilder {
-            status: "modified".to_owned(),
-            ..ChangedFileBuilder::default()
-        });
-        if additions == "-" || deletions == "-" {
-            entry.binary = true;
-            entry.has_numstat = true;
-            continue;
-        }
-        if let (Ok(additions), Ok(deletions)) = (additions.parse::<u64>(), deletions.parse::<u64>())
-        {
-            entry.additions = entry.additions.saturating_add(additions);
-            entry.deletions = entry.deletions.saturating_add(deletions);
-            entry.has_numstat = true;
-        }
-    }
-    truncated
-}
-
-fn normalize_numstat_path(raw: &str) -> String {
-    let raw = raw.trim().trim_matches('"');
-    if let (Some(open), Some(close)) = (raw.find('{'), raw.rfind('}')) {
-        if open < close {
-            let inside = &raw[open + 1..close];
-            if let Some((_, destination)) = inside.rsplit_once(" => ") {
-                return format!("{}{}{}", &raw[..open], destination, &raw[close + 1..]);
-            }
-        }
-    }
-    raw.rsplit_once(" => ")
-        .map(|(_, destination)| destination.to_owned())
-        .unwrap_or_else(|| raw.to_owned())
-}
-
-fn append_diff_check_findings(findings: &mut Vec<ReviewFinding>, output: &ReviewProbeOutput) {
-    if findings.len() >= MAX_REVIEW_FINDINGS {
-        return;
-    }
-    let Some(result) = output.result.as_ref() else {
-        findings.push(ReviewFinding {
-            severity: "warning".to_owned(),
-            code: "diff-check-unavailable".to_owned(),
-            message: format!(
-                "The {} probe could not run: {}",
-                output.id,
-                output.error.as_deref().unwrap_or("unknown error")
-            ),
-            paths: Vec::new(),
-        });
-        return;
-    };
-
-    let mut matched = 0usize;
-    for line in result.stdout.lines().chain(result.stderr.lines()) {
-        let lower = line.to_ascii_lowercase();
-        if !(lower.contains("trailing whitespace")
-            || lower.contains("space before tab")
-            || lower.contains("leftover conflict marker")
-            || lower.contains("new blank line at eof"))
-        {
-            continue;
-        }
-        let mut fields = line.splitn(3, ':');
-        let path = fields.next().unwrap_or_default().trim().trim_matches('"');
-        let line_number = fields.next().unwrap_or_default().trim();
-        let message = fields.next().unwrap_or(line).trim();
-        findings.push(ReviewFinding {
-            severity: "error".to_owned(),
-            code: format!("{}-failure", output.id),
-            message: if line_number.is_empty() {
-                message.to_owned()
-            } else {
-                format!("Line {line_number}: {message}")
-            },
-            paths: (!path.is_empty())
-                .then(|| path.to_owned())
-                .into_iter()
-                .collect(),
-        });
-        matched += 1;
-        if findings.len() >= MAX_REVIEW_FINDINGS {
-            break;
-        }
-    }
-
-    if !result.success && matched == 0 && findings.len() < MAX_REVIEW_FINDINGS {
-        findings.push(ReviewFinding {
-            severity: "warning".to_owned(),
-            code: "diff-check-failed".to_owned(),
-            message: format!(
-                "The {} probe failed: {}",
-                output.id,
-                probe_failure_text(result).unwrap_or_else(|| "unknown error".to_owned())
-            ),
-            paths: Vec::new(),
-        });
+        self.intelligence
+            .record_verification_report(&workspace_id, workspace, &report)?;
+        Ok(report)
     }
 }
 
-fn file_category(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    let name = lower.rsplit('/').next().unwrap_or(&lower);
-    if lower.starts_with("tests/")
-        || lower.contains("/tests/")
-        || lower.contains("/test/")
-        || name.contains("_test.")
-        || name.contains(".test.")
-        || name.contains(".spec.")
-        || name.starts_with("test_")
-    {
-        "test"
-    } else if lower.starts_with("docs/")
-        || lower.contains("/docs/")
-        || name.ends_with(".md")
-        || matches!(name, "readme" | "license" | "changelog")
-    {
-        "docs"
-    } else if lower.starts_with(".github/workflows/") {
-        "workflow"
-    } else if lower.contains("/migrations/") || lower.starts_with("migrations/") {
-        "migration"
-    } else if matches!(
-        name,
-        "cargo.toml"
-            | "cargo.lock"
-            | "package.json"
-            | "package-lock.json"
-            | "pnpm-lock.yaml"
-            | "yarn.lock"
-            | "bun.lock"
-            | "bun.lockb"
-            | "pyproject.toml"
-            | "requirements.txt"
-            | "go.mod"
-            | "go.sum"
-            | "makefile"
-    ) {
-        "manifest"
-    } else if [
-        ".rs", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".go",
-        ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".php", ".scala",
-        ".sh", ".bash", ".css", ".html", ".htm", ".xhtml", ".dart", ".ex", ".exs", ".lua", ".ml",
-        ".mli", ".r",
-    ]
-    .iter()
-    .any(|extension| name.ends_with(extension))
-    {
-        "source"
-    } else if name.starts_with('.')
-        || [".toml", ".yaml", ".yml", ".json", ".ini", ".cfg", ".conf"]
-            .iter()
-            .any(|extension| name.ends_with(extension))
-    {
-        "config"
-    } else {
-        "other"
-    }
-}
+#[path = "harness_graph.rs"]
+mod harness_graph;
+use harness_graph::{design_product_id, overlay_design_graph};
 
-fn security_sensitive_path(path: &str) -> bool {
-    path.to_ascii_lowercase()
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .any(|token| {
-            matches!(
-                token,
-                "auth"
-                    | "authentication"
-                    | "authorization"
-                    | "authn"
-                    | "authz"
-                    | "oauth"
-                    | "token"
-                    | "tokens"
-                    | "session"
-                    | "sessions"
-                    | "permission"
-                    | "permissions"
-                    | "crypto"
-                    | "security"
-                    | "secret"
-                    | "secrets"
-                    | "credential"
-                    | "credentials"
-            )
-        })
-}
+#[path = "harness_scope.rs"]
+mod harness_scope;
 
-async fn run_verification_check(
-    harness: ToolHarness,
-    monitor: TaskMonitor,
-    workspace_id: String,
-    workspace: Workspace,
-    check: CheckSpec,
-    timeout_seconds: u64,
-) -> VerificationCheck {
-    let command = command_text(&check.program, &check.args);
-    let request_bytes = command.len() as u64;
-    let mut task = monitor.queue(
-        workspace_id,
-        format!("verify:{}", check.id),
-        format!("phase {} · {command}", check.phase),
-        request_bytes,
-    );
-    let _permit = match harness.acquire().await {
-        Ok(permit) => permit,
-        Err(error) => return verification_error(check, error, 0),
-    };
-    task.start();
-    let started = Instant::now();
+#[path = "harness_project.rs"]
+mod harness_project;
 
-    match workspace
-        .run_verification_command(
-            &check.program,
-            &check.args,
-            ".",
-            timeout_seconds.clamp(1, 300),
-        )
-        .await
-    {
-        Ok(result) => {
-            let success = result.success;
-            let response_bytes = result.stdout.len().saturating_add(result.stderr.len()) as u64;
-            let report = verification_check(check, result, started.elapsed().as_millis());
-            task.finish(success, response_bytes);
-            report
-        }
-        Err(error) => {
-            let message = error.to_string();
-            let report = verification_error(check, message.clone(), started.elapsed().as_millis());
-            task.finish(false, message.len() as u64);
-            report
-        }
-    }
-}
+#[path = "harness_review.rs"]
+mod harness_review;
+use harness_review::*;
 
-fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> VerificationCheck {
-    VerificationCheck {
-        id: check.id,
-        phase: check.phase,
-        command: command_text(&check.program, &check.args),
-        reason: check.reason,
-        success: false,
-        exit_code: None,
-        elapsed_ms,
-        stdout_tail: String::new(),
-        stderr_tail: error,
-        output_truncated: false,
-    }
-}
-
+#[path = "harness_verification.rs"]
+mod harness_verification;
+use harness_verification::run_verification_check;
 fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
     let root = workspace.root();
     let manifests = MANIFEST_FILES
@@ -1395,9 +1757,15 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
         guidance,
         recommended_checks: checks,
         workflow: vec![
+            "Treat always-on repository guidance as a short map; retrieve detailed Design State, Product Scope, symbol, and language-quality context only when the task needs it.".to_owned(),
             "Read the returned repository guidance before substantial edits.".to_owned(),
+            "Call scope_status before broad source inspection; treat relevant unmapped supported source as architecture debt before adding production modules.".to_owned(),
             "Use search_many and read_files to collect relevant implementation and tests in few round trips."
                 .to_owned(),
+            "Batch writes when targets are already known: use one apply_edits for multiple changes in a file, apply_file_edits for independent existing files, and create_files for independent new files instead of serial single-file tool calls."
+                .to_owned(),
+            "Use isolated workers or parallel_tools for independent research/review when the host supports it, but never treat worker consensus as deterministic proof.".to_owned(),
+            "Keep mandatory policy in deterministic Harness gates and Evidence rather than relying on an agent instruction to remember it.".to_owned(),
             "Prefer the smallest coherent change that preserves existing architecture and public behavior."
                 .to_owned(),
             "Read every edited file first and keep SHA-256 preconditions on writes.".to_owned(),
@@ -1666,12 +2034,9 @@ fn verification_check(
     }
 }
 
-fn command_text(program: &str, args: &[String]) -> String {
-    std::iter::once(program)
-        .chain(args.iter().map(String::as_str))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
+#[path = "harness_text.rs"]
+mod harness_text;
+use harness_text::{command_text, tail_chars, truncate_chars};
 
 fn project_fingerprint(root: &Path) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -1692,233 +2057,6 @@ fn project_fingerprint(root: &Path) -> u64 {
     hasher.finish()
 }
 
-fn truncate_chars(value: &str, max_chars: usize) -> (String, bool) {
-    if value.chars().count() <= max_chars {
-        return (value.to_owned(), false);
-    }
-    let mut output = value
-        .chars()
-        .take(max_chars.saturating_sub(1))
-        .collect::<String>();
-    output.push('…');
-    (output, true)
-}
-
-fn tail_chars(value: &str, max_chars: usize) -> (String, bool) {
-    let count = value.chars().count();
-    if count <= max_chars {
-        return (value.to_owned(), false);
-    }
-    let mut output = String::from("…");
-    output.extend(value.chars().skip(count - max_chars.saturating_sub(1)));
-    (output, true)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn enforces_parallel_limit() {
-        let harness = ToolHarness::new(2).unwrap();
-        let first = harness.acquire().await.unwrap();
-        let second = harness.acquire().await.unwrap();
-        assert_eq!(harness.slots.available_permits(), 0);
-        drop(first);
-        assert_eq!(harness.slots.available_permits(), 1);
-        drop(second);
-    }
-
-    #[test]
-    fn rejects_unbounded_parallelism() {
-        assert!(ToolHarness::new(0).is_err());
-        assert_eq!(
-            ToolHarness::new(MAX_PARALLEL_TOOLS)
-                .expect("documented maximum should be accepted")
-                .max_parallel(),
-            MAX_PARALLEL_TOOLS
-        );
-        assert!(ToolHarness::new(MAX_PARALLEL_TOOLS + 1).is_err());
-    }
-
-    #[test]
-    fn project_context_detects_guidance_and_quality_checks() {
-        let root = tempfile::tempdir().unwrap();
-        fs::create_dir(root.path().join(".git")).unwrap();
-        fs::write(
-            root.path().join("Cargo.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        fs::write(root.path().join("Cargo.lock"), "# lock\n").unwrap();
-        fs::write(
-            root.path().join("AGENTS.md"),
-            "# Instructions\nKeep changes small and run tests.\n",
-        )
-        .unwrap();
-        let workspace = Workspace::new(root.path(), true, true).unwrap();
-        let harness = ToolHarness::new(4).unwrap();
-
-        let first = harness.project_context("demo", &workspace).unwrap();
-        assert!(!first.cache_hit);
-        assert!(first.project_types.contains(&"rust".to_owned()));
-        assert!(first
-            .guidance
-            .iter()
-            .any(|document| document.path == "AGENTS.md"));
-        assert!(first
-            .recommended_checks
-            .iter()
-            .any(|check| check.id == "rust-check" && check.args.contains(&"--locked".to_owned())));
-        assert!(first.recommended_checks.iter().any(|check| {
-            check.id == "rust-release-build"
-                && check.args
-                    == [
-                        "build".to_owned(),
-                        "--release".to_owned(),
-                        "--locked".to_owned(),
-                    ]
-                && check.phase == 3
-        }));
-
-        let second = harness.project_context("demo", &workspace).unwrap();
-        assert!(second.cache_hit);
-    }
-
-    #[test]
-    fn node_context_uses_repository_package_manager_and_scripts() {
-        let root = tempfile::tempdir().unwrap();
-        fs::write(
-            root.path().join("package.json"),
-            r#"{"scripts":{"lint":"eslint .","test":"vitest run","build":"vite build"}}"#,
-        )
-        .unwrap();
-        fs::write(root.path().join("pnpm-lock.yaml"), "lockfileVersion: 9\n").unwrap();
-        let workspace = Workspace::new(root.path(), false, true).unwrap();
-        let harness = ToolHarness::new(2).unwrap();
-        let context = harness.project_context("web", &workspace).unwrap();
-
-        assert!(context.project_types.contains(&"node".to_owned()));
-        assert!(context
-            .recommended_checks
-            .iter()
-            .any(|check| check.program == "pnpm" && check.args == ["run", "lint"]));
-    }
-
-    #[test]
-    fn change_review_parsers_classify_status_metrics_and_risk() {
-        let (mut files, truncated) = parse_git_status(
-            " M src/auth.rs\nA  Cargo.lock\n?? tests/auth_test.rs\n D README.md\n",
-        );
-        assert!(!truncated);
-        assert_eq!(files["src/auth.rs"].status, "modified");
-        assert!(files["src/auth.rs"].unstaged);
-        assert!(files["Cargo.lock"].staged);
-        assert!(files["tests/auth_test.rs"].untracked);
-        assert_eq!(files["README.md"].status, "deleted");
-
-        assert!(!merge_numstat(
-            &mut files,
-            "12\t3\tsrc/auth.rs\n2\t0\ttests/auth_test.rs\n-\t-\tassets/logo.png\n",
-        ));
-        assert_eq!(files["src/auth.rs"].additions, 12);
-        assert_eq!(files["src/auth.rs"].deletions, 3);
-        assert!(files["assets/logo.png"].binary);
-        assert_eq!(file_category("src/auth.rs"), "source");
-        assert_eq!(file_category("web/page.html"), "source");
-        assert_eq!(file_category("web/styles.css"), "source");
-        assert_eq!(file_category("lib/worker.ex"), "source");
-        assert_eq!(file_category("tests/auth_test.rs"), "test");
-        assert_eq!(file_category("README.md"), "docs");
-        assert_eq!(file_category("Cargo.lock"), "manifest");
-        assert!(security_sensitive_path("src/auth.rs"));
-        assert!(!security_sensitive_path("src/author.rs"));
-        assert_eq!(
-            normalize_numstat_path("src/{old.rs => new.rs}"),
-            "src/new.rs"
-        );
-        assert_eq!(verification_phase("rust-format"), 0);
-        assert_eq!(verification_phase("rust-test"), 1);
-        assert_eq!(verification_phase("rust-clippy"), 2);
-        assert_eq!(verification_phase("rust-release-build"), 3);
-    }
-
-    #[tokio::test]
-    async fn change_review_runs_all_probes_without_parent_slot_deadlock() {
-        use std::process::Command;
-
-        let root = tempfile::tempdir().unwrap();
-        let git = |args: &[&str]| {
-            Command::new("git")
-                .args(args)
-                .current_dir(root.path())
-                .status()
-                .expect("git must be available for repository review tests")
-        };
-        assert!(git(&["init", "-q"]).success());
-        assert!(git(&["config", "user.email", "wcode@example.test"]).success());
-        assert!(git(&["config", "user.name", "wcode test"]).success());
-        fs::create_dir_all(root.path().join("src")).unwrap();
-        fs::create_dir_all(root.path().join("tests")).unwrap();
-        fs::write(
-            root.path().join("Cargo.toml"),
-            "[package]\nname = \"review-demo\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        fs::write(
-            root.path().join("src/auth.rs"),
-            "pub fn enabled() -> bool { false }\n",
-        )
-        .unwrap();
-        fs::write(
-            root.path().join("tests/auth_test.rs"),
-            "// existing coverage\n",
-        )
-        .unwrap();
-        assert!(git(&["add", "."]).success());
-        assert!(git(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]).success());
-
-        fs::write(
-            root.path().join("src/auth.rs"),
-            "pub fn enabled() -> bool { true }\n",
-        )
-        .unwrap();
-        fs::create_dir_all(root.path().join("docs")).unwrap();
-        fs::write(root.path().join("docs/note.md"), "review note\n").unwrap();
-
-        let workspace = Workspace::new(root.path(), false, true).unwrap();
-        let workspace_id = "review-demo".to_owned();
-        let harness = ToolHarness::new(1).unwrap();
-        let monitor = TaskMonitor::new([workspace_id.clone()]);
-        let report = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            harness.review_changes(workspace_id, &workspace, 30, &monitor),
-        )
-        .await
-        .expect("review probes must not deadlock with one semaphore slot")
-        .unwrap();
-
-        assert_eq!(report.execution, "parallel-git-probes");
-        assert_eq!(report.probes.len(), 5);
-        assert_eq!(report.files_changed, 2);
-        assert!(report.source_changed);
-        assert!(!report.tests_changed);
-        assert_eq!(report.risk_level, "high");
-        assert_eq!(report.recommended_verification, "full");
-        assert!(report
-            .findings
-            .iter()
-            .any(|finding| finding.code == "source-without-test-change"));
-        assert!(report
-            .findings
-            .iter()
-            .any(|finding| finding.code == "security-sensitive-change"));
-    }
-
-    #[test]
-    fn output_tail_is_bounded_and_keeps_the_end() {
-        let (tail, truncated) = tail_chars("abcdefgh", 5);
-        assert!(truncated);
-        assert_eq!(tail, "…efgh");
-    }
-}
+#[path = "harness_tests.rs"]
+mod tests;

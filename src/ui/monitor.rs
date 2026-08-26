@@ -1,3 +1,5 @@
+use crate::authorization::{AuthorizationRequest, AuthorizationStatus};
+use crate::workspace::Workspaces;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
@@ -13,6 +15,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding, Paragraph};
 use ratatui::{Frame, Terminal};
+use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, IsTerminal};
 use std::process::{Command as StdCommand, Stdio as StdStdio};
@@ -27,6 +30,14 @@ const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(150);
 const IDLE_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 const ESTIMATED_BYTES_PER_TOKEN: f64 = 4.0;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+#[path = "i18n.rs"]
+mod i18n;
+use i18n::UiLanguage;
+
+#[path = "monitor_detail.rs"]
+mod monitor_detail;
+use monitor_detail::*;
 
 const BG: Color = Color::Rgb(11, 13, 17);
 const PANEL: Color = Color::Rgb(17, 20, 26);
@@ -52,6 +63,7 @@ struct MonitorState {
     next_id: u64,
     started_at: Instant,
     workspaces: BTreeMap<String, WorkspaceStats>,
+    intelligence: BTreeMap<String, IntelligenceStats>,
     tasks: VecDeque<TaskRecord>,
     traffic: VecDeque<TrafficEvent>,
     oauth_client_registered: bool,
@@ -85,6 +97,39 @@ struct WorkspaceStats {
     context_bytes_avoided: u64,
 }
 
+#[derive(Clone, Default)]
+struct IntelligenceStats {
+    design_state: Option<String>,
+    requirements: u64,
+    components: u64,
+    implementation_coverage: Option<u64>,
+    verification_coverage: Option<u64>,
+    scope_source_files: u64,
+    scope_mapped_files: u64,
+    scope_unmapped_files: u64,
+    graph_nodes: u64,
+    graph_edges: u64,
+    graph_precision: Option<String>,
+    graph_added_nodes: u64,
+    graph_removed_nodes: u64,
+    graph_changed_nodes: u64,
+    graph_added_edges: u64,
+    graph_removed_edges: u64,
+    graph_changed_edges: u64,
+    semantic_confirmed: u64,
+    semantic_candidates: u64,
+    drift_findings: u64,
+    risk_level: Option<String>,
+    evidence_total: u64,
+    evidence_failed: u64,
+    evidence_disagreed: u64,
+    verification_ready: Option<bool>,
+    verification_blockers: u64,
+    reconciliation_converged: Option<bool>,
+    reconciliation_pending: u64,
+    updated_at: Option<Instant>,
+}
+
 #[derive(Clone)]
 struct TaskRecord {
     id: u64,
@@ -92,6 +137,7 @@ struct TaskRecord {
     tool: String,
     detail: String,
     status: TaskStatus,
+    slot_counted: bool,
     queued_at: Instant,
     started_at: Option<Instant>,
     finished_at: Option<Instant>,
@@ -109,7 +155,7 @@ struct TrafficEvent {
     context_bytes_avoided: u64,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TaskStatus {
     Queued,
     Running,
@@ -129,13 +175,14 @@ pub struct MonitorConfig {
     pub local_health_url: String,
     pub mcp_url: String,
     pub setup_url: String,
+    pub intelligence_url: String,
     pub project_url: String,
     pub author_url: String,
     pub author_handle: String,
     pub pairing_code: String,
     pub max_parallel: usize,
     pub input_token_price_per_million_usd: f64,
-    pub workspaces: Vec<(String, String, bool)>,
+    pub workspaces: Workspaces,
 }
 
 pub struct MonitorRenderer {
@@ -149,11 +196,16 @@ impl TaskMonitor {
         let workspaces = workspaces
             .into_iter()
             .map(|id| (id, WorkspaceStats::default()))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
         Self {
             state: Arc::new(Mutex::new(MonitorState {
                 next_id: 1,
                 started_at: Instant::now(),
+                intelligence: workspaces
+                    .keys()
+                    .cloned()
+                    .map(|id| (id, IntelligenceStats::default()))
+                    .collect(),
                 workspaces,
                 tasks: VecDeque::new(),
                 traffic: VecDeque::new(),
@@ -185,6 +237,27 @@ impl TaskMonitor {
         detail: impl Into<String>,
         request_bytes: u64,
     ) -> TaskTicket {
+        self.queue_task(workspace, tool, detail, request_bytes, true)
+    }
+
+    pub fn queue_orchestration(
+        &self,
+        workspace: impl Into<String>,
+        tool: impl Into<String>,
+        detail: impl Into<String>,
+        request_bytes: u64,
+    ) -> TaskTicket {
+        self.queue_task(workspace, tool, detail, request_bytes, false)
+    }
+
+    fn queue_task(
+        &self,
+        workspace: impl Into<String>,
+        tool: impl Into<String>,
+        detail: impl Into<String>,
+        request_bytes: u64,
+        slot_counted: bool,
+    ) -> TaskTicket {
         let workspace = workspace.into();
         let tool = tool.into();
         let detail = detail.into();
@@ -209,6 +282,7 @@ impl TaskMonitor {
             tool,
             detail,
             status: TaskStatus::Queued,
+            slot_counted,
             queued_at: now,
             started_at: None,
             finished_at: None,
@@ -222,6 +296,13 @@ impl TaskMonitor {
             id,
             finished: false,
         }
+    }
+
+    pub fn register_workspace(&self, workspace: impl Into<String>) {
+        let workspace = workspace.into();
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        state.workspaces.entry(workspace.clone()).or_default();
+        state.intelligence.entry(workspace).or_default();
     }
 
     pub fn spawn_renderer(&self, config: MonitorConfig, enabled: bool) -> Option<MonitorRenderer> {
@@ -335,6 +416,87 @@ impl TaskMonitor {
         }
     }
 
+    pub fn record_intelligence_result(&self, workspace: &str, tool: &str, value: &Value) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let Some(stats) = state.intelligence.get_mut(workspace) else {
+            return;
+        };
+        match tool {
+            "design_status" => {
+                stats.design_state = Some(if value["valid"].as_bool() == Some(true) {
+                    "valid".to_owned()
+                } else if value["initialized"].as_bool() == Some(true) {
+                    "invalid".to_owned()
+                } else {
+                    "uninitialized".to_owned()
+                });
+                stats.requirements = value["requirements"].as_u64().unwrap_or(0);
+                stats.components = value["components"].as_u64().unwrap_or(0);
+            }
+            "scope_status" => {
+                stats.scope_source_files = value["source_files"].as_u64().unwrap_or(0);
+                stats.scope_mapped_files = value["mapped_files"].as_u64().unwrap_or(0);
+                stats.scope_unmapped_files = stats
+                    .scope_source_files
+                    .saturating_sub(stats.scope_mapped_files);
+            }
+            "software_graph" => {
+                stats.graph_nodes = value["node_count"].as_u64().unwrap_or(0);
+                stats.graph_edges = value["edge_count"].as_u64().unwrap_or(0);
+                stats.graph_precision = value["precision"].as_str().map(str::to_owned);
+            }
+            "graph_diff" => {
+                stats.graph_added_nodes = value["added_node_count"].as_u64().unwrap_or(0);
+                stats.graph_removed_nodes = value["removed_node_count"].as_u64().unwrap_or(0);
+                stats.graph_changed_nodes = value["changed_node_count"].as_u64().unwrap_or(0);
+                stats.graph_added_edges = value["added_edge_count"].as_u64().unwrap_or(0);
+                stats.graph_removed_edges = value["removed_edge_count"].as_u64().unwrap_or(0);
+                stats.graph_changed_edges = value["changed_edge_count"].as_u64().unwrap_or(0);
+            }
+            "traceability_status" => {
+                stats.implementation_coverage =
+                    value["design_to_implementation"]["percent"].as_u64();
+                stats.verification_coverage =
+                    value["acceptance_to_verification"]["percent"].as_u64();
+            }
+            "semantic_status" => {
+                stats.semantic_confirmed = value["confirmed"].as_u64().unwrap_or(0);
+                stats.semantic_candidates = value["candidates"].as_u64().unwrap_or(0);
+            }
+            "drift_status" => {
+                stats.drift_findings = value["implementation_drift"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .saturating_add(value["design_drift"].as_u64().unwrap_or(0));
+            }
+            "risk_status" => {
+                stats.risk_level = value["level"].as_str().map(str::to_owned);
+                stats.drift_findings = value["drift"]["findings"]
+                    .as_array()
+                    .map(|findings| findings.len() as u64)
+                    .unwrap_or(stats.drift_findings);
+            }
+            "evidence_status" => {
+                stats.evidence_total = value["total"].as_u64().unwrap_or(0);
+                stats.evidence_failed = value["failed"].as_u64().unwrap_or(0);
+                stats.evidence_disagreed = value["disagreed"].as_u64().unwrap_or(0);
+            }
+            "verification_status" => {
+                stats.verification_ready = value["ready"].as_bool();
+                stats.verification_blockers = value["blockers"]
+                    .as_array()
+                    .map(|blockers| blockers.len() as u64)
+                    .unwrap_or(0);
+            }
+            "reconciliation_execution_status" => {
+                stats.reconciliation_converged = value["converged"].as_bool();
+                stats.reconciliation_pending = value["pending"].as_u64().unwrap_or(0);
+            }
+            _ => return,
+        }
+        stats.updated_at = Some(Instant::now());
+    }
+
     fn start(&self, id: u64) {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         let Some(index) = state.tasks.iter().position(|task| task.id == id) else {
@@ -346,16 +508,21 @@ impl TaskMonitor {
         let queued_long_enough = state.tasks[index].queued_at.elapsed() >= Duration::from_millis(5);
         let queued_total = state.workspaces.values().map(|stats| stats.queued).sum();
         let workspace = state.tasks[index].workspace.clone();
+        let slot_counted = state.tasks[index].slot_counted;
         if let Some(stats) = state.workspaces.get_mut(&workspace) {
             stats.queued = stats.queued.saturating_sub(1);
-            stats.active = stats.active.saturating_add(1);
+            if slot_counted {
+                stats.active = stats.active.saturating_add(1);
+            }
         }
         if queued_long_enough {
             state.observed_queued = state.observed_queued.max(queued_total);
         }
-        state.active_total = state.active_total.saturating_add(1);
-        state.peak_active = state.peak_active.max(state.active_total);
-        state.observed_active = state.observed_active.max(state.active_total);
+        if slot_counted {
+            state.active_total = state.active_total.saturating_add(1);
+            state.peak_active = state.peak_active.max(state.active_total);
+            state.observed_active = state.observed_active.max(state.active_total);
+        }
         let task = &mut state.tasks[index];
         task.status = TaskStatus::Running;
         task.started_at = Some(Instant::now());
@@ -377,8 +544,9 @@ impl TaskMonitor {
         let workspace = state.tasks[index].workspace.clone();
         let was_running = state.tasks[index].status == TaskStatus::Running;
         let was_queued = state.tasks[index].status == TaskStatus::Queued;
+        let slot_counted = state.tasks[index].slot_counted;
         if let Some(stats) = state.workspaces.get_mut(&workspace) {
-            if was_running {
+            if was_running && slot_counted {
                 stats.active = stats.active.saturating_sub(1);
             }
             if was_queued {
@@ -394,7 +562,7 @@ impl TaskMonitor {
                 stats.failed = stats.failed.saturating_add(1);
             }
         }
-        if was_running {
+        if was_running && slot_counted {
             state.active_total = state.active_total.saturating_sub(1);
         }
         state.traffic.push_back(TrafficEvent {
@@ -426,6 +594,7 @@ impl TaskMonitor {
         let snapshot = MonitorSnapshot {
             started_at: state.started_at,
             workspaces: state.workspaces.clone(),
+            intelligence: state.intelligence.clone(),
             tasks: state.tasks.iter().cloned().collect(),
             traffic: state.traffic.iter().cloned().collect(),
             oauth_client_registered: state.oauth_client_registered,
@@ -539,6 +708,7 @@ pub struct MonitorConnectionStatus {
 struct MonitorSnapshot {
     started_at: Instant,
     workspaces: BTreeMap<String, WorkspaceStats>,
+    intelligence: BTreeMap<String, IntelligenceStats>,
     tasks: Vec<TaskRecord>,
     traffic: Vec<TrafficEvent>,
     oauth_client_registered: bool,
@@ -602,6 +772,11 @@ struct DashboardState {
     workspace_focus: usize,
     workspace_offset: usize,
     help_open: bool,
+    intelligence_open: bool,
+    workspace_input: Option<String>,
+    workspace_message: Option<String>,
+    authorization_focus: usize,
+    language: UiLanguage,
 }
 
 impl DashboardState {
@@ -621,6 +796,41 @@ impl DashboardState {
         }
         self.workspace_offset = self.workspace_offset.min(total.saturating_sub(visible));
     }
+
+    fn clamp_authorizations(&mut self, total: usize) {
+        self.authorization_focus = if total == 0 {
+            0
+        } else {
+            self.authorization_focus.min(total - 1)
+        };
+    }
+}
+
+fn intelligence_url_for_workspace(base: &str, workspace: &str) -> String {
+    let encoded = url::form_urlencoded::byte_serialize(workspace.as_bytes()).collect::<String>();
+    let separator = if base.contains('#') { '&' } else { '#' };
+    format!("{base}{separator}workspace={encoded}")
+}
+
+fn pending_authorizations(config: &MonitorConfig) -> Vec<AuthorizationRequest> {
+    config
+        .workspaces
+        .authorization_requests(256)
+        .into_iter()
+        .filter(|request| request.status == AuthorizationStatus::Pending)
+        .collect()
+}
+
+fn configured_workspaces(config: &MonitorConfig) -> Vec<(String, String, bool)> {
+    config
+        .workspaces
+        .roots()
+        .into_iter()
+        .map(|(id, root)| {
+            let is_default = id == config.workspaces.default_id();
+            (id, root.display().to_string(), is_default)
+        })
+        .collect()
 }
 
 fn run_dashboard(
@@ -639,8 +849,10 @@ fn run_dashboard(
         }
 
         let size = session.terminal.size()?;
-        let visible = workspace_column_count(size.width, config.workspaces.len());
-        ui.clamp(config.workspaces.len(), visible);
+        let workspace_count = config.workspaces.roots().len();
+        let visible = workspace_column_count(size.width, workspace_count);
+        ui.clamp(workspace_count, visible);
+        ui.clamp_authorizations(pending_authorizations(&config).len());
         let snapshot = monitor.snapshot();
         session
             .terminal
@@ -657,15 +869,105 @@ fn run_dashboard(
                         let _ = interrupt_tx.send(true);
                         break;
                     }
+                    if ui.workspace_input.is_some() {
+                        match key.code {
+                            KeyCode::Esc => {
+                                ui.workspace_input = None;
+                                ui.workspace_message =
+                                    Some(ui.language.tr("workspace add cancelled").to_owned());
+                            }
+                            KeyCode::Enter => {
+                                let path = ui.workspace_input.take().unwrap_or_default();
+                                if path.trim().is_empty() {
+                                    ui.workspace_message = Some(
+                                        ui.language.tr("workspace path cannot be empty").to_owned(),
+                                    );
+                                } else {
+                                    match config.workspaces.add_workspace(path.trim()) {
+                                        Ok((id, root)) => {
+                                            monitor.register_workspace(id.clone());
+                                            ui.workspace_message = Some(format!(
+                                                "authorized workspace {id}: {}",
+                                                root.display()
+                                            ));
+                                            let count = config.workspaces.roots().len();
+                                            ui.workspace_focus = count.saturating_sub(1);
+                                            ui.clamp(
+                                                count,
+                                                workspace_column_count(size.width, count),
+                                            );
+                                        }
+                                        Err(error) => {
+                                            ui.workspace_message =
+                                                Some(format!("workspace rejected: {error}"));
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                if let Some(input) = ui.workspace_input.as_mut() {
+                                    input.pop();
+                                }
+                            }
+                            KeyCode::Char(character)
+                                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+                            {
+                                if let Some(input) = ui.workspace_input.as_mut() {
+                                    if input.chars().count() < 1024 {
+                                        input.push(character);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
                     match key.code {
-                        KeyCode::Esc => ui.help_open = false,
+                        KeyCode::Esc => {
+                            ui.help_open = false;
+                            ui.intelligence_open = false;
+                            ui.workspace_message = None;
+                        }
                         KeyCode::Char('?') if key.kind == KeyEventKind::Press => {
-                            ui.help_open = true
+                            ui.help_open = true;
+                            ui.intelligence_open = false;
+                        }
+                        KeyCode::Char('i') | KeyCode::Char('I')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            ui.intelligence_open = !ui.intelligence_open;
+                            ui.help_open = false;
+                        }
+                        KeyCode::Char('l') | KeyCode::Char('L')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            ui.language = ui.language.toggle();
+                            ui.workspace_message = Some(format!(
+                                "{}: {}",
+                                ui.language.tr("LANGUAGE"),
+                                ui.language.name()
+                            ));
                         }
                         KeyCode::Char('o') | KeyCode::Char('O')
                             if key.kind == KeyEventKind::Press =>
                         {
                             let _ = open_external_url(&config.setup_url);
+                        }
+                        KeyCode::Char('w') | KeyCode::Char('W')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            let workspaces = configured_workspaces(&config);
+                            let url = workspaces
+                                .get(ui.workspace_focus.min(workspaces.len().saturating_sub(1)))
+                                .map(|workspace| {
+                                    intelligence_url_for_workspace(
+                                        &config.intelligence_url,
+                                        &workspace.0,
+                                    )
+                                })
+                                .unwrap_or_else(|| config.intelligence_url.clone());
+                            let _ = open_external_url(&url);
                         }
                         KeyCode::Char('g') | KeyCode::Char('G')
                             if key.kind == KeyEventKind::Press =>
@@ -677,6 +979,75 @@ fn run_dashboard(
                         {
                             let _ = open_external_url(&config.author_url);
                         }
+                        KeyCode::Char('+') if key.kind == KeyEventKind::Press => {
+                            ui.workspace_input = Some(String::new());
+                            ui.workspace_message = None;
+                            ui.help_open = false;
+                            ui.intelligence_open = false;
+                        }
+                        KeyCode::Char('y') | KeyCode::Char('Y')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            let pending = pending_authorizations(&config);
+                            if let Some(request) = pending.get(ui.authorization_focus) {
+                                let approved =
+                                    config.workspaces.approve_authorization_session(&request.id);
+                                ui.workspace_message = Some(if approved {
+                                    format!(
+                                        "{} {} · {}",
+                                        ui.language.tr("approved"),
+                                        request.id,
+                                        ui.language.tr("retry the tool")
+                                    )
+                                } else {
+                                    format!(
+                                        "{} {}",
+                                        request.id,
+                                        ui.language.tr("authorization is no longer pending")
+                                    )
+                                });
+                                ui.clamp_authorizations(pending_authorizations(&config).len());
+                            }
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            let pending = pending_authorizations(&config);
+                            if let Some(request) = pending.get(ui.authorization_focus) {
+                                let denied = config.workspaces.deny_authorization(&request.id);
+                                ui.workspace_message = Some(if denied {
+                                    format!("{} {}", ui.language.tr("denied"), request.id)
+                                } else {
+                                    format!(
+                                        "{} {}",
+                                        request.id,
+                                        ui.language.tr("authorization is no longer pending")
+                                    )
+                                });
+                                ui.clamp_authorizations(pending_authorizations(&config).len());
+                            }
+                        }
+                        KeyCode::Up
+                            if key.kind == KeyEventKind::Press
+                                && !ui.help_open
+                                && !ui.intelligence_open =>
+                        {
+                            let total = pending_authorizations(&config).len();
+                            if total > 0 {
+                                ui.authorization_focus = ui.authorization_focus.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down
+                            if key.kind == KeyEventKind::Press
+                                && !ui.help_open
+                                && !ui.intelligence_open =>
+                        {
+                            let total = pending_authorizations(&config).len();
+                            if total > 0 {
+                                ui.authorization_focus =
+                                    ui.authorization_focus.saturating_add(1).min(total - 1);
+                            }
+                        }
                         KeyCode::Left => {
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
                                 visible.max(1)
@@ -684,7 +1055,7 @@ fn run_dashboard(
                                 1
                             };
                             ui.workspace_focus = ui.workspace_focus.saturating_sub(step);
-                            ui.clamp(config.workspaces.len(), visible);
+                            ui.clamp(config.workspaces.roots().len(), visible);
                         }
                         KeyCode::Right => {
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -692,11 +1063,12 @@ fn run_dashboard(
                             } else {
                                 1
                             };
+                            let count = config.workspaces.roots().len();
                             ui.workspace_focus = ui
                                 .workspace_focus
                                 .saturating_add(step)
-                                .min(config.workspaces.len().saturating_sub(1));
-                            ui.clamp(config.workspaces.len(), visible);
+                                .min(count.saturating_sub(1));
+                            ui.clamp(count, visible);
                         }
                         _ => {}
                     }
@@ -802,14 +1174,45 @@ fn dashboard_link_at<'a>(
             return Some(&config.author_url);
         }
 
-        let shortcuts = " ←/→  workspace   O  setup   G  project   A  author   ?  help   ^C  stop";
-        let shortcuts_width = shortcuts.chars().count() as u16;
+        let pending_authorizations = config
+            .workspaces
+            .authorization_requests(256)
+            .iter()
+            .filter(|request| request.status == AuthorizationStatus::Pending)
+            .count();
+        let key_width = |key: &str| key.chars().count() as u16 + 2;
+        let label_width = |label: &str| label.chars().count() as u16 + 3;
+        let pending_width = if pending_authorizations > 0 {
+            pending_authorizations.to_string().chars().count() as u16 + 2
+        } else {
+            1
+        };
+        let shortcuts_width = key_width("←/→")
+            + label_width(ui.language.tr("workspace"))
+            + key_width("O")
+            + label_width(ui.language.tr("setup"))
+            + key_width("W")
+            + label_width(ui.language.tr("web"))
+            + key_width("L")
+            + label_width(ui.language.name())
+            + key_width("+")
+            + 1
+            + key_width("Y/N")
+            + pending_width
+            + key_width("?")
+            + 1
+            + key_width("^C");
         let shortcuts_x = columns[1]
             .x
             .saturating_add(columns[1].width.saturating_sub(shortcuts_width));
-        let setup_prefix = " ←/→  workspace  ";
-        let setup_x = shortcuts_x.saturating_add(setup_prefix.chars().count() as u16);
-        let setup_rect = Rect::new(setup_x, footer.y, " O  setup  ".chars().count() as u16, 1);
+        let setup_prefix_width = key_width("←/→") + label_width(ui.language.tr("workspace"));
+        let setup_x = shortcuts_x.saturating_add(setup_prefix_width);
+        let setup_rect = Rect::new(
+            setup_x,
+            footer.y,
+            key_width("O") + label_width(ui.language.tr("setup")),
+            1,
+        );
         if point_in_rect(point, setup_rect) {
             return Some(&config.setup_url);
         }
@@ -861,7 +1264,7 @@ fn draw_dashboard(
     let fixed_height = header_height + setup_height + overview_height + minimum_activity_height + 1;
 
     if area.width < 40 || area.height < fixed_height {
-        render_too_small(frame, area, config);
+        render_too_small(frame, area, config, ui.language);
         return;
     }
 
@@ -886,36 +1289,68 @@ fn draw_dashboard(
         .split(area);
 
     let mut row = 0usize;
-    render_header(frame, rows[row], snapshot, config, tick, compact);
-    row += 1;
-    if setup_height > 0 {
-        render_setup(frame, rows[row], snapshot, config, compact);
-        row += 1;
-    }
-    render_overview(frame, rows[row], snapshot, config, compact);
-    row += 1;
-    render_workspace_activity(
+    render_header(
         frame,
         rows[row],
         snapshot,
         config,
         tick,
-        ui.workspace_offset,
-        ui.workspace_focus,
+        compact,
+        ui.language,
     );
     row += 1;
-    if throughput_height > 0 {
-        render_throughput(frame, rows[row], snapshot, config);
+    if setup_height > 0 {
+        render_setup(frame, rows[row], snapshot, config, compact, ui.language);
         row += 1;
     }
-    render_footer(frame, rows[row], config);
+    render_overview(frame, rows[row], snapshot, config, compact, ui.language);
+    row += 1;
+    render_workspace_activity(frame, rows[row], snapshot, config, tick, ui);
+    row += 1;
+    if throughput_height > 0 {
+        render_throughput(frame, rows[row], snapshot, config, ui.language);
+        row += 1;
+    }
+    render_footer(frame, rows[row], config, ui.language);
 
-    if ui.help_open {
-        render_help_overlay(frame, area, config);
+    if ui.intelligence_open {
+        render_intelligence_overlay(
+            frame,
+            area,
+            snapshot,
+            config,
+            ui.workspace_focus,
+            ui.language,
+        );
+    } else if ui.help_open {
+        render_help_overlay(frame, area, config, ui.language);
+    }
+    if !ui.help_open && !ui.intelligence_open && ui.workspace_input.is_none() {
+        let pending = pending_authorizations(config);
+        if !pending.is_empty() {
+            render_authorization_overlay(
+                frame,
+                area,
+                &pending,
+                ui.authorization_focus,
+                ui.language,
+            );
+        }
+    }
+    if let Some(input) = ui.workspace_input.as_deref() {
+        render_workspace_input_overlay(frame, area, input, ui.language);
+    }
+    if let Some(message) = ui.workspace_message.as_deref() {
+        render_status_message(frame, area, message, ui.language);
     }
 }
 
-fn render_too_small(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
+fn render_too_small(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    config: &MonitorConfig,
+    language: UiLanguage,
+) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -945,7 +1380,7 @@ fn render_too_small(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
-                "Terminal needs a little more room",
+                language.tr("Terminal needs a little more room"),
                 Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
@@ -953,7 +1388,7 @@ fn render_too_small(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
                 Style::default().fg(GRAY),
             )),
             Line::from(Span::styled(
-                "resize the window to restore the live dashboard",
+                language.tr("resize the window to restore the live dashboard"),
                 Style::default().fg(DIM),
             )),
         ])
@@ -970,6 +1405,7 @@ fn render_header(
     config: &MonitorConfig,
     tick: usize,
     compact: bool,
+    language: UiLanguage,
 ) {
     let totals = totals(snapshot);
     let idle = snapshot
@@ -978,18 +1414,18 @@ fn render_header(
     let (icon, state, detail, color) = if snapshot.tunnel_running == Some(false) {
         (
             "×",
-            "CLOUDFLARED PROCESS EXITED",
+            language.tr("CLOUDFLARED PROCESS EXITED"),
             snapshot
                 .tunnel_error
                 .as_deref()
                 .map(|error| truncate_end(error, 54))
-                .unwrap_or_else(|| "cloudflared is no longer running".to_owned()),
+                .unwrap_or_else(|| language.tr("cloudflared is no longer running").to_owned()),
             RED,
         )
     } else if snapshot.public_url_healthy == Some(false) {
         (
             "×",
-            "PUBLIC URL UNAVAILABLE",
+            language.tr("PUBLIC URL UNAVAILABLE"),
             format!(
                 "{} consecutive health checks failed",
                 snapshot.public_url_consecutive_failures
@@ -999,7 +1435,7 @@ fn render_header(
     } else if snapshot.chatgpt_connected && idle {
         (
             "◐",
-            "MCP client idle",
+            language.tr("MCP client idle"),
             format!(
                 "last seen {} · Remote MCP",
                 last_seen_text(snapshot.last_mcp_seen)
@@ -1009,7 +1445,7 @@ fn render_header(
     } else if snapshot.chatgpt_connected {
         (
             "●",
-            "MCP client connected",
+            language.tr("MCP client connected"),
             format!(
                 "last seen {} · Remote MCP",
                 last_seen_text(snapshot.last_mcp_seen)
@@ -1019,15 +1455,15 @@ fn render_header(
     } else if snapshot.oauth_authorized {
         (
             "◐",
-            "OAuth authorized",
-            "waiting for MCP handshake".to_owned(),
+            language.tr("OAuth authorized"),
+            language.tr("waiting for MCP handshake").to_owned(),
             YELLOW,
         )
     } else {
         (
             "○",
-            "Setup required",
-            "press O to open Connector setup".to_owned(),
+            language.tr("Setup required"),
+            language.tr("press O to open Connector setup").to_owned(),
             GRAY,
         )
     };
@@ -1285,234 +1721,13 @@ fn public_url_health_color(snapshot: &MonitorSnapshot) -> Color {
     }
 }
 
-fn tunnel_status_text(snapshot: &MonitorSnapshot) -> &'static str {
-    match snapshot.tunnel_running {
-        Some(true) => "● RUNNING",
-        Some(false) => "× EXITED",
-        None => "○ EXTERNAL / LOCAL",
-    }
-}
-
-fn tunnel_status_color(snapshot: &MonitorSnapshot) -> Color {
-    match snapshot.tunnel_running {
-        Some(true) => GREEN,
-        Some(false) => RED,
-        None => GRAY,
-    }
-}
-
-fn initialize_status_text(snapshot: &MonitorSnapshot) -> String {
-    let last = snapshot
-        .last_initialize
-        .map(|seen| last_seen_text(Some(seen)))
-        .unwrap_or_else(|| "never".to_owned());
-    format!("#{} · last {last}", snapshot.initialize_count)
-}
-
-fn render_setup(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    snapshot: &MonitorSnapshot,
-    config: &MonitorConfig,
-    compact: bool,
-) {
-    let lifecycle = if is_quick_tunnel(&config.mcp_url) {
-        "TEMPORARY URL"
-    } else {
-        "FIXED ENDPOINT"
-    };
-    let endpoint_mode = snapshot.public_endpoint.as_deref().unwrap_or("pending");
-    let endpoint_ready = match endpoint_mode {
-        "quick-tunnel" => {
-            snapshot.tunnel_running == Some(true) && snapshot.public_url_healthy != Some(false)
-        }
-        "external" => snapshot.public_url_healthy == Some(true),
-        "local-only" => true,
-        "pending" => false,
-        _ => false,
-    };
-    let endpoint_detail = if let Some(error) = snapshot.tunnel_error.as_deref() {
-        format!("stopped · {}", truncate_end(error, 28))
-    } else {
-        match endpoint_mode {
-            "quick-tunnel" | "external" => public_url_health_text(snapshot),
-            "local-only" => "local only".to_owned(),
-            _ => "waiting".to_owned(),
-        }
-    };
-    let mcp_seen = snapshot.last_mcp_seen.is_some();
-    let mcp_detail = if mcp_seen {
-        format!("last seen {}", last_seen_text(snapshot.last_mcp_seen))
-    } else {
-        "waiting for request".to_owned()
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(YELLOW))
-        .style(Style::default().bg(PANEL))
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(
-            " SETUP ",
-            Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-        ))
-        .title(
-            Line::from(Span::styled(
-                format!(" {lifecycle} "),
-                Style::default().fg(DIM),
-            ))
-            .right_aligned(),
-        );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    if compact || inner.width < 78 || inner.height < 7 {
-        let lines = vec![
-            setup_step(1, "Open this wcode setup page"),
-            setup_step(2, "Add the MCP URL and choose OAuth"),
-            Line::from(vec![
-                Span::styled("  MCP  ", Style::default().fg(DIM)),
-                Span::styled(
-                    truncate_middle(&config.mcp_url, inner.width.saturating_sub(8) as usize),
-                    Style::default().fg(BLUE),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  VERIFY CODE ", Style::default().fg(DIM)),
-                Span::styled(
-                    &config.pairing_code,
-                    Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "   ·   Works with compatible Remote MCP clients",
-                    Style::default().fg(GRAY),
-                ),
-            ]),
-            setup_state(
-                snapshot.oauth_authorized,
-                "OAuth",
-                if snapshot.oauth_authorized {
-                    "authorized"
-                } else {
-                    "waiting"
-                },
-            ),
-        ];
-        frame.render_widget(Paragraph::new(lines), inner);
-        return;
-    }
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
-        .split(inner);
-    let left = Block::default()
-        .borders(Borders::RIGHT)
-        .border_style(Style::default().fg(BORDER))
-        .padding(Padding::new(0, 2, 0, 0));
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "GET CONNECTED",
-                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-            )),
-            setup_step(1, "Open this setup page · press O"),
-            setup_step(2, "Choose a compatible AI client"),
-            setup_step(3, "Add MCP URL · Auth: OAuth"),
-            Line::from(vec![
-                Span::styled("  MCP   ", Style::default().fg(DIM)),
-                Span::styled(
-                    truncate_middle(
-                        &config.mcp_url,
-                        columns[0].width.saturating_sub(10) as usize,
-                    ),
-                    Style::default().fg(BLUE),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  VERIFY CODE  ", Style::default().fg(DIM)),
-                Span::styled(
-                    &config.pairing_code,
-                    Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("   press O to reopen setup", Style::default().fg(GRAY)),
-            ]),
-        ])
-        .block(left),
-        columns[0],
-    );
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "CONNECTION",
-                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-            )),
-            setup_state(true, "Local server", "ready"),
-            setup_state(endpoint_ready, "Public endpoint", &endpoint_detail),
-            setup_state(
-                snapshot.oauth_client_registered,
-                "OAuth client",
-                if snapshot.oauth_client_registered {
-                    "registered"
-                } else {
-                    "waiting"
-                },
-            ),
-            setup_state(
-                snapshot.oauth_authorized,
-                "OAuth",
-                if snapshot.oauth_authorized {
-                    "authorized"
-                } else {
-                    "waiting"
-                },
-            ),
-            setup_state(mcp_seen, "MCP", &mcp_detail),
-            setup_state(snapshot.chatgpt_connected, "MCP client", "connected"),
-            Line::from(vec![
-                Span::styled("  LAST  ", Style::default().fg(DIM)),
-                Span::styled(
-                    last_seen_text(snapshot.last_mcp_seen),
-                    Style::default().fg(GRAY),
-                ),
-                Span::styled("   ·   Remote MCP", Style::default().fg(PURPLE)),
-            ]),
-        ]),
-        columns[1],
-    );
-}
-
-fn setup_step(number: u8, label: &str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            format!(" {number} "),
-            Style::default()
-                .fg(BG)
-                .bg(PURPLE)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("  {label}"), Style::default().fg(WHITE)),
-    ])
-}
-
-fn setup_state(done: bool, label: &str, detail: &str) -> Line<'static> {
-    let color = if done { GREEN } else { DIM };
-    Line::from(vec![
-        Span::styled(
-            if done { "  ● " } else { "  ○ " },
-            Style::default().fg(color),
-        ),
-        Span::styled(format!("{label:<14}"), Style::default().fg(WHITE)),
-        Span::styled(detail.to_owned(), Style::default().fg(color)),
-    ])
-}
-
 fn render_overview(
     frame: &mut Frame<'_>,
     area: Rect,
     snapshot: &MonitorSnapshot,
     config: &MonitorConfig,
     compact: bool,
+    language: UiLanguage,
 ) {
     let totals = totals(snapshot);
     let observed_active = snapshot.observed_active.max(totals.active);
@@ -1537,7 +1752,7 @@ fn render_overview(
         .style(Style::default().bg(PANEL))
         .padding(Padding::horizontal(1))
         .title(Span::styled(
-            " OVERVIEW ",
+            format!(" {} ", language.tr("OVERVIEW")),
             Style::default().fg(GRAY).add_modifier(Modifier::BOLD),
         ))
         .title(
@@ -1558,14 +1773,14 @@ fn render_overview(
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(vec![
-                    compact_metric("RUN", observed_active, CYAN),
+                    compact_metric(language.tr("RUN"), observed_active, CYAN),
                     Span::raw("   "),
-                    compact_metric("WAIT", observed_queued, YELLOW),
+                    compact_metric(language.tr("WAIT"), observed_queued, YELLOW),
                     Span::raw("   "),
-                    compact_metric("DONE", totals.completed, GREEN),
+                    compact_metric(language.tr("DONE"), totals.completed, GREEN),
                     Span::raw("   "),
                     compact_metric(
-                        "FAIL",
+                        language.tr("FAIL"),
                         totals.failed,
                         if totals.failed > 0 { RED } else { DIM },
                     ),
@@ -1596,7 +1811,7 @@ fn render_overview(
     render_metric_card(
         frame,
         cards[0],
-        "ACTIVE",
+        language.tr("ACTIVE"),
         observed_active.to_string(),
         if observed_active > totals.active {
             format!("now {} · peak {}", totals.active, snapshot.peak_active)
@@ -1608,7 +1823,7 @@ fn render_overview(
     render_metric_card(
         frame,
         cards[1],
-        "QUEUED",
+        language.tr("QUEUED"),
         observed_queued.to_string(),
         if observed_queued > totals.queued {
             format!("now {} · recent peak", totals.queued)
@@ -1620,7 +1835,7 @@ fn render_overview(
     render_metric_card(
         frame,
         cards[2],
-        "COMPLETED",
+        language.tr("COMPLETED"),
         totals.completed.to_string(),
         format!("{success:.1}% success"),
         GREEN,
@@ -1628,7 +1843,7 @@ fn render_overview(
     render_metric_card(
         frame,
         cards[3],
-        "FAILED",
+        language.tr("FAILED"),
         totals.failed.to_string(),
         if totals.failed == 0 {
             "clean".to_owned()
@@ -1640,7 +1855,7 @@ fn render_overview(
     render_metric_card(
         frame,
         cards[4],
-        "TOKEN ECONOMY · TOTAL",
+        language.tr("TOKEN ECONOMY · TOTAL"),
         format!("~{} saved", short_tokens(saved_tokens)),
         format!(
             "CTX {} · SAVE {}",
@@ -1688,7 +1903,7 @@ fn render_metric_card(
     );
 }
 
-fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
+pub(super) fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
     if count == 0 {
         return Vec::new();
     }
@@ -1706,456 +1921,12 @@ fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
     rects
 }
 
-fn render_workspace_activity(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    snapshot: &MonitorSnapshot,
-    config: &MonitorConfig,
-    tick: usize,
-    requested_offset: usize,
-    focus: usize,
-) {
-    let total = config.workspaces.len();
-    let visible = workspace_column_count(area.width, total);
-    let offset = requested_offset.min(total.saturating_sub(visible));
-    let end = (offset + visible).min(total);
-    let range = if total == 0 {
-        "0 / 0".to_owned()
-    } else {
-        format!("{}–{} / {}", offset + 1, end, total)
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(BORDER))
-        .style(Style::default().bg(PANEL))
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(
-            " WORKSPACE ACTIVITY ",
-            Style::default().fg(GRAY).add_modifier(Modifier::BOLD),
-        ))
-        .title(
-            Line::from(vec![
-                Span::styled("VIEW  ", Style::default().fg(DIM)),
-                Span::styled(
-                    range,
-                    Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("  ← → ", Style::default().fg(DIM)),
-            ])
-            .right_aligned(),
-        );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    if total == 0 || inner.width == 0 || inner.height == 0 {
-        if inner.width > 0 && inner.height > 0 {
-            frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(Span::styled(
-                        "No workspaces configured",
-                        Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-                    )),
-                    Line::from(Span::styled(
-                        "restart wcode with one or more --workspace paths",
-                        Style::default().fg(GRAY),
-                    )),
-                ])
-                .alignment(ratatui::layout::Alignment::Center),
-                inner,
-            );
-        }
-        return;
-    }
-
-    let column_count = end.saturating_sub(offset).max(1);
-    let columns = split_rects_with_gap(inner, column_count, 1);
-    let now = Instant::now();
-
-    for (column, workspace_index) in columns.iter().zip(offset..end) {
-        let (id, path, is_default) = &config.workspaces[workspace_index];
-        let stats = snapshot.workspaces.get(id).cloned().unwrap_or_default();
-        let active = stats.active > 0;
-        let queued = stats.queued > 0;
-        let focused = workspace_index == focus;
-        let status_color = if active {
-            CYAN
-        } else if queued {
-            YELLOW
-        } else if stats.failed > 0 {
-            RED
-        } else {
-            DIM
-        };
-        let border_color = if focused {
-            BLUE
-        } else if active {
-            CYAN
-        } else {
-            BORDER
-        };
-        let summary = if active || queued {
-            format!("{} run · {} wait", stats.active, stats.queued)
-        } else {
-            "idle".to_owned()
-        };
-        let title_width = column.width.saturating_sub(10) as usize;
-        let card = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color))
-            .style(Style::default().bg(if focused { PANEL_ACTIVE } else { PANEL_ALT }))
-            .padding(Padding::horizontal(1))
-            .title(Line::from(vec![
-                Span::styled(
-                    if focused { " ▸ " } else { "   " },
-                    Style::default().fg(BLUE),
-                ),
-                Span::styled("● ", Style::default().fg(status_color)),
-                Span::styled(
-                    truncate_end(id, title_width),
-                    Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-                ),
-            ]))
-            .title_bottom(Line::from(Span::styled(
-                format!(" {summary} "),
-                Style::default().fg(status_color),
-            )))
-            .title_bottom(
-                Line::from(Span::styled(
-                    if *is_default { " DEFAULT " } else { " " },
-                    Style::default().fg(if *is_default { PURPLE } else { DIM }),
-                ))
-                .right_aligned(),
-            );
-        let card_inner = card.inner(*column);
-        frame.render_widget(card, *column);
-
-        let capacity = card_inner.height as usize;
-        let tasks = workspace_activity_tasks(snapshot, id, capacity);
-        if tasks.is_empty() && capacity > 0 {
-            let lines = if card_inner.height >= 2 {
-                vec![
-                    Line::from(Span::styled("quiet", Style::default().fg(GRAY))),
-                    Line::from(Span::styled(
-                        truncate_middle(path, card_inner.width as usize),
-                        Style::default().fg(DIM),
-                    )),
-                ]
-            } else {
-                vec![Line::from(Span::styled("quiet", Style::default().fg(GRAY)))]
-            };
-            frame.render_widget(
-                Paragraph::new(lines).alignment(ratatui::layout::Alignment::Center),
-                card_inner,
-            );
-            continue;
-        }
-
-        let items = tasks
-            .into_iter()
-            .map(|task| activity_item(task, tick, now, card_inner.width as usize))
-            .collect::<Vec<_>>();
-        frame.render_widget(List::new(items), card_inner);
-    }
-}
-
-fn workspace_activity_tasks<'a>(
-    snapshot: &'a MonitorSnapshot,
-    workspace: &str,
-    capacity: usize,
-) -> Vec<&'a TaskRecord> {
-    let mut tasks = snapshot
-        .tasks
-        .iter()
-        .filter(|task| task.workspace == workspace)
-        .collect::<Vec<_>>();
-    tasks.sort_by(|a, b| {
-        activity_rank(a.status)
-            .cmp(&activity_rank(b.status))
-            .then_with(|| task_time(b).cmp(&task_time(a)))
-    });
-    tasks.truncate(capacity);
-    tasks
-}
-
-fn activity_rank(status: TaskStatus) -> u8 {
-    match status {
-        TaskStatus::Running => 0,
-        TaskStatus::Queued => 1,
-        TaskStatus::Completed | TaskStatus::Failed => 2,
-    }
-}
-
-fn task_time(task: &TaskRecord) -> Instant {
-    task.finished_at
-        .or(task.started_at)
-        .unwrap_or(task.queued_at)
-}
-
-fn activity_item(task: &TaskRecord, tick: usize, now: Instant, width: usize) -> ListItem<'static> {
-    let (icon, color, highlighted) = match task.status {
-        TaskStatus::Queued => ("◌".to_owned(), YELLOW, true),
-        TaskStatus::Running => (
-            spinner_frame(tick.wrapping_add(task.id as usize)).to_owned(),
-            CYAN,
-            true,
-        ),
-        TaskStatus::Completed => ("✓".to_owned(), GREEN, false),
-        TaskStatus::Failed => ("×".to_owned(), RED, true),
-    };
-    let end = task.finished_at.unwrap_or(now);
-    let started = task.started_at.unwrap_or(task.queued_at);
-    let elapsed = short_duration(end.saturating_duration_since(started));
-    let elapsed_width = 7usize;
-    let tool_width = if width >= 52 {
-        18
-    } else {
-        width.saturating_sub(elapsed_width + 4).clamp(8, 22)
-    };
-    let mut spans = vec![
-        Span::styled(format!("{icon} "), Style::default().fg(color)),
-        Span::styled(
-            format!("{:<tool_width$}", truncate_end(&task.tool, tool_width)),
-            Style::default()
-                .fg(if highlighted { WHITE } else { GRAY })
-                .add_modifier(if highlighted {
-                    Modifier::BOLD
-                } else {
-                    Modifier::empty()
-                }),
-        ),
-    ];
-    if width >= 52 {
-        let detail_width = width.saturating_sub(tool_width + elapsed_width + 7);
-        let detail = if width >= 72 {
-            format!(
-                "{} · {}/{}",
-                task.detail,
-                short_bytes(task.request_bytes),
-                short_bytes(task.response_bytes)
-            )
-        } else {
-            task.detail.clone()
-        };
-        spans.push(Span::styled(
-            format!(" · {}", truncate_end(&detail, detail_width)),
-            Style::default().fg(DIM),
-        ));
-    }
-    spans.push(Span::styled(
-        format!(" {elapsed:>elapsed_width$}"),
-        Style::default().fg(color),
-    ));
-
-    ListItem::new(Line::from(spans)).style(Style::default().bg(if highlighted {
-        PANEL_ACTIVE
-    } else {
-        PANEL_ALT
-    }))
-}
-
-fn workspace_column_count(width: u16, total: usize) -> usize {
-    let inner = width.saturating_sub(4);
-    let columns = (inner / 31).max(1) as usize;
-    columns.min(total.max(1))
-}
-
-fn last_seen_text(last_seen: Option<Instant>) -> String {
-    let Some(last_seen) = last_seen else {
-        return "—".to_owned();
-    };
-    let elapsed = last_seen.elapsed();
-    if elapsed < Duration::from_secs(2) {
-        "just now".to_owned()
-    } else if elapsed < Duration::from_secs(60) {
-        format!("{}s ago", elapsed.as_secs())
-    } else if elapsed < Duration::from_secs(3600) {
-        format!("{}m ago", elapsed.as_secs() / 60)
-    } else {
-        format!("{}h ago", elapsed.as_secs() / 3600)
-    }
-}
-
-fn is_quick_tunnel(mcp_url: &str) -> bool {
-    mcp_url.contains(".trycloudflare.com/")
-}
-
-fn open_external_url(url: &str) -> io::Result<()> {
-    let mut command = if cfg!(target_os = "macos") {
-        let mut command = StdCommand::new("open");
-        command.arg(url);
-        command
-    } else if cfg!(target_os = "windows") {
-        let mut command = StdCommand::new("explorer.exe");
-        command.arg(url);
-        command
-    } else {
-        let mut command = StdCommand::new("xdg-open");
-        command.arg(url);
-        command
-    };
-    command
-        .stdin(StdStdio::null())
-        .stdout(StdStdio::null())
-        .stderr(StdStdio::null())
-        .spawn()
-        .map(|_| ())
-}
-
-fn render_help_overlay(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
-    let width = area.width.saturating_sub(6).clamp(36, 98);
-    let height = area.height.saturating_sub(4).clamp(12, 18);
-    let popup = Rect::new(
-        area.x + area.width.saturating_sub(width) / 2,
-        area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    );
-    frame.render_widget(Clear, popup);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(PURPLE))
-        .style(Style::default().bg(PANEL_ACTIVE))
-        .padding(Padding::horizontal(1))
-        .title(Line::from(vec![
-            Span::styled(
-                " ? ",
-                Style::default()
-                    .fg(BG)
-                    .bg(PURPLE)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " HELP & LINKS ",
-                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-            ),
-        ]))
-        .title(
-            Line::from(Span::styled(" ESC TO CLOSE ", Style::default().fg(DIM))).right_aligned(),
-        );
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    if width < 74 || height < 16 {
-        frame.render_widget(
-            Paragraph::new(vec![
-                help_hint_line("←/→", "move workspace"),
-                help_hint_line("⇧←/→", "move one page"),
-                help_hint_line("O", "Connector setup"),
-                help_hint_line("G / A", "project / author"),
-                help_hint_line("? / Esc", "toggle help"),
-                help_hint_line("^C", "stop wcode"),
-                help_link_line("Project", &config.project_url, inner.width),
-                help_link_line("Author", &config.author_url, inner.width),
-                help_link_line("Setup", &config.setup_url, inner.width),
-                help_link_line("Health", &config.local_health_url, inner.width),
-            ]),
-            inner,
-        );
-        return;
-    }
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
-        .split(inner);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "SHORTCUTS",
-                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
-            )),
-            help_hint_line("← / →", "move workspace focus"),
-            help_hint_line("Shift + ← / →", "move one workspace page"),
-            help_hint_line("O", "open Connector setup"),
-            help_hint_line("G", "open project repository"),
-            help_hint_line("A", "open author profile"),
-            help_hint_line("? / Esc", "open or close help"),
-            help_hint_line("Ctrl-C", "stop wcode"),
-        ])
-        .block(
-            Block::default()
-                .borders(Borders::RIGHT)
-                .border_style(Style::default().fg(BORDER))
-                .padding(Padding::new(0, 2, 0, 0)),
-        ),
-        columns[0],
-    );
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "RUNTIME",
-                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(vec![
-                Span::styled("Slots  ", Style::default().fg(WHITE)),
-                Span::styled("active child tasks / cap", Style::default().fg(GRAY)),
-            ]),
-            Line::from(vec![
-                Span::styled("Peak   ", Style::default().fg(WHITE)),
-                Span::styled(
-                    "real concurrency high-water mark",
-                    Style::default().fg(GRAY),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Fan-out", Style::default().fg(WHITE)),
-                Span::styled(
-                    "  parallel_tools · review · verify",
-                    Style::default().fg(GRAY),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("CTX    ", Style::default().fg(WHITE)),
-                Span::styled("estimated tool-output tokens", Style::default().fg(GRAY)),
-            ]),
-            Line::from(vec![
-                Span::styled("Saved  ", Style::default().fg(WHITE)),
-                Span::styled(
-                    format!(
-                        "AST context avoided · EST at ${:.2}/M",
-                        config.input_token_price_per_million_usd
-                    ),
-                    Style::default().fg(GRAY),
-                ),
-            ]),
-            Line::from(""),
-            help_link_line("Project", &config.project_url, columns[1].width),
-            help_link_line("Author", &config.author_url, columns[1].width),
-            help_link_line("Setup", &config.setup_url, columns[1].width),
-            help_link_line("Health", &config.local_health_url, columns[1].width),
-        ]),
-        columns[1],
-    );
-}
-
-fn help_hint_line(key: &str, label: &str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            format!(" {key:<15}"),
-            Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(label.to_owned(), Style::default().fg(GRAY)),
-    ])
-}
-
-fn help_link_line(label: &str, url: &str, width: u16) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{label}: "), Style::default().fg(DIM)),
-        Span::styled(
-            truncate_middle(url, width.saturating_sub(10) as usize),
-            Style::default().fg(BLUE).add_modifier(Modifier::UNDERLINED),
-        ),
-    ])
-}
-
 fn render_throughput(
     frame: &mut Frame<'_>,
     area: Rect,
     snapshot: &MonitorSnapshot,
     config: &MonitorConfig,
+    language: UiLanguage,
 ) {
     let totals = totals(snapshot);
     let bins = request_bins(snapshot, 12, Duration::from_secs(3));
@@ -2174,7 +1945,7 @@ fn render_throughput(
         .style(Style::default().bg(PANEL))
         .padding(Padding::horizontal(1))
         .title(Span::styled(
-            " THROUGHPUT ",
+            format!(" {} ", language.tr("THROUGHPUT")),
             Style::default().fg(GRAY).add_modifier(Modifier::BOLD),
         ))
         .title(Line::from(Span::styled(" 30S WINDOW ", Style::default().fg(DIM))).right_aligned());
@@ -2239,189 +2010,7 @@ fn render_throughput(
     );
 }
 
-fn slot_bar(active: u64, capacity: u64, width: usize) -> (String, String, Color) {
-    let capacity = capacity.max(1);
-    let ratio = (active as f64 / capacity as f64).clamp(0.0, 1.0);
-    let filled = ((ratio * width as f64).round() as usize).min(width);
-    let color = if ratio >= 0.85 {
-        RED
-    } else if ratio >= 0.6 {
-        YELLOW
-    } else {
-        CYAN
-    };
-    (
-        "━".repeat(filled),
-        "·".repeat(width.saturating_sub(filled)),
-        color,
-    )
-}
-
-fn render_footer(frame: &mut Frame<'_>, area: Rect, config: &MonitorConfig) {
-    frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
-    let project = config
-        .project_url
-        .strip_prefix("https://")
-        .unwrap_or(&config.project_url)
-        .trim_end_matches('/');
-
-    if area.width >= 124 {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-            .split(area);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    "  wcode  ",
-                    Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    project.to_owned(),
-                    Style::default().fg(BLUE).add_modifier(Modifier::UNDERLINED),
-                ),
-                Span::styled("  by  ", Style::default().fg(DIM)),
-                Span::styled(
-                    config.author_handle.clone(),
-                    Style::default()
-                        .fg(PURPLE)
-                        .add_modifier(Modifier::UNDERLINED),
-                ),
-            ])),
-            columns[0],
-        );
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                keycap("←/→"),
-                Span::styled(" workspace  ", Style::default().fg(GRAY)),
-                keycap("O"),
-                Span::styled(" setup  ", Style::default().fg(GRAY)),
-                keycap("G"),
-                Span::styled(" project  ", Style::default().fg(GRAY)),
-                keycap("A"),
-                Span::styled(" author  ", Style::default().fg(GRAY)),
-                keycap("?"),
-                Span::styled(" help  ", Style::default().fg(GRAY)),
-                keycap("^C"),
-                Span::styled(" stop", Style::default().fg(GRAY)),
-            ]))
-            .alignment(ratatui::layout::Alignment::Right),
-            columns[1],
-        );
-        return;
-    }
-
-    let line = if area.width >= 78 {
-        Line::from(vec![
-            Span::raw(" "),
-            keycap("←/→"),
-            Span::styled(" workspace  ", Style::default().fg(GRAY)),
-            keycap("O"),
-            Span::styled(" setup  ", Style::default().fg(GRAY)),
-            keycap("G"),
-            Span::styled(" repo  ", Style::default().fg(GRAY)),
-            keycap("A"),
-            Span::styled(" author  ", Style::default().fg(GRAY)),
-            keycap("?"),
-            Span::styled(" help  ", Style::default().fg(GRAY)),
-            keycap("^C"),
-        ])
-    } else {
-        Line::from(vec![
-            Span::raw(" "),
-            keycap("←/→"),
-            Span::raw("  "),
-            keycap("O"),
-            Span::raw("  "),
-            keycap("G"),
-            Span::raw("  "),
-            keycap("?"),
-            Span::raw("  "),
-            keycap("^C"),
-        ])
-    };
-    frame.render_widget(Paragraph::new(line), area);
-}
-
-fn keycap(key: &str) -> Span<'static> {
-    Span::styled(
-        format!(" {key} "),
-        Style::default()
-            .fg(WHITE)
-            .bg(PANEL_ALT)
-            .add_modifier(Modifier::BOLD),
-    )
-}
-
-fn totals(snapshot: &MonitorSnapshot) -> WorkspaceStats {
-    snapshot
-        .workspaces
-        .values()
-        .fold(WorkspaceStats::default(), |mut total, stats| {
-            total.queued = total.queued.saturating_add(stats.queued);
-            total.active = total.active.saturating_add(stats.active);
-            total.completed = total.completed.saturating_add(stats.completed);
-            total.failed = total.failed.saturating_add(stats.failed);
-            total.calls = total.calls.saturating_add(stats.calls);
-            total.request_bytes = total.request_bytes.saturating_add(stats.request_bytes);
-            total.response_bytes = total.response_bytes.saturating_add(stats.response_bytes);
-            total.context_bytes_avoided = total
-                .context_bytes_avoided
-                .saturating_add(stats.context_bytes_avoided);
-            total
-        })
-}
-
-fn success_rate(completed: u64, failed: u64) -> f64 {
-    let finished = completed.saturating_add(failed);
-    if finished == 0 {
-        100.0
-    } else {
-        completed as f64 * 100.0 / finished as f64
-    }
-}
-
-fn window_totals(snapshot: &MonitorSnapshot, window: Duration) -> (u64, u64, u64) {
-    let now = Instant::now();
-    snapshot
-        .traffic
-        .iter()
-        .filter(|event| now.saturating_duration_since(event.at) <= window)
-        .fold((0, 0, 0), |(requests, rx, tx), event| {
-            (
-                requests.saturating_add(event.requests),
-                rx.saturating_add(event.request_bytes),
-                tx.saturating_add(event.response_bytes),
-            )
-        })
-}
-
-fn window_context_avoided(snapshot: &MonitorSnapshot, window: Duration) -> u64 {
-    let now = Instant::now();
-    snapshot
-        .traffic
-        .iter()
-        .filter(|event| now.saturating_duration_since(event.at) <= window)
-        .fold(0u64, |total, event| {
-            total.saturating_add(event.context_bytes_avoided)
-        })
-}
-
-fn request_bins(snapshot: &MonitorSnapshot, count: usize, width: Duration) -> Vec<u64> {
-    let now = Instant::now();
-    let mut bins = vec![0u64; count];
-    for event in &snapshot.traffic {
-        let age = now.saturating_duration_since(event.at);
-        let index_from_end = (age.as_secs_f64() / width.as_secs_f64()) as usize;
-        if index_from_end < count {
-            let index = count - 1 - index_from_end;
-            bins[index] = bins[index].saturating_add(event.requests);
-        }
-    }
-    bins
-}
-
-fn sparkline(values: &[u64]) -> String {
+pub(super) fn sparkline(values: &[u64]) -> String {
     const LEVELS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     let maximum = values.iter().copied().max().unwrap_or(0);
     values
@@ -2437,11 +2026,11 @@ fn sparkline(values: &[u64]) -> String {
         .collect()
 }
 
-fn spinner_frame(tick: usize) -> &'static str {
+pub(super) fn spinner_frame(tick: usize) -> &'static str {
     SPINNER_FRAMES[tick % SPINNER_FRAMES.len()]
 }
 
-fn short_duration(duration: Duration) -> String {
+pub(super) fn short_duration(duration: Duration) -> String {
     if duration.as_secs() >= 60 {
         format!(
             "{}m{:02}s",
@@ -2455,7 +2044,7 @@ fn short_duration(duration: Duration) -> String {
     }
 }
 
-fn short_bytes(bytes: u64) -> String {
+pub(super) fn short_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 * 1024 {
         format!("{:.1}G", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     } else if bytes >= 1024 * 1024 {
@@ -2467,11 +2056,11 @@ fn short_bytes(bytes: u64) -> String {
     }
 }
 
-fn estimated_tokens(bytes: u64) -> u64 {
+pub(super) fn estimated_tokens(bytes: u64) -> u64 {
     (bytes as f64 / ESTIMATED_BYTES_PER_TOKEN).ceil() as u64
 }
 
-fn short_tokens(tokens: u64) -> String {
+pub(super) fn short_tokens(tokens: u64) -> String {
     if tokens >= 1_000_000_000 {
         format!("{:.1}B", tokens as f64 / 1_000_000_000.0)
     } else if tokens >= 1_000_000 {
@@ -2483,11 +2072,11 @@ fn short_tokens(tokens: u64) -> String {
     }
 }
 
-fn estimated_cost_usd(context_bytes: u64, price_per_million: f64) -> f64 {
+pub(super) fn estimated_cost_usd(context_bytes: u64, price_per_million: f64) -> f64 {
     estimated_tokens(context_bytes) as f64 * price_per_million.max(0.0) / 1_000_000.0
 }
 
-fn short_usd(value: f64) -> String {
+pub(super) fn short_usd(value: f64) -> String {
     if !value.is_finite() || value <= 0.0 {
         "$0".to_owned()
     } else if value >= 1_000.0 {
@@ -2503,7 +2092,7 @@ fn short_usd(value: f64) -> String {
     }
 }
 
-fn truncate_end(value: &str, max_chars: usize) -> String {
+pub(super) fn truncate_end(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         value.to_owned()
     } else if max_chars <= 1 {
@@ -2515,7 +2104,7 @@ fn truncate_end(value: &str, max_chars: usize) -> String {
     }
 }
 
-fn truncate_middle(value: &str, max_chars: usize) -> String {
+pub(super) fn truncate_middle(value: &str, max_chars: usize) -> String {
     let len = value.chars().count();
     if len <= max_chars {
         return value.to_owned();
@@ -2541,6 +2130,20 @@ fn truncate_middle(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+
+    fn monitor_test_workspaces(names: &[&str]) -> (tempfile::TempDir, Workspaces) {
+        let root = tempfile::tempdir().unwrap();
+        let paths = names
+            .iter()
+            .map(|name| {
+                let path = root.path().join(name);
+                std::fs::create_dir(&path).unwrap();
+                path
+            })
+            .collect::<Vec<_>>();
+        let workspaces = Workspaces::new(&paths, true, true).unwrap();
+        (root, workspaces)
+    }
 
     #[test]
     fn tracks_task_lifecycle_per_workspace_and_bytes() {
@@ -2570,6 +2173,42 @@ mod tests {
         );
         assert!((estimated_cost_usd(512, 5.0) - 0.00064).abs() < f64::EPSILON);
         assert!((estimated_cost_usd(4_096, 5.0) - 0.00512).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn scope_status_updates_operator_intelligence_state() {
+        let monitor = TaskMonitor::new(["api".to_owned()]);
+        monitor.record_intelligence_result(
+            "api",
+            "scope_status",
+            &serde_json::json!({"source_files": 12, "mapped_files": 10, "unmapped_files": ["src/a.rs", "src/b.rs"]}),
+        );
+        let snapshot = monitor.snapshot();
+        let stats = &snapshot.intelligence["api"];
+        assert_eq!(stats.scope_source_files, 12);
+        assert_eq!(stats.scope_mapped_files, 10);
+        assert_eq!(stats.scope_unmapped_files, 2);
+        assert!(stats.updated_at.is_some());
+    }
+
+    #[test]
+    fn orchestration_tasks_are_visible_without_consuming_execution_slots() {
+        let monitor = TaskMonitor::new(["api".to_owned()]);
+        let mut ticket =
+            monitor.queue_orchestration("api", "verification_plan", "orchestrate child checks", 64);
+
+        ticket.start();
+        let running = monitor.snapshot();
+        assert_eq!(running.tasks.len(), 1);
+        assert_eq!(running.tasks[0].status, TaskStatus::Running);
+        assert_eq!(running.workspaces["api"].active, 0);
+        assert_eq!(running.peak_active, 0);
+
+        ticket.finish(true, 128);
+        let completed = monitor.snapshot();
+        assert_eq!(completed.tasks[0].status, TaskStatus::Completed);
+        assert_eq!(completed.workspaces["api"].completed, 1);
+        assert_eq!(completed.workspaces["api"].active, 0);
     }
 
     #[test]
@@ -2710,19 +2349,21 @@ mod tests {
 
     #[test]
     fn mouse_hit_testing_opens_footer_and_help_links() {
+        let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+            intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
             author_handle: "@francis-du".to_owned(),
             pairing_code: "123456".to_owned(),
             max_parallel: 16,
             input_token_price_per_million_usd: 5.0,
-            workspaces: vec![("backend".to_owned(), "/code/backend".to_owned(), true)],
+            workspaces,
         };
         let footer_click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -2792,22 +2433,21 @@ mod tests {
     #[test]
     fn narrow_and_tiny_layouts_do_not_panic() {
         let monitor = TaskMonitor::new(["backend".to_owned(), "frontend".to_owned()]);
+        let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend", "frontend"]);
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+            intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
             author_handle: "@francis-du".to_owned(),
             pairing_code: "123456".to_owned(),
             max_parallel: 16,
             input_token_price_per_million_usd: 5.0,
-            workspaces: vec![
-                ("backend".to_owned(), "/code/backend".to_owned(), true),
-                ("frontend".to_owned(), "/code/frontend".to_owned(), false),
-            ],
+            workspaces,
         };
 
         for (width, height) in [(20, 5), (40, 10), (60, 18), (100, 32)] {
@@ -2824,6 +2464,7 @@ mod tests {
     #[test]
     fn help_and_footer_render_project_and_author_links() {
         let monitor = TaskMonitor::new(["backend".to_owned()]);
+        let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
         monitor.mark_mcp_initialized();
         let mut saved = monitor.queue("backend", "symbol_context", "saved context", 1);
         saved.start();
@@ -2838,13 +2479,15 @@ mod tests {
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+            intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"
+                .to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
             author_handle: "@francis-du".to_owned(),
             pairing_code: "123456".to_owned(),
             max_parallel: 8,
             input_token_price_per_million_usd: 5.0,
-            workspaces: vec![("backend".to_owned(), "/code/backend".to_owned(), true)],
+            workspaces,
         };
 
         let backend = TestBackend::new(140, 32);
@@ -2906,6 +2549,67 @@ mod tests {
     }
 
     #[test]
+    fn authorization_overlay_shows_selectable_requests_and_actions() {
+        let requests = vec![
+            AuthorizationRequest {
+                id: "AUTH-00000002".to_owned(),
+                workspace: "backend".to_owned(),
+                kind: crate::authorization::AuthorizationKind::CommandAccess,
+                summary: "authorize command: git".to_owned(),
+                program: Some("git".to_owned()),
+                fingerprint: "sha256:git".to_owned(),
+                status: AuthorizationStatus::Pending,
+                created_at_ms: 2,
+                decided_at_ms: None,
+            },
+            AuthorizationRequest {
+                id: "AUTH-00000001".to_owned(),
+                workspace: "backend".to_owned(),
+                kind: crate::authorization::AuthorizationKind::DestructiveDelete,
+                summary: "delete file: src/obsolete.rs".to_owned(),
+                program: None,
+                fingerprint: "sha256:delete".to_owned(),
+                status: AuthorizationStatus::Pending,
+                created_at_ms: 1,
+                decided_at_ms: None,
+            },
+        ];
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_authorization_overlay(frame, frame.area(), &requests, 1, UiLanguage::En)
+            })
+            .expect("authorization overlay renders");
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("AUTHORIZATION REQUIRED"));
+        assert!(text.contains("AUTH-00000002"));
+        assert!(text.contains("AUTH-00000001"));
+        assert!(text.contains("Y"));
+        assert!(text.contains("approve selected"));
+        assert!(text.contains("N"));
+        assert!(text.contains("deny selected"));
+    }
+
+    #[test]
+    fn intelligence_url_keeps_ui_token_and_targets_focused_workspace() {
+        let url = intelligence_url_for_workspace(
+            "http://127.0.0.1:8765/intelligence#token=secret",
+            "frontend app",
+        );
+        assert_eq!(
+            url,
+            "http://127.0.0.1:8765/intelligence#token=secret&workspace=frontend+app"
+        );
+    }
+
+    #[test]
     fn workspace_columns_scale_from_one_to_four() {
         assert_eq!(workspace_column_count(45, 6), 1);
         assert_eq!(workspace_column_count(70, 6), 2);
@@ -2932,19 +2636,22 @@ mod tests {
     #[test]
     fn connection_stages_and_setup_collapse_render() {
         let monitor = TaskMonitor::new(["backend".to_owned()]);
+        let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
         let config = MonitorConfig {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
             mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
             setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+            intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"
+                .to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
             author_handle: "@francis-du".to_owned(),
             pairing_code: "123456".to_owned(),
             max_parallel: 8,
             input_token_price_per_million_usd: 5.0,
-            workspaces: vec![("backend".to_owned(), "/code/backend".to_owned(), true)],
+            workspaces,
         };
         let backend = TestBackend::new(100, 32);
         let mut terminal = Terminal::new(backend).expect("test terminal");

@@ -1,0 +1,11 @@
+schema_version: 1
+id: product:wcode
+name: wcode Software Intelligence Runtime
+vision: Software continuously converges toward intended design with verifiable evidence.
+principles:
+  - Design State is the desired software state.
+  - Models are replaceable executors, not the source of truth.
+  - Deterministic evidence outranks model consensus.
+  - Software graph precision and provenance must remain explicit.
+  - wcode dogfoods its own intelligence runtime.
+  - Maintained documentation has one canonical WIKI and one hosted HTML surface.
