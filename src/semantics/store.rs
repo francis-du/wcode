@@ -177,6 +177,7 @@ mod tests {
         .unwrap();
         persist(&workspace, &candidate).unwrap();
         let confirmed = candidate.confirm("human:fixture".into()).unwrap();
+        assert!(confirmed.timestamp_ms > candidate.timestamp_ms);
         persist(&workspace, &confirmed).unwrap();
         let loaded = load(&workspace).unwrap();
         assert_eq!(loaded.len(), 1);

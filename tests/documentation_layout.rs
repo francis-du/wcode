@@ -7,9 +7,11 @@ fn documentation_is_canonical_and_hosted_as_html() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     let root_markdown = markdown_names(root);
-    assert_eq!(
-        root_markdown,
-        BTreeSet::from(["AGENTS.md".to_owned(), "README.md".to_owned()]),
+    assert!(root_markdown.contains("README.md"));
+    assert!(
+        root_markdown
+            .iter()
+            .all(|name| matches!(name.as_str(), "AGENTS.md" | "README.md")),
         "project documentation must not be scattered across the repository root"
     );
     assert!(

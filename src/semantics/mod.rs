@@ -104,7 +104,7 @@ impl SemanticFact {
         let mut fact = self.clone();
         fact.status = SemanticStatus::Confirmed;
         fact.attested_by = Some(attested_by);
-        fact.timestamp_ms = now_ms();
+        fact.timestamp_ms = next_revision_timestamp(self.timestamp_ms);
         fact.normalize();
         fact.validate()?;
         Ok(fact)
@@ -114,7 +114,7 @@ impl SemanticFact {
         let mut fact = self.clone();
         fact.status = SemanticStatus::Retired;
         fact.attested_by = Some(attested_by);
-        fact.timestamp_ms = now_ms();
+        fact.timestamp_ms = next_revision_timestamp(self.timestamp_ms);
         fact.normalize();
         fact.validate()?;
         Ok(fact)
@@ -203,6 +203,10 @@ impl SemanticFact {
         normalize_option(&mut self.attested_by);
         normalize_option(&mut self.source);
     }
+}
+
+fn next_revision_timestamp(previous: u64) -> u64 {
+    now_ms().max(previous.saturating_add(1))
 }
 
 #[derive(Clone, Debug, Deserialize)]
