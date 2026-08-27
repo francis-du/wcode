@@ -48,21 +48,27 @@ Models are execution providers, not the product core. Claude, ChatGPT, Grok, Mis
 </p>
 
 <p align="center">
-  <img src="docs/assets/img.png" alt="latest wcode live terminal dashboard" width="100%">
+  <img src="docs/assets/wcode-tui.png" alt="latest wcode live terminal dashboard" width="100%">
 </p>
 
 <p align="center"><sub>Live terminal dashboard — local health, public tunnel readiness, OAuth pairing, MCP activity, and workspace tasks in one view.</sub></p>
 
 <p align="center">
-  <img src="docs/assets/img_2.png" alt="latest wcode browser setup and connection interface" width="82%">
+  <img src="docs/assets/wcode-setup-hub.png" alt="latest wcode browser setup and connection interface" width="82%">
 </p>
 
 <p align="center"><sub>Browser setup — connect a model executor and inspect the active local runtime.</sub></p>
 
 <p align="center">
-  <img src="docs/assets/img_1.png" alt="wcode Project Observatory" width="32%">
-  <img src="docs/assets/img_3.png" alt="wcode authorization and access controls" width="32%">
-  <img src="docs/assets/img_4.png" alt="wcode workspace intelligence view" width="32%">
+  <img src="docs/assets/wcode-architecture.png" alt="wcode architecture-first Project Observatory overview" width="100%">
+</p>
+
+<p align="center"><sub>Architecture overview — desired vs actual component dependencies, observed drift, evidence and implementation coverage in one view.</sub></p>
+
+<p align="center">
+  <img src="docs/assets/wcode-observatory.png" alt="wcode Project Observatory" width="32%">
+  <img src="docs/assets/wcode-access-management.png" alt="wcode authorization and access controls" width="32%">
+  <img src="docs/assets/wcode-verification-detail.png" alt="wcode requirement traceability and verification evidence" width="32%">
 </p>
 
 <p align="center"><sub>Project Observatory, local authorization, and detailed workspace intelligence.</sub></p>
