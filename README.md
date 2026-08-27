@@ -126,12 +126,6 @@ curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | 
 irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 ```
 
-Or build it directly with Cargo:
-
-```bash
-cargo install --path .
-```
-
 ## Start
 
 ```bash

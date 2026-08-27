@@ -45,7 +45,31 @@
   <section id="stats" class="stats"></section>
   <section id="attention" class="attention" aria-live="polite"></section>
 
-  <section class="workspace">
+  <section class="panel architecture-panel">
+    <div class="panel-head architecture-head">
+      <div><div class="panel-title" data-i18n="Architecture overview">Architecture overview</div><div class="panel-meta" data-i18n="architecture overview meta">Compare the full declared component architecture with dependencies observed from the current implementation.</div></div>
+      <div class="architecture-modes" aria-label="Architecture graph mode">
+        <button class="arch-mode active" type="button" data-arch-mode="overlay" data-i18n="Overlay">Overlay</button>
+        <button class="arch-mode" type="button" data-arch-mode="design" data-i18n="Design">Design</button>
+        <button class="arch-mode" type="button" data-arch-mode="actual" data-i18n="Implementation">Implementation</button>
+      </div>
+    </div>
+    <div id="architectureMetrics" class="architecture-metrics"></div>
+    <div class="architecture-layout">
+      <div class="architecture-graph-shell">
+        <div class="architecture-legend" aria-label="Architecture graph legend">
+          <span><i class="legend-line aligned"></i><span data-i18n="Aligned dependency">Aligned dependency</span></span>
+          <span><i class="legend-line unverified"></i><span data-i18n="Declared, not yet observed">Declared, not yet observed</span></span>
+          <span><i class="legend-line observed"></i><span data-i18n="Observed implementation edge">Observed implementation edge</span></span>
+          <span><i class="legend-line drift"></i><span data-i18n="Strong observed drift">Strong observed drift</span></span>
+        </div>
+        <div id="architectureGraph" class="architecture-graph" role="img" aria-label="Architecture drift graph"></div>
+      </div>
+      <aside id="componentInspector" class="component-inspector"></aside>
+    </div>
+  </section>
+
+  <section class="workspace drilldown">
     <aside class="panel sidebar">
       <div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div>
       <div class="sidebar-tools">
@@ -83,7 +107,7 @@
     <div id="languageQuality" class="table-wrap"></div>
   </details>
 
-  <footer>Project data is returned only after the local UI token from this page's URL fragment is presented to protected Intelligence endpoints. The fragment itself is not sent in HTTP requests or server logs.</footer>
+  <footer data-i18n="security footer">Project data is returned only after the local UI token from this page's URL fragment is presented to protected Intelligence endpoints. The fragment itself is not sent in HTTP requests or server logs.</footer>
 </div>
 </body>
 </html>

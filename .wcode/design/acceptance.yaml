@@ -261,7 +261,7 @@
       symbol: tests::manual_toggle_defaults_to_english_and_covers_chinese
     - kind: test
       path: src/ui/intelligence_web.rs
-      symbol: tests::project_observatory_page_is_requirement_first_and_has_no_ball_graph
+      symbol: tests::project_observatory_page_is_architecture_first_and_has_no_ball_graph
     - kind: test
       path: src/ui/intelligence_web.rs
       symbol: tests::observatory_assets_support_incremental_refresh_precision_and_light_mode
@@ -304,15 +304,15 @@
 
 - schema_version: 1
   id: AC-OBSERVABILITY-001
-  title: Project observatory is requirement-first and code-derived
-  statement: The WebUI exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with an attention-first summary and visible graph provider/precision; every requirement has a stable/changing/needs_convergence/incomplete state with real blockers alongside components, current implementation, verification, dependency alignment, repository code statistics, mapped Git changes, and graph revision history. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory, while strong positive semantic/runtime/deterministic evidence may expose an undeclared dependency as a blocker; the generic ball graph is absent from the primary page.
+  title: Project observatory is architecture-first and code-derived
+  statement: The WebUI first exposes the complete component architecture with Design / Implementation / Overlay graph modes, clickable component drill-down, visible graph provider/precision, an observed-drift percentage based only on strong positive undeclared Actual dependencies, evidence coverage for declared dependencies, and implementation coverage for components. Requirement detail then exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with real blockers, verification, mapped Git changes, code statistics and graph revision history. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory; the generic undifferentiated ball graph is absent from the primary page.
   verification:
     - kind: test
       path: src/runtime/harness_tests.rs
       symbol: project_observatory_builds_requirement_architecture_from_current_code
     - kind: test
       path: src/ui/intelligence_web.rs
-      symbol: tests::project_observatory_page_is_requirement_first_and_has_no_ball_graph
+      symbol: tests::project_observatory_page_is_architecture_first_and_has_no_ball_graph
     - kind: test
       path: src/ui/intelligence_web.rs
       symbol: tests::observatory_assets_support_incremental_refresh_precision_and_light_mode
@@ -342,7 +342,7 @@
       symbol: project_context_detects_guidance_and_quality_checks
     - kind: test
       path: src/ui/intelligence_web.rs
-      symbol: tests::project_observatory_page_is_requirement_first_and_has_no_ball_graph
+      symbol: tests::project_observatory_page_is_architecture_first_and_has_no_ball_graph
 
 - schema_version: 1
   id: AC-DOCS-001

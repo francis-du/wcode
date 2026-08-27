@@ -80,6 +80,14 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
                 .map(|requirement| build_requirement(requirement, trace, &requirement_context))
         })
         .collect::<Vec<_>>();
+    let architecture_dependencies =
+        project_dependency_alignment(&state, &desired_dependencies, &actual_dependencies);
+    let architecture = super::observatory_architecture::build_project_architecture(
+        &state,
+        &path_lines,
+        &changed_paths,
+        architecture_dependencies,
+    );
     let history = input
         .history
         .iter()
@@ -149,6 +157,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         language_quality: input.language_quality,
         proof: input.proof,
         convergence,
+        architecture,
         requirements,
         changes,
         history,
@@ -379,6 +388,38 @@ fn actual_component_dependencies(
     component_paths: &BTreeMap<String, BTreeSet<String>>,
 ) -> BTreeMap<(String, String), String> {
     let mut node_owners = HashMap::<String, BTreeSet<String>>::new();
+    for component in state.components.values() {
+        for reference in &component.implementation {
+            for node in graph.graph.nodes.values() {
+                let Some(path) = graph_node_path(node) else {
+                    continue;
+                };
+                if path != reference.path() {
+                    continue;
+                }
+                let matches_reference = match reference {
+                    design::CodeRef::File { .. } => node.kind == NodeKind::File,
+                    design::CodeRef::Symbol { symbol, .. } => {
+                        let qualified_name = node
+                            .attributes
+                            .get("qualified_name")
+                            .and_then(serde_json::Value::as_str);
+                        let name = node
+                            .attributes
+                            .get("name")
+                            .and_then(serde_json::Value::as_str);
+                        qualified_name == Some(symbol.as_str()) || name == Some(symbol.as_str())
+                    }
+                };
+                if matches_reference {
+                    node_owners
+                        .entry(node.id.clone())
+                        .or_default()
+                        .insert(component.id.clone());
+                }
+            }
+        }
+    }
     for requirement in &traceability.requirements {
         for reference in &requirement.implementation {
             if state.components.contains_key(&reference.owner) {
@@ -779,6 +820,25 @@ fn dependency_alignment(
             .filter(|(from, _)| requirement_components.contains(from))
             .cloned(),
     );
+    dependency_alignment_for_pairs(state, pairs, desired_dependencies, actual_dependencies)
+}
+
+fn project_dependency_alignment(
+    state: &design::DesignState,
+    desired_dependencies: &BTreeSet<(String, String)>,
+    actual_dependencies: &BTreeMap<(String, String), String>,
+) -> Vec<FeatureDependencyAlignment> {
+    let mut pairs = desired_dependencies.clone();
+    pairs.extend(actual_dependencies.keys().cloned());
+    dependency_alignment_for_pairs(state, pairs, desired_dependencies, actual_dependencies)
+}
+
+fn dependency_alignment_for_pairs(
+    state: &design::DesignState,
+    pairs: BTreeSet<(String, String)>,
+    desired_dependencies: &BTreeSet<(String, String)>,
+    actual_dependencies: &BTreeMap<(String, String), String>,
+) -> Vec<FeatureDependencyAlignment> {
     pairs
         .into_iter()
         .map(|(from, to)| {

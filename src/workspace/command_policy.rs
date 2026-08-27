@@ -502,51 +502,6 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     hardened
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_owned()).collect()
-    }
-
-    #[test]
-    fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
-        assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_err());
-        assert!(validate_git_command(&args(&["push", "origin", "main"]), true).is_ok());
-        assert!(validate_git_command(&args(&["push"]), true).is_err());
-        assert!(validate_git_command(&args(&["push", "--force"]), false)
-            .unwrap_err()
-            .to_string()
-            .contains("force/delete/mirror"));
-        assert!(validate_git_command(&args(&["push", "--force"]), true).is_err());
-        assert!(validate_git_command(&args(&["push", "origin", "+HEAD:main"]), true).is_err());
-        assert!(validate_git_command(&args(&["push", "origin", "main:"]), true).is_err());
-
-        assert!(
-            validate_git_command(&args(&["commit", "-m", "docs: refresh screenshots"]), true)
-                .is_ok()
-        );
-        assert!(validate_git_command(&args(&["commit", "--amend", "-m", "no"]), true).is_err());
-        assert!(validate_git_command(&args(&["commit"]), true).is_err());
-
-        assert!(validate_git_command(&args(&["add", "--", "docs/index.html"]), true).is_ok());
-        assert!(validate_git_command(&args(&["add", "."]), true).is_err());
-        assert!(validate_git_command(&args(&["add", "-A"]), true).is_err());
-        assert!(validate_git_command(&args(&["reset", "--hard"]), true).is_err());
-
-        assert!(validate_command_arguments(
-            "git",
-            &args(&["https://user:secret@example.com/repository.git"]),
-        )
-        .is_err());
-        assert!(
-            validate_command_arguments("git", &args(&["https://example.com/repository.git"]),)
-                .is_ok()
-        );
-    }
-}
-
 pub(super) fn scrub_sensitive_environment(command: &mut Command, program: &str) {
     for (key, _) in std::env::vars() {
         let upper = key.to_ascii_uppercase();
@@ -605,4 +560,49 @@ where
         truncated |= keep < read;
     }
     Ok((String::from_utf8_lossy(&stored).to_string(), truncated))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
+        assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "main"]), true).is_ok());
+        assert!(validate_git_command(&args(&["push"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "--force"]), false)
+            .unwrap_err()
+            .to_string()
+            .contains("force/delete/mirror"));
+        assert!(validate_git_command(&args(&["push", "--force"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "+HEAD:main"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "main:"]), true).is_err());
+
+        assert!(
+            validate_git_command(&args(&["commit", "-m", "docs: refresh screenshots"]), true)
+                .is_ok()
+        );
+        assert!(validate_git_command(&args(&["commit", "--amend", "-m", "no"]), true).is_err());
+        assert!(validate_git_command(&args(&["commit"]), true).is_err());
+
+        assert!(validate_git_command(&args(&["add", "--", "docs/index.html"]), true).is_ok());
+        assert!(validate_git_command(&args(&["add", "."]), true).is_err());
+        assert!(validate_git_command(&args(&["add", "-A"]), true).is_err());
+        assert!(validate_git_command(&args(&["reset", "--hard"]), true).is_err());
+
+        assert!(validate_command_arguments(
+            "git",
+            &args(&["https://user:secret@example.com/repository.git"]),
+        )
+        .is_err());
+        assert!(
+            validate_command_arguments("git", &args(&["https://example.com/repository.git"]),)
+                .is_ok()
+        );
+    }
 }

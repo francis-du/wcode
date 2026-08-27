@@ -147,9 +147,9 @@
     - component:verification-mesh
 
 - schema_version: 1
-  id: CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
-  title: Project observability is requirement-first
-  statement: Operator-facing architecture must organize each project and requirement as Desired State → Actual State → Change → Proof → Convergence, compare declared dependencies with current code-derived dependencies using explicit precision, count Proof only from revision-matching Evidence, expose convergence blockers plus bounded code/change statistics and revision history, and must not make an undifferentiated global node graph the primary project view.
+  id: CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
+  title: Project observability is architecture-first
+  statement: Operator-facing WebUI must show the complete component architecture before Requirement drill-down, overlay declared Design dependencies with current code-derived Actual dependencies using explicit provider/precision, distinguish strong positive-evidence drift from advisory evidence gaps, expose interpretable observed-drift and evidence-coverage metrics, then preserve Requirement → Desired State → Actual State → Change → Proof → Convergence detail with revision-matching Evidence, bounded code/change statistics and revision history. An undifferentiated global node-ball graph must not be the primary project view.
   applies_to:
     - component:intelligence-ui
     - component:traceability-drift

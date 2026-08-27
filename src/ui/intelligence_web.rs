@@ -144,34 +144,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn project_observatory_page_is_requirement_first_and_has_no_ball_graph() {
-        assert!(INTELLIGENCE_PAGE.contains("/intelligence/project"));
-        assert!(INTELLIGENCE_PAGE.contains("Requirements"));
-        assert!(INTELLIGENCE_PAGE.contains("Feature architecture · desired vs actual"));
-        assert!(INTELLIGENCE_PAGE.contains("Desired State"));
-        assert!(INTELLIGENCE_PAGE.contains("Actual State"));
-        assert!(INTELLIGENCE_PAGE.contains("Proof"));
-        assert!(INTELLIGENCE_PAGE.contains("Convergence"));
-        assert!(INTELLIGENCE_PAGE.contains("Language quality matrix"));
-        assert!(INTELLIGENCE_PAGE.contains("language_quality"));
-        assert!(INTELLIGENCE_PAGE.contains("Code statistics"));
-        assert!(INTELLIGENCE_PAGE.contains("Current changes"));
-        assert!(INTELLIGENCE_PAGE.contains("Architecture revisions"));
-        assert!(INTELLIGENCE_PAGE.contains("/intelligence/workspaces"));
-        assert!(INTELLIGENCE_PAGE.contains("/intelligence/commands"));
-        assert!(INTELLIGENCE_PAGE.contains("/intelligence/authorizations"));
-        assert!(INTELLIGENCE_PAGE.contains("/intelligence/command-operations"));
-        assert!(INTELLIGENCE_PAGE.contains("Exact repository operation"));
-        assert!(INTELLIGENCE_PAGE.contains("Pending authorizations"));
-        assert!(INTELLIGENCE_PAGE.contains("data-approve-authorization"));
-        assert!(INTELLIGENCE_PAGE.contains("Authorized projects"));
-        assert!(INTELLIGENCE_PAGE.contains("Manage access"));
-        assert!(INTELLIGENCE_PAGE.contains("id=\"language\""));
-        assert!(INTELLIGENCE_PAGE.contains("savedLanguage==='zh-CN'?'zh-CN':'en'"));
-        assert!(INTELLIGENCE_PAGE.contains("fragment.get('workspace')||''"));
-        assert!(!INTELLIGENCE_PAGE.contains("navigator.language"));
-        assert!(!INTELLIGENCE_PAGE.contains("graphCanvas"));
-        assert!(!INTELLIGENCE_PAGE.contains("Interactive Software Graph"));
+    fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
+        assert!(INTELLIGENCE_APP_PAGE.contains("Architecture overview"));
+        assert!(INTELLIGENCE_APP_PAGE.contains("id=\"architectureMetrics\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("id=\"architectureGraph\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("id=\"componentInspector\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("data-arch-mode=\"overlay\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("data-arch-mode=\"design\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("data-arch-mode=\"actual\""));
+        assert!(INTELLIGENCE_APP_PAGE.contains("Requirements"));
+        assert!(INTELLIGENCE_JS.contains("observed_drift_percent"));
+        assert!(INTELLIGENCE_JS.contains("evidence_coverage_percent"));
+        assert!(INTELLIGENCE_JS.contains("implementation_coverage_percent"));
+        assert!(INTELLIGENCE_JS.contains("renderArchitectureGraph"));
+        assert!(INTELLIGENCE_JS.contains("renderComponentInspector"));
+        assert!(INTELLIGENCE_JS.contains("architectureEdgeTone"));
+        assert!(INTELLIGENCE_JS.contains("Strong observed drift"));
+        assert!(INTELLIGENCE_JS.contains("整体架构"));
+        assert!(INTELLIGENCE_JS.contains("强证据架构偏离"));
+        assert!(INTELLIGENCE_JS.contains("savedLanguage==='zh-CN'?'zh-CN':'en'"));
+        assert!(INTELLIGENCE_JS.contains("fragment.get('workspace')||''"));
+        assert!(!INTELLIGENCE_JS.contains("navigator.language"));
+        assert!(!INTELLIGENCE_APP_PAGE.contains("graphCanvas"));
+        assert!(!INTELLIGENCE_APP_PAGE.contains("Interactive Software Graph"));
     }
 
     #[test]

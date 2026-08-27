@@ -1,17 +1,17 @@
 ---
 layout: docs
-title: CLI 与 MCP Reference
-description: wcode CLI、操作入口、Transport 与 MCP 能力的统一参考
+title: CLI 与 MCP 参考手册
+description: wcode CLI、操作入口、传输方式与 MCP 能力的统一参考
 lang: zh-CN
 alternate: /docs/reference/
 permalink: /zh/docs/reference/
 ---
 
-# CLI 与 MCP Reference
+# CLI 与 MCP 参考手册
 
-这页是 wcode 日常操作的 canonical Reference。概念解释放在专题文档里；这里主要回答“该运行什么命令、该调用哪个 Tool”。
+这页是 wcode 日常操作的规范参考。概念解释放在专题文档里；这里主要回答“该运行什么命令、该调用哪个工具”。
 
-## 启动与控制 Runtime
+## 启动与控制运行时
 
 正常启动：
 
@@ -26,7 +26,7 @@ wcode restart
 wcode stop
 ```
 
-本地 Software Intelligence：
+本地软件智能：
 
 ```bash
 wcode --workspace "$PWD" intelligence
@@ -35,13 +35,13 @@ wcode --workspace "$PWD" verification
 wcode --workspace "$PWD" verification --plan-id VP-...
 ```
 
-同机 Coding Agent 默认优先 stdio：
+同机编程智能体默认优先 stdio：
 
 ```bash
 wcode --workspace /absolute/path/to/repository mcp-stdio
 ```
 
-云端 / Web Connector 使用 Runtime 输出的受保护公网 `/mcp` 地址。
+云端连接器使用运行时输出的受保护公网 `/mcp` 地址。
 
 ## 常用 CLI 参数
 

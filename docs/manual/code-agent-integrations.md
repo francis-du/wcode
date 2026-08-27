@@ -27,10 +27,10 @@ blocks:
 3. cloud/web connector configuration, kept separate from local stdio setup;
 4. shared security rules and primary sources.
 
-## 1. Build and install wcode
+## 1. Install wcode
 
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
 After replacing an already running HTTP instance:

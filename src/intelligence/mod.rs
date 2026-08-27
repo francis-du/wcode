@@ -82,6 +82,8 @@ mod analysis;
 mod context;
 #[path = "observatory.rs"]
 mod observatory;
+#[path = "observatory_architecture.rs"]
+mod observatory_architecture;
 use analysis::*;
 use context::*;
 pub(crate) use observatory::{build_project_observatory, ObservatoryInput};

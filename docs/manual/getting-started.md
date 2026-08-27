@@ -25,12 +25,6 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 ```
 
-From source:
-
-```bash
-cargo install --path .
-```
-
 ## 2. Start in a repository
 
 ```bash

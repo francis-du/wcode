@@ -25,12 +25,6 @@ Windows PowerShell：
 irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 ```
 
-从源码安装：
-
-```bash
-cargo install --path .
-```
-
 ## 2. 在仓库中启动
 
 ```bash

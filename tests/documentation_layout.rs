@@ -85,6 +85,42 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(!english_site.contains(">WIKI"));
     assert!(!chinese_site.contains(">WIKI"));
 
+    for site in [&english_site, &chinese_site] {
+        assert!(site.contains("id=\"clientGrid\""));
+        assert!(site.contains("id=\"clientSearch\""));
+        assert!(site.contains("id=\"sourceList\""));
+        for filter in ["all", "free", "china", "us", "chat", "coding", "native"] {
+            assert!(
+                site.contains(&format!("data-filter=\"{filter}\"")),
+                "both language homepages must expose the same client filters"
+            );
+        }
+    }
+    let site_js = fs::read_to_string(root.join("docs/assets/site.js")).unwrap();
+    assert!(site_js.contains("const zhClientCopy = {"));
+    assert!(site_js.contains("function localizedClient(client)"));
+    assert!(site_js.contains("pageIsChinese ? `官方来源 ${index + 1}`"));
+    assert!(!chinese_site.contains("Documentation"));
+    assert!(!chinese_site.contains("CLI/MCP Reference"));
+
+    let release_installer =
+        "curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh";
+    assert!(english_site.contains(release_installer));
+    assert!(chinese_site.contains(release_installer));
+    assert!(!english_site.contains("cargo install --path ."));
+    assert!(!chinese_site.contains("cargo install --path ."));
+    assert!(!fs::read_to_string(root.join("README.md"))
+        .unwrap()
+        .contains("cargo install --path ."));
+    for path in markdown_files(&docs_root) {
+        assert!(
+            !fs::read_to_string(&path)
+                .unwrap()
+                .contains("cargo install --path ."),
+            "user documentation must install releases through the installer script: {path:?}"
+        );
+    }
+
     let layout = fs::read_to_string(root.join("docs/_layouts/docs.html")).unwrap();
     assert!(layout.contains("page.lang == 'zh-CN'"));
     assert!(layout.contains("page.alternate"));

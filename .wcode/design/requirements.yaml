@@ -388,8 +388,8 @@
 
 - schema_version: 1
   id: REQ-OBSERVABILITY-001
-  title: Requirement-first project observability
-  intent: The protected WebUI must act as a requirement-first project observatory organized as Desired State → Actual State → Change → Proof → Convergence, with current-revision Evidence, explicit per-requirement convergence state and blockers, provider/precision-visible component architecture, code-derived dependency alignment, high-signal attention items, code statistics, mapped Git changes, and structural revision history without relying on a generic node-ball graph. Negative inference must remain precision-aware; absence from a bounded syntax graph is advisory rather than proof of a missing dependency.
+  title: Architecture-first project observability
+  intent: The protected WebUI must first expose the complete component architecture as a Design-vs-Actual dependency graph with interpretable observed-drift, evidence-coverage and implementation-coverage metrics, explicit provider/precision, and component/module drill-down for responsibilities, implementation mappings, related requirements, dependencies and current changes. Requirement detail then remains organized as Desired State → Actual State → Change → Proof → Convergence with revision-exact Evidence and real blockers. Negative inference must remain precision-aware; absence from a bounded syntax graph is advisory rather than proof of a missing dependency.
   priority: critical
   implemented_by:
     - component:intelligence-ui
@@ -399,7 +399,7 @@
   acceptance:
     - AC-OBSERVABILITY-001
   constraints:
-    - CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
+    - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
     - CONSTRAINT-EXPLICIT-PRECISION
   risk:
     reliability: critical

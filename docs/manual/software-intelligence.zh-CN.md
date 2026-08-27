@@ -63,12 +63,12 @@ verify_project + 独立 Reviewer Job
 evidence_status
 ```
 
-## 1. 安装 / 重启当前版本
+## 1. 安装 / 更新 wcode
 
-在 wcode 仓库里安装当前代码：
+安装最新 Release：
 
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
 如果 wcode 已经在运行，需要让正在使用的 MCP Server 加载新的 Tool Schema：

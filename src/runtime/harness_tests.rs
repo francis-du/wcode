@@ -555,6 +555,20 @@ mod tests {
     assert_eq!(project.convergence.stable_requirements, 1);
     assert_eq!(project.convergence.needs_convergence_requirements, 0);
     assert_eq!(project.proof.current_evidence, 0);
+    assert_eq!(project.architecture.components.len(), 2);
+    assert_eq!(project.architecture.desired_edges, 1);
+    assert_eq!(project.architecture.aligned_edges, 1);
+    assert_eq!(project.architecture.blocking_drift_edges, 0);
+    assert_eq!(project.architecture.observed_drift_percent, 0.0);
+    assert_eq!(project.architecture.evidence_coverage_percent, 100.0);
+    assert_eq!(project.architecture.implementation_coverage_percent, 100.0);
+    assert!(project.architecture.dependencies.iter().any(|dependency| {
+        dependency.from == "component:feature"
+            && dependency.to == "component:helper"
+            && dependency.desired
+            && dependency.actual
+            && dependency.status == "aligned"
+    }));
     assert!(feature.dependency_alignment.iter().any(|dependency| {
         dependency.from == "component:feature"
             && dependency.to == "component:helper"

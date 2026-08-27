@@ -63,12 +63,12 @@ verify_project + independent reviewer jobs
 evidence_status
 ```
 
-## 1. Build or install the current version
+## 1. Install or update wcode
 
-When running from the repository:
+Install the latest release:
 
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
 If wcode is already running, restart the installed/current executable so the MCP client receives the new tool schemas:

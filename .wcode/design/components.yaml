@@ -244,13 +244,13 @@
   name: Software Intelligence UI
   responsibilities:
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
-    - expose a protected requirement-first Project Observatory organized as Desired State → Actual State → Change → Proof → Convergence
+    - expose a protected architecture-first Project Observatory with a full Design-vs-Actual dependency graph, observed drift and evidence-coverage metrics, component drill-down, then Requirement → Desired State → Actual State → Change → Proof → Convergence detail
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
-    - compare declared component dependencies with code-derived dependency edges while retaining code statistics, mapped Git changes and structural revision history instead of making an undifferentiated node-ball graph the primary view
+    - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
     - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management
   constraints:
-    - CONSTRAINT-REQUIREMENT-FIRST-OBSERVABILITY
+    - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
     - CONSTRAINT-EXPLICIT-PRECISION
   depends_on:
     - component:traceability-drift
@@ -272,6 +272,9 @@
     - kind: symbol
       path: src/intelligence/observatory.rs
       symbol: build_project_observatory
+    - kind: symbol
+      path: src/intelligence/observatory_architecture.rs
+      symbol: build_project_architecture
     - kind: symbol
       path: src/integrations/mcp.rs
       symbol: intelligence_web_project

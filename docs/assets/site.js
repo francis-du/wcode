@@ -391,6 +391,287 @@ const clientEconomics = {
   }
 };
 
+const zhClientCopy = {
+  'Grok': {
+    statusLabel: '原生 OAuth',
+    note: '所有 Grok 用户都可以使用自定义 MCP 连接器。需要公网 HTTPS；通过 Cloudflare Quick Tunnel 可使用 Streamable HTTP。',
+    freeNote: '可使用免费 Grok',
+    economics: {
+      freeAccess: '是 — Grok 可以免费开始使用，连接器文档没有把自定义 MCP 限定为付费功能。',
+      paidAccess: '是 — SuperGrok 会提高产品使用额度。',
+      usage: '没有单独的 MCP 连接器计费项。Grok 对话仍受产品额度限制；付费用户使用共享的每周额度池。'
+    }
+  },
+  'Claude': {
+    statusLabel: '原生 OAuth',
+    note: 'Free、Pro、Max、Team 和 Enterprise 都支持远程自定义 MCP 连接器；Free 账户可以添加 1 个自定义连接器。',
+    freeNote: '免费版可添加 1 个连接器',
+    economics: {
+      freeAccess: '是 — Free 支持 1 个自定义远程 MCP 连接器。',
+      paidAccess: '是 — Pro、Max、Team 和 Enterprise 都支持自定义连接器。',
+      usage: '连接器和工具调用会占用较多 Token，可能减少可用上下文和使用额度；Claude 各产品界面共享使用限制。'
+    }
+  },
+  'Mistral Vibe Work': {
+    statusLabel: '原生 OAuth',
+    note: '自定义 MCP 连接器可自动识别 OAuth 2.1，并支持动态客户端注册；Free 账户所有者默认具有管理员权限。',
+    freeNote: '免费方案支持连接器',
+    economics: {
+      freeAccess: '是 — Free、Pro 和 Student 的账户所有者默认是管理员，可以添加自定义 MCP 连接器。',
+      paidAccess: '是 — 付费或团队方案也可以在工作区策略允许时使用连接器。',
+      usage: '没有单独的 MCP 连接器收费说明。模型和任务使用仍按 Vibe Work 方案计算，连接器调用会增加任务上下文和模型工作量。'
+    }
+  },
+  'Qoder CLI': {
+    statusLabel: '原生 OAuth',
+    note: '支持远程 HTTP/SSE MCP，并实现 OAuth 2.0、PKCE、动态客户端注册、元数据发现和 Token 持久化。',
+    freeNote: '社区版 / 免费方案',
+    economics: {
+      freeAccess: '是 — Community/Free 包含 BYOK 和有限的基础模型消息额度。',
+      paidAccess: '是 — Pro、Pro+、Ultra 包含每月高级模型 Credits。',
+      usage: 'MCP 本身没有单独收费说明。智能体和模型请求会消耗 Qoder 的额度/Credits；使用 BYOK 时则消耗用户自己的模型提供商预算。'
+    }
+  },
+  'Cherry Studio': {
+    statusLabel: '原生 OAuth',
+    note: '桌面 MCP Host 支持 SSE/Streamable HTTP，当前实现包含 OAuth 回调流程。MCP 认证变化较快，建议保持客户端为最新版本。',
+    freeNote: '开源桌面客户端',
+    economics: {
+      freeAccess: '是 — 开源桌面客户端。',
+      paidAccess: '客户端本身不绑定 AI 订阅；配置的模型提供商可能单独收费。',
+      usage: 'Cherry Studio 不提供模型额度。MCP 工具 Schema 和结果会占用所选模型提供商计费或限制的上下文与 Token。'
+    }
+  },
+  'LM Studio': {
+    statusLabel: '原生 OAuth',
+    note: '本地模型桌面对话客户端，同时支持本地和远程 MCP。使用 OAuth 的集成会打开浏览器，并安全保存 Token。',
+    freeNote: '免费本地模型方案',
+    economics: {
+      freeAccess: '是 — 使用本地模型可以完全不依赖托管模型订阅。',
+      paidAccess: '可选的托管模型或提供商费用取决于用户选择的模型服务。',
+      usage: '本地推理没有外部模型订阅额度；MCP 只增加本地上下文和推理工作。托管模型仍按对应提供商计费。'
+    }
+  },
+  'Open WebUI': {
+    statusLabel: '原生 OAuth',
+    note: '原生支持 Streamable HTTP MCP、OAuth 2.1、动态客户端注册、资源指示器和按对话授权；服务器注册仅管理员可操作。',
+    freeNote: '开源 / 可自托管',
+    economics: {
+      freeAccess: '是 — 可自托管的开源方案。',
+      paidAccess: '可选的托管基础设施或模型服务可能单独收费。',
+      usage: 'Open WebUI 不提供模型额度。MCP 流量会消耗所配置模型后端的上下文和 Token；本地模型可避免外部提供商额度。'
+    }
+  },
+  'LibreChat': {
+    statusLabel: '原生 OAuth',
+    note: '自托管聊天和智能体可以通过 OAuth/PKCE 与动态客户端注册连接远程 MCP 服务器。',
+    freeNote: '开源 / 可自托管',
+    economics: {
+      freeAccess: '是 — 可自托管的开源方案。',
+      paidAccess: '模型或 API 提供商费用另计。',
+      usage: '没有文档说明 LibreChat 自身存在 MCP 配额；模型 Token 和速率限制由所选模型/API 提供商计算。'
+    }
+  },
+  'Gemini CLI': {
+    statusLabel: '原生 OAuth',
+    note: '远程 HTTP/SSE MCP 可以从 401 响应发现 OAuth，动态注册客户端、打开浏览器，并持久化 Token。',
+    freeNote: 'CLI 开源；模型额度按账户而定',
+    economics: {
+      freeAccess: '客户端开源；Google 模型额度取决于已登录的 Gemini 账户或 API 等级。',
+      paidAccess: '是 — 付费/API 等级可以提供更高模型额度。',
+      usage: '没有单独的 MCP 计量项。MCP 工具上下文和调用属于模型会话，因此受 Gemini/API 额度限制。'
+    }
+  },
+  'Cursor': {
+    statusLabel: '原生 OAuth',
+    note: '远程 SSE 和 Streamable HTTP 都支持 OAuth；如果服务器不使用动态客户端注册，Cursor 也支持静态 OAuth 凭据。',
+    freeNote: '有免费/Hobby 方案；受额度限制',
+    economics: {
+      freeAccess: '存在免费/Hobby 产品方案；MCP 支持与模型方案额度分别说明。',
+      paidAccess: '是 — Cursor 付费方案提供更高的智能体和模型额度。',
+      usage: '没有单独的 MCP 连接器费用。使用 MCP 的智能体/模型请求仍按 Cursor 和模型使用规则计算。'
+    }
+  },
+  'Windsurf': {
+    statusLabel: '原生 OAuth',
+    note: 'Cascade 支持 stdio、Streamable HTTP 和 SSE，并在多种传输上支持 OAuth；HTTP 服务器应指向 /mcp 端点。',
+    freeNote: '有免费方案；受额度限制',
+    economics: {
+      freeAccess: '有免费产品方案；Cascade 文档明确支持 MCP 传输和 OAuth。',
+      paidAccess: '是 — 付费方案提高产品和模型额度。',
+      usage: '没有单独的 MCP 连接器计量项。Cascade 和模型活动仍受 Windsurf 方案限制。'
+    }
+  },
+  'VS Code': {
+    statusLabel: '原生 OAuth',
+    note: '完整 MCP 客户端，支持 Streamable HTTP 和 OAuth。VS Code 会对兼容授权服务器尝试动态客户端注册，也支持更新的 CIMD 流程。',
+    freeNote: '编辑器免费；模型选择另计',
+    economics: {
+      freeAccess: '编辑器和 MCP 客户端免费；AI 模型权益取决于所选扩展或提供商。',
+      paidAccess: '可以另外使用 Copilot 或其他托管模型订阅。',
+      usage: 'MCP 本身没有 VS Code 订阅计量项；连接的 AI 扩展或模型提供商决定 Token 和请求限制。'
+    }
+  },
+  'Dify': {
+    statusLabel: '原生 OAuth',
+    note: '作为 MCP 客户端时支持 Streamable HTTP，以及 OAuth/PKCE/动态客户端注册流程；自托管部署需要正确配置公网回调地址。',
+    freeNote: '社区版可自托管',
+    economics: {
+      freeAccess: 'Community Edition 可以自托管。',
+      paidAccess: 'Dify Cloud 和模型提供商各有独立方案。',
+      usage: 'MCP 连接没有单独计量说明；模型/API 调用和云资源按配置的提供商或 Dify 方案计算。'
+    }
+  },
+  'TRAE': {
+    statusLabel: '仅传输',
+    note: '可通过 stdio、SSE 和 Streamable HTTP 作为 MCP 客户端。当前公开文档未确认自动 MCP OAuth 发现，因此与 wcode 的认证兼容性需要实际验证。',
+    freeNote: '有免费编程客户端方案',
+    economics: {
+      freeAccess: '存在免费客户端路径，但当前公开文档没有清晰说明与 wcode 类似的 OAuth 自动发现。',
+      paidAccess: '方案和模型规则会随 TRAE 产品与地区变化。',
+      usage: '自定义远程 MCP 的具体计量没有公开说明；模型和智能体使用仍受平台方案限制，wcode 不会改变这些额度。'
+    }
+  },
+  '扣子编程 / Coze': {
+    statusLabel: '手动 OAuth',
+    note: '可以从 HTTPS MCP 地址创建插件且不收取插件创建费用，但 OAuth 配置要求预先创建 client_id/client_secret 并显式填写端点，而不是使用 MCP 动态客户端注册。',
+    freeNote: '创建 MCP 插件免费',
+    economics: {
+      freeAccess: '文档说明创建 MCP 插件本身不单独收费。',
+      paidAccess: '工作区和模型使用仍可能受到额度或套餐限制。',
+      usage: '连接器不等于模型额度。机器人和模型执行仍受 Coze 工作区/模型额度限制；没有公开单独的 MCP 计量规则。'
+    }
+  },
+  '腾讯元器': {
+    statusLabel: '仅传输',
+    note: '可通过 URL 添加自定义 MCP 服务器用于多智能体和工作流；公开文档没有证明会为 wcode 自动执行 MCP OAuth 发现。',
+    freeNote: '平台条款 / 额度可能变化',
+    economics: {
+      freeAccess: '平台访问和试用会变化；没有可靠公开说明表明任意自定义 MCP 在免费层无限可用。',
+      paidAccess: '是 — 具体取决于腾讯元器产品条款。',
+      usage: '公开文档说明了自定义 MCP 传输，但没有单独的 MCP 计费规则；模型、智能体和运行资源仍可能受额度限制。'
+    }
+  },
+  '腾讯云智能体开发平台': {
+    statusLabel: '仅传输',
+    note: '支持 SSE 和 Streamable HTTP MCP 端点以及自定义静态 Header。公开文档未说明原生 OAuth 发现，因此可能需要具备 OAuth 能力的网关。',
+    freeNote: '可能产生云平台费用',
+    economics: {
+      freeAccess: '可能存在云试用或赠送额度，但不视为稳定的免费路径。',
+      paidAccess: '是 — 云模型和运行资源可能产生费用。',
+      usage: 'Streamable HTTP/SSE MCP 没有单独额度说明；智能体、模型和云运行资源按腾讯云计费规则计算。'
+    }
+  },
+  'Roo Code': {
+    statusLabel: '仅传输',
+    note: '支持远程 Streamable HTTP MCP，但原生 OAuth 发起能力曾落后于传输支持；根据当前版本，可能仍需要 mcp-remote 包装器。',
+    freeNote: '开源编程智能体',
+    economics: {
+      freeAccess: '是 — 开源客户端。',
+      paidAccess: '模型提供商订阅或 API Key 费用另计。',
+      usage: 'Roo 不提供模型额度；MCP 上下文和工具结果会消耗所选模型提供商的额度和 Token。'
+    }
+  },
+  'Cline': {
+    statusLabel: '仅传输',
+    note: '开源编程智能体，支持 MCP。远程 OAuth 行为受版本影响，公开文档没有像传输支持那样明确，因此依赖一键认证前应使用当前版本实测。',
+    freeNote: '开源客户端；模型费用另计',
+    economics: {
+      freeAccess: '是 — 开源客户端。',
+      paidAccess: '模型提供商费用另计。',
+      usage: 'Cline 没有单独的 MCP 订阅计量；工具上下文和结果由所选模型处理，因此会消耗该提供商额度。'
+    }
+  },
+  'Kiro': {
+    statusLabel: '原生 OAuth',
+    note: '远程 HTTPS MCP 默认支持浏览器 OAuth 和动态客户端注册；Kiro 提供长期 Free 方案并按月提供 Credits。',
+    freeNote: 'Kiro Free：$0 / 50 Credits',
+    economics: {
+      freeAccess: '是 — 长期 Kiro Free 包含 50 Credits。',
+      paidAccess: '是 — 付费方案包含 1,000–10,000 Credits，并可选购附加额度。',
+      usage: 'Kiro 按请求按比例消耗 Credits。没有单独的 MCP 计量项，因此使用 MCP 的智能体请求仍消耗普通 Kiro Credits。'
+    }
+  },
+  'OpenCode': {
+    statusLabel: '原生 OAuth',
+    note: '远程 MCP 会自动识别 401、启动 OAuth、尝试 RFC 7591 动态客户端注册、打开浏览器并持久化 Token。',
+    freeNote: '开源编程智能体',
+    economics: {
+      freeAccess: '是 — 开源客户端；BYOK、本地模型或提供商选择彼此独立。',
+      paidAccess: '费用来自用户选择的模型或提供商。',
+      usage: 'OpenCode 明确提示 MCP 服务器会占用上下文并可能消耗大量 Token；没有单独的 OpenCode MCP 收费。'
+    }
+  },
+  'Kimi Code CLI': {
+    statusLabel: '支持 OAuth',
+    note: '支持 HTTP MCP、浏览器 OAuth 授权和 Token 缓存。Kimi Code 模型使用与付费 Kimi 会员或平台 API 权益绑定。',
+    freeNote: '客户端可用；Kimi Code 服务需会员/API',
+    economics: {
+      freeAccess: 'CLI 可以安装，但 Kimi Code 服务权益绑定 Kimi 会员或 API，不作为免费模型路径推荐。',
+      paidAccess: '是 — Kimi 会员包含 Kimi Code，额度随方案变化。',
+      usage: 'Kimi Code 请求共享会员额度，并有独立滚动/每周限制。MCP 没有单独计量项，模型工作仍消耗 Kimi Code 额度。'
+    }
+  },
+  '阿里云百炼': {
+    statusLabel: '仅传输',
+    note: '智能体和工作流应用可以使用 SSE/Streamable HTTP 的自定义远程 MCP；公开文档没有说明会对任意外部服务器自动执行 MCP OAuth 发现。',
+    freeNote: '可能有试用；云服务按规则计费',
+    economics: {
+      freeAccess: '可能有试用或活动额度，但这是云服务，不视为稳定的免费路径。',
+      paidAccess: '是 — 模型、智能体和云服务按百炼相关条款计费。',
+      usage: '自定义 MCP 传输不会免除模型或应用费用；没有公开单独的任意 MCP 使用额度。'
+    }
+  },
+  'Qwen Code': {
+    statusLabel: '原生 OAuth',
+    note: '客户端支持远程 MCP 的 OAuth 发现和动态客户端注册；旧的 Qwen OAuth 免费模型额度已经停止，需使用其他模型/提供商或 BYOK。',
+    freeNote: '客户端可用；模型/提供商另配',
+    economics: {
+      freeAccess: '客户端开源；不假设附带模型权益，需按 BYOK 或提供商规则使用。',
+      paidAccess: '可以连接付费模型或提供商。',
+      usage: 'MCP 本身没有单独额度；成本和限制由所选模型/API 决定。'
+    }
+  },
+  'ChatGPT': {
+    statusLabel: '远程 MCP',
+    note: '支持远程自定义 MCP；完整读写/修改 MCP 当前面向 Business 和 Enterprise/Edu，Pro 的开发者模式 MCP 能力更有限，因此不作为免费路径推荐。',
+    freeNote: '完整 MCP 需要付费工作区方案',
+    economics: {
+      freeAccess: '否 — 自定义完整 MCP 不是 Free 方案能力。',
+      paidAccess: '完整读写 MCP：Business 与 Enterprise/Edu；Pro 可在开发者模式连接较受限的读取/获取型 MCP。',
+      usage: '这里没有单独的 MCP 连接器计量说明。MCP 在 ChatGPT 对话内运行，因此仍受普通方案和模型使用限制。'
+    }
+  }
+};
+
+const clientUi = pageIsChinese ? {
+  empty: '没有符合当前筛选条件的客户端。请切换筛选项或搜索关键词。',
+  regionChina: '中国', regionUs: '美国', regionGlobal: '全球',
+  surfaceChat: 'AI 对话', surfaceCoding: '编程智能体', surfaceAgent: '智能体平台',
+  authNative: 'OAuth 优先', authManual: '手动认证', authRemote: '远程 HTTP',
+  free: '免费', paid: '付费', usage: '使用与额度', evidence: '依据',
+  primarySource: '官方来源 ↗', source: '官方来源'
+} : {
+  empty: 'No clients match this view. Try another filter or search term.',
+  regionChina: 'China', regionUs: 'US', regionGlobal: 'Global',
+  surfaceChat: 'AI chat', surfaceCoding: 'Coding agent', surfaceAgent: 'Agent platform',
+  authNative: 'OAuth-first', authManual: 'Manual auth', authRemote: 'Remote HTTP',
+  free: 'Free', paid: 'Paid', usage: 'Usage & quota', evidence: 'Evidence',
+  primarySource: 'Primary source ↗', source: 'Primary source'
+};
+
+function localizedClient(client) {
+  if (!pageIsChinese) {
+    return { ...client, economics: clientEconomics[client.name] || {} };
+  }
+  const localized = zhClientCopy[client.name] || {};
+  return {
+    ...client,
+    ...localized,
+    economics: { ...(clientEconomics[client.name] || {}), ...(localized.economics || {}) }
+  };
+}
+
 const sourceExtras = [
   { name: 'MCP 2026-07-28 specification', mark: 'M', url: 'https://modelcontextprotocol.io/specification/2026-07-28', label: 'Protocol + authorization baseline' },
   { name: 'Grok tunneling guidance', mark: '✦', url: 'https://docs.x.ai/grok/connectors/custom-mcp-tunneling', label: 'Cloudflare Quick Tunnel + Streamable HTTP' },
@@ -413,29 +694,32 @@ function statusClass(status) {
 
 function renderClients() {
   const query = (clientSearch?.value || '').trim().toLowerCase();
-  const visible = clients.filter((client) => {
+  const visible = clients.map(localizedClient).filter((client) => {
     const matchesFilter = activeFilter === 'all' || client.tags.includes(activeFilter);
-    const economics = clientEconomics[client.name] || {};
+    const economics = client.economics || {};
     const haystack = `${client.name} ${client.company} ${client.note} ${client.statusLabel} ${economics.freeAccess || ''} ${economics.paidAccess || ''} ${economics.usage || ''}`.toLowerCase();
     return matchesFilter && (!query || haystack.includes(query));
   });
 
   if (!clientGrid) return;
   if (!visible.length) {
-    clientGrid.innerHTML = '<div class="empty-state">No clients match this view. Try another filter or search term.</div>';
+    clientGrid.innerHTML = `<div class="empty-state">${clientUi.empty}</div>`;
     return;
   }
 
   clientGrid.innerHTML = visible.map((client) => {
-    const economics = clientEconomics[client.name] || {
-      freeAccess: 'Not verified from current primary documentation.',
-      paidAccess: 'Not verified from current primary documentation.',
-      usage: 'No reliable MCP-specific billing statement found. Normal model/provider limits still apply.',
-      evidence: [[client.sourceLabel || 'Primary source', client.source]]
+    const economics = client.economics || {
+      freeAccess: pageIsChinese ? '当前官方文档未核实。' : 'Not verified from current primary documentation.',
+      paidAccess: pageIsChinese ? '当前官方文档未核实。' : 'Not verified from current primary documentation.',
+      usage: pageIsChinese ? '没有可靠的 MCP 单独计费说明；仍按模型或提供商的一般限制执行。' : 'No reliable MCP-specific billing statement found. Normal model/provider limits still apply.',
+      evidence: [[client.sourceLabel || clientUi.source, client.source]]
     };
-    const evidence = (economics.evidence || [[client.sourceLabel || 'Primary source', client.source]])
-      .map(([label, url]) => `<a href="${url}" target="_blank" rel="noreferrer">${label} ↗</a>`)
+    const evidence = (economics.evidence || [[client.sourceLabel || clientUi.source, client.source]])
+      .map(([label, url], index) => `<a href="${url}" target="_blank" rel="noreferrer">${pageIsChinese ? `官方来源 ${index + 1}` : `${label} ↗`}</a>`)
       .join('');
+    const regionLabel = client.region === 'china' ? clientUi.regionChina : client.region === 'us' ? clientUi.regionUs : clientUi.regionGlobal;
+    const surfaceLabel = client.surface === 'chat' ? clientUi.surfaceChat : client.surface === 'coding' ? clientUi.surfaceCoding : clientUi.surfaceAgent;
+    const authLabel = client.status === 'native' ? clientUi.authNative : client.status === 'manual' ? clientUi.authManual : clientUi.authRemote;
     return `
     <article class="compat-card" data-tags="${client.tags.join(' ')}">
       <div class="compat-top">
@@ -447,19 +731,19 @@ function renderClients() {
       </div>
       <p>${client.note}</p>
       <div class="compat-tags">
-        <span>${client.region === 'china' ? 'China' : client.region === 'us' ? 'US' : 'Global'}</span>
-        <span>${client.surface === 'chat' ? 'AI chat' : client.surface === 'coding' ? 'Coding agent' : 'Agent platform'}</span>
-        <span>${client.status === 'native' ? 'OAuth-first' : client.status === 'manual' ? 'Manual auth' : 'Remote HTTP'}</span>
+        <span>${regionLabel}</span>
+        <span>${surfaceLabel}</span>
+        <span>${authLabel}</span>
       </div>
       <div class="economics">
-        <div><b>Free</b><span>${economics.freeAccess}</span></div>
-        <div><b>Paid</b><span>${economics.paidAccess}</span></div>
-        <div><b>Usage & quota</b><span>${economics.usage}</span></div>
+        <div><b>${clientUi.free}</b><span>${economics.freeAccess}</span></div>
+        <div><b>${clientUi.paid}</b><span>${economics.paidAccess}</span></div>
+        <div><b>${clientUi.usage}</b><span>${economics.usage}</span></div>
       </div>
-      <div class="evidence"><b>Evidence</b><div>${evidence}</div></div>
+      <div class="evidence"><b>${clientUi.evidence}</b><div>${evidence}</div></div>
       <div class="compat-footer">
         <span class="free-note ${client.free ? 'yes' : ''}">${client.free ? '● ' : '○ '}${client.freeNote}</span>
-        <a class="docs-link" href="${client.source}" target="_blank" rel="noreferrer">Primary source ↗</a>
+        <a class="docs-link" href="${client.source}" target="_blank" rel="noreferrer">${clientUi.primarySource}</a>
       </div>
     </article>
   `;
@@ -494,7 +778,7 @@ if (sourceList) {
   const unique = [...new Map(sources.map((source) => [source.url, source])).values()];
   sourceList.innerHTML = unique.map((source) => `
     <a class="source-item" href="${source.url}" target="_blank" rel="noreferrer">
-      <span>${source.mark}</span><div><b>${source.name}</b><small>${source.label}</small></div>
+      <span>${source.mark}</span><div><b>${pageIsChinese ? source.name.replace('MCP 2026-07-28 specification', 'MCP 2026-07-28 规范').replace('Grok tunneling guidance', 'Grok 隧道指南').replace('Qoder Community Edition', 'Qoder 社区版').replace('LM Studio pricing', 'LM Studio 价格') : source.name}</b><small>${pageIsChinese ? clientUi.source : source.label}</small></div>
     </a>
   `).join('');
 }

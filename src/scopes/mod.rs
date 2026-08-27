@@ -98,6 +98,7 @@ impl ProductScope {
                 "src/intelligence/analysis.rs",
                 "src/intelligence/context.rs",
                 "src/intelligence/observatory.rs",
+                "src/intelligence/observatory_architecture.rs",
                 "src/intelligence/types.rs",
                 "src/intelligence/tests.rs",
             ],
@@ -279,6 +280,10 @@ mod tests {
         assert_eq!(
             source_scope("src/intelligence/risk.rs"),
             Some(ProductScope::Risk)
+        );
+        assert_eq!(
+            source_scope("src/intelligence/observatory_architecture.rs"),
+            Some(ProductScope::Traceability)
         );
     }
 

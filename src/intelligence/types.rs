@@ -440,6 +440,37 @@ pub struct ProjectConvergenceSummary {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProjectArchitectureComponentView {
+    pub id: String,
+    pub name: String,
+    pub responsibilities: Vec<String>,
+    pub depends_on: Vec<String>,
+    pub implementation_targets: Vec<String>,
+    pub implementation_files: usize,
+    pub implementation_lines: usize,
+    pub changed: bool,
+    pub changed_paths: Vec<String>,
+    pub requirements: Vec<String>,
+    pub product_scopes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectArchitectureView {
+    pub components: Vec<ProjectArchitectureComponentView>,
+    pub dependencies: Vec<FeatureDependencyAlignment>,
+    pub desired_edges: usize,
+    pub observed_edges: usize,
+    pub aligned_edges: usize,
+    pub blocking_drift_edges: usize,
+    pub advisory_edges: usize,
+    pub unverified_edges: usize,
+    pub components_with_implementation: usize,
+    pub observed_drift_percent: f64,
+    pub evidence_coverage_percent: f64,
+    pub implementation_coverage_percent: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ProjectObservatory {
     pub workspace: String,
     pub root: String,
@@ -457,6 +488,7 @@ pub struct ProjectObservatory {
     pub language_quality: crate::quality_provider::LanguageQualityRegistry,
     pub proof: ProjectProofSummary,
     pub convergence: ProjectConvergenceSummary,
+    pub architecture: ProjectArchitectureView,
     pub requirements: Vec<FeatureRequirementView>,
     pub changes: Vec<ProjectChangeView>,
     pub history: Vec<ProjectRevisionView>,
