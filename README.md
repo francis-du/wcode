@@ -54,7 +54,7 @@ Models are execution providers, not the product core. Claude, ChatGPT, Grok, Mis
 <p align="center"><sub>Live terminal dashboard — local health, public tunnel readiness, OAuth pairing, MCP activity, and workspace tasks in one view.</sub></p>
 
 <p align="center">
-  <img src="docs/assets/wcode-setup-hub.png" alt="latest wcode browser setup and connection interface" width="82%">
+  <img src="docs/assets/wcode-setup-hub.png" alt="latest wcode browser setup and connection interface" width="100%">
 </p>
 
 <p align="center"><sub>Browser setup — connect a model executor and inspect the active local runtime.</sub></p>
