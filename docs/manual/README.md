@@ -32,6 +32,7 @@ This is the English documentation home. The product site stays focused on the pr
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
+- [v0.4.1 release notes](releases/v0.4.1/) — tunnel URL extraction and Agent Context budget fixes, expanded client matrix, redesigned docs.
 - [v0.4.0 release notes](releases/v0.4.0/) — faster Agent Context, architecture-first observability, resilient tunnels, and bounded development CLI automation.
 - [v0.3.0 release notes](releases/v0.3.0/) — historical 0.3 product shape and major changes.
 

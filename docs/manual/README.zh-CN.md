@@ -32,6 +32,7 @@ permalink: /zh/docs/
 
 - [CLI 与 MCP 参考手册](reference/) — 命令、操作入口、传输方式与工具族的统一参考。
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
+- [v0.4.1 发布说明](releases/v0.4.1/) — 隧道 URL 提取与 Agent Context 预算修复、扩充的客户端矩阵、文档重设计。
 - [v0.4.0 发布说明](releases/v0.4.0/) — 更快的 Agent Context、Architecture-first 可观测性、Tunnel 回退与有界开发 CLI 自动化。
 - [v0.3.0 发布说明](releases/v0.3.0/) — 历史 0.3 系列的产品形态与关键变化。
 

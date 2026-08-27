@@ -1,6 +1,6 @@
 [package]
 name = "wcode"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["francis-du"]
 description = "Local-first Software Intelligence Runtime for AI-native development"
