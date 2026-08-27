@@ -24,6 +24,9 @@
     - kind: test
       path: src/workspace/mod.rs
       symbol: tests::command_policy_allows_standard_cargo_verification_but_blocks_arbitrary_execution
+    - kind: test
+      path: src/workspace/command_policy.rs
+      symbol: tests::common_development_tools_have_bounded_read_verify_and_mutation_policies
 
 - schema_version: 1
   id: AC-SEC-004
@@ -352,3 +355,42 @@
     - kind: test
       path: tests/documentation_layout.rs
       symbol: documentation_is_unified_bilingual_and_hosted_as_html
+
+- schema_version: 1
+  id: AC-AGENT-CONTEXT-001
+  title: Coding agents receive a bounded edit-ready context pack
+  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
+  verification:
+    - kind: test
+      path: src/runtime/harness_tests.rs
+      symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
+    - kind: test
+      path: src/intelligence/tests.rs
+      symbol: software_context_uses_token_scoring_and_real_budget_caps
+    - kind: test
+      path: src/graph/code_index.rs
+      symbol: tests::multi_query_symbol_search_scans_and_parses_each_file_once
+    - kind: test
+      path: src/integrations/mcp.rs
+      symbol: tests::positive_harness_tools_flow_through_mcp
+    - kind: test
+      path: src/integrations/mcp.rs
+      symbol: tests::tool_list_exposes_bulk_index_and_positive_harness_tools
+    - kind: test
+      path: src/integrations/mcp_tools.rs
+      symbol: tests::tool_catalog_is_deterministic_compact_and_unique
+    - kind: test
+      path: src/integrations/mcp_dispatch.rs
+      symbol: agent_context_enrichment_tests::worktree_status_warns_on_existing_changes_and_blocks_conflicts
+
+- schema_version: 1
+  id: AC-TUNNEL-001
+  title: Managed tunnel selection supports free provider fallback
+  statement: The default tunnel policy tries bounded free providers in deterministic order, explicit provider values remain stable, Cloudflare URLs exclude the API host, localhost.run and Pinggy public hosts are parsed without accepting provider control hosts, and a candidate is accepted only after the public health response matches the current wcode instance.
+  verification:
+    - kind: test
+      path: src/runtime/tunnel.rs
+      symbol: tests::parses_quick_tunnel_url
+    - kind: test
+      path: src/runtime/tunnel.rs
+      symbol: tests::parses_free_ssh_tunnel_urls_without_accepting_provider_hosts

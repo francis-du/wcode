@@ -10,7 +10,7 @@
       "name": "wcode",
       "source": "./wcode-agent-plugin",
       "description": "Workspace-scoped wcode Software Intelligence skill and MCP server.",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "author": {"name": "francis-du"},
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],

@@ -166,7 +166,18 @@ pub(super) async fn create_tool_task(
     let (start_tx, start_rx) = oneshot::channel::<()>();
     let join = tokio::spawn(async move {
         let _ = start_rx.await;
-        let outcome = call_tool(&worker_state, params).await;
+        let tool_state = worker_state.clone();
+        let outcome = match tokio::spawn(async move { call_tool(&tool_state, params).await }).await
+        {
+            Ok(outcome) => outcome,
+            Err(error) => Err(if error.is_cancelled() {
+                "task tool worker was cancelled".to_owned()
+            } else if error.is_panic() {
+                "task tool worker panicked".to_owned()
+            } else {
+                format!("task tool worker failed to join: {error}")
+            }),
+        };
         let Ok(_guard) = worker_state.tasks.state_lock.lock() else {
             worker_state.tasks.remove(&worker_task_id);
             return;

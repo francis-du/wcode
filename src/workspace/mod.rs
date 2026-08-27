@@ -28,8 +28,40 @@ const MAX_TEXT_EDITS: usize = 128;
 const MAX_BATCH_WRITE_ITEMS: usize = 64;
 const MAX_MOVE_TREE_ENTRIES: usize = 50_000;
 pub(crate) const COMMAND_CATALOG: &[&str] = &[
-    "cargo", "rustc", "git", "rg", "npm", "pnpm", "yarn", "bun", "node", "python3", "pytest", "go",
+    "cargo",
+    "rustc",
+    "git",
+    "gh",
+    "rg",
+    "npm",
+    "pnpm",
+    "yarn",
+    "bun",
+    "node",
+    "python3",
+    "pytest",
+    "go",
     "make",
+    "just",
+    "task",
+    "uv",
+    "ruff",
+    "biome",
+    "deno",
+    "docker",
+    "kubectl",
+    "terraform",
+    "fd",
+    "jq",
+    "cmake",
+    "ninja",
+    "dotnet",
+    "mvn",
+    "gradle",
+    "swift",
+    "zig",
+    "pre-commit",
+    "act",
 ];
 
 fn portable_relative_path(path: &Path) -> String {
@@ -979,7 +1011,12 @@ impl Workspace {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        scrub_sensitive_environment(&mut command, program);
+        scrub_sensitive_environment(
+            &mut command,
+            program,
+            args,
+            effective_security.allow_risky_exec,
+        );
         if program == "git" {
             command
                 .env("GIT_CEILING_DIRECTORIES", &self.root)
@@ -1105,7 +1142,7 @@ impl Workspace {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        scrub_sensitive_environment(&mut command, program);
+        scrub_sensitive_environment(&mut command, program, args, false);
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
@@ -1730,6 +1767,34 @@ mod tests {
         assert_eq!(diff[subcommand + 1], "--no-ext-diff");
         assert_eq!(diff[subcommand + 2], "--no-textconv");
         assert_eq!(diff.last().map(String::as_str), Some("--cached"));
+
+        let push = hardened_command_args(
+            "git",
+            &[
+                "push".to_owned(),
+                "origin".to_owned(),
+                "HEAD:main".to_owned(),
+            ],
+        );
+        assert!(push.iter().any(|arg| {
+            arg == "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new"
+        }));
+        assert!(!push.iter().any(|arg| arg == "core.sshCommand=false"));
+        assert!(push.iter().any(|arg| arg == "credential.helper="));
+
+        let lfs_push = hardened_command_args(
+            "git",
+            &[
+                "lfs".to_owned(),
+                "push".to_owned(),
+                "origin".to_owned(),
+                "main".to_owned(),
+            ],
+        );
+        assert!(lfs_push.iter().any(|arg| {
+            arg == "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new"
+        }));
+        assert!(!lfs_push.iter().any(|arg| arg == "core.sshCommand=false"));
     }
 
     #[test]
@@ -1759,6 +1824,24 @@ mod tests {
             ],
         )
         .is_ok());
+        assert!(validate_verification_command_shape(
+            "cargo",
+            &[
+                "nextest".to_owned(),
+                "run".to_owned(),
+                "--locked".to_owned(),
+            ],
+        )
+        .is_ok());
+        assert!(validate_verification_command_shape(
+            "cargo",
+            &[
+                "nextest".to_owned(),
+                "run".to_owned(),
+                "name(test)".to_owned(),
+            ],
+        )
+        .is_err());
         assert!(validate_verification_command_shape(
             "pnpm",
             &["run".to_owned(), "typecheck".to_owned()],

@@ -32,24 +32,23 @@ permalink: /zh/docs/
 
 - [CLI 与 MCP 参考手册](reference/) — 命令、操作入口、传输方式与工具族的统一参考。
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
-- [v0.3.0 发布说明](releases/v0.3.0/) — 0.3 系列的产品形态与关键变化。
+- [v0.4.0 发布说明](releases/v0.4.0/) — 更快的 Agent Context、Architecture-first 可观测性、Tunnel 回退与有界开发 CLI 自动化。
+- [v0.3.0 发布说明](releases/v0.3.0/) — 历史 0.3 系列的产品形态与关键变化。
 
 ## 推荐工作流
 
 ```text
-workspace_info
+agent_context(goal, scopes=...)
   ↓
-scope_status + design_status + project_context
-  ↓
-software_context
+按 readiness 执行；只有需要时再加载更深 Context
   ↓
 实现 / 编辑
   ↓
-review_changes + drift_status + impact_analysis + risk_status
+review_changes
   ↓
-verification + evidence
+verify_project
   ↓
-reconciliation
+只有需要时再进入 drift / risk / evidence / reconciliation
 ```
 
 文档中的命令、工具名、协议名和字段名保留其原始技术标识；说明文字本身按页面语言保持一致，不再在同一段正文中来回切换语言。

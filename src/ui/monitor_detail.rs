@@ -502,6 +502,9 @@ pub(super) fn last_seen_text(last_seen: Option<Instant>) -> String {
 
 pub(super) fn is_quick_tunnel(mcp_url: &str) -> bool {
     mcp_url.contains(".trycloudflare.com/")
+        || mcp_url.contains(".localhost.run/")
+        || mcp_url.contains(".pinggy.link/")
+        || mcp_url.contains(".pinggy-free.link/")
 }
 
 pub(super) fn open_external_url(url: &str) -> io::Result<()> {
@@ -1301,6 +1304,18 @@ pub(super) fn totals(snapshot: &MonitorSnapshot) -> WorkspaceStats {
             total.context_bytes_avoided = total
                 .context_bytes_avoided
                 .saturating_add(stats.context_bytes_avoided);
+            total.agent_context_calls = total
+                .agent_context_calls
+                .saturating_add(stats.agent_context_calls);
+            total.agent_context_model_bytes = total
+                .agent_context_model_bytes
+                .saturating_add(stats.agent_context_model_bytes);
+            total.agent_context_bytes_avoided = total
+                .agent_context_bytes_avoided
+                .saturating_add(stats.agent_context_bytes_avoided);
+            total.agent_repo_map_cache_hits = total
+                .agent_repo_map_cache_hits
+                .saturating_add(stats.agent_repo_map_cache_hits);
             total
         })
 }

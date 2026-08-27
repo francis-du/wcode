@@ -25,12 +25,17 @@
   responsibilities:
     - execute commands without a shell
     - preserve bounded and policy-checked execution
+    - classify known development CLIs into direct read/check shapes, exact authorized mutations, and permanently blocked credential/destructive shapes
   constraints:
     - CONSTRAINT-NO-SHELL
+    - CONSTRAINT-BOUNDED-DEV-TOOLS
   implementation:
     - kind: symbol
       path: src/workspace/mod.rs
       symbol: Workspace::run_command
+    - kind: symbol
+      path: src/workspace/command_policy.rs
+      symbol: validate_command_policy
 
 - schema_version: 1
   id: component:mcp-runtime
@@ -565,3 +570,60 @@
       path: docs/_layouts/docs.html
     - kind: file
       path: .github/workflows/pages.yml
+
+- schema_version: 1
+  id: component:agent-context
+  name: Agent Context Compiler
+  responsibilities:
+    - compile one task-specific edit-ready context pack instead of requiring a broad startup sequence
+    - prioritize relevant Design State, symbol signatures, exact file SHA preconditions, verification references, graph evidence, risks and quality gates
+    - rank a compact repository map from task relevance plus dependency centrality so direct matches include likely callers, callees and canonical helpers, with explicit caller/callee/dependency reasons and provider precision
+    - include a bounded hot-source body for the strongest direct match when the pack budget permits, while deferring additional source bodies to progressive disclosure
+    - enforce a serialized token budget across structure and hot source
+    - expose explicit edit, verification, graph-precision and truncation readiness signals plus deterministic next tool actions instead of hiding context quality behind a score
+    - enrich only direct edit targets with fail-soft working-tree state from a parallel bounded Git status probe, warn on existing staged/unstaged/untracked changes and block direct-edit guidance for unmerged targets
+    - expose pack build timing alongside serialized token and context-savings telemetry so retrieval speed, context cost and task quality can be evaluated separately
+    - aggregate Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache hits in the existing operator Monitor instead of creating a parallel metrics subsystem
+    - batch multiple symbol query terms into one source-root traversal and one per-file indexing pass instead of repeating repository discovery for each query token
+    - reuse the already loaded Design State for traceability calculation inside one software_context request instead of reparsing the same design documents
+    - keep traceability and provider precision relevant to the requested behavior rather than truncating unrelated project state
+  constraints:
+    - CONSTRAINT-CONTEXT-BUDGET
+    - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+    - CONSTRAINT-EXPLICIT-PRECISION
+  depends_on:
+    - component:traceability-drift
+    - component:software-graph
+    - component:workspace-operations
+    - component:verification-harness
+  implementation:
+    - kind: symbol
+      path: src/runtime/harness_agent_context.rs
+      symbol: ToolHarness::agent_context
+    - kind: symbol
+      path: src/runtime/harness_repo_map.rs
+      symbol: ToolHarness::ranked_repo_map
+    - kind: symbol
+      path: src/intelligence/mod.rs
+      symbol: SoftwareIntelligenceRuntime::software_context
+
+- schema_version: 1
+  id: component:managed-tunnel
+  name: Managed Public Tunnel Runtime
+  responsibilities:
+    - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
+    - auto-fallback across Cloudflare Quick Tunnel, localhost.run and Pinggy when process startup, URL discovery or instance-matched health verification fails
+    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification
+    - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
+  depends_on:
+    - component:mcp-runtime
+  implementation:
+    - kind: symbol
+      path: src/runtime/tunnel.rs
+      symbol: start_managed_tunnel
+    - kind: symbol
+      path: src/runtime/tunnel.rs
+      symbol: start_ssh_tunnel_once
+    - kind: symbol
+      path: src/runtime/tunnel.rs
+      symbol: extract_ssh_tunnel_url

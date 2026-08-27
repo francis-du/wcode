@@ -1,6 +1,6 @@
 [package]
 name = "wcode"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 authors = ["francis-du"]
 description = "Local-first Software Intelligence Runtime for AI-native development"
@@ -64,6 +64,6 @@ tempfile = "3"
 opt-level = "z"
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 strip = "symbols"
 incremental = false

@@ -30,6 +30,62 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     let docs_root = root.join("docs/manual");
     let english_index = fs::read_to_string(docs_root.join("README.md")).unwrap();
     let chinese_index = fs::read_to_string(docs_root.join("README.zh-CN.md")).unwrap();
+    let integration_en = fs::read_to_string(docs_root.join("code-agent-integrations.md")).unwrap();
+    let integration_zh =
+        fs::read_to_string(docs_root.join("code-agent-integrations.zh-CN.md")).unwrap();
+    for integration in [&integration_en, &integration_zh] {
+        for required in [
+            "agent_context",
+            "symbol_context",
+            "apply_edits",
+            "review_changes",
+            "verify_project",
+            "defer_loading",
+        ] {
+            assert!(
+                integration.contains(required),
+                "both integration guides must preserve the compact 0.4 coding path and deferred-loading guidance: {required}"
+            );
+        }
+    }
+    let reference_en = fs::read_to_string(docs_root.join("reference.md")).unwrap();
+    let reference_zh = fs::read_to_string(docs_root.join("reference.zh-CN.md")).unwrap();
+    assert!(reference_en.contains("agent_context(goal, scopes=...)"));
+    assert!(reference_zh.contains("agent_context(goal, scopes=...)"));
+    let security_en = fs::read_to_string(docs_root.join("security.md")).unwrap();
+    let security_zh = fs::read_to_string(docs_root.join("security.zh-CN.md")).unwrap();
+    for document in [&security_en, &security_zh, &reference_en, &reference_zh] {
+        for tool in [
+            "gh",
+            "just",
+            "task",
+            "uv",
+            "ruff",
+            "biome",
+            "deno",
+            "docker",
+            "kubectl",
+            "terraform",
+            "fd",
+            "jq",
+            "cmake",
+            "ninja",
+            "dotnet",
+            "mvn",
+            "gradle",
+            "swift",
+            "zig",
+            "pre-commit",
+            "act",
+        ] {
+            assert!(
+                document.contains(&format!("`{tool}`")),
+                "EN/ZH security and reference docs must expose the same bounded development tool catalog: {tool}"
+            );
+        }
+        assert!(document.contains("cargo-nextest"));
+        assert!(document.contains("cargo test"));
+    }
     let pages = markdown_files(&docs_root)
         .into_iter()
         .map(|path| parse_page(&docs_root, path))
@@ -65,6 +121,17 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             "language alternates must point back to each other"
         );
 
+        let page_content = fs::read_to_string(docs_root.join(&page.relative)).unwrap();
+        let counterpart_content =
+            fs::read_to_string(docs_root.join(&counterpart.relative)).unwrap();
+        assert_eq!(
+            top_level_section_count(&page_content),
+            top_level_section_count(&counterpart_content),
+            "bilingual pages must keep the same top-level section structure: {:?} <-> {:?}",
+            page.relative,
+            counterpart.relative
+        );
+
         let is_index = matches!(
             page.relative.to_string_lossy().as_ref(),
             "README.md" | "README.zh-CN.md"
@@ -76,6 +143,85 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
                 page.relative
             );
         }
+    }
+
+    for (base, required) in [
+        (
+            "agentic-engineering",
+            &[
+                "agent_context",
+                "symbol_context",
+                "review_changes",
+                "verify_project",
+                "evidence_status",
+                "product scope",
+                "deterministic gate",
+            ][..],
+        ),
+        (
+            "language-quality",
+            &[
+                "language_quality_status",
+                "language_quality_run",
+                "check_only",
+                "property",
+                "mutation",
+                "fuzz",
+                "runtime_canary",
+            ][..],
+        ),
+        (
+            "maintainability-review",
+            &[
+                "maintainability-file-crossed-1k",
+                "maintainability-concentrated-growth",
+                "maintainability-cross-scope-churn",
+                "maintainability_review",
+            ][..],
+        ),
+        (
+            "product-scopes",
+            &[
+                "runtime",
+                "integrations",
+                "workspace",
+                "design",
+                "graph",
+                "semantics",
+                "traceability",
+                "risk",
+                "verification",
+                "evidence",
+                "reconciliation",
+                "experience",
+                "agent_context",
+            ][..],
+        ),
+        (
+            "software-intelligence",
+            &[
+                "agent_context",
+                "architecture-first",
+                "observed drift",
+                "evidence coverage",
+                "implementation coverage",
+                "semantic_provider_refresh",
+                "verification_execute_stages",
+            ][..],
+        ),
+        (
+            "releases/v0.4.0",
+            &[
+                "agent_context",
+                "architecture-first",
+                "cargo-nextest",
+                "localhost.run",
+                "pinggy",
+                "riskyexecution",
+            ][..],
+        ),
+    ] {
+        assert_bilingual_tokens(&docs_root, base, required);
     }
 
     let english_site = fs::read_to_string(root.join("docs/index.html")).unwrap();
@@ -126,6 +272,8 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(layout.contains("page.alternate"));
     assert!(layout.contains("'/zh/docs/'"));
     assert!(layout.contains("'/docs/reference/'"));
+    assert!(layout.contains("'/docs/releases/v0.4.0/'"));
+    assert!(layout.contains("'/zh/docs/releases/v0.4.0/'"));
 
     let docs_css = fs::read_to_string(root.join("docs/assets/docs.css")).unwrap();
     assert!(docs_css.contains(".docs-shell"));
@@ -141,6 +289,31 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(workflow.contains("actions/jekyll-build-pages@v1"));
     assert!(workflow.contains("source: ./docs"));
     assert!(workflow.contains("path: _site"));
+}
+
+fn top_level_section_count(content: &str) -> usize {
+    content
+        .lines()
+        .filter(|line| line.starts_with("## "))
+        .count()
+}
+
+fn assert_bilingual_tokens(docs_root: &Path, base: &str, required: &[&str]) {
+    let english = fs::read_to_string(docs_root.join(format!("{base}.md"))).unwrap();
+    let chinese = fs::read_to_string(docs_root.join(format!("{base}.zh-CN.md"))).unwrap();
+    let english = english.to_ascii_lowercase();
+    let chinese = chinese.to_ascii_lowercase();
+    for token in required {
+        let token = token.to_ascii_lowercase();
+        assert!(
+            english.contains(&token),
+            "English {base} must contain bilingual contract token: {token}"
+        );
+        assert!(
+            chinese.contains(&token),
+            "Chinese {base} must contain bilingual contract token: {token}"
+        );
+    }
 }
 
 fn parse_page(docs_root: &Path, path: PathBuf) -> DocPage {

@@ -132,11 +132,11 @@ irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 wcode --workspace "$PWD"
 ```
 
-That is the normal setup. `wcode` automatically starts the local MCP server, an HTTPS tunnel, OAuth, the terminal dashboard, and a client-neutral Setup Hub. The browser opens one page where you choose your AI client and reuse the same `/mcp` endpoint.
+That is the normal setup. `wcode` automatically starts the local MCP server, a managed HTTPS tunnel, OAuth, the terminal dashboard, and a client-neutral Setup Hub. The default `--tunnel-provider auto` policy tries Cloudflare Quick Tunnel first, then falls back to `localhost.run` and Pinggy when startup, URL discovery, or the instance-matched public health check fails. The SSH-based fallbacks require no account; use `--tunnel-provider cloudflare|localhost-run|pinggy` to force one provider. The browser opens one page where you choose your AI client and reuse the same `/mcp` endpoint.
 
 The runtime keeps the machine out of idle system sleep while it is serving, without preventing the display from sleeping or the screen from locking. Pass `--allow-sleep` to opt out. Manual sleep and laptop-lid sleep remain operating-system decisions.
 
-The public endpoint is supervised. If `cloudflared` exits or the public health check fails three consecutive times, wcode shuts down the complete runtime cleanly and starts it again with the original arguments. A restarted Quick Tunnel can receive a new temporary URL, so use the new MCP URL shown by the refreshed TUI and reconnect the client. For an endpoint that survives restarts, pass a stable reverse-proxy URL with `--public-url`.
+The public endpoint is supervised. A managed tunnel candidate is accepted only after `/healthz` returns the current wcode instance ID; `auto` moves to the next provider when that check fails. If the active tunnel process later exits or the public health check fails three consecutive times, wcode shuts down the complete runtime cleanly and starts it again with the original arguments. Temporary tunnel URLs can change after restart, so use the new MCP URL shown by the refreshed TUI and reconnect the client. For an endpoint that survives restarts, pass a stable reverse-proxy URL with `--public-url`.
 
 From another terminal, the running instance can be controlled without finding or killing processes manually:
 
@@ -287,11 +287,11 @@ Starting `wcode` opens a client-neutral Setup Hub. It shows the shared MCP URL a
 
 ## Public endpoint, automatically
 
-Cloud-hosted AI clients cannot reach localhost, so `wcode` creates a temporary HTTPS endpoint with Cloudflare Quick Tunnel by default. If you already have a stable reverse proxy, pass `--public-url https://…` instead.
+Cloud-hosted AI clients cannot reach localhost, so `wcode` creates a temporary HTTPS endpoint with a managed tunnel. The default `auto` policy health-verifies Cloudflare and falls back to `localhost.run` and Pinggy; use `--tunnel-provider …` to force one provider. If you already have a stable reverse proxy, pass `--public-url https://…` instead.
 
 The TUI and `/healthz` keep tunnel, OAuth, MCP connectivity, and task status observable when something goes wrong.
 
-Each process has an independent instance ID, local port, OAuth state, health monitor, and `cloudflared` child. Startup waits until the public health response matches that instance before presenting its MCP URL, so multiple `wcode --port …` processes can run without sharing readiness state.
+Each process has an independent instance ID, local port, OAuth state, health monitor, and owned managed-tunnel child when tunneling is enabled. Startup waits until the public health response matches that instance before presenting its MCP URL, so multiple `wcode --port …` processes can run without sharing readiness state.
 
 ---
 

@@ -27,11 +27,13 @@ wcode 的基本原则很简单：连接模型不等于把整台机器暴露给�
 
 `run_command` 接受裸可执行程序名和参数数组，不解释 Shell 语法。Shell 解释器和带路径的程序名继续在模型执行面被阻断。
 
-少量安全命令可以预授权；其他模型请求的裸程序名会生成按 Workspace 隔离的待授权请求，由操作者决定是否批准。Git 写操作继续保持窄边界：只有显式 `git add` Pathspec、`git commit -m ...` 和显式写出 Remote 与 Refspec 的 `git push <remote> <refspec>` 形态可以进入精确 `RiskyExecution` 授权；Force/Delete/Mirror/Reset/Restore 一类操作继续永久阻断。
+常用开发 CLI 现在在“可执行程序名”这一层进入默认 Catalog，但每个工具仍有自己的精确命令策略。当前覆盖 Git/GitHub CLI（`gh`）、Cargo 与常见包管理器，以及 `just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit`、`act`。严格本地的只读 / check-only 形态，例如受限 `fd`、`jq`、Ruff/Biome 检查和部分 Schema/能力查询，可以直接执行；仓库脚本/构建系统、写源码模式、Docker Daemon 读取、Kubernetes Cluster 读取、Provider 执行、远端写操作和 Compose 生命周期操作需要精确 `RiskyExecution` 授权；凭据/配置重定向以及破坏性基础设施操作继续阻断。
 
-精确批准 Git 写操作并不等于授权凭据访问。命令执行仍会移除 Token 类环境变量、`SSH_AUTH_SOCK`、`GIT_ASKPASS` 和全局 Git Config，并覆盖 Credential Helper、AskPass/SSH/Proxy Helper 以及 HTTP Extra Header。于是远程 Push 即使操作本身已经批准，也可能因为没有认证凭据而失败；凭据传递应当是未来独立、显式的信任边界，而不是 `git push` 授权的隐式副作用。
+Git 写操作仍保持窄边界：只有显式 `git add` Pathspec、`git commit -m ...` 和 `git push <remote> <refspec>` 可以进入精确授权；Force/Delete/Mirror/Reset/Restore 继续阻断。已经批准的 `git push` 可以通过固定的非交互 SSH 命令使用当前 SSH Agent，因此常见 SSH Remote 可以正常 Push；Token、Credential Helper、AskPass、任意 Git Config、Proxy Helper 与 HTTP Extra Header 仍不会被隐式转发。
 
-Language Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。除非进程用 `--allow-risky-exec` 做了整体预授权，否则这些精确操作也需要人工批准。
+GitHub CLI 也采用独立的有界策略。PR / Issue / Run / Workflow / Release / Repo / Search 的只读查看可以直接执行；显式、非交互的 PR/Issue 创建、评论、Workflow Dispatch、基于已存在且已验证 Tag 的 Release 创建、显式指定 Merge Method 的 PR Merge，以及 Run Rerun/Cancel 进入精确授权。Release Asset 路径仍单独隔离；`gh auth`、`gh api`、Secret/Variable、Extension、Host/Repo 重定向、Admin/Auto Merge 等凭据或策略绕过面继续阻断。
+
+Language Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。除非进程用 `--allow-risky-exec` 做了整体预授权，否则这些精确操作也需要人工批准。确定性 Harness Verification Lane 是例外：固定的 Check/Test/Build 形态由策略直接批准；Rust 仓库同时满足“已安装 cargo-nextest + 仓库声明 nextest 配置”时，会使用 `cargo nextest run [--locked]`，否则继续回退 `cargo test`。
 
 ## 人工授权只能在本地完成
 

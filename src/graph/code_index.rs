@@ -323,6 +323,12 @@ struct FileSearchOutcome {
     parsed: bool,
 }
 
+struct FileMultiSearchOutcome {
+    matches: Vec<(usize, u8, CodeSymbol)>,
+    cache_hit: bool,
+    parsed: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SymbolResolution {
     pub id: String,
@@ -762,6 +768,138 @@ impl CodeIndex {
         }))
     }
 
+    pub(crate) fn find_symbols_many(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        queries: &[String],
+        path: &str,
+        kind: Option<&str>,
+        max_results: usize,
+    ) -> Result<Value> {
+        let workspace_id = workspace_id.into();
+        let mut queries = queries
+            .iter()
+            .map(|query| query.trim())
+            .filter(|query| !query.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if queries.is_empty() {
+            bail!("symbol queries must not be empty");
+        }
+        queries.dedup();
+        let kind = kind.map(str::trim).filter(|value| !value.is_empty());
+        let max_results = max_results.clamp(1, MAX_SYMBOL_RESULTS);
+        let (paths, scan_truncated) = workspace.source_files(path, MAX_INDEX_SCAN_FILES)?;
+        let supported = paths
+            .into_iter()
+            .filter(|path| self.config_for_path(path).is_some())
+            .collect::<Vec<_>>();
+        let outcomes = supported
+            .par_iter()
+            .map(|file| self.search_file_many(workspace, file, &queries, kind))
+            .collect::<Vec<_>>();
+
+        let mut matches = Vec::new();
+        let mut cache_hits = 0usize;
+        let mut files_parsed = 0usize;
+        let mut failed_files = 0usize;
+        let mut failures = Vec::new();
+        for (path, outcome) in supported.iter().zip(outcomes) {
+            match outcome {
+                Ok(outcome) => {
+                    cache_hits += usize::from(outcome.cache_hit);
+                    files_parsed += usize::from(outcome.parsed);
+                    matches.extend(outcome.matches);
+                }
+                Err(error) => {
+                    failed_files = failed_files.saturating_add(1);
+                    if failures.len() < MAX_REPORTED_SCAN_ERRORS {
+                        failures.push(json!({"path": path, "error": error.to_string()}));
+                    }
+                }
+            }
+        }
+        matches.sort_by(
+            |(left_query, left_score, left), (right_query, right_score, right)| {
+                left_query
+                    .cmp(right_query)
+                    .then_with(|| left_score.cmp(right_score))
+                    .then_with(|| left.qualified_name.cmp(&right.qualified_name))
+                    .then_with(|| left.path.cmp(&right.path))
+                    .then_with(|| left.start_byte.cmp(&right.start_byte))
+            },
+        );
+        let mut seen = HashSet::new();
+        matches.retain(|(_, _, symbol)| seen.insert(symbol.id.clone()));
+        let total_matches = matches.len();
+        let truncated = total_matches > max_results;
+        let results = matches
+            .into_iter()
+            .take(max_results)
+            .map(|(_, _, symbol)| symbol)
+            .collect::<Vec<_>>();
+        let stats = self.stats_for_root(workspace.root());
+        Ok(json!({
+            "workspace": workspace_id,
+            "queries": queries,
+            "query_count": queries.len(),
+            "path": path,
+            "kind": kind,
+            "provider": "tree-sitter",
+            "precision": "syntax",
+            "files_considered": supported.len(),
+            "files_parsed": files_parsed,
+            "file_cache_hits": cache_hits,
+            "files_failed": failed_files,
+            "failures_truncated": failed_files > failures.len(),
+            "scan_truncated": scan_truncated,
+            "result_count": results.len(),
+            "total_matches": total_matches,
+            "truncated": truncated,
+            "failures": failures,
+            "results": results,
+            "index": stats,
+        }))
+    }
+
+    pub(crate) fn symbol_metadata(
+        &self,
+        workspace: &Workspace,
+        graph_symbol_id: &str,
+    ) -> Result<Value> {
+        let symbol_id = graph_symbol_id
+            .strip_prefix("symbol:")
+            .unwrap_or(graph_symbol_id);
+        let key = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("code index state poisoned"))?;
+            state
+                .symbol_files
+                .get(symbol_id)
+                .filter(|key| key.root == workspace.root())
+                .cloned()
+        }
+        .ok_or_else(|| anyhow!("unknown symbol_id; rebuild the repository map"))?;
+        let ensured = self.ensure_indexed(workspace, &key.path, false)?;
+        let symbol = ensured
+            .record
+            .symbols
+            .iter()
+            .find(|symbol| symbol.id == symbol_id)
+            .ok_or_else(|| anyhow!("symbol changed since the repository map was built"))?;
+        Ok(json!({
+            "signature": symbol.signature,
+            "signature_redacted": symbol.signature_redacted,
+            "range": symbol.range,
+            "language": symbol.language,
+            "provider": symbol.provider,
+            "precision": symbol.precision,
+        }))
+    }
+
     pub fn symbol_context(
         &self,
         workspace_id: impl Into<String>,
@@ -960,6 +1098,48 @@ impl CodeIndex {
             record,
             symbol_cache_hit: false,
             ast_cache_hit: false,
+        })
+    }
+
+    fn search_file_many(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        queries: &[String],
+        kind: Option<&str>,
+    ) -> Result<FileMultiSearchOutcome> {
+        let config = self
+            .config_for_path(path)
+            .ok_or_else(|| anyhow!("unsupported source language: {path}"))?;
+        let stamp = workspace.source_stamp(path)?;
+        let key = FileKey::new(workspace.root(), path.to_owned());
+        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+            return Ok(FileMultiSearchOutcome {
+                matches: matching_symbols_many(&record, queries, kind),
+                cache_hit: true,
+                parsed: false,
+            });
+        }
+
+        let source = workspace.load_source(path)?;
+        let could_match = queries
+            .iter()
+            .any(|query| contains_case_insensitive(&source.content, symbol_query_leaf(query)));
+        if !could_match {
+            self.invalidate(workspace.root(), path);
+            return Ok(FileMultiSearchOutcome {
+                matches: Vec::new(),
+                cache_hit: false,
+                parsed: false,
+            });
+        }
+
+        let parsed = self.parse_source(workspace.root(), &config, source)?;
+        let record = self.store_parsed_file(key, parsed)?;
+        Ok(FileMultiSearchOutcome {
+            matches: matching_symbols_many(&record, queries, kind),
+            cache_hit: false,
+            parsed: true,
         })
     }
 
@@ -1498,6 +1678,22 @@ fn prune_ast_cache(state: &mut IndexState) {
     }
 }
 
+fn matching_symbols_many(
+    record: &FileRecord,
+    queries: &[String],
+    kind: Option<&str>,
+) -> Vec<(usize, u8, CodeSymbol)> {
+    queries
+        .iter()
+        .enumerate()
+        .flat_map(|(query_index, query)| {
+            matching_symbols(record, query, kind)
+                .into_iter()
+                .map(move |(score, symbol)| (query_index, score, symbol))
+        })
+        .collect()
+}
+
 fn matching_symbols(record: &FileRecord, query: &str, kind: Option<&str>) -> Vec<(u8, CodeSymbol)> {
     record
         .symbols
@@ -1782,6 +1978,36 @@ mod tests {
             .unwrap()
             .iter()
             .any(|call| call["name"] == "helper"));
+    }
+
+    #[test]
+    fn multi_query_symbol_search_scans_and_parses_each_file_once() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("service.rs"),
+            "pub fn alpha_service() {}\npub fn beta_helper() {}\n",
+        )
+        .unwrap();
+        let workspace = Workspace::new(dir.path(), false, false).unwrap();
+        let index = CodeIndex::new().unwrap();
+        let queries = vec!["alpha_service".to_owned(), "beta_helper".to_owned()];
+
+        let first = index
+            .find_symbols_many("demo", &workspace, &queries, ".", None, 10)
+            .unwrap();
+        assert_eq!(first["query_count"], 2);
+        assert_eq!(first["files_considered"], 1);
+        assert_eq!(first["files_parsed"], 1);
+        assert_eq!(first["result_count"], 2);
+        assert_eq!(first["results"][0]["name"], "alpha_service");
+        assert_eq!(first["results"][1]["name"], "beta_helper");
+
+        let cached = index
+            .find_symbols_many("demo", &workspace, &queries, ".", None, 10)
+            .unwrap();
+        assert_eq!(cached["files_parsed"], 0);
+        assert_eq!(cached["file_cache_hits"], 1);
+        assert_eq!(cached["result_count"], 2);
     }
 
     #[test]

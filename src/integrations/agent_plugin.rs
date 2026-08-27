@@ -5,42 +5,18 @@ use serde::Serialize;
 
 const SKILL: &str = r#"---
 name: wcode-software-intelligence
-description: Use wcode's Design State, Software Graph, risk, verification, evidence, and reconciliation workflow for safe repository changes.
+description: Use wcode's compact coding context, guarded edits, and evidence-driven verification for repository changes.
 ---
 
-Use the configured `wcode` MCP server as the software-intelligence control layer for this repository.
+Use the configured `wcode` MCP server as the repository control layer. Keep context small through progressive disclosure.
 
-Treat always-on agent instructions as a short map, not a giant manual. Load task-specific Design State, Product Scope, symbol, semantic, language-quality, and verification detail on demand through wcode. Skills and repository docs provide progressive disclosure; mandatory policy belongs in Harness gates, authorization, and Evidence rather than in instructions the model is expected to remember.
+For coding work:
+1. Call `agent_context` with the goal and known Product Scope(s). Omit `budget` for bounded adaptive sizing. It returns relevant design, scope-aware repo-map/hot-source context, fresh strong relationship evidence when available, exact file SHA preconditions, tests, risks, quality gates, and explicit edit/verification/precision readiness.
+2. Follow `next_actions`. Open more bodies with `symbol_context` or bounded `read_file` only when readiness needs more source; do not reread a `hot_source` range already present in the pack. Prefer existing components/helpers over new wrappers, branches, or modules.
+3. Use `apply_edits` for one direct target file and `apply_file_edits` for multiple direct target files, preserving SHA-256 preconditions. Never bypass workspace, protected-path, command, delete, or risky-execution authorization.
+4. Run `review_changes`, then `verify_project` at the recommended level. Treat these five operations—`agent_context`, optional `symbol_context`, edit, review, verify—as the normal path; use `drift_status`, `risk_status`, `reconciliation_plan`, `language_quality_status`, or deeper Design/Graph tools only when the task or context pack requires them.
 
-Before substantial edits:
-1. Call `workspace_info`, then `scope_status`, `design_status`, `project_context`, and `language_quality_status` when the task touches source code or quality gates. Treat relevant `scope_status.unmapped_files` and language-quality gaps as explicit architecture/verification debt before adding production modules.
-2. Inspect the Product Scope registry exposed by wcode. Choose the scope(s) that bound the requested behavior; canonical scopes include `runtime`, `integrations`, `workspace`, `design`, `graph`, `semantics`, `traceability`, `risk`, `verification`, `evidence`, `reconciliation`, and `experience`.
-3. If Design State exists, call `software_context` for the requested requirement, behavior, or subsystem and pass the relevant `scopes` when they are known. Product Scopes narrow context; they do not widen permissions.
-4. `project_context` already includes a bounded convention report; call `convention_status` when naming, Product Scope mapping, architecture-domain classification, unclassified root source files, or other repository-architecture findings need separate inspection.
-5. Prefer `find_symbol`, `file_outline`, and `symbol_context` over broad file reads.
-6. Treat Tree-sitter relationships as `precision=syntax`. Only real fresh provider facts are semantic/runtime precision.
-7. Treat language support as a capability vector, not a checkbox: syntax, semantics, format, lint, type/static analysis, tests, security, Property, Mutation, Fuzz, and Runtime-Canary may have different coverage. Prefer repository-declared or language-native providers before introducing a new formatter/linter.
-8. When the host supports subagents/worktrees, use isolated workers for independent research, test synthesis, or review. Keep dependent/shared writes behind wcode's scheduler and SHA guards. Multiple model workers agreeing is still model evidence, never deterministic proof.
-
-When editing:
-- Before adding a branch, helper, wrapper, mode, or layer, ask whether the behavior can be expressed more directly by deleting complexity or reusing the canonical model/helper. Prefer code-judo simplification over moving the same complexity around.
-- Keep feature logic in its canonical Product Scope/layer. Avoid scattered special cases, avoid unnecessary casts/optionality or pass-through abstractions that hide the invariant, and keep independent work parallel / related state updates atomic when that materially simplifies reasoning.
-- Treat pushing a file from below 1,000 lines to above 1,000 as a strong change-review smell that needs decomposition or explicit structural justification; keep Convention's 2,000 production-line rule as the separate repository-level oversized-module threshold.
-- Stay inside configured Workspace roots.
-- Preserve SHA-256 edit preconditions and use wcode's bounded edit tools.
-- Treat `delete_path` as exceptional: it only deletes one regular file or empty directory after exact one-shot human authorization in the local TUI; never try to bypass or broaden that approval.
-- Do not bypass protected paths, symlink/hard-link protections, or command policy.
-- Do not auto-enable `--allow-risky-exec` or auto-approve repository-aware execution. If wcode returns an authorization request, surface it to the operator; after the operator approves it in the local TUI, retry the exact operation. The flag is only for intentional process-wide pre-authorization.
-
-After editing:
-1. Run `review_changes`. Treat `maintainability-*` findings as structural signals, not style nits.
-2. Inspect `drift_status`, `impact_analysis`, and `risk_status` when Git/exec review is available. Medium-and-higher Verification Plans require independent `maintainability_review` evidence; a correctness Pass does not replace it.
-3. Create or continue a `reconciliation_plan` when traceability/drift gaps remain.
-4. Run the recommended `verify_project` level. Use `language_quality_run` only for a provider that `language_quality_status` reports as repository-declared, available, and check-only; never substitute formatter fix/write mode for verification.
-5. Use real Property/Mutation/Fuzz/Runtime-Canary Evidence when required. Never fabricate a Stage Pass or HumanApproval.
-6. Finish with `evidence_status` and report failures, disagreement, stale revisions, and remaining blockers.
-
-Verification is fail-closed per producer: one runner's later Pass does not erase another runner's latest Fail.
+Tree-sitter relationships are syntax precision; only fresh semantic/runtime providers may claim stronger precision. Never fabricate Evidence, stage success, semantic facts, or HumanApproval. Independent model/subagent consensus is still model evidence, never deterministic proof.
 "#;
 
 #[derive(Debug, Serialize)]
@@ -209,7 +185,7 @@ The stdio transport uses the same Workspace policy, Harness, Software Intelligen
 
 Repository-aware execution is still explicit. With process-wide `--allow-risky-exec` off, an exact risky operation can stop with a local authorization request; the operator approves it in the wcode TUI and retries. The Skill must never auto-approve that request. Use the flag only when the operator intentionally pre-authorizes repository-aware execution for the whole process.
 
-The shared MCP runtime also exposes wcode Product Scopes. Start with `workspace_info` / `scope_status` / `project_context`; use `scope_status.unmapped_files` to surface architecture gaps, then pass relevant scopes to `software_context` when a task belongs to a bounded capability area. Product Scopes narrow context; they never widen Workspace or execution permissions. Clients that read MCP Resources can inspect `wcode://runtime/product-scopes`.
+The shared MCP runtime also exposes wcode Product Scopes. For coding tasks start with `agent_context` and pass the relevant scope when known; use `scope_status`, `project_context`, `software_context`, or `language_quality_status` only when deeper architecture, repository, traceability, or quality detail is needed. Product Scopes narrow context; they never widen Workspace or execution permissions. Clients that read MCP Resources can inspect `wcode://runtime/product-scopes`.
 
 For source changes, `language_quality_status` reports language support as a capability matrix rather than one boolean: syntax, semantics, repository-declared/native formatter/linter/type/static/test/security providers, plus Property/Mutation/Fuzz/Runtime stages. `language_quality_run` executes only a declared, available, check-only provider through the normal authorization boundary and records current-revision Evidence; it never uses formatter fix/write mode.
 

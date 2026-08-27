@@ -1,5 +1,20 @@
 use super::*;
 
+#[path = "command_policy/dev_tools.rs"]
+mod dev_tools;
+#[path = "command_policy/git.rs"]
+mod git;
+#[path = "command_policy/github.rs"]
+mod github;
+#[path = "command_policy/infrastructure.rs"]
+mod infrastructure;
+use dev_tools::{validate_fd_command, validate_jq_command};
+use git::validate_git_command;
+use github::validate_gh_command;
+use infrastructure::{
+    validate_docker_command, validate_kubectl_command, validate_terraform_command,
+};
+
 pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
     if program.is_empty() || program.len() > 256 || program.trim() != program {
         bail!("command program name is invalid");
@@ -48,11 +63,26 @@ pub(super) fn validate_command_policy(
     }
     match program {
         "git" => validate_git_command(args, security.allow_risky_exec),
+        "gh" => validate_gh_command(args, security.allow_risky_exec),
         "rg" => validate_rg_command(args),
         "cargo" => validate_cargo_command(args, security.allow_risky_exec),
         "go" => validate_go_command(args, security.allow_risky_exec),
         "npm" | "pnpm" | "yarn" | "bun" => {
             validate_package_command(program, args, security.allow_risky_exec)
+        }
+        "just" | "task" => validate_repository_runner(program, security.allow_risky_exec),
+        "uv" => validate_uv_command(args, security.allow_risky_exec),
+        "ruff" => validate_ruff_command(args, security.allow_risky_exec),
+        "biome" => validate_biome_command(args, security.allow_risky_exec),
+        "deno" => validate_deno_command(args, security.allow_risky_exec),
+        "docker" => validate_docker_command(args, security.allow_risky_exec),
+        "kubectl" => validate_kubectl_command(args, security.allow_risky_exec),
+        "terraform" => validate_terraform_command(args, security.allow_risky_exec),
+        "fd" => validate_fd_command(args),
+        "jq" => validate_jq_command(args),
+        "dotnet" => validate_dotnet_command(args, security.allow_risky_exec),
+        "cmake" | "ninja" | "mvn" | "gradle" | "swift" | "zig" | "pre-commit" | "act" => {
+            validate_known_project_runner(program, args, security.allow_risky_exec)
         }
         "rustc" | "node" | "python3" | "pytest" | "make" => {
             require_risky_exec(program, security.allow_risky_exec)
@@ -130,127 +160,203 @@ fn reject_protected_command_argument(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_git_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand_index = args
+fn validate_repository_runner(program: &str, allow_risky_exec: bool) -> Result<()> {
+    require_risky_exec(
+        &format!("{program} repository task evaluation"),
+        allow_risky_exec,
+    )
+}
+
+fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let subcommand = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("uv subcommand is required"))?;
+    if args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--allow-insecure-host"
+                | "--trusted-host"
+                | "--index"
+                | "--default-index"
+                | "--config-file"
+                | "--project"
+                | "--directory"
+                | "--cache-dir"
+        ) || [
+            "--allow-insecure-host=",
+            "--trusted-host=",
+            "--index=",
+            "--default-index=",
+            "--config-file=",
+            "--project=",
+            "--directory=",
+            "--cache-dir=",
+        ]
         .iter()
-        .position(|arg| !arg.starts_with('-'))
-        .ok_or_else(|| anyhow!("git subcommand is required"))?;
-    for option in &args[..subcommand_index] {
-        if !matches!(option.as_str(), "--no-pager" | "--literal-pathspecs") {
-            bail!("git global option is blocked by the workspace policy: {option}");
-        }
+        .any(|prefix| arg.starts_with(prefix))
+    }) {
+        bail!("uv path/index/config redirection is blocked; use the selected workspace and repository configuration");
     }
-    let subcommand = args[subcommand_index].as_str();
-    let tail = &args[subcommand_index + 1..];
-    if matches!(
-        subcommand,
-        "status" | "diff" | "log" | "show" | "rev-parse" | "ls-files"
-    ) {
-        for arg in tail {
-            if arg == "--ext-diff"
-                || arg == "--textconv"
-                || arg == "--open-files-in-pager"
-                || arg == "--show-signature"
-                || arg == "--output"
-                || arg.starts_with("--output=")
-                || arg.starts_with("--git-dir")
-                || arg.starts_with("--work-tree")
-                || arg.contains("%G")
-            {
-                bail!("git option can execute helpers or write outside the result stream: {arg}");
+    match subcommand {
+        "lock"
+            if args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--check" | "--locked" | "--check-exists" | "--frozen"
+                )
+            }) =>
+        {
+            Ok(())
+        }
+        "tree"
+            if args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "--locked" | "--frozen")) =>
+        {
+            Ok(())
+        }
+        "audit" => Ok(()),
+        "run" | "sync" | "lock" | "format" | "check" | "add" | "remove" => {
+            require_risky_exec(&format!("uv {subcommand}"), allow_risky_exec)
+        }
+        "auth" | "tool" | "python" | "self" | "cache" | "pip" => {
+            bail!("uv {subcommand} is blocked because it can alter host-wide tools, credentials, interpreters, caches, or unmanaged environments")
+        }
+        _ => bail!("uv subcommand is blocked by the bounded project policy: {subcommand}"),
+    }
+}
+
+fn validate_ruff_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let subcommand = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("ruff subcommand is required"))?;
+    match subcommand {
+        "check" => {
+            if args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--fix" | "--fix-only" | "--unsafe-fixes" | "--watch"
+                )
+            }) {
+                require_risky_exec("ruff source modification/watch execution", allow_risky_exec)
+            } else {
+                Ok(())
             }
         }
+        "format" => {
+            if args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "--check" | "--diff"))
+            {
+                Ok(())
+            } else {
+                require_risky_exec("ruff source formatting", allow_risky_exec)
+            }
+        }
+        "rule" | "config" | "linter" => Ok(()),
+        _ => bail!("ruff subcommand is blocked by the bounded quality policy: {subcommand}"),
+    }
+}
+
+fn validate_biome_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let subcommand = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("biome subcommand is required"))?;
+    match subcommand {
+        "check" | "lint" | "format" | "ci" => {
+            if args.iter().any(|arg| {
+                matches!(arg.as_str(), "--write" | "--fix") || arg.starts_with("--write=")
+            }) {
+                require_risky_exec("Biome source modification", allow_risky_exec)
+            } else {
+                Ok(())
+            }
+        }
+        _ => bail!("biome subcommand is blocked by the bounded quality policy: {subcommand}"),
+    }
+}
+
+fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let subcommand = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("deno subcommand is required"))?;
+    match subcommand {
+        "lint" | "check" => Ok(()),
+        "fmt" if args.iter().any(|arg| arg == "--check") => Ok(()),
+        "test" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
+        "fmt" | "test" | "run" | "task" => {
+            require_risky_exec(&format!("deno {subcommand}"), allow_risky_exec)
+        }
+        _ => bail!("deno subcommand is blocked by the bounded runtime policy: {subcommand}"),
+    }
+}
+
+fn validate_dotnet_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let subcommand = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("dotnet subcommand is required"))?;
+    if matches!(subcommand, "--info" | "--list-sdks" | "--list-runtimes") {
         return Ok(());
     }
-
+    if args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--interactive"
+                | "--source"
+                | "--configfile"
+                | "--packages"
+                | "--artifacts-path"
+                | "--output"
+                | "-o"
+        ) || arg.starts_with("--source=")
+            || arg.starts_with("--configfile=")
+            || arg.starts_with("--packages=")
+            || arg.starts_with("--artifacts-path=")
+            || arg.starts_with("--output=")
+    }) {
+        bail!("dotnet source/config/output redirection or interactive execution is blocked");
+    }
     match subcommand {
-        "add" => validate_git_add(tail)?,
-        "commit" => validate_git_commit(tail)?,
-        "push" => validate_git_push(tail)?,
-        _ => bail!("git mutation subcommand is permanently blocked: {subcommand}"),
+        "build" | "test" | "format" | "restore" | "list" => {
+            require_risky_exec(&format!("dotnet {subcommand}"), allow_risky_exec)
+        }
+        "run" | "publish" | "pack" | "tool" | "workload" | "nuget" | "new" | "sdk" => {
+            bail!("dotnet {subcommand} is blocked by the bounded project/host policy")
+        }
+        _ => bail!("dotnet subcommand is blocked by the bounded project policy: {subcommand}"),
     }
-    require_risky_exec("git repository mutation", allow_risky_exec)
 }
 
-fn validate_git_add(args: &[String]) -> Result<()> {
-    let mut path_count = 0usize;
-    for arg in args {
-        if arg == "--" {
-            continue;
-        }
-        if arg.starts_with('-') {
-            bail!("git add option is blocked; authorize explicit pathspecs only: {arg}");
-        }
-        if arg.starts_with(':') {
-            bail!("git add magic pathspecs are blocked: {arg}");
-        }
-        if matches!(arg.as_str(), "." | "./") {
-            bail!("git add requires explicit files/directories; broad dot pathspecs are blocked");
-        }
-        path_count += 1;
-    }
-    if path_count == 0 {
-        bail!("git add requires at least one explicit pathspec");
-    }
-    Ok(())
-}
-
-fn validate_git_commit(args: &[String]) -> Result<()> {
+fn validate_known_project_runner(
+    program: &str,
+    args: &[String],
+    allow_risky_exec: bool,
+) -> Result<()> {
     if args.is_empty() {
-        bail!("git commit requires an explicit -m/--message to avoid opening an editor");
+        bail!("{program} requires an explicit operation");
     }
-    let mut index = 0usize;
-    let mut messages = 0usize;
-    while index < args.len() {
-        let arg = &args[index];
-        if matches!(arg.as_str(), "-m" | "--message") {
-            let Some(message) = args.get(index + 1) else {
-                bail!("git commit message value is required");
-            };
-            if message.is_empty() {
-                bail!("git commit message must not be empty");
-            }
-            messages += 1;
-            index += 2;
-            continue;
+    match program {
+        "mvn" if args.iter().any(|arg| matches!(arg.as_str(), "deploy" | "install")) => {
+            bail!("Maven install/deploy is blocked because it mutates the local artifact repository or a remote repository")
         }
-        if let Some(message) = arg.strip_prefix("--message=") {
-            if message.is_empty() {
-                bail!("git commit message must not be empty");
-            }
-            messages += 1;
-            index += 1;
-            continue;
+        "gradle" if args.iter().any(|arg| {
+            let task = arg.trim_start_matches(':').to_ascii_lowercase();
+            task.contains("publish") || task.contains("upload") || task.contains("release") || task == "wrapper" || task == "init"
+        }) => bail!("Gradle publish/upload/release/wrapper/init tasks are blocked by the bounded project policy"),
+        "swift" if matches!(args.first().map(String::as_str), Some("sdk" | "package-registry" | "package-collection")) => {
+            bail!("Swift SDK/registry/collection host configuration commands are blocked")
         }
-        bail!("git commit option is blocked; only explicit -m/--message is supported: {arg}");
+        "act" if args.iter().any(|arg| matches!(arg.as_str(), "--bind" | "--privileged") || arg.starts_with("--bind=") || arg.starts_with("--container-daemon-socket=")) => {
+            bail!("act host bind/privileged/daemon redirection is blocked")
+        }
+        _ => {}
     }
-    if messages == 0 {
-        bail!("git commit requires an explicit -m/--message");
-    }
-    Ok(())
-}
-
-fn validate_git_push(args: &[String]) -> Result<()> {
-    let mut positional = 0usize;
-    for arg in args {
-        if matches!(arg.as_str(), "-u" | "--set-upstream") {
-            continue;
-        }
-        if arg.starts_with('-') {
-            bail!("git push option is blocked; force/delete/mirror/all/tag pushes are not authorizable: {arg}");
-        }
-        if arg.starts_with('+') || arg.ends_with(':') {
-            bail!("git push force/delete refspecs are permanently blocked: {arg}");
-        }
-        positional += 1;
-        if positional > 2 {
-            bail!("git push accepts at most an explicit remote and one refspec");
-        }
-    }
-    if positional != 2 {
-        bail!("git push requires an explicit remote and one explicit refspec for auditable authorization");
-    }
-    Ok(())
+    require_risky_exec(&format!("{program} project execution"), allow_risky_exec)
 }
 
 fn validate_rg_command(args: &[String]) -> Result<()> {
@@ -306,6 +412,8 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
             | ("cargo", ["check", "--locked"])
             | ("cargo", ["test"])
             | ("cargo", ["test", "--locked"])
+            | ("cargo", ["nextest", "run"])
+            | ("cargo", ["nextest", "run", "--locked"])
             | ("cargo", ["clippy", "--", "-D", "warnings"])
             | ("cargo", ["clippy", "--locked", "--", "-D", "warnings"])
             | ("cargo", ["build", "--release"])
@@ -348,6 +456,8 @@ fn is_default_safe_cargo_command(args: &[String]) -> bool {
             | ["check", "--locked"]
             | ["test"]
             | ["test", "--locked"]
+            | ["nextest", "run"]
+            | ["nextest", "run", "--locked"]
             | ["clippy", "--", "-D", "warnings"]
             | ["clippy", "--locked", "--", "-D", "warnings"]
             | ["build", "--release"]
@@ -382,6 +492,20 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
         }
         "check" | "test" | "clippy" | "build" => {
             require_risky_exec("cargo project execution", allow_risky_exec)
+        }
+        "nextest" => {
+            let index = args
+                .iter()
+                .position(|arg| !arg.starts_with('-'))
+                .expect("cargo subcommand already resolved");
+            let action = args
+                .get(index + 1)
+                .map(String::as_str)
+                .ok_or_else(|| anyhow!("cargo nextest action is required"))?;
+            if !matches!(action, "run" | "list") {
+                bail!("cargo nextest {action} is blocked; only run/list enter exact project authorization");
+            }
+            require_risky_exec(&format!("cargo nextest {action}"), allow_risky_exec)
         }
         _ => bail!("cargo subcommand is blocked by the safe execution policy: {subcommand}"),
     }
@@ -450,7 +574,7 @@ fn require_risky_exec(label: &str, enabled: bool) -> Result<()> {
         Ok(())
     } else {
         bail!(
-            "{label} can execute project-controlled code and is disabled by default; restart with --allow-risky-exec only for a trusted repository"
+            "{label} requires exact risky-operation authorization; approve the specific operation in the TUI/Web UI, or restart with --allow-risky-exec only for a trusted repository"
         )
     }
 }
@@ -464,7 +588,12 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     };
 
     let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let overrides = [
+    let is_push = args[subcommand_index] == "push"
+        || (args[subcommand_index] == "lfs"
+            && args
+                .get(subcommand_index + 1)
+                .is_some_and(|arg| arg == "push"));
+    let mut overrides = vec![
         "core.fsmonitor=false".to_owned(),
         "core.untrackedCache=false".to_owned(),
         format!("core.hooksPath={null_path}"),
@@ -475,7 +604,6 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
         "tag.gpgSign=false".to_owned(),
         "credential.helper=".to_owned(),
         "core.askPass=".to_owned(),
-        "core.sshCommand=false".to_owned(),
         "core.gitProxy=".to_owned(),
         "http.extraHeader=".to_owned(),
         "protocol.ext.allow=never".to_owned(),
@@ -483,6 +611,11 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
         "maintenance.auto=false".to_owned(),
         "gc.auto=0".to_owned(),
     ];
+    overrides.push(if is_push {
+        "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new".to_owned()
+    } else {
+        "core.sshCommand=false".to_owned()
+    });
     let extra_diff_args = if matches!(args[subcommand_index].as_str(), "diff" | "log" | "show") {
         2
     } else {
@@ -502,10 +635,24 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     hardened
 }
 
-pub(super) fn scrub_sensitive_environment(command: &mut Command, program: &str) {
+pub(super) fn scrub_sensitive_environment(
+    command: &mut Command,
+    program: &str,
+    args: &[String],
+    allow_git_push_credentials: bool,
+) {
     for (key, _) in std::env::vars() {
         let upper = key.to_ascii_uppercase();
-        if (program == "git" && upper.starts_with("GIT_"))
+        let gh_auth = program == "gh"
+            && matches!(
+                upper.as_str(),
+                "GH_TOKEN" | "GITHUB_TOKEN" | "GH_ENTERPRISE_TOKEN"
+            );
+        let git_ssh_agent = program == "git"
+            && allow_git_push_credentials
+            && is_git_push_command(args)
+            && upper == "SSH_AUTH_SOCK";
+        let generic_secret = (program == "git" && upper.starts_with("GIT_"))
             || upper.contains("TOKEN")
             || upper.contains("SECRET")
             || upper.contains("PASSWORD")
@@ -518,12 +665,51 @@ pub(super) fn scrub_sensitive_environment(command: &mut Command, program: &str) 
             || matches!(
                 upper.as_str(),
                 "SSH_AUTH_SOCK" | "KUBECONFIG" | "DOCKER_CONFIG" | "NETRC" | "GIT_ASKPASS"
-            )
-        {
+            );
+        let tool_redirect = (program == "gh"
+            && matches!(
+                upper.as_str(),
+                "GH_REPO" | "GH_HOST" | "GH_CONFIG_DIR" | "GH_EDITOR" | "GH_BROWSER"
+            ))
+            || (program == "docker"
+                && matches!(
+                    upper.as_str(),
+                    "DOCKER_HOST" | "DOCKER_CONTEXT" | "DOCKER_CERT_PATH" | "DOCKER_TLS_VERIFY"
+                ))
+            || (program == "kubectl" && upper == "KUBECTL_EXTERNAL_DIFF")
+            || (program == "terraform"
+                && (upper.starts_with("TF_CLI_ARGS")
+                    || upper.starts_with("TF_VAR_")
+                    || matches!(
+                        upper.as_str(),
+                        "TF_CLI_CONFIG_FILE" | "TF_DATA_DIR" | "TF_WORKSPACE"
+                    )))
+            || (program == "uv"
+                && matches!(
+                    upper.as_str(),
+                    "UV_PROJECT"
+                        | "UV_WORKING_DIR"
+                        | "UV_CONFIG_FILE"
+                        | "UV_DEFAULT_INDEX"
+                        | "UV_INDEX"
+                        | "UV_INSECURE_HOST"
+                        | "UV_KEYRING_PROVIDER"
+                        | "UV_CACHE_DIR"
+                ));
+        if (!gh_auth && !git_ssh_agent && generic_secret) || tool_redirect {
             command.env_remove(key);
         }
     }
     command.env("NO_COLOR", "1");
+    if program == "gh" {
+        command
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("GH_PAGER", "cat")
+            .env("PAGER", "cat");
+    }
+    if program == "terraform" {
+        command.env("TF_IN_AUTOMATION", "1");
+    }
     if program == "git" {
         let null_config = if cfg!(windows) { "NUL" } else { "/dev/null" };
         command
@@ -540,6 +726,14 @@ pub(super) fn scrub_sensitive_environment(command: &mut Command, program: &str) 
             .env("GIT_SEQUENCE_EDITOR", "false")
             .env("GIT_EXTERNAL_DIFF", "");
     }
+}
+
+fn is_git_push_command(args: &[String]) -> bool {
+    let Some(index) = args.iter().position(|arg| !arg.starts_with('-')) else {
+        return false;
+    };
+    args[index] == "push"
+        || (args[index] == "lfs" && args.get(index + 1).is_some_and(|arg| arg == "push"))
 }
 
 pub(super) async fn read_bounded_stream<R>(mut reader: R) -> std::io::Result<(String, bool)>
@@ -568,6 +762,152 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
+        assert!(
+            validate_gh_command(&args(&["pr", "view", "42", "--json", "title,url"]), false).is_ok()
+        );
+        assert!(validate_gh_command(
+            &args(&[
+                "pr",
+                "create",
+                "--title",
+                "feat: bounded gh",
+                "--body",
+                "details",
+                "--head",
+                "feature",
+                "--base",
+                "main"
+            ]),
+            false,
+        )
+        .is_err());
+        assert!(validate_gh_command(
+            &args(&[
+                "pr",
+                "create",
+                "--title",
+                "feat: bounded gh",
+                "--body",
+                "details",
+                "--head",
+                "feature",
+                "--base",
+                "main"
+            ]),
+            true,
+        )
+        .is_ok());
+        assert!(validate_gh_command(&args(&["pr", "create", "--fill"]), true).is_err());
+        assert!(validate_gh_command(&args(&["api", "repos/example/example"]), true).is_err());
+        assert!(validate_gh_command(&args(&["secret", "list"]), true).is_err());
+        assert!(validate_gh_command(
+            &args(&[
+                "release",
+                "create",
+                "v0.4.0",
+                "--verify-tag",
+                "--generate-notes",
+                "--title",
+                "wcode 0.4.0"
+            ]),
+            true,
+        )
+        .is_ok());
+        assert!(validate_gh_command(
+            &args(&[
+                "release",
+                "create",
+                "v0.4.0",
+                "dist/wcode.tar.gz",
+                "--verify-tag",
+                "--generate-notes"
+            ]),
+            true,
+        )
+        .is_err());
+        assert!(validate_gh_command(&args(&["pr", "merge", "42", "--squash"]), true).is_ok());
+        assert!(
+            validate_gh_command(&args(&["pr", "merge", "42", "--admin", "--squash"]), true)
+                .is_err()
+        );
+
+        assert!(validate_repository_runner("just", false).is_err());
+        assert!(validate_repository_runner("task", true).is_ok());
+        assert!(validate_uv_command(&args(&["lock", "--check"]), false).is_ok());
+        assert!(validate_uv_command(&args(&["tree", "--locked"]), false).is_ok());
+        assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), false).is_err());
+        assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), true).is_ok());
+        assert!(validate_uv_command(&args(&["auth", "login"]), true).is_err());
+
+        assert!(validate_ruff_command(&args(&["check", "."]), false).is_ok());
+        assert!(validate_ruff_command(&args(&["check", "--fix", "."]), false).is_err());
+        assert!(validate_ruff_command(&args(&["format", "--check", "."]), false).is_ok());
+        assert!(validate_biome_command(&args(&["ci", "."]), false).is_ok());
+        assert!(validate_biome_command(&args(&["check", "--write", "."]), false).is_err());
+        assert!(validate_deno_command(&args(&["lint"]), false).is_ok());
+        assert!(validate_deno_command(&args(&["fmt", "--check"]), false).is_ok());
+        assert!(validate_deno_command(&args(&["run", "main.ts"]), false).is_err());
+
+        assert!(validate_docker_command(&args(&["compose", "config"]), false).is_err());
+        assert!(validate_docker_command(&args(&["compose", "config"]), true).is_ok());
+        assert!(validate_docker_command(&args(&["compose", "up", "-d"]), false).is_err());
+        assert!(validate_docker_command(&args(&["compose", "up", "-d"]), true).is_ok());
+        assert!(validate_docker_command(&args(&["compose", "down", "--volumes"]), true).is_err());
+        assert!(validate_kubectl_command(&args(&["api-resources"]), false).is_ok());
+        assert!(validate_kubectl_command(&args(&["get", "pods"]), false).is_err());
+        assert!(validate_kubectl_command(&args(&["get", "pods"]), true).is_ok());
+        assert!(
+            validate_kubectl_command(&args(&["get", "pods", "--token", "secret"]), true).is_err()
+        );
+        assert!(validate_kubectl_command(&args(&["apply", "-f", "deploy.yaml"]), true).is_err());
+        assert!(validate_terraform_command(&args(&["validate"]), false).is_ok());
+        assert!(validate_terraform_command(&args(&["fmt", "-check"]), false).is_ok());
+        assert!(validate_terraform_command(&args(&["plan"]), false).is_err());
+        assert!(validate_terraform_command(&args(&["plan"]), true).is_ok());
+        assert!(validate_terraform_command(&args(&["apply"]), true).is_err());
+        assert!(validate_terraform_command(&args(&["show", "-json"]), true).is_err());
+
+        assert!(validate_fd_command(&args(&["handler", "src"])).is_ok());
+        assert!(validate_fd_command(&args(&["-H", "handler", "."])).is_err());
+        assert!(validate_fd_command(&args(&["handler", "-x", "cat"])).is_err());
+        assert!(validate_jq_command(&args(&[".version", "package.json"])).is_ok());
+        assert!(validate_jq_command(&args(&["--rawfile", "secret", ".env", "."])).is_err());
+
+        assert!(validate_dotnet_command(&args(&["--info"]), false).is_ok());
+        assert!(validate_dotnet_command(&args(&["test", "--no-restore"]), false).is_err());
+        assert!(validate_dotnet_command(&args(&["test", "--no-restore"]), true).is_ok());
+        assert!(validate_dotnet_command(&args(&["tool", "install", "x"]), true).is_err());
+        for program in [
+            "cmake",
+            "ninja",
+            "mvn",
+            "gradle",
+            "swift",
+            "zig",
+            "pre-commit",
+            "act",
+        ] {
+            assert!(validate_known_project_runner(program, &args(&["check"]), false).is_err());
+            assert!(validate_known_project_runner(program, &args(&["check"]), true).is_ok());
+        }
+        assert!(validate_known_project_runner("mvn", &args(&["deploy"]), true).is_err());
+        assert!(validate_known_project_runner("gradle", &args(&["publish"]), true).is_err());
+        assert!(validate_known_project_runner("swift", &args(&["sdk", "list"]), true).is_err());
+        assert!(validate_known_project_runner("act", &args(&["--privileged"]), true).is_err());
+
+        assert!(validate_cargo_command(&args(&["nextest", "run"]), false).is_ok());
+        assert!(validate_cargo_command(&args(&["nextest", "run", "--locked"]), false).is_ok());
+        assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), false).is_err());
+        assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), true).is_ok());
+        assert!(validate_cargo_command(&args(&["nextest", "archive"]), true).is_err());
+        assert!(validate_git_command(&args(&["lfs", "status"]), false).is_ok());
+        assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_err());
+        assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), true).is_ok());
+        assert!(validate_git_command(&args(&["lfs", "push", "--all", "origin"]), true).is_err());
     }
 
     #[test]

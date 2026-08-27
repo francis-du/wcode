@@ -27,6 +27,13 @@
     - component:command-execution
 
 - schema_version: 1
+  id: CONSTRAINT-BOUNDED-DEV-TOOLS
+  title: Common development CLIs remain command-bounded
+  statement: Known developer CLIs must use tool-specific policy that separates read/check-only shapes from exact authorized mutations and permanently blocks credential redirection, unbounded helper execution, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command.
+  applies_to:
+    - component:command-execution
+
+- schema_version: 1
   id: CONSTRAINT-MCP-COMPATIBILITY
   title: MCP revision handling is explicit
   statement: Supported MCP protocol revisions are accepted intentionally and unknown revisions fail explicitly.
@@ -187,3 +194,12 @@
   applies_to:
     - component:documentation-governance
     - component:agent-integration
+
+- schema_version: 1
+  id: CONSTRAINT-CONTEXT-BUDGET
+  title: Coding context is bounded and progressively disclosed
+  statement: The default coding startup path must return a compact task-specific pack whose serialized size is actively trimmed to an explicit or bounded adaptive approximate token budget; when the caller omits a budget, task ambiguity, matched symbols, related Requirements, Design breadth, graph truncation, risk and scope breadth may raise the effective budget within a fixed range. Only the strongest direct match may contribute bounded hot source while additional bodies remain progressively disclosed, unrelated traceability is filtered before truncation, working-tree context is limited to direct targets and gathered fail-soft in parallel rather than expanding into full Git review, exact edit SHA preconditions plus relevant verification references are retained ahead of lower-value metadata, and the deterministic MCP tool catalog keeps bounded descriptions and a tested serialized byte budget.
+  applies_to:
+    - component:agent-context
+    - component:agent-integration
+    - component:mcp-capabilities

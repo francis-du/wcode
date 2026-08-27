@@ -25,7 +25,7 @@ use crate::workspace::Workspace;
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -133,10 +133,27 @@ impl SoftwareIntelligenceRuntime {
         known_checks: &HashSet<String>,
     ) -> Result<TraceabilityStatus> {
         let load = design::load_design(workspace)?;
+        self.traceability_status_from_load(
+            workspace_id.into(),
+            workspace,
+            code_index,
+            known_checks,
+            &load,
+        )
+    }
+
+    fn traceability_status_from_load(
+        &self,
+        workspace_id: String,
+        workspace: &Workspace,
+        code_index: &CodeIndex,
+        known_checks: &HashSet<String>,
+        load: &design::DesignLoad,
+    ) -> Result<TraceabilityStatus> {
         let errors = load.error_count();
         let initialized = load.initialized;
-        let mut diagnostics = load.diagnostics;
-        let state = load.state;
+        let mut diagnostics = load.diagnostics.clone();
+        let state = &load.state;
         let requirements_total = state.requirements.len();
         let mut requirement_components_covered = 0usize;
         let mut implementation_total = 0usize;
@@ -211,7 +228,7 @@ impl SoftwareIntelligenceRuntime {
             requirements_total > requirements.len() || diagnostics.len() > MAX_TRACE_DIAGNOSTICS;
         diagnostics.truncate(MAX_TRACE_DIAGNOSTICS);
         Ok(TraceabilityStatus {
-            workspace: workspace_id.into(),
+            workspace: workspace_id,
             initialized,
             valid_design: initialized && errors == 0,
             requirements_total,
@@ -954,7 +971,8 @@ impl SoftwareIntelligenceRuntime {
         if query.is_empty() {
             return Err(anyhow!("software context query must not be empty"));
         }
-        let state = design::load_design(workspace)?.state;
+        let design_load = design::load_design(workspace)?;
+        let state = &design_load.state;
         let budget = request.budget.clamp(1_000, 64_000);
         let item_cap = (budget / 900).clamp(4, MAX_CONTEXT_ITEMS);
         let requested_scopes = scopes::canonicalize(&request.scopes);
@@ -1054,7 +1072,7 @@ impl SoftwareIntelligenceRuntime {
             item_cap,
         );
         let design_items = design_context_items(
-            &state,
+            state,
             &requirements,
             &components,
             &constraints,
@@ -1076,36 +1094,31 @@ impl SoftwareIntelligenceRuntime {
             symbol_queries.push(query.to_owned());
         }
         let source_roots = scopes::source_roots_for(&requested_scopes);
-        for symbol_query in symbol_queries {
-            for source_root in &source_roots {
-                let search = code_index.find_symbol(
-                    workspace_id.clone(),
-                    workspace,
-                    &symbol_query,
-                    source_root,
-                    None,
-                    symbol_cap,
-                )?;
-                for symbol in search
-                    .get("results")
-                    .and_then(serde_json::Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    let key = symbol
-                        .get("id")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| symbol.to_string());
-                    if symbol_ids.insert(key) {
-                        symbols.push(symbol.clone());
-                        if symbols.len() >= symbol_cap {
-                            break;
-                        }
+        for source_root in &source_roots {
+            let search = code_index.find_symbols_many(
+                workspace_id.clone(),
+                workspace,
+                &symbol_queries,
+                source_root,
+                None,
+                symbol_cap,
+            )?;
+            for symbol in search
+                .get("results")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let key = symbol
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| symbol.to_string());
+                if symbol_ids.insert(key) {
+                    symbols.push(symbol.clone());
+                    if symbols.len() >= symbol_cap {
+                        break;
                     }
-                }
-                if symbols.len() >= symbol_cap {
-                    break;
                 }
             }
             if symbols.len() >= symbol_cap {
@@ -1130,13 +1143,42 @@ impl SoftwareIntelligenceRuntime {
             .into_iter()
             .take(item_cap)
             .collect::<Vec<_>>();
-        let mut coverage =
-            self.traceability_status(workspace_id.clone(), workspace, code_index, known_checks)?;
+        let mut coverage = self.traceability_status_from_load(
+            workspace_id.clone(),
+            workspace,
+            code_index,
+            known_checks,
+            &design_load,
+        )?;
+        let requirement_rank = requirements
+            .iter()
+            .enumerate()
+            .map(|(rank, id)| (id.as_str(), rank))
+            .collect::<HashMap<_, _>>();
+        let relevant_components = components
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        if !requirement_rank.is_empty() || !relevant_components.is_empty() {
+            coverage.requirements.retain(|requirement| {
+                requirement_rank.contains_key(requirement.id.as_str())
+                    || requirement
+                        .components
+                        .iter()
+                        .any(|component| relevant_components.contains(component.as_str()))
+            });
+            coverage.requirements.sort_by_key(|requirement| {
+                requirement_rank
+                    .get(requirement.id.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        }
         if coverage.requirements.len() > item_cap {
             coverage.requirements.truncate(item_cap);
-            coverage.requirements_returned = coverage.requirements.len();
-            coverage.truncated = true;
         }
+        coverage.requirements_returned = coverage.requirements.len();
+        coverage.truncated |= coverage.requirements_returned < coverage.requirements_total;
         if coverage.diagnostics.len() > item_cap {
             coverage.diagnostics.truncate(item_cap);
             coverage.truncated = true;

@@ -49,7 +49,8 @@ wcode --workspace /absolute/path/to/repository mcp-stdio
 | --- | --- |
 | `-w, --workspace <PATH>` | 暴露一个仓库根目录；只有任务确实跨仓时才重复指定。 |
 | `-j, --max-parallel-tools <N>` | 覆盖自适应的有界并行上限。 |
-| `--public-url https://…` | 使用稳定反向代理地址，而不是临时 Quick Tunnel。 |
+| `--public-url https://…` | 使用稳定反向代理地址，而不是临时托管隧道。 |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy` | 选择 HTTPS 隧道 Provider；`auto` 会做实例健康检查并在免费 Provider 间自动回退。 |
 | `--read-only` | 移除模型侧文件修改能力。 |
 | `--no-exec` | 禁止命令执行。 |
 | `--no-open` | 启动后不自动打开 Setup Hub。 |
@@ -73,19 +74,19 @@ wcode --workspace /absolute/path/to/repository mcp-stdio
 
 ## 推荐 MCP 工作流
 
-大改动前：
+正常编程任务：
 
 ```text
-workspace_info
+agent_context(goal, scopes=...)
   ↓
-scope_status + design_status + project_context
+按 readiness / next_actions 执行
   ↓
-language_quality_status（源码 / 质量任务）
+只有需要更多源码时调用 symbol_context
   ↓
-software_context(scopes=...)
-  ↓
-精确源码导航 / 编辑
+apply_edits 或 apply_file_edits
 ```
+
+`agent_context` 省略 `budget` 时使用有界自适应预算。`workspace_info`、`scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status` 用于按需深入检查，不再作为每次编码的固定启动序列。
 
 改动后：
 
@@ -119,7 +120,8 @@ evidence_status
 | `design_init` | 稀疏初始化 Design State，不覆盖已有文件。 |
 | `design_status` | 校验结构化 Desired State。 |
 | `traceability_status` | Requirement → Component → implementation、Acceptance → verification 覆盖。 |
-| `software_context` | 带 Budget 的任务上下文，可按 Product Scope 收窄并包含 Graph Context。 |
+| `agent_context` | 编程主入口：自适应 / 显式 Token Budget、相关 Design、按任务收窄的 Repo Map、Hot Source、SHA 编辑目标、验证引用、Readiness 与下一步动作。 |
+| `software_context` | 更深层的软件智能上下文，可按 Product Scope 收窄并包含 Graph Context。 |
 
 ### 源码导航与有界 I/O
 
@@ -188,7 +190,9 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 - **RuntimeExecutor**：为一个精确高级验证 Executor 操作授权。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
 
-Git Mutation 仍然很窄：只有显式 pathspec 的 `git add`、message-only `git commit -m ...`、非 Force / 非 Delete 的 `git push <remote> <refspec>` 可以进入精确授权。批准操作并不等于转发 SSH Agent、Token、Credential Helper 或任意 Git Config。
+Git Mutation 仍然很窄：只有显式 pathspec 的 `git add`、message-only `git commit -m ...`、非 Force / 非 Delete 的 `git push <remote> <refspec>` 可以进入精确授权。已批准 Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass、任意 Git Config 以及 Force/Delete 形态继续阻断。
+
+已知开发 CLI 采用命令级策略，而不是授权一个程序名后整套子命令都放开：`gh`、`just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit`、`act`。严格本地只读 / check-only 形态可直接运行；仓库构建/Runner、Docker/Kubernetes 数据访问和有界源码/远端写操作进入精确授权；Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改以及命令/文件加载绕过面继续阻断。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
 
 ## 诊断
 

@@ -32,24 +32,23 @@ This is the English documentation home. The product site stays focused on the pr
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
-- [v0.3.0 release notes](releases/v0.3.0/) — the 0.3 product shape and major changes.
+- [v0.4.0 release notes](releases/v0.4.0/) — faster Agent Context, architecture-first observability, resilient tunnels, and bounded development CLI automation.
+- [v0.3.0 release notes](releases/v0.3.0/) — historical 0.3 product shape and major changes.
 
 ## Recommended workflow
 
 ```text
-workspace_info
+agent_context(goal, scopes=...)
   ↓
-scope_status + design_status + project_context
-  ↓
-software_context
+follow readiness; load deeper context only when needed
   ↓
 implement / edit
   ↓
-review_changes + drift_status + impact_analysis + risk_status
+review_changes
   ↓
-verification + evidence
+verify_project
   ↓
-reconciliation
+drift / risk / evidence / reconciliation only when required
 ```
 
 Commands, tool names, protocol names, and field names keep their canonical technical spelling. Explanatory prose follows the selected document language; English and Chinese navigation are separate instead of mixing both languages in one sidebar.

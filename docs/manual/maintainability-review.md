@@ -49,7 +49,7 @@ The reviewer must submit real Verification evidence. A correctness reviewer cann
 
 ## Development flow
 
-Before editing, use Product Scopes and `software_context` to identify canonical ownership. During implementation, prefer existing helpers and direct models, and keep related updates atomic. After editing:
+Before editing, use Product Scopes and `agent_context` as the compact ownership/context entry point; use `software_context` only when deeper context is needed. During implementation, prefer existing helpers and direct models, and keep related updates atomic. After editing:
 
 ```text
 review_changes

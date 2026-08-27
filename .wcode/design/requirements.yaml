@@ -38,6 +38,7 @@
     - AC-SEC-003
   constraints:
     - CONSTRAINT-NO-SHELL
+    - CONSTRAINT-BOUNDED-DEV-TOOLS
   risk:
     security: critical
     reliability: high
@@ -449,3 +450,33 @@
   risk:
     reliability: high
     compatibility: medium
+
+- schema_version: 1
+  id: REQ-AGENT-CONTEXT-001
+  title: Token-efficient edit-ready agent context
+  intent: Coding agents must be able to start substantial implementation work from one bounded task-specific context pack that prioritizes relevant Design State, symbol signatures, exact edit SHA preconditions, verification references, graph evidence and quality gates while excluding unrelated traceability, ranking likely callers/callees/helpers through a compact repository map, and deferring source bodies until explicitly requested.
+  priority: critical
+  implemented_by:
+    - component:agent-context
+  acceptance:
+    - AC-AGENT-CONTEXT-001
+  constraints:
+    - CONSTRAINT-CONTEXT-BUDGET
+    - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+    - CONSTRAINT-EXPLICIT-PRECISION
+  risk:
+    performance: critical
+    reliability: high
+
+- schema_version: 1
+  id: REQ-TUNNEL-001
+  title: Public tunnel availability is provider-resilient
+  intent: Remote MCP startup must not depend on one tunnel vendor; wcode must support bounded automatic failover across free HTTPS tunnel providers while preserving exact instance health verification, explicit provider selection, OAuth and stable external reverse-proxy overrides.
+  priority: high
+  implemented_by:
+    - component:managed-tunnel
+  acceptance:
+    - AC-TUNNEL-001
+  risk:
+    reliability: critical
+    compatibility: high

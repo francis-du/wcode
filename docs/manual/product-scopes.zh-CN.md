@@ -7,45 +7,64 @@ alternate: /docs/product-scopes/
 permalink: /zh/docs/product-scopes/
 ---
 
-# Product Scope
+# wcode Product Scope
 
-wcode 按产品行为划分能力，而不是按“Controller/Service/Util”这类通用技术层堆目录。同一套 Scope 同时用于源码架构、语义过滤、Software Context、MCP Tool Metadata、Project Context、Convention 和 Agent 指引。
+wcode 按产品行为组织 Control-plane 能力，而不是按通用 Backend Layer 划分。同一套 Scope 同时用于源码架构、Semantic Filter、Software Context Retrieval、MCP Tool Metadata、Project Context、Convention Governance 与 Agent Guidance。
 
-## 12 个规范 Scope
+## 规范 Scope
 
-| Scope | 责任 | 主要源码 |
+| Scope | 产品责任 | 主要源码根 |
 | --- | --- | --- |
-| `runtime` | 进程生命周期、Harness、全局运行时 | `src/main.rs`, `src/runtime/`, `src/scopes/` |
-| `integrations` | MCP、OAuth、Agent Plugin、Connector | `src/integrations/` |
-| `workspace` | 文件系统边界、授权、调度、Convention | `src/workspace/` |
-| `design` | Desired Software State | `src/design/` |
-| `graph` | Syntax Index、Software Graph、Provider/History | `src/graph/` |
-| `semantics` | Semantic Registry 与 Provider | `src/semantics/` |
-| `traceability` | Traceability、Drift、Impact、Context | `src/intelligence/` 相关模块 |
-| `risk` | Risk Policy | `src/intelligence/risk.rs` |
-| `verification` | Verification Mesh 与质量 Provider | `src/verification/` |
-| `evidence` | 持久化 Evidence | `src/evidence/` |
-| `reconciliation` | 收敛计划与执行 | `src/reconciliation/` |
-| `experience` | TUI 与 WebUI | `src/ui/` |
+| `runtime` | Harness、调度/运行时控制、电源与进程协调 | `src/main.rs`, `src/runtime/`, `src/scopes/` |
+| `integrations` | MCP、OAuth、Agent Plugin、Connector-facing Task/Resource/Prompt | `src/integrations/` |
+| `workspace` | 安全文件原语、授权、Scheduler、Convention、命令策略 | `src/workspace/` |
+| `design` | 结构化 Desired Software State 与校验 | `src/design/` |
+| `graph` | Syntax Index、Composite Software Graph、Graph Persistence/Provider | `src/graph/` |
+| `semantics` | 持久化 Semantic Registry 与 Semantic Provider | `src/semantics/` |
+| `traceability` | Requirement Traceability、Drift、Impact、Scoped Software Context、Project Architecture Projection | `src/intelligence/` 中除 Risk 外的 Traceability/Observatory 逻辑 |
+| `risk` | Risk-adaptive Policy 与 Verification 深度 | `src/intelligence/risk.rs` |
+| `verification` | Deterministic / Stage Verification 与 Blind Review Mesh | `src/verification/` |
+| `evidence` | 带 Provenance 的持久化 Evidence | `src/evidence/` |
+| `reconciliation` | Durable Convergence Plan 与依赖感知执行 | `src/reconciliation/` |
+| `experience` | TUI / WebUI Operator Experience | `src/ui/` |
 
-## 对 Agent 有什么用
+`main.rs` 负责启动组合，`src/scopes/mod.rs` 是规范 Registry。Product Scope 描述 wcode 自己；Semantic Fact 还可以额外携带 Freeform Business Scope。
 
-先调用 `scope_status` 看当前仓库的源码如何映射到 Scope，再把相关 Scope 传给 `software_context`。这样 Agent 可以先缩小源码导航范围，而不是一上来读取整个仓库。
+## Runtime 行为
 
-```text
-scope_status
-  ↓
-选择相关 Scope
-  ↓
-software_context(scopes=[...])
-```
+`software_context` 接受可选 `scopes`。识别出的 Product Scope Alias 会 Canonicalize，并把 Source / Symbol Navigation 收窄到对应 Source Root。Response 会返回规范 Scope，让 Agent 知道当前 Context 受哪个产品边界约束。
 
-`semantic_query` 也支持 Scope Filter；没有 Scope 的 Semantic Fact 继续视为全局事实。
+`semantic_query` 同样接受可选 `scopes`。有 Scope 的 Fact 必须与请求 Scope 重叠；Unscoped Fact 保持 Global。未知 Scope String 作为 Freeform Business Scope 保留，而不是被拒绝。
 
-## Product Scope 不会扩大权限
+Convention Engine 会按 Architecture Domain 与 Product Scope 分类源码，报告 Root Rust Orphan、Unmapped Product Scope File、Language Naming Finding、Flat Domain Growth 与 Oversized Module，但不会自动改写仓库。
 
-Scope 是上下文与架构边界，不是权限声明。它不能扩大 Workspace、绕过命令授权、跳过 SHA 前置条件，也不能替代 Verification。
+## MCP 与 Agent Discovery
 
-## 第三方仓库
+每个 MCP Tool 都在 `_meta.dev.wcode/productScopes` 暴露 Product Scope。忽略 Custom Tool Metadata 的 Agent 仍可通过 MCP Resource `wcode://runtime/product-scopes` 获取同一模型。`scope_status` 把 Registry 应用到当前 Workspace，报告每个 Scope 的源码计数和有界 `unmapped_files`，因此 Scope 不只是 Discovery Metadata，也是 Architecture Governance 的一部分。TUI Intelligence Overlay 与受保护 `/intelligence/status` 使用同一审计结果；`/intelligence/scopes` 暴露当前 Focused Workspace 的 Scope Audit。
 
-第三方项目可以使用自己的业务 Scope。只有明确声明 wcode 自身 canonical Scope 约束的 Design State，才会把未映射 wcode Product Scope 当作 fail-closed 门禁。
+推荐 Agent Flow：
+
+1. `agent_context(goal, scopes=...)` 作为正常 Coding 主入口；
+2. 只有需要 Scope Audit 时调用 `scope_status`，特别关注新增 Production Structure 前的 `unmapped_files`；
+3. 只有需要完整 Desired State / Repository Guidance 时再调用 `design_status`、`project_context`、`traceability_status`；
+4. 选择与行为对应的 Product Scope；
+5. 需要更深 Context 时使用 `software_context(query, scopes=...)`；
+6. 按需使用 `find_symbol`、`symbol_context`、Graph / Semantic / Traceability Tool；
+7. 只通过 Workspace Primitive 与依赖感知 Scheduler 修改；
+8. 根据 Change 运行 `review_changes`、Risk/Impact、Verification、Evidence 与 Reconciliation Gate。
+
+## Scheduler 边界
+
+`parallel_tools` 不是只读 Fan-out Helper。它复用 Scheduler 的 Resource Model：`reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`。独立工作可以 Fan-out；重叠资源按依赖排序。同文件 `apply_edits` 只有在使用同一个已观测 SHA、且编辑不重叠并能明确定位时才允许 Coalesce。
+
+## Design State Contract
+
+Design State 把这些 Scope 映射到真实 Component、Implementation Symbol 与 Acceptance Test。不要增加没有真实实现映射的 Future-only Component。Refactor 后 Traceability 仍必须可解析；物理移动文件时要同步更新 Design State Path。
+
+## Scope 设计规则
+
+- 优先按产品责任命名，不使用泛化技术层名称代替产品边界；
+- 只保留一份规范 Registry，不在 MCP、Semantic、UI 或 Docs 复制 Alias Table；
+- 新的一等 wcode 能力应映射到 Product Scope、Source Root、MCP Tool Metadata（若暴露）以及 Design State Component / Acceptance Chain；
+- Business / Domain Semantic 保持 Freeform，不与 wcode Product Scope 混为一谈；
+- Scope Filter 在适用处必须真实改变 Retrieval / Execution 行为，仅装饰性 Label 不够。

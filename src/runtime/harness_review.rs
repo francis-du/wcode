@@ -1,5 +1,39 @@
 use super::*;
 
+impl ToolHarness {
+    pub async fn worktree_status_snapshot(&self, workspace: &Workspace) -> Result<Value> {
+        if !workspace.exec_enabled() || !workspace.root().join(".git").is_dir() {
+            return Ok(json!({"available": false}));
+        }
+        let args = ["status", "--short", "--untracked-files=all"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let result = workspace.run_command("git", &args, ".", 10).await?;
+        if !result.success {
+            return Ok(json!({"available": false, "reason": "git_status_failed"}));
+        }
+        let (changed, parsed_truncated) = parse_git_status(&result.stdout);
+        let files = changed
+            .into_iter()
+            .map(|(path, file)| {
+                json!({
+                    "path": path,
+                    "status": file.status,
+                    "staged": file.staged,
+                    "unstaged": file.unstaged,
+                    "untracked": file.untracked,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "available": true,
+            "files": files,
+            "truncated": parsed_truncated || result.truncated,
+        }))
+    }
+}
+
 pub(super) fn review_probe_specs() -> [ReviewProbeSpec; 5] {
     [
         ReviewProbeSpec {
@@ -394,8 +428,11 @@ pub(super) fn file_category(path: &str) -> &'static str {
         || lower.contains("/tests/")
         || lower.contains("/test/")
         || name.contains("_test.")
+        || name.contains("_tests.")
         || name.contains(".test.")
         || name.contains(".spec.")
+        || name.contains("_spec.")
+        || name == "tests.rs"
         || name.starts_with("test_")
     {
         "test"

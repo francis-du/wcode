@@ -1,8 +1,8 @@
 use crate::auth::AuthState;
 use crate::harness::ToolHarness;
 use crate::mcp::{
-    handle_message, validate_modern_payload, AppState, TaskRuntime, LEGACY_PROTOCOL_VERSIONS,
-    MODERN_PROTOCOL_VERSION,
+    handle_message_isolated, validate_modern_payload, AppState, TaskRuntime,
+    LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSION,
 };
 use crate::monitor::TaskMonitor;
 use crate::workspace::Workspaces;
@@ -102,7 +102,9 @@ pub(crate) async fn serve(
             }
         }
 
-        if let Some(response) = handle_message(state.clone(), message, &protocol, &owner).await {
+        if let Some(response) =
+            handle_message_isolated(state.clone(), message, &protocol, &owner).await
+        {
             write_response(&mut stdout, &response).await?;
         }
     }

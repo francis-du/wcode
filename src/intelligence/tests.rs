@@ -91,12 +91,12 @@ fn software_context_uses_token_scoring_and_real_budget_caps() {
     .unwrap();
     fs::write(
             dir.path().join(".wcode/design/requirements.yaml"),
-            "- schema_version: 1\n  id: REQ-SEC-1\n  title: Workspace isolation\n  intent: Keep command execution inside the workspace security boundary.\n  implemented_by:\n    - component:security\n",
+            "- schema_version: 1\n  id: REQ-AAA-1\n  title: Unrelated analytics\n  intent: Render an unrelated metrics dashboard.\n  implemented_by:\n    - component:noise\n- schema_version: 1\n  id: REQ-SEC-1\n  title: Workspace isolation\n  intent: Keep command execution inside the workspace security boundary.\n  implemented_by:\n    - component:security\n",
         )
         .unwrap();
     fs::write(
             dir.path().join(".wcode/design/components.yaml"),
-            "- schema_version: 1\n  id: component:security\n  name: Command Security\n  responsibilities:\n    - enforce workspace command boundaries\n",
+            "- schema_version: 1\n  id: component:noise\n  name: Analytics Noise\n  responsibilities:\n    - render unrelated metrics\n- schema_version: 1\n  id: component:security\n  name: Command Security\n  responsibilities:\n    - enforce workspace command boundaries\n",
         )
         .unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
@@ -154,6 +154,9 @@ fn software_context_uses_token_scoring_and_real_budget_caps() {
     assert_eq!(context.requirements, vec!["REQ-SEC-1"]);
     assert_eq!(context.components, vec!["component:security"]);
     assert!(context.requirements.len() <= 4);
+    assert_eq!(context.coverage.requirements_returned, 1);
+    assert_eq!(context.coverage.requirements[0].id, "REQ-SEC-1");
+    assert!(context.coverage.truncated);
     assert!(context
         .graph_context
         .nodes

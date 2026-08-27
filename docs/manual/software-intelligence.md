@@ -11,7 +11,7 @@ permalink: /docs/software-intelligence/
 
 This document describes the Software Intelligence features that are implemented today.
 
-> **Current status:** Software Intelligence is available through MCP, local CLI views, the live TUI, and a token-protected requirement-first **Project Observatory**. The WebUI organizes the live repository by Requirement/feature, compares functional/component Design State with current code-derived implementation and dependency structure, and surfaces verification, code statistics, Git change mapping, and architecture revision history. The generic Software Graph remains a low-level intelligence primitive/API rather than the primary visualization. MCP now has one shared protocol core behind both Streamable HTTP + OAuth and local `mcp-stdio`, and exposes Tools, Prompts, Resources, plus opt-in MCP 2026 durable Tasks. A small `agent-plugin` exporter produces a non-executable Agent Skill / Agent Plugins package for modern coding agents without bundling hooks, credentials, or an implicit Workspace. Design/Semantic state, Graph Provider revisions/history, Verification state, Evidence, Reconciliation Plans, and execution state remain durable per workspace. All 22 syntax-indexed languages participate in one first-party LSP Semantic Provider registry: real installed/allowed language-server facts enter at semantic precision; otherwise wcode remains honestly at Tree-sitter syntax precision. Property/Mutation/Fuzz/Runtime-Canary use the same cross-language executor registry.
+> **Current status:** Software Intelligence is available through MCP, local CLI views, the live TUI, and a token-protected **architecture-first Project Observatory**. The WebUI starts with the complete component architecture, overlays declared Design dependencies with current code-derived Actual relationships, surfaces observed drift/evidence/implementation coverage, then drills into Component and Requirement detail. Requirement detail preserves Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains a low-level intelligence primitive/API rather than the primary visualization. MCP shares one protocol core across Streamable HTTP + OAuth and local `mcp-stdio`; `agent_context` is the compact coding entry point, while deeper Design/Graph/Verification tools stay progressively disclosed. A small `agent-plugin` exporter produces a non-executable Agent Skill / Agent Plugins package without hooks, credentials, or an implicit Workspace. Design/Semantic state, Graph Provider revisions/history, Verification, Evidence, Reconciliation, and execution state remain durable per Workspace. All 22 syntax-indexed languages share the first-party LSP Semantic Provider registry: only fresh real provider facts become semantic precision; otherwise wcode remains honestly at Tree-sitter syntax precision. Property/Mutation/Fuzz/Runtime-Canary use the same cross-language executor registry.
 
 ## What changes for the user
 
@@ -39,28 +39,22 @@ wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
-In the live TUI, press `I` for the Intelligence overlay and `W` to open the protected Project Observatory. Pending authorization requests are selectable in the TUI with ↑/↓ and decided one at a time with `Y`/`N`; the WebUI access panel exposes the same pending requests plus project and command authorization controls. The top-level control loop is **Desired State → Actual State → Change → Proof → Convergence**. Proof counts only Evidence whose code+design Revision exactly matches the current repository revision, so stale failures/passes are not blended into current proof. Each Requirement gets an explicit `stable`, `changing`, `needs_convergence`, or `incomplete` state; the selected feature shows Requirement → Components → current implementation → Acceptance/Verification, declared-vs-code-derived dependency alignment with explicit precision, associated constraints/ADRs, convergence blockers, and mapped working-tree changes. Lower panels keep source files/lines/bytes, symbols/call edges, language and Product-Scope distributions, current additions/deletions, structured risk, and meaningful Graph revision deltas. Cloud/web clients connect to `/mcp`; local coding agents can instead launch `wcode --workspace <repo> mcp-stdio`. Export a portable Skill with `wcode --workspace <repo> agent-plugin`. Exact Grok, Claude, Cursor, Gemini, Copilot, Cline, Roo, OpenCode, and Windsurf installation/diagnostic commands are maintained in [Code Agent Integrations](../code-agent-integrations/).
+In the live TUI, press `I` for the Intelligence overlay and `W` to open the protected Project Observatory. Pending authorization requests are selectable with ↑/↓ and decided one at a time with `Y`/`N`; the WebUI access panel exposes the same requests plus project and command authorization controls. Observatory starts with overall architecture: component ownership, Design-vs-Actual dependencies, strong observed drift, advisory evidence gaps, and implementation/evidence coverage. Selecting a component reveals responsibilities, implementation mappings, changed paths, Product Scopes, and related Requirements; Requirement drill-down then follows **Desired State → Actual State → Change → Proof → Convergence**. Proof counts only Evidence whose code+design Revision exactly matches the current repository revision. Cloud/web clients connect to `/mcp`; local coding agents can launch `wcode --workspace <repo> mcp-stdio`. Export a portable Skill with `wcode --workspace <repo> agent-plugin`. Host-specific setup is maintained in [Code Agent Integrations](../code-agent-integrations/).
 
-The higher-level workflow is:
+The normal coding workflow is intentionally smaller:
 
 ```text
-Design State
+agent_context(goal, scopes=...)
     ↓
-design_status
+symbol_context only when readiness needs more source
     ↓
-software_context / traceability_status
-    ↓
-edit or implement
+apply_edits / apply_file_edits
     ↓
 review_changes
     ↓
-drift_status / impact_analysis / risk_status
+verify_project
     ↓
-reconciliation_plan / verification_plan
-    ↓
-verify_project + independent reviewer jobs
-    ↓
-evidence_status
+deeper drift / risk / reconciliation / evidence only when needed
 ```
 
 ## 1. Install or update wcode
@@ -162,32 +156,24 @@ Design IDs and references are validated. Implementation and test symbol referenc
 
 ## 3. Recommended agent workflow
 
-For substantial coding work, ask the connected agent to use this order:
+For substantial coding work, start from one compact task-specific call rather than a fixed sequence of broad status tools:
 
 ```text
-1. workspace_info
-2. scope_status
-3. design_status
-4. project_context
-5. language_quality_status for source/quality work
-6. choose relevant Product Scope(s)
-7. software_context with optional scopes
-8. inspect/edit with symbol and file tools
-9. review_changes
-10. drift_status
-11. impact_analysis
-12. risk_status
-13. language_quality_run for declared check-only providers
-14. reconciliation_plan when gaps remain
-15. verify_project + required advanced stages
-16. evidence_status
+1. agent_context(goal, scopes=...)
+2. follow readiness / next_actions
+3. symbol_context only if more source is needed
+4. apply_edits or apply_file_edits
+5. review_changes
+6. language_quality_run / drift / impact / risk only when the task requires them
+7. verify_project + required advanced stages
+8. evidence_status / reconciliation only when convergence or proof needs deeper inspection
 ```
 
-A practical prompt is:
+`agent_context` uses a bounded adaptive budget when `budget` is omitted. It combines relevant Design State, scope-aware repo-map ranking, fresh semantic/runtime evidence when usable, bounded Hot Source, exact SHA edit targets, related tests, working-tree advisories, readiness, and deterministic next actions. The 1000-token extreme mode prioritizes direct editability; the default adaptive path can grow when the task is ambiguous or cross-module. `project_context`, `scope_status`, `design_status`, `traceability_status`, `software_context`, `language_quality_status`, and graph/risk tools remain available for deliberate deeper inspection rather than mandatory startup overhead.
 
-> Before editing, call `workspace_info`, `scope_status`, `design_status`, and `project_context`; call `language_quality_status` for source/quality work. Inspect `scope_status.unmapped_files` and language-quality gaps, choose the Product Scope(s) that bound the requested behavior, then pass them to `software_context`. Prefer repository-declared/native quality providers over introducing new tooling. After the change, call `review_changes`, `drift_status`, `impact_analysis`, and `risk_status`; run applicable `language_quality_run` checks only when the provider is declared/available/check-only, create a `reconciliation_plan` when gaps remain, run `verify_project` and any required advanced stages, then finish with `evidence_status`. Model/subagent agreement never substitutes for deterministic proof.
+### `agent_context`
 
-`project_context` already embeds a bounded convention report. `convention_status` exposes the full bounded report separately, including detected languages, language-specific policy, file-naming findings, architecture-domain classification, Product Scope mappings/gaps, unclassified root source files, oversized source-module findings, flat Rust domain growth, counts, and truncation state.
+Use `agent_context` as the normal coding entry point. It is designed to replace multiple startup discovery round trips with one bounded edit-ready pack. Repo-map ranking combines direct task relevance with existing Software Graph relationships; fresh semantic/runtime/deterministic evidence can strengthen those relationships, while stale provider facts automatically fall back to syntax. The pack keeps model-visible telemetry out of band in Tool Result `_meta` and reports explicit readiness instead of a generic quality score.
 
 ### Product Scopes
 
@@ -394,6 +380,7 @@ Risk is intentionally recomputed from current Design/Git/Code state. Graph histo
 
 ### Desired State, semantics, and software structure
 
+- `agent_context`
 - `design_init`
 - `design_status`
 - `traceability_status`
@@ -466,7 +453,7 @@ Implemented now:
 - MCP `2026-07-28` task augmentation for `semantic_provider_refresh` and `verification_execute_stages`, with durable-before-handle storage, OAuth-client scoping, polling, bounded cancellation, and synchronous fallback for clients that do not opt into the extension;
 - persistent Reconciliation Plans plus dependency-aware claim/submit/retry execution state and reconciliation Evidence;
 - local `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI flows in addition to read-only status views;
-- live TUI Software Intelligence overlay (`I`) and protected Project Observatory (`W`) with a searchable Requirement Board, functional/component design, current implementation and dependency alignment, verification, ADR/constraint context, code statistics, mapped Git changes, risk, and architecture revision history;
+- live TUI Software Intelligence overlay (`I`) and protected Project Observatory (`W`) with an architecture-first overall component graph, Design-vs-Actual dependency overlay, observed-drift/evidence/implementation coverage metrics, Component Inspector, Requirement drill-down, verification, ADR/constraint context, code statistics, mapped Git changes, risk, and architecture revision history;
 - MCP exposure of the complete higher-level runtime.
 
 Precision and integration boundaries are explicit rather than hidden:
@@ -474,7 +461,7 @@ Precision and integration boundaries are explicit rather than hidden:
 - the always-available code index remains Tree-sitter `precision=syntax`; a first-party LSP adapter may upgrade individual facts to `precision=semantic` only after a real installed server responds, while SCIP/compiler/runtime providers can still enter through the external import contract;
 - all 22 indexed languages share one semantic-provider and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
 - repository-aware LSP refresh and Property/Mutation/Fuzz/Runtime execution require explicit operator trust: exact operations can receive local TUI or protected-WebUI session grants and be retried, while `--allow-risky-exec` is the process-wide pre-authorization path; neither is an OS sandbox;
-- model-requested command programs use per-Workspace `CommandAccess`: a small safe set is pre-authorized, other valid bare executable names enter the pending list, and explicit approval adds only that program to the selected Workspace. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross an exact `RiskyExecution` approval; force/delete/reset/restore-style mutation remains blocked. Shell interpreters, path-bearing program names, workspace-escape arguments and protected resources remain blocked;
+- model-facing command execution uses command-specific policy for the built-in development CLI catalog and exact `RiskyExecution` fingerprints for bounded repository/remote operations. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross exact approval; an approved SSH push may use the current SSH Agent only through wcode's fixed non-interactive SSH command. Force/delete/reset/restore-style mutation, shell interpreters, credential-bypass surfaces, workspace escapes, and protected resources remain blocked;
 - `read_media` never infers vision/audio support from a model or vendor name. `include_content=true` emits an image/audio MCP content block only when the current request declares the matching `run.francis.wcode/media-content` extension; otherwise it returns a structured capability error without binary content;
 - Reconciliation execution coordinates durable tasks and evidence, but source edits still use the normal bounded/hash-guarded wcode edit surface instead of a hidden unrestricted patch engine;
 - destructive deletion is deliberately outside normal write flow: the first `delete_path` attempt creates an exact local authorization request, the operator approves or denies it in the TUI or protected WebUI, and only a matching retry can consume the one-shot grant.
@@ -483,6 +470,6 @@ Precision and integration boundaries are explicit rather than hidden:
 
 The wcode repository already contains `.wcode/project.yaml` and `.wcode/design/*.yaml`, so after installing/restarting the current build you can ask a connected agent:
 
-> Inspect wcode's Design State and traceability. Use `software_context` for workspace security, then analyze the current working tree with `drift_status`, `impact_analysis`, and `risk_status`. Produce a `reconciliation_plan`, run the recommended verification, and show the resulting evidence.
+> Use `agent_context` for the requested wcode change. Follow its readiness/next actions, edit through guarded Workspace tools, run `review_changes` and `verify_project`, then use drift/risk/reconciliation/evidence tools only if the task still needs deeper convergence analysis.
 
 That exercises the implemented Software Intelligence path end to end without requiring a separate demo project.

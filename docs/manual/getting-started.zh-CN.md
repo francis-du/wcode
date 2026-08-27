@@ -58,7 +58,7 @@ stdio 不走 HTTP OAuth，但仍使用同一套 Workspace、命令、路径、SH
 
 使用 wcode 显示的公网 `/mcp` 地址。兼容客户端会发现 OAuth 元数据，通过 PKCE/DCR 完成授权，并拿到绑定到该 Resource 的 Token。
 
-临时 Quick Tunnel 在重启后可能换地址；需要稳定入口时使用 `--public-url`。
+默认 `--tunnel-provider auto` 会先尝试 Cloudflare Quick Tunnel；启动失败、拿不到地址或当前实例的公网健康检查失败时，会自动回退到免费的 SSH 隧道 `localhost.run`，再回退到 Pinggy。可用 `--tunnel-provider cloudflare|localhost-run|pinggy` 强制指定。临时隧道重启后可能换地址；需要稳定入口时使用 `--public-url`。
 
 ## 4. 需要时再初始化 Design State
 
@@ -73,29 +73,26 @@ wcode --workspace "$PWD" intelligence --check --json
 
 ## 5. 让 Agent 先做正确的发现
 
-改代码前推荐先调用：
+改代码前的强默认路径现在只有一个紧凑入口：
 
 ```text
-workspace_info
-scope_status
-design_status
-project_context
-software_context
+agent_context(goal, scopes=...)
+  ↓
+按 readiness / next_actions 执行
+  ↓
+只有缺更多源码时才调用 symbol_context
 ```
 
-根据 wcode 返回的 Product Scope 收窄 `software_context`，再进行大范围源码读取。批量发现优先用 `read_files` 和 `search_many`；只有在独立操作已经明确时才用 `parallel_tools`。
+`agent_context` 省略 `budget` 时会选择有界 Adaptive Budget，并可携带相关 Design State、Scope-aware Repo Map、Bounded Hot Source、SHA Edit Target、Related Test 与 Readiness。只有任务确实需要更深发现时，再调用 `scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status`、`read_files` 或 `search_many`；只有独立操作已经明确时才使用 `parallel_tools`。
 
-改完后依次看：
+改完后默认：
 
 ```text
 review_changes
-drift_status
-impact_analysis
-risk_status
 verify_project
 ```
 
-真正的通过条件来自风险自适应 Verification 与 Evidence，不来自模型自己的“看起来没问题”。
+Change 或 Readiness 要求更深分析时，再补 Drift / Impact / Risk / Reconciliation / Evidence。真正的通过条件来自风险自适应 Verification 与 Evidence，不来自模型自己的“看起来没问题”。
 
 ## 6. 本地操作界面
 
@@ -118,6 +115,8 @@ wcode --workspace "$PWD" --read-only
 wcode --workspace "$PWD" --no-exec
 wcode --workspace "$PWD" --no-monitor
 wcode --workspace "$PWD" --no-open
+wcode --workspace "$PWD" --tunnel-provider localhost-run
+wcode --workspace "$PWD" --tunnel-provider pinggy
 wcode --workspace "$PWD" --public-url https://mcp.example.com
 ```
 

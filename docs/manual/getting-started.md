@@ -58,7 +58,7 @@ The stdio transport skips HTTP OAuth but keeps the same Workspace, command, path
 
 Use the public `/mcp` URL shown by wcode. The client discovers OAuth metadata, completes PKCE/DCR where supported, and receives a resource-bound token.
 
-A temporary Quick Tunnel URL can change after restart. Use `--public-url` when you need a stable endpoint.
+By default `--tunnel-provider auto` tries Cloudflare Quick Tunnel and automatically falls back to the free SSH-based `localhost.run` and Pinggy providers when startup or the instance-matched health check fails. Force one with `--tunnel-provider cloudflare|localhost-run|pinggy`. Temporary tunnel URLs can change after restart; use `--public-url` when you need a stable endpoint.
 
 ## 4. Initialize Design State only when useful
 
@@ -73,29 +73,26 @@ wcode --workspace "$PWD" intelligence --check --json
 
 ## 5. Give the agent the right first calls
 
-A strong default sequence before editing is:
+The strong default before editing is one compact call:
 
 ```text
-workspace_info
-scope_status
-design_status
-project_context
-software_context
+agent_context(goal, scopes=...)
+  ↓
+follow readiness / next_actions
+  ↓
+symbol_context only if more source is needed
 ```
 
-Use Product Scopes returned by wcode to narrow `software_context` before broad source reads. Use `read_files` and `search_many` for bulk discovery, and `parallel_tools` only after the independent operations are already known.
+`agent_context` chooses a bounded adaptive budget when `budget` is omitted and can carry the relevant Design State, scope-aware repo map, bounded hot source, SHA edit targets, related tests, and readiness. Use `scope_status`, `design_status`, `project_context`, `software_context`, `language_quality_status`, `read_files`, or `search_many` only when the task needs deeper discovery; use `parallel_tools` only after independent operations are known.
 
 After editing:
 
 ```text
 review_changes
-drift_status
-impact_analysis
-risk_status
 verify_project
 ```
 
-Risk-adaptive Verification and Evidence are the approval layer; model confidence does not replace them.
+Add drift / impact / risk / reconciliation / evidence inspection when the change or readiness requires it. Risk-adaptive Verification and Evidence are the approval layer; model confidence does not replace them.
 
 ## 6. Use the local operator surfaces
 
@@ -118,6 +115,8 @@ wcode --workspace "$PWD" --read-only
 wcode --workspace "$PWD" --no-exec
 wcode --workspace "$PWD" --no-monitor
 wcode --workspace "$PWD" --no-open
+wcode --workspace "$PWD" --tunnel-provider localhost-run
+wcode --workspace "$PWD" --tunnel-provider pinggy
 wcode --workspace "$PWD" --public-url https://mcp.example.com
 ```
 

@@ -69,7 +69,7 @@ impl UiLanguage {
             (Self::ZhCn, "workspace add cancelled") => "已取消添加工作区",
             (Self::ZhCn, "workspace path cannot be empty") => "工作区路径不能为空",
             (Self::ZhCn, "CLOUDFLARED PROCESS EXITED") => "CLOUDFLARED 进程已退出",
-            (Self::ZhCn, "cloudflared is no longer running") => "cloudflared 已停止运行",
+            (Self::ZhCn, "tunnel process is no longer running") => "隧道进程已停止运行",
             (Self::ZhCn, "PUBLIC URL UNAVAILABLE") => "公网地址不可用",
             (Self::ZhCn, "MCP client idle") => "MCP 客户端空闲",
             (Self::ZhCn, "MCP client connected") => "MCP 客户端已连接",

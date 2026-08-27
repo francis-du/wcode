@@ -23,6 +23,7 @@ pub(super) fn tools() -> Vec<Value> {
         tool("risk_status", "Assess the current change set, traceability gaps, and drift findings into structured Risk records and a risk-adaptive verification profile. Risk is multi-dimensional evidence for verification depth, not a single quality score.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("software_context", "Retrieve bounded task-oriented software intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
+        tool("agent_context", "Compile an edit-ready pack with adaptive token sizing when budget is omitted, or honor an explicit budget while preserving design, repo-map, SHA, verification and hot-source context.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
         tool("semantic_status", "Read the persistent workspace semantic registry. Candidate facts are non-authoritative conversation/provider/user proposals; only explicitly confirmed facts are used as authoritative query expansion, and retired facts are excluded.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}), &[]), true, false),
         tool("semantic_query", "Search the persistent semantic registry by canonical term, alias, description, scope, or relationship triple. Optional scopes now act as real filters: scoped facts must overlap a requested scope while unscoped facts remain global. Canonical wcode Product Scope aliases are normalized alongside freeform business scopes.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"include_candidates":{"type":"boolean","default":true},"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}), &["query"]), true, false),
         tool("semantic_record", "Record a persistent semantic candidate without making it authoritative. Use this for user-proposed, design-derived, conversation-learned, or external-provider semantic facts; candidates never auto-promote into confirmed semantics.", schema(json!({"fact":{"type":"object","properties":{"kind":{"type":"string","enum":["concept","alias","entity","metric","dimension","relationship","rule","domain_term"]},"canonical":{"type":"string","minLength":1,"maxLength":300},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"description":{"type":"string","minLength":1,"maxLength":2000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"subject":{"type":"string","minLength":1,"maxLength":512},"predicate":{"type":"string","minLength":1,"maxLength":256},"object":{"type":"string","minLength":1,"maxLength":512},"origin":{"type":"string","enum":["user","conversation","design","provider"]},"provider":{"type":"string","minLength":1,"maxLength":256},"confidence":{"type":"string","enum":["low","medium","high"]},"source":{"type":"string","minLength":1,"maxLength":1000}},"required":["kind","canonical","description","origin","confidence"],"additionalProperties":false}}), &["fact"]), false, false),
@@ -141,7 +142,7 @@ fn schema(mut properties: Value, required: &[&str]) -> Value {
             "workspace".to_owned(),
             json!({
                 "type": "string",
-                "description": "Workspace ID from workspace_info. Omit to use the default workspace."
+                "description": "Workspace ID; omit for default."
             }),
         );
     }
@@ -172,6 +173,21 @@ where
         .map_err(|error| anyhow!("blocking task failed: {error}"))?
 }
 
+const MAX_TOOL_DESCRIPTION_CHARS: usize = 200;
+
+pub(super) fn compact_tool_description(description: &str) -> String {
+    if description.chars().count() <= MAX_TOOL_DESCRIPTION_CHARS {
+        return description.to_owned();
+    }
+    let mut compact = description
+        .chars()
+        .take(MAX_TOOL_DESCRIPTION_CHARS.saturating_sub(1))
+        .collect::<String>();
+    compact = compact.trim_end().to_owned();
+    compact.push('…');
+    compact
+}
+
 fn tool(
     name: &str,
     description: &str,
@@ -186,7 +202,7 @@ fn tool(
     json!({
         "name": name,
         "title": name.replace('_', " "),
-        "description": description,
+        "description": compact_tool_description(description),
         "inputSchema": input_schema,
         "annotations": {
             "readOnlyHint": read_only,
@@ -206,6 +222,109 @@ pub(super) fn tool_result(value: Value, is_error: bool) -> Value {
         "structuredContent": value,
         "isError": is_error,
     })
+}
+
+pub(super) fn agent_context_model_bytes(value: &Value) -> u64 {
+    let mut model_value = value.clone();
+    take_agent_context_telemetry(&mut model_value);
+    serde_json::to_vec(&model_value)
+        .map(|bytes| bytes.len() as u64)
+        .unwrap_or_default()
+}
+
+pub(super) fn agent_context_tool_result(mut value: Value, is_error: bool) -> Value {
+    let mut telemetry = take_agent_context_telemetry(&mut value);
+    let model_bytes = serde_json::to_vec(&value)
+        .map(|bytes| bytes.len() as u64)
+        .unwrap_or_default();
+    let model_tokens = model_bytes.div_ceil(4);
+    telemetry.insert("model_serialized_bytes".to_owned(), json!(model_bytes));
+    telemetry.insert("model_estimated_tokens".to_owned(), json!(model_tokens));
+    if let Some(baseline) = telemetry
+        .get("baseline_context_bytes")
+        .and_then(Value::as_u64)
+    {
+        let avoided = baseline.saturating_sub(model_bytes);
+        let reduction_percent = if baseline == 0 {
+            0.0
+        } else {
+            ((avoided as f64 / baseline as f64) * 10_000.0).round() / 100.0
+        };
+        telemetry.insert("context_bytes_avoided".to_owned(), json!(avoided));
+        telemetry.insert(
+            "context_reduction_percent".to_owned(),
+            json!(reduction_percent),
+        );
+    }
+
+    let mut result = tool_result(value, is_error);
+    if let Some(result) = result.as_object_mut() {
+        result.insert(
+            "_meta".to_owned(),
+            json!({"dev.wcode/agentContextTelemetry": telemetry}),
+        );
+    }
+    result
+}
+
+fn take_agent_context_telemetry(value: &mut Value) -> serde_json::Map<String, Value> {
+    let mut telemetry = serde_json::Map::new();
+    let Some(pack) = value.as_object_mut() else {
+        return telemetry;
+    };
+    for key in [
+        "serialized_bytes",
+        "estimated_tokens",
+        "baseline_context_bytes",
+        "context_bytes_avoided",
+        "context_reduction_percent",
+        "cache_hit",
+        "timing",
+    ] {
+        if let Some(value) = pack.remove(key) {
+            telemetry.insert(key.to_owned(), value);
+        }
+    }
+    if let Some(repo_map) = pack.get_mut("repo_map").and_then(Value::as_object_mut) {
+        let mut repo_telemetry = serde_json::Map::new();
+        for key in [
+            "cache_hit",
+            "build_ms",
+            "files_indexed",
+            "graph_edges",
+            "provider_nodes_mapped",
+            "provider_edges_mapped",
+            "candidates",
+        ] {
+            if let Some(value) = repo_map.remove(key) {
+                repo_telemetry.insert(key.to_owned(), value);
+            }
+        }
+        if let Some(items) = repo_map.get_mut("items").and_then(Value::as_array_mut) {
+            let mut ranking = Vec::new();
+            for item in items {
+                let Some(item) = item.as_object_mut() else {
+                    continue;
+                };
+                let score = item.remove("score");
+                let degree = item.remove("degree");
+                if score.is_some() || degree.is_some() {
+                    ranking.push(json!({
+                        "id": item.get("id").cloned().unwrap_or(Value::Null),
+                        "score": score,
+                        "degree": degree,
+                    }));
+                }
+            }
+            if !ranking.is_empty() {
+                repo_telemetry.insert("ranking".to_owned(), Value::Array(ranking));
+            }
+        }
+        if !repo_telemetry.is_empty() {
+            telemetry.insert("repo_map".to_owned(), Value::Object(repo_telemetry));
+        }
+    }
+    telemetry
 }
 
 pub(super) fn batch_validation_error(item_count: usize) -> Option<Value> {
@@ -272,6 +391,16 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
             string_arg(args, "query").map(str::len).unwrap_or(0),
             usize_arg(args, "budget").unwrap_or(12_000)
         ),
+        "agent_context" => match usize_arg(args, "budget") {
+            Some(budget) => format!(
+                "edit-ready context · query {} chars · budget {budget} tokens",
+                string_arg(args, "query").map(str::len).unwrap_or(0)
+            ),
+            None => format!(
+                "edit-ready context · query {} chars · adaptive budget",
+                string_arg(args, "query").map(str::len).unwrap_or(0)
+            ),
+        },
         "semantic_status" => format!(
             "semantic registry · limit {}",
             usize_arg(args, "limit").unwrap_or(50)
@@ -577,4 +706,50 @@ pub(super) fn reviewer_role_arg(args: &Value) -> Result<Option<ReviewerRole>, St
             serde_json::from_value(value).map_err(|error| format!("invalid reviewer role: {error}"))
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn tool_catalog_is_deterministic_compact_and_unique() {
+        let first = tools();
+        let second = tools();
+        assert_eq!(first, second);
+
+        let bytes = serde_json::to_vec(&first).unwrap().len();
+        assert!(bytes <= 60_000, "tool catalog is {bytes} bytes");
+
+        let mut names = HashSet::new();
+        for tool in &first {
+            let name = tool["name"].as_str().unwrap();
+            assert!(names.insert(name), "duplicate tool name: {name}");
+            let description = tool["description"].as_str().unwrap();
+            assert!(
+                description.chars().count() <= MAX_TOOL_DESCRIPTION_CHARS,
+                "tool {name} description is too long"
+            );
+            if let Some(workspace) = tool["inputSchema"]["properties"].get("workspace") {
+                assert_eq!(workspace["description"], "Workspace ID; omit for default.");
+            }
+        }
+        let agent_context = first
+            .iter()
+            .find(|tool| tool["name"] == "agent_context")
+            .unwrap();
+        assert!(agent_context["inputSchema"]["properties"]["budget"]
+            .get("default")
+            .is_none());
+        assert!(
+            agent_context["inputSchema"]["properties"]["budget"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("adaptive")
+        );
+        assert!(names.contains("agent_context"));
+        assert!(names.contains("verify_project"));
+        assert!(names.contains("apply_file_edits"));
+    }
 }

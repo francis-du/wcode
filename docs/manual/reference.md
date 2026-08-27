@@ -49,7 +49,8 @@ Cloud/web connectors use the protected public `/mcp` endpoint shown by the runti
 | --- | --- |
 | `-w, --workspace <PATH>` | Expose one repository root. Repeat only when one task genuinely needs multiple roots. |
 | `-j, --max-parallel-tools <N>` | Override adaptive bounded tool concurrency. |
-| `--public-url https://…` | Use a stable reverse-proxy URL instead of a temporary Quick Tunnel. |
+| `--public-url https://…` | Use a stable reverse-proxy URL instead of a temporary managed tunnel. |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy` | Select the managed HTTPS tunnel provider. `auto` health-verifies and falls back across the free providers. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
 | `--no-open` | Do not open Setup Hub automatically. |
@@ -73,19 +74,19 @@ Advanced trust-boundary flags exist for exceptional deployments. They are intent
 
 ## Recommended MCP workflow
 
-Before a substantial edit:
+For normal coding work:
 
 ```text
-workspace_info
+agent_context(goal, scopes=...)
   ↓
-scope_status + design_status + project_context
+follow readiness / next_actions
   ↓
-language_quality_status (for source/quality work)
+symbol_context only when more source is required
   ↓
-software_context(scopes=...)
-  ↓
-precise source navigation / edits
+apply_edits or apply_file_edits
 ```
+
+`agent_context` uses adaptive bounded sizing when `budget` is omitted. Use `workspace_info`, `scope_status`, `design_status`, `project_context`, `software_context`, and `language_quality_status` only for deeper inspection rather than as a mandatory startup sequence.
 
 After the edit:
 
@@ -119,7 +120,8 @@ evidence_status
 | `design_init` | Create sparse Design State without overwriting existing design files. |
 | `design_status` | Validate structured Desired State. |
 | `traceability_status` | Requirement → Component → implementation and Acceptance → verification coverage. |
-| `software_context` | Budget-aware task context with optional Product Scope narrowing and graph context. |
+| `agent_context` | Primary coding entry point: adaptive/explicit token budget, relevant design, scope-aware repo-map, bounded hot source, SHA edit targets, verification refs, readiness and next actions. |
+| `software_context` | Deeper budget-aware software-intelligence context with optional Product Scope narrowing and graph context. |
 
 ### Source navigation and bounded I/O
 
@@ -190,7 +192,9 @@ Important distinctions:
 - **RuntimeExecutor** covers one exact advanced verification executor operation.
 - **Destructive delete** is one-shot and separate from reusable session grants.
 
-Git mutation remains deliberately narrow. Only explicit pathspec `git add`, message-only `git commit -m ...`, and non-force/non-delete `git push <remote> <refspec>` shapes can enter exact approval. Approval does not forward SSH agents, tokens, credential helpers, or arbitrary Git configuration.
+Git mutation remains deliberately narrow. Only explicit pathspec `git add`, message-only `git commit -m ...`, and non-force/non-delete `git push <remote> <refspec>` shapes can enter exact approval. An approved push may use the current SSH Agent through wcode's fixed non-interactive SSH command; token environments, credential helpers, AskPass, arbitrary Git configuration and force/delete forms remain blocked.
+
+Known development CLIs receive command-specific policy instead of generic program-wide authorization: `gh`, `just`, `task`, `uv`, `ruff`, `biome`, `deno`, `docker`, `kubectl`, `terraform`, `fd`, `jq`, `cmake`, `ninja`, `dotnet`, `mvn`, `gradle`, `swift`, `zig`, `pre-commit`, and `act`. Strict local read/check shapes can run directly; repository build/runners, Docker/Kubernetes data access, and bounded source/remote mutations enter exact authorization. Kubernetes cluster mutation, Terraform apply/destroy/state-secret surfaces, Gradle/Maven publishing, host toolchain mutation, and command/file-loading escape hatches remain blocked. Rust full verification can prefer declared, installed cargo-nextest while retaining `cargo test` as fallback.
 
 ## Diagnostics
 

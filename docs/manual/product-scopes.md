@@ -21,7 +21,7 @@ wcode organizes its control-plane capabilities by product behavior rather than g
 | `design` | Structured Desired Software State and validation | `src/design/` |
 | `graph` | Syntax index, composite Software Graph, graph persistence/providers | `src/graph/` |
 | `semantics` | Persistent semantic registry and semantic providers | `src/semantics/` |
-| `traceability` | Requirement traceability, drift, impact and scoped software context | `src/intelligence/mod.rs`, `analysis.rs`, `context.rs`, `types.rs`, `tests.rs` |
+| `traceability` | Requirement traceability, scoped context, Project Observatory architecture projection, drift and impact | `src/intelligence/` traceability/observatory sources excluding `risk.rs` |
 | `risk` | Risk-adaptive policy and verification depth | `src/intelligence/risk.rs` |
 | `verification` | Deterministic and staged verification, blind review mesh | `src/verification/` |
 | `evidence` | Provenance-bearing persistent evidence | `src/evidence/` |
@@ -44,11 +44,11 @@ Every MCP tool advertises `dev.wcode/productScopes` in Tool `_meta`. Agents that
 
 Recommended agent flow:
 
-1. `workspace_info` — inspect workspaces, runtime security, scheduling and Product Scope registry.
-2. `scope_status` — audit the current repository against the registry; inspect per-scope source counts and any bounded `unmapped_files` before adding more production structure.
-3. `design_status` + `project_context` — load the desired-state contract and repository guidance.
+1. `agent_context(goal, scopes=...)` — use the compact edit-ready pack as the normal coding entry point.
+2. `scope_status` — only when a scope audit is useful; inspect per-scope source counts and bounded `unmapped_files` before adding production structure.
+3. `design_status`, `project_context`, and `traceability_status` — load the full desired-state/repository contract only when the task needs it.
 4. Choose the Product Scope(s) relevant to the requested behavior.
-5. `software_context(query, scopes=...)` — retrieve bounded task context before broad source reads.
+5. `software_context(query, scopes=...)` — retrieve deeper bounded context only when the compact pack is insufficient.
 6. Navigate with `find_symbol`, `symbol_context`, graph/semantic/traceability tools as needed.
 7. Mutate only through Workspace primitives and the dependency-aware Scheduler.
 8. Run `review_changes`, risk/impact checks, verification, evidence and reconciliation gates according to the change.

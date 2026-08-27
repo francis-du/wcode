@@ -11,7 +11,7 @@ permalink: /zh/docs/software-intelligence/
 
 本文档说明 **当前已经实现** 的 Software Intelligence 能力，以及现在应该怎么用。
 
-> **当前状态：Software Intelligence 已经是完整产品面。** 当前同时提供 MCP、本地 CLI、实时 TUI，以及带本机高熵 UI Token 的、以 Requirement/功能点为中心的 **Project Observatory**。WebUI 不再把通用 Software Graph 球图当主视图，而是按 Requirement 展开功能意图、组件设计、当前代码实现、设计依赖与代码依赖一致性、验收验证、代码统计、Git 改动映射和架构 Revision 历史。Software Graph 继续作为底层 Intelligence 能力/API。MCP 现在由同一套协议核心同时提供 Streamable HTTP + OAuth 和本地 `mcp-stdio`，并暴露 Tools、Prompts、Resources 以及按请求 Opt-in 的 MCP 2026 Durable Tasks。`agent-plugin` 可以导出一份不含 Hook/脚本/凭据的 Agent Skill / Agent Plugins 小包，供主流 Coding Agent 复用。Design/Semantic、Graph Provider Revision/History、Verification、Evidence、Reconciliation Plan 与执行状态仍按 Workspace 持久化。22 种语法索引语言继续共享第一方 LSP Semantic Provider Registry；只有真实、可用且 fresh 的 Provider Fact 才是 semantic precision，否则诚实回退到 syntax。Property / Mutation / Fuzz / Runtime-Canary 同样走统一跨语言 Executor Registry。
+> **当前状态：Software Intelligence 已经是完整产品面。** 当前同时提供 MCP、本地 CLI、实时 TUI，以及带本机高熵 UI Token 的 **Architecture-first Project Observatory**。WebUI 先展示完整 Component Architecture，把声明的 Design Dependency 与当前代码推导出的 Actual Relationship 叠加，并显示 Observed Drift、Evidence Coverage、Implementation Coverage；随后进入 Component Inspector 与 Requirement Drill-down。Requirement Detail 继续保持 Desired State → Actual State → Change → Proof → Convergence。Software Graph 继续作为底层 Intelligence 能力/API，而不是主可视化。MCP 的 Streamable HTTP + OAuth 与本地 `mcp-stdio` 共用同一 Protocol Core；`agent_context` 是紧凑 Coding 主入口，更深的 Design/Graph/Verification Tool 按需渐进披露。`agent-plugin` 导出不含 Hook/脚本/凭据/隐式 Workspace 的 Agent Skill / Agent Plugins 包。Design/Semantic、Graph Provider Revision/History、Verification、Evidence、Reconciliation 与执行状态按 Workspace 持久化。22 种语法索引语言共享第一方 LSP Semantic Provider Registry；只有真实且 Fresh 的 Provider Fact 才进入 semantic precision，否则诚实回退到 syntax。Property / Mutation / Fuzz / Runtime-Canary 走统一跨语言 Executor Registry。
 
 ## 现在怎么用
 
@@ -39,28 +39,22 @@ wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
-运行 TUI 时按 `I` 打开 Software Intelligence Overlay，按 `W` 打开受保护的 Project Observatory。待授权请求会直接出现在 TUI：用 ↑/↓ 选择一条，`Y` 只批准当前选中请求，`N` 只拒绝当前选中请求；WebUI 的 Access Panel 也能处理同一批 Pending Request，并管理运行时项目与命令授权。页面顶层按 wcode 自己的控制模型组织：**Desired State → Actual State → Change → Proof → Convergence**。Proof 只统计与当前 code+design Revision 精确一致的 Evidence，不会把历史失败或历史 Pass 混成“当前已验证”。每个 Requirement 明确标成 `stable`、`changing`、`needs_convergence` 或 `incomplete`；选中一个功能后，可以看到 Requirement → Component → 当前实现 → Acceptance/Verification、声明依赖与代码实时依赖的对照、Constraint/ADR、Convergence Blocker 和关联 Git 变更。下方继续显示源码统计、语言/Product Scope 分布、Risk 与 Graph Revision 时间线。Cloud/Web Connector 继续连接 `/mcp`；本地 Coding Agent 可以直接启动 `wcode --workspace <repo> mcp-stdio`。需要 Skill/Plugin 时用 `wcode --workspace <repo> agent-plugin` 导出。Grok、Claude、Cursor、Gemini、Copilot、Cline、Roo、OpenCode、Windsurf 的具体安装与诊断命令统一维护在 [Code Agent Integrations](../code-agent-integrations/)。
+运行 TUI 时按 `I` 打开 Software Intelligence Overlay，按 `W` 打开受保护 Project Observatory。待授权请求用 ↑/↓ 选择，`Y`/`N` 逐条批准或拒绝；WebUI Access Panel 处理同一批 Pending Request。Observatory 顶层先看整体架构：Component Ownership、Design-vs-Actual Dependency、Strong Observed Drift、Advisory Evidence Gap、Implementation/Evidence Coverage。选择 Component 后查看 Responsibility、Implementation Mapping、Changed Path、Product Scope 与 Related Requirement；Requirement Drill-down 再进入 **Desired State → Actual State → Change → Proof → Convergence**。Proof 只统计与当前 code+design Revision 精确一致的 Evidence。Cloud/Web Connector 连接 `/mcp`；本地 Coding Agent 使用 `wcode --workspace <repo> mcp-stdio`；Skill/Plugin 用 `wcode --workspace <repo> agent-plugin` 导出。Host-specific 接入统一维护在 [Code Agent Integrations](../code-agent-integrations/)。
 
-推荐完整链路：
+正常 Coding 链路现在更短：
 
 ```text
-Design State
+agent_context(goal, scopes=...)
     ↓
-design_status
+symbol_context（仅 Readiness 要求更多源码时）
     ↓
-software_context / traceability_status
-    ↓
-实现或修改代码
+apply_edits / apply_file_edits
     ↓
 review_changes
     ↓
-drift_status / impact_analysis / risk_status
+verify_project
     ↓
-reconciliation_plan / verification_plan
-    ↓
-verify_project + 独立 Reviewer Job
-    ↓
-evidence_status
+只有需要更深收敛分析时再进入 drift / risk / reconciliation / evidence
 ```
 
 ## 1. 安装 / 更新 wcode
@@ -188,32 +182,24 @@ precision = syntax
 
 ## 3. 推荐 Agent 工作流
 
-做一个比较大的修改时，建议 Agent 按下面顺序工作：
+较大修改也不再固定预加载一串 Broad Status Tool：
 
 ```text
-1. workspace_info
-2. scope_status
-3. design_status
-4. project_context
-5. 涉及源码/质量门时调用 language_quality_status
-6. 选择相关 Product Scope
-7. software_context（需要时传 scopes）
-8. 用 symbol/read/edit 工具实现
-9. review_changes
-10. drift_status
-11. impact_analysis
-12. risk_status
-13. 对已声明的 check-only provider 运行 language_quality_run
-14. 有缺口时 reconciliation_plan
-15. verify_project + 必需的高级验证 Stage
-16. evidence_status
+1. agent_context(goal, scopes=...)
+2. 按 readiness / next_actions 执行
+3. 只有缺源码时调用 symbol_context
+4. apply_edits / apply_file_edits
+5. review_changes
+6. 只有任务需要时再运行 language_quality_run / drift / impact / risk
+7. verify_project + 必需高级 Stage
+8. 只有 Convergence / Proof 需要深入时再进入 evidence_status / reconciliation
 ```
 
-你可以直接把下面这段发给连接到 wcode 的 Agent：
+`agent_context` 省略 `budget` 时使用有界 Adaptive Budget，组合相关 Design State、Scope-aware Repo-map Ranking、可用时的 Fresh Semantic/Runtime Evidence、Bounded Hot Source、Exact SHA Edit Target、Related Test、Working-tree Advisory、Readiness 与 Deterministic Next Actions。1000-token 极限模式优先保证能直接开工；默认 Adaptive Path 会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk Tool 保留为按需深入，而不是固定启动成本。
 
-> 改代码前先调用 `workspace_info`、`scope_status`、`design_status`、`project_context`；涉及源码或质量门时再看 `language_quality_status`。先处理 `scope_status.unmapped_files` 和语言质量 gap，再选择 Product Scope 并进入 `software_context`。优先复用仓库已经声明的原生 formatter/linter/type/test/security 工具，不要为了统一风格强塞新工具。改完以后调用 `review_changes`、`drift_status`、`impact_analysis`、`risk_status`；只有 provider 被报告为 declared / available / check-only 时才运行 `language_quality_run`。有缺口就生成 `reconciliation_plan`，再执行 `verify_project` 与必需高级 Stage，最后查看 `evidence_status`。多个模型/子 Agent 一致也不能替代确定性 Proof。
+### `agent_context`
 
-`project_context` 已经会附带一份有界 Convention Report；`convention_status` 可以单独读取完整的有界结果，包括检测到的语言、语言约定、文件命名问题、Architecture Domain 分类、Product Scope 映射/缺口、未归类的根级源码文件、过大的源码模块、Rust Domain 扁平增长、统计数量和截断状态。
+正常 Coding 优先调用 `agent_context`。它把过去多次 Startup Discovery 合成一个有界 Edit-ready Pack：Repo-map Ranking 同时使用 Task Relevance 与 Software Graph Relationship；Fresh Semantic/Runtime/Deterministic Evidence 可以增强关系，Stale Provider 自动回退 Syntax；性能 Telemetry 放在 Tool Result `_meta`，模型可见 Context 只保留做决策真正需要的信息。Readiness 明确告诉 Agent 当前能直接 Edit/Verify，还是应先补 Source/Semantic Context。
 
 ### Product Scope
 
@@ -221,7 +207,7 @@ wcode 现在有一份统一的产品能力 Scope Registry：`runtime`、`integra
 
 Product Scope 描述的是 wcode 自身能力边界，不是模型厂商，也不会取代业务领域的自由 Semantic Scope。已知别名会被规范成 canonical scope；未知字符串仍作为自由业务 Scope 保留。`software_context.scopes` 对已识别 Product Scope 会真正收窄源码/符号导航；`semantic_query.scopes` 会过滤有 Scope 的 Semantic Fact，而没有 Scope 的 Fact 继续作为全局语义参与查询。详细映射见 [product-scopes.md](../product-scopes/)。
 
-## 4. software_context
+### `software_context`
 
 当你的任务是从“业务行为 / Requirement / 子系统”出发，而不是已经知道具体文件名时，优先使用它。
 
@@ -248,7 +234,7 @@ Product Scope 描述的是 wcode 自身能力边界，不是模型厂商，也�
 
 这样 Agent 可以直接拿到设计意图、符号以及真实语义/运行时关系，而不是先拿一串 ID 再回头读 YAML。
 
-## 5. traceability_status
+### `traceability_status`
 
 它会尝试解析：
 
@@ -294,7 +280,7 @@ wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_st
 
 `software_graph` 会持久化并去重真正有变化的 Graph Snapshot。`graph_history` 查看历史，`graph_query` 查询某个 Snapshot / 邻域，`graph_diff` 可以显式比较两个 Revision，也可以默认比较最近两个 meaningful Snapshot。Node 用稳定 `node.id` 对齐；Edge 用 `from + to + kind + provider + precision` 对齐，Revision / Attributes 改动归为 `changed`，不会噪声式地报成“整条边删除后重建”。同一稳定 Edge Identity 下出现多条 Revision 时按 multiset 对齐，避免未来更复杂 SCIP / Runtime Provider 丢关系。Project Observatory 用这些 Snapshot 展示架构 Revision 时间线和最新 Node/Edge `+ / - / ~`；每个功能的 Actual Architecture 则在刷新时基于当前仓库重新生成。
 
-## 6. Change Intelligence
+### Change Intelligence
 
 ### drift_status
 
@@ -355,7 +341,7 @@ Plan 生成后会进入 **持久化 Reconciliation Execution 状态机**。通�
 
 源码修改本身仍然走 wcode 原有的 SHA-256 前置条件、原子写入和 Workspace 安全工具；Reconciliation 不会绕过这些边界偷偷执行无限制 Patch。Plan 和 Execution 都持久化到用户级 Workspace State，重启或换模型后仍可继续。
 
-## 7. Verification Mesh
+## 4. Verification Mesh
 
 `verification_plan` 会根据当前 Risk Level 生成验证策略，并创建 Blind Independent Reviewer Job。
 
@@ -408,7 +394,7 @@ wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --exec
 
 Task Handle 返回前状态已经持久化；Owner 使用当前 OAuth `client_id` 的 SHA-256 Fingerprint，不保存原始 Bearer Token。`tasks/get` 轮询并在完成时返回原始 Tool Result；`tasks/update` 当前是 ack-only，因为这两个任务不会发 Input Request；`tasks/cancel` 先持久化 `cancelled`，再 Abort Worker，避免迟到的 Completed 覆盖取消。Task Store 有 Workspace 级容量上限，只会在创建新 Task 前回收 Terminal Task，Active Task 不会为了腾空间被删。如果 Runtime 在 Task 仍是 `working` 时被替换，下一次读取会把它标成 Failed，而不是假装 Worker 跨进程存活。
 
-## 8. Multi-model / Independent Reviewer 怎么用
+### Independent Reviewer Job
 
 先创建：
 
@@ -487,7 +473,7 @@ EvidenceResult::Disagree
 
 而不是简单用多数票把争议盖掉。
 
-## 9. Evidence
+## 5. Evidence
 
 现在 `verify_project` 完成后，会把确定性检查结果写入 Runtime Evidence。
 
@@ -535,11 +521,12 @@ Reviewer Submit 也会形成 Model Review Evidence，并记录：
 
 因此 `wcode restart`、断开 MCP、切换 Model Executor 后，Software Intelligence 的持久状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
 
-## 10. 当前高阶工具
+## 6. 当前 MCP Tool Surface
 
 ### Desired State / Semantic / Graph
 
 ```text
+agent_context
 design_init
 design_status
 traceability_status
@@ -586,7 +573,7 @@ wcode --workspace <PATH> --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace <PATH> verification
 wcode --workspace <PATH> --allow-risky-exec verification --plan-id VP-... --execute-stages
 TUI: I = Intelligence, W = Project Observatory
-Web: /intelligence（本机高熵 UI Token 保护 + Requirement-first Project Observatory）
+Web: /intelligence（本机高熵 UI Token 保护 + Architecture-first Project Observatory）
 ```
 
 ### 原有底层工具
@@ -611,7 +598,7 @@ delete_path
 run_command
 ```
 
-## 11. 已实现能力与精度边界
+## 7. 已实现能力与精度边界
 
 ### 已实现
 
@@ -625,14 +612,14 @@ run_command
 - 全部 22 种索引语言的统一 Semantic Provider Registry；真实 LSP Document Symbol / Call Hierarchy / Implementation 才会成为 `precision=semantic` 事实，并支持 Source Hash Freshness / Stale Exclusion / Revision Cache
 - 可唯一判定的跨文件 Syntax Calls、Graph History / Query / Diff，以及外部 SCIP/Compiler/Runtime Provider Import Contract
 - Requirement → Component → Code/Test Traceability
-- Budget-aware / Semantic-aware Software Context，包含 provenance-bearing `graph_context` 语义/运行时邻域
+- Token-efficient `agent_context`：Adaptive Budget、Scope-aware Repo Map、Revision-aware Cache、Multi-query Single-pass Search、Bounded Hot Source、Fresh Semantic/Runtime Ranking、Exact SHA Target、Working-tree Advisory、Readiness 与 Next Actions；更深层仍保留 Budget-aware / Semantic-aware `software_context`
 - Drift、Transitive Impact、结构化 Risk，以及针对 1,000 行阈值跨越、单文件集中增长、跨 Product Scope 大规模 churn 的确定性 Maintainability Finding
 - Risk-Adaptive Verification + 持久化 Blind Reviewer Job；Medium 及以上风险会加入独立 `maintainability_review`，并继续保留 Disagreement Evidence、HumanApproval Evidence、Verification History、Stale Revision Gate，以及 per-producer fail-closed Stage 聚合
 - 跨语言 Property / Mutation / Fuzz / Runtime-Canary Executor Registry：常见生态自动发现 + 通用 `.wcode/executors.yaml` + 外部 Stage Evidence Adapter；自动执行会跑所有适用可用 Runner
 - MCP 2026 Tasks：对 `semantic_provider_refresh` / `verification_execute_stages` 提供 per-request opt-in 的 Durable Task、Owner Scope、Get/Cancel 和同步兼容路径
 - 持久化 Reconciliation Plan + dependency-aware Claim / Submit / Retry 执行状态机 + Reconciliation Evidence
 - `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI
-- TUI Software Intelligence Overlay 与受保护 Project Observatory：Requirement Board、功能/组件设计、当前代码实现、Design ↔ Actual Dependency Alignment、Acceptance/Verification、Constraint/ADR、代码统计、Git 改动映射与架构 Revision 历史
+- TUI Software Intelligence Overlay 与受保护 Project Observatory：Architecture-first Overall Component Graph、Design ↔ Actual Dependency Overlay、Observed Drift / Evidence / Implementation Coverage、Component Inspector、Requirement Drill-down、Acceptance/Verification、Constraint/ADR、代码统计、Git 改动映射与架构 Revision 历史
 - `read_media` 的 Capability-aware 多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；只有当前请求显式声明匹配的 `run.francis.wcode/media-content` Client Capability 时才返回 Image/Audio Content，能力未知或不支持时 Fail Closed，视频始终 Metadata-only
 - 完整高阶 MCP Surface
 
@@ -641,11 +628,11 @@ run_command
 - 永远可用的内置代码索引仍是 Tree-sitter `precision=syntax`；第一方 LSP Adapter 只有在本机真实 Language Server 返回结果后才把对应事实标成 `precision=semantic`，外部 SCIP / Compiler / Runtime Provider 仍走带 `provider + precision + revision` 的 Import Contract。
 - 全部 22 种语言共享同一套 Semantic Provider / Verification Executor 架构，但 wcode 不捆绑每一种第三方 LSP 和测试二进制；`semantic_provider_status` / `verification_executor_status` 会展示本机真实 availability，不把缺失程序算成已安装。
 - Repository-aware LSP 刷新和 Property / Mutation / Fuzz / Runtime-Canary 执行都需要显式操作者信任：可以对精确操作在 TUI 或受保护 WebUI 做 Session 授权并重试，也可以用 `--allow-risky-exec` 做进程级预授权；两者都不是 OS Sandbox。
-- 模型请求的命令程序使用按 Workspace 的 `CommandAccess`：少量安全命令默认预授权，其他合法的裸可执行程序名进入 Pending 列表，只有用户显式批准后才加入该 Workspace；Shell 解释器、带路径程序名、Workspace Escape 参数和受保护资源仍然硬拒绝。
+- Model-facing Command Execution 对内置 Development CLI Catalog 使用 Command-specific Policy，对有界 Repository/Remote Operation 使用精确 `RiskyExecution` Fingerprint。Repository Mutation 只允许显式 Path 的 `git add`、Message-only `git commit`、显式 Remote+Ref 的 Non-force `git push` 进入授权；批准后的 SSH Push 只通过固定非交互 SSH 命令使用当前 SSH Agent。Force/Delete/Reset/Restore、Shell Interpreter、Credential-bypass Surface、Workspace Escape 与 Protected Resource 继续阻断。
 - Reconciliation 可以持久化编排并跨模型继续执行，但实际源码修改仍走 wcode 的受限、原子、SHA-256 Guarded Edit Tool，不存在绕过安全边界的隐藏自动 Patch。
 - 删除是单独的破坏性授权路径：第一次 `delete_path` 会创建精确的本地 Authorization Request，操作者在 TUI 或受保护 WebUI 中批准或拒绝；只有参数和目标完全匹配的重试才能消耗这一次性 Grant。
 
-## 12. 直接 Dogfood wcode
+## 8. 直接 Dogfood wcode
 
 当前 wcode 仓库本身已经包含：
 
@@ -656,6 +643,6 @@ run_command
 
 所以安装/重启当前版本以后，你可以直接让 Agent：
 
-> 检查 wcode 自己的 Design State 和 Traceability。针对 workspace security 调用 `software_context`，再针对当前 Working Tree 调用 `drift_status`、`impact_analysis`、`risk_status`，生成 `reconciliation_plan`，执行推荐 Verification，最后把 `evidence_status` 展示出来。
+> 针对要修改的 wcode 行为先调用 `agent_context`，按 Readiness / Next Actions 通过受保护 Workspace Tool 编辑，执行 `review_changes` 与 `verify_project`；只有还需要更深 Convergence 分析时，再进入 Drift / Risk / Reconciliation / Evidence Tool。
 
 这就是现在已经能跑通的 Software Intelligence Runtime Dogfood 路径。

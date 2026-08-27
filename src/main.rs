@@ -70,6 +70,8 @@ mod semantic_store;
 mod stage_executor;
 #[path = "integrations/task_store.rs"]
 mod task_store;
+#[path = "runtime/tunnel.rs"]
+mod tunnel;
 #[path = "verification/mod.rs"]
 pub mod verification;
 #[path = "verification/store.rs"]
@@ -89,14 +91,15 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio as StdStdio};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
-use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tokio::task::AbortHandle;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{sleep, Duration};
 use tracing_subscriber::EnvFilter;
-use url::{Host, Url};
+use tunnel::{
+    normalize_public_url, public_endpoint_health_loop, start_managed_tunnel,
+    wait_for_public_endpoint, ActiveTunnel, TunnelProvider,
+};
 use workspace::{WorkspaceSecurity, Workspaces};
 
 pub(crate) const CHATGPT_CONNECTOR_SETUP_URL: &str =
@@ -110,9 +113,6 @@ pub(crate) const AUTHOR_URL: &str = "https://github.com/francis-du";
 pub(crate) const AUTHOR_HANDLE: &str = "@francis-du";
 const DEFAULT_MIN_PARALLEL_TOOLS: usize = 96;
 const DEFAULT_MAX_PARALLEL_TOOLS: usize = 192;
-const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(25);
-const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
-const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 6;
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 const HELP_FOOTER: &str = r#"
 ╭─ wcode ────────────────────────────────────────────────────────────╮
@@ -137,33 +137,6 @@ fn default_max_parallel_tools() -> usize {
         .unwrap_or(8)
         .saturating_mul(12)
         .clamp(DEFAULT_MIN_PARALLEL_TOOLS, DEFAULT_MAX_PARALLEL_TOOLS)
-}
-
-fn normalize_public_url(value: &str) -> Result<String> {
-    let url = Url::parse(value).context("--public-url must be a valid absolute URL")?;
-    if url.cannot_be_a_base()
-        || url.host().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || !matches!(url.path(), "" | "/")
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        bail!(
-            "--public-url must be an origin URL without a path, user information, query string, or fragment"
-        );
-    }
-    let allowed = match (url.scheme(), url.host()) {
-        ("https", Some(_)) => true,
-        ("http", Some(Host::Domain(domain))) => domain.eq_ignore_ascii_case("localhost"),
-        ("http", Some(Host::Ipv4(address))) => address.is_loopback(),
-        ("http", Some(Host::Ipv6(address))) => address.is_loopback(),
-        _ => false,
-    };
-    if !allowed {
-        bail!("--public-url must use HTTPS, except loopback HTTP is allowed for local testing");
-    }
-    Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
 #[derive(Clone, Copy)]
@@ -217,9 +190,13 @@ struct Args {
     #[arg(short = 'p', long, default_value_t = 8765, help_heading = "Connection")]
     port: u16,
 
-    /// Use an existing public base URL instead of starting Cloudflare Tunnel.
+    /// Use an existing public base URL instead of starting a managed tunnel.
     #[arg(long, help_heading = "Connection")]
     public_url: Option<String>,
+
+    /// Managed tunnel provider. auto falls back across free providers when startup or health checks fail.
+    #[arg(long, value_enum, default_value_t = TunnelProvider::Auto, help_heading = "Connection")]
+    tunnel_provider: TunnelProvider,
 
     /// Keep the server local and do not start a public tunnel.
     #[arg(long, help_heading = "Connection")]
@@ -261,7 +238,7 @@ struct Args {
     #[arg(long = "no-monitor", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
     monitor: bool,
 
-    /// Do not offer to install a missing cloudflared dependency.
+    /// Do not offer to install a missing managed-tunnel dependency.
     #[arg(long, help_heading = "Experience")]
     no_install: bool,
 
@@ -479,7 +456,8 @@ async fn main() -> Result<()> {
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
 
-    let mut tunnel: Option<Child> = None;
+    let mut tunnel: Option<ActiveTunnel> = None;
+    let mut public_endpoint_preverified = false;
     let public_url = if let Some(url) = args.public_url.as_deref() {
         let url = normalize_public_url(url)?;
         monitor.mark_public_endpoint("external", None);
@@ -488,15 +466,23 @@ async fn main() -> Result<()> {
         monitor.mark_public_endpoint("local-only", None);
         local_url.clone()
     } else {
-        ensure_cloudflared(!args.no_install)?;
-        let (child, url) = start_cloudflared(&local_url).await?;
+        let active = start_managed_tunnel(
+            args.tunnel_provider,
+            &local_url,
+            auth.instance_id(),
+            !args.no_install,
+        )
+        .await?;
+        public_endpoint_preverified = true;
         monitor.mark_public_endpoint("quick-tunnel", Some(true));
-        tunnel = Some(child);
-        url
+        monitor.mark_public_url_check(true, None);
+        let public_url = active.public_url().to_owned();
+        tunnel = Some(active);
+        public_url
     };
     auth.set_public_url(public_url.clone());
 
-    if !args.no_tunnel {
+    if !args.no_tunnel && !public_endpoint_preverified {
         tokio::select! {
             result = &mut server_task => {
                 result.context("local MCP server task failed")??;
@@ -508,9 +494,8 @@ async fn main() -> Result<()> {
                 &monitor,
             ) => {
                 if let Err(error) = result {
-                    if let Some(mut child) = tunnel.take() {
-                        let _ = child.start_kill();
-                        let _ = child.wait().await;
+                    if let Some(mut active) = tunnel.take() {
+                        active.stop().await;
                     }
                     bail!("public endpoint did not become ready: {error}");
                 }
@@ -586,16 +571,21 @@ async fn main() -> Result<()> {
             _ = sleep(Duration::from_secs(1)) => {
                 let health_failed = monitor.connection_status().public_url_healthy == Some(false);
                 let stopped = if health_failed {
-                    if let Some(mut child) = tunnel.take() {
-                        let _ = child.start_kill();
-                        let _ = child.wait().await;
+                    if let Some(mut active) = tunnel.take() {
+                        active.stop().await;
                     }
                     Some("public endpoint health failed three times; restarting wcode".to_owned())
                 } else {
-                    match tunnel.as_mut().map(|child| child.try_wait()) {
-                        Some(Ok(Some(status))) => Some(format!("cloudflared exited with {status}")),
-                        Some(Err(error)) => Some(format!("cloudflared status check failed: {error}")),
-                        _ => None,
+                    match tunnel.as_mut() {
+                        Some(active) => {
+                            let provider = active.provider_label();
+                            match active.try_wait() {
+                                Ok(Some(status)) => Some(format!("{provider} tunnel exited with {status}")),
+                                Err(error) => Some(format!("{provider} tunnel status check failed: {error}")),
+                                Ok(None) => None,
+                            }
+                        }
+                        None => None,
                     }
                 };
                 if let Some(reason) = stopped {
@@ -616,9 +606,8 @@ async fn main() -> Result<()> {
     }
     println!("  ◼ wcode stopped");
 
-    if let Some(mut child) = tunnel.take() {
-        let _ = child.start_kill();
-        let _ = child.wait().await;
+    if let Some(mut active) = tunnel.take() {
+        active.stop().await;
     }
     if !server_task_finished {
         server_task.abort();
@@ -1053,128 +1042,6 @@ async fn wait_for_monitor_interrupt(receiver: Option<watch::Receiver<bool>>) {
     }
 }
 
-async fn public_endpoint_health_loop(
-    public_url: String,
-    instance_id: String,
-    monitor: TaskMonitor,
-    mut stop: watch::Receiver<bool>,
-) {
-    loop {
-        if *stop.borrow() {
-            return;
-        }
-        match check_public_endpoint(&public_url, &instance_id).await {
-            Ok(()) => monitor.mark_public_url_check(true, None),
-            Err(error) => monitor.mark_public_url_check(false, Some(error)),
-        }
-        tokio::select! {
-            _ = sleep(PUBLIC_HEALTH_INTERVAL) => {},
-            changed = stop.changed() => {
-                if changed.is_err() || *stop.borrow() {
-                    return;
-                }
-            }
-        }
-    }
-}
-
-async fn wait_for_public_endpoint(
-    public_url: &str,
-    instance_id: &str,
-    monitor: &TaskMonitor,
-) -> Result<(), String> {
-    println!("  · endpoint     verifying this wcode instance");
-    let mut last_error = String::new();
-    for attempt in 1..=PUBLIC_STARTUP_HEALTH_ATTEMPTS {
-        match check_public_endpoint(public_url, instance_id).await {
-            Ok(()) => {
-                monitor.mark_public_url_check(true, None);
-                println!("  ✓ endpoint     reachable and instance-matched");
-                return Ok(());
-            }
-            Err(error) => {
-                last_error = error;
-                monitor.mark_public_url_check(false, Some(last_error.clone()));
-                eprintln!(
-                    "  ! endpoint     attempt {attempt}/{PUBLIC_STARTUP_HEALTH_ATTEMPTS} failed · {}",
-                    truncate_diagnostic(&last_error, 180)
-                );
-                if attempt < PUBLIC_STARTUP_HEALTH_ATTEMPTS {
-                    sleep(Duration::from_secs(attempt.min(3) as u64)).await;
-                }
-            }
-        }
-    }
-    Err(last_error)
-}
-
-async fn check_public_endpoint(public_url: &str, expected_instance_id: &str) -> Result<(), String> {
-    let health_url = format!("{public_url}/healthz");
-    let mut command = Command::new("curl");
-    command
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "5",
-            &health_url,
-        ])
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let output = timeout(PUBLIC_HEALTH_TIMEOUT, command.output())
-        .await
-        .map_err(|_| {
-            format!(
-                "health check timed out after {}s",
-                PUBLIC_HEALTH_TIMEOUT.as_secs()
-            )
-        })?
-        .map_err(|error| format!("curl could not run: {error}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "curl exited with {}{}",
-            output.status,
-            if stderr.trim().is_empty() {
-                String::new()
-            } else {
-                format!(": {}", truncate_diagnostic(stderr.trim(), 180))
-            }
-        ));
-    }
-    validate_health_response(&output.stdout, expected_instance_id)
-}
-
-fn validate_health_response(body: &[u8], expected_instance_id: &str) -> Result<(), String> {
-    let payload: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|error| format!("health endpoint returned invalid JSON: {error}"))?;
-    let actual = payload
-        .get("instance_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "health response is missing instance_id".to_owned())?;
-    if actual != expected_instance_id {
-        return Err(format!(
-            "health response belongs to a different wcode instance ({})",
-            truncate_diagnostic(actual, 12)
-        ));
-    }
-    if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
-        return Err("health response did not report ok=true".to_owned());
-    }
-    Ok(())
-}
-
-fn truncate_diagnostic(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let prefix: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{prefix}…")
-    } else {
-        prefix
-    }
-}
-
 fn open_setup_hub(setup_url: &str, mcp_url: &str) {
     println!("  ↗ setup        opening wcode setup hub");
     println!("  · MCP URL      {mcp_url}");
@@ -1199,156 +1066,6 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str) {
     {
         eprintln!("  ! setup        could not open the browser ({error}); visit {setup_url}");
     }
-}
-
-fn ensure_cloudflared(install_missing: bool) -> Result<()> {
-    println!("  · cloudflared  checking dependency");
-    if command_succeeds("cloudflared", &["--version"]) {
-        println!("  ✓ cloudflared  available");
-        return Ok(());
-    }
-    if !install_missing {
-        bail!(
-            "cloudflared is missing; {} Remove --no-install to allow the supported installer.",
-            cloudflared_install_hint()
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        if !command_succeeds("brew", &["--version"]) {
-            bail!(
-                "cloudflared is missing and Homebrew is unavailable; {}",
-                cloudflared_install_hint()
-            );
-        }
-        run_installer("brew", &["install", "cloudflared"], "Homebrew")?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if !command_succeeds("winget", &["--version"]) {
-            bail!(
-                "cloudflared is missing and winget is unavailable. Install it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ or place cloudflared.exe on PATH."
-            );
-        }
-        run_installer(
-            "winget",
-            &[
-                "install",
-                "--id",
-                "Cloudflare.cloudflared",
-                "--exact",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-            ],
-            "winget",
-        )?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        bail!(
-            "cloudflared is missing. {} Automatic distro installation is intentionally disabled because cloudflared is not consistently available in default repositories.",
-            cloudflared_install_hint()
-        );
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        bail!("cloudflared is missing; install it from Cloudflare and place it on PATH");
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        if !command_succeeds("cloudflared", &["--version"]) {
-            bail!(
-                "the installer completed but cloudflared is still unavailable on PATH; restart the terminal or install it manually"
-            );
-        }
-        println!("  ✓ cloudflared  installed");
-        Ok(())
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn run_installer(program: &str, args: &[&str], label: &str) -> Result<()> {
-    println!("  ↓ cloudflared  installing with {label}");
-    let status = StdCommand::new(program)
-        .args(args)
-        .stdin(StdStdio::inherit())
-        .stdout(StdStdio::inherit())
-        .stderr(StdStdio::inherit())
-        .status()
-        .with_context(|| format!("failed to launch {label}"))?;
-    if !status.success() {
-        bail!(
-            "{label} could not install cloudflared; {}",
-            cloudflared_install_hint()
-        );
-    }
-    Ok(())
-}
-
-fn cloudflared_install_hint() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        return "Run `brew install cloudflared`.".to_owned();
-    }
-    #[cfg(target_os = "windows")]
-    {
-        return "Run `winget install --id Cloudflare.cloudflared` or download the official Windows binary.".to_owned();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let manager = ["apt-get", "dnf", "yum", "pacman"]
-            .into_iter()
-            .find(|program| command_succeeds(program, &["--version"]))
-            .unwrap_or("your distribution package manager");
-        return format!(
-            "Detected {manager}; follow Cloudflare's repository instructions at https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/."
-        );
-    }
-    #[allow(unreachable_code)]
-    "Install cloudflared from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ and place it on PATH.".to_owned()
-}
-
-fn command_succeeds(program: &str, args: &[&str]) -> bool {
-    StdCommand::new(program)
-        .args(args)
-        .stdin(StdStdio::null())
-        .stdout(StdStdio::null())
-        .stderr(StdStdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-async fn start_cloudflared(local_url: &str) -> Result<(Child, String)> {
-    println!("  ↗ tunnel       requesting HTTPS endpoint");
-    let mut last_error = String::new();
-    for attempt in 1..=3 {
-        match start_cloudflared_once(local_url).await {
-            Ok(result) => {
-                println!("  ✓ tunnel       connected");
-                return Ok(result);
-            }
-            Err(error) => {
-                last_error = format!("{error:#}");
-                let summary = last_error.lines().next().unwrap_or("unknown error");
-                eprintln!("  ! tunnel       attempt {attempt}/3 failed · {summary}");
-                if attempt < 3 {
-                    sleep(Duration::from_secs(attempt * 2)).await;
-                }
-            }
-        }
-    }
-    bail!(
-        "Cloudflare Quick Tunnel failed after 3 attempts.\n\
-         Last error: {last_error}\n\
-         Check network/VPN access to https://api.trycloudflare.com, or use a stable reverse proxy and pass \
-         `--public-url https://your-host.example`."
-    )
 }
 
 #[cfg(unix)]
@@ -1380,111 +1097,6 @@ fn spawn_replacement() -> Result<()> {
 #[cfg(not(any(unix, windows)))]
 fn spawn_replacement() -> Result<()> {
     bail!("automatic restart is supported on Unix-like systems and Windows")
-}
-
-async fn start_cloudflared_once(local_url: &str) -> Result<(Child, String)> {
-    let mut child = Command::new("cloudflared")
-        .args([
-            "tunnel",
-            "--url",
-            local_url,
-            "--protocol",
-            "http2",
-            "--no-autoupdate",
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("failed to start cloudflared")?;
-    let stderr = child
-        .stderr
-        .take()
-        .context("cloudflared stderr is unavailable")?;
-    let (url_sender, url_receiver) = oneshot::channel::<Result<String, String>>();
-    tokio::spawn(async move {
-        let mut url_sender = Some(url_sender);
-        let mut recent_logs: Vec<String> = Vec::new();
-        let mut lines = BufReader::new(stderr).lines();
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    recent_logs.push(line.clone());
-                    if recent_logs.len() > 12 {
-                        recent_logs.remove(0);
-                    }
-                    if let Some(url) = extract_tunnel_url(&line) {
-                        if let Some(sender) = url_sender.take() {
-                            let _ = sender.send(Ok(url));
-                        }
-                    }
-                    if line.contains("ERR") || line.contains("error") {
-                        tracing::debug!(target: "wcode::tunnel", "{line}");
-                    }
-                }
-                Ok(None) => {
-                    if let Some(sender) = url_sender.take() {
-                        let details = if recent_logs.is_empty() {
-                            "cloudflared exited without output".to_owned()
-                        } else {
-                            recent_logs.join("\n")
-                        };
-                        let _ = sender.send(Err(details));
-                    }
-                    break;
-                }
-                Err(error) => {
-                    tracing::debug!(target: "wcode::tunnel", "failed to read logs: {error}");
-                    if let Some(sender) = url_sender.take() {
-                        let _ =
-                            sender.send(Err(format!("failed to read cloudflared logs: {error}")));
-                    }
-                    break;
-                }
-            }
-        }
-    });
-    let public_url = match timeout(Duration::from_secs(30), url_receiver).await {
-        Ok(Ok(Ok(url))) => url,
-        Ok(Ok(Err(details))) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            bail!("cloudflared exited before producing a public URL:\n{details}");
-        }
-        Ok(Err(_)) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            bail!("cloudflared log channel closed unexpectedly");
-        }
-        Err(_) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            bail!("timed out after 30 seconds waiting for Cloudflare Tunnel URL");
-        }
-    };
-    Ok((child, public_url))
-}
-
-fn extract_tunnel_url(line: &str) -> Option<String> {
-    for (start, _) in line.match_indices("https://") {
-        let candidate = line[start..]
-            .split(|ch: char| {
-                ch.is_whitespace()
-                    || matches!(ch, '|' | '`' | '"' | '<' | '>' | ')' | ']' | '}' | ',')
-            })
-            .next()
-            .unwrap_or_default()
-            .trim_end_matches('/');
-        let Ok(url) = url::Url::parse(candidate) else {
-            continue;
-        };
-        let Some(host) = url.host_str() else { continue };
-        if host.ends_with(".trycloudflare.com") && host != "api.trycloudflare.com" {
-            return Some(candidate.to_owned());
-        }
-    }
-    None
 }
 
 fn print_setup_guide(
@@ -1566,6 +1178,10 @@ fn print_setup_guide(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tunnel::{
+        extract_cloudflare_tunnel_url as extract_tunnel_url, extract_ssh_tunnel_url,
+        validate_health_response,
+    };
     use clap::CommandFactory;
 
     #[test]
@@ -1795,6 +1411,47 @@ mod tests {
         assert_eq!(
             extract_tunnel_url("request https://api.trycloudflare.com/tunnel\": failed"),
             None
+        );
+    }
+
+    #[test]
+    fn parses_free_ssh_tunnel_urls_without_accepting_provider_hosts() {
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "https://bright-demo.localhost.run tunneled with tls termination"
+            )
+            .as_deref(),
+            Some("https://bright-demo.localhost.run")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(TunnelProvider::Pinggy, "Host: rndm-abcd1234.pinggy.link")
+                .as_deref(),
+            Some("https://rndm-abcd1234.pinggy.link")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::Pinggy,
+                "Forwarding HTTPS traffic from https://rndm.run.pinggy-free.link"
+            )
+            .as_deref(),
+            Some("https://rndm.run.pinggy-free.link")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(TunnelProvider::LocalhostRun, "connect localhost.run"),
+            None
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(TunnelProvider::Pinggy, "connect free.pinggy.io"),
+            None
+        );
+        assert_eq!(
+            TunnelProvider::auto_candidates(),
+            [
+                TunnelProvider::Cloudflare,
+                TunnelProvider::LocalhostRun,
+                TunnelProvider::Pinggy
+            ]
         );
     }
 }

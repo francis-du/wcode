@@ -1,6 +1,7 @@
 use super::mcp_tools::{
-    optional_string_array_arg, required_string, reviewer_role_arg, run_blocking,
-    selected_workspace, string_arg, string_array_arg, task_detail, tool_result, usize_arg,
+    agent_context_model_bytes, agent_context_tool_result, optional_string_array_arg,
+    required_string, reviewer_role_arg, run_blocking, selected_workspace, string_arg,
+    string_array_arg, task_detail, tool_result, usize_arg,
 };
 use super::*;
 use crate::scopes;
@@ -431,6 +432,31 @@ pub(super) async fn call_leaf_tool(
                     .and_then(|context| serde_json::to_value(context).map_err(Into::into))
             })
             .await
+        }
+        "agent_context" => {
+            let (workspace_id, workspace) = selected_workspace(state, &args)?;
+            let query = required_string(&args, "query")?.to_owned();
+            let budget = usize_arg(&args, "budget").unwrap_or(0);
+            let requested_scopes = optional_string_array_arg(&args, "scopes", 32)?;
+            let context_harness = state.harness.clone();
+            let context_workspace = workspace.clone();
+            let context_future = run_blocking(move || {
+                context_harness.agent_context(
+                    workspace_id,
+                    &context_workspace,
+                    &query,
+                    budget,
+                    &requested_scopes,
+                )
+            });
+            let worktree_harness = state.harness.clone();
+            let worktree_future = worktree_harness.worktree_status_snapshot(&workspace);
+            let (context, worktree) = tokio::join!(context_future, worktree_future);
+            let mut context = context.map_err(|error| error.to_string())?;
+            if let Ok(worktree) = worktree {
+                merge_agent_worktree_status(&mut context, &worktree);
+            }
+            Ok(context)
         }
         "semantic_status" => {
             let (workspace_id, workspace) = selected_workspace(state, &args)?;
@@ -1153,6 +1179,7 @@ pub(super) async fn call_leaf_tool(
     }
     let success = outcome.is_ok();
     let response_bytes = match &outcome {
+        Ok(value) if name == "agent_context" => agent_context_model_bytes(value),
         Ok(value) => serialized_size(value) as u64,
         Err(error) => error.to_string().len() as u64,
     };
@@ -1161,10 +1188,98 @@ pub(super) async fn call_leaf_tool(
         .ok()
         .map(|value| estimated_context_bytes_avoided(name, value, response_bytes))
         .unwrap_or(0);
+    if name == "agent_context" {
+        if let Ok(value) = &outcome {
+            let repo_map_cache_hit = value
+                .pointer("/repo_map/cache_hit")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            state.monitor.record_agent_context_metrics(
+                &workspace_label,
+                response_bytes,
+                context_bytes_avoided,
+                repo_map_cache_hit,
+            );
+        }
+    }
     task.finish_with_context_savings(success, response_bytes, context_bytes_avoided);
     match outcome {
+        Ok(value) if name == "agent_context" => Ok(agent_context_tool_result(value, false)),
         Ok(value) => Ok(tool_result(value, false)),
         Err(error) => Ok(tool_result(json!({"error": error.to_string()}), true)),
+    }
+}
+
+fn merge_agent_worktree_status(context: &mut Value, snapshot: &Value) {
+    if snapshot.get("available").and_then(Value::as_bool) != Some(true) {
+        return;
+    }
+    let target_paths = context
+        .get("targets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|target| target.get("path").and_then(Value::as_str))
+        .collect::<BTreeSet<_>>();
+    if target_paths.is_empty() {
+        return;
+    }
+    let changed = snapshot
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|file| {
+            file.get("path")
+                .and_then(Value::as_str)
+                .map(|path| (path, file))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut targets = Vec::new();
+    let mut has_existing_changes = false;
+    let mut has_conflict = false;
+    for path in target_paths {
+        if let Some(file) = changed.get(path) {
+            let status = file
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("modified");
+            has_existing_changes = true;
+            has_conflict |= status == "unmerged";
+            targets.push(json!({
+                "path": path,
+                "status": status,
+                "staged": file.get("staged").cloned().unwrap_or(Value::Bool(false)),
+                "unstaged": file.get("unstaged").cloned().unwrap_or(Value::Bool(false)),
+                "untracked": file.get("untracked").cloned().unwrap_or(Value::Bool(false)),
+            }));
+        } else {
+            targets.push(json!({"path": path, "status": "clean"}));
+        }
+    }
+    context["worktree"] = json!({
+        "targets": targets,
+        "has_existing_changes": has_existing_changes,
+        "truncated": snapshot.get("truncated").cloned().unwrap_or(Value::Bool(false)),
+    });
+    let Some(readiness) = context.get_mut("readiness").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let advisories = readiness
+        .entry("advisories".to_owned())
+        .or_insert_with(|| json!([]));
+    if let Some(advisories) = advisories.as_array_mut() {
+        if has_existing_changes
+            && !advisories
+                .iter()
+                .any(|advisory| advisory == "target_has_worktree_changes")
+        {
+            advisories.push(json!("target_has_worktree_changes"));
+        }
+    }
+    if has_conflict {
+        readiness.insert("edit".to_owned(), json!("worktree_conflict"));
+        readiness.insert("next_actions".to_owned(), json!(["review_changes"]));
     }
 }
 
@@ -1173,6 +1288,15 @@ pub(super) fn estimated_context_bytes_avoided(
     value: &Value,
     response_bytes: u64,
 ) -> u64 {
+    if name == "agent_context" {
+        if let Some(baseline) = value.get("baseline_context_bytes").and_then(Value::as_u64) {
+            return baseline.saturating_sub(agent_context_model_bytes(value));
+        }
+        return value
+            .get("context_bytes_avoided")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+    }
     if !matches!(name, "file_outline" | "symbol_context") {
         return 0;
     }
@@ -1539,6 +1663,49 @@ fn parallel_item_error(
         "ok": false,
         "error": error.into(),
     })
+}
+
+#[cfg(test)]
+mod agent_context_enrichment_tests {
+    use super::*;
+
+    #[test]
+    fn worktree_status_warns_on_existing_changes_and_blocks_conflicts() {
+        let mut context = json!({
+            "targets": [{"path": "src/lib.rs"}],
+            "readiness": {"edit": "ready", "next_actions": ["apply_edits", "review_changes", "verify_project"], "advisories": []}
+        });
+        merge_agent_worktree_status(
+            &mut context,
+            &json!({
+                "available": true,
+                "files": [{"path":"src/lib.rs","status":"modified","staged":false,"unstaged":true,"untracked":false}],
+                "truncated": false
+            }),
+        );
+        assert_eq!(context["worktree"]["targets"][0]["status"], "modified");
+        assert_eq!(context["worktree"]["has_existing_changes"], true);
+        assert!(context["readiness"]["advisories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|advisory| advisory == "target_has_worktree_changes"));
+        assert_eq!(context["readiness"]["edit"], "ready");
+
+        merge_agent_worktree_status(
+            &mut context,
+            &json!({
+                "available": true,
+                "files": [{"path":"src/lib.rs","status":"unmerged","staged":true,"unstaged":true,"untracked":false}],
+                "truncated": false
+            }),
+        );
+        assert_eq!(context["readiness"]["edit"], "worktree_conflict");
+        assert_eq!(
+            context["readiness"]["next_actions"],
+            json!(["review_changes"])
+        );
+    }
 }
 
 #[cfg(test)]
