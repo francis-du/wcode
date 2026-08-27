@@ -501,10 +501,7 @@ pub(super) fn last_seen_text(last_seen: Option<Instant>) -> String {
 }
 
 pub(super) fn is_quick_tunnel(mcp_url: &str) -> bool {
-    mcp_url.contains(".trycloudflare.com/")
-        || mcp_url.contains(".localhost.run/")
-        || mcp_url.contains(".pinggy.link/")
-        || mcp_url.contains(".pinggy-free.link/")
+    crate::tunnel::is_quick_tunnel_url(mcp_url)
 }
 
 pub(super) fn open_external_url(url: &str) -> io::Result<()> {

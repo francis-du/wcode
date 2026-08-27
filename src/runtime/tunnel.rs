@@ -12,6 +12,19 @@ const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(25);
 const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 6;
 const AUTO_PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(12);
+const QUICK_TUNNEL_HOST_SUFFIXES: &[&str] = &[
+    ".trycloudflare.com",
+    ".localhost.run",
+    ".lhr.life",
+    ".pinggy.link",
+    ".pinggy-free.link",
+    ".pinggy.net",
+];
+const QUICK_TUNNEL_DENIED_HOSTS: &[&str] = &[
+    "api.trycloudflare.com",
+    "admin.localhost.run",
+    "www.localhost.run",
+];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub(crate) enum TunnelProvider {
@@ -480,9 +493,30 @@ fn spawn_tunnel_output_reader<R>(
     });
 }
 
+pub(crate) fn is_quick_tunnel_url(mcp_url: &str) -> bool {
+    let Ok(url) = Url::parse(mcp_url) else {
+        return false;
+    };
+    url.host_str().is_some_and(is_quick_tunnel_host)
+}
+
+fn is_quick_tunnel_host(host: &str) -> bool {
+    host_matches_public_tunnel(host, QUICK_TUNNEL_HOST_SUFFIXES, QUICK_TUNNEL_DENIED_HOSTS)
+}
+
+fn host_matches_public_tunnel(host: &str, suffixes: &[&str], denied: &[&str]) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if denied.iter().any(|denied_host| host == *denied_host) {
+        return false;
+    }
+    suffixes
+        .iter()
+        .any(|suffix| host.ends_with(suffix) && host.len() > suffix.len())
+}
+
 pub(crate) fn extract_ssh_tunnel_url(provider: TunnelProvider, line: &str) -> Option<String> {
     let expected_suffixes: &[&str] = match provider {
-        TunnelProvider::LocalhostRun => &[".localhost.run"],
+        TunnelProvider::LocalhostRun => &[".localhost.run", ".lhr.life"],
         TunnelProvider::Pinggy => &[".pinggy.link", ".pinggy-free.link", ".pinggy.net"],
         _ => return None,
     };
@@ -504,10 +538,7 @@ pub(crate) fn extract_ssh_tunnel_url(provider: TunnelProvider, line: &str) -> Op
             .next()
             .unwrap_or_default()
             .trim_end_matches('.');
-        if expected_suffixes
-            .iter()
-            .any(|suffix| host.ends_with(suffix) && host.len() > suffix.len())
-        {
+        if host_matches_public_tunnel(host, expected_suffixes, QUICK_TUNNEL_DENIED_HOSTS) {
             return Some(format!("https://{host}"));
         }
     }
@@ -808,6 +839,32 @@ mod tests {
     }
 
     #[test]
+    fn detects_managed_quick_tunnel_mcp_urls() {
+        for url in [
+            "https://bright-demo.trycloudflare.com/mcp",
+            "https://bright-demo.localhost.run/mcp",
+            "https://5d993e65a9d400.lhr.life/mcp",
+            "https://rndm-abcd1234.pinggy.link/mcp",
+            "https://rndm.run.pinggy-free.link/mcp",
+            "https://rndm.free.pinggy.net/mcp",
+        ] {
+            assert!(is_quick_tunnel_url(url), "expected quick tunnel {url}");
+        }
+        for url in [
+            "https://admin.localhost.run/mcp",
+            "https://www.localhost.run/mcp",
+            "https://api.trycloudflare.com/mcp",
+            "https://example.com/mcp",
+            "http://127.0.0.1:8765/mcp",
+        ] {
+            assert!(
+                !is_quick_tunnel_url(url),
+                "unexpectedly treated {url} as a quick tunnel"
+            );
+        }
+    }
+
+    #[test]
     fn parses_free_ssh_tunnel_urls_without_accepting_provider_hosts() {
         assert_eq!(
             extract_ssh_tunnel_url(
@@ -816,6 +873,36 @@ mod tests {
             )
             .as_deref(),
             Some("https://bright-demo.localhost.run")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "5d993e65a9d400.lhr.life tunneled with tls termination, https://5d993e65a9d400.lhr.life"
+            )
+            .as_deref(),
+            Some("https://5d993e65a9d400.lhr.life")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "https://5d993e65a9d400.lhr.life"
+            )
+            .as_deref(),
+            Some("https://5d993e65a9d400.lhr.life")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "To set up and manage custom domains go to https://admin.localhost.run/"
+            ),
+            None
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "https://admin.localhost.run tunneled with tls termination"
+            ),
+            None
         );
         assert_eq!(
             extract_ssh_tunnel_url(TunnelProvider::Pinggy, "Host: rndm-abcd1234.pinggy.link")
@@ -840,6 +927,10 @@ mod tests {
         );
         assert_eq!(
             extract_ssh_tunnel_url(TunnelProvider::LocalhostRun, "connect localhost.run"),
+            None
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(TunnelProvider::LocalhostRun, "connect www.localhost.run"),
             None
         );
         assert_eq!(

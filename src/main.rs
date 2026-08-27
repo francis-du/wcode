@@ -1180,7 +1180,7 @@ mod tests {
     use super::*;
     use crate::tunnel::{
         extract_cloudflare_tunnel_url as extract_tunnel_url, extract_ssh_tunnel_url,
-        validate_health_response,
+        is_quick_tunnel_url, validate_health_response,
     };
     use clap::CommandFactory;
 
@@ -1425,6 +1425,21 @@ mod tests {
             Some("https://bright-demo.localhost.run")
         );
         assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "5d993e65a9d400.lhr.life tunneled with tls termination, https://5d993e65a9d400.lhr.life"
+            )
+            .as_deref(),
+            Some("https://5d993e65a9d400.lhr.life")
+        );
+        assert_eq!(
+            extract_ssh_tunnel_url(
+                TunnelProvider::LocalhostRun,
+                "https://admin.localhost.run tunneled with tls termination"
+            ),
+            None
+        );
+        assert_eq!(
             extract_ssh_tunnel_url(TunnelProvider::Pinggy, "Host: rndm-abcd1234.pinggy.link")
                 .as_deref(),
             Some("https://rndm-abcd1234.pinggy.link")
@@ -1453,5 +1468,7 @@ mod tests {
                 TunnelProvider::Pinggy
             ]
         );
+        assert!(is_quick_tunnel_url("https://5d993e65a9d400.lhr.life/mcp"));
+        assert!(!is_quick_tunnel_url("https://admin.localhost.run/mcp"));
     }
 }
