@@ -1,0 +1,73 @@
+<!doctype html>
+{% assign is_zh = false %}
+{% if page.lang == 'zh-CN' %}{% assign is_zh = true %}{% endif %}
+<html lang="{{ page.lang | default: 'en' }}" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ page.description | default: site.description | escape }}">
+  <meta name="color-scheme" content="dark light">
+  <title>{{ page.title | escape }} · wcode Documentation</title>
+  <link rel="icon" href="{{ '/assets/wcode-icon.svg' | relative_url }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/docs.css' | relative_url }}">
+  <script defer src="{{ '/assets/site.js' | relative_url }}"></script>
+  {% if page.alternate %}<link rel="alternate" hreflang="{% if is_zh %}en{% else %}zh-CN{% endif %}" href="{{ page.alternate | relative_url }}">{% endif %}
+</head>
+<body>
+  <a class="skip-link" href="#docs-content">{% if is_zh %}跳到正文{% else %}Skip to content{% endif %}</a>
+  <header class="site-header docs-header" id="top">
+    <div class="nav-shell">
+      <a class="brand" href="{% if is_zh %}{{ '/zh/' | relative_url }}{% else %}{{ '/' | relative_url }}{% endif %}" aria-label="{% if is_zh %}wcode 首页{% else %}wcode home{% endif %}">
+        <img class="brand-mark" src="{{ '/assets/wcode-icon.svg' | relative_url }}" alt="">
+        <span>code</span>
+      </a>
+      <nav class="nav-links" aria-label="{% if is_zh %}主导航{% else %}Primary navigation{% endif %}">
+        <a href="{% if is_zh %}{{ '/zh/' | relative_url }}{% else %}{{ '/' | relative_url }}{% endif %}">{% if is_zh %}首页{% else %}Home{% endif %}</a>
+        <a class="active" href="{% if is_zh %}{{ '/zh/docs/' | relative_url }}{% else %}{{ '/docs/' | relative_url }}{% endif %}">{% if is_zh %}文档{% else %}Documentation{% endif %}</a>
+      </nav>
+      <div class="nav-actions">
+        {% if page.alternate %}<a class="language-switch" href="{{ page.alternate | relative_url }}" hreflang="{% if is_zh %}en{% else %}zh-CN{% endif %}">{% if is_zh %}EN{% else %}中文{% endif %}</a>{% endif %}
+        <button class="icon-button" id="themeToggle" type="button" aria-label="{% if is_zh %}切换颜色主题{% else %}Switch color theme{% endif %}" title="{% if is_zh %}切换颜色主题{% else %}Switch color theme{% endif %}"><span aria-hidden="true">◐</span></button>
+        <a class="button button-ghost button-small" href="https://github.com/francis-du/wcode">GitHub ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="docs-shell">
+    <aside class="docs-sidebar" aria-label="{% if is_zh %}文档目录{% else %}Documentation sections{% endif %}">
+      <div class="docs-sidebar-title"><span>{% if is_zh %}Documentation{% else %}DOCUMENTATION{% endif %}</span><strong>wcode</strong></div>
+      <div class="docs-nav-group">
+        <div class="docs-nav-label">{% if is_zh %}开始{% else %}Start{% endif %}</div>
+        <a {% if page.url == '/zh/docs/' or page.url == '/docs/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/' | relative_url }}{% else %}{{ '/docs/' | relative_url }}{% endif %}">{% if is_zh %}文档概览{% else %}Overview{% endif %}</a>
+        <a {% if page.url contains '/getting-started/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/getting-started/' | relative_url }}{% else %}{{ '/docs/getting-started/' | relative_url }}{% endif %}">{% if is_zh %}快速开始{% else %}Getting Started{% endif %}</a>
+      </div>
+      <div class="docs-nav-group">
+        <div class="docs-nav-label">{% if is_zh %}核心概念{% else %}Core concepts{% endif %}</div>
+        <a {% if page.url contains '/software-intelligence/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/software-intelligence/' | relative_url }}{% else %}{{ '/docs/software-intelligence/' | relative_url }}{% endif %}">Software Intelligence</a>
+        <a {% if page.url contains '/product-scopes/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/product-scopes/' | relative_url }}{% else %}{{ '/docs/product-scopes/' | relative_url }}{% endif %}">Product Scopes</a>
+        <a {% if page.url contains '/agentic-engineering/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/agentic-engineering/' | relative_url }}{% else %}{{ '/docs/agentic-engineering/' | relative_url }}{% endif %}">Agentic Engineering</a>
+      </div>
+      <div class="docs-nav-group">
+        <div class="docs-nav-label">{% if is_zh %}使用与治理{% else %}Operate &amp; govern{% endif %}</div>
+        <a {% if page.url contains '/code-agent-integrations/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/code-agent-integrations/' | relative_url }}{% else %}{{ '/docs/code-agent-integrations/' | relative_url }}{% endif %}">{% if is_zh %}Agent 与 MCP 集成{% else %}Agent &amp; MCP Integrations{% endif %}</a>
+        <a {% if page.url contains '/security/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/security/' | relative_url }}{% else %}{{ '/docs/security/' | relative_url }}{% endif %}">{% if is_zh %}安全模型{% else %}Security{% endif %}</a>
+        <a {% if page.url contains '/language-quality/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/language-quality/' | relative_url }}{% else %}{{ '/docs/language-quality/' | relative_url }}{% endif %}">{% if is_zh %}语言质量{% else %}Language Quality{% endif %}</a>
+        <a {% if page.url contains '/maintainability-review/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/maintainability-review/' | relative_url }}{% else %}{{ '/docs/maintainability-review/' | relative_url }}{% endif %}">{% if is_zh %}可维护性审查{% else %}Maintainability Review{% endif %}</a>
+      </div>
+      <div class="docs-nav-group">
+        <div class="docs-nav-label">Reference</div>
+        <a {% if page.url contains '/reference/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/reference/' | relative_url }}{% else %}{{ '/docs/reference/' | relative_url }}{% endif %}">CLI &amp; MCP Reference</a>
+        <a {% if page.url contains '/development/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/development/' | relative_url }}{% else %}{{ '/docs/development/' | relative_url }}{% endif %}">{% if is_zh %}开发说明{% else %}Development{% endif %}</a>
+        <a {% if page.url contains '/releases/v0.3.0/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.3.0/' | relative_url }}{% else %}{{ '/docs/releases/v0.3.0/' | relative_url }}{% endif %}">v0.3.0</a>
+      </div>
+    </aside>
+    <article class="docs-content" id="docs-content">
+      <div class="docs-breadcrumb"><a href="{% if is_zh %}{{ '/zh/docs/' | relative_url }}{% else %}{{ '/docs/' | relative_url }}{% endif %}">{% if is_zh %}文档{% else %}Documentation{% endif %}</a><span>/</span><span>{{ page.title | escape }}</span></div>
+      {{ content }}
+    </article>
+  </main>
+
+  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><img class="brand-mark" src="{{ '/assets/wcode-icon.svg' | relative_url }}" alt=""><span>code</span></div><p>Apache-2.0 · {% if is_zh %}统一文档{% else %}Unified Documentation{% endif %}</p><p><a href="{% if is_zh %}{{ '/zh/' | relative_url }}{% else %}{{ '/' | relative_url }}{% endif %}">{% if is_zh %}返回产品首页{% else %}Back to product home{% endif %}</a></p></div></footer>
+</body>
+</html>

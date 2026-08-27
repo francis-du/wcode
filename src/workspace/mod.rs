@@ -223,6 +223,9 @@ mod registry;
 #[path = "roots.rs"]
 mod roots;
 
+#[path = "media.rs"]
+mod media;
+
 impl Workspace {
     pub fn list_files(&self, path: &str, max_entries: usize) -> Result<Vec<String>> {
         let start = self.existing_path(path)?;
@@ -1705,6 +1708,15 @@ mod tests {
         assert!(status
             .iter()
             .any(|arg| arg.starts_with("core.excludesFile=")));
+        for blocked_helper in [
+            "credential.helper=",
+            "core.askPass=",
+            "core.sshCommand=false",
+            "core.gitProxy=",
+            "http.extraHeader=",
+        ] {
+            assert!(status.iter().any(|arg| arg == blocked_helper));
+        }
         assert_eq!(
             status
                 .get(status.len().saturating_sub(2))

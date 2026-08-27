@@ -1,8 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Product Scopes
 description: Canonical wcode product capability and source ownership map
-permalink: /wiki/product-scopes/
+lang: en
+alternate: /zh/docs/product-scopes/
+permalink: /docs/product-scopes/
 ---
 
 # wcode Product Scopes

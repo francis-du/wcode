@@ -210,8 +210,8 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
     let scopes: &[ProductScope] = match name {
         "workspace_info" | "scope_status" => &[Runtime, Workspace, Integrations],
         "project_context" | "convention_status" | "list_files" | "search_code" | "search_many"
-        | "read_file" | "read_files" | "path_info" | "replace_text" | "apply_edits"
-        | "write_file" | "create_directory" | "create_file" | "create_files"
+        | "read_file" | "read_files" | "read_media" | "path_info" | "replace_text"
+        | "apply_edits" | "write_file" | "create_directory" | "create_file" | "create_files"
         | "apply_file_edits" | "move_path" | "move_paths" | "delete_path" | "run_command"
         | "parallel_tools" | "review_changes" => &[Workspace],
         "design_init" | "design_status" => &[Design],

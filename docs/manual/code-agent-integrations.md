@@ -1,8 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Code Agent Integrations
 description: Source-checked Plugin, Skill, MCP, installation, and diagnostic guide
-permalink: /wiki/code-agent-integrations/
+lang: en
+alternate: /zh/docs/code-agent-integrations/
+permalink: /docs/code-agent-integrations/
 ---
 
 # Code Agent, MCP, Skill, and Plugin integrations
@@ -55,7 +57,7 @@ The stdio process does not run the HTTP OAuth flow. The child-process boundary i
 
 HTTP and stdio use the same Product Scope model. Agents should begin with `workspace_info`, `scope_status`, `design_status`, and `project_context`, inspect any `scope_status.unmapped_files`, then choose the Product Scope(s) relevant to the task before broad source reads. The canonical scopes are `runtime`, `integrations`, `workspace`, `design`, `graph`, `semantics`, `traceability`, `risk`, `verification`, `evidence`, `reconciliation`, and `experience`.
 
-Clients can discover them from `workspace_info.product_scopes`, Tool `_meta.dev.wcode/productScopes`, or MCP Resource `wcode://runtime/product-scopes`. `scope_status` audits how the selected repository actually maps into those scopes. Pass relevant scopes to `software_context`; `semantic_query` also accepts scope filters. Product Scope metadata narrows context and describes capabilities, but never widens the Workspace or bypasses tool authorization. See [Product Scopes](../product-scopes/); the user-facing remote connector contract and troubleshooting order live in the [WIKI overview](../#云端-connector-的统一合约).
+Clients can discover them from `workspace_info.product_scopes`, Tool `_meta.dev.wcode/productScopes`, or MCP Resource `wcode://runtime/product-scopes`. `scope_status` audits how the selected repository actually maps into those scopes. Pass relevant scopes to `software_context`; `semantic_query` also accepts scope filters. Product Scope metadata narrows context and describes capabilities, but never widens the Workspace or bypasses tool authorization. See [Product Scopes](../product-scopes/) and [Security](../security/); the remote connector setup and troubleshooting sections below are the canonical English integration reference.
 
 Source work should also inspect `language_quality_status`. It reports syntax, semantics, repository-declared/native formatter/linter/type/static/test/security coverage and advanced Verification stages separately, rather than claiming one generic “language supported” state. `language_quality_run` only executes a detected, declared, available, check-only provider through the normal authorization boundary and records current-revision Evidence. See [language-quality.md](../language-quality/).
 

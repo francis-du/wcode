@@ -183,7 +183,7 @@
 - schema_version: 1
   id: CONSTRAINT-DOCUMENTATION-GOVERNANCE
   title: Documentation has canonical ownership and one hosted surface
-  statement: Maintained product integration architecture development and release documentation must live under docs/wiki, remain reachable from its WIKI index, render as HTML within the official Pages site, and keep vendor-specific commands in one integration guide; root Markdown is limited to the project README and repository policy while package-local documentation stays with its package.
+  statement: Maintained product integration architecture development and release documentation must live under docs/manual, render as one bilingual /docs/ and /zh/docs/ tree within the official Pages site, keep the product homepage as an entry surface rather than a second manual, preserve legacy /wiki/ URLs as redirects, and keep vendor-specific commands in one integration guide; root Markdown is limited to the project README and repository policy while package-local documentation stays with its package.
   applies_to:
     - component:documentation-governance
     - component:agent-integration

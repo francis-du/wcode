@@ -119,6 +119,7 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool("read_file", "Read one UTF-8 file with line bounds and receive its SHA-256 edit precondition.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
         tool("read_files", "Read up to 32 UTF-8 files in one MCP round trip. Reads run in parallel and each file reports success or failure independently.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
+        tool("read_media", "Inspect one bounded workspace media file. Metadata is always safe to return. Set include_content=true only when the MCP client explicitly advertises the run.francis.wcode/media-content extension for the media kind; otherwise wcode fails closed without emitting image/audio payloads. PNG/JPEG/GIF/WebP image content and MP3/WAV/Ogg/FLAC audio content are supported; MP4/WebM are metadata-only.", schema(json!({"path":{"type":"string"},"include_content":{"type":"boolean","default":false}}), &["path"]), true, false),
         tool("path_info", "Inspect one workspace path without loading the whole file into model context. Returns type, size, SHA-256 for files, readonly state, modification time, and hard-link count when available.", schema(json!({"path":{"type":"string"}}), &["path"]), true, false),
         tool("replace_text", "Atomically replace one exact text occurrence with a SHA-256 precondition and optional 1-based original line bounds. When start_line/end_line are supplied together, old_text must match exactly once inside that original range. Protected/symlink/hard-link targets remain blocked.", schema(json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path","old_text","new_text","expected_sha256"]), false, true),
         tool("apply_edits", "Atomically apply up to 128 non-overlapping edits against one original SHA revision. Each edit may add 1-based start_line/end_line bounds; all edits resolve against the same original bytes before one atomic commit, so line shifts from sibling edits cannot affect targeting.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["old_text","new_text"],"additionalProperties":false}}}), &["path","expected_sha256","edits"]), false, true),
@@ -389,6 +390,19 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
             first_array_item(args, "paths")
                 .map(|path| format!(" · first {path}"))
                 .unwrap_or_default()
+        ),
+        "read_media" => format!(
+            "{} · media metadata{}",
+            path(),
+            if args
+                .get("include_content")
+                .and_then(Value::as_bool)
+                .is_some_and(|enabled| enabled)
+            {
+                " + opt-in content"
+            } else {
+                ""
+            }
         ),
         "path_info" => format!("{} · metadata + digest", path()),
         "replace_text" => format!(

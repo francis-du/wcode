@@ -1,8 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Agentic Engineering Model
 description: wcode model-neutral agent execution and evidence architecture
-permalink: /wiki/agentic-engineering/
+lang: en
+alternate: /zh/docs/agentic-engineering/
+permalink: /docs/agentic-engineering/
 ---
 
 # Agentic Engineering Model

@@ -1,3 +1,5 @@
+const pageIsChinese = document.documentElement.lang.toLowerCase().startsWith('zh');
+
 const clients = [
   {
     name: 'Grok', mark: '✦', company: 'xAI', region: 'us', surface: 'chat',
@@ -514,10 +516,10 @@ document.querySelectorAll('[data-copy]').forEach((block) => {
     try {
       await navigator.clipboard.writeText(block.dataset.copy || '');
       const previous = button.textContent;
-      button.textContent = 'Copied';
+      button.textContent = pageIsChinese ? '已复制' : 'Copied';
       setTimeout(() => { button.textContent = previous; }, 1300);
     } catch {
-      button.textContent = 'Select';
+      button.textContent = pageIsChinese ? '手动选择' : 'Select';
     }
   });
 });

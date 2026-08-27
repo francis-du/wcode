@@ -90,7 +90,7 @@
 - schema_version: 1
   id: AC-WORKSPACE-001
   title: Workspace coding primitives remain transactional and guarded
-  statement: Create edit batch move and delete primitives preserve workspace isolation, observed-revision preconditions and bounded mutation behavior; runtime Workspace additions and per-Workspace command authorization changes remain no-shell, root-scoped and policy checked, and a previously unauthorized model-requested executable becomes runnable only after explicit human approval.
+  statement: Text/media inspection and create edit batch move/delete primitives preserve workspace isolation, observed-revision preconditions and bounded behavior; runtime Workspace additions and command authorization remain no-shell and root-scoped, while only validated exact git add/commit and explicit remote+ref non-force-push shapes may cross the risky-operation gate after explicit human approval and permanently blocked mutation shapes remain blocked.
   verification:
     - kind: test
       path: src/workspace/mod.rs
@@ -101,6 +101,12 @@
     - kind: test
       path: src/workspace/mod.rs
       symbol: tests::revoked_catalog_command_becomes_selectively_authorizable
+    - kind: test
+      path: src/workspace/command_policy.rs
+      symbol: tests::git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries
+    - kind: test
+      path: src/workspace/media.rs
+      symbol: tests::detects_png_dimensions_without_decoder_dependency
 
 - schema_version: 1
   id: AC-SCHEDULER-001
@@ -126,7 +132,7 @@
 - schema_version: 1
   id: AC-MCP-002
   title: MCP exposes portable capabilities and durable tasks
-  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime and the tool catalog exposes Product Scope metadata.
+  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, the tool catalog exposes Product Scope metadata, and optional image/audio Tool Result content is returned only when the current request explicitly advertises the wcode media extension; capability absence fails closed without binary payloads.
   verification:
     - kind: test
       path: src/integrations/mcp.rs
@@ -137,6 +143,12 @@
     - kind: test
       path: src/integrations/mcp.rs
       symbol: tests::tool_list_exposes_bulk_index_and_positive_harness_tools
+    - kind: test
+      path: src/integrations/mcp_dispatch.rs
+      symbol: media_capability_tests::media_content_is_fail_closed_without_explicit_client_extension
+    - kind: test
+      path: src/integrations/mcp_dispatch.rs
+      symbol: media_capability_tests::media_content_requires_matching_kind_and_optional_mime_filter
 
 - schema_version: 1
   id: AC-MCP-003
@@ -165,7 +177,7 @@
 - schema_version: 1
   id: AC-SEMANTIC-001
   title: Semantic providers and scoped registry cover indexed languages
-  statement: Every indexed language has an explicit semantic provider candidate and scoped semantic queries filter scoped facts while preserving global facts.
+  statement: Every indexed language has an explicit semantic provider candidate, scoped semantic queries filter scoped facts while preserving global facts, and semantic provider status/refresh uses the same explicit execution-trust boundary so a session-approved refresh can produce fresh semantic graph evidence without silently running language servers.
   verification:
     - kind: test
       path: src/semantics/provider.rs
@@ -230,7 +242,7 @@
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
-  statement: The TUI remains safe under narrow/tiny layouts, exposes W as the Project Observatory shortcut, lets operators manually switch English / Simplified Chinese with English as the default, and renders selectable pending authorizations whose Y/N actions apply only to the selected request; the protected WebUI provides the same manual language choice plus project, command and pending-authorization controls.
+  statement: The TUI remains safe under narrow/tiny layouts, exposes W as the Project Observatory shortcut, lets operators manually switch English / Simplified Chinese with English as the default, and renders selectable pending authorizations whose Y/N actions apply only to the selected request; the protected WebUI provides the same manual language choice plus project, command and pending-authorization controls, supports System / Dark / Light appearance, and uses single-flight visibility-aware asynchronous refresh that updates only changed sections instead of replacing the page.
   verification:
     - kind: test
       path: src/ui/monitor.rs
@@ -250,6 +262,12 @@
     - kind: test
       path: src/ui/intelligence_web.rs
       symbol: tests::project_observatory_page_is_requirement_first_and_has_no_ball_graph
+    - kind: test
+      path: src/ui/intelligence_web.rs
+      symbol: tests::observatory_assets_support_incremental_refresh_precision_and_light_mode
+    - kind: test
+      path: src/runtime/harness_tests.rs
+      symbol: observatory_revision_signal_detects_repeated_edits_to_same_modified_file
 
 - schema_version: 1
   id: AC-AGENT-001
@@ -287,7 +305,7 @@
 - schema_version: 1
   id: AC-OBSERVABILITY-001
   title: Project observatory is requirement-first and code-derived
-  statement: The WebUI exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence; every requirement has a stable/changing/needs_convergence/incomplete state with blockers, alongside components, current implementation, verification, dependency alignment, repository code statistics, mapped Git changes, and graph revision history, while the generic ball graph is absent from the primary page.
+  statement: The WebUI exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with an attention-first summary and visible graph provider/precision; every requirement has a stable/changing/needs_convergence/incomplete state with real blockers alongside components, current implementation, verification, dependency alignment, repository code statistics, mapped Git changes, and graph revision history. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory, while strong positive semantic/runtime/deterministic evidence may expose an undeclared dependency as a blocker; the generic ball graph is absent from the primary page.
   verification:
     - kind: test
       path: src/runtime/harness_tests.rs
@@ -295,6 +313,9 @@
     - kind: test
       path: src/ui/intelligence_web.rs
       symbol: tests::project_observatory_page_is_requirement_first_and_has_no_ball_graph
+    - kind: test
+      path: src/ui/intelligence_web.rs
+      symbol: tests::observatory_assets_support_incremental_refresh_precision_and_light_mode
 
 - schema_version: 1
   id: AC-DESIGN-SPARSE-001
@@ -326,8 +347,8 @@
 - schema_version: 1
   id: AC-DOCS-001
   title: Documentation is organized and published as site HTML
-  statement: Root and docs-level Markdown remain within the documented ownership rules, every maintained WIKI page is indexed, website entry points use the HTML WIKI route, and the Pages workflow builds docs through Jekyll before upload.
+  statement: Root and docs-level Markdown remain within the documented ownership rules, every maintained Documentation page is indexed in the canonical /docs/ or /zh/docs/ tree, website and README entry points use that tree, legacy /wiki/ URLs redirect compatibly, and the Pages workflow builds docs through Jekyll before upload.
   verification:
     - kind: test
       path: tests/documentation_layout.rs
-      symbol: documentation_is_canonical_and_hosted_as_html
+      symbol: documentation_is_unified_bilingual_and_hosted_as_html

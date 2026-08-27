@@ -6,8 +6,8 @@ use crate::intelligence_types::{
     CodeStatBreakdown, FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView,
     FeatureConvergenceState, FeatureDecisionView, FeatureDependencyAlignment,
     FeatureImplementationView, FeatureRequirementView, ProjectChangeView, ProjectCodeStats,
-    ProjectConvergenceSummary, ProjectGraphDeltaView, ProjectObservatory, ProjectProofSummary,
-    ProjectRevisionView,
+    ProjectConvergenceSummary, ProjectGraphDeltaView, ProjectGraphPrecisionSummary,
+    ProjectObservatory, ProjectProofSummary, ProjectRevisionView,
 };
 use crate::reconcile::ImpactAnalysis;
 use crate::scopes;
@@ -49,6 +49,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         .unwrap_or_default();
     let path_lines = graph_file_lines(input.graph);
     let code = code_stats(input.graph, input.review);
+    let graph_precision = graph_precision_summary(input.graph);
     let component_paths = component_paths(&state);
     let actual_dependencies =
         actual_component_dependencies(&state, &input.traceability, input.graph, &component_paths);
@@ -144,6 +145,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         design_valid,
         coverage: input.traceability,
         code,
+        graph_precision,
         language_quality: input.language_quality,
         proof: input.proof,
         convergence,
@@ -458,6 +460,56 @@ fn actual_component_dependencies(
     actual
 }
 
+fn graph_precision_summary(graph: &SoftwareGraphSnapshot) -> ProjectGraphPrecisionSummary {
+    let mut providers = BTreeSet::new();
+    let mut declared_edges = 0usize;
+    let mut syntax_edges = 0usize;
+    let mut semantic_edges = 0usize;
+    let mut deterministic_edges = 0usize;
+    let mut runtime_edges = 0usize;
+    let mut heuristic_edges = 0usize;
+    let mut primary = "declared";
+    let mut best_rank = precision_rank(primary);
+
+    for edge in &graph.graph.edges {
+        let precision = precision_name(edge.provenance.precision);
+        providers.insert(edge.provenance.provider.clone());
+        match edge.provenance.precision {
+            GraphPrecision::Declared => declared_edges += 1,
+            GraphPrecision::Syntax => syntax_edges += 1,
+            GraphPrecision::Semantic => semantic_edges += 1,
+            GraphPrecision::Deterministic => deterministic_edges += 1,
+            GraphPrecision::Runtime => runtime_edges += 1,
+            GraphPrecision::Heuristic => heuristic_edges += 1,
+            GraphPrecision::Mixed => {}
+        }
+        let rank = precision_rank(&precision);
+        if rank > best_rank {
+            best_rank = rank;
+            primary = match edge.provenance.precision {
+                GraphPrecision::Runtime => "runtime",
+                GraphPrecision::Semantic => "semantic",
+                GraphPrecision::Deterministic => "deterministic",
+                GraphPrecision::Syntax => "syntax",
+                GraphPrecision::Declared => "declared",
+                GraphPrecision::Heuristic => "heuristic",
+                GraphPrecision::Mixed => "mixed",
+            };
+        }
+    }
+
+    ProjectGraphPrecisionSummary {
+        primary: primary.to_owned(),
+        providers: providers.into_iter().collect(),
+        declared_edges,
+        syntax_edges,
+        semantic_edges,
+        deterministic_edges,
+        runtime_edges,
+        heuristic_edges,
+    }
+}
+
 fn precision_name(precision: GraphPrecision) -> String {
     format!("{precision:?}").to_ascii_lowercase()
 }
@@ -650,7 +702,7 @@ fn build_requirement(
         && drift_messages.is_empty()
         && dependency_alignment
             .iter()
-            .all(|dependency| dependency.status == "aligned");
+            .all(|dependency| !dependency.blocking);
     let mut convergence_blockers = Vec::new();
     if trace.status != RequirementTraceStatus::Complete {
         convergence_blockers.push("requirement traceability is incomplete".to_owned());
@@ -658,7 +710,7 @@ fn build_requirement(
     convergence_blockers.extend(
         dependency_alignment
             .iter()
-            .filter(|dependency| dependency.status != "aligned")
+            .filter(|dependency| dependency.blocking)
             .take(16)
             .map(|dependency| {
                 format!(
@@ -733,6 +785,22 @@ fn dependency_alignment(
             let desired = desired_dependencies.contains(&(from.clone(), to.clone()));
             let actual_precision = actual_dependencies.get(&(from.clone(), to.clone()));
             let actual = actual_precision.is_some();
+            let precision = actual_precision
+                .cloned()
+                .unwrap_or_else(|| "not_observed".to_owned());
+            let strong_actual_evidence =
+                matches!(precision.as_str(), "runtime" | "semantic" | "deterministic");
+            let (status, blocking) = match (desired, actual) {
+                (true, true) => ("aligned", false),
+                // Absence from a bounded syntax/semantic graph is not proof that a declared
+                // dependency does not exist. Keep it observable, but advisory.
+                (true, false) => ("unverified_actual", false),
+                // A positive undeclared dependency is actionable only when the provider is
+                // stronger than syntax/heuristic precision. Syntax observations remain advisory.
+                (false, true) if strong_actual_evidence => ("undeclared_actual", true),
+                (false, true) => ("observed_actual", false),
+                (false, false) => ("unknown", false),
+            };
             FeatureDependencyAlignment {
                 from_name: component_name(state, &from),
                 to_name: component_name(state, &to),
@@ -740,16 +808,9 @@ fn dependency_alignment(
                 to,
                 desired,
                 actual,
-                status: match (desired, actual) {
-                    (true, true) => "aligned",
-                    (true, false) => "missing_actual",
-                    (false, true) => "undeclared_actual",
-                    (false, false) => "unknown",
-                }
-                .to_owned(),
-                precision: actual_precision
-                    .cloned()
-                    .unwrap_or_else(|| "declared".to_owned()),
+                status: status.to_owned(),
+                precision,
+                blocking,
             }
         })
         .collect()

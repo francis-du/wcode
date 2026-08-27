@@ -1,4 +1,5 @@
 use super::*;
+use crate::authorization::AuthorizationStatus;
 
 impl Workspaces {
     #[cfg(test)]
@@ -148,30 +149,75 @@ impl Workspaces {
     }
 
     pub fn approve_authorization_session(&self, id: &str) -> bool {
-        let Some(request) = self.authorization.request_by_id(id) else {
-            return false;
-        };
+        self.approve_authorization_session_result(id).is_ok()
+    }
+
+    pub fn approve_authorization_session_result(&self, id: &str) -> Result<AuthorizationRequest> {
+        let request = self
+            .authorization
+            .request_by_id(id)
+            .ok_or_else(|| anyhow!("authorization request does not exist: {id}"))?;
+        if request.status != AuthorizationStatus::Pending {
+            bail!(
+                "authorization request {id} is no longer pending (status: {:?})",
+                request.status
+            );
+        }
         let command_access = if request.kind == AuthorizationKind::CommandAccess {
-            let Some(program) = request.program.clone() else {
-                return false;
-            };
-            let Ok((_, workspace)) = self.select(Some(&request.workspace)) else {
-                return false;
-            };
-            if validate_authorizable_program(&program).is_err() {
-                return false;
-            }
+            let program = request
+                .program
+                .clone()
+                .ok_or_else(|| anyhow!("command authorization request {id} is missing program"))?;
+            let (_, workspace) = self.select(Some(&request.workspace))?;
+            validate_authorizable_program(&program)?;
             Some((workspace, program))
         } else {
             None
         };
         if !self.authorization.approve_session(id) {
-            return false;
+            bail!("authorization request {id} changed while it was being approved");
         }
         if let Some((workspace, program)) = command_access {
-            return workspace.allow_command(&program).is_ok();
+            workspace.allow_command(&program)?;
         }
-        true
+        self.authorization
+            .request_by_id(id)
+            .ok_or_else(|| anyhow!("authorization request disappeared after approval: {id}"))
+    }
+
+    pub fn authorize_command_operation(
+        &self,
+        id: Option<&str>,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+    ) -> Result<AuthorizationRequest> {
+        let (workspace_id, workspace) = self.select(id)?;
+        let program = program.trim();
+        validate_authorizable_program(program)?;
+        if !workspace.exec_enabled() {
+            bail!("command execution is disabled for workspace {workspace_id}");
+        }
+        let cwd_path = workspace.existing_path(cwd)?;
+        if !cwd_path.is_dir() {
+            bail!("cwd is not a directory");
+        }
+        let mut elevated = workspace.security;
+        elevated.allow_risky_exec = true;
+        validate_command_policy(program, args, elevated)?;
+        workspace.allow_command(program)?;
+        let operation = format!("run_command\0{program}\0{}\0{cwd}", args.join("\0"));
+        let fingerprint = operation_fingerprint(workspace.root(), &operation);
+        let request = self.authorization.request(
+            workspace_id,
+            AuthorizationKind::RiskyExecution,
+            format!(
+                "allow repository-aware command: {program} {}",
+                args.join(" ")
+            ),
+            fingerprint,
+        );
+        self.approve_authorization_session_result(&request.id)
     }
 
     pub fn deny_authorization(&self, id: &str) -> bool {

@@ -352,6 +352,63 @@ async fn change_review_runs_all_probes_without_parent_slot_deadlock() {
         .any(|finding| finding.code == "security-sensitive-change"));
 }
 
+#[tokio::test]
+async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_file() {
+    use std::process::Command;
+
+    let root = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(root.path())
+            .status()
+            .expect("git must be available for observatory revision tests")
+    };
+    assert!(git(&["init", "-q"]).success());
+    assert!(git(&["config", "user.email", "wcode@example.test"]).success());
+    assert!(git(&["config", "user.name", "wcode test"]).success());
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    assert!(git(&["add", "."]).success());
+    assert!(git(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]).success());
+
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let clean = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert_eq!(clean.changed_files, 0);
+
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> i32 { 2 }\n",
+    )
+    .unwrap();
+    let first = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert_eq!(first.changed_files, 1);
+
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> i32 { 3 }\n",
+    )
+    .unwrap();
+    let second = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert_eq!(second.changed_files, 1);
+    assert_ne!(first.fingerprint, second.fingerprint);
+}
+
 #[test]
 fn product_scope_status_maps_source_domains_and_surfaces_unmapped_files() {
     let root = tempfile::tempdir().unwrap();
@@ -537,14 +594,22 @@ mod tests {
         .unwrap();
     assert_eq!(
         changed_feature.convergence,
-        crate::intelligence::FeatureConvergenceState::NeedsConvergence
+        crate::intelligence::FeatureConvergenceState::Stable
     );
-    assert!(!changed_feature.aligned);
+    assert!(changed_feature.aligned);
+    assert!(changed_feature.convergence_blockers.is_empty());
     assert!(changed_feature
-        .convergence_blockers
+        .dependency_alignment
         .iter()
-        .any(|blocker| blocker.contains("missing_actual")));
-    assert_eq!(changed.convergence.needs_convergence_requirements, 1);
+        .any(|dependency| {
+            dependency.from == "component:feature"
+                && dependency.to == "component:helper"
+                && dependency.desired
+                && !dependency.actual
+                && !dependency.blocking
+                && dependency.status == "unverified_actual"
+        }));
+    assert_eq!(changed.convergence.needs_convergence_requirements, 0);
     let delta = changed
         .latest_delta
         .expect("second code revision should produce a graph delta");

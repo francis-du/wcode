@@ -1,8 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Language Quality
 description: Explicit language quality capabilities and provider rules
-permalink: /wiki/language-quality/
+lang: en
+alternate: /zh/docs/language-quality/
+permalink: /docs/language-quality/
 ---
 
 # Language Quality Capability Model

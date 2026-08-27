@@ -47,7 +47,7 @@ pub(super) fn validate_command_policy(
         return Ok(());
     }
     match program {
-        "git" => validate_git_command(args),
+        "git" => validate_git_command(args, security.allow_risky_exec),
         "rg" => validate_rg_command(args),
         "cargo" => validate_cargo_command(args, security.allow_risky_exec),
         "go" => validate_go_command(args, security.allow_risky_exec),
@@ -82,6 +82,14 @@ pub(super) fn validate_command_arguments(program: &str, args: &[String]) -> Resu
             bail!("file:// arguments are blocked");
         }
         if value.starts_with("http://") || value.starts_with("https://") {
+            let parsed = url::Url::parse(value)
+                .map_err(|error| anyhow!("invalid URL command argument: {error}"))?;
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                bail!("URL command arguments must not embed credentials");
+            }
+            if parsed.fragment().is_some() {
+                bail!("URL command arguments must not contain fragments");
+            }
             continue;
         }
         if rg_pattern_index == Some(index) {
@@ -122,7 +130,7 @@ fn reject_protected_command_argument(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_git_command(args: &[String]) -> Result<()> {
+fn validate_git_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
     let subcommand_index = args
         .iter()
         .position(|arg| !arg.starts_with('-'))
@@ -133,25 +141,114 @@ fn validate_git_command(args: &[String]) -> Result<()> {
         }
     }
     let subcommand = args[subcommand_index].as_str();
-    if !matches!(
+    let tail = &args[subcommand_index + 1..];
+    if matches!(
         subcommand,
         "status" | "diff" | "log" | "show" | "rev-parse" | "ls-files"
     ) {
-        bail!("git subcommand is not read-only and is blocked: {subcommand}");
-    }
-    for arg in &args[subcommand_index + 1..] {
-        if arg == "--ext-diff"
-            || arg == "--textconv"
-            || arg == "--open-files-in-pager"
-            || arg == "--show-signature"
-            || arg == "--output"
-            || arg.starts_with("--output=")
-            || arg.starts_with("--git-dir")
-            || arg.starts_with("--work-tree")
-            || arg.contains("%G")
-        {
-            bail!("git option can execute helpers or write outside the result stream: {arg}");
+        for arg in tail {
+            if arg == "--ext-diff"
+                || arg == "--textconv"
+                || arg == "--open-files-in-pager"
+                || arg == "--show-signature"
+                || arg == "--output"
+                || arg.starts_with("--output=")
+                || arg.starts_with("--git-dir")
+                || arg.starts_with("--work-tree")
+                || arg.contains("%G")
+            {
+                bail!("git option can execute helpers or write outside the result stream: {arg}");
+            }
         }
+        return Ok(());
+    }
+
+    match subcommand {
+        "add" => validate_git_add(tail)?,
+        "commit" => validate_git_commit(tail)?,
+        "push" => validate_git_push(tail)?,
+        _ => bail!("git mutation subcommand is permanently blocked: {subcommand}"),
+    }
+    require_risky_exec("git repository mutation", allow_risky_exec)
+}
+
+fn validate_git_add(args: &[String]) -> Result<()> {
+    let mut path_count = 0usize;
+    for arg in args {
+        if arg == "--" {
+            continue;
+        }
+        if arg.starts_with('-') {
+            bail!("git add option is blocked; authorize explicit pathspecs only: {arg}");
+        }
+        if arg.starts_with(':') {
+            bail!("git add magic pathspecs are blocked: {arg}");
+        }
+        if matches!(arg.as_str(), "." | "./") {
+            bail!("git add requires explicit files/directories; broad dot pathspecs are blocked");
+        }
+        path_count += 1;
+    }
+    if path_count == 0 {
+        bail!("git add requires at least one explicit pathspec");
+    }
+    Ok(())
+}
+
+fn validate_git_commit(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        bail!("git commit requires an explicit -m/--message to avoid opening an editor");
+    }
+    let mut index = 0usize;
+    let mut messages = 0usize;
+    while index < args.len() {
+        let arg = &args[index];
+        if matches!(arg.as_str(), "-m" | "--message") {
+            let Some(message) = args.get(index + 1) else {
+                bail!("git commit message value is required");
+            };
+            if message.is_empty() {
+                bail!("git commit message must not be empty");
+            }
+            messages += 1;
+            index += 2;
+            continue;
+        }
+        if let Some(message) = arg.strip_prefix("--message=") {
+            if message.is_empty() {
+                bail!("git commit message must not be empty");
+            }
+            messages += 1;
+            index += 1;
+            continue;
+        }
+        bail!("git commit option is blocked; only explicit -m/--message is supported: {arg}");
+    }
+    if messages == 0 {
+        bail!("git commit requires an explicit -m/--message");
+    }
+    Ok(())
+}
+
+fn validate_git_push(args: &[String]) -> Result<()> {
+    let mut positional = 0usize;
+    for arg in args {
+        if matches!(arg.as_str(), "-u" | "--set-upstream") {
+            continue;
+        }
+        if arg.starts_with('-') {
+            bail!("git push option is blocked; force/delete/mirror/all/tag pushes are not authorizable: {arg}");
+        }
+        if arg.starts_with('+') || arg.ends_with(':') {
+            bail!("git push force/delete refspecs are permanently blocked: {arg}");
+        }
+        positional += 1;
+        if positional > 2 {
+            bail!("git push accepts at most an explicit remote and one refspec");
+        }
+    }
+    if positional != 2 {
+        bail!("git push requires an explicit remote and one explicit refspec for auditable authorization");
     }
     Ok(())
 }
@@ -374,6 +471,15 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
         format!("core.attributesFile={null_path}"),
         format!("core.excludesFile={null_path}"),
         "diff.external=".to_owned(),
+        "commit.gpgSign=false".to_owned(),
+        "tag.gpgSign=false".to_owned(),
+        "credential.helper=".to_owned(),
+        "core.askPass=".to_owned(),
+        "core.sshCommand=false".to_owned(),
+        "core.gitProxy=".to_owned(),
+        "http.extraHeader=".to_owned(),
+        "protocol.ext.allow=never".to_owned(),
+        "protocol.file.allow=never".to_owned(),
         "maintenance.auto=false".to_owned(),
         "gc.auto=0".to_owned(),
     ];
@@ -394,6 +500,51 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     }
     hardened.extend_from_slice(&args[subcommand_index + 1..]);
     hardened
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
+        assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "main"]), true).is_ok());
+        assert!(validate_git_command(&args(&["push"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "--force"]), false)
+            .unwrap_err()
+            .to_string()
+            .contains("force/delete/mirror"));
+        assert!(validate_git_command(&args(&["push", "--force"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "+HEAD:main"]), true).is_err());
+        assert!(validate_git_command(&args(&["push", "origin", "main:"]), true).is_err());
+
+        assert!(
+            validate_git_command(&args(&["commit", "-m", "docs: refresh screenshots"]), true)
+                .is_ok()
+        );
+        assert!(validate_git_command(&args(&["commit", "--amend", "-m", "no"]), true).is_err());
+        assert!(validate_git_command(&args(&["commit"]), true).is_err());
+
+        assert!(validate_git_command(&args(&["add", "--", "docs/index.html"]), true).is_ok());
+        assert!(validate_git_command(&args(&["add", "."]), true).is_err());
+        assert!(validate_git_command(&args(&["add", "-A"]), true).is_err());
+        assert!(validate_git_command(&args(&["reset", "--hard"]), true).is_err());
+
+        assert!(validate_command_arguments(
+            "git",
+            &args(&["https://user:secret@example.com/repository.git"]),
+        )
+        .is_err());
+        assert!(
+            validate_command_arguments("git", &args(&["https://example.com/repository.git"]),)
+                .is_ok()
+        );
+    }
 }
 
 pub(super) fn scrub_sensitive_environment(command: &mut Command, program: &str) {

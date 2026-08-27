@@ -82,7 +82,7 @@ const GUIDANCE_FILES: &[&str] = &[
     ".github/copilot-instructions.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
-    "docs/wiki/development.md",
+    "docs/manual/development.md",
     "README.md",
 ];
 
@@ -100,7 +100,7 @@ const PROFILE_FILES: &[&str] = &[
     ".github/copilot-instructions.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
-    "docs/wiki/development.md",
+    "docs/manual/development.md",
     "README.md",
     "Cargo.toml",
     "Cargo.lock",
@@ -263,6 +263,14 @@ pub struct ReviewProbeSummary {
     pub success: bool,
     pub elapsed_ms: u128,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ObservatoryRevisionSignal {
+    pub fingerprint: Option<String>,
+    pub changed_files: usize,
+    pub truncated: bool,
+    pub full_refresh_required: bool,
 }
 
 #[derive(Clone)]
@@ -1129,6 +1137,64 @@ impl ToolHarness {
             product_scopes: scopes::registry(),
             conventions,
             language_quality,
+        })
+    }
+
+    pub async fn observatory_revision_signal(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<ObservatoryRevisionSignal> {
+        if !workspace.exec_enabled() || !workspace.root().join(".git").is_dir() {
+            return Ok(ObservatoryRevisionSignal {
+                fingerprint: None,
+                changed_files: 0,
+                truncated: false,
+                full_refresh_required: true,
+            });
+        }
+
+        let status_args = ["status", "--short", "--untracked-files=all"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let head_args = ["rev-parse", "HEAD"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let status = workspace.run_command("git", &status_args, ".", 10).await?;
+        let head = workspace.run_command("git", &head_args, ".", 10).await?;
+        if !status.success {
+            bail!(
+                "git status failed while building observatory revision signal: {}",
+                probe_failure_text(&status).unwrap_or_else(|| "unknown error".to_owned())
+            );
+        }
+        if !head.success {
+            bail!(
+                "git rev-parse failed while building observatory revision signal: {}",
+                probe_failure_text(&head).unwrap_or_else(|| "unknown error".to_owned())
+            );
+        }
+
+        let (changed, parsed_truncated) = parse_git_status(&status.stdout);
+        let truncated = parsed_truncated || status.truncated || head.truncated;
+        let mut hasher = Sha256::new();
+        hasher.update(head.stdout.trim().as_bytes());
+        hasher.update([0]);
+        hasher.update(status.stdout.as_bytes());
+        for path in changed.keys() {
+            hasher.update([0]);
+            hasher.update(path.as_bytes());
+            if let Ok((len, modified_nanos)) = workspace.source_metadata_stamp(path) {
+                hasher.update(len.to_le_bytes());
+                hasher.update(modified_nanos.to_le_bytes());
+            }
+        }
+        Ok(ObservatoryRevisionSignal {
+            fingerprint: Some(format!("{:x}", hasher.finalize())),
+            changed_files: changed.len(),
+            truncated,
+            full_refresh_required: truncated,
         })
     }
 

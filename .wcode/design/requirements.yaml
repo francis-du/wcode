@@ -124,7 +124,7 @@
 - schema_version: 1
   id: REQ-WORKSPACE-001
   title: Transactional workspace coding primitives
-  intent: Models must inspect, create, edit, batch, move and delete workspace paths through bounded hash-guarded primitives, while local operators may add validated Workspace roots and selectively authorize or revoke model-requested bare executable names per Workspace without bypassing no-shell execution, workspace security, protected-resource checks or risky-operation authorization.
+  intent: Models must inspect text and bounded media, create, edit, batch, move and delete workspace paths through guarded primitives, while local operators may add validated Workspace roots, selectively authorize bare executable names, and approve only narrowly validated exact repository mutations such as explicit git add/commit/push shapes without bypassing no-shell execution, workspace security, protected-resource checks or risky-operation authorization.
   priority: critical
   implemented_by:
     - component:workspace-operations
@@ -159,7 +159,7 @@
 - schema_version: 1
   id: REQ-AUTH-001
   title: Dynamic destructive authorization
-  intent: Destructive and dynamically gated operations must require explicit human authorization bound to the exact operation, and one-shot grants must be consumed once.
+  intent: Destructive and dynamically gated operations, including narrowly authorizable repository mutations, must require explicit human authorization bound to the exact operation; one-shot destructive grants must be consumed once and session grants must not widen permanently blocked command shapes.
   priority: critical
   implemented_by:
     - component:authorization
@@ -175,7 +175,7 @@
 - schema_version: 1
   id: REQ-MCP-002
   title: Complete MCP capability surface
-  intent: The shared MCP runtime must expose Tools, Prompts, Resources and durable owner-scoped Tasks and attach wcode Product Scope metadata so agents can discover capability boundaries.
+  intent: The shared MCP runtime must expose Tools, Prompts, Resources and durable owner-scoped Tasks, attach wcode Product Scope metadata, and keep optional media Tool Results capability-aware so binary image/audio content is emitted only when the current client request explicitly advertises support while unknown/legacy capability remains metadata-only or fails closed.
   priority: critical
   implemented_by:
     - component:mcp-runtime
@@ -226,7 +226,7 @@
 - schema_version: 1
   id: REQ-SEMANTIC-001
   title: Cross-language scoped semantic runtime
-  intent: Every indexed language must have an explicit semantic provider candidate, and the persistent semantic registry must support scoped retrieval that integrates Product Scopes without losing freeform business scopes.
+  intent: Every indexed language must have an explicit semantic provider candidate, scoped semantic retrieval must integrate Product Scopes without losing freeform business scopes, and operator-facing intelligence must prefer fresh semantic or runtime graph evidence when present while exposing syntax fallback honestly; semantic refresh remains explicit and authorization-bound.
   priority: high
   implemented_by:
     - component:semantic-providers
@@ -328,7 +328,7 @@
 - schema_version: 1
   id: REQ-UX-001
   title: Operator-visible Software Intelligence
-  intent: TUI and protected local WebUI surfaces must expose live software-intelligence state, keep the TUI W shortcut discoverable, support explicit manual English / Simplified Chinese switching with English as the default, expose selectable pending authorization requests with per-request approve/deny controls, and remain usable under narrow terminal layouts without hiding project or connection status.
+  intent: TUI and protected local WebUI surfaces must expose live software-intelligence state, keep the TUI W shortcut discoverable, support explicit manual English / Simplified Chinese switching with English as the default, support System / Dark / Light appearance, expose selectable pending authorization requests with per-request approve/deny controls, refresh the WebUI asynchronously without page replacement or overlapping polling, and remain usable under narrow layouts without hiding project, precision or connection status.
   priority: high
   implemented_by:
     - component:intelligence-ui
@@ -389,7 +389,7 @@
 - schema_version: 1
   id: REQ-OBSERVABILITY-001
   title: Requirement-first project observability
-  intent: The protected WebUI must act as a requirement-first project observatory organized as Desired State → Actual State → Change → Proof → Convergence, with current-revision Evidence, explicit per-requirement convergence state/blockers, component architecture and code-derived dependency alignment, code statistics, mapped Git changes, and structural revision history without relying on a generic node-ball graph.
+  intent: The protected WebUI must act as a requirement-first project observatory organized as Desired State → Actual State → Change → Proof → Convergence, with current-revision Evidence, explicit per-requirement convergence state and blockers, provider/precision-visible component architecture, code-derived dependency alignment, high-signal attention items, code statistics, mapped Git changes, and structural revision history without relying on a generic node-ball graph. Negative inference must remain precision-aware; absence from a bounded syntax graph is advisory rather than proof of a missing dependency.
   priority: critical
   implemented_by:
     - component:intelligence-ui
@@ -437,8 +437,8 @@
 
 - schema_version: 1
   id: REQ-DOCS-001
-  title: Canonical WIKI is hosted with the documentation site
-  intent: Users must reach maintained documentation as HTML from the official website while contributors keep one organized Markdown source tree and do not duplicate changing vendor commands or scatter standalone project documents.
+  title: Canonical documentation is unified with the product site
+  intent: Users must reach one canonical bilingual Documentation tree from the official website while contributors keep one organized Markdown source tree, avoid duplicating reference material on the homepage, preserve legacy documentation links, and do not duplicate changing vendor commands or scatter standalone project documents.
   priority: high
   implemented_by:
     - component:documentation-governance

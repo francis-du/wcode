@@ -27,9 +27,9 @@ use crate::{
 };
 use anyhow::{anyhow, Result as AnyResult};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -53,6 +53,7 @@ const MAX_BATCH_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEM_BYTES: usize = 512 * 1024;
 const MAX_PARALLEL_FANOUT_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+const MEDIA_CONTENT_EXTENSION_ID: &str = "run.francis.wcode/media-content";
 const PARALLEL_READ_TOOLS: &[&str] = &[
     "workspace_info",
     "design_status",
@@ -114,7 +115,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(setup_page))
         .route("/healthz", get(health))
         .route("/intelligence", get(intelligence_page))
+        .route("/intelligence/app.css", get(intelligence_styles))
+        .route("/intelligence/app.js", get(intelligence_script))
         .route("/intelligence/project", get(intelligence_web_project))
+        .route("/intelligence/revision", get(intelligence_web_revision))
+        .route(
+            "/intelligence/semantic-refresh",
+            post(intelligence_web_refresh_semantics),
+        )
         .route(
             "/intelligence/workspaces",
             get(intelligence_web_workspaces).post(intelligence_web_add_workspace),
@@ -130,6 +138,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(intelligence_web_authorizations)
                 .post(intelligence_web_approve_authorization)
                 .delete(intelligence_web_deny_authorization),
+        )
+        .route(
+            "/intelligence/command-operations",
+            post(intelligence_web_authorize_command_operation),
         )
         .route("/intelligence/status", get(intelligence_web_status))
         .route("/intelligence/scopes", get(intelligence_web_scopes))
@@ -182,8 +194,44 @@ async fn setup_page(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ))
 }
 
-async fn intelligence_page() -> axum::response::Html<&'static str> {
-    axum::response::Html(crate::intelligence_web::INTELLIGENCE_PAGE)
+async fn intelligence_page() -> Response {
+    (
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            ),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        axum::response::Html(crate::intelligence_web::INTELLIGENCE_APP_PAGE),
+    )
+        .into_response()
+}
+
+async fn intelligence_styles() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        crate::intelligence_web::INTELLIGENCE_CSS,
+    )
+        .into_response()
+}
+
+async fn intelligence_script() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        crate::intelligence_web::INTELLIGENCE_JS,
+    )
+        .into_response()
 }
 
 fn intelligence_ui_authorized(
@@ -389,14 +437,70 @@ async fn intelligence_web_approve_authorization(
     let Some(id) = payload.get("id").and_then(Value::as_str) else {
         return intelligence_bad_request("authorization id is required");
     };
-    if !state.workspaces.approve_authorization_session(id) {
-        return intelligence_bad_request("authorization request is missing or no longer pending");
+    match state.workspaces.approve_authorization_session_result(id) {
+        Ok(request) => (
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "request": request,
+                "pending": intelligence_pending_authorizations(&state)
+            })),
+        )
+            .into_response(),
+        Err(error) => intelligence_bad_request(error),
     }
-    (
-        StatusCode::OK,
-        Json(json!({"ok":true,"pending":intelligence_pending_authorizations(&state)})),
-    )
-        .into_response()
+}
+
+async fn intelligence_web_authorize_command_operation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Response {
+    if let Err(response) = intelligence_ui_authorized(&state, &headers) {
+        return *response;
+    }
+    let Some(program) = payload.get("program").and_then(Value::as_str) else {
+        return intelligence_bad_request("program is required");
+    };
+    let args = match payload.get("args") {
+        None => Vec::new(),
+        Some(Value::Array(values)) => {
+            let mut args = Vec::with_capacity(values.len());
+            for value in values {
+                let Some(value) = value.as_str() else {
+                    return intelligence_bad_request("command args must be strings");
+                };
+                args.push(value.to_owned());
+            }
+            args
+        }
+        Some(_) => return intelligence_bad_request("command args must be an array"),
+    };
+    let cwd = payload.get("cwd").and_then(Value::as_str).unwrap_or(".");
+    match state.workspaces.authorize_command_operation(
+        requested_intelligence_workspace(&headers),
+        program,
+        &args,
+        cwd,
+    ) {
+        Ok(request) => match state
+            .workspaces
+            .workspace_access(requested_intelligence_workspace(&headers))
+        {
+            Ok(workspace) => (
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "request": request,
+                    "workspace": workspace,
+                    "pending": intelligence_pending_authorizations(&state)
+                })),
+            )
+                .into_response(),
+            Err(error) => intelligence_bad_request(error),
+        },
+        Err(error) => intelligence_bad_request(error),
+    }
 }
 
 async fn intelligence_web_deny_authorization(
@@ -452,6 +556,12 @@ async fn intelligence_web_project(
     match project {
         Ok(mut value) => {
             value["workspace_options"] = intelligence_workspace_options(&state);
+            value["pending_authorizations"] = json!(state
+                .workspaces
+                .authorization_requests(256)
+                .into_iter()
+                .filter(|request| request.status == AuthorizationStatus::Pending)
+                .count());
             (StatusCode::OK, Json(value)).into_response()
         }
         Err(error) => (
@@ -459,6 +569,76 @@ async fn intelligence_web_project(
             Json(json!({"error": error.to_string()})),
         )
             .into_response(),
+    }
+}
+
+async fn intelligence_web_revision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let (_workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
+        Ok(selected) => selected,
+        Err(response) => return *response,
+    };
+    let revision = match state.harness.observatory_revision_signal(&workspace).await {
+        Ok(revision) => revision,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": error.to_string()})),
+            )
+                .into_response()
+        }
+    };
+    let graph_revision = state
+        .harness
+        .graph_history(&workspace, 1)
+        .ok()
+        .and_then(|history| history.into_iter().next())
+        .map(|entry| entry.id);
+    (
+        StatusCode::OK,
+        Json(json!({
+            "fingerprint": revision.fingerprint,
+            "changed_files": revision.changed_files,
+            "truncated": revision.truncated,
+            "full_refresh_required": revision.full_refresh_required,
+            "graph_revision": graph_revision,
+            "pending_authorizations": state
+                .workspaces
+                .authorization_requests(256)
+                .into_iter()
+                .filter(|request| request.status == AuthorizationStatus::Pending)
+                .count()
+        })),
+    )
+        .into_response()
+}
+
+async fn intelligence_web_refresh_semantics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let (_workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
+        Ok(selected) => selected,
+        Err(response) => return *response,
+    };
+    match state
+        .harness
+        .semantic_provider_refresh(&workspace, ".", 128, 1_000)
+        .await
+    {
+        Ok(refresh) => (
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "runs": refresh.runs,
+                "failures": refresh.failures,
+                "truncated": refresh.truncated
+            })),
+        )
+            .into_response(),
+        Err(error) => intelligence_bad_request(error),
     }
 }
 
@@ -1033,7 +1213,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots. Start substantial coding work with workspace_info, design_status, project_context, and language_quality_status when language-specific quality gates matter. Treat always-on guidance as a short map and retrieve detailed Design State, Product Scope, symbol, semantic, and language-quality context on demand. When Design State is initialized, prefer software_context for the requested requirement, behavior, or subsystem before broad source reads, and use traceability_status when you need the Requirement -> Component -> implementation/test chain. semantic_record may capture user/design/conversation/provider candidates, but candidates are non-authoritative; only call semantic_confirm or semantic_retire after explicit human confirmation. Tree-sitter graph and symbol relationships are syntax precision, not compiler semantics. Use semantic_provider_status / semantic_provider_refresh to auto-discover first-party LSP semantic providers across all indexed languages; language support is a capability matrix rather than a boolean. Prefer repository-declared or language-native quality providers and use language_quality_run only for entries reported as declared/available/check-only; it preserves the normal authorization boundary, never runs formatter fix/write mode, and records current-revision Evidence. External SCIP/compiler/runtime graph facts may also enter through graph_provider_import. Every provider must retain its real precision and revision; never relabel syntax facts as semantic. Deletion is restricted rather than unrestricted: delete_path only removes a regular file or empty directory after an exact one-shot human approval in the TUI or protected local WebUI; recursive deletion, workspace-root deletion, protected credential/VCS paths, symlink aliases, and hard-linked files remain blocked. Overlapping roots are rejected by default, and destructive replacements retain their safety policy. Do not try to bypass the selected workspace through absolute paths, parent traversal, command options, shell interpreters, package-script redirection, or Git mutation. run_command uses direct program+argument execution without a shell. A small safe command set is pre-authorized; when a model requests another valid bare executable name, wcode creates a per-Workspace CommandAccess authorization request and the operator must explicitly approve it in the TUI or protected WebUI before retry. Repository-aware argument shapes can still require a separate exact RiskyExecution approval because project metadata can redirect reads or execute code. verify_project uses a separate exact-shape verification lane: only Harness-inferred quality checks are eligible, so normal check/test/Clippy/build gates can run without the global risky flag while arbitrary command arguments remain blocked. Read relevant implementation and tests before editing. Prefer find_symbol, file_outline, and symbol_context when navigating supported source languages so the model receives precise syntax ranges instead of broad file dumps. Prefer read_files or search_many when one bulk operation can answer the question efficiently; when two or more independent read/discovery operations are already known, use parallel_tools so they consume separate semaphore slots and appear separately in the monitor. Batch known mutations too: use one apply_edits for multiple changes in one file, apply_file_edits for independent existing files, and create_files for independent new files. Keep dependent edits sequential, use sha256 preconditions, and never parallelize operations whose inputs depend on earlier results. After changes, call review_changes first. When the selected workspace is a Git root with command execution enabled, follow it with drift_status, impact_analysis, and risk_status; create reconciliation_plan when drift or traceability gaps remain. Then run verify_project at the recommended level and inspect evidence_status. verification_plan/verification_claim/verification_submit can add blind independent model review; disagreement is evidence and must not be hidden by majority voting. Required property/mutation/fuzz/runtime stages stay blocked until real stage Evidence exists. Prefer verification_executor_status / verification_execute_stages for configured or auto-discovered cross-language runners, or verification_stage_submit for an external system; never fabricate stage success. Reconciliation Plans have durable execution state: use reconciliation_execution_status, reconciliation_claim, reconciliation_submit, and reconciliation_retry to advance dependency-safe Design/Implementation/Review tasks. Source edits must still go through the normal workspace write tools with their SHA/path safeguards; Verification and HumanApproval tasks are system evidence gates and must never be manually marked complete. Report checks actually run, evidence produced, open disagreements, and any failures or assumptions that remain.";
+const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots. Start substantial coding work with workspace_info, design_status, project_context, and language_quality_status when language-specific quality gates matter. Treat always-on guidance as a short map and retrieve detailed Design State, Product Scope, symbol, semantic, and language-quality context on demand. When Design State is initialized, prefer software_context for the requested requirement, behavior, or subsystem before broad source reads, and use traceability_status when you need the Requirement -> Component -> implementation/test chain. semantic_record may capture user/design/conversation/provider candidates, but candidates are non-authoritative; only call semantic_confirm or semantic_retire after explicit human confirmation. Tree-sitter graph and symbol relationships are syntax precision, not compiler semantics. Use semantic_provider_status / semantic_provider_refresh to auto-discover first-party LSP semantic providers across all indexed languages; language support is a capability matrix rather than a boolean. Prefer repository-declared or language-native quality providers and use language_quality_run only for entries reported as declared/available/check-only; it preserves the normal authorization boundary, never runs formatter fix/write mode, and records current-revision Evidence. External SCIP/compiler/runtime graph facts may also enter through graph_provider_import. Every provider must retain its real precision and revision; never relabel syntax facts as semantic. Deletion is restricted rather than unrestricted: delete_path only removes a regular file or empty directory after an exact one-shot human approval in the TUI or protected local WebUI; recursive deletion, workspace-root deletion, protected credential/VCS paths, symlink aliases, and hard-linked files remain blocked. Overlapping roots are rejected by default, and destructive replacements retain their safety policy. Do not try to bypass the selected workspace through absolute paths, parent traversal, command options, shell interpreters, or package-script redirection. Git mutation is restricted to exact human-approved add/commit/push shapes; force/delete/mirror and other mutation subcommands remain blocked. run_command uses direct program+argument execution without a shell. A small safe command set is pre-authorized; when a model requests another valid bare executable name, wcode creates a per-Workspace CommandAccess authorization request and the operator must explicitly approve it in the TUI or protected WebUI before retry. Repository-aware argument shapes can still require a separate exact RiskyExecution approval because project metadata can redirect reads or execute code. verify_project uses a separate exact-shape verification lane: only Harness-inferred quality checks are eligible, so normal check/test/Clippy/build gates can run without the global risky flag while arbitrary command arguments remain blocked. Read relevant implementation and tests before editing. Prefer find_symbol, file_outline, and symbol_context when navigating supported source languages so the model receives precise syntax ranges instead of broad file dumps. Prefer read_files or search_many when one bulk operation can answer the question efficiently; when two or more independent read/discovery operations are already known, use parallel_tools so they consume separate semaphore slots and appear separately in the monitor. Batch known mutations too: use one apply_edits for multiple changes in one file, apply_file_edits for independent existing files, and create_files for independent new files. Keep dependent edits sequential, use sha256 preconditions, and never parallelize operations whose inputs depend on earlier results. After changes, call review_changes first. When the selected workspace is a Git root with command execution enabled, follow it with drift_status, impact_analysis, and risk_status; create reconciliation_plan when drift or traceability gaps remain. Then run verify_project at the recommended level and inspect evidence_status. verification_plan/verification_claim/verification_submit can add blind independent model review; disagreement is evidence and must not be hidden by majority voting. Required property/mutation/fuzz/runtime stages stay blocked until real stage Evidence exists. Prefer verification_executor_status / verification_execute_stages for configured or auto-discovered cross-language runners, or verification_stage_submit for an external system; never fabricate stage success. Reconciliation Plans have durable execution state: use reconciliation_execution_status, reconciliation_claim, reconciliation_submit, and reconciliation_retry to advance dependency-safe Design/Implementation/Review tasks. Source edits must still go through the normal workspace write tools with their SHA/path safeguards; Verification and HumanApproval tasks are system evidence gates and must never be manually marked complete. Report checks actually run, evidence produced, open disagreements, and any failures or assumptions that remain.";
 
 pub(crate) async fn handle_message(
     state: Arc<AppState>,
@@ -1087,7 +1267,14 @@ pub(crate) async fn handle_message(
                 "tools": {"listChanged": false},
                 "prompts": {"listChanged": false},
                 "resources": {"listChanged": false, "subscribe": false},
-                "extensions": {"io.modelcontextprotocol/tasks": {}}
+                "extensions": {
+                    "io.modelcontextprotocol/tasks": {},
+                    (MEDIA_CONTENT_EXTENSION_ID): {
+                        "contentTypes": ["image", "audio"],
+                        "optInPerCall": true,
+                        "metadataOnlyWithoutCapability": true
+                    }
+                }
             },
             "instructions": SERVER_INSTRUCTIONS,
         }))),
@@ -1336,6 +1523,7 @@ fn tool_catalog_golden_snapshot() -> Vec<Value> {
         ),
         tool("read_file", "Read one UTF-8 file with line bounds and receive its SHA-256 edit precondition.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
         tool("read_files", "Read up to 32 UTF-8 files in one MCP round trip. Reads run in parallel and each file reports success or failure independently.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
+        tool("read_media", "Inspect one bounded workspace media file. Metadata is always safe to return. Set include_content=true only when the MCP client explicitly advertises the run.francis.wcode/media-content extension for the media kind; otherwise wcode fails closed without emitting image/audio payloads. PNG/JPEG/GIF/WebP image content and MP3/WAV/Ogg/FLAC audio content are supported; MP4/WebM are metadata-only.", schema(json!({"path":{"type":"string"},"include_content":{"type":"boolean","default":false}}), &["path"]), true, false),
         tool("path_info", "Inspect one workspace path without loading the whole file into model context. Returns type, size, SHA-256 for files, readonly state, modification time, and hard-link count when available.", schema(json!({"path":{"type":"string"}}), &["path"]), true, false),
         tool("replace_text", "Atomically replace one exact text occurrence with a SHA-256 precondition and optional 1-based original line bounds. When start_line/end_line are supplied together, old_text must match exactly once inside that original range. Protected/symlink/hard-link targets remain blocked.", schema(json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path","old_text","new_text","expected_sha256"]), false, true),
         tool("apply_edits", "Atomically apply up to 128 non-overlapping edits against one original SHA revision. Each edit may add 1-based start_line/end_line bounds; all edits resolve against the same original bytes before one atomic commit, so line shifts from sibling edits cannot affect targeting.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["old_text","new_text"],"additionalProperties":false}}}), &["path","expected_sha256","edits"]), false, true),
@@ -1660,6 +1848,12 @@ mod tests {
         .await
         .unwrap();
         assert!(response["result"]["capabilities"]["extensions"][TASK_EXTENSION_ID].is_object());
+        assert!(MEDIA_CONTENT_EXTENSION_ID.starts_with("run.francis.wcode/"));
+        assert_eq!(
+            response["result"]["capabilities"]["extensions"][MEDIA_CONTENT_EXTENSION_ID]
+                ["contentTypes"],
+            json!(["image", "audio"])
+        );
         assert_eq!(
             response["result"]["capabilities"]["tools"]["listChanged"],
             false

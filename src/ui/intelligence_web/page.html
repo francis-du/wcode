@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>wcode · Project Observatory</title>
+<link rel="stylesheet" href="/intelligence/app.css">
+<script defer src="/intelligence/app.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="title-block">
+      <div class="brand">WC · wcode</div>
+      <h1 data-i18n="Project Observatory">Project Observatory</h1>
+      <div class="subtitle" data-i18n="observatory subtitle">Live desired state, implementation, change, proof and convergence — with provider precision kept visible.</div>
+    </div>
+    <div class="controls">
+      <select id="workspace" aria-label="Workspace"></select>
+      <select id="language" aria-label="Language"><option value="en">English</option><option value="zh-CN">简体中文</option></select>
+      <select id="theme" aria-label="Theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select>
+      <label class="auto"><input id="autoRefresh" type="checkbox" checked> <span data-i18n="auto refresh">auto refresh</span></label>
+      <button id="refreshSemantic" class="button-secondary" data-i18n="Refresh semantics">Refresh semantics</button>
+      <button id="manage" data-i18n="Manage access">Manage access</button>
+      <button id="refresh" data-i18n="Refresh now">Refresh now</button>
+    </div>
+  </header>
+
+  <section class="livebar" aria-live="polite">
+    <div class="live-left"><span id="syncDot" class="sync-dot"></span><strong id="syncState" data-i18n="Connecting">Connecting</strong><span id="projectIdentity" class="live-project">—</span></div>
+    <div class="live-right"><span id="precisionBadge" class="precision-badge">—</span><span id="lastUpdated" class="muted">—</span></div>
+  </section>
+
+  <section id="accessPanel" class="panel access-panel hidden">
+    <div class="panel-head"><div><div class="panel-title" data-i18n="Workspace &amp; command access">Workspace &amp; command access</div><div class="panel-meta" data-i18n="access safety note">Session-scoped access stays behind workspace, command and risky-operation policy.</div></div><button id="closeAccess" data-i18n="Close">Close</button></div>
+    <div class="access-grid">
+      <div class="access-card"><h4 data-i18n="Authorized projects">Authorized projects</h4><div id="workspaceList" class="workspace-list"></div><div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path"><button id="addWorkspace" data-i18n="Authorize project">Authorize project</button></div><div id="workspaceMessage" class="access-message" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div></div>
+      <div class="access-card"><h4 data-i18n="Authorized commands">Authorized commands</h4><div id="commandList" class="command-list"></div><div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo"><button id="addCommand" data-i18n="Authorize command">Authorize command</button></div><div id="commandMessage" class="access-message" data-i18n="command safety note">Executable access is scoped to this project; shell interpreters remain blocked.</div></div>
+      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="Arguments, whitespace separated"><input id="operationCwd" type="text" value="." aria-label="cwd"><button id="authorizeOperation" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" data-i18n="operation safety note">Authorize one exact repository-aware command for this session.</div></div>
+      <div class="access-card"><h4 data-i18n="Pending authorizations">Pending authorizations</h4><div id="authorizationList" class="authorization-list"></div><div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div></div>
+    </div>
+  </section>
+
+  <section id="stats" class="stats"></section>
+  <section id="attention" class="attention" aria-live="polite"></section>
+
+  <section class="workspace">
+    <aside class="panel sidebar">
+      <div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div>
+      <div class="sidebar-tools">
+        <input id="reqSearch" class="search" type="search" placeholder="Search requirement, feature, component…" data-i18n-placeholder="Search requirement, feature, component…">
+        <div class="filters">
+          <button class="filter active" data-filter="all" data-i18n="All">All</button>
+          <button class="filter" data-filter="changed" data-i18n="Changed">Changed</button>
+          <button class="filter" data-filter="drift" data-i18n="Needs convergence">Needs convergence</button>
+          <button class="filter" data-filter="incomplete" data-i18n="Incomplete">Incomplete</button>
+        </div>
+      </div>
+      <div id="requirements" class="req-list"></div>
+    </aside>
+    <main id="featureDetail" class="panel detail"><div class="section empty" data-i18n="Loading project state…">Loading project state…</div></main>
+  </section>
+
+  <section class="panel changes-panel">
+    <div class="panel-head"><div><div class="panel-title" data-i18n="Current changes">Current changes</div><div class="panel-meta" data-i18n="current changes meta">Working tree changes mapped back to requirements and Product Scopes.</div></div></div>
+    <div id="changes" class="table-wrap"></div>
+  </section>
+
+  <section class="lower">
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title" data-i18n="Code statistics">Code statistics</div><div class="panel-meta" data-i18n="current repository snapshot">Current bounded repository snapshot.</div></div></div>
+      <div id="codeStats" class="section"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title" data-i18n="Architecture revisions">Architecture revisions</div><div class="panel-meta" data-i18n="meaningful graph snapshots">Meaningful composite-graph snapshots and structured risk.</div></div></div>
+      <div id="revisions" class="section"></div>
+    </div>
+  </section>
+
+  <details class="panel quality-panel">
+    <summary><span><strong data-i18n="Language quality matrix">Language quality matrix</strong><small data-i18n="language quality meta">Capability coverage and gaps. Expand when you need provider detail.</small></span><span id="qualitySummary" class="summary-side">—</span></summary>
+    <div id="languageQuality" class="table-wrap"></div>
+  </details>
+
+  <footer>Project data is returned only after the local UI token from this page's URL fragment is presented to protected Intelligence endpoints. The fragment itself is not sent in HTTP requests or server logs.</footer>
+</div>
+</body>
+</html>

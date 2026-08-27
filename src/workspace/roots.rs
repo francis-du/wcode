@@ -133,6 +133,14 @@ impl Workspace {
             .remove(program))
     }
 
+    pub(crate) fn risky_operation_authorized(&self, operation: &str) -> bool {
+        if self.security.allow_risky_exec {
+            return true;
+        }
+        let fingerprint = operation_fingerprint(&self.root, operation);
+        self.authorization.is_granted(&fingerprint)
+    }
+
     pub(crate) fn authorize_risky_operation(
         &self,
         kind: AuthorizationKind,
@@ -164,6 +172,16 @@ impl Workspace {
         let metadata = fs::metadata(&file)?;
         validate_source_metadata(&metadata)?;
         Ok(source_stamp(&metadata))
+    }
+
+    pub(crate) fn source_metadata_stamp(&self, path: &str) -> Result<(u64, u128)> {
+        let file = self.existing_path(path)?;
+        let metadata = fs::metadata(&file)?;
+        if !metadata.is_file() {
+            bail!("path is not a file");
+        }
+        let stamp = source_stamp(&metadata);
+        Ok((stamp.len, stamp.modified_nanos))
     }
 
     pub(crate) fn load_source(&self, path: &str) -> Result<SourceDocument> {

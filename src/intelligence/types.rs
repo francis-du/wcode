@@ -320,6 +320,7 @@ pub struct FeatureDependencyAlignment {
     pub actual: bool,
     pub status: String,
     pub precision: String,
+    pub blocking: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -416,6 +417,18 @@ pub struct ProjectProofSummary {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProjectGraphPrecisionSummary {
+    pub primary: String,
+    pub providers: Vec<String>,
+    pub declared_edges: usize,
+    pub syntax_edges: usize,
+    pub semantic_edges: usize,
+    pub deterministic_edges: usize,
+    pub runtime_edges: usize,
+    pub heuristic_edges: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ProjectConvergenceSummary {
     pub stable_requirements: usize,
     pub changing_requirements: usize,
@@ -440,6 +453,7 @@ pub struct ProjectObservatory {
     pub design_valid: bool,
     pub coverage: TraceabilityStatus,
     pub code: ProjectCodeStats,
+    pub graph_precision: ProjectGraphPrecisionSummary,
     pub language_quality: crate::quality_provider::LanguageQualityRegistry,
     pub proof: ProjectProofSummary,
     pub convergence: ProjectConvergenceSummary,

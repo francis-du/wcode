@@ -20,10 +20,10 @@
 
 - schema_version: 1
   id: ADR-003
-  title: WIKI shares the official documentation site
+  title: Documentation has one canonical hosted tree
   status: accepted
-  decision: Maintained Markdown is organized under docs/wiki and built into HTML under the official Pages /wiki/ route using the same docs source and visual system as the product website.
-  rationale: One hosted surface gives users readable navigation while one source tree prevents scattered documents and conflicting integration instructions.
+  decision: Maintained Markdown is organized under docs/manual and built into HTML under the official Pages /docs/ and /zh/docs/ routes using the same visual system as the product website; legacy /wiki/ routes redirect to the canonical documentation.
+  rationale: One canonical documentation tree removes the website-versus-WIKI split, gives users one navigation model, and prevents scattered documents or conflicting integration instructions.
   affects:
     - component:documentation-governance
     - component:agent-integration

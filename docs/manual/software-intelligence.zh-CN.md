@@ -1,9 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Software Intelligence 中文指南
 description: wcode Software Intelligence Runtime 已实现能力与使用流程
 lang: zh-CN
-permalink: /wiki/software-intelligence-zh-cn/
+alternate: /docs/software-intelligence/
+permalink: /zh/docs/software-intelligence/
 ---
 
 # wcode Software Intelligence Runtime 中文指南
@@ -600,6 +601,7 @@ file_outline
 find_symbol
 symbol_context
 read_file / read_files
+read_media  # 默认只读 Metadata；Image/Audio Payload 需要当前请求显式声明 run.francis.wcode/media-content
 path_info
 parallel_tools
 replace_text / write_file / apply_edits / apply_file_edits
@@ -631,6 +633,7 @@ run_command
 - 持久化 Reconciliation Plan + dependency-aware Claim / Submit / Retry 执行状态机 + Reconciliation Evidence
 - `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI
 - TUI Software Intelligence Overlay 与受保护 Project Observatory：Requirement Board、功能/组件设计、当前代码实现、Design ↔ Actual Dependency Alignment、Acceptance/Verification、Constraint/ADR、代码统计、Git 改动映射与架构 Revision 历史
+- `read_media` 的 Capability-aware 多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；只有当前请求显式声明匹配的 `run.francis.wcode/media-content` Client Capability 时才返回 Image/Audio Content，能力未知或不支持时 Fail Closed，视频始终 Metadata-only
 - 完整高阶 MCP Surface
 
 ### 明确精度 / 集成边界

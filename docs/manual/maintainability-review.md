@@ -1,8 +1,10 @@
 ---
-layout: wiki
+layout: docs
 title: Maintainability Review
 description: Structural maintainability review and evidence policy
-permalink: /wiki/maintainability-review/
+lang: en
+alternate: /zh/docs/maintainability-review/
+permalink: /docs/maintainability-review/
 ---
 
 # Maintainability Review Policy

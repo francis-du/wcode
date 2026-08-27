@@ -346,14 +346,16 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
             let present = languages.contains(&language);
             let selected = select_provider(language);
             let available = selected.is_some();
-            let runnable =
-                present && available && workspace.exec_enabled() && workspace.risky_exec_enabled();
+            let authorized = workspace.risky_operation_authorized(&refresh_authorization_operation(
+                ".", 128, 1_000,
+            ));
+            let runnable = present && available && workspace.exec_enabled() && authorized;
             let reason = if !present {
                 "no matching source files detected".to_owned()
             } else if !workspace.exec_enabled() {
                 "command execution is disabled".to_owned()
-            } else if !workspace.risky_exec_enabled() {
-                "semantic LSP execution requires --allow-risky-exec because language servers load repository-controlled project configuration".to_owned()
+            } else if !authorized {
+                "semantic LSP execution requires an exact local RiskyExecution approval (or process-wide --allow-risky-exec) because language servers load repository-controlled project configuration".to_owned()
             } else if !available {
                 "no supported language server was found on PATH; syntax precision remains available".to_owned()
             } else {
@@ -374,6 +376,10 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
         .collect())
 }
 
+fn refresh_authorization_operation(path: &str, max_files: usize, max_symbols: usize) -> String {
+    format!("semantic_provider_refresh\0{path}\0{max_files}\0{max_symbols}")
+}
+
 pub async fn refresh(
     workspace: &Workspace,
     path: &str,
@@ -388,7 +394,7 @@ pub async fn refresh(
     if !workspace.risky_exec_enabled() {
         workspace.authorize_risky_operation(
             AuthorizationKind::RiskyExecution,
-            &format!("semantic_provider_refresh\0{path}\0{max_files}\0{max_symbols}"),
+            &refresh_authorization_operation(path, max_files, max_symbols),
             "allow semantic-provider refresh; language servers may evaluate repository-controlled project configuration",
         )?;
     }

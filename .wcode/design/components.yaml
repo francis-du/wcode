@@ -547,18 +547,18 @@
 
 - schema_version: 1
   id: component:documentation-governance
-  name: Documentation Governance and Hosted WIKI
+  name: Unified Documentation Governance
   responsibilities:
-    - keep maintained project documentation under one docs/wiki source tree
-    - render the WIKI as HTML inside the existing GitHub Pages site
+    - keep maintained project documentation under one docs/manual source tree
+    - render one bilingual Documentation tree inside the existing GitHub Pages site
     - route website and repository entry points to the canonical documentation
     - prevent duplicate vendor command matrices and scattered project Markdown
   constraints:
     - CONSTRAINT-DOCUMENTATION-GOVERNANCE
   implementation:
     - kind: file
-      path: docs/wiki/README.md
+      path: docs/manual/README.md
     - kind: file
-      path: docs/_layouts/wiki.html
+      path: docs/_layouts/docs.html
     - kind: file
       path: .github/workflows/pages.yml

@@ -1,13 +1,13 @@
 ---
-layout: wiki
+layout: docs
 title: Software Intelligence
 description: Implemented wcode Software Intelligence Runtime features and workflows
-permalink: /wiki/software-intelligence/
+lang: en
+alternate: /zh/docs/software-intelligence/
+permalink: /docs/software-intelligence/
 ---
 
 # wcode Software Intelligence Runtime
-
-[中文使用指南](../software-intelligence-zh-cn/)
 
 This document describes the Software Intelligence features that are implemented today.
 
@@ -438,6 +438,7 @@ Risk is intentionally recomputed from current Design/Git/Code state. Graph histo
 - `find_symbol`
 - `symbol_context`
 - `read_file` / `read_files`
+- `read_media` — metadata-first bounded media inspection; image/audio content requires a matching per-request `run.francis.wcode/media-content` client capability, while unknown/legacy capability fails closed and video remains metadata-only
 - `path_info`
 - `parallel_tools`
 - `replace_text` / `write_file` / `apply_edits` / `apply_file_edits`
@@ -473,7 +474,8 @@ Precision and integration boundaries are explicit rather than hidden:
 - the always-available code index remains Tree-sitter `precision=syntax`; a first-party LSP adapter may upgrade individual facts to `precision=semantic` only after a real installed server responds, while SCIP/compiler/runtime providers can still enter through the external import contract;
 - all 22 indexed languages share one semantic-provider and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
 - repository-aware LSP refresh and Property/Mutation/Fuzz/Runtime execution require explicit operator trust: exact operations can receive local TUI or protected-WebUI session grants and be retried, while `--allow-risky-exec` is the process-wide pre-authorization path; neither is an OS sandbox;
-- model-requested command programs use per-Workspace `CommandAccess`: a small safe set is pre-authorized, other valid bare executable names enter the pending list, and explicit approval adds only that program to the selected Workspace. Shell interpreters, path-bearing program names, workspace-escape arguments and protected resources remain blocked;
+- model-requested command programs use per-Workspace `CommandAccess`: a small safe set is pre-authorized, other valid bare executable names enter the pending list, and explicit approval adds only that program to the selected Workspace. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross an exact `RiskyExecution` approval; force/delete/reset/restore-style mutation remains blocked. Shell interpreters, path-bearing program names, workspace-escape arguments and protected resources remain blocked;
+- `read_media` never infers vision/audio support from a model or vendor name. `include_content=true` emits an image/audio MCP content block only when the current request declares the matching `run.francis.wcode/media-content` extension; otherwise it returns a structured capability error without binary content;
 - Reconciliation execution coordinates durable tasks and evidence, but source edits still use the normal bounded/hash-guarded wcode edit surface instead of a hidden unrestricted patch engine;
 - destructive deletion is deliberately outside normal write flow: the first `delete_path` attempt creates an exact local authorization request, the operator approves or denies it in the TUI or protected WebUI, and only a matching retry can consume the one-shot grant.
 
