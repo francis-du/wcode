@@ -66,6 +66,12 @@ Models are execution providers, not the product core. Claude, ChatGPT, Grok, Mis
 <p align="center"><sub>Architecture overview — desired vs actual component dependencies, observed drift, evidence and implementation coverage in one view.</sub></p>
 
 <p align="center">
+  <img src="docs/assets/wcode-observatory-full.png" alt="wcode Project Observatory full page" width="100%">
+</p>
+
+<p align="center"><sub>Project Observatory end to end — architecture overview, requirement detail, current changes, code statistics, and graph history on one page.</sub></p>
+
+<p align="center">
   <img src="docs/assets/wcode-observatory.png" alt="wcode Project Observatory" width="32%">
   <img src="docs/assets/wcode-access-management.png" alt="wcode authorization and access controls" width="32%">
   <img src="docs/assets/wcode-verification-detail.png" alt="wcode requirement traceability and verification evidence" width="32%">
