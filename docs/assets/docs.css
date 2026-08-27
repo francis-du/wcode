@@ -1,1 +1,310 @@
-.docs-shell{width:min(1360px,calc(100% - 40px));margin:0 auto;padding:104px 0 76px;display:grid;grid-template-columns:270px minmax(0,880px);gap:52px;justify-content:center}.docs-sidebar{position:sticky;top:86px;align-self:start;max-height:calc(100vh - 110px);overflow:auto;padding:18px;border:1px solid var(--line);border-radius:20px;background:var(--panel);backdrop-filter:blur(18px)}.docs-sidebar-title{display:grid;gap:2px;padding:2px 8px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}.docs-sidebar-title span,.docs-nav-label{font-size:9px;font-weight:760;letter-spacing:.13em;text-transform:uppercase;color:var(--muted-2)}.docs-sidebar-title strong{font-size:17px}.docs-nav-group{display:grid;gap:3px;padding:9px 0}.docs-nav-group+.docs-nav-group{border-top:1px solid var(--line)}.docs-nav-label{padding:3px 9px 5px}.docs-sidebar a{padding:7px 9px;border-radius:9px;color:var(--muted);font-size:12px;text-decoration:none}.docs-sidebar a:hover{background:var(--panel-hover);color:var(--text)}.docs-sidebar a.active{background:color-mix(in srgb,var(--cyan) 11%,var(--panel));color:var(--text);box-shadow:inset 2px 0 var(--cyan)}.docs-content{min-width:0;color:var(--text);line-height:1.76}.docs-breadcrumb{display:flex;gap:8px;align-items:center;margin:0 0 22px;color:var(--muted-2);font-size:11px}.docs-breadcrumb a{color:var(--cyan)}.docs-content h1{font-size:clamp(2.35rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-.045em;margin:0 0 28px}.docs-content h2{margin:52px 0 17px;padding-top:12px;border-top:1px solid var(--line);font-size:1.72rem;letter-spacing:-.025em}.docs-content h3{margin:30px 0 11px;font-size:1.22rem}.docs-content p,.docs-content li{color:var(--muted)}.docs-content strong{color:var(--text)}.docs-content a{color:var(--cyan);text-decoration:none}.docs-content a:hover{text-decoration:underline}.docs-content code{font-family:var(--mono);font-size:.9em}.docs-content :not(pre)>code{padding:.18em .42em;border:1px solid var(--line);border-radius:6px;background:var(--panel)}.docs-content pre{overflow:auto;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--bg-soft)}.docs-content table{display:block;max-width:100%;overflow:auto;border-collapse:collapse;margin:20px 0}.docs-content th,.docs-content td{padding:10px 14px;border:1px solid var(--line);text-align:left;vertical-align:top}.docs-content th{background:var(--panel);color:var(--text)}.docs-content blockquote{margin:20px 0;padding:5px 18px;border-left:3px solid var(--cyan);background:color-mix(in srgb,var(--cyan) 5%,transparent);color:var(--muted)}.docs-content img{border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}.docs-content hr{border:0;border-top:1px solid var(--line);margin:42px 0}.docs-header .nav-links .active{color:var(--text)}@media(max-width:960px){.docs-shell{grid-template-columns:1fr;padding-top:88px}.docs-sidebar{position:static;max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.docs-sidebar-title{grid-column:1/-1}.docs-nav-group+.docs-nav-group{border-top:0}.docs-content h1{font-size:2.5rem}}@media(max-width:600px){.docs-shell{width:min(100% - 24px,880px)}.docs-sidebar{grid-template-columns:1fr}.docs-content{font-size:.96rem}.docs-content h1{font-size:2.2rem}}
+/* ============================================================
+   wcode Documentation — shell, sidebar, and markdown typography
+   Complements site.css (theme variables, header, footer).
+   ============================================================ */
+
+/* ---------- Layout shell ---------- */
+
+.docs-shell {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 780px);
+  justify-content: center;
+  gap: 56px;
+  width: min(1240px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 36px 0 96px;
+  align-items: start;
+}
+
+/* ---------- Sidebar ---------- */
+
+.docs-sidebar {
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 116px);
+  overflow-y: auto;
+  padding: 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.docs-sidebar-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 9px 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.docs-sidebar-title span {
+  color: var(--muted-2);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.docs-sidebar-title strong {
+  color: var(--cyan);
+  font-size: 13px;
+}
+
+.docs-nav-group { padding: 8px 0; }
+.docs-nav-group + .docs-nav-group { border-top: 1px solid var(--line); }
+
+.docs-nav-label {
+  padding: 2px 9px 6px;
+  color: var(--muted-2);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.docs-sidebar a {
+  display: block;
+  padding: 6px 9px;
+  margin: 1px 0;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-decoration: none;
+  transition: color .15s, background .15s;
+}
+
+.docs-sidebar a:hover { color: var(--text); background: var(--panel-hover); }
+
+.docs-sidebar a.active {
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+  font-weight: 650;
+}
+
+/* ---------- Content head ---------- */
+
+.docs-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.docs-breadcrumb a { color: var(--muted); }
+.docs-breadcrumb a:hover { color: var(--cyan); }
+
+/* ---------- Typography ---------- */
+
+.docs-content {
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 88%, var(--muted));
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.docs-content h1,
+.docs-content h2,
+.docs-content h3,
+.docs-content h4 {
+  color: var(--text);
+  font-weight: 720;
+  letter-spacing: -.02em;
+  line-height: 1.3;
+  scroll-margin-top: 96px;
+}
+
+.docs-content h1 {
+  margin: 2px 0 8px;
+  font-size: 30px;
+  letter-spacing: -.03em;
+  line-height: 1.2;
+}
+
+.docs-content h1 + p {
+  color: var(--muted);
+  font-size: 15.5px;
+  margin-bottom: 10px;
+}
+
+.docs-content h2 {
+  margin: 42px 0 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 19px;
+}
+
+.docs-content h1 + h2 {
+  margin-top: 26px;
+}
+
+.docs-content h2 code { font-size: .82em; }
+
+.docs-content h3 {
+  margin: 26px 0 9px;
+  font-size: 15.5px;
+}
+
+.docs-content h3::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  border-radius: 2px;
+  background: var(--cyan);
+  vertical-align: 2px;
+}
+
+.docs-content h4 {
+  margin: 20px 0 7px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Body ---------- */
+
+.docs-content p { margin: 0 0 13px; }
+
+.docs-content strong { color: var(--text); font-weight: 650; }
+
+.docs-content a { color: var(--cyan); text-decoration: none; }
+.docs-content a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.docs-content ul, .docs-content ol {
+  margin: 0 0 13px;
+  padding-left: 20px;
+}
+
+.docs-content li { margin-bottom: 5px; }
+.docs-content li::marker { color: var(--cyan); }
+.docs-content li > ul, .docs-content li > ol { margin: 5px 0 0; }
+
+.docs-content hr {
+  margin: 32px 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.docs-content blockquote {
+  margin: 14px 0;
+  padding: 10px 15px;
+  border-left: 3px solid var(--cyan);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  color: var(--muted);
+}
+
+.docs-content blockquote p:last-child { margin-bottom: 0; }
+
+/* ---------- Code ---------- */
+
+.docs-content code {
+  font-family: var(--mono);
+  font-size: .86em;
+}
+
+.docs-content :not(pre) > code {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: color-mix(in srgb, var(--cyan) 75%, var(--text));
+}
+
+.docs-content pre {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-soft) 82%, var(--bg));
+  overflow-x: auto;
+  line-height: 1.55;
+}
+
+.docs-content pre code {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: color-mix(in srgb, var(--text) 80%, var(--cyan));
+  font-size: 12.5px;
+  line-height: inherit;
+  white-space: pre;
+}
+
+.docs-content pre::-webkit-scrollbar { height: 6px; }
+.docs-content pre::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+
+/* ---------- Tables ---------- */
+
+.docs-content table {
+  display: block;
+  width: 100%;
+  margin: 14px 0 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  border-collapse: collapse;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.docs-content th, .docs-content td {
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.docs-content th {
+  background: var(--bg-soft);
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.docs-content td { color: color-mix(in srgb, var(--text) 80%, var(--muted)); }
+.docs-content tbody tr:last-child td { border-bottom: none; }
+.docs-content tbody tr:hover td { background: color-mix(in srgb, var(--panel-hover) 60%, transparent); }
+
+/* ---------- Media ---------- */
+
+.docs-content img {
+  display: block;
+  max-width: 100%;
+  margin: 18px auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 960px) {
+  .docs-shell {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding-top: 20px;
+  }
+
+  .docs-sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .docs-content h1 { font-size: 25px; }
+}
+
+@media (max-width: 560px) {
+  .docs-shell { width: calc(100% - 32px); }
+  .docs-content { font-size: 14px; }
+  .docs-content table { font-size: 12px; }
+}
