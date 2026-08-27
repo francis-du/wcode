@@ -259,7 +259,6 @@ impl ToolHarness {
             },
             "scopes": context.scopes,
             "project": {
-                "root": profile.root,
                 "project_types": profile.project_types,
                 "manifests": profile.manifests,
                 "write_enabled": profile.write_enabled,
@@ -290,7 +289,7 @@ impl ToolHarness {
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
         trim_agent_context(&mut pack, budget)?;
         update_agent_readiness(&mut pack);
-        finalize_agent_context(&mut pack, baseline_context_bytes)?;
+        finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
         Ok(pack)
     }
 }
@@ -681,6 +680,7 @@ fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
             || pop_array(value, "tests", 1)
             || pop_array(value, "targets", 1)
             || pop_array(value, "files", 1)
+            || shrink_hot_source_body(value, budget)?
             || pop_array(value, "hot_source", 0);
         if !changed {
             break;
@@ -691,8 +691,52 @@ fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
     Ok(())
 }
 
-fn finalize_agent_context(value: &mut Value, baseline_context_bytes: u64) -> Result<()> {
-    for _ in 0..2 {
+fn shrink_hot_source_body(value: &mut Value, budget: usize) -> Result<bool> {
+    let excess_bytes = estimated_json_tokens(value)?
+        .saturating_sub(budget)
+        .saturating_mul(4);
+    let Some(body) = value
+        .get_mut("hot_source")
+        .and_then(Value::as_array_mut)
+        .and_then(|items| items.first_mut())
+        .and_then(|item| item.get_mut("body"))
+    else {
+        return Ok(false);
+    };
+    let Some(content) = body
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return Ok(false);
+    };
+    let chars = content.chars().count();
+    if chars <= 64 {
+        return Ok(false);
+    }
+    let target = chars
+        .saturating_sub(excess_bytes.saturating_add(16))
+        .max(64);
+    if target >= chars {
+        return Ok(false);
+    }
+    body["content"] = json!(short_text(&content, target));
+    body["truncated"] = json!(true);
+    Ok(true)
+}
+
+fn finalize_agent_context(
+    value: &mut Value,
+    baseline_context_bytes: u64,
+    budget: usize,
+) -> Result<()> {
+    for _ in 0..8 {
+        let previous = (
+            value["serialized_bytes"].clone(),
+            value["estimated_tokens"].clone(),
+            value["context_bytes_avoided"].clone(),
+            value["context_reduction_percent"].clone(),
+        );
         let bytes = serde_json::to_vec(value)?.len() as u64;
         let avoided = baseline_context_bytes.saturating_sub(bytes);
         let reduction_percent = if baseline_context_bytes == 0 {
@@ -704,6 +748,27 @@ fn finalize_agent_context(value: &mut Value, baseline_context_bytes: u64) -> Res
         value["estimated_tokens"] = json!(bytes.div_ceil(4));
         value["context_bytes_avoided"] = json!(avoided);
         value["context_reduction_percent"] = json!(reduction_percent);
+
+        if estimated_json_tokens(value)? > budget {
+            trim_agent_context(value, budget)?;
+            update_agent_readiness(value);
+            continue;
+        }
+
+        let current = (
+            value["serialized_bytes"].clone(),
+            value["estimated_tokens"].clone(),
+            value["context_bytes_avoided"].clone(),
+            value["context_reduction_percent"].clone(),
+        );
+        if current == previous {
+            return Ok(());
+        }
+    }
+
+    let bytes = serde_json::to_vec(value)?.len();
+    if bytes.div_ceil(4) > budget {
+        bail!("agent context could not satisfy the {budget}-token budget after finalization");
     }
     Ok(())
 }

@@ -729,8 +729,12 @@ mod tests {
         .agent_context("demo", &workspace, "feature entry", 1_000, &[])
         .unwrap();
 
+    let actual_bytes = serde_json::to_vec(&pack).unwrap().len() as u64;
     assert!(pack["estimated_tokens"].as_u64().unwrap() <= 1_000);
     assert!(pack["serialized_bytes"].as_u64().unwrap() <= 4_000);
+    assert_eq!(pack["serialized_bytes"], actual_bytes);
+    assert_eq!(pack["estimated_tokens"], actual_bytes.div_ceil(4));
+    assert!(pack["project"].get("root").is_none());
     assert_eq!(pack["budget_mode"], "explicit");
     assert_eq!(pack["budget"], 1_000);
     assert_eq!(pack["requested_budget"], 1_000);
