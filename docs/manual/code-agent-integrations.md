@@ -274,11 +274,13 @@ Chinese clients:
 | Qwen Code CLI (Alibaba) | Yes | Yes | Yes | stdio or remote |
 | CodeBuddy (Tencent) | Yes | Yes | Yes | stdio or remote |
 | Qoder CLI (Alibaba) | Yes | Yes | Unverified | stdio; section 17 |
-| Trae (ByteDance) | Yes | SSE | Unverified | stdio; section 21 |
+| Trae / Trae Work (ByteDance) | Yes | SSE | Unverified | stdio; section 21 |
 | Comate Zulu (Baidu) | Yes | SSE | Unverified | stdio |
 | Qwen Chat desktop / Tongyi app | No | Marketplace-led | Unverified | catalog only |
 | MiniMax Agent / Nano AI toolbox / Spark agent platform | No | Config entry exists | Unverified | platform or catalog only |
-| Yuanbao / Doubao desktop / Wenxin web | No | Not found | n/a | not connectable |
+| WorkBuddy (Tencent) | Not documented | MCP ecosystem + custom Skills claimed | Unverified | not verified |
+| Doubao Work / Pro office mode (ByteDance) | No — GUI virtual desktop, no MCP/API | No | n/a | not connectable |
+| Yuanbao / Wenxin web | No | Not found | n/a | not connectable |
 | DeepSeek official clients | No | No | n/a | use DeepSeek as a model inside another client |
 | SenseTime Raccoon / Step / Monica | Not found | Not found | n/a | not connectable |
 

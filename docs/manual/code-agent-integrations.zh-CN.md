@@ -268,11 +268,13 @@ Remote Connector 使用 Streamable HTTP + OAuth。PKCE、Protected Resource Meta
 | Qwen Code CLI（阿里） | 支持 | 支持 | 支持 | stdio 或远程 |
 | CodeBuddy（腾讯） | 支持 | 支持 | 支持 | stdio 或远程 |
 | Qoder CLI（阿里） | 支持 | 支持 | 未核实 | stdio；见第 17 节 |
-| Trae（字节） | 支持 | SSE | 未核实 | stdio；见第 21 节 |
+| Trae / Trae Work（字节） | 支持 | SSE | 未核实 | stdio；见第 21 节 |
 | Comate Zulu（百度） | 支持 | SSE | 未核实 | stdio |
 | 千问 App / 通义桌面版 | 不支持 | 以市场为主 | 未核实 | 仅目录 |
 | MiniMax Agent / 纳米 AI 工具箱 / 星火智能体平台 | 不支持 | 有配置入口 | 未核实 | 仅平台或目录 |
-| 元宝 / 豆包电脑版 / 文心网页版 | 不支持 | 未找到 | — | 无法连接 |
+| WorkBuddy（腾讯） | 未文档化 | 宣称支持 MCP 生态 + 自定义 Skills | 未核实 | 未验证 |
+| 豆包 Work / 专业版办公任务（字节） | 不支持——GUI 虚拟桌面，无 MCP/API | 不支持 | — | 无法连接 |
+| 元宝 / 文心网页版 | 不支持 | 未找到 | — | 无法连接 |
 | DeepSeek 官方客户端 | 不支持 | 不支持 | — | 在其他客户端里把 DeepSeek 当模型用 |
 | 商汤小浣熊 / 阶跃 / Monica | 未找到 | 未找到 | — | 无法连接 |
 
