@@ -227,7 +227,83 @@ Remote Connector 使用 Streamable HTTP + OAuth。PKCE、Protected Resource Meta
 
 本地 Coding Agent 不要为了“统一配置”强行绕公网；同机场景优先 stdio。
 
-## 23. 所有 Agent 共用的安全清单
+## 23. 聊天与云端客户端矩阵
+
+第 3 节的矩阵覆盖的是能操作仓库的 coding agent。聊天与云端客户端要按另一种方式分组：可拉起 stdio 的桌面端、接受自定义远程 MCP URL 的客户端、以及只能挂目录、够不到私有 wcode 的客户端。以下结论基于 2026 年 8 月的厂商公开文档；"未找到"表示没有公开文档，不代表永远不会支持。
+
+国际客户端：
+
+| 客户端 | stdio | 远程 URL | OAuth | wcode 路径 |
+| --- | --- | --- | --- | --- |
+| Claude Code | 支持 | 支持 | 支持 | stdio 或远程；一等公民 |
+| claude.ai 网页 Connectors | 不支持 | 支持 | 支持 | 仅远程；期望 search/fetch 工具 |
+| Claude Desktop | 支持 | 部分 | 部分 | stdio 配置文件；远程请用 Claude Code |
+| ChatGPT Developer Mode / Apps SDK | 仅桌面版 | 支持（beta） | 支持 | 仅远程；强制 search/fetch，高风险标记 |
+| Gemini CLI | 支持 | 支持 | 支持 | stdio 或远程 |
+| gemini.google.com 消费版 | 不支持 | 仅目录 | — | 无法连接 |
+| Gemini Enterprise / API | 不支持 | 支持 | 支持 | 仅远程 |
+| VS Code + GitHub Copilot | 支持 | 支持 | 支持 | stdio 或远程 |
+| GitHub Copilot CLI / coding agent | 支持 | 支持 | 支持 | 仓库 `.mcp.json` stdio |
+| Cursor | 支持 | 支持 | 支持 | stdio 或远程 |
+| Windsurf / Cascade | 支持 | 支持 | 支持 | stdio 或远程 |
+| JetBrains AI Assistant / Junie | 支持 | 支持 | 支持 | stdio 或远程 |
+| Zed | 支持 | 支持 | 需桥接 | stdio 或远程 |
+| Cline / Roo Code | 支持 | 支持 | 需桥接 | stdio |
+| OpenCode | 支持 | 仅 bearer | 不支持 | stdio |
+| Continue | 支持 | 部分 | 不支持 | stdio |
+| Grok 自定义连接器（grok.com） | 不支持 | 支持 | 支持 | 仅远程 |
+| Grok Build | 支持 | 支持 | 支持 | stdio；见第 4 节 |
+| Mistral Le Chat | 不支持 | 支持 | 有认证、细节未核实 | 仅远程 |
+| Perplexity | macOS 应用 | 支持 | 未核实 | 仅远程 |
+| Microsoft 365 Copilot | 不支持 | 管理员目录 | — | 无法连接 |
+| Notion AI / Slack AI / Discord / Replit / Cody | 不支持 | 未找到 | — | 无法连接 |
+| Neovim（avante / codecompanion） | 支持 | 部分 | 需桥接 | stdio |
+
+国内客户端：
+
+| 客户端 | stdio | 远程 URL | OAuth | wcode 路径 |
+| --- | --- | --- | --- | --- |
+| ZCode（智谱） | 支持 | 支持 | 支持 | 生成的 Plugin；见第 5 节 |
+| Kimi Code CLI（月之暗面） | 支持 | 支持 | 支持 | stdio 或远程 |
+| Qwen Code CLI（阿里） | 支持 | 支持 | 支持 | stdio 或远程 |
+| CodeBuddy（腾讯） | 支持 | 支持 | 支持 | stdio 或远程 |
+| Qoder CLI（阿里） | 支持 | 支持 | 未核实 | stdio；见第 17 节 |
+| Trae（字节） | 支持 | SSE | 未核实 | stdio；见第 21 节 |
+| Comate Zulu（百度） | 支持 | SSE | 未核实 | stdio |
+| 千问 App / 通义桌面版 | 不支持 | 以市场为主 | 未核实 | 仅目录 |
+| MiniMax Agent / 纳米 AI 工具箱 / 星火智能体平台 | 不支持 | 有配置入口 | 未核实 | 仅平台或目录 |
+| 元宝 / 豆包电脑版 / 文心网页版 | 不支持 | 未找到 | — | 无法连接 |
+| DeepSeek 官方客户端 | 不支持 | 不支持 | — | 在其他客户端里把 DeepSeek 当模型用 |
+| 商汤小浣熊 / 阶跃 / Monica | 未找到 | 未找到 | — | 无法连接 |
+
+国内 MCP 市场（魔搭广场、千帆、百炼、腾讯云、火山引擎、Trae 市场、纳米 AI 工具箱）分发的是 MCP 服务器，不是私有 wcode 的安装通道。
+
+### 在已验证的远程客户端上注册 wcode
+
+stdio 命令在各家完全一致，差别只在注册入口。
+
+```bash
+claude mcp add wcode -- wcode --workspace /绝对路径/仓库 mcp-stdio
+claude mcp add --transport http wcode https://<公网主机>/mcp
+gemini mcp add --transport http wcode https://<公网主机>/mcp
+qwen  mcp add --transport http wcode https://<公网主机>/mcp
+kimi  mcp add --transport http --auth oauth wcode https://<公网主机>/mcp
+```
+
+- **claude.ai Connectors**：设置 → Connectors → Add connector → 填公网 URL → OAuth。把它当作检索客户端；它期望服务端提供 `search`/`fetch`。
+- **ChatGPT**：设置 → Connectors → Advanced → Developer Mode → 添加公网 URL。强制要求服务端 `search`/`fetch`，会禁用 Memory 并标记高风险。
+- **Gemini / Qwen / Kimi CLI**：上面的命令；远程 URL 触发 OAuth 流，也可改用静态 header。Kimi 的 token 存于 `~/.kimi/mcp-oauth/`；配置在 `~/.qwen/settings.json` 或 `~/.kimi/mcp.json`。
+- **CodeBuddy**：IDE 的 MCP 标签页或 `.codebuddy/settings.json`；远程首连有文档化的 OAuth。
+- **Cursor / Windsurf / JetBrains / Zed**：同一条 stdio 命令，分别写入 `.cursor/mcp.json`、`~/.codeium/windsurf/mcp_config.json`、JetBrains 的 MCP 设置页、或 Zed 的 `context_servers`。远程 HTTP 可用但 OAuth 成熟度不一；Zed 可能需要 `mcp-remote` 桥。
+- **不支持 OAuth 的客户端**：在 wcode 前加一层带静态认证的受信反向代理，或换客户端。
+
+### 路径选择
+
+- 单机编码：stdio + 仓库绝对路径。不需要隧道、OAuth 或公网暴露。
+- 远程或网页客户端：托管隧道或稳定的 `--public-url`，注册 `https://<公网主机>/mcp` 并完成 OAuth。
+- 仅目录型客户端（元宝、豆包、文心网页版、纳米 AI、gemini.google.com、M365 Copilot）：够不到私有 wcode；不要为此削弱 wcode 的安全边界。
+
+## 24. 所有 Agent 共用的安全清单
 
 - Workspace 必须显式，持久化配置优先绝对 Repository Path；
 - 本地 Agent 优先 stdio，Cloud/Web 才使用 Public `/mcp`；
@@ -238,7 +314,7 @@ Remote Connector 使用 Streamable HTTP + OAuth。PKCE、Protected Resource Meta
 - Verification / Evidence 必须匹配当前 Revision；Model Consensus 不替代 Deterministic Proof；
 - Host 自己的 Sandbox、Worktree、Subagent 是 Isolation Helper，不是 wcode Security Boundary 的替代品。
 
-## 24. 为什么 wcode 默认不生成 Vendor-specific Executable Plugin
+## 25. 为什么 wcode 默认不生成 Vendor-specific Executable Plugin
 
 可执行 Plugin 往往意味着 Host-specific Runtime、Hook、脚本、Credential 或 Working-directory 语义。把这些打进一个“通用插件”会扩大 Trust Boundary，并让安全事实分叉成多份。
 

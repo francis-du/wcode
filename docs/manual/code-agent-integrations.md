@@ -233,7 +233,83 @@ Remote connectors use Streamable HTTP + OAuth. PKCE, Protected Resource Metadata
 
 Do not route a same-machine coding agent through the public endpoint merely for configuration symmetry; prefer stdio locally.
 
-## 23. Security checklist for every agent
+## 23. Chat and cloud client matrix
+
+The coding-agent matrix in section 3 covers hosts that act on a repository. Chat and cloud clients split differently: stdio-capable desktop hosts, clients that accept a custom remote MCP URL, and catalog-only clients that cannot reach a private wcode at all. Claims below reflect public vendor documentation as of August 2026; "not found" means no public documentation exists, not that support will never ship.
+
+International clients:
+
+| Client | stdio | Remote URL | OAuth | wcode path |
+| --- | --- | --- | --- | --- |
+| Claude Code | Yes | Yes | Yes | stdio or remote; first-class |
+| claude.ai web Connectors | No | Yes | Yes | remote only; expects search/fetch tools |
+| Claude Desktop | Yes | Partial | Partial | stdio config file; use Claude Code for remote |
+| ChatGPT Developer Mode / Apps SDK | Desktop only | Yes (beta) | Yes | remote only; requires search/fetch, elevated-risk flags |
+| Gemini CLI | Yes | Yes | Yes | stdio or remote |
+| gemini.google.com consumer | No | Catalog only | n/a | not connectable |
+| Gemini Enterprise / API | No | Yes | Yes | remote only |
+| VS Code + GitHub Copilot | Yes | Yes | Yes | stdio or remote |
+| GitHub Copilot CLI / coding agent | Yes | Yes | Yes | repo `.mcp.json` stdio |
+| Cursor | Yes | Yes | Yes | stdio or remote |
+| Windsurf / Cascade | Yes | Yes | Yes | stdio or remote |
+| JetBrains AI Assistant / Junie | Yes | Yes | Yes | stdio or remote |
+| Zed | Yes | Yes | Via bridge | stdio or remote |
+| Cline / Roo Code | Yes | Yes | Via bridge | stdio |
+| OpenCode | Yes | Bearer only | No | stdio |
+| Continue | Yes | Partial | No | stdio |
+| Grok custom connector (grok.com) | No | Yes | Yes | remote only |
+| Grok Build | Yes | Yes | Yes | stdio; section 4 |
+| Mistral Le Chat | No | Yes | Auth, details unverified | remote only |
+| Perplexity | macOS app | Yes | Unverified | remote only |
+| Microsoft 365 Copilot | No | Admin catalog | n/a | not connectable |
+| Notion AI / Slack AI / Discord / Replit / Cody | No | Not found | n/a | not connectable |
+| Neovim (avante / codecompanion) | Yes | Partial | Via bridge | stdio |
+
+Chinese clients:
+
+| Client | stdio | Remote URL | OAuth | wcode path |
+| --- | --- | --- | --- | --- |
+| ZCode (Zhipu) | Yes | Yes | Yes | generated Plugin; section 5 |
+| Kimi Code CLI (Moonshot) | Yes | Yes | Yes | stdio or remote |
+| Qwen Code CLI (Alibaba) | Yes | Yes | Yes | stdio or remote |
+| CodeBuddy (Tencent) | Yes | Yes | Yes | stdio or remote |
+| Qoder CLI (Alibaba) | Yes | Yes | Unverified | stdio; section 17 |
+| Trae (ByteDance) | Yes | SSE | Unverified | stdio; section 21 |
+| Comate Zulu (Baidu) | Yes | SSE | Unverified | stdio |
+| Qwen Chat desktop / Tongyi app | No | Marketplace-led | Unverified | catalog only |
+| MiniMax Agent / Nano AI toolbox / Spark agent platform | No | Config entry exists | Unverified | platform or catalog only |
+| Yuanbao / Doubao desktop / Wenxin web | No | Not found | n/a | not connectable |
+| DeepSeek official clients | No | No | n/a | use DeepSeek as a model inside another client |
+| SenseTime Raccoon / Step / Monica | Not found | Not found | n/a | not connectable |
+
+Chinese MCP marketplaces (ModelScope plaza, Qianfan, Bailian, Tencent Cloud, Volcano, Trae market, Nano AI toolbox) distribute servers; they are not installation paths for a private wcode.
+
+### Registering wcode on verified remote clients
+
+The stdio command is identical everywhere; only the registration surface differs.
+
+```bash
+claude mcp add wcode -- wcode --workspace /absolute/path/to/repository mcp-stdio
+claude mcp add --transport http wcode https://<public-host>/mcp
+gemini mcp add --transport http wcode https://<public-host>/mcp
+qwen  mcp add --transport http wcode https://<public-host>/mcp
+kimi  mcp add --transport http --auth oauth wcode https://<public-host>/mcp
+```
+
+- **claude.ai Connectors**: Settings → Connectors → Add connector → paste the public URL → OAuth. Treat it as a retrieval client; it expects server-side `search`/`fetch`.
+- **ChatGPT**: Settings → Connectors → Advanced → Developer Mode → add the public URL. Server-side `search`/`fetch` is mandatory, Memory is disabled, and the mode is flagged elevated risk.
+- **Gemini / Qwen / Kimi CLIs**: the commands above; remote URLs trigger the OAuth flow, or supply static headers. Kimi stores tokens under `~/.kimi/mcp-oauth/`; config lives in `~/.qwen/settings.json` or `~/.kimi/mcp.json`.
+- **CodeBuddy**: IDE MCP tab or `.codebuddy/settings.json`; documented OAuth on first remote connect.
+- **Cursor / Windsurf / JetBrains / Zed**: same stdio command in `.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, the JetBrains MCP settings page, or Zed's `context_servers`. Remote HTTP works with varying OAuth maturity; Zed may need the `mcp-remote` bridge.
+- **Clients without OAuth**: put a trusted reverse proxy with static authentication in front of wcode, or switch clients.
+
+### Choosing a path
+
+- Single-machine coding: stdio with an absolute repository path. No tunnel, no OAuth, no public exposure.
+- Remote or web clients: managed tunnel or stable `--public-url`, then register `https://<public-host>/mcp` and complete OAuth.
+- Catalog-only clients (Yuanbao, Doubao, Wenxin web, Nano AI, gemini.google.com, M365 Copilot): they cannot reach a private wcode; do not weaken the wcode security boundary to satisfy them.
+
+## 24. Security checklist for every agent
 
 - The Workspace is explicit; persistent local config should use the absolute repository path.
 - Local agents prefer stdio; cloud/web clients use protected public `/mcp`.
@@ -244,7 +320,7 @@ Do not route a same-machine coding agent through the public endpoint merely for 
 - Verification/Evidence must match the current revision; model consensus never replaces deterministic proof.
 - Host sandboxes/worktrees/subagents are useful isolation helpers, not replacements for the wcode security boundary.
 
-## 24. Why wcode does not generate vendor-specific executable plugins by default
+## 25. Why wcode does not generate vendor-specific executable plugins by default
 
 Executable Plugin formats often introduce host-specific runtimes, hooks, scripts, credentials, or working-directory semantics. Bundling those into one “universal Plugin” would widen the trust boundary and create multiple copies of the same security facts.
 
