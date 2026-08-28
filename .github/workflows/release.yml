@@ -63,8 +63,15 @@ jobs:
           full_tag="v${package_version}"
           short_tag="v${package_version%.0}"
           test "${RELEASE_TAG}" = "${full_tag}" || test "${RELEASE_TAG}" = "${short_tag}"
-          grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/plugin.json
-          grep -q '"version": "'"${package_version}"'"' wcode-agent-plugin/.claude-plugin/plugin.json
+          for manifest in \
+            marketplace.json \
+            wcode-agent-plugin/marketplace.json \
+            wcode-agent-plugin/plugin.json \
+            wcode-agent-plugin/.claude-plugin/plugin.json \
+            wcode-agent-plugin/.zcode-plugin/plugin.json
+          do
+            grep -q '"version": "'"${package_version}"'"' "${manifest}"
+          done
 
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
