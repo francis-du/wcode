@@ -82,6 +82,19 @@ impl ActiveTunnel {
     }
 
     pub(crate) async fn stop(&mut self) {
+        // Tunnel providers may wrap themselves in shell scripts (the macOS
+        // tailscale CLI is a #!/bin/sh shim), so killing only the direct
+        // child leaves the real provider binary orphaned. Tunnels spawn in
+        // their own process group; take the whole group down.
+        #[cfg(unix)]
+        if let Some(pid) = self.child.id() {
+            let _ = StdCommand::new("kill")
+                .args(["-9", &format!("-{pid}")])
+                .stdin(StdStdio::null())
+                .stdout(StdStdio::null())
+                .stderr(StdStdio::null())
+                .status();
+        }
         let _ = self.child.start_kill();
         let _ = self.child.wait().await;
     }
@@ -407,12 +420,16 @@ fn ensure_tailscale() -> Result<()> {
 async fn start_tailscale_funnel_once(local_url: &str) -> Result<(Child, String)> {
     let public_url = tailscale_funnel_url()?;
     reclaim_stale_funnel(local_url);
-    let mut child = Command::new("tailscale")
+    let mut command = Command::new("tailscale");
+    command
         .args(["funnel", local_url])
         .stdin(std::process::Stdio::null())
         .stdout(StdStdio::piped())
         .stderr(StdStdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command
         .spawn()
         .context("failed to start tailscale funnel")?;
     let recent_logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -636,6 +653,8 @@ async fn start_ssh_tunnel_once(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to start {} SSH tunnel", provider.label()))?;
@@ -890,7 +909,8 @@ fn command_succeeds(program: &str, args: &[&str]) -> bool {
 }
 
 async fn start_cloudflared_once(local_url: &str) -> Result<(Child, String)> {
-    let mut child = Command::new("cloudflared")
+    let mut command = Command::new("cloudflared");
+    command
         .args([
             "tunnel",
             "--url",
@@ -902,9 +922,10 @@ async fn start_cloudflared_once(local_url: &str) -> Result<(Child, String)> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("failed to start cloudflared")?;
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().context("failed to start cloudflared")?;
     let stderr = child
         .stderr
         .take()
