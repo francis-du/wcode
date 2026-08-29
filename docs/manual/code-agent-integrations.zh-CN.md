@@ -219,7 +219,7 @@ Cloud/Web Connector 不能启动本机 stdio Child Process，因此使用 Runtim
 https://<public-host>/mcp
 ```
 
-默认 Managed Tunnel 会在 Cloudflare、`localhost.run`、Pinggy 之间做实例级 Health-verified Fallback；长期稳定部署更推荐 `--public-url https://...`。
+默认 Managed Tunnel 会并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，并保留全部通过实例级健康验证的端点；长期稳定部署更推荐 Tailscale Provider 或固定的 `--public-url https://...`。
 
 ### OAuth Validation
 

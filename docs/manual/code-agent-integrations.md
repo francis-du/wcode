@@ -225,7 +225,7 @@ Cloud/web connectors cannot spawn the local stdio child process, so use the prot
 https://<public-host>/mcp
 ```
 
-The default managed tunnel performs instance-health-verified fallback across Cloudflare, `localhost.run`, and Pinggy. For long-lived deployments, prefer a stable `--public-url https://...` reverse proxy.
+The default managed tunnel starts Cloudflare, `localhost.run`, Pinggy, and Tailscale Funnel concurrently and keeps every instance-health-verified endpoint. For long-lived deployments, prefer the Tailscale provider or a stable `--public-url https://...` reverse proxy.
 
 ### OAuth validation
 

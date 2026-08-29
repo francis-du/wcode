@@ -50,10 +50,11 @@ Cloud/web connectors use the protected public `/mcp` endpoint shown by the runti
 | `-w, --workspace <PATH>` | Expose one repository root. Repeat only when one task genuinely needs multiple roots. |
 | `-j, --max-parallel-tools <N>` | Override adaptive bounded tool concurrency. |
 | `--public-url https://…` | Use a stable reverse-proxy URL instead of a temporary managed tunnel. |
-| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy` | Select the managed HTTPS tunnel provider. `auto` health-verifies and falls back across the free providers. |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | Select the managed HTTPS tunnel provider. `auto` starts every provider concurrently in the background, keeps all verified tunnels, and retries unreachable ones every 15s. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
-| `--no-open` | Do not open Setup Hub automatically. |
+| `--open` | Open the Setup Hub in the browser after startup; links always stay visible in the TUI and setup page. |
+| `--imessage-to <phone-or-email>` | Send every live tunnel link (setup, MCP, Web UI, pairing code) over local iMessage on macOS. |
 | `--no-monitor` | Disable the live terminal dashboard. |
 | `--allow-sleep` | Do not hold the platform idle-sleep assertion while serving. |
 | `--allow-risky-exec` | Process-wide pre-authorization for repository-aware execution. Prefer exact session approvals when possible. |

@@ -58,7 +58,7 @@ The stdio transport skips HTTP OAuth but keeps the same Workspace, command, path
 
 Use the public `/mcp` URL shown by wcode. The client discovers OAuth metadata, completes PKCE/DCR where supported, and receives a resource-bound token.
 
-By default `--tunnel-provider auto` tries Cloudflare Quick Tunnel and automatically falls back to the free SSH-based `localhost.run` and Pinggy providers when startup or the instance-matched health check fails. Force one with `--tunnel-provider cloudflare|localhost-run|pinggy`. Temporary tunnel URLs can change after restart; use `--public-url` when you need a stable endpoint.
+By default `--tunnel-provider auto` starts Cloudflare Quick Tunnel, the SSH-based `localhost.run` and Pinggy providers, and Tailscale Funnel concurrently in the background; the dashboard renders immediately and every tunnel that passes the instance-matched health check is listed live. Providers that miss the first round keep retrying every 15 seconds, and a dead tunnel is respawned alone without disturbing the rest. Force one with `--tunnel-provider cloudflare|localhost-run|pinggy|tailscale`. Quick-tunnel URLs can change after restart; use `--public-url` or the Tailscale provider when you need a stable endpoint.
 
 ## 4. Initialize Design State only when useful
 
@@ -114,9 +114,10 @@ The protected WebUI exposes the same project and command authorization concepts 
 wcode --workspace "$PWD" --read-only
 wcode --workspace "$PWD" --no-exec
 wcode --workspace "$PWD" --no-monitor
-wcode --workspace "$PWD" --no-open
+wcode --workspace "$PWD" --open
 wcode --workspace "$PWD" --tunnel-provider localhost-run
 wcode --workspace "$PWD" --tunnel-provider pinggy
+wcode --workspace "$PWD" --tunnel-provider tailscale
 wcode --workspace "$PWD" --public-url https://mcp.example.com
 ```
 

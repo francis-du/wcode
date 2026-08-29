@@ -144,7 +144,7 @@ irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 wcode --workspace "$PWD"
 ```
 
-That is the normal setup. `wcode` automatically starts the local MCP server, a managed HTTPS tunnel, OAuth, the terminal dashboard, and a client-neutral Setup Hub. The default `--tunnel-provider auto` policy tries Cloudflare Quick Tunnel first, then falls back to `localhost.run` and Pinggy when startup, URL discovery, or the instance-matched public health check fails. The SSH-based fallbacks require no account; use `--tunnel-provider cloudflare|localhost-run|pinggy` to force one provider. The browser opens one page where you choose your AI client and reuse the same `/mcp` endpoint.
+That is the normal setup. `wcode` automatically starts the local MCP server, a managed HTTPS tunnel, OAuth, the terminal dashboard, and a client-neutral Setup Hub. The default `--tunnel-provider auto` policy starts Cloudflare Quick Tunnel, the SSH-based `localhost.run` and Pinggy providers, and Tailscale Funnel concurrently in the background — the dashboard renders immediately and every verified tunnel is listed live, retrying unreachable providers every 15s. The SSH-based providers require no account; use `--tunnel-provider cloudflare|localhost-run|pinggy|tailscale` to force one provider. Open the Setup Hub from the dashboard (`--open` to auto-open) and choose your AI client; every live tunnel exposes the same `/mcp` endpoint.
 
 The runtime keeps the machine out of idle system sleep while it is serving, without preventing the display from sleeping or the screen from locking. Pass `--allow-sleep` to opt out. Manual sleep and laptop-lid sleep remain operating-system decisions.
 
@@ -167,7 +167,7 @@ wcode \
   --workspace ~/Code/frontend
 ```
 
-The everyday CLI stays intentionally small. Common overrides are `--public-url`, `--read-only`, `--no-exec`, `--no-open`, `--no-monitor`, and `--allow-sleep`; advanced trust and scheduler controls are kept out of the default help surface.
+The everyday CLI stays intentionally small. Common overrides are `--public-url`, `--read-only`, `--no-exec`, `--open`, `--imessage-to`, `--no-monitor`, and `--allow-sleep`; advanced trust and scheduler controls are kept out of the default help surface.
 
 ---
 
@@ -299,7 +299,7 @@ Starting `wcode` opens a client-neutral Setup Hub. It shows the shared MCP URL a
 
 ## Public endpoint, automatically
 
-Cloud-hosted AI clients cannot reach localhost, so `wcode` creates a temporary HTTPS endpoint with a managed tunnel. The default `auto` policy health-verifies Cloudflare and falls back to `localhost.run` and Pinggy; use `--tunnel-provider …` to force one provider. If you already have a stable reverse proxy, pass `--public-url https://…` instead.
+Cloud-hosted AI clients cannot reach localhost, so `wcode` creates a temporary HTTPS endpoint with managed tunnels. The default `auto` policy starts Cloudflare, `localhost.run`, Pinggy, and Tailscale Funnel concurrently and lists every health-verified endpoint live; use `--tunnel-provider …` to force one provider. If you already have a stable reverse proxy, pass `--public-url https://…` instead.
 
 The TUI and `/healthz` keep tunnel, OAuth, MCP connectivity, and task status observable when something goes wrong.
 

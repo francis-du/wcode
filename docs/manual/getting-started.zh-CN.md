@@ -58,7 +58,7 @@ stdio 不走 HTTP OAuth，但仍使用同一套 Workspace、命令、路径、SH
 
 使用 wcode 显示的公网 `/mcp` 地址。兼容客户端会发现 OAuth 元数据，通过 PKCE/DCR 完成授权，并拿到绑定到该 Resource 的 Token。
 
-默认 `--tunnel-provider auto` 会先尝试 Cloudflare Quick Tunnel；启动失败、拿不到地址或当前实例的公网健康检查失败时，会自动回退到免费的 SSH 隧道 `localhost.run`，再回退到 Pinggy。可用 `--tunnel-provider cloudflare|localhost-run|pinggy` 强制指定。临时隧道重启后可能换地址；需要稳定入口时使用 `--public-url`。
+默认 `--tunnel-provider auto` 会在后台并发启动 Cloudflare Quick Tunnel、SSH 隧道 `localhost.run`、Pinggy 以及 Tailscale Funnel；面板立即渲染，每条通过实例级健康检查的隧道都会实时列出。错过首轮的 Provider 每 15 秒持续重试，单条隧道死亡只会独自重拉，不影响其余隧道。可用 `--tunnel-provider cloudflare|localhost-run|pinggy|tailscale` 强制指定。Quick Tunnel 的地址重启后可能变化；需要稳定入口时使用 `--public-url` 或 Tailscale Provider。
 
 ## 4. 需要时再初始化 Design State
 
@@ -114,9 +114,10 @@ TUI 快捷键保持简单：
 wcode --workspace "$PWD" --read-only
 wcode --workspace "$PWD" --no-exec
 wcode --workspace "$PWD" --no-monitor
-wcode --workspace "$PWD" --no-open
+wcode --workspace "$PWD" --open
 wcode --workspace "$PWD" --tunnel-provider localhost-run
 wcode --workspace "$PWD" --tunnel-provider pinggy
+wcode --workspace "$PWD" --tunnel-provider tailscale
 wcode --workspace "$PWD" --public-url https://mcp.example.com
 ```
 

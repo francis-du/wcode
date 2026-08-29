@@ -50,10 +50,11 @@ wcode --workspace /absolute/path/to/repository mcp-stdio
 | `-w, --workspace <PATH>` | 暴露一个仓库根目录；只有任务确实跨仓时才重复指定。 |
 | `-j, --max-parallel-tools <N>` | 覆盖自适应的有界并行上限。 |
 | `--public-url https://…` | 使用稳定反向代理地址，而不是临时托管隧道。 |
-| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy` | 选择 HTTPS 隧道 Provider；`auto` 会做实例健康检查并在免费 Provider 间自动回退。 |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | 选择 HTTPS 隧道 Provider；`auto` 会在后台并发启动全部 Provider，保留所有通过验证的隧道，并对不可达的每 15 秒重试。 |
 | `--read-only` | 移除模型侧文件修改能力。 |
 | `--no-exec` | 禁止命令执行。 |
-| `--no-open` | 启动后不自动打开 Setup Hub。 |
+| `--open` | 启动后在浏览器打开 Setup Hub；链接始终展示在 TUI 与 setup 页面中。 |
+| `--imessage-to <手机号或邮箱>` | 在 macOS 上通过本机 iMessage 推送每条可用隧道链接（setup、MCP、Web UI、配对码）。 |
 | `--no-monitor` | 关闭实时终端面板。 |
 | `--allow-sleep` | Serving 时不持有系统 idle-sleep assertion。 |
 | `--allow-risky-exec` | 进程级预授权仓库感知执行；正常交互更推荐精确 Session 授权。 |

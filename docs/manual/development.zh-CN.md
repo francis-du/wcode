@@ -60,7 +60,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 
 Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurrency、Agent Context Calls、Average Model Tokens、Repo-map Cache Hit、Saved Context 都来自实际 Request Execution。Terminal Raw Mode、Mouse Capture、Cursor 与 Primary Screen 必须通过现有 RAII Boundary 恢复；Ctrl-C 走同一条 Graceful Shutdown。stdout 不是 TTY 或设置 `--no-monitor` 时不启动 Monitor。
 
-Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 依次尝试 Cloudflare、`localhost.run`、Pinggy；只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算选中 Provider，拿到一个 URL String 本身不是 Readiness。Owned Child 异常退出或 Public Health 连续三次失败进入同一 Complete Runtime Restart Path；正常 Shutdown 会 Abort Owned Task 并 Kill/Wait Owned Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
+Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 在后台并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，面板绝不等待隧道。只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算隧道存活——拿到一个 URL String 本身不是 Readiness。所有存活隧道全部保留，最先落地的担任 Primary Endpoint。单条隧道死亡后按指数退避（15s..300s）独自重拉，绝不重启进程；Primary 死亡时按序提升下一条存活隧道。正常 Shutdown（Ctrl-C 或 SIGTERM）会 Abort Owned Task 并 Kill/Wait 全部 Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
 
 HTTP MCP 与 `mcp-stdio` 共用同一个 Protocol/Harness/Workspace Implementation。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
 
@@ -113,7 +113,7 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 
 ## 跨平台依赖处理
 
-Managed Tunnel 依 Provider 而异：Cloudflare 使用 `cloudflared`；显式 Cloudflare 且未设置 `--no-install` 时可走现有 Homebrew / winget 安装路径。`localhost.run` 与 Pinggy 使用系统 `ssh`，不会触发 Package Install。`auto` 模式 Cloudflare 缺失时直接 Skip，让 Zero-install SSH Provider 立即接管。
+Managed Tunnel 依 Provider 而异：Cloudflare 使用 `cloudflared`；显式 Cloudflare 且未设置 `--no-install` 时可走现有 Homebrew / winget 安装路径。`localhost.run` 与 Pinggy 使用系统 `ssh`，不会触发 Package Install。Tailscale Funnel 使用 `tailscale` CLI（需登录且 tailnet 开通 Funnel），暴露机器固定的 `ts.net` 地址；每台机器同时只有一个 wcode 实例能占用 Funnel 监听。`auto` 模式 Cloudflare 缺失时直接 Skip，让 Zero-install SSH Provider 立即接管。
 
 Known Development CLI 不由 wcode 自动安装。Harness / Quality / Provider Discovery 只报告真实 Availability。存在正确 Fallback 的 Optional Accelerator 必须保留回退，例如 Rust Full Verification 只有在 Repository 声明 Nextest Config 且本机安装 `cargo-nextest` 时才优先使用，否则继续 `cargo test`。Strict Harness Lane 只允许固定 `cargo nextest run [--locked]`，不开放任意 Nextest Argument。
 
