@@ -198,10 +198,16 @@ fn tunnel_lines(snapshot: &MonitorSnapshot, width: usize) -> Vec<Line<'static>> 
         .tunnels
         .iter()
         .map(|(provider, url)| {
+            // Host + /mcp without the repeated https:// prefix keeps rows
+            // readable when four providers are listed at once.
+            let host = url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/');
             Line::from(vec![
-                Span::styled(format!("  {provider:<12}"), Style::default().fg(DIM)),
+                Span::styled(format!("  {provider:<13}"), Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(&format!("{url}/mcp"), width),
+                    truncate_middle(&format!("{host}/mcp"), width),
                     Style::default().fg(BLUE),
                 ),
             ])

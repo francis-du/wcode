@@ -1043,6 +1043,10 @@ fn render_header(
         );
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let local_home = config
+        .local_health_url
+        .trim_end_matches("/healthz")
+        .to_owned();
 
     if compact || inner.width < 76 {
         let lines = vec![
@@ -1064,7 +1068,7 @@ fn render_header(
             Line::from(vec![
                 Span::styled("HOME    ", Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(&config.setup_url(), inner.width.saturating_sub(8) as usize),
+                    truncate_middle(&local_home, inner.width.saturating_sub(8) as usize),
                     Style::default().fg(BLUE),
                 ),
             ]),
@@ -1148,10 +1152,7 @@ fn render_header(
             Line::from(vec![
                 Span::styled("HOME    ", Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(
-                        &config.setup_url(),
-                        columns[0].width.saturating_sub(9) as usize,
-                    ),
+                    truncate_middle(&local_home, columns[0].width.saturating_sub(9) as usize),
                     Style::default().fg(BLUE),
                 ),
             ]),
