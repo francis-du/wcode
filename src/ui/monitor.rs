@@ -787,12 +787,16 @@ fn draw_dashboard(
     let compact = area.width < 92;
     let dense = area.height < 28;
     let header_height = 8;
+    // The base heights fit one tunnel link row; every additional live tunnel
+    // needs its own row or the last provider gets clipped.
+    let extra_tunnel_rows =
+        u16::try_from(snapshot.tunnels.len().saturating_sub(1)).unwrap_or(u16::MAX - 32);
     let setup_height = if snapshot.chatgpt_connected {
         0
     } else if compact || dense {
-        7
+        7 + extra_tunnel_rows
     } else {
-        10
+        10 + extra_tunnel_rows
     };
     let overview_height = if compact || dense { 4 } else { 6 };
     let minimum_activity_height = 4;
