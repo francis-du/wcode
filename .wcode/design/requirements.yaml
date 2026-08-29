@@ -471,7 +471,7 @@
 - schema_version: 1
   id: REQ-TUNNEL-001
   title: Public tunnel availability is provider-resilient
-  intent: Remote MCP startup must not depend on one tunnel vendor; wcode must support bounded automatic failover across free HTTPS tunnel providers while preserving exact instance health verification, explicit provider selection, OAuth and stable external reverse-proxy overrides.
+  intent: Remote MCP startup must not depend on one tunnel vendor; wcode must start the free HTTPS tunnel providers and Tailscale Funnel concurrently in the background, keep every instance-health-verified tunnel live, and self-heal single-tunnel failures without a process restart, while preserving exact instance health verification, explicit provider selection, OAuth and stable external reverse-proxy overrides.
   priority: high
   implemented_by:
     - component:managed-tunnel

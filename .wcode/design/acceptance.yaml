@@ -386,7 +386,7 @@
 - schema_version: 1
   id: AC-TUNNEL-001
   title: Managed tunnel selection supports free provider fallback
-  statement: The default tunnel policy tries bounded free providers in deterministic order, explicit provider values remain stable, Cloudflare URLs exclude the API host, localhost.run and Pinggy public hosts are parsed without accepting provider control hosts, and a candidate is accepted only after the public health response matches the current wcode instance.
+  statement: The default tunnel policy starts every provider concurrently and keeps each candidate only after the public health response matches the current wcode instance, explicit provider values remain stable, Cloudflare URLs exclude the API host, localhost.run and Pinggy public hosts are parsed without accepting provider control hosts, and Tailscale Funnel surfaces its enable URL when the tailnet has not enabled Funnel.
   verification:
     - kind: test
       path: src/runtime/tunnel.rs

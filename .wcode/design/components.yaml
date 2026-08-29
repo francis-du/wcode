@@ -612,7 +612,8 @@
   name: Managed Public Tunnel Runtime
   responsibilities:
     - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
-    - auto-fallback across Cloudflare Quick Tunnel, localhost.run and Pinggy when process startup, URL discovery or instance-matched health verification fails
+    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers on a fixed interval and keep every instance-health-verified tunnel live
+    - respawn a single dead tunnel after an exponential backoff without restarting the process or disturbing live tunnels, promoting the next live tunnel when the primary endpoint dies
     - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification
     - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
   depends_on:
@@ -620,10 +621,13 @@
   implementation:
     - kind: symbol
       path: src/runtime/tunnel.rs
-      symbol: start_managed_tunnel
+      symbol: spawn_tunnel_supervisor
     - kind: symbol
       path: src/runtime/tunnel.rs
       symbol: start_ssh_tunnel_once
     - kind: symbol
       path: src/runtime/tunnel.rs
       symbol: extract_ssh_tunnel_url
+    - kind: symbol
+      path: src/runtime/tunnel.rs
+      symbol: start_tailscale_funnel_once
