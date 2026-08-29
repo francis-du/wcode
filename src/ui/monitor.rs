@@ -786,7 +786,7 @@ fn draw_dashboard(
 
     let compact = area.width < 92;
     let dense = area.height < 28;
-    let header_height = 8;
+    let header_height = 9;
     // The base heights fit one tunnel link row; every additional live tunnel
     // needs its own row or the last provider gets clipped.
     let extra_tunnel_rows =
@@ -1062,6 +1062,13 @@ fn render_header(
                 ),
             ]),
             Line::from(vec![
+                Span::styled("HOME    ", Style::default().fg(DIM)),
+                Span::styled(
+                    truncate_middle(&config.setup_url(), inner.width.saturating_sub(8) as usize),
+                    Style::default().fg(BLUE),
+                ),
+            ]),
+            Line::from(vec![
                 Span::styled("HEALTH  ", Style::default().fg(DIM)),
                 Span::styled(
                     truncate_middle(
@@ -1133,6 +1140,16 @@ fn render_header(
                 Span::styled(
                     truncate_middle(
                         &config.mcp_url(),
+                        columns[0].width.saturating_sub(9) as usize,
+                    ),
+                    Style::default().fg(BLUE),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("HOME    ", Style::default().fg(DIM)),
+                Span::styled(
+                    truncate_middle(
+                        &config.setup_url(),
                         columns[0].width.saturating_sub(9) as usize,
                     ),
                     Style::default().fg(BLUE),
