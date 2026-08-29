@@ -901,6 +901,14 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "public_url_error": connection.public_url_error,
         "tunnel_running": connection.tunnel_running,
         "tunnel_error": connection.tunnel_error,
+        "tunnels": state
+            .monitor
+            .tunnel_links()
+            .into_iter()
+            .map(|(provider, url)| {
+                json!({"provider": provider, "url": url, "mcp_url": format!("{url}/mcp")})
+            })
+            .collect::<Vec<_>>(),
         "active_tasks": connection.active_tasks,
         "queued_tasks": connection.queued_tasks,
         "peak_active_tasks": connection.peak_active_tasks,
