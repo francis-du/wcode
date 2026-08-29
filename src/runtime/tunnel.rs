@@ -406,6 +406,7 @@ fn ensure_tailscale() -> Result<()> {
 
 async fn start_tailscale_funnel_once(local_url: &str) -> Result<(Child, String)> {
     let public_url = tailscale_funnel_url()?;
+    reclaim_stale_funnel(local_url);
     let mut child = Command::new("tailscale")
         .args(["funnel", local_url])
         .stdin(std::process::Stdio::null())
@@ -501,6 +502,43 @@ async fn funnel_serving(public_url: &str) -> bool {
         .await;
     matches!(&output, Ok(result) if result.status.success()
         && String::from_utf8_lossy(&result.stdout).trim() != "000")
+}
+
+/// A hard-killed wcode can leave an orphaned `tailscale funnel` child that
+/// still holds the node's only 443 listener, permanently blocking every
+/// funnel attempt of the next run. Reclaim orphans that forward to this
+/// exact local URL; anything else belongs to another operator process and
+/// must not be touched.
+fn reclaim_stale_funnel(local_url: &str) {
+    let Ok(output) = StdCommand::new("ps")
+        .args(["-axo", "pid=,ppid=,command="])
+        .stdin(StdStdio::null())
+        .stdout(StdStdio::piped())
+        .stderr(StdStdio::null())
+        .output()
+    else {
+        return;
+    };
+    let processes = String::from_utf8_lossy(&output.stdout);
+    for line in processes.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if ppid != "1" || !line.contains("tailscale funnel") || !line.contains(local_url) {
+            continue;
+        }
+        let Ok(pid) = pid.parse::<i32>() else {
+            continue;
+        };
+        eprintln!("  ! tailscale    reclaiming stale funnel process {pid} for {local_url}");
+        let _ = StdCommand::new("kill")
+            .arg(pid.to_string())
+            .stdin(StdStdio::null())
+            .stdout(StdStdio::null())
+            .stderr(StdStdio::null())
+            .status();
+    }
 }
 
 fn tailscale_funnel_url() -> Result<String> {
