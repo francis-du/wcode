@@ -6,7 +6,7 @@
       "name": "wcode",
       "source": ".",
       "description": "Workspace-scoped wcode Software Intelligence skill and MCP server.",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],
       "strict": true
