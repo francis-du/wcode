@@ -128,34 +128,36 @@ pub(super) fn render_setup(
         .border_style(Style::default().fg(BORDER))
         .padding(Padding::new(0, 2, 0, 0));
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "GET CONNECTED",
-                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-            )),
-            setup_step(1, language.tr("Open this setup page · press O")),
-            setup_step(2, language.tr("Choose a compatible AI client")),
-            setup_step(3, language.tr("Add MCP URL · Auth: OAuth")),
-            Line::from(vec![
-                Span::styled("  VERIFY CODE  ", Style::default().fg(DIM)),
-                Span::styled(
-                    &config.pairing_code,
-                    Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("   press O to reopen setup", Style::default().fg(GRAY)),
-            ]),
-        ]
-        .into_iter()
-        .chain(if snapshot.tunnels.is_empty() {
-            endpoint_link_lines(
-                snapshot,
-                config,
-                columns[0].width.saturating_sub(10) as usize,
-            )
-        } else {
-            tunnel_lines(snapshot, columns[0].width.saturating_sub(10) as usize)
-        })
-        .collect::<Vec<_>>())
+        Paragraph::new(
+            vec![
+                Line::from(Span::styled(
+                    "GET CONNECTED",
+                    Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+                )),
+                setup_step(1, language.tr("Open this setup page · press O")),
+                setup_step(2, language.tr("Choose a compatible AI client")),
+                setup_step(3, language.tr("Add MCP URL · Auth: OAuth")),
+                Line::from(vec![
+                    Span::styled("  VERIFY CODE  ", Style::default().fg(DIM)),
+                    Span::styled(
+                        &config.pairing_code,
+                        Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("   press O to reopen setup", Style::default().fg(GRAY)),
+                ]),
+            ]
+            .into_iter()
+            .chain(if snapshot.tunnels.is_empty() {
+                endpoint_link_lines(
+                    snapshot,
+                    config,
+                    columns[0].width.saturating_sub(10) as usize,
+                )
+            } else {
+                tunnel_lines(snapshot, columns[0].width.saturating_sub(10) as usize)
+            })
+            .collect::<Vec<_>>(),
+        )
         .block(left),
         columns[0],
     );
@@ -1031,7 +1033,11 @@ pub(super) fn render_help_overlay(
                 help_hint_line("^C", language.tr("stop wcode")),
                 help_link_line(language.tr("Project"), &config.project_url, inner.width),
                 help_link_line(language.tr("Author"), &config.author_url, inner.width),
-                help_link_line(language.tr("Setup"), config.setup_url().as_str(), inner.width),
+                help_link_line(
+                    language.tr("Setup"),
+                    config.setup_url().as_str(),
+                    inner.width,
+                ),
                 help_link_line(language.tr("Health"), &config.local_health_url, inner.width),
             ]),
             inner,
@@ -1115,7 +1121,11 @@ pub(super) fn render_help_overlay(
                 columns[1].width,
             ),
             help_link_line(language.tr("Author"), &config.author_url, columns[1].width),
-            help_link_line(language.tr("Setup"), config.setup_url().as_str(), columns[1].width),
+            help_link_line(
+                language.tr("Setup"),
+                config.setup_url().as_str(),
+                columns[1].width,
+            ),
             help_link_line(
                 language.tr("Health"),
                 &config.local_health_url,

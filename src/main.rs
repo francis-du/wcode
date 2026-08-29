@@ -1270,7 +1270,6 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str) {
     }
 }
 
-
 #[cfg(unix)]
 fn spawn_replacement() -> Result<()> {
     use std::os::unix::process::CommandExt;

@@ -198,7 +198,10 @@ pub struct MonitorConfig {
 
 impl MonitorConfig {
     pub(crate) fn public_url(&self) -> String {
-        self.public_url.read().expect("public url lock poisoned").clone()
+        self.public_url
+            .read()
+            .expect("public url lock poisoned")
+            .clone()
     }
 
     pub(crate) fn mcp_url(&self) -> String {
@@ -1124,7 +1127,10 @@ fn render_header(
             Line::from(vec![
                 Span::styled("MCP     ", Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(&config.mcp_url(), columns[0].width.saturating_sub(9) as usize),
+                    truncate_middle(
+                        &config.mcp_url(),
+                        columns[0].width.saturating_sub(9) as usize,
+                    ),
                     Style::default().fg(BLUE),
                 ),
             ]),
@@ -1910,7 +1916,7 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-                        public_url: Arc::new(std::sync::RwLock::new(
+            public_url: Arc::new(std::sync::RwLock::new(
                 "https://example.trycloudflare.com".to_owned(),
             )),
             intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
@@ -1995,7 +2001,7 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-                        public_url: Arc::new(std::sync::RwLock::new(
+            public_url: Arc::new(std::sync::RwLock::new(
                 "https://example.trycloudflare.com".to_owned(),
             )),
             intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
@@ -2035,7 +2041,7 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-                        public_url: Arc::new(std::sync::RwLock::new(
+            public_url: Arc::new(std::sync::RwLock::new(
                 "https://example.trycloudflare.com".to_owned(),
             )),
             intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"
@@ -2200,7 +2206,7 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-                        public_url: Arc::new(std::sync::RwLock::new(
+            public_url: Arc::new(std::sync::RwLock::new(
                 "https://example.trycloudflare.com".to_owned(),
             )),
             intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"

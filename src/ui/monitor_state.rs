@@ -225,7 +225,9 @@ impl TaskMonitor {
         {
             return;
         }
-        state.tunnels.push((provider.to_owned(), public_url.to_owned()));
+        state
+            .tunnels
+            .push((provider.to_owned(), public_url.to_owned()));
     }
 
     pub fn tunnel_links(&self) -> Vec<(String, String)> {

@@ -449,7 +449,10 @@ async fn start_tailscale_funnel_once(local_url: &str) -> Result<(Child, String)>
             Err(error) => bail!("tailscale funnel status check failed: {error}"),
             Ok(None) => {}
         }
-        let logs = recent_logs.lock().expect("tunnel log lock poisoned").clone();
+        let logs = recent_logs
+            .lock()
+            .expect("tunnel log lock poisoned")
+            .clone();
         if logs
             .iter()
             .any(|line| line.to_lowercase().contains("not enabled"))
@@ -463,9 +466,7 @@ async fn start_tailscale_funnel_once(local_url: &str) -> Result<(Child, String)>
                     Some(line[start..].trim().to_owned())
                 })
                 .unwrap_or_default();
-            bail!(
-                "tailscale Funnel is not enabled on your tailnet; enable it at {enable_url}"
-            );
+            bail!("tailscale Funnel is not enabled on your tailnet; enable it at {enable_url}");
         }
         if funnel_serving(&public_url).await {
             return Ok((child, public_url));
