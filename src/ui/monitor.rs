@@ -78,6 +78,7 @@ struct MonitorState {
     last_initialize: Option<Instant>,
     last_mcp_seen: Option<Instant>,
     public_endpoint: Option<String>,
+    tunnels: Vec<(String, String)>,
     public_url_healthy: Option<bool>,
     public_url_last_checked: Option<Instant>,
     public_url_consecutive_failures: u8,
@@ -182,8 +183,9 @@ pub struct MonitorConfig {
     pub version: String,
     pub instance_id: String,
     pub local_health_url: String,
-    pub mcp_url: String,
-    pub setup_url: String,
+    /// Live public origin; shared with the tunnel supervisor so the rendered
+    /// MCP/setup URLs update when a tunnel connects after startup.
+    pub public_url: Arc<std::sync::RwLock<String>>,
     pub intelligence_url: String,
     pub project_url: String,
     pub author_url: String,
@@ -192,6 +194,20 @@ pub struct MonitorConfig {
     pub max_parallel: usize,
     pub input_token_price_per_million_usd: f64,
     pub workspaces: Workspaces,
+}
+
+impl MonitorConfig {
+    pub(crate) fn public_url(&self) -> String {
+        self.public_url.read().expect("public url lock poisoned").clone()
+    }
+
+    pub(crate) fn mcp_url(&self) -> String {
+        format!("{}/mcp", self.public_url())
+    }
+
+    pub(crate) fn setup_url(&self) -> String {
+        self.public_url()
+    }
 }
 
 pub struct MonitorRenderer {
@@ -232,6 +248,7 @@ struct MonitorSnapshot {
     last_initialize: Option<Instant>,
     last_mcp_seen: Option<Instant>,
     public_endpoint: Option<String>,
+    tunnels: Vec<(String, String)>,
     public_url_healthy: Option<bool>,
     public_url_last_checked: Option<Instant>,
     public_url_consecutive_failures: u8,
@@ -466,7 +483,7 @@ fn run_dashboard(
                         KeyCode::Char('o') | KeyCode::Char('O')
                             if key.kind == KeyEventKind::Press =>
                         {
-                            let _ = open_external_url(&config.setup_url);
+                            let _ = open_external_url(&config.setup_url());
                         }
                         KeyCode::Char('w') | KeyCode::Char('W')
                             if key.kind == KeyEventKind::Press =>
@@ -591,7 +608,7 @@ fn run_dashboard(
                     if let Some(url) =
                         dashboard_link_at(&mouse, size.width, size.height, &ui, &config)
                     {
-                        let _ = open_external_url(url);
+                        let _ = open_external_url(&url);
                     }
                 }
                 Event::Resize(_, _) => {}
@@ -603,13 +620,13 @@ fn run_dashboard(
     Ok(())
 }
 
-fn dashboard_link_at<'a>(
+fn dashboard_link_at(
     mouse: &MouseEvent,
     width: u16,
     height: u16,
     ui: &DashboardState,
-    config: &'a MonitorConfig,
-) -> Option<&'a str> {
+    config: &MonitorConfig,
+) -> Option<String> {
     if mouse.kind != MouseEventKind::Down(MouseButton::Left) || width == 0 || height == 0 {
         return None;
     }
@@ -631,15 +648,16 @@ fn dashboard_link_at<'a>(
             popup.width.saturating_sub(4),
             popup.height.saturating_sub(2),
         );
+        let setup_url = config.setup_url();
         if popup_width < 74 || popup_height < 16 {
             for (row, url) in [
                 (6u16, config.project_url.as_str()),
                 (7, config.author_url.as_str()),
-                (8, config.setup_url.as_str()),
+                (8, setup_url.as_str()),
                 (9, config.local_health_url.as_str()),
             ] {
                 if point_in_rect(point, Rect::new(inner.x, inner.y + row, inner.width, 1)) {
-                    return Some(url);
+                    return Some(url.to_owned());
                 }
             }
         } else {
@@ -650,14 +668,14 @@ fn dashboard_link_at<'a>(
             for (row, url) in [
                 (7u16, config.project_url.as_str()),
                 (8, config.author_url.as_str()),
-                (9, config.setup_url.as_str()),
+                (9, setup_url.as_str()),
                 (10, config.local_health_url.as_str()),
             ] {
                 if point_in_rect(
                     point,
                     Rect::new(columns[1].x, columns[1].y + row, columns[1].width, 1),
                 ) {
-                    return Some(url);
+                    return Some(url.to_owned());
                 }
             }
         }
@@ -677,7 +695,7 @@ fn dashboard_link_at<'a>(
         let project_x = columns[0].x.saturating_add("  wcode  ".len() as u16);
         let project_rect = Rect::new(project_x, footer.y, project.len() as u16, 1);
         if point_in_rect(point, project_rect) {
-            return Some(&config.project_url);
+            return Some(config.project_url.clone());
         }
         let author_x = project_rect
             .x
@@ -685,7 +703,7 @@ fn dashboard_link_at<'a>(
             .saturating_add("  by  ".len() as u16);
         let author_rect = Rect::new(author_x, footer.y, config.author_handle.len() as u16, 1);
         if point_in_rect(point, author_rect) {
-            return Some(&config.author_url);
+            return Some(config.author_url.clone());
         }
 
         let pending_authorizations = config
@@ -728,7 +746,7 @@ fn dashboard_link_at<'a>(
             1,
         );
         if point_in_rect(point, setup_rect) {
-            return Some(&config.setup_url);
+            return Some(config.setup_url());
         }
     }
     None
@@ -1032,7 +1050,7 @@ fn render_header(
             Line::from(vec![
                 Span::styled("MCP     ", Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(&config.mcp_url, inner.width.saturating_sub(8) as usize),
+                    truncate_middle(&config.mcp_url(), inner.width.saturating_sub(8) as usize),
                     Style::default().fg(BLUE),
                 ),
             ]),
@@ -1106,7 +1124,7 @@ fn render_header(
             Line::from(vec![
                 Span::styled("MCP     ", Style::default().fg(DIM)),
                 Span::styled(
-                    truncate_middle(&config.mcp_url, columns[0].width.saturating_sub(9) as usize),
+                    truncate_middle(&config.mcp_url(), columns[0].width.saturating_sub(9) as usize),
                     Style::default().fg(BLUE),
                 ),
             ]),
@@ -1892,8 +1910,9 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-            mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
-            setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+                        public_url: Arc::new(std::sync::RwLock::new(
+                "https://example.trycloudflare.com".to_owned(),
+            )),
             intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
@@ -1911,7 +1930,7 @@ mod tests {
         };
         assert_eq!(
             dashboard_link_at(&footer_click, 140, 32, &DashboardState::default(), &config,),
-            Some(config.project_url.as_str())
+            Some(config.project_url.clone())
         );
         let setup_hit = (0..140).any(|column| {
             let click = MouseEvent {
@@ -1921,7 +1940,7 @@ mod tests {
                 modifiers: KeyModifiers::NONE,
             };
             dashboard_link_at(&click, 140, 32, &DashboardState::default(), &config)
-                == Some(config.setup_url.as_str())
+                == Some(config.setup_url())
         });
         assert!(
             setup_hit,
@@ -1945,7 +1964,7 @@ mod tests {
                 },
                 &config,
             ),
-            Some(config.project_url.as_str())
+            Some(config.project_url.clone())
         );
         let health_click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -1964,7 +1983,7 @@ mod tests {
                 },
                 &config,
             ),
-            Some(config.local_health_url.as_str())
+            Some(config.local_health_url.clone())
         );
     }
 
@@ -1976,8 +1995,9 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-            mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
-            setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+                        public_url: Arc::new(std::sync::RwLock::new(
+                "https://example.trycloudflare.com".to_owned(),
+            )),
             intelligence_url: "http://127.0.0.1:8765/intelligence#token=test".to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
             author_url: "https://github.com/francis-du".to_owned(),
@@ -2015,8 +2035,9 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-            mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
-            setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+                        public_url: Arc::new(std::sync::RwLock::new(
+                "https://example.trycloudflare.com".to_owned(),
+            )),
             intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"
                 .to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),
@@ -2179,8 +2200,9 @@ mod tests {
             version: "0.1.0".to_owned(),
             instance_id: "instance-one".to_owned(),
             local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
-            mcp_url: "https://example.trycloudflare.com/mcp".to_owned(),
-            setup_url: "https://chatgpt.com/plugins#settings/Connectors".to_owned(),
+                        public_url: Arc::new(std::sync::RwLock::new(
+                "https://example.trycloudflare.com".to_owned(),
+            )),
             intelligence_url: "https://example.trycloudflare.com/intelligence#token=fixture"
                 .to_owned(),
             project_url: "https://github.com/francis-du/wcode".to_owned(),

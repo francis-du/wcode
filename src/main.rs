@@ -94,11 +94,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
 use tracing_subscriber::EnvFilter;
 use tunnel::{
-    normalize_public_url, public_endpoint_health_loop, start_managed_tunnel,
-    wait_for_public_endpoint, ActiveTunnel, TunnelProvider,
+    normalize_public_url, public_endpoint_health_loop, spawn_tunnel_supervisor,
+    wait_for_public_endpoint, ActiveTunnel, TunnelEvent, TunnelProvider,
 };
 use workspace::{WorkspaceSecurity, Workspaces};
 
@@ -198,6 +198,10 @@ struct Args {
     #[arg(long, value_enum, default_value_t = TunnelProvider::Auto, help_heading = "Connection")]
     tunnel_provider: TunnelProvider,
 
+    /// Send every tunnel URL to this phone number or email over local iMessage (macOS only).
+    #[arg(long, help_heading = "Connection")]
+    imessage_to: Option<String>,
+
     /// Keep the server local and do not start a public tunnel.
     #[arg(long, help_heading = "Connection")]
     no_tunnel: bool,
@@ -242,15 +246,15 @@ struct Args {
     #[arg(long, help_heading = "Experience")]
     no_install: bool,
 
-    /// Do not open wcode's client-neutral setup hub after startup.
-    #[arg(long = "no-open", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
+    /// Open wcode's client-neutral setup hub in the browser after startup. Links stay available in the TUI without this.
+    #[arg(long = "open", default_value_t = false, help_heading = "Experience")]
     open_setup: bool,
 
     /// Allow idle system sleep while wcode is running.
     #[arg(long, help_heading = "Runtime")]
     allow_sleep: bool,
 
-    /// Deprecated alias for --no-open, kept for CLI compatibility.
+    /// Deprecated alias, accepted and ignored; the setup hub no longer auto-opens.
     #[arg(
         long = "no-install-chatgpt",
         action = ArgAction::SetFalse,
@@ -330,7 +334,7 @@ async fn main() -> Result<()> {
             return Ok(());
         }
     }
-    let open_setup = args.open_setup && args.legacy_open_setup;
+    let open_setup = args.open_setup;
     if !args.input_token_price_per_million_usd.is_finite()
         || args.input_token_price_per_million_usd < 0.0
     {
@@ -456,33 +460,69 @@ async fn main() -> Result<()> {
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
 
-    let mut tunnel: Option<ActiveTunnel> = None;
-    let mut public_endpoint_preverified = false;
+    let mut tunnels: Vec<ActiveTunnel> = Vec::new();
+    let shared_public_url = Arc::new(std::sync::RwLock::new(local_url.clone()));
+    let (tunnel_settled_tx, tunnel_settled_rx) = watch::channel(false);
+    let (tunnel_event_tx, mut tunnel_event_rx) = tokio::sync::mpsc::channel::<TunnelEvent>(8);
+    let mut imessage_sent: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut pending_respawns: Vec<(TunnelProvider, std::time::Instant)> = Vec::new();
+    let mut death_counts: std::collections::HashMap<TunnelProvider, u32> =
+        std::collections::HashMap::new();
     let public_url = if let Some(url) = args.public_url.as_deref() {
         let url = normalize_public_url(url)?;
+        *shared_public_url.write().unwrap() = url.clone();
         monitor.mark_public_endpoint("external", None);
+        let _ = tunnel_settled_tx.send(true);
         url
     } else if args.no_tunnel {
         monitor.mark_public_endpoint("local-only", None);
+        let _ = tunnel_settled_tx.send(true);
         local_url.clone()
     } else {
-        let active = start_managed_tunnel(
-            args.tunnel_provider,
-            &local_url,
-            auth.instance_id(),
-            !args.no_install,
-        )
-        .await?;
-        public_endpoint_preverified = true;
-        monitor.mark_public_endpoint("quick-tunnel", Some(true));
-        monitor.mark_public_url_check(true, None);
-        let public_url = active.public_url().to_owned();
-        tunnel = Some(active);
-        public_url
+        println!("  ↗ tunnel       requesting HTTPS endpoint in the background");
+        monitor.mark_public_endpoint("pending", None);
+        {
+            let forward_tx = tunnel_event_tx.clone();
+            let local_url = local_url.clone();
+            let instance_id = auth.instance_id().to_owned();
+            let install_missing = !args.no_install;
+            let monitor = monitor.clone();
+            let settled_tx = tunnel_settled_tx.clone();
+            let url_slot = shared_public_url.clone();
+            let auth = auth.clone();
+            tokio::spawn(async move {
+                let mut events = spawn_tunnel_supervisor(
+                    args.tunnel_provider,
+                    &local_url,
+                    &instance_id,
+                    install_missing,
+                    monitor,
+                );
+                let mut first = true;
+                while let Some(event) = events.recv().await {
+                    if first {
+                        // Announce the endpoint the moment the first tunnel
+                        // lands so setup-guide/open waits are not blocked on
+                        // the supervision loop starting later.
+                        let _ = settled_tx.send(true);
+                        let TunnelEvent::Connected(active) = &event;
+                        let public_url = active.public_url().to_owned();
+                        *url_slot.write().unwrap() = public_url.clone();
+                        auth.set_public_url(public_url);
+                        first = false;
+                    }
+                    if forward_tx.send(event).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+        local_url.clone()
     };
     auth.set_public_url(public_url.clone());
 
-    if !args.no_tunnel && !public_endpoint_preverified {
+    if args.public_url.is_some() {
         tokio::select! {
             result = &mut server_task => {
                 result.context("local MCP server task failed")??;
@@ -494,34 +534,21 @@ async fn main() -> Result<()> {
                 &monitor,
             ) => {
                 if let Err(error) = result {
-                    if let Some(mut active) = tunnel.take() {
-                        active.stop().await;
-                    }
                     bail!("public endpoint did not become ready: {error}");
                 }
             }
         }
     }
 
-    let (public_health_stop, public_health_stop_rx) = watch::channel(false);
-    let public_health_task = if args.no_tunnel {
-        None
-    } else {
-        Some(tokio::spawn(public_endpoint_health_loop(
-            public_url.clone(),
-            auth.instance_id().to_owned(),
-            monitor.clone(),
-            public_health_stop_rx,
-        )))
-    };
+    let (public_health_stop, _) = watch::channel(false);
+    let mut public_health_task: Option<tokio::task::JoinHandle<()>> = None;
 
     let intelligence_url = format!("{local_url}/intelligence#token={}", auth.ui_token());
     let monitor_config = MonitorConfig {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         instance_id: auth.instance_id().to_owned(),
         local_health_url: format!("{local_url}/healthz"),
-        mcp_url: format!("{public_url}/mcp"),
-        setup_url: public_url.clone(),
+        public_url: shared_public_url.clone(),
         intelligence_url: intelligence_url.clone(),
         project_url: PROJECT_URL.to_owned(),
         author_url: AUTHOR_URL.to_owned(),
@@ -531,16 +558,30 @@ async fn main() -> Result<()> {
         input_token_price_per_million_usd: args.input_token_price_per_million_usd,
         workspaces: workspaces.clone(),
     };
-    let mcp_url = format!("{public_url}/mcp");
     if open_setup {
-        open_setup_hub(&public_url, &mcp_url);
+        let mut settled = tunnel_settled_rx.clone();
+        let url_slot = shared_public_url.clone();
+        tokio::spawn(async move {
+            if !*settled.borrow() {
+                // Providers keep retrying in the background; do not hold the
+                // opener hostage if none of them connects quickly.
+                let _ = timeout(Duration::from_secs(120), settled.changed()).await;
+            }
+            let base = url_slot.read().unwrap().clone();
+            open_setup_hub(&base, &format!("{base}/mcp"));
+        });
     }
     let renderer = monitor.spawn_renderer(monitor_config, args.monitor);
     if renderer.is_none() {
+        let mut settled = tunnel_settled_rx.clone();
+        if !*settled.borrow() {
+            let _ = timeout(Duration::from_secs(120), settled.changed()).await;
+        }
+        let public_url_now = shared_public_url.read().unwrap().clone();
         print_setup_guide(
             &workspaces,
             &local_url,
-            &public_url,
+            &public_url_now,
             auth.pairing_code(),
             &intelligence_url,
             SetupGuideOptions {
@@ -563,36 +604,146 @@ async fn main() -> Result<()> {
                 break;
             },
             _ = tokio::signal::ctrl_c() => break,
+            _ = wait_for_terminate_signal() => break,
             _ = wait_for_monitor_interrupt(monitor_interrupt.clone()) => break,
             Some(action) = control_rx.recv() => {
                 restart_requested = action == runtime_control::ControlAction::Restart;
                 break;
             },
-            _ = sleep(Duration::from_secs(1)) => {
-                let health_failed = monitor.connection_status().public_url_healthy == Some(false);
-                let stopped = if health_failed {
-                    if let Some(mut active) = tunnel.take() {
-                        active.stop().await;
-                    }
-                    Some("public endpoint health failed three times; restarting wcode".to_owned())
-                } else {
-                    match tunnel.as_mut() {
-                        Some(active) => {
+            event = tunnel_event_rx.recv() => {
+                if let Some(TunnelEvent::Connected(active)) = event {
+                        if tunnels.is_empty() {
+                            // No live tunnel yet: this one becomes the primary
+                            // endpoint. Reconnected tunnels never take over an
+                            // existing primary, so retries cannot disturb the
+                            // tunnels that are already up.
+                            let _ = tunnel_settled_tx.send(true);
+                            let public_url = active.public_url().to_owned();
+                            *shared_public_url.write().unwrap() = public_url.clone();
+                            auth.set_public_url(public_url.clone());
+                            if let Some(task) = public_health_task.take() {
+                                task.abort();
+                            }
+                            public_health_task = Some(tokio::spawn(public_endpoint_health_loop(
+                                public_url,
+                                auth.instance_id().to_owned(),
+                                monitor.clone(),
+                                public_health_stop.subscribe(),
+                            )));
+                        }
+                        if let Some(recipient) = args.imessage_to.as_deref() {
                             let provider = active.provider_label();
-                            match active.try_wait() {
-                                Ok(Some(status)) => Some(format!("{provider} tunnel exited with {status}")),
-                                Err(error) => Some(format!("{provider} tunnel status check failed: {error}")),
-                                Ok(None) => None,
+                            let public_url = active.public_url().to_owned();
+                            // One message per provider link: reconnecting with
+                            // the same URL never spams; a changed URL is news.
+                            if imessage_sent.get(provider) == Some(&public_url) {
+                                tunnels.push(active);
+                                continue;
+                            }
+                            imessage_sent.insert(provider.to_owned(), public_url.clone());
+                            let message = format!(
+                                "wcode {provider} tunnel ready\n{public_url}\nMCP {public_url}/mcp\nWeb UI {public_url}/intelligence#token={}\nVerify code {}",
+                                auth.ui_token(),
+                                auth.pairing_code()
+                            );
+                            if let Err(error) = send_imessage(recipient, &message) {
+                                eprintln!("  ! imessage      {error:#}");
                             }
                         }
-                        None => None,
+                        tunnels.push(active);
                     }
+            },
+            _ = sleep(Duration::from_secs(1)) => {
+                // A dead tunnel only takes itself down: after an exponential
+                // backoff, respawn just that provider; everything else stays.
+                pending_respawns.retain(|&(provider, due)| {
+                    if std::time::Instant::now() < due {
+                        return true;
+                    }
+                    let forward_tx = tunnel_event_tx.clone();
+                    let local_url = local_url.clone();
+                    let instance_id = auth.instance_id().to_owned();
+                    let install_missing = !args.no_install;
+                    let monitor = monitor.clone();
+                    tokio::spawn(async move {
+                        let mut events = spawn_tunnel_supervisor(
+                            provider,
+                            &local_url,
+                            &instance_id,
+                            install_missing,
+                            monitor,
+                        );
+                        while let Some(event) = events.recv().await {
+                            if forward_tx.send(event).await.is_err() {
+                                return;
+                            }
+                        }
+                    });
+                    false
+                });
+                let health_failed = monitor.connection_status().public_url_healthy == Some(false);
+                let dead_index = if health_failed {
+                    Some(0usize)
+                } else {
+                    (0..tunnels.len()).find(|&index| {
+                        matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_))
+                    })
                 };
-                if let Some(reason) = stopped {
-                    monitor.mark_tunnel_stopped(reason);
-                    tunnel = None;
-                    restart_requested = true;
-                    break;
+                if let Some(index) = dead_index {
+                    let reason = if health_failed {
+                        "primary endpoint health failed three times".to_owned()
+                    } else {
+                        format!(
+                            "{} tunnel exited with {}",
+                            tunnels[index].provider_label(),
+                            tunnels[index]
+                                .try_wait()
+                                .ok()
+                                .flatten()
+                                .map(|status| status.to_string())
+                                .unwrap_or_else(|| "unknown status".to_owned())
+                        )
+                    };
+                    let dead_provider = tunnels[index].provider();
+                    let dead_url = tunnels[index].public_url().to_owned();
+                    let was_primary = index == 0;
+                    eprintln!("  ! tunnel       {reason}; respawning {}", dead_provider.label());
+                    let mut dead = tunnels.remove(index);
+                    dead.stop().await;
+                    monitor.remove_tunnel(&dead_url);
+                    if tunnels.is_empty() {
+                        monitor.mark_tunnel_stopped(reason);
+                    }
+                    if was_primary {
+                        if let Some(task) = public_health_task.take() {
+                            task.abort();
+                        }
+                        if let Some(next) = tunnels.first() {
+                            let next_url = next.public_url().to_owned();
+                            *shared_public_url.write().unwrap() = next_url.clone();
+                            auth.set_public_url(next_url.clone());
+                            monitor.mark_public_url_check(true, None);
+                            public_health_task = Some(tokio::spawn(public_endpoint_health_loop(
+                                next_url,
+                                auth.instance_id().to_owned(),
+                                monitor.clone(),
+                                public_health_stop.subscribe(),
+                            )));
+                        }
+                    }
+                    let deaths = death_counts
+                        .entry(dead_provider)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                    let backoff_secs = (15u64 << (*deaths - 1).min(4)).min(300);
+                    eprintln!(
+                        "  ! tunnel       {} respawns in {backoff_secs}s (death #{deaths})",
+                        dead_provider.label()
+                    );
+                    pending_respawns.push((
+                        dead_provider,
+                        std::time::Instant::now() + Duration::from_secs(backoff_secs),
+                    ));
                 }
             },
         }
@@ -606,7 +757,7 @@ async fn main() -> Result<()> {
     }
     println!("  ◼ wcode stopped");
 
-    if let Some(mut active) = tunnel.take() {
+    for mut active in tunnels.drain(..) {
         active.stop().await;
     }
     if !server_task_finished {
@@ -620,6 +771,57 @@ async fn main() -> Result<()> {
         spawn_replacement()?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn send_imessage(recipient: &str, text: &str) -> anyhow::Result<()> {
+    let recipient = recipient.trim();
+    if recipient.is_empty() {
+        anyhow::bail!("--imessage-to needs a phone number or email address");
+    }
+    let script = format!(
+        "tell application \"Messages\" to send {} to buddy {} of (service 1 whose service type is iMessage)",
+        applescript_string(text),
+        applescript_string(recipient)
+    );
+    let status = StdCommand::new("osascript")
+        .args(["-e", &script])
+        .stdin(StdStdio::null())
+        .stdout(StdStdio::null())
+        .stderr(StdStdio::piped())
+        .status()
+        .map_err(|error| anyhow::anyhow!("failed to launch osascript: {error}"))?;
+    if !status.success() {
+        anyhow::bail!(
+            "Messages could not deliver to {recipient}; make sure the Messages app is signed in and the recipient uses iMessage"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn send_imessage(recipient: &str, _text: &str) -> anyhow::Result<()> {
+    anyhow::bail!("--imessage-to is only supported on macOS (got {recipient})")
+}
+
+#[cfg(unix)]
+async fn wait_for_terminate_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let Ok(mut stream) = signal(SignalKind::terminate()) else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    stream.recv().await;
+}
+
+#[cfg(not(unix))]
+async fn wait_for_terminate_signal() {
+    std::future::pending::<()>().await;
 }
 
 async fn run_intelligence_cli(
@@ -1068,6 +1270,7 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str) {
     }
 }
 
+
 #[cfg(unix)]
 fn spawn_replacement() -> Result<()> {
     use std::os::unix::process::CommandExt;
@@ -1462,10 +1665,11 @@ mod tests {
         );
         assert_eq!(
             TunnelProvider::auto_candidates(),
-            [
+            vec![
                 TunnelProvider::Cloudflare,
                 TunnelProvider::LocalhostRun,
-                TunnelProvider::Pinggy
+                TunnelProvider::Pinggy,
+                TunnelProvider::Tailscale
             ]
         );
         assert!(is_quick_tunnel_url("https://5d993e65a9d400.lhr.life/mcp"));

@@ -4,6 +4,7 @@ pub(super) fn tunnel_status_text(snapshot: &MonitorSnapshot) -> &'static str {
     match snapshot.tunnel_running {
         Some(true) => "● RUNNING",
         Some(false) => "× EXITED",
+        None if snapshot.public_endpoint.as_deref() == Some("pending") => "◌ CONNECTING",
         None => "○ EXTERNAL / LOCAL",
     }
 }
@@ -32,7 +33,8 @@ pub(super) fn render_setup(
     compact: bool,
     language: UiLanguage,
 ) {
-    let lifecycle = if is_quick_tunnel(&config.mcp_url) {
+    let mcp_url = config.mcp_url();
+    let lifecycle = if is_quick_tunnel(&mcp_url) {
         "TEMPORARY URL"
     } else {
         "FIXED ENDPOINT"
@@ -83,16 +85,9 @@ pub(super) fn render_setup(
     frame.render_widget(block, area);
 
     if compact || inner.width < 78 || inner.height < 7 {
-        let lines = vec![
+        let mut lines = vec![
             setup_step(1, language.tr("Open this wcode setup page")),
             setup_step(2, language.tr("Add the MCP URL and choose OAuth")),
-            Line::from(vec![
-                Span::styled("  MCP  ", Style::default().fg(DIM)),
-                Span::styled(
-                    truncate_middle(&config.mcp_url, inner.width.saturating_sub(8) as usize),
-                    Style::default().fg(BLUE),
-                ),
-            ]),
             Line::from(vec![
                 Span::styled("  VERIFY CODE ", Style::default().fg(DIM)),
                 Span::styled(
@@ -114,6 +109,12 @@ pub(super) fn render_setup(
                 },
             ),
         ];
+        let link_width = inner.width.saturating_sub(8) as usize;
+        if snapshot.tunnels.is_empty() {
+            lines.extend(endpoint_link_lines(snapshot, config, link_width));
+        } else {
+            lines.extend(tunnel_lines(snapshot, link_width));
+        }
         frame.render_widget(Paragraph::new(lines), inner);
         return;
     }
@@ -136,16 +137,6 @@ pub(super) fn render_setup(
             setup_step(2, language.tr("Choose a compatible AI client")),
             setup_step(3, language.tr("Add MCP URL · Auth: OAuth")),
             Line::from(vec![
-                Span::styled("  MCP   ", Style::default().fg(DIM)),
-                Span::styled(
-                    truncate_middle(
-                        &config.mcp_url,
-                        columns[0].width.saturating_sub(10) as usize,
-                    ),
-                    Style::default().fg(BLUE),
-                ),
-            ]),
-            Line::from(vec![
                 Span::styled("  VERIFY CODE  ", Style::default().fg(DIM)),
                 Span::styled(
                     &config.pairing_code,
@@ -153,7 +144,18 @@ pub(super) fn render_setup(
                 ),
                 Span::styled("   press O to reopen setup", Style::default().fg(GRAY)),
             ]),
-        ])
+        ]
+        .into_iter()
+        .chain(if snapshot.tunnels.is_empty() {
+            endpoint_link_lines(
+                snapshot,
+                config,
+                columns[0].width.saturating_sub(10) as usize,
+            )
+        } else {
+            tunnel_lines(snapshot, columns[0].width.saturating_sub(10) as usize)
+        })
+        .collect::<Vec<_>>())
         .block(left),
         columns[0],
     );
@@ -184,18 +186,54 @@ pub(super) fn render_setup(
                 },
             ),
             setup_state(mcp_seen, "MCP", &mcp_detail),
-            setup_state(snapshot.chatgpt_connected, "MCP client", "connected"),
-            Line::from(vec![
-                Span::styled("  LAST  ", Style::default().fg(DIM)),
-                Span::styled(
-                    last_seen_text(snapshot.last_mcp_seen),
-                    Style::default().fg(GRAY),
-                ),
-                Span::styled("   ·   Remote MCP", Style::default().fg(PURPLE)),
-            ]),
         ]),
         columns[1],
     );
+}
+
+fn tunnel_lines(snapshot: &MonitorSnapshot, width: usize) -> Vec<Line<'static>> {
+    snapshot
+        .tunnels
+        .iter()
+        .map(|(provider, url)| {
+            Line::from(vec![
+                Span::styled(format!("  {provider:<12}"), Style::default().fg(DIM)),
+                Span::styled(
+                    truncate_middle(&format!("{url}/mcp"), width),
+                    Style::default().fg(BLUE),
+                ),
+            ])
+        })
+        .collect()
+}
+
+/// Fallback link row shown while tunnels are still connecting or when the
+/// endpoint is fixed (external URL) or local-only.
+fn endpoint_link_lines(
+    snapshot: &MonitorSnapshot,
+    config: &MonitorConfig,
+    width: usize,
+) -> Vec<Line<'static>> {
+    match snapshot.public_endpoint.as_deref() {
+        Some("pending") => vec![Line::from(Span::styled(
+            "  TUNNELS      connecting…",
+            Style::default().fg(GRAY),
+        ))],
+        Some("local-only") => vec![Line::from(vec![
+            Span::styled("  LOCAL        ", Style::default().fg(DIM)),
+            Span::styled(
+                truncate_middle(&config.mcp_url(), width),
+                Style::default().fg(BLUE),
+            ),
+        ])],
+        _ => vec![Line::from(vec![
+            Span::styled("  MCP          ", Style::default().fg(DIM)),
+            Span::styled(
+                truncate_middle(&config.mcp_url(), width),
+                Style::default().fg(BLUE),
+            ),
+        ])],
+    }
 }
 
 fn setup_step(number: u8, label: &str) -> Line<'static> {
@@ -993,7 +1031,7 @@ pub(super) fn render_help_overlay(
                 help_hint_line("^C", language.tr("stop wcode")),
                 help_link_line(language.tr("Project"), &config.project_url, inner.width),
                 help_link_line(language.tr("Author"), &config.author_url, inner.width),
-                help_link_line(language.tr("Setup"), &config.setup_url, inner.width),
+                help_link_line(language.tr("Setup"), config.setup_url().as_str(), inner.width),
                 help_link_line(language.tr("Health"), &config.local_health_url, inner.width),
             ]),
             inner,
@@ -1077,7 +1115,7 @@ pub(super) fn render_help_overlay(
                 columns[1].width,
             ),
             help_link_line(language.tr("Author"), &config.author_url, columns[1].width),
-            help_link_line(language.tr("Setup"), &config.setup_url, columns[1].width),
+            help_link_line(language.tr("Setup"), config.setup_url().as_str(), columns[1].width),
             help_link_line(
                 language.tr("Health"),
                 &config.local_health_url,

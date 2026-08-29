@@ -25,6 +25,7 @@ impl TaskMonitor {
                 last_initialize: None,
                 last_mcp_seen: None,
                 public_endpoint: None,
+                tunnels: Vec::new(),
                 public_url_healthy: None,
                 public_url_last_checked: None,
                 public_url_consecutive_failures: 0,
@@ -213,6 +214,31 @@ impl TaskMonitor {
         state.public_endpoint = Some(mode.into());
         state.tunnel_running = tunnel_running;
         state.tunnel_error = None;
+    }
+
+    pub fn register_tunnel(&self, provider: &str, public_url: &str) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        if state
+            .tunnels
+            .iter()
+            .any(|(existing_provider, url)| existing_provider == provider && url == public_url)
+        {
+            return;
+        }
+        state.tunnels.push((provider.to_owned(), public_url.to_owned()));
+    }
+
+    pub fn tunnel_links(&self) -> Vec<(String, String)> {
+        let state = self.state.lock().expect("task monitor lock poisoned");
+        state.tunnels.clone()
+    }
+
+    pub fn remove_tunnel(&self, public_url: &str) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        state.tunnels.retain(|(_, url)| url != public_url);
+        if state.tunnels.is_empty() && state.public_endpoint.as_deref() == Some("quick-tunnel") {
+            state.public_endpoint = Some("pending".to_owned());
+        }
     }
 
     pub fn mark_tunnel_stopped(&self, error: impl Into<String>) {
@@ -433,6 +459,7 @@ impl TaskMonitor {
             last_initialize: state.last_initialize,
             last_mcp_seen: state.last_mcp_seen,
             public_endpoint: state.public_endpoint.clone(),
+            tunnels: state.tunnels.clone(),
             public_url_healthy: state.public_url_healthy,
             public_url_last_checked: state.public_url_last_checked,
             public_url_consecutive_failures: state.public_url_consecutive_failures,
