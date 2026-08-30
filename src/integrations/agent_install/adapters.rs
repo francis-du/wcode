@@ -13,6 +13,7 @@ pub(crate) struct AgentHost {
     pub name: &'static str,
     pub binaries: &'static [&'static str],
     pub project_markers: &'static [&'static str],
+    #[cfg(target_os = "macos")]
     pub mac_apps: &'static [&'static str],
     pub adapter: AdapterKind,
     pub guidance: &'static str,
@@ -241,11 +242,14 @@ const fn host(
     adapter: AdapterKind,
     guidance: &'static str,
 ) -> AgentHost {
+    #[cfg(not(target_os = "macos"))]
+    let _ = mac_apps;
     AgentHost {
         id,
         name,
         binaries,
         project_markers,
+        #[cfg(target_os = "macos")]
         mac_apps,
         adapter,
         guidance,
