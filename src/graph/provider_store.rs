@@ -10,10 +10,12 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_PROVIDER_RECORDS: usize = 256;
 const MAX_PROVIDER_RECORD_BYTES: u64 = 8 * 1024 * 1024;
+static LAST_IMPORTED_AT_MS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StoredGraphProvider {
@@ -46,7 +48,7 @@ pub(crate) fn persist(
 ) -> Result<StoredGraphProvider> {
     import.validate()?;
     let stored = StoredGraphProvider {
-        imported_at_ms: now_ms(),
+        imported_at_ms: next_imported_at_ms(),
         import: import.clone(),
     };
     let bytes = serde_json::to_vec(&stored).context("cannot encode graph provider import")?;
@@ -294,11 +296,24 @@ fn digest_bytes(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
+fn next_imported_at_ms() -> u64 {
+    let wall_clock = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
+        .unwrap_or(0);
+    let mut previous = LAST_IMPORTED_AT_MS.load(Ordering::Relaxed);
+    loop {
+        let next = wall_clock.max(previous.saturating_add(1));
+        match LAST_IMPORTED_AT_MS.compare_exchange_weak(
+            previous,
+            next,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return next,
+            Err(current) => previous = current,
+        }
+    }
 }
 
 #[cfg(test)]

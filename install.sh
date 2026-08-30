@@ -4,9 +4,11 @@ set -eu
 REPO="francis-du/wcode"
 INSTALL_DIR="${WCODE_INSTALL_DIR:-$HOME/.local/bin}"
 TMP_DIR="${TMPDIR:-/tmp}/wcode-install-$$"
+install_tmp=""
 
 cleanup() {
   rm -rf "$TMP_DIR"
+  [ -z "$install_tmp" ] || rm -f "$install_tmp"
 }
 trap cleanup EXIT INT TERM
 
@@ -20,17 +22,21 @@ fail() {
 }
 
 version="${WCODE_VERSION:-latest}"
-case "$version" in
-  latest)
-    BASE_URL="https://github.com/${REPO}/releases/latest/download"
-    ;;
-  *[!A-Za-z0-9._-]*|'')
-    fail "invalid WCODE_VERSION: $version"
-    ;;
-  *)
-    BASE_URL="https://github.com/${REPO}/releases/download/${version}"
-    ;;
-esac
+if [ -n "${WCODE_BASE_URL:-}" ]; then
+  BASE_URL="${WCODE_BASE_URL%/}"
+else
+  case "$version" in
+    latest)
+      BASE_URL="https://github.com/${REPO}/releases/latest/download"
+      ;;
+    *[!A-Za-z0-9._-]*|'')
+      fail "invalid WCODE_VERSION: $version"
+      ;;
+    *)
+      BASE_URL="https://github.com/${REPO}/releases/download/${version}"
+      ;;
+  esac
+fi
 
 if ! command_exists curl; then
   fail "curl is required"
@@ -52,11 +58,8 @@ case "$os" in
     ;;
   Darwin)
     case "$arch" in
-      arm64|aarch64)
-        archive="wcode-macos-aarch64.tar.gz"
-        ;;
-      x86_64|amd64)
-        archive="wcode-macos-x86_64.tar.gz"
+      arm64|aarch64|x86_64|amd64)
+        archive="wcode-macos-universal.tar.gz"
         ;;
       *)
         fail "unsupported macOS architecture: $arch"
@@ -100,8 +103,23 @@ binary=$(find "$TMP_DIR/package" -type f -name wcode -print | head -n 1)
 [ -n "$binary" ] || fail "wcode binary was not found in the release archive"
 
 install_path="$INSTALL_DIR/wcode"
-cp "$binary" "$install_path"
-chmod 755 "$install_path"
+install_tmp="$INSTALL_DIR/.wcode-install-$$"
+rm -f "$install_tmp"
+cp "$binary" "$install_tmp"
+chmod 755 "$install_tmp"
+
+if [ "$os" = "Darwin" ] && command_exists codesign; then
+  codesign --verify --strict "$install_tmp" >/dev/null 2>&1 \
+    || fail "downloaded macOS binary has an invalid code signature"
+fi
+
+"$install_tmp" --version >/dev/null \
+  || fail "downloaded binary failed the version smoke test"
+"$install_tmp" --help >/dev/null \
+  || fail "downloaded binary failed the help smoke test"
+
+mv -f "$install_tmp" "$install_path"
+install_tmp=""
 
 printf '\nInstalled wcode to %s\n' "$install_path"
 

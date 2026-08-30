@@ -63,7 +63,7 @@ fn latest_provider_revision_wins_without_losing_other_providers() {
         }],
         edges: vec![],
     };
-    persist(&workspace, &first).unwrap();
+    let first_stored = persist(&workspace, &first).unwrap();
     let second = GraphProviderImport {
         revision: "two".into(),
         nodes: vec![GraphImportNode {
@@ -79,7 +79,8 @@ fn latest_provider_revision_wins_without_losing_other_providers() {
         }],
         ..first
     };
-    persist(&workspace, &second).unwrap();
+    let second_stored = persist(&workspace, &second).unwrap();
+    assert!(second_stored.imported_at_ms > first_stored.imported_at_ms);
     let latest = load_latest(&workspace).unwrap();
     assert_eq!(latest.len(), 1);
     assert_eq!(latest[0].import.revision, "two");

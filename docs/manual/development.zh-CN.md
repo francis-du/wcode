@@ -154,6 +154,6 @@ Documentation Change 必须保持 Reciprocal `alternate` Route、每对页面相
 - macOS Universal；
 - Windows x86_64。
 
-Packaged Binary 必须返回预期 `wcode --version`。Archive / Checksum 属于 Release Artifact；历史 Release Note 只描述对应 Tagged Version，不能因为后续产品变化被批量改成当前语义。
+Packaged Binary 必须返回预期 `wcode --version`，并能成功渲染 `wcode --help`。macOS Artifact 在最终 strip / lipo 后必须重新做 ad-hoc Codesign，并通过 `codesign` 验证；Universal Archive 在上传前还必须通过 `install.sh` 完成一次真实 Release Smoke Test。Unix Installer 先把下载 Binary 暂存并执行 Smoke Test，确认成功后再原子替换现有安装。Archive / Checksum 属于 Release Artifact；历史 Release Note 只描述对应 Tagged Version，不能因为后续产品变化被批量改成当前语义。
 
-Cargo / Package Metadata 与生成 Agent Plugin / Marketplace Manifest 的版本一致性是 Release Gate。历史文档保留历史 Version，当前 Package / Plugin Manifest 对齐正在准备的 Release。Local Check 通过并不授权自动 Commit、Tag、Push 或 Publish；这些始终是显式 Release Action。
+Cargo / Package Metadata 与生成 Agent Plugin / Marketplace Manifest 的版本一致性是 Release Gate。Tag Push 是唯一自动 Publish Trigger；由它生成的 GitHub Release 被发布后，不能再启动第二套重复 Release Pipeline。历史文档保留历史 Version，当前 Package / Plugin Manifest 对齐正在准备的 Release。Local Check 通过并不授权自动 Commit、Tag、Push 或 Publish；这些始终是显式 Release Action。

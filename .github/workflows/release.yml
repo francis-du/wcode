@@ -5,8 +5,6 @@ on:
     branches: [main, master]
     tags: ["v*"]
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -17,10 +15,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: wcode-${{ github.workflow }}-${{ github.event.pull_request.number || inputs.release_tag || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') && inputs.release_tag == '' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   quality:
@@ -56,7 +58,7 @@ jobs:
           intelligence --check --json
 
       - name: Validate release version consistency
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         shell: bash
         run: |
           package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
@@ -116,7 +118,7 @@ jobs:
 
   build:
     name: Build release ${{ matrix.name }}
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
     needs: test
     strategy:
       fail-fast: false
@@ -170,7 +172,15 @@ jobs:
           install -m 755 "dist/candidates/wcode-${selected_opt}" dist/package/wcode
           cp README.md dist/package/README.md
           dist/package/wcode --version
+          dist/package/wcode --help >/dev/null
           tar -C dist/package -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
+          (
+            cd dist
+            sha256sum "${{ matrix.archive }}" > SHA256SUMS
+          )
+          WCODE_BASE_URL="file://$PWD/dist" \
+            WCODE_INSTALL_DIR="$PWD/dist/install-smoke" \
+            sh install.sh
           binary_bytes=$(stat -c%s dist/package/wcode)
           archive_bytes=$(stat -c%s "dist/${{ matrix.archive }}")
           {
@@ -212,18 +222,46 @@ jobs:
 
           install -m 755 "dist/candidates/wcode-aarch64-apple-darwin-${arm64_opt}" dist/package-arm64/wcode
           install -m 755 "dist/candidates/wcode-x86_64-apple-darwin-${x86_64_opt}" dist/package-x86_64/wcode
+
+          # Cargo's release profile strips symbols. Apple Silicon requires a valid
+          # signature after any post-link binary modification, so re-sign every
+          # distributed Mach-O before packaging it.
+          codesign --force --sign - dist/package-arm64/wcode
+          codesign --force --sign - dist/package-x86_64/wcode
           lipo -create \
             dist/package-arm64/wcode \
             dist/package-x86_64/wcode \
             -output dist/package-universal/wcode
           chmod +x dist/package-universal/wcode
+          codesign --force --sign - dist/package-universal/wcode
+          for binary in \
+            dist/package-arm64/wcode \
+            dist/package-x86_64/wcode \
+            dist/package-universal/wcode
+          do
+            codesign --verify --strict --verbose=2 "$binary"
+          done
+
           cp README.md dist/package-universal/README.md
           cp README.md dist/package-arm64/README.md
           cp README.md dist/package-x86_64/README.md
+          dist/package-arm64/wcode --version
+          dist/package-arm64/wcode --help >/dev/null
           dist/package-universal/wcode --version
+          dist/package-universal/wcode --help >/dev/null
           COPYFILE_DISABLE=1 tar -C dist/package-universal -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
           COPYFILE_DISABLE=1 tar -C dist/package-arm64 -cf - . | gzip -9n > dist/wcode-macos-aarch64.tar.gz
           COPYFILE_DISABLE=1 tar -C dist/package-x86_64 -cf - . | gzip -9n > dist/wcode-macos-x86_64.tar.gz
+          (
+            cd dist
+            shasum -a 256 \
+              "${{ matrix.archive }}" \
+              wcode-macos-aarch64.tar.gz \
+              wcode-macos-x86_64.tar.gz > SHA256SUMS
+          )
+          WCODE_BASE_URL="file://$PWD/dist" \
+            WCODE_INSTALL_DIR="$PWD/dist/install-smoke" \
+            sh install.sh
           universal_binary_bytes=$(stat -f%z dist/package-universal/wcode)
           universal_archive_bytes=$(stat -f%z "dist/${{ matrix.archive }}")
           arm64_binary_bytes=$(stat -f%z dist/package-arm64/wcode)
@@ -298,7 +336,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
     needs: build
     runs-on: ubuntu-latest
     permissions:
