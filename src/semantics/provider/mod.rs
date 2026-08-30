@@ -1,4 +1,5 @@
 use crate::authorization::AuthorizationKind;
+use crate::evidence_store::workspace_state_directory;
 use crate::graph::{
     EdgeKind, GraphImportEdge, GraphImportNode, GraphPrecision, GraphProviderImport, NodeKind,
 };
@@ -163,7 +164,11 @@ pub struct SemanticProviderStatus {
     pub executable: Option<String>,
     pub detected: bool,
     pub available: bool,
+    pub available_candidates: usize,
+    pub canonical: bool,
     pub automatic: bool,
+    pub launch_ready: bool,
+    pub session_validated: bool,
     pub runnable: bool,
     pub precision: &'static str,
     pub reason: String,
@@ -187,11 +192,15 @@ pub struct SemanticProviderRefresh {
     pub statuses: Vec<SemanticProviderStatus>,
     pub runs: Vec<SemanticProviderRun>,
     pub imports: Vec<GraphProviderImport>,
+    pub fallbacks: Vec<String>,
     pub failures: Vec<String>,
     pub truncated: bool,
 }
 
-pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
+pub fn status(
+    workspace: &Workspace,
+    sessions: Option<&SemanticSessionPool>,
+) -> Result<Vec<SemanticProviderStatus>> {
     let files = workspace.source_files(".", 5_000)?.0;
     let languages = files
         .iter()
@@ -201,21 +210,42 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
         .into_iter()
         .map(|language| {
             let present = languages.contains(&language);
-            let selected = select_provider(workspace, language);
+            let candidates = provider_candidates(workspace, language);
+            let selected = sessions
+                .and_then(|sessions| {
+                    candidates.iter().find(|(provider, executable)| {
+                        sessions.validated(workspace, *provider, executable)
+                    })
+                })
+                .cloned()
+                .or_else(|| candidates.first().cloned());
             let available = selected.is_some();
+            let available_candidates = candidates.len();
+            let canonical = selected
+                .as_ref()
+                .is_some_and(|(provider, _)| provider.canonical);
             let automatic = selected
                 .as_ref()
                 .is_some_and(|(provider, _)| automatic_provider(*provider));
             let authorized = automatic
                 || workspace.risky_exec_enabled()
-                || selected.as_ref().is_some_and(|(provider, _)| {
-                    workspace.risky_operation_authorized(&provider_session_operation(provider.id))
+                || selected.as_ref().is_some_and(|(provider, executable)| {
+                    provider_session_operation(workspace, *provider, executable).is_ok_and(
+                        |operation| workspace.risky_operation_authorized(&operation),
+                    )
                 });
-            let runnable = present
+            let launch_ready = present
                 && available
                 && workspace.exec_enabled()
                 && workspace.semantic_exec_enabled()
                 && authorized;
+            let session_validated = launch_ready
+                && selected.as_ref().is_some_and(|(provider, executable)| {
+                    sessions.is_some_and(|sessions| {
+                        sessions.validated(workspace, *provider, executable)
+                    })
+                });
+            let runnable = launch_ready && session_validated;
             let reason = if !present {
                 "no matching source files detected".to_owned()
             } else if !available {
@@ -224,12 +254,16 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
                 "command execution is disabled".to_owned()
             } else if !workspace.semantic_exec_enabled() {
                 "semantic LSP execution is disabled by --no-semantic".to_owned()
-            } else if automatic {
-                "automatic bounded semantic provider is enabled".to_owned()
             } else if !authorized {
-                "this language server requires an exact local RiskyExecution approval (or process-wide --allow-risky-exec) before it may load repository-controlled project configuration".to_owned()
+                "this language server requires a Workspace + Provider + binary-identity RiskyExecution approval (or process-wide --allow-risky-exec) before it may load repository-controlled project configuration".to_owned()
+            } else if !session_validated {
+                if automatic {
+                    "automatic semantic provider is launch-ready; live validation is pending the first successful LSP initialize".to_owned()
+                } else {
+                    "semantic provider is launch-ready and authorized; live validation is pending the first successful LSP initialize".to_owned()
+                }
             } else {
-                "semantic LSP provider is authorized".to_owned()
+                "semantic provider completed live LSP initialization for the current provider binary".to_owned()
             };
             SemanticProviderStatus {
                 language,
@@ -239,7 +273,11 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
                     .map(|(_, path)| path.display().to_string()),
                 detected: present,
                 available,
+                available_candidates,
+                canonical,
                 automatic,
+                launch_ready,
+                session_validated,
                 runnable,
                 precision: if runnable { "semantic" } else { "syntax-fallback" },
                 reason,
@@ -248,19 +286,30 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
         .collect())
 }
 
-fn provider_session_operation(provider: &str) -> String {
-    format!("semantic_provider_session\0{provider}")
+fn provider_session_operation(
+    workspace: &Workspace,
+    provider: ProviderCandidate,
+    executable: &Path,
+) -> Result<String> {
+    Ok(format!(
+        "semantic_provider_session\0{}",
+        session::session_key(workspace, provider, executable)?
+    ))
 }
 
-fn authorize_provider_session(workspace: &Workspace, provider: ProviderCandidate) -> Result<()> {
+fn authorize_provider_session(
+    workspace: &Workspace,
+    provider: ProviderCandidate,
+    executable: &Path,
+) -> Result<()> {
     if automatic_provider(provider) || workspace.risky_exec_enabled() {
         return Ok(());
     }
     workspace.authorize_risky_operation(
         AuthorizationKind::RiskyExecution,
-        &provider_session_operation(provider.id),
+        &provider_session_operation(workspace, provider, executable)?,
         &format!(
-            "allow warm semantic-provider session for {}; the language server may load repository-controlled project configuration",
+            "allow warm semantic-provider session for {} at the current provider-binary identity; the language server may load repository-controlled project configuration",
             provider.id
         ),
     )
@@ -315,7 +364,6 @@ async fn refresh_impl(
     existing: &BTreeMap<String, GraphProviderImport>,
     automatic_only: bool,
 ) -> Result<SemanticProviderRefresh> {
-    let statuses = status(workspace)?;
     if !workspace.exec_enabled() {
         bail!("semantic provider refresh requires command execution; restart without --no-exec");
     }
@@ -345,13 +393,14 @@ async fn refresh_impl(
     }
 
     if !automatic_only {
-        for (provider, _, _) in assignments.values() {
-            authorize_provider_session(workspace, *provider)?;
+        for (provider, executable, _) in assignments.values() {
+            authorize_provider_session(workspace, *provider, executable)?;
         }
     }
 
     let mut runs = Vec::new();
     let mut imports = Vec::new();
+    let mut fallbacks = Vec::new();
     let mut failures = Vec::new();
     let mut truncated = scan_truncated;
     for (_, (provider, executable, files)) in assignments {
@@ -401,42 +450,141 @@ async fn refresh_impl(
             });
             continue;
         }
-        let outcome = timeout(
-            LSP_PROVIDER_TIMEOUT,
-            build_provider_import(
-                sessions,
-                workspace,
-                provider,
-                &executable,
-                &prepared,
-                max_symbols,
-                revision,
-            ),
+        match build_provider_import_timed(
+            sessions,
+            workspace,
+            provider,
+            &executable,
+            &prepared,
+            max_symbols,
+            revision,
         )
-        .await;
-        match outcome {
-            Ok(Ok((import, run, was_truncated))) => {
+        .await
+        {
+            Ok((import, run, was_truncated)) => {
                 truncated |= was_truncated;
                 runs.push(run);
                 imports.push(import);
             }
-            Ok(Err(error)) => {
+            Err(primary_error) => {
                 sessions.invalidate(workspace, provider, &executable);
-                failures.push(format!("{}: {error}", provider.id));
-            }
-            Err(_) => {
-                sessions.invalidate(workspace, provider, &executable);
-                failures.push(format!("{}: provider timed out", provider.id));
+                let fallback = (!automatic_only)
+                    .then(|| alternate_provider_for_sources(workspace, provider, &prepared))
+                    .flatten();
+                let Some((alternate, alternate_executable)) = fallback else {
+                    failures.push(format!("{}: {primary_error}", provider.id));
+                    continue;
+                };
+                if let Err(error) =
+                    authorize_provider_session(workspace, alternate, &alternate_executable)
+                {
+                    failures.push(format!(
+                        "{}: {primary_error}; fallback {} authorization failed: {error}",
+                        provider.id, alternate.id
+                    ));
+                    continue;
+                }
+                let alternate_revision =
+                    provider_revision(alternate, &alternate_executable, max_symbols, &prepared);
+                match build_provider_import_timed(
+                    sessions,
+                    workspace,
+                    alternate,
+                    &alternate_executable,
+                    &prepared,
+                    max_symbols,
+                    alternate_revision,
+                )
+                .await
+                {
+                    Ok((import, run, was_truncated)) => {
+                        fallbacks.push(format!(
+                            "{} failed; used {} for {}",
+                            provider.id,
+                            alternate.id,
+                            prepared
+                                .iter()
+                                .map(|source| source.language.as_str())
+                                .collect::<BTreeSet<_>>()
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        ));
+                        truncated |= was_truncated;
+                        runs.push(run);
+                        imports.push(import);
+                    }
+                    Err(alternate_error) => {
+                        sessions.invalidate(workspace, alternate, &alternate_executable);
+                        failures.push(format!(
+                            "{}: {primary_error}; fallback {}: {alternate_error}",
+                            provider.id, alternate.id
+                        ));
+                    }
+                }
             }
         }
     }
     Ok(SemanticProviderRefresh {
-        statuses,
+        statuses: status(workspace, Some(sessions))?,
         runs,
         imports,
+        fallbacks,
         failures,
         truncated,
     })
+}
+
+async fn build_provider_import_timed(
+    sessions: &SemanticSessionPool,
+    workspace: &Workspace,
+    provider: ProviderCandidate,
+    executable: &Path,
+    prepared: &[PreparedSemanticSource],
+    max_symbols: usize,
+    revision: String,
+) -> Result<(GraphProviderImport, SemanticProviderRun, bool)> {
+    timeout(
+        LSP_PROVIDER_TIMEOUT,
+        build_provider_import(
+            sessions,
+            workspace,
+            provider,
+            executable,
+            prepared,
+            max_symbols,
+            revision,
+        ),
+    )
+    .await
+    .map_err(|_| anyhow!("provider timed out"))?
+}
+
+fn alternate_provider_for_sources(
+    workspace: &Workspace,
+    current: ProviderCandidate,
+    prepared: &[PreparedSemanticSource],
+) -> Option<(ProviderCandidate, PathBuf)> {
+    let languages = prepared
+        .iter()
+        .map(|source| source.language)
+        .collect::<BTreeSet<_>>();
+    PROVIDERS
+        .iter()
+        .copied()
+        .filter(|provider| provider.id != current.id)
+        .filter(|provider| {
+            languages
+                .iter()
+                .all(|language| provider.languages.contains(language))
+        })
+        .find_map(|provider| {
+            provider
+                .executables
+                .iter()
+                .find_map(|executable| find_executable(workspace, executable))
+                .map(|path| (provider, path))
+        })
 }
 
 struct PreparedSemanticSource {
@@ -675,17 +823,56 @@ pub(crate) fn provider_available_for_path(workspace: &Workspace, path: &str) -> 
             .is_some()
 }
 
-fn select_provider(
+fn provider_candidates(
     workspace: &Workspace,
     language: SemanticLanguage,
-) -> Option<(ProviderCandidate, PathBuf)> {
+) -> Vec<(ProviderCandidate, PathBuf)> {
     PROVIDERS
         .iter()
         .copied()
         .filter(|provider| provider.languages.contains(&language))
-        .find_map(|provider| {
-            find_executable(workspace, provider.executable).map(|path| (provider, path))
+        .filter_map(|provider| {
+            provider
+                .executables
+                .iter()
+                .find_map(|executable| find_executable(workspace, executable))
+                .map(|path| (provider, path))
         })
+        .collect()
+}
+
+fn select_provider(
+    workspace: &Workspace,
+    language: SemanticLanguage,
+) -> Option<(ProviderCandidate, PathBuf)> {
+    provider_candidates(workspace, language).into_iter().next()
+}
+
+fn provider_launch_args(workspace: &Workspace, provider: ProviderCandidate) -> Result<Vec<String>> {
+    let mut args = provider
+        .args
+        .iter()
+        .map(|arg| (*arg).to_owned())
+        .collect::<Vec<_>>();
+    match provider.id {
+        "dart-language-server" => {
+            args.extend([
+                "--client-id".to_owned(),
+                "wcode".to_owned(),
+                "--client-version".to_owned(),
+                env!("CARGO_PKG_VERSION").to_owned(),
+            ]);
+        }
+        "jdtls" => {
+            let data = workspace_state_directory(workspace)?
+                .join("lsp/jdtls")
+                .join(std::process::id().to_string());
+            std::fs::create_dir_all(&data)?;
+            args.extend(["-data".to_owned(), data.display().to_string()]);
+        }
+        _ => {}
+    }
+    Ok(args)
 }
 
 fn trusted_provider_path(workspace: &Workspace, candidate: &Path) -> Option<PathBuf> {

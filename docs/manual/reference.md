@@ -167,8 +167,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | External SCIP/LSP/compiler/runtime graph facts. |
 | `semantic_status` / `semantic_query` | Persistent candidate/confirmed/retired semantic facts. |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | Human-governed semantic lifecycle. |
-| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
-| `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; unavailable providers return explicit syntax fallback. |
+| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Status exposes the selected provider, `canonical`, `available_candidates`, `launch_ready`, and `session_validated`; `runnable` becomes true only after live initialization. Refresh reports canonical→alternate recovery in `fallbacks`. All 22 indexed languages have one tested canonical launch profile. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
+| `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; unavailable providers return explicit syntax fallback; `unsupported` capabilities and LSP `failures` remain separate from successful empty relationship sets. |
 | `language_quality_status` / `language_quality_run` | Explicit syntax/semantic/format/lint/type/static/test/security capability matrix and check-only execution. |
 
 ### Change, risk, verification, and evidence
@@ -204,7 +204,7 @@ The model may request access; it cannot approve itself. Pending requests are dec
 Important distinctions:
 
 - **Executable access (`CommandAccess`)** authorizes a bare executable for one Workspace.
-- **Exact repository operation (`RiskyExecution`)** authorizes one operation fingerprint for that Workspace and session.
+- **Fingerprint-scoped trust (`RiskyExecution`)** authorizes only the requested trust fingerprint in that Workspace and session. Command/repository mutations bind the exact operation and arguments; a non-automatic warm semantic provider binds Workspace + Provider + current provider-binary identity so refresh/navigation can reuse that exact provider without granting a replacement binary or other providers.
 - **RuntimeExecutor** covers one exact advanced verification executor operation.
 - **Destructive delete** is one-shot and separate from reusable session grants.
 

@@ -200,6 +200,12 @@ WebUI 的相对路径从当前选中的 Workspace 解析，符号链接子目录
 `cargo fmt`、另一个 Workspace 或另一个子空间。拒绝请求不会留下
 授权。
 
+Semantic Provider Trust 与上述 Command Label 分离。未进入 Automatic
+Profile 的 Warm LSP 使用绑定 Workspace + Provider + 当前 Provider Binary
+Identity 的 `RiskyExecution`；批准后 Refresh/Navigation 可以复用这一份
+Provider，但替换后的 Binary、其他 Provider 或无关 Repository Operation
+都不会继承旧 Grant。
+
 ## 9. 排查方法
 
 - 运行 `agent-plugin --install-all --dry-run --json`，查看客户端的
@@ -213,8 +219,8 @@ WebUI 的相对路径从当前选中的 Workspace 解析，符号链接子目录
   完成 OAuth，不要手工塞静态令牌。
 - 旧客户端使用 SSE 时配置 `/sse`；第一条事件会给出对应的
   `/message?sessionId=...`。
-- 命令重试仍被阻断时，先看待处理请求属于“可执行程序访问”还是
-  “精确仓库操作”，再在正确 Workspace 批准那一条。
+- 重试仍被阻断时，先看待处理请求属于“可执行程序访问”、“精确仓库操作”
+  还是 Semantic Provider Session，再在正确 Workspace 只批准对应请求。
 
 ## 10. 主要依据
 

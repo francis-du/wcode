@@ -45,7 +45,15 @@ pub struct SemanticNavigationResult {
     pub outgoing_calls: Vec<SemanticLocation>,
     pub hover: Option<String>,
     pub unsupported: Vec<&'static str>,
+    pub failures: Vec<&'static str>,
     pub truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NavigationQueryStatus {
+    Ok,
+    Unsupported,
+    Failed,
 }
 
 pub(crate) async fn navigate(
@@ -69,15 +77,48 @@ pub(crate) async fn navigate(
     let source = workspace.load_source(path)?;
     let language = language_for_path(&source.path)
         .ok_or_else(|| anyhow!("semantic navigation does not support this source language"))?;
-    let (provider, executable) = select_provider(workspace, language).ok_or_else(|| {
-        anyhow!(
+    let candidates = provider_candidates(workspace, language);
+    if candidates.is_empty() {
+        bail!(
             "no trusted semantic provider is available for {}",
             language.as_str()
+        );
+    }
+    let mut startup_failures = Vec::new();
+    let mut selected = None;
+    for (provider, executable) in candidates {
+        if let Err(error) = authorize_provider_session(workspace, provider, &executable) {
+            if startup_failures.is_empty() {
+                return Err(error);
+            }
+            startup_failures.push(format!("{} authorization: {error}", provider.id));
+            break;
+        }
+        let handle = match sessions.handle(workspace, provider, &executable) {
+            Ok(handle) => handle,
+            Err(error) => {
+                startup_failures.push(format!("{} session: {error}", provider.id));
+                continue;
+            }
+        };
+        match handle.ensure_started(workspace, provider).await {
+            Ok(reused) => {
+                selected = Some((provider, executable, handle, reused));
+                break;
+            }
+            Err(error) => {
+                sessions.invalidate(workspace, provider, &executable);
+                startup_failures.push(format!("{} initialize: {error}", provider.id));
+            }
+        }
+    }
+    let (provider, _executable, handle, session_reused) = selected.ok_or_else(|| {
+        anyhow!(
+            "no installed semantic provider could initialize for {}: {}",
+            language.as_str(),
+            startup_failures.join("; ")
         )
     })?;
-    authorize_provider_session(workspace, provider)?;
-    let handle = sessions.handle(workspace, provider, &executable)?;
-    let session_reused = handle.ensure_started(workspace, provider).await?;
     let mut guard = handle.lock().await;
     let session = guard
         .as_mut()
@@ -106,6 +147,7 @@ pub(crate) async fn navigate(
         outgoing_calls: Vec::new(),
         hover: None,
         unsupported: Vec::new(),
+        failures: Vec::new(),
         truncated: false,
     };
 
@@ -139,7 +181,7 @@ pub(crate) async fn navigate(
 
     if want_definition {
         result.queried.push("definition");
-        let (locations, supported, truncated) = query_locations(
+        let (locations, status, truncated) = query_locations(
             workspace,
             session,
             "definitionProvider",
@@ -150,21 +192,25 @@ pub(crate) async fn navigate(
         .await;
         result.definitions = locations;
         result.truncated |= truncated;
-        if !supported {
-            result.unsupported.push("definition");
-        }
+        record_query_status(
+            &mut result.unsupported,
+            &mut result.failures,
+            "definition",
+            status,
+        );
     }
     if want_hover {
         result.queried.push("hover");
         if capability_enabled(&session.capabilities, "hoverProvider") {
-            if let Ok(value) = session
+            match session
                 .request(
                     "textDocument/hover",
                     json!({"textDocument":{"uri":uri},"position":position}),
                 )
                 .await
             {
-                result.hover = hover_text(&value);
+                Ok(value) => result.hover = hover_text(&value),
+                Err(_) => result.failures.push("hover"),
             }
         } else {
             result.unsupported.push("hover");
@@ -172,7 +218,7 @@ pub(crate) async fn navigate(
     }
     if want_references {
         result.queried.push("references");
-        let (locations, supported, truncated) = query_locations(
+        let (locations, status, truncated) = query_locations(
             workspace,
             session,
             "referencesProvider",
@@ -187,13 +233,16 @@ pub(crate) async fn navigate(
         .await;
         result.references = locations;
         result.truncated |= truncated;
-        if !supported {
-            result.unsupported.push("references");
-        }
+        record_query_status(
+            &mut result.unsupported,
+            &mut result.failures,
+            "references",
+            status,
+        );
     }
     if want_implementations {
         result.queried.push("implementations");
-        let (locations, supported, truncated) = query_locations(
+        let (locations, status, truncated) = query_locations(
             workspace,
             session,
             "implementationProvider",
@@ -204,54 +253,63 @@ pub(crate) async fn navigate(
         .await;
         result.implementations = locations;
         result.truncated |= truncated;
-        if !supported {
-            result.unsupported.push("implementations");
-        }
+        record_query_status(
+            &mut result.unsupported,
+            &mut result.failures,
+            "implementations",
+            status,
+        );
     }
     if want_calls {
         result.queried.push("calls");
         if capability_enabled(&session.capabilities, "callHierarchyProvider") {
-            if let Ok(prepared) = session
+            match session
                 .request(
                     "textDocument/prepareCallHierarchy",
                     json!({"textDocument":{"uri":uri},"position":position}),
                 )
                 .await
             {
-                if let Some(item) = prepared.as_array().and_then(|items| items.first()).cloned() {
-                    if want_incoming {
-                        if let Ok(incoming) = session
-                            .request("callHierarchy/incomingCalls", json!({"item":item}))
-                            .await
-                        {
-                            append_call_locations(
-                                workspace,
-                                &incoming,
-                                "from",
-                                &session.position_encoding,
-                                max_results,
-                                &mut result.incoming_calls,
-                                &mut result.truncated,
-                            );
+                Ok(prepared) => {
+                    if let Some(item) = prepared.as_array().and_then(|items| items.first()).cloned()
+                    {
+                        if want_incoming {
+                            match session
+                                .request("callHierarchy/incomingCalls", json!({"item":item}))
+                                .await
+                            {
+                                Ok(incoming) => append_call_locations(
+                                    workspace,
+                                    &incoming,
+                                    "from",
+                                    &session.position_encoding,
+                                    max_results,
+                                    &mut result.incoming_calls,
+                                    &mut result.truncated,
+                                ),
+                                Err(_) => result.failures.push("incoming_calls"),
+                            }
                         }
-                    }
-                    if want_outgoing {
-                        if let Ok(outgoing) = session
-                            .request("callHierarchy/outgoingCalls", json!({"item":item}))
-                            .await
-                        {
-                            append_call_locations(
-                                workspace,
-                                &outgoing,
-                                "to",
-                                &session.position_encoding,
-                                max_results,
-                                &mut result.outgoing_calls,
-                                &mut result.truncated,
-                            );
+                        if want_outgoing {
+                            match session
+                                .request("callHierarchy/outgoingCalls", json!({"item":item}))
+                                .await
+                            {
+                                Ok(outgoing) => append_call_locations(
+                                    workspace,
+                                    &outgoing,
+                                    "to",
+                                    &session.position_encoding,
+                                    max_results,
+                                    &mut result.outgoing_calls,
+                                    &mut result.truncated,
+                                ),
+                                Err(_) => result.failures.push("outgoing_calls"),
+                            }
                         }
                     }
                 }
+                Err(_) => result.failures.push("calls"),
             }
         } else {
             result.unsupported.push("calls");
@@ -267,12 +325,12 @@ async fn query_locations(
     method: &str,
     params: Value,
     max_results: usize,
-) -> (Vec<SemanticLocation>, bool, bool) {
+) -> (Vec<SemanticLocation>, NavigationQueryStatus, bool) {
     if !capability_enabled(&session.capabilities, capability) {
-        return (Vec::new(), false, false);
+        return (Vec::new(), NavigationQueryStatus::Unsupported, false);
     }
     let Ok(value) = session.request(method, params).await else {
-        return (Vec::new(), true, false);
+        return (Vec::new(), NavigationQueryStatus::Failed, false);
     };
     let mut output = Vec::new();
     let mut truncated = false;
@@ -284,7 +342,20 @@ async fn query_locations(
         &mut output,
         &mut truncated,
     );
-    (output, true, truncated)
+    (output, NavigationQueryStatus::Ok, truncated)
+}
+
+fn record_query_status(
+    unsupported: &mut Vec<&'static str>,
+    failures: &mut Vec<&'static str>,
+    label: &'static str,
+    status: NavigationQueryStatus,
+) {
+    match status {
+        NavigationQueryStatus::Ok => {}
+        NavigationQueryStatus::Unsupported => unsupported.push(label),
+        NavigationQueryStatus::Failed => failures.push(label),
+    }
 }
 
 fn capability_enabled(capabilities: &Value, key: &str) -> bool {

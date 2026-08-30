@@ -347,12 +347,26 @@ impl TaskMonitor {
                             && provider["available"].as_bool() == Some(true)
                     })
                     .count() as u64;
+                stats.lsp_launch_ready = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["launch_ready"].as_bool() == Some(true)
+                    })
+                    .count() as u64;
+                stats.lsp_validated = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["session_validated"].as_bool() == Some(true)
+                    })
+                    .count() as u64;
                 stats.lsp_automatic = providers
                     .iter()
                     .filter(|provider| {
                         provider["detected"].as_bool() == Some(true)
                             && provider["automatic"].as_bool() == Some(true)
-                            && provider["runnable"].as_bool() == Some(true)
+                            && provider["launch_ready"].as_bool() == Some(true)
                     })
                     .count() as u64;
                 stats.lsp_runnable = providers

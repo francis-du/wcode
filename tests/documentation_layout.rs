@@ -220,6 +220,23 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
                 "riskyexecution",
             ][..],
         ),
+        (
+            "releases/v0.5.0",
+            &[
+                "semantic_navigation",
+                "warm session",
+                "rust-analyzer",
+                "didchange",
+                "canonical",
+                "gopls",
+                "jdtls",
+                "fallbacks",
+                "launch_ready",
+                "session_validated",
+                "--no-semantic",
+                "riskyexecution",
+            ][..],
+        ),
     ] {
         assert_bilingual_tokens(&docs_root, base, required);
     }

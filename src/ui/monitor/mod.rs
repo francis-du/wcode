@@ -143,6 +143,8 @@ struct IntelligenceStats {
     semantic_confirmed: u64,
     semantic_candidates: u64,
     lsp_available: u64,
+    lsp_launch_ready: u64,
+    lsp_validated: u64,
     lsp_automatic: u64,
     lsp_runnable: u64,
     lsp_fresh: u64,

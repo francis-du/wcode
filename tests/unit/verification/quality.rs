@@ -12,7 +12,7 @@ fn registry_represents_every_indexed_language_without_a_fake_support_boolean() {
     fs::create_dir(dir.path().join("src")).unwrap();
     fs::write(dir.path().join("src/lib.rs"), "pub fn demo() {}\n").unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
-    let registry = registry(&workspace).unwrap();
+    let registry = registry(&workspace, None).unwrap();
     assert_eq!(registry.languages.len(), SemanticLanguage::ALL.len());
     assert_eq!(registry.detected_languages, 1);
     let rust = registry
@@ -43,7 +43,7 @@ fn repository_scripts_are_first_class_quality_providers() {
     fs::write(dir.path().join("tsconfig.json"), "{}\n").unwrap();
     fs::write(dir.path().join("index.ts"), "export const x: number = 1;\n").unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
-    let registry = registry(&workspace).unwrap();
+    let registry = registry(&workspace, None).unwrap();
     let typescript = registry
         .languages
         .iter()

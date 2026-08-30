@@ -26,7 +26,7 @@ There is no separate quality-language registry. Adding or removing an indexed la
 For every detected language, `language_quality_status` reports independent dimensions:
 
 - `syntax` — Tree-sitter parsing/navigation is available;
-- `semantic` — a real first-party LSP provider is installed/runnable;
+- `semantic` — a first-party LSP session for the current provider binary has completed real initialization; executable presence alone is not enough;
 - `format` — a repository-declared or language-native check-only formatting provider exists;
 - `lint` — a repository-declared lint provider exists;
 - `type_check` — a repository-declared/native type checker exists;
@@ -36,6 +36,8 @@ For every detected language, `language_quality_status` reports independent dimen
 - `property`, `mutation`, `fuzz`, `runtime_canary` — advanced Verification Mesh stages.
 
 Missing dimensions are returned as explicit `gaps`. A parser or LSP candidate never upgrades the other dimensions automatically.
+
+Semantic provider state is deliberately staged: `available` means an executable candidate exists; `launch_ready` means Workspace execution, semantic policy, and provider-specific trust permit a launch; `session_validated` means that exact provider-binary identity has completed LSP `initialize`; only then does semantic `runnable` become true. `semantic_provider_status` exposes those fields directly, while `language_quality_status.semantic_runnable` consumes the validated result.
 
 ## Provider state
 

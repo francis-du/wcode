@@ -228,11 +228,35 @@
 - schema_version: 1
   id: AC-SEMANTIC-001
   title: Semantic providers and scoped registry cover indexed languages
-  statement: Every indexed language has an explicit semantic provider candidate, scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing bounded provider sessions, converting LSP positions correctly, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization.
+  statement: All 22 indexed languages have exactly one canonical tested LSP launch profile with current provider-specific commands and only real bounded alternates; every canonical profile completes a spawned stdio mock-LSP initialize handshake, and navigation and refresh can fall back to an installed alternate after canonical initialization failure. Scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing physically bounded provider sessions without evicting leased slots, pruning idle sessions in headless runtimes, waiting for leased sessions before provider-identity replacement, converting LSP positions correctly, requiring successful session initialization before semantic `runnable`/precision, reporting failed semantic subrequests separately from unsupported/valid-empty results, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization.
   verification:
     - kind: test
       path: tests/unit/semantics/provider.rs
       symbol: every_indexed_language_has_a_semantic_provider_candidate
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: every_indexed_language_has_exactly_one_canonical_launch_profile
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: canonical_provider_matrix_covers_all_22_languages
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: alternate_provider_matrix_keeps_real_fallbacks_only
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: provider_specific_launch_profiles_match_current_server_contracts
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: every_canonical_profile_completes_stdio_lsp_initialize
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: text_document_sync_profile_honors_full_incremental_and_none
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: incremental_replacement_range_uses_negotiated_position_encoding
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: provider_launch_path_preserves_rustup_proxy_but_resolves_luals_symlink
     - kind: test
       path: tests/unit/semantics/mod.rs
       symbol: scoped_queries_filter_scoped_facts_but_keep_global_facts
@@ -243,6 +267,9 @@
       path: tests/unit/semantics/provider.rs
       symbol: provider_executables_inside_the_workspace_are_rejected
     - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: provider_session_authorization_binds_provider_and_binary_identity
+    - kind: test
       path: tests/unit/runtime/semantic.rs
       symbol: semantic_execution_is_default_on_and_can_be_disabled
     - kind: test
@@ -250,10 +277,25 @@
       symbol: semantic_workers_skip_broad_parent_workspaces
     - kind: test
       path: tests/unit/semantics/session.rs
+      symbol: session_validation_requires_a_successful_provider_start
+    - kind: test
+      path: tests/unit/semantics/session.rs
       symbol: same_workspace_provider_reuses_one_session_slot
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: idle_pruning_removes_only_unleased_slots
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: session_capacity_fails_closed_when_every_slot_is_leased
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: provider_identity_change_waits_for_a_leased_session
     - kind: test
       path: tests/unit/semantics/navigation.rs
       symbol: position_conversion_preserves_utf8_and_utf16_boundaries
+    - kind: test
+      path: tests/unit/semantics/navigation.rs
+      symbol: navigation_distinguishes_unsupported_from_failed_queries
     - kind: test
       path: tests/unit/runtime/harness.rs
       symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
@@ -317,7 +359,7 @@
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
-  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, and exposes real warm LSP session/document/start/query telemetry. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
+  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, and exposes real warm LSP session/document/start/query telemetry. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
   verification:
     - kind: test
       path: tests/unit/ui/monitor.rs
@@ -328,6 +370,9 @@
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: scope_status_updates_operator_intelligence_state
+    - kind: test
+      path: tests/unit/ui/monitor.rs
+      symbol: semantic_provider_status_distinguishes_available_ready_and_live
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: semantic_session_status_updates_operator_intelligence_state

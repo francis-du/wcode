@@ -215,6 +215,12 @@ Approving `cargo` does not approve arbitrary `cargo` arguments. An approval for
 `cargo test` does not cover `cargo fmt`, another Workspace, or another
 subspace. Denial creates no grant.
 
+Semantic-provider trust is separate from those command labels. A non-automatic
+warm LSP uses `RiskyExecution` scoped to Workspace + Provider + current
+provider-binary identity; approving it allows refresh/navigation to reuse that
+exact provider, not a replacement binary, another provider, or an unrelated
+repository operation.
+
 ## 9. Troubleshooting
 
 - Run `agent-plugin --install-all --dry-run --json` and inspect `evidence`,
@@ -227,9 +233,9 @@ subspace. Denial creates no grant.
   than adding a static token.
 - If an old client needs SSE, configure `/sse`; the server sends the matching
   `/message?sessionId=...` endpoint as its first event.
-- If a command retry is still blocked, check whether the pending request is for
-  executable access or an exact repository operation, then approve that exact
-  request in the selected Workspace.
+- If a retry is still blocked, check whether the pending request is for
+  executable access, an exact repository operation, or a semantic-provider
+  session, then approve only that matching request in the selected Workspace.
 
 ## 10. Primary references
 

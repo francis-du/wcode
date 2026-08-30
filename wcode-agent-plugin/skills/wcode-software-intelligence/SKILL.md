@@ -13,9 +13,13 @@ Before editing:
 2. Start with `agent_context(goal, scopes=...)`. Call `scope_status`,
    `design_status`, `project_context`, or `language_quality_status` only when
    readiness or the task requires deeper inspection.
-3. Prefer `find_symbol`, `file_outline`, and `symbol_context` to broad reads.
+3. Prefer `find_symbol`, `file_outline`, `search_code`, and `symbol_context` for
+   cheap localization. Use `semantic_navigation` only when readiness or the task
+   needs cross-file references, callers/callees, implementations, hover, or
+   semantic impact; prefer `path + symbol` over model-computed LSP offsets.
 4. Treat Tree-sitter facts as `precision=syntax`; only fresh provider facts are
-   semantic.
+   semantic. Hardened first-party semantics may be maintained automatically;
+   `--no-semantic` is the operator opt-out.
 
 While editing:
 
@@ -28,10 +32,14 @@ While editing:
   structural reason.
 - Treat `delete_path` as exceptional. Never bypass path, symlink, hard-link,
   no-shell, or command-policy checks.
-- Authorization has two layers: `CommandAccess` grants one executable in one
-  Workspace; `RiskyExecution` grants one exact repository operation. Surface
-  the request, let the operator decide in the TUI or protected WebUI, then retry
-  only the matching operation.
+- Authorization has separate scopes: `CommandAccess` grants one executable in
+  one Workspace; `RiskyExecution` grants only the fingerprinted trust requested
+  by the operation. That is normally one exact repository operation, while a
+  non-automatic language server uses Workspace + Provider + current binary
+  identity trust so a warm session can be reused without silently widening to
+  a replacement binary or other providers.
+  Surface the request, let the operator decide in the TUI or protected WebUI,
+  then retry only the matching operation.
 - Never enable `--allow-risky-exec`, approve a request, or widen a Workspace on
   the user's behalf.
 

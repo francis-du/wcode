@@ -50,3 +50,23 @@ fn navigation_intent_wire_names_are_stable() {
         "outgoing_calls"
     );
 }
+
+#[test]
+fn navigation_distinguishes_unsupported_from_failed_queries() {
+    let mut unsupported = Vec::new();
+    let mut failures = Vec::new();
+    record_query_status(
+        &mut unsupported,
+        &mut failures,
+        "references",
+        NavigationQueryStatus::Unsupported,
+    );
+    record_query_status(
+        &mut unsupported,
+        &mut failures,
+        "implementations",
+        NavigationQueryStatus::Failed,
+    );
+    assert_eq!(unsupported, ["references"]);
+    assert_eq!(failures, ["implementations"]);
+}

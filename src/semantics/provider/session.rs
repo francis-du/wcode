@@ -40,6 +40,7 @@ pub(super) struct SemanticSession {
     pub(super) client: LspClient,
     pub(super) capabilities: Value,
     pub(super) position_encoding: String,
+    document_sync: TextDocumentSyncProfile,
     documents: BTreeMap<String, SyncedDocument>,
     metrics: Arc<SessionMetrics>,
 }
@@ -47,6 +48,20 @@ pub(super) struct SemanticSession {
 struct SyncedDocument {
     sha256: String,
     version: i64,
+    content: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TextDocumentSyncMode {
+    None,
+    Full,
+    Incremental,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TextDocumentSyncProfile {
+    open_close: bool,
+    change: TextDocumentSyncMode,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -55,6 +70,7 @@ pub(crate) enum DocumentSyncState {
     Opened,
     Changed,
     Current,
+    ServerReadsDisk,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -87,6 +103,15 @@ impl SemanticSessionPool {
                 slot: existing.clone(),
             });
         }
+        if state.slots.values().any(|slot| {
+            slot.workspace == workspace.root()
+                && slot.provider == provider.id
+                && Arc::strong_count(slot) > 1
+        }) {
+            bail!(
+                "semantic provider session is busy while provider identity changed; retry after the active request completes"
+            );
+        }
         state.slots.retain(|_, slot| {
             !(slot.workspace == workspace.root() && slot.provider == provider.id)
         });
@@ -94,10 +119,13 @@ impl SemanticSessionPool {
             let Some(oldest) = state
                 .slots
                 .iter()
+                .filter(|(_, slot)| Arc::strong_count(slot) == 1)
                 .min_by_key(|(_, slot)| slot.metrics.last_used_ms.load(Ordering::Relaxed))
                 .map(|(key, _)| key.clone())
             else {
-                break;
+                bail!(
+                    "semantic session pool is at capacity and every slot is currently leased; retry after an active request completes"
+                );
             };
             state.slots.remove(&oldest);
         }
@@ -112,6 +140,32 @@ impl SemanticSessionPool {
         });
         state.slots.insert(key, slot.clone());
         Ok(SessionHandle { slot })
+    }
+
+    pub(crate) fn prune_idle(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            prune_slots(&mut state, now_ms());
+        }
+    }
+
+    pub(super) fn validated(
+        &self,
+        workspace: &Workspace,
+        provider: ProviderCandidate,
+        executable: &Path,
+    ) -> bool {
+        let Ok(key) = session_key(workspace, provider, executable) else {
+            return false;
+        };
+        let now = now_ms();
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        prune_slots(&mut state, now);
+        state
+            .slots
+            .get(&key)
+            .is_some_and(|slot| slot.metrics.starts.load(Ordering::Relaxed) > 0)
     }
 
     pub(crate) fn status(&self) -> SemanticSessionPoolStatus {
@@ -223,12 +277,14 @@ impl SemanticSession {
             .and_then(Value::as_str)
             .unwrap_or("utf-16")
             .to_owned();
+        let document_sync = text_document_sync_profile(&capabilities);
         metrics.starts.fetch_add(1, Ordering::Relaxed);
         metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
         Ok(Self {
             client,
             capabilities,
             position_encoding,
+            document_sync,
             documents: BTreeMap::new(),
             metrics,
         })
@@ -247,44 +303,72 @@ impl SemanticSession {
             Some(document) if document.sha256 == source.sha256 => DocumentSyncState::Current,
             Some(document) => {
                 let version = document.version.saturating_add(1);
-                self.notify(
-                    "textDocument/didChange",
-                    json!({
-                        "textDocument": {"uri": uri, "version": version},
-                        "contentChanges": [{"text": source.content}]
-                    }),
-                )
-                .await?;
+                let sync_state = match self.document_sync.change {
+                    TextDocumentSyncMode::None => DocumentSyncState::ServerReadsDisk,
+                    TextDocumentSyncMode::Full => {
+                        self.notify(
+                            "textDocument/didChange",
+                            json!({
+                                "textDocument": {"uri": uri, "version": version},
+                                "contentChanges": [{"text": source.content}]
+                            }),
+                        )
+                        .await?;
+                        DocumentSyncState::Changed
+                    }
+                    TextDocumentSyncMode::Incremental => {
+                        let end = document_end_position(&document.content, &self.position_encoding);
+                        self.notify(
+                            "textDocument/didChange",
+                            json!({
+                                "textDocument": {"uri": uri, "version": version},
+                                "contentChanges": [{
+                                    "range": {"start":{"line":0,"character":0},"end":end},
+                                    "text": source.content
+                                }]
+                            }),
+                        )
+                        .await?;
+                        DocumentSyncState::Changed
+                    }
+                };
                 if let Some(document) = self.documents.get_mut(&source.path) {
                     document.version = version;
                     document.sha256 = source.sha256.clone();
+                    document.content = source.content.clone();
                 }
-                DocumentSyncState::Changed
+                sync_state
             }
             None => {
-                self.notify(
-                    "textDocument/didOpen",
-                    json!({
-                        "textDocument": {
-                            "uri": uri,
-                            "languageId": language.lsp_language_id(),
-                            "version": 1,
-                            "text": source.content,
-                        }
-                    }),
-                )
-                .await?;
+                let sync_state = if self.document_sync.open_close {
+                    self.notify(
+                        "textDocument/didOpen",
+                        json!({
+                            "textDocument": {
+                                "uri": uri,
+                                "languageId": language.lsp_language_id(),
+                                "version": 1,
+                                "text": source.content,
+                            }
+                        }),
+                    )
+                    .await?;
+                    DocumentSyncState::Opened
+                } else {
+                    DocumentSyncState::ServerReadsDisk
+                };
                 self.documents.insert(
                     source.path.clone(),
                     SyncedDocument {
                         sha256: source.sha256.clone(),
                         version: 1,
+                        content: source.content.clone(),
                     },
                 );
                 self.metrics
                     .documents
                     .store(self.documents.len(), Ordering::Relaxed);
-                DocumentSyncState::Opened
+                sync_state
             }
         };
         self.metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
@@ -303,11 +387,13 @@ impl SemanticSession {
             .cloned()
             .collect::<Vec<_>>();
         for path in stale {
-            let uri = Url::from_file_path(workspace.root().join(&path))
-                .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
-                .to_string();
-            self.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))
-                .await?;
+            if self.document_sync.open_close {
+                let uri = Url::from_file_path(workspace.root().join(&path))
+                    .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
+                    .to_string();
+                self.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))
+                    .await?;
+            }
             self.documents.remove(&path);
         }
         self.metrics
@@ -328,7 +414,53 @@ impl SemanticSession {
     }
 }
 
-fn session_key(
+fn text_document_sync_profile(capabilities: &Value) -> TextDocumentSyncProfile {
+    let Some(sync) = capabilities.get("textDocumentSync") else {
+        return TextDocumentSyncProfile {
+            open_close: false,
+            change: TextDocumentSyncMode::None,
+        };
+    };
+    if let Some(kind) = sync.as_u64() {
+        let change = text_document_sync_mode(kind);
+        return TextDocumentSyncProfile {
+            open_close: change != TextDocumentSyncMode::None,
+            change,
+        };
+    }
+    TextDocumentSyncProfile {
+        open_close: sync
+            .get("openClose")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        change: sync
+            .get("change")
+            .and_then(Value::as_u64)
+            .map(text_document_sync_mode)
+            .unwrap_or(TextDocumentSyncMode::None),
+    }
+}
+
+fn text_document_sync_mode(kind: u64) -> TextDocumentSyncMode {
+    match kind {
+        1 => TextDocumentSyncMode::Full,
+        2 => TextDocumentSyncMode::Incremental,
+        _ => TextDocumentSyncMode::None,
+    }
+}
+
+fn document_end_position(content: &str, encoding: &str) -> Value {
+    let line = content.bytes().filter(|byte| *byte == b'\n').count() as u64;
+    let tail = content.rsplit('\n').next().unwrap_or_default();
+    let character = match encoding {
+        "utf-8" => tail.len() as u64,
+        "utf-32" => tail.chars().count() as u64,
+        _ => tail.encode_utf16().count() as u64,
+    };
+    json!({"line":line,"character":character})
+}
+
+pub(super) fn session_key(
     workspace: &Workspace,
     provider: ProviderCandidate,
     executable: &Path,
@@ -358,7 +490,9 @@ fn session_key(
 
 fn prune_slots(state: &mut SessionPoolState, now: u64) {
     state.slots.retain(|_, slot| {
-        now.saturating_sub(slot.metrics.last_used_ms.load(Ordering::Relaxed)) <= SESSION_IDLE_MS
+        let idle =
+            now.saturating_sub(slot.metrics.last_used_ms.load(Ordering::Relaxed)) > SESSION_IDLE_MS;
+        !idle || Arc::strong_count(slot) > 1
     });
 }
 

@@ -58,6 +58,12 @@ N      拒绝
 TUI 和 WebUI 会分开显示。批准 `cargo` 不等于批准所有 `cargo` 命令；批准
 `cargo test` 也不会覆盖不同参数或另一个 Subspace。拒绝不会留下 Grant。
 
+`RiskyExecution` 是底层的 Fingerprint-scoped Trust 机制，不是整进程命令
+开关。对未进入 Automatic Profile 的 Semantic Provider，Fingerprint 绑定
+Workspace + Provider + 当前 Provider Binary Identity，因此这一份 Warm
+Provider 可以被 Refresh/Navigation 复用，但替换后的 Binary、其他 Provider
+或其他 Workspace 都不会继承旧 Grant。
+
 批准某个请求不会关闭 Workspace 隔离，也不会把命令执行变成 Shell。
 
 ## OAuth 与远程 MCP

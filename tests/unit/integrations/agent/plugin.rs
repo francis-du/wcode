@@ -91,6 +91,10 @@ fn canonical_manifest_versions_match_the_crate() {
         let value: Value = serde_json::from_str(manifest).unwrap();
         assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
     }
+    for marketplace in [MARKETPLACE, include_str!("../../../../marketplace.json")] {
+        let value: Value = serde_json::from_str(marketplace).unwrap();
+        assert_eq!(value["plugins"][0]["version"], env!("CARGO_PKG_VERSION"));
+    }
     assert!(SKILL.contains("progressive disclosure"));
     assert!(!SKILL.contains("dangerously-skip"));
 }

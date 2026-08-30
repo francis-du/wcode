@@ -226,7 +226,10 @@ impl RepoSignals {
     }
 }
 
-pub fn registry(workspace: &Workspace) -> Result<LanguageQualityRegistry> {
+pub fn registry(
+    workspace: &Workspace,
+    semantic_sessions: Option<&semantic_provider::SemanticSessionPool>,
+) -> Result<LanguageQualityRegistry> {
     let (files, scan_truncated) = workspace.source_files(".", MAX_QUALITY_FILES)?;
     let mut files_by_language = BTreeMap::<SemanticLanguage, Vec<String>>::new();
     for path in files {
@@ -235,7 +238,7 @@ pub fn registry(workspace: &Workspace) -> Result<LanguageQualityRegistry> {
         }
     }
     let signals = RepoSignals::load(workspace);
-    let semantic = semantic_provider::status(workspace)?
+    let semantic = semantic_provider::status(workspace, semantic_sessions)?
         .into_iter()
         .map(|status| (status.language, status))
         .collect::<BTreeMap<_, _>>();
@@ -290,7 +293,7 @@ pub async fn execute(
     provider_id: &str,
     timeout_seconds: u64,
 ) -> Result<LanguageQualityRun> {
-    let registry = registry(workspace)?;
+    let registry = registry(workspace, None)?;
     let language_status = registry
         .languages
         .iter()

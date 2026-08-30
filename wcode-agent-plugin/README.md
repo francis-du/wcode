@@ -67,6 +67,12 @@ Remote agents should prefer Streamable HTTP at `/mcp` with OAuth. Older clients
 may use `/sse` plus the session-specific `/message` endpoint; that path keeps
 the same OAuth, Origin, Workspace, Harness, and authorization checks.
 
+Hardened first-party semantics may keep a bounded warm LSP session by default;
+the Skill routes simple localization to Tree-sitter/search and reserves
+`semantic_navigation` for cross-file relationships. `--no-semantic` is the
+operator opt-out. Providers without a hardened automatic profile retain local
+`RiskyExecution` trust at the Workspace + Provider + current binary-identity boundary.
+
 Repository-aware commands can still stop for local approval. The Skill never
-approves executable access or an exact repository operation on the user's
-behalf.
+approves executable access, repository-operation trust, or semantic-provider
+session trust on the user's behalf.

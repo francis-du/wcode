@@ -23,6 +23,7 @@ pub(crate) fn spawn(
         let mut workers = JoinSet::new();
         let mut running = BTreeSet::new();
         loop {
+            harness.prune_semantic_sessions();
             for (workspace_id, workspace) in workspaces.semantic_workspaces() {
                 if running.insert(workspace_id.clone()) {
                     let harness = harness.clone();

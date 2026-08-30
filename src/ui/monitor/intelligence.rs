@@ -365,13 +365,14 @@ pub(super) fn render_intelligence_overlay(
             "LSP",
             if config.semantic_auto {
                 format!(
-                    "auto {}/{} · warm {}/{} · q {} · start {} · fresh {}/{}",
-                    stats.lsp_automatic,
+                    "ready {}/{} · live {} · auto {} · warm {}/{} · q {} · fresh {}/{}",
+                    stats.lsp_launch_ready,
                     stats.lsp_available,
+                    stats.lsp_validated,
+                    stats.lsp_automatic,
                     stats.lsp_sessions,
                     stats.lsp_documents,
                     stats.lsp_requests,
-                    stats.lsp_starts,
                     stats.lsp_fresh,
                     stats.lsp_stale
                 )

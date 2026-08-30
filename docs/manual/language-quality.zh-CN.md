@@ -24,7 +24,7 @@ Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua�
 对每种检测到的语言，`language_quality_status` 分别报告：
 
 - `syntax`：Tree-sitter 解析与导航；
-- `semantic`：真实第一方 LSP Provider 已安装且可运行；
+- `semantic`：当前 Provider Binary 对应的第一方 LSP Session 已真实完成 Initialize；仅有 Executable 不够；
 - `format`：仓库声明或语言原生的 Check-only 格式 Provider；
 - `lint`：仓库声明的 Lint Provider；
 - `type_check`：仓库声明或语言原生 Type Checker；
@@ -34,6 +34,8 @@ Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua�
 - `property`、`mutation`、`fuzz`、`runtime_canary`：高级 Verification Mesh Stage。
 
 缺失维度作为显式 `gaps` 返回。Parser 或 LSP Candidate 不会自动把其他能力升级成“已支持”。
+
+Semantic Provider State 被明确拆成多层：`available` 表示存在 Executable Candidate；`launch_ready` 表示 Workspace Execution、Semantic Policy 与 Provider-specific Trust 已允许启动；`session_validated` 表示这一份 Provider Binary Identity 已真实完成 LSP `initialize`；只有到这一步 Semantic `runnable` 才为 true。`semantic_provider_status` 直接暴露这些字段，`language_quality_status.semantic_runnable` 消费的是完成验证后的结果。
 
 ## Provider 状态
 

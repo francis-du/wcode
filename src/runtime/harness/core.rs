@@ -217,11 +217,15 @@ impl ToolHarness {
         &self,
         workspace: &Workspace,
     ) -> Result<Vec<SemanticProviderStatus>> {
-        semantic_provider::status(workspace)
+        semantic_provider::status(workspace, Some(&self.semantic_sessions))
     }
 
     pub fn semantic_session_status(&self, workspace: &Workspace) -> SemanticSessionPoolStatus {
         self.semantic_sessions.status_for(workspace)
+    }
+
+    pub(crate) fn prune_semantic_sessions(&self) {
+        self.semantic_sessions.prune_idle();
     }
 
     pub async fn semantic_provider_refresh(
@@ -677,7 +681,7 @@ impl ToolHarness {
         &self,
         workspace: &Workspace,
     ) -> Result<LanguageQualityRegistry> {
-        quality_provider::registry(workspace)
+        quality_provider::registry(workspace, Some(&self.semantic_sessions))
     }
 
     pub async fn language_quality_run(

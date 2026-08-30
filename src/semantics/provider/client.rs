@@ -15,10 +15,11 @@ impl LspClient {
         provider: ProviderCandidate,
         executable: &Path,
     ) -> Result<Self> {
-        let executable = canonical_provider_executable(workspace, executable)?;
+        let executable = provider_launch_executable(workspace, provider, executable)?;
+        let args = provider_launch_args(workspace, provider)?;
         let mut command = Command::new(&executable);
         command
-            .args(provider.args)
+            .args(&args)
             .current_dir(workspace.root())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -58,8 +59,14 @@ impl LspClient {
                     "workspaceFolders":[{"uri":root_uri,"name":"wcode-workspace"}],
                     "capabilities":{
                         "general":{"positionEncodings":["utf-8","utf-16"]},
-                        "workspace":{"workspaceFolders":true},
+                        "workspace":{"workspaceFolders":true,"configuration":true},
                         "textDocument":{
+                            "synchronization":{
+                                "dynamicRegistration":false,
+                                "willSave":false,
+                                "willSaveWaitUntil":false,
+                                "didSave":false
+                            },
                             "documentSymbol":{"hierarchicalDocumentSymbolSupport":true},
                             "definition":{"dynamicRegistration":false,"linkSupport":true},
                             "references":{"dynamicRegistration":false},
@@ -185,7 +192,11 @@ impl Drop for LspClient {
     }
 }
 
-fn canonical_provider_executable(workspace: &Workspace, executable: &Path) -> Result<PathBuf> {
+pub(super) fn provider_launch_executable(
+    workspace: &Workspace,
+    provider: ProviderCandidate,
+    executable: &Path,
+) -> Result<PathBuf> {
     let executable = if executable.is_absolute() {
         executable.to_path_buf()
     } else {
@@ -199,8 +210,15 @@ fn canonical_provider_executable(workspace: &Workspace, executable: &Path) -> Re
     if canonical.starts_with(workspace.root()) {
         bail!("semantic provider executable resolves inside the workspace and is not trusted");
     }
-    // Validate the canonical target, but execute the original absolute path so
-    // argv[0]-sensitive tool proxies such as rustup's rust-analyzer keep their identity.
+    // Validate the canonical target. Most providers execute the discovered path so
+    // argv[0]-sensitive proxies such as rustup's rust-analyzer keep their identity.
+    // LuaLS is the notable inverse: upstream warns that symlinking its binary can
+    // break relative script discovery, so launch the canonical target when needed.
+    if provider.id == "lua-language-server"
+        && executable.symlink_metadata()?.file_type().is_symlink()
+    {
+        return Ok(canonical);
+    }
     Ok(executable)
 }
 

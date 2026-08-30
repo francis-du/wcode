@@ -61,6 +61,12 @@ labels separately. Approving `cargo` does not approve every `cargo` command;
 approving `cargo test` does not cover different arguments or another subspace.
 A denial creates no grant.
 
+`RiskyExecution` is the underlying fingerprint-scoped trust mechanism, not a
+blanket command switch. For non-automatic semantic providers the fingerprint binds Workspace + Provider
++ current provider-binary identity, allowing that exact warm provider to be
+reused for refresh/navigation without authorizing a replacement binary, another
+provider, or another Workspace.
+
 An approval does not disable Workspace isolation or turn command execution into a shell.
 
 ## OAuth and remote MCP

@@ -21,6 +21,7 @@ other clients connect through MCP.
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Software Intelligence](https://wcode.francis.run/docs/software-intelligence/)
+- [v0.5.0 — Warm Semantic Runtime](https://wcode.francis.run/docs/releases/v0.5.0/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 
 ## Install
@@ -146,12 +147,15 @@ wcode exposes a compact set of repository operations, not a remote shell:
 
 The syntax index covers Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java,
 JavaScript, Lua, OCaml, OCaml Interface, PHP, Python, R, Ruby, Rust, Swift,
-TypeScript, and TSX. Hardened first-party semantics are enabled by default when
-an eligible installed provider is present; the first automatic profile is
-`rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
+TypeScript, and TSX. v0.5 gives every one of those 22 languages exactly one
+tested canonical LSP launch profile; PHP, Python, and Ruby also keep bounded
+installed-provider fallbacks when the canonical server fails initialization.
+Hardened first-party semantics are enabled by default when an eligible installed
+provider is present; the first automatic profile is `rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
 project Workspaces, and keep stale semantic revisions out of graph consumers.
-A bounded warm session is reused across indexing and `semantic_navigation`, with
-SHA-driven `didOpen` / `didChange` / `didClose` synchronization. Agents keep
+A bounded warm session is reused across indexing and `semantic_navigation`; document
+sync follows each server's advertised LSP Full / Incremental / None policy instead of
+assuming one `didOpen` / `didChange` shape for every language. Agents keep
 Tree-sitter/search for simple localization and use the warm LSP path for
 cross-file references, callers, implementations, and semantic impact. Use
 `--no-semantic` to disable every first-party language server. Providers without

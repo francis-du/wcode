@@ -166,8 +166,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | 外部 SCIP / LSP / Compiler / Runtime Graph Fact。 |
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
-| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
-| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 Provider 时明确回退 Syntax。 |
+| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Status 暴露 Selected Provider、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；只有真实 Initialize 后 `runnable` 才为 true。Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
+| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 Provider 时明确回退 Syntax；`unsupported` Capability、LSP `failures` 与成功但为空的 Relationship Set 会明确区分。 |
 | `language_quality_status` / `language_quality_run` | Syntax / Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵及 check-only 执行。 |
 
 ### Change、Risk、Verification 与 Evidence
@@ -201,7 +201,7 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 模型可以请求权限，但不能自批。待授权请求只能在本地 TUI 或 Token 保护的 WebUI 决策。
 
 - **可执行程序访问（`CommandAccess`）**：为一个 Workspace 授权裸程序名。
-- **精确仓库操作（`RiskyExecution`）**：为该 Workspace 和当前 Session 授权一组操作 Fingerprint。
+- **Fingerprint-scoped Trust（`RiskyExecution`）**：只授权该 Workspace / Session 中当前请求对应的 Trust Fingerprint。命令与仓库 Mutation 绑定精确 Operation + Arguments；未进入 Automatic Profile 的 Warm Semantic Provider 则绑定 Workspace + Provider + 当前 Provider Binary Identity，让 Refresh/Navigation 可以复用这一份 Provider，但不会放开替换后的 Binary 或其他 Provider。
 - **RuntimeExecutor**：为一个精确高级验证 Executor 操作授权。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
 

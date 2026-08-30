@@ -282,13 +282,36 @@ Coverage 不会被压成一个总分，而是分别返回：
 
 `semantic_provider_status` 会扫描 Workspace，并对当前语法索引已经支持的全部 22 种语言报告真实 Provider 状态：Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua、OCaml/Interface、PHP、Python、R、Ruby、Rust、Swift、TypeScript、TSX。
 
-Registry 会自动探测常见 LSP，例如 `clangd`、`csharp-ls`/OmniSharp、`gopls`、`jdtls`、`typescript-language-server`、`pyright`/`pylsp`、`rust-analyzer`、`sourcekit-lsp`、`ocamllsp`、`lua-language-server`、`ruby-lsp`，以及 PHP / Elixir / Dart / R / HTML / CSS / Bash Language Server。**语言支持**和**本机工具已安装**是两回事：没有找到可执行文件时会明确显示 unavailable / syntax fallback。
+v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry 里有一个 Provider 名字”当成支持。22 种索引语言每一种都必须恰好拥有一个 Canonical Launch Profile；Provider-specific Arguments 有单测锁定；而且每个 Canonical Profile 都会真实 Spawn 一个 stdio Mock LSP 并完成 `initialize` Handshake。Alternate 只保留真实可用的实现。Compatibility 与 Runtime Availability 仍然分离：Executable 没安装，或者真实 `initialize` 失败时，wcode 都不会宣称它 Runnable。`semantic_provider_status` 还会明确返回当前选中 Candidate 是否 Canonical，以及本机实际找到几个 Candidate。
 
-Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + Provider + Provider Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session，Server 退出、Binary 更换、Session 空闲淘汰或容量驱逐后才重建。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
+| 语言 | Canonical LSP Launch Profile | 已安装时可用的 Alternate |
+| --- | --- | --- |
+| Bash | `bash-language-server start` | — |
+| C / C++ | `clangd` | — |
+| C# | `csharp-ls` | — |
+| CSS | `vscode-css-language-server --stdio` | — |
+| Dart | `dart language-server --protocol=lsp --client-id wcode --client-version <version>` | — |
+| Elixir | ElixirLS `language_server.sh` / `language_server.bat`（同时识别发行版 `elixir-ls` Wrapper） | — |
+| Go | `gopls serve` | — |
+| HTML | `vscode-html-language-server --stdio` | — |
+| Java | `jdtls -data <per-workspace-state-dir>` | — |
+| JavaScript / TypeScript / TSX | `typescript-language-server --stdio` | — |
+| Lua | `lua-language-server` | — |
+| OCaml / Interface | `ocamllsp` | — |
+| PHP | `phpactor language-server` | `intelephense --stdio` |
+| Python | `pyright-langserver --stdio` | `pylsp` |
+| R | `R --no-echo -e languageserver::run()` | — |
+| Ruby | `ruby-lsp` | `solargraph stdio` |
+| Rust | `rust-analyzer` | — |
+| Swift | `sourcekit-lsp` | — |
 
-Warm Session 中，某份源码第一次进入时发送 `textDocument/didOpen`；SHA 变化时递增版本并发送 `didChange`；文件退出当前有界索引集合时发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。
+拥有 Alternate 的语言，在前台 Navigation 和手工 Semantic Refresh 两条路径里都会在 Canonical Provider 已安装但 Initialize 失败时尝试 Alternate。Alternate 仍然经过自己独立的 Trust Boundary；Refresh 成功切换后会在 `fallbacks` 中显式记录，绝不会把一个 Provider 的 Grant 偷偷扩大到另一个 Provider。
 
-Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：Language Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 Provider，手工 Refresh 继续要求精确 `RiskyExecution` 授权；只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
+Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + Provider + Provider Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。Provider Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
+
+Warm Session 的 Document Sync 现在严格跟随 Server 返回的 `textDocumentSync` Contract：Numeric Full/Incremental 兼容形态按完整 Open 处理；Options 形态尊重 `openClose`；Full Change 发送整文档，Incremental Change 使用旧内容在已协商 UTF-8/UTF-16/UTF-32 Position Encoding 下计算合法 Replacement Range；None 不会硬发 Server 没声明支持的 Change；只有 Server 要求 Open/Close Sync 时才发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。
+
+Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：Language Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 Provider，需要绑定 Workspace + Provider + 当前 Provider Binary Identity 的 `RiskyExecution` Grant；Refresh/Navigation 只能复用这一个已批准的 Warm Provider，Executable 被替换以后旧 Grant 自动失效。只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
 
 没有可安全运行或已安装的 Provider 时，Tree-sitter 仍提供 `precision=syntax` 的基础图。SCIP / Compiler / Runtime 等其他 Provider 继续使用 `graph_provider_import`，两条路径共享同一个带 Provenance 的 Software Graph。
 
@@ -296,9 +319,9 @@ Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授�
 
 `semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee，或一组有界的 Impact 关系。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 Language Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。
 
-`intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。没有可信 Provider 时，Tool 明确返回 Tree-sitter `syntax_fallback`，不会伪装成 Compiler-level Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
+`intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。Result 会把 `unsupported` 与 `failures` 分开：空 Relationship List 只表示“这个能力受支持、请求成功、没有匹配关系”；LSP Timeout/Error 会单独暴露，绝不会被当成 Negative Semantic Evidence。没有可信 Provider 时，Tool 明确返回 Tree-sitter `syntax_fallback`，不会伪装成 Compiler-level Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
 
-TUI Intelligence 会显示 Warm Session 数、已同步 Document 数、Semantic Query 数、Provider Start 次数和 Fresh/Stale 状态，可以直接判断 Session Reuse 是否真的生效。
+TUI Intelligence 会把 Installed `available`、Policy/Trust `launch-ready`、已真实 Initialize 的 `validated`、Runnable/Fresh Semantic State 分开，再显示 Warm Session 数、已同步 Document 数、Semantic Query 数、Provider Start 次数和 Fresh/Stale 状态，可以直接判断问题发生在安装、权限、启动还是语义新鲜度。
 
 ### Language Quality Matrix
 
