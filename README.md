@@ -46,8 +46,10 @@ wcode --workspace "$PWD"
 
 The TUI opens immediately. In the normal configuration wcode also starts the
 local HTTP service, protected WebUI, OAuth server, and managed HTTPS tunnels.
-Every tunnel is accepted only after its public `/healthz` response matches the
-current runtime instance.
+While the alternate-screen dashboard is active it owns terminal output:
+background tunnel/setup diagnostics are captured into `TaskMonitor` state
+instead of writing over the ratatui frame. Every tunnel is accepted only after
+its public `/healthz` response matches the current runtime instance.
 
 The selected root remains the security boundary. Project markers below it are
 discovered as subspaces, so a broad root such as `~/Code` can safely expose

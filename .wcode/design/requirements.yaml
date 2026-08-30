@@ -364,7 +364,7 @@
 - schema_version: 1
   id: REQ-UX-001
   title: Operator-visible Software Intelligence
-  intent: TUI and protected local WebUI surfaces must expose live software-intelligence state in a compact hierarchy that uses the documentation palette and remains usable in narrow terminals. The TUI actively loads the focused project, keeps the pairing code visible after connection, and exposes the complete command catalog. The WebUI shows a bounded project file tree and the largest files, including the repository line-limit signal. Executable access remains distinct from exact repository-operation approval, while language, appearance, refresh, project, precision, connection and per-request approval controls stay explicit.
+  intent: TUI and protected local WebUI surfaces must expose live software-intelligence state in a compact hierarchy that uses the documentation palette and remains usable in narrow terminals. The TUI actively loads the focused project, keeps the pairing code visible after connection, exposes the complete command catalog, and owns stdout/stderr while its alternate screen is active so background tunnel/setup diagnostics cannot corrupt the rendered terminal. The WebUI shows a bounded project file tree and the largest files, including the repository line-limit signal. Executable access remains distinct from exact repository-operation approval, while language, appearance, refresh, project, precision, connection and per-request approval controls stay explicit.
   priority: high
   implemented_by:
     - component:intelligence-ui
@@ -511,7 +511,7 @@
 - schema_version: 1
   id: REQ-TUNNEL-001
   title: Public tunnel availability is provider-resilient
-  intent: Remote MCP startup must not depend on one tunnel vendor. wcode keeps every instance-health-verified tunnel live, self-heals failures without restarting the process, directs OAuth to the hostname receiving the request, and preserves scoped persisted sessions when clients reconnect through another verified alias or restart the runtime.
+  intent: Remote MCP startup must not depend on one tunnel vendor. wcode keeps every instance-health-verified tunnel live, self-heals failures without restarting the process, directs OAuth to the hostname receiving the request, preserves scoped persisted sessions when clients reconnect through another verified alias or restart the runtime, and routes background provider diagnostics through structured monitor state rather than direct terminal writes while the TUI owns the terminal.
   priority: high
   implemented_by:
     - component:managed-tunnel

@@ -1,9 +1,13 @@
 use super::*;
 
-pub(super) fn ensure_cloudflared(install_missing: bool) -> Result<()> {
-    println!("  · cloudflared  checking dependency");
+pub(super) fn ensure_cloudflared(install_missing: bool, monitor: &TaskMonitor) -> Result<()> {
+    monitor.operator_message(
+        OperatorMessageKind::Info,
+        "cloudflared",
+        "checking dependency",
+    );
     if command_succeeds("cloudflared", &["--version"]) {
-        println!("  ✓ cloudflared  available");
+        monitor.operator_message(OperatorMessageKind::Success, "cloudflared", "available");
         return Ok(());
     }
     if !install_missing {
@@ -21,7 +25,7 @@ pub(super) fn ensure_cloudflared(install_missing: bool) -> Result<()> {
                 cloudflared_install_hint()
             );
         }
-        run_installer("brew", &["install", "cloudflared"], "Homebrew")?;
+        run_installer("brew", &["install", "cloudflared"], "Homebrew", monitor)?;
     }
 
     #[cfg(target_os = "windows")]
@@ -42,6 +46,7 @@ pub(super) fn ensure_cloudflared(install_missing: bool) -> Result<()> {
                 "--accept-source-agreements",
             ],
             "winget",
+            monitor,
         )?;
     }
 
@@ -65,24 +70,36 @@ pub(super) fn ensure_cloudflared(install_missing: bool) -> Result<()> {
                 "the installer completed but cloudflared is still unavailable on PATH; restart the terminal or install it manually"
             );
         }
-        println!("  ✓ cloudflared  installed");
+        monitor.operator_message(OperatorMessageKind::Success, "cloudflared", "installed");
         Ok(())
     }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn run_installer(program: &str, args: &[&str], label: &str) -> Result<()> {
-    println!("  ↓ cloudflared  installing with {label}");
-    let status = StdCommand::new(program)
+fn run_installer(program: &str, args: &[&str], label: &str, monitor: &TaskMonitor) -> Result<()> {
+    monitor.operator_message(
+        OperatorMessageKind::Info,
+        "cloudflared",
+        format!("installing with {label}"),
+    );
+    let output = StdCommand::new(program)
         .args(args)
-        .stdin(StdStdio::inherit())
-        .stdout(StdStdio::inherit())
-        .stderr(StdStdio::inherit())
-        .status()
+        .stdin(StdStdio::null())
+        .stdout(StdStdio::piped())
+        .stderr(StdStdio::piped())
+        .output()
         .with_context(|| format!("failed to launch {label}"))?;
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = stderr
+            .lines()
+            .chain(stdout.lines())
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("installer returned no diagnostic output");
         bail!(
-            "{label} could not install cloudflared; {}",
+            "{label} could not install cloudflared: {}; {}",
+            truncate_diagnostic(detail, 180),
             cloudflared_install_hint()
         );
     }

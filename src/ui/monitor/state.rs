@@ -32,6 +32,8 @@ impl TaskMonitor {
                 public_url_error: None,
                 tunnel_running: None,
                 tunnel_error: None,
+                tunnel_activity: None,
+                terminal_claimed: false,
                 active_total: 0,
                 peak_active: 0,
                 observed_active: 0,
@@ -158,11 +160,15 @@ impl TaskMonitor {
             return None;
         }
 
+        self.claim_terminal();
         let monitor = self.clone();
         let (stop, stop_rx) = watch::channel(false);
         let (interrupt_tx, interrupted) = watch::channel(false);
         let join = tokio::task::spawn_blocking(move || {
-            if let Err(error) = run_dashboard(monitor, config, stop_rx, interrupt_tx) {
+            let terminal_claim = TerminalClaimGuard(monitor.clone());
+            let result = run_dashboard(monitor, config, stop_rx, interrupt_tx);
+            drop(terminal_claim);
+            if let Err(error) = result {
                 eprintln!("wcode dashboard stopped: {error}");
             }
         });
@@ -171,6 +177,52 @@ impl TaskMonitor {
             interrupted,
             join,
         })
+    }
+
+    pub(crate) fn operator_message(
+        &self,
+        kind: OperatorMessageKind,
+        label: &str,
+        message: impl Into<String>,
+    ) {
+        let message = message.into();
+        let terminal_claimed = {
+            let mut state = self.state.lock().expect("task monitor lock poisoned");
+            if matches!(label, "tunnel" | "cloudflared" | "tailscale" | "endpoint") {
+                state.tunnel_activity = Some(message.clone());
+            }
+            state.terminal_claimed
+        };
+        if terminal_claimed {
+            return;
+        }
+        match kind {
+            OperatorMessageKind::Info => println!("  · {label:<12}{message}"),
+            OperatorMessageKind::Success => println!("  ✓ {label:<12}{message}"),
+            OperatorMessageKind::Warning => eprintln!("  ! {label:<12}{message}"),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_claimed(&self) -> bool {
+        self.state
+            .lock()
+            .expect("task monitor lock poisoned")
+            .terminal_claimed
+    }
+
+    pub(crate) fn claim_terminal(&self) {
+        self.state
+            .lock()
+            .expect("task monitor lock poisoned")
+            .terminal_claimed = true;
+    }
+
+    pub(crate) fn release_terminal(&self) {
+        self.state
+            .lock()
+            .expect("task monitor lock poisoned")
+            .terminal_claimed = false;
     }
 
     pub fn mark_oauth_client_registered(&self) {
@@ -552,6 +604,7 @@ impl TaskMonitor {
             public_url_error: state.public_url_error.clone(),
             tunnel_running: state.tunnel_running,
             tunnel_error: state.tunnel_error.clone(),
+            tunnel_activity: state.tunnel_activity.clone(),
             peak_active: state.peak_active,
             observed_active,
             observed_queued,
@@ -583,6 +636,14 @@ pub(super) fn trim_history(state: &mut MonitorState, now: Instant) {
         } else {
             break;
         }
+    }
+}
+
+struct TerminalClaimGuard(TaskMonitor);
+
+impl Drop for TerminalClaimGuard {
+    fn drop(&mut self) {
+        self.0.release_terminal();
     }
 }
 

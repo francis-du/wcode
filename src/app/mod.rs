@@ -1,7 +1,7 @@
 use crate::auth::AuthState;
 use crate::harness::ToolHarness;
 use crate::mcp::AppState;
-use crate::monitor::{MonitorConfig, MonitorRenderer, TaskMonitor};
+use crate::monitor::{MonitorConfig, MonitorRenderer, OperatorMessageKind, TaskMonitor};
 use crate::tunnel::{
     normalize_public_url, public_endpoint_health_loop, spawn_tunnel_supervisor,
     wait_for_public_endpoint, ActiveTunnel, TunnelEvent, TunnelProvider,
@@ -459,7 +459,11 @@ pub async fn run() -> Result<()> {
         let _ = tunnel_settled_tx.send(true);
         local_url.clone()
     } else {
-        println!("  ↗ tunnel       requesting HTTPS endpoint in the background");
+        monitor.operator_message(
+            OperatorMessageKind::Info,
+            "tunnel",
+            "requesting HTTPS endpoint in the background",
+        );
         monitor.mark_public_endpoint("pending", None);
         {
             let forward_tx = tunnel_event_tx.clone();
@@ -546,6 +550,7 @@ pub async fn run() -> Result<()> {
     if open_setup {
         let mut settled = tunnel_settled_rx.clone();
         let url_slot = shared_public_url.clone();
+        let setup_monitor = monitor.clone();
         tokio::spawn(async move {
             if !*settled.borrow() {
                 // Providers keep retrying in the background; do not hold the
@@ -553,7 +558,7 @@ pub async fn run() -> Result<()> {
                 let _ = timeout(Duration::from_secs(120), settled.changed()).await;
             }
             let base = url_slot.read().unwrap().clone();
-            open_setup_hub(&base, &format!("{base}/mcp"));
+            open_setup_hub(&base, &format!("{base}/mcp"), &setup_monitor);
         });
     }
     let renderer = monitor.spawn_renderer(monitor_config, args.monitor);
@@ -633,7 +638,11 @@ pub async fn run() -> Result<()> {
                                 auth.pairing_code()
                             );
                             if let Err(error) = send_imessage(recipient, &message) {
-                                eprintln!("  ! imessage      {error:#}");
+                                monitor.operator_message(
+                                    OperatorMessageKind::Warning,
+                                    "imessage",
+                                    format!("{error:#}"),
+                                );
                             }
                         }
                         tunnels.push(active);
@@ -693,7 +702,11 @@ pub async fn run() -> Result<()> {
                     let dead_provider = tunnels[index].provider();
                     let dead_url = tunnels[index].public_url().to_owned();
                     let was_primary = index == 0;
-                    eprintln!("  ! tunnel       {reason}; respawning {}", dead_provider.label());
+                    monitor.operator_message(
+                        OperatorMessageKind::Warning,
+                        "tunnel",
+                        format!("{reason}; respawning {}", dead_provider.label()),
+                    );
                     let mut dead = tunnels.remove(index);
                     dead.stop().await;
                     monitor.remove_tunnel(&dead_url);
@@ -723,9 +736,13 @@ pub async fn run() -> Result<()> {
                         .and_modify(|count| *count += 1)
                         .or_insert(1);
                     let backoff_secs = (15u64 << (*deaths - 1).min(4)).min(300);
-                    eprintln!(
-                        "  ! tunnel       {} respawns in {backoff_secs}s (death #{deaths})",
-                        dead_provider.label()
+                    monitor.operator_message(
+                        OperatorMessageKind::Warning,
+                        "tunnel",
+                        format!(
+                            "{} respawns in {backoff_secs}s (death #{deaths})",
+                            dead_provider.label()
+                        ),
                     );
                     pending_respawns.push((
                         dead_provider,
@@ -827,9 +844,13 @@ async fn wait_for_monitor_interrupt(receiver: Option<watch::Receiver<bool>>) {
     }
 }
 
-fn open_setup_hub(setup_url: &str, mcp_url: &str) {
-    println!("  ↗ setup        opening wcode setup hub");
-    println!("  · MCP URL      {mcp_url}");
+fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
+    monitor.operator_message(
+        OperatorMessageKind::Info,
+        "setup",
+        "opening wcode setup hub",
+    );
+    monitor.operator_message(OperatorMessageKind::Info, "MCP URL", mcp_url);
     let mut command = if cfg!(target_os = "macos") {
         let mut command = StdCommand::new("open");
         command.arg(setup_url);
@@ -849,7 +870,11 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str) {
         .stderr(StdStdio::null())
         .spawn()
     {
-        eprintln!("  ! setup        could not open the browser ({error}); visit {setup_url}");
+        monitor.operator_message(
+            OperatorMessageKind::Warning,
+            "setup",
+            format!("could not open the browser ({error}); visit {setup_url}"),
+        );
     }
 }
 

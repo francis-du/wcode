@@ -359,7 +359,7 @@
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
-  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, and exposes real warm LSP session/document/start/query telemetry. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
+  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output for the lifetime of the alternate-screen renderer so background operator diagnostics are retained as structured state without bypassing ratatui. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
   verification:
     - kind: test
       path: tests/unit/ui/monitor.rs
@@ -376,6 +376,9 @@
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: semantic_session_status_updates_operator_intelligence_state
+    - kind: test
+      path: tests/unit/ui/monitor.rs
+      symbol: dashboard_terminal_claim_suppresses_background_operator_output
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls
@@ -527,8 +530,11 @@
 - schema_version: 1
   id: AC-TUNNEL-001
   title: Managed tunnel selection supports free provider fallback
-  statement: Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, and OAuth metadata plus existing sessions follow only the verified aliases owned by the running wcode process.
+  statement: Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, OAuth metadata plus existing sessions follow only the verified aliases owned by the running wcode process, and managed tunnel/provider dependency paths never write directly to stdout/stderr or inherit child terminal output; diagnostics flow through TaskMonitor so an active alternate-screen TUI cannot be corrupted.
   verification:
+    - kind: test
+      path: tests/unit/runtime/tunnel/mod.rs
+      symbol: tunnel_runtime_never_writes_directly_to_the_terminal
     - kind: test
       path: tests/unit/runtime/tunnel/mod.rs
       symbol: parses_quick_tunnel_url

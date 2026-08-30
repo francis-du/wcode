@@ -78,6 +78,13 @@ pub struct TaskMonitor {
     state: Arc<Mutex<MonitorState>>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum OperatorMessageKind {
+    Info,
+    Success,
+    Warning,
+}
+
 struct MonitorState {
     next_id: u64,
     started_at: Instant,
@@ -99,6 +106,8 @@ struct MonitorState {
     public_url_error: Option<String>,
     tunnel_running: Option<bool>,
     tunnel_error: Option<String>,
+    tunnel_activity: Option<String>,
+    terminal_claimed: bool,
     active_total: u64,
     peak_active: u64,
     observed_active: u64,
@@ -287,6 +296,7 @@ struct MonitorSnapshot {
     public_url_error: Option<String>,
     tunnel_running: Option<bool>,
     tunnel_error: Option<String>,
+    tunnel_activity: Option<String>,
     peak_active: u64,
     observed_active: u64,
     observed_queued: u64,

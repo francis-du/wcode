@@ -1,4 +1,4 @@
-use crate::monitor::TaskMonitor;
+use crate::monitor::{OperatorMessageKind, TaskMonitor};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::ValueEnum;
 use std::process::{Command as StdCommand, Stdio as StdStdio};
@@ -161,10 +161,15 @@ pub(crate) fn spawn_tunnel_supervisor(
         let allow_install = install_missing && selected != TunnelProvider::Auto;
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Result<ActiveTunnel, String>>();
         for &provider in &candidates {
-            println!("  · tunnel       trying {}", provider.label());
+            monitor.operator_message(
+                OperatorMessageKind::Info,
+                "tunnel",
+                format!("trying {}", provider.label()),
+            );
             let local_url = local_url.clone();
             let instance_id = instance_id.clone();
             let result_tx = result_tx.clone();
+            let provider_monitor = monitor.clone();
             tokio::spawn(async move {
                 let mut attempt = 0usize;
                 loop {
@@ -175,6 +180,7 @@ pub(crate) fn spawn_tunnel_supervisor(
                         &local_url,
                         &instance_id,
                         allow_install,
+                        &provider_monitor,
                     )
                     .await
                     {
@@ -184,14 +190,18 @@ pub(crate) fn spawn_tunnel_supervisor(
                         }
                         Err(error) => {
                             let detail = format!("{error:#}");
-                            eprintln!(
-                                "  ! tunnel       {} attempt {attempt} failed · retrying every {}s · {}",
-                                provider.label(),
-                                PROVIDER_RETRY_INTERVAL.as_secs(),
-                                truncate_diagnostic(
-                                    detail.lines().next().unwrap_or("unknown error"),
-                                    160
-                                )
+                            provider_monitor.operator_message(
+                                OperatorMessageKind::Warning,
+                                "tunnel",
+                                format!(
+                                    "{} attempt {attempt} failed · retrying every {}s · {}",
+                                    provider.label(),
+                                    PROVIDER_RETRY_INTERVAL.as_secs(),
+                                    truncate_diagnostic(
+                                        detail.lines().next().unwrap_or("unknown error"),
+                                        160
+                                    )
+                                ),
                             );
                         }
                     }
@@ -205,10 +215,14 @@ pub(crate) fn spawn_tunnel_supervisor(
             let Ok(active) = result else {
                 continue;
             };
-            println!(
-                "  ✓ tunnel       {} connected · {}",
-                active.provider_label(),
-                active.public_url()
+            monitor.operator_message(
+                OperatorMessageKind::Success,
+                "tunnel",
+                format!(
+                    "{} connected · {}",
+                    active.provider_label(),
+                    active.public_url()
+                ),
             );
             let first = connected == 0;
             connected += 1;
@@ -231,11 +245,12 @@ async fn try_start_provider(
     local_url: &str,
     instance_id: &str,
     allow_install: bool,
+    monitor: &TaskMonitor,
 ) -> Result<ActiveTunnel> {
     let start_result = if selected == TunnelProvider::Auto {
         match timeout(
             AUTO_PROVIDER_START_TIMEOUT,
-            start_tunnel_provider_once(provider, local_url, allow_install),
+            start_tunnel_provider_once(provider, local_url, allow_install, monitor),
         )
         .await
         {
@@ -247,7 +262,7 @@ async fn try_start_provider(
             )),
         }
     } else {
-        start_tunnel_provider_once(provider, local_url, allow_install).await
+        start_tunnel_provider_once(provider, local_url, allow_install, monitor).await
     };
     let (mut child, public_url) = start_result?;
     if let Err(error) = verify_tunnel_candidate(&public_url, instance_id).await {
@@ -292,21 +307,33 @@ pub(crate) async fn wait_for_public_endpoint(
     instance_id: &str,
     monitor: &TaskMonitor,
 ) -> Result<(), String> {
-    println!("  · endpoint     verifying this wcode instance");
+    monitor.operator_message(
+        OperatorMessageKind::Info,
+        "endpoint",
+        "verifying this wcode instance",
+    );
     let mut last_error = String::new();
     for attempt in 1..=PUBLIC_STARTUP_HEALTH_ATTEMPTS {
         match check_public_endpoint(public_url, instance_id).await {
             Ok(()) => {
                 monitor.mark_public_url_check(true, None);
-                println!("  ✓ endpoint     reachable and instance-matched");
+                monitor.operator_message(
+                    OperatorMessageKind::Success,
+                    "endpoint",
+                    "reachable and instance-matched",
+                );
                 return Ok(());
             }
             Err(error) => {
                 last_error = error;
                 monitor.mark_public_url_check(false, Some(last_error.clone()));
-                eprintln!(
-                    "  ! endpoint     attempt {attempt}/{PUBLIC_STARTUP_HEALTH_ATTEMPTS} failed · {}",
-                    truncate_diagnostic(&last_error, 180)
+                monitor.operator_message(
+                    OperatorMessageKind::Warning,
+                    "endpoint",
+                    format!(
+                        "attempt {attempt}/{PUBLIC_STARTUP_HEALTH_ATTEMPTS} failed · {}",
+                        truncate_diagnostic(&last_error, 180)
+                    ),
                 );
                 if attempt < PUBLIC_STARTUP_HEALTH_ATTEMPTS {
                     sleep(Duration::from_secs(attempt.min(3) as u64)).await;
@@ -391,11 +418,12 @@ async fn start_tunnel_provider_once(
     provider: TunnelProvider,
     local_url: &str,
     install_missing: bool,
+    monitor: &TaskMonitor,
 ) -> Result<(Child, String)> {
     match provider {
         TunnelProvider::Auto => bail!("auto is a tunnel selection policy, not a concrete provider"),
         TunnelProvider::Cloudflare => {
-            ensure_cloudflared(install_missing)?;
+            ensure_cloudflared(install_missing, monitor)?;
             start_cloudflared_once(local_url).await
         }
         TunnelProvider::LocalhostRun | TunnelProvider::Pinggy => {
@@ -403,11 +431,13 @@ async fn start_tunnel_provider_once(
             start_ssh_tunnel_once(provider, local_url).await
         }
         TunnelProvider::Tailscale => {
-            println!(
-                "  · tailscale    requires: tailscale CLI installed · `tailscale up` logged in · Funnel enabled on the tailnet"
+            monitor.operator_message(
+                OperatorMessageKind::Info,
+                "tailscale",
+                "requires CLI installed · `tailscale up` logged in · Funnel enabled",
             );
             ensure_tailscale()?;
-            start_tailscale_funnel_once(local_url).await
+            start_tailscale_funnel_once(local_url, monitor).await
         }
     }
 }
@@ -421,9 +451,12 @@ fn ensure_tailscale() -> Result<()> {
     )
 }
 
-async fn start_tailscale_funnel_once(local_url: &str) -> Result<(Child, String)> {
+async fn start_tailscale_funnel_once(
+    local_url: &str,
+    monitor: &TaskMonitor,
+) -> Result<(Child, String)> {
     let public_url = tailscale_funnel_url()?;
-    reclaim_stale_funnel(local_url);
+    reclaim_stale_funnel(local_url, monitor);
     let mut command = Command::new("tailscale");
     command
         .args(["funnel", local_url])
@@ -530,7 +563,7 @@ async fn funnel_serving(public_url: &str) -> bool {
 /// funnel attempt of the next run. Reclaim orphans that forward to this
 /// exact local URL; anything else belongs to another operator process and
 /// must not be touched.
-fn reclaim_stale_funnel(local_url: &str) {
+fn reclaim_stale_funnel(local_url: &str, monitor: &TaskMonitor) {
     let Ok(output) = StdCommand::new("ps")
         .args(["-axo", "pid=,ppid=,command="])
         .stdin(StdStdio::null())
@@ -552,7 +585,11 @@ fn reclaim_stale_funnel(local_url: &str) {
         let Ok(pid) = pid.parse::<i32>() else {
             continue;
         };
-        eprintln!("  ! tailscale    reclaiming stale funnel process {pid} for {local_url}");
+        monitor.operator_message(
+            OperatorMessageKind::Warning,
+            "tailscale",
+            format!("reclaiming stale funnel process {pid} for {local_url}"),
+        );
         let _ = StdCommand::new("kill")
             .arg(pid.to_string())
             .stdin(StdStdio::null())

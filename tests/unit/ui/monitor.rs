@@ -284,6 +284,25 @@ fn connection_tracks_public_endpoint_and_tunnel_failure() {
 }
 
 #[test]
+fn dashboard_terminal_claim_suppresses_background_operator_output() {
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.claim_terminal();
+    assert!(monitor.terminal_claimed());
+    monitor.operator_message(
+        OperatorMessageKind::Warning,
+        "tunnel",
+        "cloudflare respawns in 15s",
+    );
+    let snapshot = monitor.snapshot();
+    assert_eq!(
+        snapshot.tunnel_activity.as_deref(),
+        Some("cloudflare respawns in 15s")
+    );
+    monitor.release_terminal();
+    assert!(!monitor.terminal_claimed());
+}
+
+#[test]
 fn mouse_hit_testing_opens_footer_and_help_links() {
     let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = MonitorConfig {

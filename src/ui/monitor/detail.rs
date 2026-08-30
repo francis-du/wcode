@@ -55,7 +55,11 @@ pub(super) fn render_setup(
         match endpoint_mode {
             "quick-tunnel" | "external" => public_url_health_text(snapshot),
             "local-only" => "local only".to_owned(),
-            _ => "waiting".to_owned(),
+            _ => snapshot
+                .tunnel_activity
+                .as_deref()
+                .map(|activity| truncate_end(activity, 28))
+                .unwrap_or_else(|| "waiting".to_owned()),
         }
     };
     let mcp_seen = snapshot.last_mcp_seen.is_some();

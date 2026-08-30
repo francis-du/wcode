@@ -2,6 +2,26 @@ use super::cloudflare::extract_cloudflare_tunnel_url;
 use super::*;
 
 #[test]
+fn tunnel_runtime_never_writes_directly_to_the_terminal() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for path in [
+        "src/runtime/tunnel/mod.rs",
+        "src/runtime/tunnel/cloudflare.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(!source.contains("println!("), "{path} bypasses TaskMonitor");
+        assert!(
+            !source.contains("eprintln!("),
+            "{path} bypasses TaskMonitor"
+        );
+        assert!(
+            !source.contains("Stdio::inherit"),
+            "{path} lets a child process corrupt the dashboard"
+        );
+    }
+}
+
+#[test]
 fn public_health_response_must_match_the_current_instance() {
     let body = br#"{"ok":true,"instance_id":"instance-a"}"#;
     assert!(validate_health_response(body, "instance-a").is_ok());

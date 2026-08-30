@@ -280,7 +280,7 @@
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
-    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, expose the complete supported-command catalog, and distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry rather than a decorative LSP state
+    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry rather than a decorative LSP state, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard
     - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
   constraints:
@@ -664,6 +664,7 @@
     - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers on a fixed interval and keep every instance-health-verified tunnel live
     - respawn a single dead tunnel after an exponential backoff without restarting the process or disturbing live tunnels, promoting the next live tunnel when the primary endpoint dies
     - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification
+    - route provider attempts, retries, dependency/install diagnostics, stale-process reclamation and connection events through TaskMonitor operator messages; never write directly to the terminal or inherit installer stdio while the runtime may be rendering the TUI
     - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
   depends_on:
     - component:mcp-runtime
