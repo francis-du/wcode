@@ -47,10 +47,10 @@ wcode --workspace "$PWD" verification --plan-id VP-...
 
 `intelligence --check` turns the read-only status surface into a fail-closed CI/release gate. It returns non-zero for invalid or uninitialized Design State, incomplete Requirement→Component / Design→Implementation / Acceptance→Verification coverage, or required Convention errors. Product Scope mapping becomes a hard gate only when Design State explicitly declares `CONSTRAINT-PRODUCT-SCOPE-CANONICAL`; third-party repositories can still inspect `scope_status` without being forced into wcode's own 12-scope source layout. Its JSON output includes the same `scope_status` and `conventions` state used by the runtime; Convention warnings do not fail the check.
 
-Repository-aware semantic servers and stage executors are an explicit trust expansion because they can load or run repository-controlled code/configuration. In the interactive runtime, the first exact operation that lacks trust returns a local authorization request; approve it in the TUI or protected WebUI and retry. The approval becomes a session grant for that operation fingerprint. `--allow-risky-exec` is the broader process-wide pre-authorization path:
+Semantic providers and stage executors can load or run repository-controlled code/configuration, so they do not share one blanket trust rule. Hardened first-party semantic providers are enabled by default through a separate bounded lane; today `rust-analyzer` is the first automatic profile. `--no-semantic` disables every first-party language-server execution. Providers without an automatic profile and stage executors remain explicit trust expansions: the first untrusted exact operation returns a local authorization request that can be approved in the TUI or protected WebUI and retried. `--allow-risky-exec` remains the broader process-wide pre-authorization path for those non-automatic operations:
 
 ```bash
-wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
+wcode --workspace "$PWD" --no-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
@@ -191,19 +191,20 @@ For substantial coding work, start from one compact task-specific call rather th
 ```text
 1. agent_context(goal, scopes=...)
 2. follow readiness / next_actions
-3. symbol_context only if more source is needed
-4. apply_edits or apply_file_edits
-5. review_changes
-6. language_quality_run / drift / impact / risk only when the task requires them
-7. verify_project + required advanced stages
-8. evidence_status / reconciliation only when convergence or proof needs deeper inspection
+3. use semantic_navigation only when readiness recommends cross-file references/calls/implementations; keep find_symbol/search_code for simple localization
+4. symbol_context only if more source is needed
+5. apply_edits or apply_file_edits
+6. review_changes
+7. language_quality_run / drift / impact / risk only when the task requires them
+8. verify_project + required advanced stages
+9. evidence_status / reconciliation only when convergence or proof needs deeper inspection
 ```
 
 `agent_context` uses a bounded adaptive budget when `budget` is omitted. It combines relevant Design State, scope-aware repo-map ranking, fresh semantic/runtime evidence when usable, bounded Hot Source, exact SHA edit targets, related tests, working-tree advisories, readiness, and deterministic next actions. The 1000-token extreme mode prioritizes direct editability; the default adaptive path can grow when the task is ambiguous or cross-module. `project_context`, `scope_status`, `design_status`, `traceability_status`, `software_context`, `language_quality_status`, and graph/risk tools remain available for deliberate deeper inspection rather than mandatory startup overhead.
 
 ### `agent_context`
 
-Use `agent_context` as the normal coding entry point. It is designed to replace multiple startup discovery round trips with one bounded edit-ready pack. Repo-map ranking combines direct task relevance with existing Software Graph relationships; fresh semantic/runtime/deterministic evidence can strengthen those relationships, while stale provider facts automatically fall back to syntax. The pack keeps model-visible telemetry out of band in Tool Result `_meta` and reports explicit readiness instead of a generic quality score.
+Use `agent_context` as the normal coding entry point. It is designed to replace multiple startup discovery round trips with one bounded edit-ready pack. Repo-map ranking combines direct task relevance with existing Software Graph relationships; fresh semantic/runtime/deterministic evidence can strengthen those relationships, while stale provider facts automatically fall back to syntax. When the task language asks for callers, references, implementations, rename impact, or other cross-file relationships and the current graph is syntax-only, readiness recommends `semantic_navigation`; ordinary symbol localization does not pay that LSP cost. The pack keeps model-visible telemetry out of band in Tool Result `_meta` and reports explicit readiness instead of a generic quality score.
 
 ### Product Scopes
 
@@ -252,15 +253,21 @@ Coverage is returned as separate dimensions rather than one health score:
 
 The registry auto-detects common LSP servers such as `clangd`, `csharp-ls`/OmniSharp, `gopls`, `jdtls`, `typescript-language-server`, `pyright`/`pylsp`, `rust-analyzer`, `sourcekit-lsp`, `ocamllsp`, `lua-language-server`, `ruby-lsp`, PHP/Elixir/Dart/R language servers, and the HTML/CSS/Bash servers. Availability is reported separately from language support: wcode does not claim a server is runnable when its executable is missing.
 
-`semantic_provider_refresh` starts the detected server over bounded stdio LSP and requests real hierarchical Document Symbols. When the server advertises Call Hierarchy and/or Implementation support, wcode also imports those relationships. Successful first-party nodes carry `source_sha256`; provider status therefore reports `fresh` / `stale`, and stale LSP revisions are excluded from graph overlays, impact, reconciliation, and `software_context.graph_context`. Refresh also computes a revision key from source hashes, provider executable metadata, and the symbol bound: an unchanged revision is returned as `cached=true` without relaunching the language server. A server that returns no semantic symbols does not create a fake semantic revision.
+The runtime automatically maintains providers that have an explicit hardened profile. It watches only the most-specific discovered project Workspaces, waits for a short stable-source window before refreshing, retries failures with bounded exponential backoff, and acquires the same global Harness semaphore as model-facing work. This prevents a broad root and its nested project subspaces from launching duplicate semantic indexing. The Harness owns a bounded warm session pool keyed by Workspace, provider, and provider-binary identity; a live session is reused by both background indexing and foreground navigation, while dead, replaced, idle, or evicted slots are rebuilt safely. `semantic_provider_refresh` remains available as a force-refresh surface.
 
-Because language servers can evaluate project configuration, build metadata, plugins, or generated project state, refresh requires explicit repository trust. With `--allow-risky-exec` disabled, an unapproved refresh fails closed and creates a local `RiskyExecution` authorization request; approve it in the TUI or protected WebUI, then retry the same refresh. Use the flag when the operator intentionally wants process-wide pre-authorization:
+Within a warm session, the first source revision is sent with `textDocument/didOpen`, SHA changes advance an LSP document version through `didChange`, and files that leave the bounded index set receive `didClose`. A refresh requests real hierarchical Document Symbols and, when supported, imports a bounded set of high-value Call Hierarchy / Implementation relationships rather than expanding every variable and field. Successful first-party nodes carry `source_sha256`; provider status therefore reports `fresh` / `stale`, and stale LSP revisions are excluded from graph overlays, impact, reconciliation, and `software_context.graph_context`. The graph revision key still comes from source hashes, provider executable metadata, and the symbol bound: unchanged inputs skip graph reconstruction, while a runtime may warm one provider session so later semantic queries do not pay startup cost. A server that returns no semantic symbols does not create a fake semantic revision.
 
-```bash
-wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
-```
+Automatic execution is intentionally provider-specific rather than a general LSP exemption. The current `rust-analyzer` profile rejects an executable that resolves inside the Workspace, scrubs credential and execution-injection environment variables, and sends initialization options that disable build scripts, proc macros, Cargo auto-reload, and check-on-save. This reduces the default execution surface but is not an OS sandbox: language servers can still parse project metadata and configuration. `--no-semantic` is the fail-closed opt-out. A detected provider without an automatic safety profile continues to require an exact `RiskyExecution` approval for manual refresh, or process-wide `--allow-risky-exec` if the operator deliberately expands trust.
 
-Without approval (or the process-wide flag)—or without an installed server—the Tree-sitter graph remains available as `precision=syntax`. External SCIP/compiler/runtime indexers can still use `graph_provider_import`; the first-party LSP registry supplements rather than replaces the provider-neutral import contract.
+When no trusted/installed provider can run, Tree-sitter remains available as `precision=syntax`. External SCIP/compiler/runtime indexers can still use `graph_provider_import`; the first-party LSP registry supplements rather than replaces the provider-neutral import contract.
+
+### `semantic_navigation`
+
+Use `semantic_navigation` for relationship questions where repository text search is incomplete: definitions/hover when semantic resolution matters, references, implementations, incoming callers, outgoing callees, or a bounded impact bundle. Prefer the `path + symbol` form; wcode resolves the symbol through its syntax index and converts its 1-based UTF-8 byte position into the position encoding negotiated with the language server, so the agent does not calculate UTF-16 offsets. A direct `line + character` selector remains available for callers that already own a precise source position.
+
+The `intent` controls which LSP requests are issued: `definition`, `hover`, `references`, `incoming_calls`, `outgoing_calls`, `calls`, `implementations`, or `impact`. `impact` deliberately favors cross-file completeness—references, incoming callers, and implementations—rather than issuing every supported request. If no trusted provider is available, the tool returns an explicit Tree-sitter `syntax_fallback` instead of pretending compiler-level precision. For simple “where is this symbol?” work, continue to use `find_symbol` / `search_code`; this keeps LSP cost proportional to the tasks that benefit from semantic completeness.
+
+The TUI Intelligence view exposes warm session count, synchronized document count, semantic query count, provider starts, and fresh/stale provider state so operators can tell whether session reuse is actually working.
 
 ### Language Quality Matrix
 
@@ -490,7 +497,7 @@ Precision and integration boundaries are explicit rather than hidden:
 
 - the always-available code index remains Tree-sitter `precision=syntax`; a first-party LSP adapter may upgrade individual facts to `precision=semantic` only after a real installed server responds, while SCIP/compiler/runtime providers can still enter through the external import contract;
 - all 22 indexed languages share one semantic-provider and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
-- repository-aware LSP refresh and Property/Mutation/Fuzz/Runtime execution require explicit operator trust: exact operations can receive local TUI or protected-WebUI session grants and be retried, while `--allow-risky-exec` is the process-wide pre-authorization path; neither is an OS sandbox;
+- hardened first-party semantic providers may auto-refresh through the bounded semantic lane and can be disabled with `--no-semantic`; non-profiled LSP refresh plus Property/Mutation/Fuzz/Runtime execution still require explicit operator trust, while `--allow-risky-exec` remains process-wide pre-authorization; none of these mechanisms is an OS sandbox;
 - model-facing command execution uses command-specific policy for the built-in development CLI catalog and exact `RiskyExecution` fingerprints for bounded repository/remote operations. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross exact approval; an approved SSH push may use the current SSH Agent only through wcode's fixed non-interactive SSH command. Force/delete/reset/restore-style mutation, shell interpreters, credential-bypass surfaces, workspace escapes, and protected resources remain blocked;
 - `read_media` never infers vision/audio support from a model or vendor name. `include_content=true` emits an image/audio MCP content block only when the current request declares the matching `run.francis.wcode/media-content` extension; otherwise it returns a structured capability error without binary content;
 - Reconciliation execution coordinates durable tasks and evidence, but source edits still use the normal bounded/hash-guarded wcode edit surface instead of a hidden unrestricted patch engine;

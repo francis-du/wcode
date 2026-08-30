@@ -70,6 +70,8 @@ mod scopes;
 pub mod semantic;
 #[path = "semantics/provider/mod.rs"]
 mod semantic_provider;
+#[path = "runtime/semantic.rs"]
+mod semantic_runtime;
 #[path = "semantics/store.rs"]
 mod semantic_store;
 #[path = "verification/stage_executor.rs"]

@@ -123,7 +123,11 @@
   name: Semantic Provider Runtime
   responsibilities:
     - discover first-party language-server providers for indexed languages
-    - ingest real Document Symbol Call Hierarchy and Implementation facts
+    - automatically maintain bounded semantic state for explicitly hardened providers on the most specific project Workspaces while avoiding duplicate parent/subspace indexing
+    - reuse bounded Workspace/provider language-server sessions, synchronize opened files by source SHA through didOpen/didChange/didClose, and invalidate sessions when the provider binary identity changes or the server exits
+    - ingest real Document Symbol Call Hierarchy and Implementation facts through the global concurrency boundary
+    - expose symbol-first semantic navigation for definition, hover, references, incoming/outgoing calls and implementations while keeping simple localization on Tree-sitter/search and falling back honestly when no trusted provider exists
+    - reject Workspace-local provider executables, scrub execution-injection environment state, and retain explicit trust for providers without an automatic safety profile
     - reject stale semantic revisions from composite graph use
   constraints:
     - CONSTRAINT-EXPLICIT-PRECISION
@@ -136,6 +140,24 @@
     - kind: symbol
       path: src/semantics/provider/mod.rs
       symbol: refresh
+    - kind: symbol
+      path: src/semantics/provider/auto.rs
+      symbol: state
+    - kind: symbol
+      path: src/runtime/semantic.rs
+      symbol: spawn
+    - kind: symbol
+      path: src/semantics/provider/session.rs
+      symbol: SemanticSessionPool
+    - kind: symbol
+      path: src/semantics/provider/navigation.rs
+      symbol: navigate
+    - kind: symbol
+      path: src/runtime/harness/core.rs
+      symbol: ToolHarness::semantic_navigation
+    - kind: symbol
+      path: src/runtime/harness/agent_context.rs
+      symbol: query_needs_semantic_relationships
 
 - schema_version: 1
   id: component:traceability-drift
@@ -257,7 +279,7 @@
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
-    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, and expose the complete supported-command catalog
+    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, expose the complete supported-command catalog, and show real warm semantic-session/document/start/query telemetry rather than a decorative LSP state
     - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
   constraints:

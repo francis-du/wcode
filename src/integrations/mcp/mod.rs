@@ -60,6 +60,7 @@ const PARALLEL_READ_TOOLS: &[&str] = &[
     "software_graph",
     "graph_provider_status",
     "semantic_provider_status",
+    "semantic_navigation",
     "language_quality_status",
     "graph_history",
     "graph_query",
@@ -556,7 +557,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots and never bypass authorization or path protections. For coding call agent_context first and omit budget unless a fixed cap is required. Follow readiness/next_actions; do not reread hot_source. Use symbol_context only for missing bodies, apply_edits for one direct target file or apply_file_edits for multiple, then review_changes and verify_project. Reuse existing helpers before adding layers. Tree-sitter is syntax precision unless fresh stronger provider evidence says otherwise. Use deeper design/risk/reconciliation/language-quality tools only when required. Never fabricate Evidence, stage success, semantic precision, or HumanApproval.";
+const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots and never bypass authorization or path protections. For coding call agent_context first and omit budget unless fixed. Follow readiness/next_actions; do not reread hot_source. Use find_symbol/search_code for simple localization and semantic_navigation for cross-file references/callers/implementations when recommended. Use symbol_context only for missing bodies, then guarded edits, review_changes and verify_project. Tree-sitter remains syntax precision unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, or HumanApproval.";
 
 fn join_error_message(scope: &str, error: &JoinError) -> String {
     let kind = if error.is_cancelled() {

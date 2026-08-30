@@ -146,9 +146,18 @@ wcode exposes a compact set of repository operations, not a remote shell:
 
 The syntax index covers Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java,
 JavaScript, Lua, OCaml, OCaml Interface, PHP, Python, R, Ruby, Rust, Swift,
-TypeScript, and TSX. Semantic precision is reported only after a real language
-server answers for the current source revision; otherwise wcode says
-`precision=syntax`.
+TypeScript, and TSX. Hardened first-party semantics are enabled by default when
+an eligible installed provider is present; the first automatic profile is
+`rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
+project Workspaces, and keep stale semantic revisions out of graph consumers.
+A bounded warm session is reused across indexing and `semantic_navigation`, with
+SHA-driven `didOpen` / `didChange` / `didClose` synchronization. Agents keep
+Tree-sitter/search for simple localization and use the warm LSP path for
+cross-file references, callers, implementations, and semantic impact. Use
+`--no-semantic` to disable every first-party language server. Providers without
+an automatic safety profile retain explicit execution trust. Semantic precision
+is reported only after a real server answers for the current source revision;
+otherwise wcode says `precision=syntax`.
 
 ## Authorization is deliberately two-step
 

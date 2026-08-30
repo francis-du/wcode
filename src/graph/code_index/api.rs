@@ -264,6 +264,8 @@ impl CodeIndex {
             qualified_name: symbol.qualified_name.clone(),
             kind: symbol.kind.clone(),
             path: symbol.path.clone(),
+            start_line: symbol.name_range.start_line,
+            start_column: symbol.name_range.start_column,
             revision: format!("sha256:{}", ensured.record.sha256),
         }))
     }

@@ -72,6 +72,86 @@ fn provider_revision_changes_only_when_index_inputs_change() {
 }
 
 #[test]
+fn automatic_semantics_only_trust_the_hardened_rust_provider() {
+    let rust = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "rust-analyzer")
+        .unwrap();
+    let clangd = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "clangd")
+        .unwrap();
+    assert!(automatic_provider(rust));
+    assert!(!automatic_provider(clangd));
+    let options = client::initialization_options("rust-analyzer");
+    assert_eq!(
+        options.pointer("/cargo/buildScripts/enable"),
+        Some(&json!(false))
+    );
+    assert_eq!(options.pointer("/cargo/autoreload"), Some(&json!(false)));
+    assert_eq!(options.pointer("/procMacro/enable"), Some(&json!(false)));
+    assert_eq!(options.get("checkOnSave"), Some(&json!(false)));
+}
+
+#[test]
+fn provider_executables_inside_the_workspace_are_rejected() {
+    let workspace_dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(workspace_dir.path(), false, false).unwrap();
+    let injected = workspace_dir.path().join("rust-analyzer");
+    std::fs::write(&injected, "fixture").unwrap();
+    assert!(trusted_provider_path(&workspace, &injected).is_none());
+
+    let external_dir = tempfile::tempdir().unwrap();
+    let external = external_dir.path().join("rust-analyzer");
+    std::fs::write(&external, "fixture").unwrap();
+    assert_eq!(trusted_provider_path(&workspace, &external), Some(external));
+}
+
+#[cfg(unix)]
+#[test]
+fn trusted_provider_path_preserves_proxy_symlink_identity() {
+    use std::os::unix::fs::symlink;
+
+    let workspace_dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(workspace_dir.path(), false, false).unwrap();
+    let tools = tempfile::tempdir().unwrap();
+    let proxy_target = tools.path().join("rustup");
+    let provider_link = tools.path().join("rust-analyzer");
+    std::fs::write(&proxy_target, "fixture").unwrap();
+    symlink(&proxy_target, &provider_link).unwrap();
+
+    assert_eq!(
+        trusted_provider_path(&workspace, &provider_link),
+        Some(provider_link),
+        "validation must follow the symlink without replacing the executable path"
+    );
+}
+
+#[test]
+fn provider_session_authorization_is_provider_scoped() {
+    assert_eq!(
+        provider_session_operation("rust-analyzer"),
+        "semantic_provider_session\0rust-analyzer"
+    );
+    assert_ne!(
+        provider_session_operation("rust-analyzer"),
+        provider_session_operation("clangd")
+    );
+}
+
+#[test]
+fn relation_expansion_prefers_high_value_symbol_kinds() {
+    assert!(call_hierarchy_candidate(6));
+    assert!(call_hierarchy_candidate(12));
+    assert!(!call_hierarchy_candidate(13));
+    assert!(implementation_candidate(11));
+    assert!(implementation_candidate(23));
+    assert!(!implementation_candidate(13));
+}
+
+#[test]
 fn lsp_document_symbols_flatten_with_qualified_names() {
     let value = json!([{
         "name":"Outer","kind":5,

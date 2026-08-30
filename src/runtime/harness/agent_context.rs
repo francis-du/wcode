@@ -494,6 +494,12 @@ fn update_agent_readiness(value: &mut Value) {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let graph_precision = strongest_repo_map_precision(value);
+    let semantic_relationship_task = value
+        .get("query")
+        .and_then(Value::as_str)
+        .is_some_and(query_needs_semantic_relationships);
+    let recommend_semantic_navigation =
+        semantic_relationship_task && graph_precision == "syntax" && targets > 0;
 
     let edit = if !write_enabled {
         "read_only_workspace"
@@ -529,6 +535,9 @@ fn update_agent_readiness(value: &mut Value) {
     if graph_precision == "syntax" {
         advisories.push("syntax_only_relationships");
     }
+    if recommend_semantic_navigation {
+        advisories.push("semantic_navigation_recommended");
+    }
     if hot_source == 0 && targets > 0 {
         advisories.push("source_body_not_in_pack");
     }
@@ -545,17 +554,31 @@ fn update_agent_readiness(value: &mut Value) {
     };
     let mut next_actions = Vec::<&str>::new();
     match edit {
-        "ready" => next_actions.push(edit_tool),
+        "ready" => {
+            if recommend_semantic_navigation {
+                next_actions.push("semantic_navigation");
+            }
+            next_actions.push(edit_tool);
+        }
         "needs_source" => {
+            if recommend_semantic_navigation {
+                next_actions.push("semantic_navigation");
+            }
             next_actions.push("symbol_context");
             next_actions.push(edit_tool);
         }
         "needs_target" => {
             next_actions.push("find_symbol");
+            if recommend_semantic_navigation {
+                next_actions.push("semantic_navigation");
+            }
             next_actions.push("symbol_context");
             next_actions.push(edit_tool);
         }
         "needs_sha" => {
+            if recommend_semantic_navigation {
+                next_actions.push("semantic_navigation");
+            }
             next_actions.push("path_info");
             next_actions.push(edit_tool);
         }
@@ -586,6 +609,37 @@ fn update_agent_readiness(value: &mut Value) {
         "graph_truncated": graph_truncated,
         "advisories": advisories,
     });
+}
+
+fn query_needs_semantic_relationships(query: &str) -> bool {
+    let query = query.to_ascii_lowercase();
+    [
+        "reference",
+        "references",
+        "caller",
+        "callers",
+        "callee",
+        "callees",
+        "implementation",
+        "implementations",
+        "implementor",
+        "usages",
+        "rename",
+        "call site",
+        "cross-file",
+        "cross file",
+        "impact",
+        "引用",
+        "调用方",
+        "被调用",
+        "实现",
+        "重命名",
+        "调用点",
+        "跨文件",
+        "影响范围",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle))
 }
 
 fn strongest_repo_map_precision(value: &Value) -> &'static str {

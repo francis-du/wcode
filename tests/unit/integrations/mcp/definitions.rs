@@ -37,6 +37,7 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             .contains("adaptive")
     );
     assert!(names.contains("agent_context"));
+    assert!(names.contains("semantic_navigation"));
     assert!(names.contains("verify_project"));
     assert!(names.contains("apply_file_edits"));
 }

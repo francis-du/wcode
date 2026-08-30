@@ -11,6 +11,7 @@ impl ToolHarness {
             project_cache: Default::default(),
             repo_map_cache: Default::default(),
             code_index: CodeIndex::new()?,
+            semantic_sessions: SemanticSessionPool::default(),
             intelligence: SoftwareIntelligenceRuntime::default(),
         })
     }
@@ -44,9 +45,17 @@ impl ToolHarness {
                 "graph_providers": graph_provider_store::capabilities(),
                 "semantic_providers": {
                     "languages": 22,
-                    "adapter": "lsp-document-symbol-call-hierarchy",
+                    "adapter": "warm-lsp-session-document-symbol-navigation",
                     "precision": "semantic-when-provider-runs-syntax-fallback-otherwise",
-                    "requires_risky_exec": true
+                    "mode": "automatic-hardened-providers-with-manual-trust-fallback",
+                    "default_enabled": true,
+                    "opt_out": "--no-semantic",
+                    "requires_risky_exec": "non-automatic-providers-only",
+                    "warm_sessions": true,
+                    "incremental_document_sync": true,
+                    "navigation": ["definition", "references", "implementations", "incoming_calls", "outgoing_calls", "hover"],
+                    "routing": "syntax-for-localization-semantic-for-cross-file-relations",
+                    "session_pool": self.semantic_sessions.status()
                 },
                 "traceability": true,
                 "software_context": true,
@@ -211,6 +220,10 @@ impl ToolHarness {
         semantic_provider::status(workspace)
     }
 
+    pub fn semantic_session_status(&self, workspace: &Workspace) -> SemanticSessionPoolStatus {
+        self.semantic_sessions.status_for(workspace)
+    }
+
     pub async fn semantic_provider_refresh(
         &self,
         workspace: &Workspace,
@@ -218,12 +231,54 @@ impl ToolHarness {
         max_files: usize,
         max_symbols: usize,
     ) -> Result<SemanticProviderRefresh> {
+        self.semantic_provider_refresh_mode(workspace, path, max_files, max_symbols, false)
+            .await
+    }
+
+    pub(crate) async fn semantic_provider_refresh_automatic(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+    ) -> Result<SemanticProviderRefresh> {
+        self.semantic_provider_refresh_mode(workspace, path, max_files, max_symbols, true)
+            .await
+    }
+
+    async fn semantic_provider_refresh_mode(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+        automatic_only: bool,
+    ) -> Result<SemanticProviderRefresh> {
         let existing = graph_provider_store::load_latest(workspace)?
             .into_iter()
             .map(|stored| (stored.import.provider.clone(), stored.import))
             .collect::<BTreeMap<_, _>>();
-        let refresh =
-            semantic_provider::refresh(workspace, path, max_files, max_symbols, &existing).await?;
+        let refresh = if automatic_only {
+            semantic_provider::refresh_automatic(
+                &self.semantic_sessions,
+                workspace,
+                path,
+                max_files,
+                max_symbols,
+                &existing,
+            )
+            .await?
+        } else {
+            semantic_provider::refresh(
+                &self.semantic_sessions,
+                workspace,
+                path,
+                max_files,
+                max_symbols,
+                &existing,
+            )
+            .await?
+        };
         for import in &refresh.imports {
             graph_provider_store::persist(workspace, import)?;
         }
@@ -355,6 +410,85 @@ impl ToolHarness {
             &known_checks,
             &request,
         )
+    }
+
+    pub async fn semantic_navigation(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        request: &SemanticNavigationRequest,
+    ) -> Result<Value> {
+        let path = request.path.as_str();
+        let resolved = request
+            .symbol
+            .as_deref()
+            .map(|symbol| self.code_index.resolve_symbol(workspace, path, symbol))
+            .transpose()?
+            .flatten();
+        if request.symbol.is_some() && resolved.is_none() {
+            bail!("symbol is ambiguous or was not found in path; call find_symbol first and pass a unique name or qualified name");
+        }
+        let (line, character) = match resolved.as_ref() {
+            Some(symbol) => (symbol.start_line, symbol.start_column),
+            None => (
+                request
+                    .line
+                    .ok_or_else(|| anyhow::anyhow!("line is required when symbol is omitted"))?,
+                request.character.ok_or_else(|| {
+                    anyhow::anyhow!("character is required when symbol is omitted")
+                })?,
+            ),
+        };
+        if semantic_provider::language_for_path(path).is_none() {
+            bail!("semantic navigation does not support this source language");
+        }
+        if !semantic_provider::provider_available_for_path(workspace, path) {
+            let syntax_context = resolved.as_ref().and_then(|symbol| {
+                self.code_index
+                    .symbol_context(workspace_id, workspace, &symbol.id, 120)
+                    .ok()
+            });
+            return Ok(json!({
+                "workspace": workspace_id,
+                "path": path,
+                "provider": "tree-sitter",
+                "precision": "syntax",
+                "routing": "syntax_fallback",
+                "reason": "no trusted LSP provider is available; use find_symbol/search_code for localization and treat cross-file relationships conservatively",
+                "selector": resolved.as_ref().map(|symbol| json!({
+                    "name": symbol.name,
+                    "qualified_name": symbol.qualified_name,
+                    "kind": symbol.kind,
+                    "line": symbol.start_line,
+                    "character": symbol.start_column,
+                    "revision": symbol.revision,
+                })),
+                "syntax_context": syntax_context,
+            }));
+        }
+        let navigation = semantic_provider::navigate(
+            &self.semantic_sessions,
+            workspace,
+            path,
+            u64::try_from(line).unwrap_or(u64::MAX),
+            u64::try_from(character).unwrap_or(u64::MAX),
+            request.intent,
+            request.max_results,
+        )
+        .await?;
+        let mut value = serde_json::to_value(navigation)?;
+        value["workspace"] = json!(workspace_id);
+        if let Some(symbol) = resolved {
+            value["selector"] = json!({
+                "name": symbol.name,
+                "qualified_name": symbol.qualified_name,
+                "kind": symbol.kind,
+                "line": symbol.start_line,
+                "character": symbol.start_column,
+                "revision": symbol.revision,
+            });
+        }
+        Ok(value)
     }
 
     pub fn semantic_status(

@@ -45,10 +45,10 @@ wcode --workspace "$PWD" verification --plan-id VP-...
 
 `intelligence --check` 会把只读状态面变成 fail-closed 的 CI / Release Gate：Design State 未初始化或无效、Requirement→Component / Design→Implementation / Acceptance→Verification 任一维度低于 100%、以及 Required Convention 出现 Error 时都会返回非零退出码。只有当 Design State 显式声明 `CONSTRAINT-PRODUCT-SCOPE-CANONICAL` 时，Product Scope 扫描截断或存在未映射受支持源码才会成为硬门槛；普通第三方仓库仍可查看 `scope_status`，但不会被强制套用 wcode 自身的 12 个 Product Scope 目录模型。JSON 会同时带出 Runtime 使用的 `scope_status` 与 `conventions`；Convention Warning 仍保持建议性质，不会阻断发布。
 
-Language Server 和 Stage Executor 都可能加载/执行仓库控制的配置或代码，因此必须由操作者显式授权。正常交互式运行时，第一次尚未授权的精确操作会 fail closed 并生成本地 Authorization Request；操作者可以在 TUI 或受保护 WebUI 批准后重试，同一操作 Fingerprint 会获得当前 Session Grant。`--allow-risky-exec` 是更宽的进程级预授权方式：
+Semantic Provider 和 Stage Executor 都可能加载/执行仓库控制的配置或代码，因此不再共用一条笼统的 Trust 规则。拥有 Hardened Profile 的第一方 Semantic Provider 默认通过独立有界 Lane 自动运行；当前首个 Auto Profile 是 `rust-analyzer`。`--no-semantic` 可以关闭全部第一方 Language Server 执行。没有 Auto Profile 的 Provider 与 Stage Executor 仍属于显式 Trust Expansion：第一次尚未授权的精确操作会 fail closed 并生成本地 Authorization Request，可在 TUI 或受保护 WebUI 批准后重试；`--allow-risky-exec` 仍是这些非 Auto 操作更宽的进程级预授权方式：
 
 ```bash
-wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
+wcode --workspace "$PWD" --no-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
@@ -212,19 +212,20 @@ precision = syntax
 ```text
 1. agent_context(goal, scopes=...)
 2. 按 readiness / next_actions 执行
-3. 只有缺源码时调用 symbol_context
-4. apply_edits / apply_file_edits
-5. review_changes
-6. 只有任务需要时再运行 language_quality_run / drift / impact / risk
-7. verify_project + 必需高级 Stage
-8. 只有 Convergence / Proof 需要深入时再进入 evidence_status / reconciliation
+3. 只有 Readiness 明确要求跨文件引用 / 调用 / 实现关系时才用 semantic_navigation；普通定位继续用 find_symbol / search_code
+4. 只有缺源码时调用 symbol_context
+5. apply_edits / apply_file_edits
+6. review_changes
+7. 只有任务需要时再运行 language_quality_run / drift / impact / risk
+8. verify_project + 必需高级 Stage
+9. 只有 Convergence / Proof 需要深入时再进入 evidence_status / reconciliation
 ```
 
 `agent_context` 省略 `budget` 时使用有界 Adaptive Budget，组合相关 Design State、Scope-aware Repo-map Ranking、可用时的 Fresh Semantic/Runtime Evidence、Bounded Hot Source、Exact SHA Edit Target、Related Test、Working-tree Advisory、Readiness 与 Deterministic Next Actions。1000-token 极限模式优先保证能直接开工；默认 Adaptive Path 会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk Tool 保留为按需深入，而不是固定启动成本。
 
 ### `agent_context`
 
-正常 Coding 优先调用 `agent_context`。它把过去多次 Startup Discovery 合成一个有界 Edit-ready Pack：Repo-map Ranking 同时使用 Task Relevance 与 Software Graph Relationship；Fresh Semantic/Runtime/Deterministic Evidence 可以增强关系，Stale Provider 自动回退 Syntax；性能 Telemetry 放在 Tool Result `_meta`，模型可见 Context 只保留做决策真正需要的信息。Readiness 明确告诉 Agent 当前能直接 Edit/Verify，还是应先补 Source/Semantic Context。
+正常 Coding 优先调用 `agent_context`。它把过去多次 Startup Discovery 合成一个有界 Edit-ready Pack：Repo-map Ranking 同时使用 Task Relevance 与 Software Graph Relationship；Fresh Semantic/Runtime/Deterministic Evidence 可以增强关系，Stale Provider 自动回退 Syntax。当任务明确涉及 Caller、Reference、Implementation、Rename Impact 或其他跨文件关系，而且当前图只有 Syntax Precision 时，Readiness 才会推荐 `semantic_navigation`；普通 Symbol 定位不承担这笔 LSP 成本。性能 Telemetry 放在 Tool Result `_meta`，模型可见 Context 只保留做决策真正需要的信息。
 
 ### Product Scope
 
@@ -283,15 +284,21 @@ Coverage 不会被压成一个总分，而是分别返回：
 
 Registry 会自动探测常见 LSP，例如 `clangd`、`csharp-ls`/OmniSharp、`gopls`、`jdtls`、`typescript-language-server`、`pyright`/`pylsp`、`rust-analyzer`、`sourcekit-lsp`、`ocamllsp`、`lua-language-server`、`ruby-lsp`，以及 PHP / Elixir / Dart / R / HTML / CSS / Bash Language Server。**语言支持**和**本机工具已安装**是两回事：没有找到可执行文件时会明确显示 unavailable / syntax fallback。
 
-`semantic_provider_refresh` 使用有界 stdio LSP 请求真实 hierarchical Document Symbol；Server 声明支持 Call Hierarchy / Implementation 时再导入对应关系。第一方 LSP Node 会携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 stale semantic revision 会自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`，直到刷新成功。刷新还会根据源码 Hash、Provider 二进制元数据和 Symbol 上限计算 Revision Cache Key；输入未变化时直接返回 `cached=true`，不会重复启动 Language Server。Server 没返回语义 Symbol 时不会制造一个假的 semantic revision。
+Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + Provider + Provider Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session，Server 退出、Binary 更换、Session 空闲淘汰或容量驱逐后才重建。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
 
-Language Server 可能读取项目配置、插件、生成文件或构建元数据，所以刷新需要显式信任。没有开启进程级 `--allow-risky-exec` 时，尚未授权的 Refresh 会先生成本地 `RiskyExecution` Authorization Request；在 TUI 或受保护 WebUI 批准后重试同一操作即可。需要整进程预授权时再使用：
+Warm Session 中，某份源码第一次进入时发送 `textDocument/didOpen`；SHA 变化时递增版本并发送 `didChange`；文件退出当前有界索引集合时发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。
 
-```bash
-wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
-```
+Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：Language Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 Provider，手工 Refresh 继续要求精确 `RiskyExecution` 授权；只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
 
-既没有批准对应操作、也没有开启进程级预授权，或者本机没有对应 LSP 时，Tree-sitter 仍提供 `precision=syntax` 的基础图。SCIP / Compiler / Runtime 等其他 Provider 仍可以继续使用 `graph_provider_import`，两条路径共享同一个带 Provenance 的 Software Graph。
+没有可安全运行或已安装的 Provider 时，Tree-sitter 仍提供 `precision=syntax` 的基础图。SCIP / Compiler / Runtime 等其他 Provider 继续使用 `graph_provider_import`，两条路径共享同一个带 Provenance 的 Software Graph。
+
+### `semantic_navigation`
+
+`semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee，或一组有界的 Impact 关系。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 Language Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。
+
+`intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。没有可信 Provider 时，Tool 明确返回 Tree-sitter `syntax_fallback`，不会伪装成 Compiler-level Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
+
+TUI Intelligence 会显示 Warm Session 数、已同步 Document 数、Semantic Query 数、Provider Start 次数和 Fresh/Stale 状态，可以直接判断 Session Reuse 是否真的生效。
 
 ### Language Quality Matrix
 
@@ -594,7 +601,8 @@ evidence_status
 
 ```text
 wcode --workspace <PATH> intelligence
-wcode --workspace <PATH> --allow-risky-exec intelligence --refresh-semantic
+wcode --workspace <PATH> --no-semantic          # 完全关闭第一方 LSP
+wcode --workspace <PATH> intelligence --refresh-semantic  # 强制一次 Refresh
 wcode --workspace <PATH> verification
 wcode --workspace <PATH> --allow-risky-exec verification --plan-id VP-... --execute-stages
 TUI: I = 当前项目分析, C = 完整命令清单, W = 项目观测页
@@ -652,7 +660,7 @@ run_command
 
 - 永远可用的内置代码索引仍是 Tree-sitter `precision=syntax`；第一方 LSP Adapter 只有在本机真实 Language Server 返回结果后才把对应事实标成 `precision=semantic`，外部 SCIP / Compiler / Runtime Provider 仍走带 `provider + precision + revision` 的 Import Contract。
 - 全部 22 种语言共享同一套 Semantic Provider / Verification Executor 架构，但 wcode 不捆绑每一种第三方 LSP 和测试二进制；`semantic_provider_status` / `verification_executor_status` 会展示本机真实 availability，不把缺失程序算成已安装。
-- Repository-aware LSP 刷新和 Property / Mutation / Fuzz / Runtime-Canary 执行都需要显式操作者信任：可以对精确操作在 TUI 或受保护 WebUI 做 Session 授权并重试，也可以用 `--allow-risky-exec` 做进程级预授权；两者都不是 OS Sandbox。
+- 拥有 Hardened Profile 的第一方 Semantic Provider 可以通过有界 Semantic Lane 自动刷新，并可用 `--no-semantic` 关闭；没有 Profile 的 LSP Refresh 与 Property / Mutation / Fuzz / Runtime-Canary 继续要求显式操作者信任，`--allow-risky-exec` 仍是进程级预授权；这些机制都不是 OS Sandbox。
 - Model-facing Command Execution 对内置 Development CLI Catalog 使用 Command-specific Policy，对有界 Repository/Remote Operation 使用精确 `RiskyExecution` Fingerprint。Repository Mutation 只允许显式 Path 的 `git add`、Message-only `git commit`、显式 Remote+Ref 的 Non-force `git push` 进入授权；批准后的 SSH Push 只通过固定非交互 SSH 命令使用当前 SSH Agent。Force/Delete/Reset/Restore、Shell Interpreter、Credential-bypass Surface、Workspace Escape 与 Protected Resource 继续阻断。
 - Reconciliation 可以持久化编排并跨模型继续执行，但实际源码修改仍走 wcode 的受限、原子、SHA-256 Guarded Edit Tool，不存在绕过安全边界的隐藏自动 Patch。
 - 删除是单独的破坏性授权路径：第一次 `delete_path` 会创建精确的本地 Authorization Request，操作者在 TUI 或受保护 WebUI 中批准或拒绝；只有参数和目标完全匹配的重试才能消耗这一次性 Grant。

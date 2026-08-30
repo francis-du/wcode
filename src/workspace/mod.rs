@@ -71,12 +71,25 @@ fn portable_relative_path(path: &Path) -> String {
         .join("/")
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct WorkspaceSecurity {
     pub allow_risky_exec: bool,
+    pub allow_semantic_exec: bool,
     pub allow_destructive_writes: bool,
     pub allow_overlapping_workspaces: bool,
     pub allow_broad_workspace: bool,
+}
+
+impl Default for WorkspaceSecurity {
+    fn default() -> Self {
+        Self {
+            allow_risky_exec: false,
+            allow_semantic_exec: true,
+            allow_destructive_writes: false,
+            allow_overlapping_workspaces: false,
+            allow_broad_workspace: false,
+        }
+    }
 }
 
 #[derive(Clone)]

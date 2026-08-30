@@ -100,6 +100,14 @@ fn project_context_detects_guidance_and_quality_checks() {
     assert!(first
         .workflow
         .iter()
+        .any(|step| step.contains("agent_context") && step.contains("readiness")));
+    assert!(first
+        .workflow
+        .iter()
+        .any(|step| step.contains("semantic_navigation") && step.contains("warm")));
+    assert!(first
+        .workflow
+        .iter()
         .any(|step| step.contains("scope_status") && step.contains("architecture debt")));
     assert!(first.recommended_checks.iter().any(|check| {
         check.id == "rust-release-build"
@@ -533,6 +541,26 @@ mod tests {
         .agent_context("demo", &workspace, "feature entry", 2_000, &[])
         .unwrap();
     assert_eq!(cached["repo_map"]["cache_hit"], true);
+
+    let relationship_task = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "feature entry callers and references",
+            2_000,
+            &[],
+        )
+        .unwrap();
+    assert!(relationship_task["readiness"]["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == "semantic_navigation"));
+    assert!(relationship_task["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|advisory| advisory == "semantic_navigation_recommended"));
     assert!(cached["estimated_tokens"].as_u64().unwrap() <= 2_000);
     let cached_items = cached["repo_map"]["items"].as_array().unwrap();
     let helper = cached_items

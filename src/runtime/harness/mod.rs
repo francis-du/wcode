@@ -24,7 +24,10 @@ use crate::reconciliation_execution_store;
 use crate::reconciliation_store;
 use crate::scopes::{self, ProductScopeDescriptor};
 use crate::semantic::{SemanticCandidateInput, SemanticFact, SemanticMatch};
-use crate::semantic_provider::{self, SemanticProviderRefresh, SemanticProviderStatus};
+use crate::semantic_provider::{
+    self, SemanticNavigationIntent, SemanticProviderRefresh, SemanticProviderStatus,
+    SemanticSessionPool, SemanticSessionPoolStatus,
+};
 use crate::semantic_store;
 use crate::stage_executor::{self, StageExecutionResult, StageExecutorRegistry};
 use crate::verification::{
@@ -118,6 +121,16 @@ const PROFILE_FILES: &[&str] = &[
     "Makefile",
 ];
 
+#[derive(Clone, Debug)]
+pub(crate) struct SemanticNavigationRequest {
+    pub path: String,
+    pub symbol: Option<String>,
+    pub line: Option<usize>,
+    pub character: Option<usize>,
+    pub intent: SemanticNavigationIntent,
+    pub max_results: usize,
+}
+
 #[derive(Clone)]
 pub struct ToolHarness {
     slots: Arc<Semaphore>,
@@ -125,6 +138,7 @@ pub struct ToolHarness {
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
     repo_map_cache: Arc<Mutex<HashMap<(PathBuf, String), CachedRepoMapGraph>>>,
     code_index: CodeIndex,
+    semantic_sessions: SemanticSessionPool,
     intelligence: SoftwareIntelligenceRuntime,
 }
 

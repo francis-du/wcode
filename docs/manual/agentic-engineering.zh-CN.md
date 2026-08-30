@@ -93,8 +93,9 @@ Host 具体接入方式见 [Agent 与 MCP 集成](../code-agent-integrations/)�
 
 1. 调用 `agent_context(goal, scopes=...)`，通常不手工传 Budget；
 2. 按 `readiness` 和 `next_actions` 执行；
-3. 只有需要更多源码时才调用 `symbol_context`；
-4. 只有任务确实需要时再调用 `language_quality_status`、`scope_status`、`design_status`、`traceability_status` 或更深 Graph Context。
+3. `find_symbol` / `search_code` 继续作为低成本定位路径；只有 Readiness 判断任务需要跨文件 Reference、Caller、Implementation、Rename Impact 等语义关系时才调用 `semantic_navigation`；
+4. 只有需要更多源码时才调用 `symbol_context`；
+5. 只有任务确实需要时再调用 `language_quality_status`、`scope_status`、`design_status`、`traceability_status` 或更深 Graph Context。
 
 修改后：
 
@@ -112,6 +113,7 @@ Host 具体接入方式见 [Agent 与 MCP 集成](../code-agent-integrations/)�
 wcode 采用的是可长期复用的公开模式，而不是某一家 Host 的配置语法：
 
 - 紧凑 Repo Map 与 Task-specific Context；
+- Task-adaptive Code Navigation：普通定位走低成本 Syntax/Search，跨文件完整关系走 Warm Semantic Session；
 - Agent Skills 与 Progressive Disclosure；
 - 隔离 Subagent / Worktree 并行独立工作；
 - Deterministic Hook、Policy 与 Verification Gate；

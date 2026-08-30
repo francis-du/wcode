@@ -65,6 +65,7 @@ wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https:/
 | `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | 选择 HTTPS 隧道 Provider；`auto` 会在后台并发启动全部 Provider，保留所有通过验证的隧道，并对不可达的每 15 秒重试。 |
 | `--read-only` | 移除模型侧文件修改能力。 |
 | `--no-exec` | 禁止命令执行。 |
+| `--no-semantic` | 关闭默认自动维护的第一方 LSP 索引，并禁止全部第一方 Semantic Provider 执行；满足 Hardened Profile 的 Provider 默认开启。 |
 | `--open` | 启动后在浏览器打开 Setup Hub；链接始终展示在 TUI 与 setup 页面中。 |
 | `--imessage-to <手机号或邮箱>` | 在 macOS 上通过本机 iMessage 推送每条可用隧道链接（setup、MCP、Web UI、配对码）。 |
 | `--no-monitor` | 关闭实时终端面板。 |
@@ -165,7 +166,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | 外部 SCIP / LSP / Compiler / Runtime Graph Fact。 |
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
-| `semantic_provider_status` / `semantic_provider_refresh` | 第一方 LSP Provider 与有界 Semantic Refresh。 |
+| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
+| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 Provider 时明确回退 Syntax。 |
 | `language_quality_status` / `language_quality_run` | Syntax / Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵及 check-only 执行。 |
 
 ### Change、Risk、Verification 与 Evidence

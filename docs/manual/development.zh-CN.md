@@ -17,7 +17,7 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 
 - `src/main.rs`：CLI 与启动组合，只负责参数、Runtime Lifecycle、Graceful Shutdown/Restart 和 Product Scope Module Wiring；Managed Tunnel 生命周期已下沉到 `src/runtime/tunnel.rs`。
 - `src/scopes/mod.rs`：唯一 Canonical Product Scope Registry，包含 Alias、Source Root 与 Tool-to-scope Mapping，供 Context、Semantic、Convention、Design State、MCP Metadata 和 Operator View 共用。
-- `src/runtime/`：Harness 与 Runtime 编排。`harness.rs` 保留公共核心；`harness_agent_context.rs` 生成 Edit-ready Agent Context，`harness_profile.rs` 缓存 Project/Manifest/Guidance，`harness_repo_map.rs` 负责 Repo-map Ranking/Cache；`harness_graph.rs`、`harness_project.rs`、`harness_review.rs`、`harness_scope.rs`、`harness_text.rs`、`harness_verification.rs` 分离 Graph/Context、Project Observatory、Git Review、Scope Audit、Text/Project Discovery 与 Verification；`harness_tests.rs` 保存 Focused Harness Tests；`control.rs`、`power.rs`、`tunnel.rs` 分别负责 Stop/Restart、Sleep Inhibition 与 Managed Public Tunnel。
+- `src/runtime/`：Harness 与 Runtime 编排。`harness.rs` 保留公共核心；`harness_agent_context.rs` 生成 Edit-ready Agent Context，`harness_profile.rs` 缓存 Project/Manifest/Guidance，`harness_repo_map.rs` 负责 Repo-map Ranking/Cache；`harness_graph.rs`、`harness_project.rs`、`harness_review.rs`、`harness_scope.rs`、`harness_text.rs`、`harness_verification.rs` 分离 Graph/Context、Project Observatory、Git Review、Scope Audit、Text/Project Discovery 与 Verification；`semantic.rs` 负责在最具体 Workspace 上自动维护有界 Semantic Freshness；`harness_tests.rs` 保存 Focused Harness Tests；`control.rs`、`power.rs`、`tunnel.rs` 分别负责 Stop/Restart、Sleep Inhibition 与 Managed Public Tunnel。
 - `src/integrations/`：Model / Client Integration Boundary。`mcp.rs` 负责共享 HTTP Route 与 Payload Dispatch；`mcp_stdio.rs`、`mcp_legacy_sse.rs` 把 stdio 和旧版 SSE 适配到同一入口；`mcp_dispatch.rs`、`mcp_tools.rs`、`mcp_tasks.rs`、`mcp_catalog.rs` 分别处理 Tool Call、Catalog、Durable Task、Prompt / Resource。`auth.rs` 负责 OAuth/PKCE/DCR，`auth_origin.rs` 解析当前请求实际使用的已注册 Origin。`agent_plugin.rs` 导出 canonical package；`agent_install*` 模块分别保存 Host Adapter、安全 Merge/Apply、报告与测试。
 - `src/workspace/`：安全 Local Coding Boundary，包含 Bounded File/Search/Edit/Move/Delete Primitive、Root/Registry Isolation、Command Policy、Local Authorization、Media、Convention 与 Dependency-aware Path Scheduler。
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
@@ -53,7 +53,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 - Repo-map Structure 按 Revision Cache，但每个 Task 的 Query Ranking 都重新计算；
 - Multi-query Symbol Search 对一个 Source Root 只 Traversal / Index 一次，不为每个 Query Token 重扫；
 - Bounded Hot Source 可以保留最强 Direct Body，其他 Body 继续 Progressive Disclosure；
-- Fresh Semantic/Runtime/Deterministic Graph Evidence 可以增强 Caller/Callee/Dependency Ranking；Stale Semantic Revision 自动回退 Syntax；
+- Fresh Semantic/Runtime/Deterministic Graph Evidence 可以增强 Caller/Callee/Dependency Ranking；Stale Semantic Revision 自动回退 Syntax；普通 Symbol 定位继续走 Tree-sitter/Search，只有显式跨文件关系任务才可路由到 `semantic_navigation` 和对应 Warm Provider Session；
 - Edit Target 保留 SHA、Writeability 与 Direct Working-tree State；
 - `readiness` 与 Deterministic `next_actions` 告诉 Agent 现在应直接 Edit、补 Source/Semantic，还是进入 Verify；
 - Timing / Cache / Savings Telemetry 放 Tool Result `_meta`，不反过来消耗 Model-visible Context。
@@ -108,7 +108,7 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 - Git Mutation 只允许 Explicit-path `git add`、Message-only `git commit`、Explicit Remote+Ref Non-force `git push` 进入授权。批准后的 SSH Push 只允许通过 wcode 固定 Non-interactive SSH Command 使用当前 `SSH_AUTH_SOCK`；Token-like Env、Credential Helper、AskPass、任意 Git Config、Proxy Helper、HTTP Extra Header、Hook、External Diff 仍被移除/禁用；
 - `gh` Remote Mutation 必须 Non-interactive 且通过 Option Allowlist；未来新增未知 Write Flag 默认 Fail Closed，不能自动继承已有 Trust；
 - URL Argument 不能内嵌 Credential，Credential/Environment File 不进入 Model-facing Filesystem / Index Surface；
-- Repository-aware LSP 与 Advanced Verification Executor 除非 Process-wide `--allow-risky-exec` 已显式预授权，否则需要 Exact Trust；
+- 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + Provider Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有 Profile 的 LSP 与 Advanced Verification Executor 仍需显式 Trust，除非 Process-wide `--allow-risky-exec` 已明确预授权；
 - Output Bounded、Timeout Termination、Sensitive Environment Scrub、Interactive Prompt Disabled；
 - Public URL 只允许 HTTPS / Loopback HTTP，OAuth PKCE/Resource Binding、Bounded DCR Metadata、Redirect、Origin、Refresh-token Rotation 保持显式。
 
@@ -122,7 +122,7 @@ Managed Tunnel 依 Provider 而异：Cloudflare 使用 `cloudflared`；显式 Cl
 
 Known Development CLI 不由 wcode 自动安装。Harness / Quality / Provider Discovery 只报告真实 Availability。存在正确 Fallback 的 Optional Accelerator 必须保留回退，例如 Rust Full Verification 只有在 Repository 声明 Nextest Config 且本机安装 `cargo-nextest` 时才优先使用，否则继续 `cargo test`。Strict Harness Lane 只允许固定 `cargo nextest run [--locked]`，不开放任意 Nextest Argument。
 
-Language Server 与 Stage Executor 同样区分 Registered 与 Available。wcode 知道某个 Ecosystem Tool 的名字，不代表它已经安装或可运行。
+Language Server 与 Stage Executor 同样区分 Registered 与 Available。自动 LSP Worker 只在最具体的 Discovered Workspace 上运行，避免 Broad Parent Root 与项目 Subspace 对同一批文件重复索引；每次真实 Auto Refresh 都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。wcode 知道某个 Ecosystem Tool 的名字，不代表它已经安装或可运行。
 
 ## 必需验证
 

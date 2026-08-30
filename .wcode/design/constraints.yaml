@@ -74,8 +74,8 @@
 
 - schema_version: 1
   id: CONSTRAINT-EXPLICIT-EXECUTION-TRUST
-  title: Repository-aware execution requires explicit trust
-  statement: Language servers and non-deterministic project verification executors that can load repository-controlled configuration require an explicit trust expansion before execution.
+  title: Repository-aware execution uses explicit or hardened bounded trust
+  statement: Repository-aware execution remains fail closed unless it uses a built-in hardened execution profile with bounded stdio, timeouts, sensitive and injection-capable environment scrubbing, a provider executable resolved outside the Workspace, and provider-specific repository-code execution disabled where supported. Hardened semantic providers may run automatically and must provide an explicit opt-out; persistent sessions must remain capacity-bounded, tied to Workspace plus provider-binary identity, discard dead or stale slots, and never widen the Workspace boundary. Other language servers and non-deterministic project verification executors require explicit trust expansion before execution.
   applies_to:
     - component:semantic-providers
     - component:verification-mesh

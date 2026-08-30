@@ -5,6 +5,7 @@ pub(super) struct LspClient {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     next_id: u64,
+    provider_id: &'static str,
     workspace_uri: Option<String>,
 }
 
@@ -14,7 +15,8 @@ impl LspClient {
         provider: ProviderCandidate,
         executable: &Path,
     ) -> Result<Self> {
-        let mut command = Command::new(executable);
+        let executable = canonical_provider_executable(workspace, executable)?;
+        let mut command = Command::new(&executable);
         command
             .args(provider.args)
             .current_dir(workspace.root())
@@ -40,6 +42,7 @@ impl LspClient {
             stdin,
             stdout: BufReader::new(stdout),
             next_id: 1,
+            provider_id: provider.id,
             workspace_uri: None,
         })
     }
@@ -54,18 +57,28 @@ impl LspClient {
                     "rootUri": root_uri,
                     "workspaceFolders":[{"uri":root_uri,"name":"wcode-workspace"}],
                     "capabilities":{
+                        "general":{"positionEncodings":["utf-8","utf-16"]},
                         "workspace":{"workspaceFolders":true},
                         "textDocument":{
                             "documentSymbol":{"hierarchicalDocumentSymbolSupport":true},
+                            "definition":{"dynamicRegistration":false,"linkSupport":true},
+                            "references":{"dynamicRegistration":false},
+                            "implementation":{"dynamicRegistration":false,"linkSupport":true},
+                            "hover":{"dynamicRegistration":false},
                             "callHierarchy":{"dynamicRegistration":false}
                         }
                     },
-                    "clientInfo":{"name":"wcode","version":env!("CARGO_PKG_VERSION")}
+                    "clientInfo":{"name":"wcode","version":env!("CARGO_PKG_VERSION")},
+                    "initializationOptions": initialization_options(self.provider_id)
                 }),
             )
             .await?;
         self.notify("initialized", json!({})).await?;
         Ok(result.get("capabilities").cloned().unwrap_or(Value::Null))
+    }
+
+    pub(super) fn is_alive(&mut self) -> bool {
+        self.child.try_wait().is_ok_and(|status| status.is_none())
     }
 
     pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -94,13 +107,6 @@ impl LspClient {
     pub(super) async fn notify(&mut self, method: &str, params: Value) -> Result<()> {
         self.write_message(&json!({"jsonrpc":"2.0","method":method,"params":params}))
             .await
-    }
-
-    pub(super) async fn shutdown(&mut self) -> Result<()> {
-        let _ = self.request("shutdown", Value::Null).await;
-        let _ = self.notify("exit", Value::Null).await;
-        let _ = timeout(Duration::from_secs(2), self.child.wait()).await;
-        Ok(())
     }
 
     async fn answer_server_request(&mut self, message: &Value) -> Result<()> {
@@ -179,6 +185,39 @@ impl Drop for LspClient {
     }
 }
 
+fn canonical_provider_executable(workspace: &Workspace, executable: &Path) -> Result<PathBuf> {
+    let executable = if executable.is_absolute() {
+        executable.to_path_buf()
+    } else {
+        env::current_dir()
+            .context("cannot resolve current directory for semantic provider")?
+            .join(executable)
+    };
+    let canonical = executable
+        .canonicalize()
+        .with_context(|| format!("cannot resolve semantic provider {}", executable.display()))?;
+    if canonical.starts_with(workspace.root()) {
+        bail!("semantic provider executable resolves inside the workspace and is not trusted");
+    }
+    // Validate the canonical target, but execute the original absolute path so
+    // argv[0]-sensitive tool proxies such as rustup's rust-analyzer keep their identity.
+    Ok(executable)
+}
+
+pub(super) fn initialization_options(provider: &str) -> Value {
+    match provider {
+        "rust-analyzer" => json!({
+            "cargo": {
+                "autoreload": false,
+                "buildScripts": {"enable": false}
+            },
+            "procMacro": {"enable": false},
+            "checkOnSave": false
+        }),
+        _ => json!({}),
+    }
+}
+
 fn scrub_environment(command: &mut Command) {
     for (key, _) in env::vars() {
         let upper = key.to_ascii_uppercase();
@@ -193,7 +232,28 @@ fn scrub_environment(command: &mut Command) {
             || upper.starts_with("GITLAB_")
             || matches!(
                 upper.as_str(),
-                "SSH_AUTH_SOCK" | "KUBECONFIG" | "DOCKER_CONFIG" | "NETRC" | "GIT_ASKPASS"
+                "SSH_AUTH_SOCK"
+                    | "KUBECONFIG"
+                    | "DOCKER_CONFIG"
+                    | "NETRC"
+                    | "GIT_ASKPASS"
+                    | "NODE_OPTIONS"
+                    | "NODE_PATH"
+                    | "RUSTC_WRAPPER"
+                    | "RUSTC_WORKSPACE_WRAPPER"
+                    | "RUSTFLAGS"
+                    | "RUSTDOCFLAGS"
+                    | "CARGO_ENCODED_RUSTFLAGS"
+                    | "PYTHONPATH"
+                    | "PYTHONSTARTUP"
+                    | "RUBYOPT"
+                    | "RUBYLIB"
+                    | "LD_PRELOAD"
+                    | "DYLD_INSERT_LIBRARIES"
+                    | "DYLD_LIBRARY_PATH"
+                    | "JAVA_TOOL_OPTIONS"
+                    | "_JAVA_OPTIONS"
+                    | "JDK_JAVA_OPTIONS"
             )
         {
             command.env_remove(key);

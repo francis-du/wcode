@@ -88,6 +88,27 @@ pub(super) fn refresh_intelligence_now(
     record_refresh(
         monitor,
         workspace_id,
+        "semantic_provider_status",
+        harness.semantic_provider_status(&workspace),
+        &mut errors,
+    );
+    record_refresh(
+        monitor,
+        workspace_id,
+        "semantic_session_status",
+        Ok(harness.semantic_session_status(&workspace)),
+        &mut errors,
+    );
+    record_refresh(
+        monitor,
+        workspace_id,
+        "graph_provider_status",
+        harness.graph_provider_status(&workspace),
+        &mut errors,
+    );
+    record_refresh(
+        monitor,
+        workspace_id,
         "evidence_status",
         harness.evidence_status(workspace_id, &workspace, None, TUI_STATUS_ITEMS),
         &mut errors,
@@ -339,6 +360,33 @@ pub(super) fn render_intelligence_overlay(
                 stats.semantic_confirmed, stats.semantic_candidates
             ),
             ACCENT,
+        ),
+        intelligence_line(
+            "LSP",
+            if config.semantic_auto {
+                format!(
+                    "auto {}/{} · warm {}/{} · q {} · start {} · fresh {}/{}",
+                    stats.lsp_automatic,
+                    stats.lsp_available,
+                    stats.lsp_sessions,
+                    stats.lsp_documents,
+                    stats.lsp_requests,
+                    stats.lsp_starts,
+                    stats.lsp_fresh,
+                    stats.lsp_stale
+                )
+            } else {
+                "off · syntax fallback".to_owned()
+            },
+            if !config.semantic_auto {
+                TEXT_MUTED
+            } else if stats.lsp_fresh > 0 {
+                SUCCESS
+            } else if stats.lsp_runnable > 0 {
+                WARNING
+            } else {
+                TEXT_MUTED
+            },
         ),
         intelligence_line(
             language.tr("RISK"),

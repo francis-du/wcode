@@ -93,8 +93,9 @@ Before substantial source edits:
 
 1. call `agent_context(goal, scopes=...)` without a manual budget unless the task needs one;
 2. follow `readiness` and `next_actions`;
-3. use `symbol_context` only when more source is required;
-4. use `language_quality_status`, `scope_status`, `design_status`, `traceability_status`, or deeper graph context only when the task needs those facts.
+3. keep `find_symbol` / `search_code` as the cheap localization path; use `semantic_navigation` when readiness identifies cross-file references, callers, implementations, rename impact, or equivalent semantic relationships;
+4. use `symbol_context` only when more source is required;
+5. use `language_quality_status`, `scope_status`, `design_status`, `traceability_status`, or deeper graph context only when the task needs those facts.
 
 After edits:
 
@@ -112,6 +113,7 @@ The sequence is guidance. Workspace policy, authorization, Harness verification,
 The model follows durable public patterns rather than vendor-specific syntax:
 
 - compact repository maps and task-specific context;
+- task-adaptive code navigation: cheap syntax/search for localization, warm semantic sessions for cross-file completeness;
 - Agent Skills and progressive disclosure;
 - isolated subagents/worktrees for independent work;
 - deterministic hooks, policy, and verification gates;

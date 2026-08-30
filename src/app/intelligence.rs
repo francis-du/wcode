@@ -5,9 +5,15 @@ pub(super) async fn run_intelligence_cli(
     harness: &ToolHarness,
     monitor: &TaskMonitor,
     refresh_semantic: bool,
+    automatic_semantic: bool,
     enforce_check: bool,
     emit_json: bool,
 ) -> Result<()> {
+    let automatic_workspaces = workspaces
+        .semantic_workspaces()
+        .into_iter()
+        .map(|(workspace_id, _)| workspace_id)
+        .collect::<std::collections::BTreeSet<_>>();
     let mut entries = Vec::new();
     for (workspace_id, root) in workspaces.roots() {
         let (_, workspace) = workspaces.select(Some(&workspace_id))?;
@@ -15,6 +21,12 @@ pub(super) async fn run_intelligence_cli(
             Some(
                 harness
                     .semantic_provider_refresh(&workspace, ".", 128, 1_000)
+                    .await?,
+            )
+        } else if automatic_semantic && automatic_workspaces.contains(&workspace_id) {
+            Some(
+                harness
+                    .semantic_provider_refresh_automatic(&workspace, ".", 128, 1_000)
                     .await?,
             )
         } else {

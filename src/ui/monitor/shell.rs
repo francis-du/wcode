@@ -36,7 +36,9 @@ pub(super) fn draw_dashboard(
         return;
     }
 
-    let throughput_height = if area.height >= fixed_height.saturating_add(4) {
+    let recent_requests = window_totals(snapshot, Duration::from_secs(30)).0;
+    let throughput_height = if recent_requests > 0 && area.height >= fixed_height.saturating_add(4)
+    {
         4
     } else {
         0

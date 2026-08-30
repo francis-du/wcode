@@ -7,7 +7,10 @@ use crate::tunnel::{
     wait_for_public_endpoint, ActiveTunnel, TunnelEvent, TunnelProvider,
 };
 use crate::workspace::{WorkspaceSecurity, Workspaces};
-use crate::{agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, runtime_control};
+use crate::{
+    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, runtime_control,
+    semantic_runtime,
+};
 use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
 use anyhow::{bail, Context, Result};
 use clap::{ArgAction, Parser, Subcommand};
@@ -129,6 +132,10 @@ struct Args {
     /// Disable build/test/status command execution.
     #[arg(long = "no-exec", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_exec: bool,
+
+    /// Disable automatic first-party semantic LSP indexing and all semantic-provider execution.
+    #[arg(long = "no-semantic", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
+    allow_semantic: bool,
 
     /// Allow arbitrary model-facing repository-aware commands beyond the Harness verification allowlist.
     #[arg(long, help_heading = "Safety")]
@@ -303,6 +310,7 @@ pub async fn run() -> Result<()> {
     };
     let security = WorkspaceSecurity {
         allow_risky_exec: args.allow_risky_exec,
+        allow_semantic_exec: args.allow_semantic,
         allow_destructive_writes: args.allow_destructive_writes,
         allow_overlapping_workspaces: args.allow_overlapping_workspaces,
         allow_broad_workspace: args.allow_broad_workspace,
@@ -315,6 +323,22 @@ pub async fn run() -> Result<()> {
     )?;
     let harness = ToolHarness::new(args.max_parallel_tools)?;
     let monitor = TaskMonitor::new(workspaces.roots().into_iter().map(|(id, _)| id));
+    let semantic_task = if args.allow_semantic
+        && args.allow_exec
+        && (args.command.is_none()
+            || matches!(args.command.as_ref(), Some(ControlCommand::McpStdio)))
+    {
+        Some(semantic_runtime::spawn(
+            workspaces.clone(),
+            harness.clone(),
+            monitor.clone(),
+        ))
+    } else {
+        None
+    };
+    let _semantic_abort = semantic_task
+        .as_ref()
+        .map(|task| AbortTaskOnDrop(task.abort_handle()));
     if let Some(command) = args.command.as_ref() {
         match command {
             ControlCommand::AgentPlugin {
@@ -366,6 +390,7 @@ pub async fn run() -> Result<()> {
                     &harness,
                     &monitor,
                     *refresh_semantic,
+                    args.allow_semantic && args.allow_exec,
                     *check,
                     *json,
                 )
@@ -514,6 +539,7 @@ pub async fn run() -> Result<()> {
         pairing_code: auth.pairing_code().to_owned(),
         max_parallel: harness.max_parallel(),
         input_token_price_per_million_usd: args.input_token_price_per_million_usd,
+        semantic_auto: args.allow_semantic && args.allow_exec,
         workspaces: workspaces.clone(),
         harness: harness.clone(),
     };
@@ -884,7 +910,12 @@ fn print_setup_guide(
     println!("│  Slots cap  {max_parallel_tools} concurrent child tasks");
     println!("│  Token EST  ~4 bytes/token · ${input_token_price_per_million_usd:.2}/M input");
     println!(
-        "│  Security   risky-exec {} · destructive {} · overlap {} · broad {}",
+        "│  Security   semantic {} · risky-exec {} · destructive {} · overlap {} · broad {}",
+        if security.allow_semantic_exec {
+            "auto"
+        } else {
+            "off"
+        },
         if security.allow_risky_exec {
             "on"
         } else {

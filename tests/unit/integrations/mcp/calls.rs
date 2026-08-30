@@ -385,6 +385,28 @@ async fn syntax_index_tools_flow_through_mcp() {
         .unwrap()
         .iter()
         .any(|call| call["name"] == "helper"));
+
+    let navigation = call_tool(
+        &state,
+        json!({
+            "name": "semantic_navigation",
+            "arguments": {"path": "service.rs", "symbol": "Service::run", "intent": "calls"}
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(navigation["isError"], false);
+    assert_eq!(navigation["structuredContent"]["precision"], "syntax");
+    assert_eq!(
+        navigation["structuredContent"]["routing"],
+        "syntax_fallback"
+    );
+    assert!(
+        navigation["structuredContent"]["syntax_context"]["body"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("pub fn run")
+    );
 }
 
 #[tokio::test]
@@ -582,6 +604,7 @@ fn tool_list_exposes_bulk_index_and_positive_harness_tools() {
         "language_quality_status",
         "language_quality_run",
         "semantic_provider_refresh",
+        "semantic_navigation",
         "graph_history",
         "graph_query",
         "graph_diff",

@@ -70,6 +70,10 @@ impl Workspace {
         self.security.allow_risky_exec
     }
 
+    pub(crate) fn semantic_exec_enabled(&self) -> bool {
+        self.allow_exec && self.security.allow_semantic_exec
+    }
+
     pub(super) fn set_authorization_workspace_id(&self, id: &str) {
         *self
             .authorization_workspace

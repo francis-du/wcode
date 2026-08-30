@@ -338,6 +338,58 @@ impl TaskMonitor {
                 stats.semantic_confirmed = value["confirmed"].as_u64().unwrap_or(0);
                 stats.semantic_candidates = value["candidates"].as_u64().unwrap_or(0);
             }
+            "semantic_provider_status" => {
+                let providers = value.as_array().cloned().unwrap_or_default();
+                stats.lsp_available = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["available"].as_bool() == Some(true)
+                    })
+                    .count() as u64;
+                stats.lsp_automatic = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["automatic"].as_bool() == Some(true)
+                            && provider["runnable"].as_bool() == Some(true)
+                    })
+                    .count() as u64;
+                stats.lsp_runnable = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["runnable"].as_bool() == Some(true)
+                    })
+                    .count() as u64;
+            }
+            "semantic_session_status" => {
+                stats.lsp_sessions = value["sessions"].as_u64().unwrap_or(0);
+                stats.lsp_documents = value["documents"].as_u64().unwrap_or(0);
+                stats.lsp_starts = value["starts"].as_u64().unwrap_or(0);
+                stats.lsp_requests = value["requests"].as_u64().unwrap_or(0);
+            }
+            "graph_provider_status" => {
+                let providers = value.as_array().cloned().unwrap_or_default();
+                stats.lsp_fresh = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["provider"]
+                            .as_str()
+                            .is_some_and(|name| name.starts_with("lsp:"))
+                            && provider["freshness"].as_str() == Some("fresh")
+                    })
+                    .count() as u64;
+                stats.lsp_stale = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["provider"]
+                            .as_str()
+                            .is_some_and(|name| name.starts_with("lsp:"))
+                            && provider["freshness"].as_str() == Some("stale")
+                    })
+                    .count() as u64;
+            }
             "drift_status" => {
                 stats.drift_findings = value["implementation_drift"]
                     .as_u64()

@@ -262,7 +262,7 @@
 - schema_version: 1
   id: REQ-SEMANTIC-001
   title: Cross-language scoped semantic runtime
-  intent: Every indexed language must have an explicit semantic provider candidate, scoped semantic retrieval must integrate Product Scopes without losing freeform business scopes, and operator-facing intelligence must prefer fresh semantic or runtime graph evidence when present while exposing syntax fallback honestly; semantic refresh remains explicit and authorization-bound.
+  intent: Every indexed language must have an explicit semantic provider candidate, scoped semantic retrieval must integrate Product Scopes without losing freeform business scopes, and operator-facing intelligence must prefer fresh semantic or runtime graph evidence while exposing syntax fallback honestly. Hardened first-party providers may maintain bounded warm sessions automatically, synchronize source revisions through LSP document lifecycle events, and expose symbol-first semantic navigation for cross-file relationships while simple localization stays on the cheaper syntax/search path. Automatic semantics remain explicitly disableable; providers without a hardened profile remain authorization-bound.
   priority: high
   implemented_by:
     - component:semantic-providers

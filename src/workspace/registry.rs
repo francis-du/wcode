@@ -376,6 +376,7 @@ impl Workspaces {
                 "overlapping_workspaces": self.security.allow_overlapping_workspaces,
                 "broad_workspace_roots": self.security.allow_broad_workspace,
                 "risky_exec_enabled": self.security.allow_risky_exec,
+                "semantic_exec_enabled": self.allow_exec && self.security.allow_semantic_exec,
                 "dynamic_authorization": true,
                 "pending_authorizations": self.authorization.requests(MAX_WORKSPACES).iter().filter(|request| matches!(request.status, crate::authorization::AuthorizationStatus::Pending)).count(),
                 "destructive_writes_enabled": self.security.allow_destructive_writes,
@@ -396,6 +397,7 @@ impl Workspaces {
                 "write_enabled": root.workspace.allow_write,
                 "exec_enabled": root.workspace.allow_exec,
                 "risky_exec_enabled": root.workspace.security.allow_risky_exec,
+                "semantic_exec_enabled": root.workspace.semantic_exec_enabled(),
                 "destructive_writes_enabled": root.workspace.security.allow_destructive_writes,
                 "allowed_commands": root.workspace.allowed_commands(),
             })).collect::<Vec<_>>(),
@@ -408,6 +410,21 @@ impl Workspaces {
             .expect("workspace registry lock poisoned")
             .iter()
             .map(|root| (root.id.clone(), root.workspace.root.clone()))
+            .collect()
+    }
+
+    pub(crate) fn semantic_workspaces(&self) -> Vec<(String, Workspace)> {
+        let roots = self.roots.read().expect("workspace registry lock poisoned");
+        roots
+            .iter()
+            .filter(|candidate| {
+                candidate.workspace.semantic_exec_enabled()
+                    && !roots.iter().any(|other| {
+                        other.workspace.root != candidate.workspace.root
+                            && other.workspace.root.starts_with(&candidate.workspace.root)
+                    })
+            })
+            .map(|root| (root.id.clone(), root.workspace.clone()))
             .collect()
     }
 }

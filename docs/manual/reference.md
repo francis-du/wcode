@@ -66,6 +66,7 @@ wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https:/
 | `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | Select the managed HTTPS tunnel provider. `auto` starts every provider concurrently in the background, keeps all verified tunnels, and retries unreachable ones every 15s. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
+| `--no-semantic` | Disable automatic first-party LSP indexing and all first-party semantic-provider execution. Hardened semantic providers are enabled by default. |
 | `--open` | Open the Setup Hub in the browser after startup; links always stay visible in the TUI and setup page. |
 | `--imessage-to <phone-or-email>` | Send every live tunnel link (setup, MCP, Web UI, pairing code) over local iMessage on macOS. |
 | `--no-monitor` | Disable the live terminal dashboard. |
@@ -166,7 +167,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | External SCIP/LSP/compiler/runtime graph facts. |
 | `semantic_status` / `semantic_query` | Persistent candidate/confirmed/retired semantic facts. |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | Human-governed semantic lifecycle. |
-| `semantic_provider_status` / `semantic_provider_refresh` | First-party LSP provider availability and bounded semantic refresh. |
+| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
+| `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; unavailable providers return explicit syntax fallback. |
 | `language_quality_status` / `language_quality_run` | Explicit syntax/semantic/format/lint/type/static/test/security capability matrix and check-only execution. |
 
 ### Change, risk, verification, and evidence

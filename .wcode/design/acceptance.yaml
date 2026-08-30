@@ -228,7 +228,7 @@
 - schema_version: 1
   id: AC-SEMANTIC-001
   title: Semantic providers and scoped registry cover indexed languages
-  statement: Every indexed language has an explicit semantic provider candidate, scoped semantic queries filter scoped facts while preserving global facts, and semantic provider status/refresh uses the same explicit execution-trust boundary so a session-approved refresh can produce fresh semantic graph evidence without silently running language servers.
+  statement: Every indexed language has an explicit semantic provider candidate, scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing bounded provider sessions, converting LSP positions correctly, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization.
   verification:
     - kind: test
       path: tests/unit/semantics/provider.rs
@@ -236,6 +236,30 @@
     - kind: test
       path: tests/unit/semantics/mod.rs
       symbol: scoped_queries_filter_scoped_facts_but_keep_global_facts
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: automatic_semantics_only_trust_the_hardened_rust_provider
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: provider_executables_inside_the_workspace_are_rejected
+    - kind: test
+      path: tests/unit/runtime/semantic.rs
+      symbol: semantic_execution_is_default_on_and_can_be_disabled
+    - kind: test
+      path: tests/unit/runtime/semantic.rs
+      symbol: semantic_workers_skip_broad_parent_workspaces
+    - kind: test
+      path: tests/unit/semantics/session.rs
+      symbol: same_workspace_provider_reuses_one_session_slot
+    - kind: test
+      path: tests/unit/semantics/navigation.rs
+      symbol: position_conversion_preserves_utf8_and_utf16_boundaries
+    - kind: test
+      path: tests/unit/runtime/harness.rs
+      symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
+    - kind: test
+      path: tests/unit/integrations/mcp/calls.rs
+      symbol: syntax_index_tools_flow_through_mcp
 
 - schema_version: 1
   id: AC-ACTUAL-001
@@ -293,7 +317,7 @@
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
-  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, and shows the complete supported-command catalog. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
+  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, and exposes real warm LSP session/document/start/query telemetry. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
   verification:
     - kind: test
       path: tests/unit/ui/monitor.rs
@@ -304,6 +328,9 @@
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: scope_status_updates_operator_intelligence_state
+    - kind: test
+      path: tests/unit/ui/monitor.rs
+      symbol: semantic_session_status_updates_operator_intelligence_state
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls

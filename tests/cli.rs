@@ -12,6 +12,7 @@ fn help_exposes_the_stable_agent_and_transport_commands() {
     for command in ["agent-plugin", "mcp-stdio", "intelligence", "verification"] {
         assert!(stdout.contains(command), "missing {command} in help");
     }
+    assert!(stdout.contains("--no-semantic"));
 }
 
 #[test]

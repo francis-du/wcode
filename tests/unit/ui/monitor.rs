@@ -71,6 +71,22 @@ fn scope_status_updates_operator_intelligence_state() {
 }
 
 #[test]
+fn semantic_session_status_updates_operator_intelligence_state() {
+    let monitor = TaskMonitor::new(["api".to_owned()]);
+    monitor.record_intelligence_result(
+        "api",
+        "semantic_session_status",
+        &serde_json::json!({"sessions": 1, "documents": 7, "starts": 2, "requests": 41}),
+    );
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.intelligence["api"];
+    assert_eq!(stats.lsp_sessions, 1);
+    assert_eq!(stats.lsp_documents, 7);
+    assert_eq!(stats.lsp_starts, 2);
+    assert_eq!(stats.lsp_requests, 41);
+}
+
+#[test]
 fn opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls() {
     let (workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let source = workspace_root.path().join("backend/src");
@@ -263,6 +279,7 @@ fn mouse_hit_testing_opens_footer_and_help_links() {
         pairing_code: "123456".to_owned(),
         max_parallel: 16,
         input_token_price_per_million_usd: 5.0,
+        semantic_auto: true,
         workspaces,
         harness: ToolHarness::new(4).unwrap(),
     };
@@ -331,6 +348,7 @@ fn narrow_and_tiny_layouts_do_not_panic() {
         pairing_code: "123456".to_owned(),
         max_parallel: 16,
         input_token_price_per_million_usd: 5.0,
+        semantic_auto: true,
         workspaces,
         harness: ToolHarness::new(4).unwrap(),
     };
@@ -372,6 +390,7 @@ fn help_and_footer_render_project_and_author_links() {
         pairing_code: "123456".to_owned(),
         max_parallel: 8,
         input_token_price_per_million_usd: 5.0,
+        semantic_auto: true,
         workspaces,
         harness: ToolHarness::new(4).unwrap(),
     };
@@ -574,6 +593,7 @@ fn connection_stages_and_setup_collapse_render() {
         pairing_code: "123456".to_owned(),
         max_parallel: 8,
         input_token_price_per_million_usd: 5.0,
+        semantic_auto: true,
         workspaces,
         harness: ToolHarness::new(4).unwrap(),
     };

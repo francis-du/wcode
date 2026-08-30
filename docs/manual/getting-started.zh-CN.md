@@ -108,10 +108,12 @@ agent_context(goal, scopes=...)
   ↓
 按 readiness / next_actions 执行
   ↓
+只有被推荐的跨文件关系任务才调用 semantic_navigation
+  ↓
 只有缺更多源码时才调用 symbol_context
 ```
 
-`agent_context` 省略 `budget` 时会选择有界 Adaptive Budget，并可携带相关 Design State、Scope-aware Repo Map、Bounded Hot Source、SHA Edit Target、Related Test 与 Readiness。只有任务确实需要更深发现时，再调用 `scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status`、`read_files` 或 `search_many`；只有独立操作已经明确时才使用 `parallel_tools`。
+`agent_context` 省略 `budget` 时会选择有界 Adaptive Budget，并可携带相关 Design State、Scope-aware Repo Map、Bounded Hot Source、SHA Edit Target、Related Test 与 Readiness。普通定位继续用 `find_symbol` / `search_code`；当 Readiness 判断任务涉及 Syntax-only 的跨文件关系时，`semantic_navigation` 会复用 Warm LSP Session 查询 Reference、Caller、Callee 或 Implementation。只有任务确实需要更深发现时，再调用 `scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status`、`read_files` 或 `search_many`；只有独立操作已经明确时才使用 `parallel_tools`。
 
 改完后默认：
 

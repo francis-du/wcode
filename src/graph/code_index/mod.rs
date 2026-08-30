@@ -337,6 +337,8 @@ pub(crate) struct SymbolResolution {
     pub qualified_name: String,
     pub kind: String,
     pub path: String,
+    pub start_line: usize,
+    pub start_column: usize,
     pub revision: String,
 }
 

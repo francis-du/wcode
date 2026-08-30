@@ -185,9 +185,10 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
         guidance,
         recommended_checks: checks,
         workflow: vec![
-            "Treat always-on repository guidance as a short map; retrieve detailed Design State, Product Scope, symbol, and language-quality context only when the task needs it.".to_owned(),
+            "Start coding from agent_context(goal, scopes=...) and follow readiness/next_actions; retrieve broader Design State, Product Scope, and language-quality context only when the task needs it.".to_owned(),
             "Read the returned repository guidance before substantial edits.".to_owned(),
-            "Call scope_status before broad source inspection; treat relevant unmapped supported source as architecture debt before adding production modules.".to_owned(),
+            "Use find_symbol/search_code for cheap localization; when readiness identifies syntax-only cross-file references, callers, implementations, rename impact, or equivalent relationships, use semantic_navigation and its warm provider session.".to_owned(),
+            "For broad architecture or ownership work, call scope_status and treat relevant unmapped supported source as architecture debt before adding production modules.".to_owned(),
             "Use search_many and read_files to collect relevant implementation and tests in few round trips."
                 .to_owned(),
             "Batch writes when targets are already known: use one apply_edits for multiple changes in a file, apply_file_edits for independent existing files, and create_files for independent new files instead of serial single-file tool calls."

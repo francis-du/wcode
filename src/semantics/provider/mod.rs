@@ -19,16 +19,35 @@ use url::Url;
 const MAX_PROVIDER_FILES: usize = 256;
 const MAX_PROVIDER_SYMBOLS: usize = 2_000;
 const MAX_PROVIDER_EDGES: usize = 8_000;
+const MAX_PROVIDER_RELATION_SYMBOLS: usize = 96;
 const LSP_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const LSP_PROVIDER_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[path = "registry.rs"]
 mod registry;
-use registry::{ProviderCandidate, PROVIDERS};
+use registry::{automatic_provider, ProviderCandidate, PROVIDERS};
+
+#[path = "auto.rs"]
+mod auto;
+pub(crate) use auto::{state as automatic_state, SemanticAutoState};
 
 #[path = "client.rs"]
 mod client;
 use client::LspClient;
+
+#[path = "session.rs"]
+mod session;
+use session::{DocumentSyncState, SemanticSession};
+pub(crate) use session::{SemanticSessionPool, SemanticSessionPoolStatus};
+
+#[path = "navigation.rs"]
+mod navigation;
+pub(crate) use navigation::navigate;
+pub use navigation::SemanticNavigationIntent;
+
+#[path = "index.rs"]
+mod index;
+use index::build_provider_import;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -142,7 +161,9 @@ pub struct SemanticProviderStatus {
     pub language: SemanticLanguage,
     pub provider: Option<String>,
     pub executable: Option<String>,
+    pub detected: bool,
     pub available: bool,
+    pub automatic: bool,
     pub runnable: bool,
     pub precision: &'static str,
     pub reason: String,
@@ -180,22 +201,35 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
         .into_iter()
         .map(|language| {
             let present = languages.contains(&language);
-            let selected = select_provider(language);
+            let selected = select_provider(workspace, language);
             let available = selected.is_some();
-            let authorized = workspace.risky_operation_authorized(&refresh_authorization_operation(
-                ".", 128, 1_000,
-            ));
-            let runnable = present && available && workspace.exec_enabled() && authorized;
+            let automatic = selected
+                .as_ref()
+                .is_some_and(|(provider, _)| automatic_provider(*provider));
+            let authorized = automatic
+                || workspace.risky_exec_enabled()
+                || selected.as_ref().is_some_and(|(provider, _)| {
+                    workspace.risky_operation_authorized(&provider_session_operation(provider.id))
+                });
+            let runnable = present
+                && available
+                && workspace.exec_enabled()
+                && workspace.semantic_exec_enabled()
+                && authorized;
             let reason = if !present {
                 "no matching source files detected".to_owned()
+            } else if !available {
+                "no supported language server was found on trusted PATH; syntax precision remains available".to_owned()
             } else if !workspace.exec_enabled() {
                 "command execution is disabled".to_owned()
+            } else if !workspace.semantic_exec_enabled() {
+                "semantic LSP execution is disabled by --no-semantic".to_owned()
+            } else if automatic {
+                "automatic bounded semantic provider is enabled".to_owned()
             } else if !authorized {
-                "semantic LSP execution requires an exact local RiskyExecution approval (or process-wide --allow-risky-exec) because language servers load repository-controlled project configuration".to_owned()
-            } else if !available {
-                "no supported language server was found on PATH; syntax precision remains available".to_owned()
+                "this language server requires an exact local RiskyExecution approval (or process-wide --allow-risky-exec) before it may load repository-controlled project configuration".to_owned()
             } else {
-                "semantic LSP provider is available".to_owned()
+                "semantic LSP provider is authorized".to_owned()
             };
             SemanticProviderStatus {
                 language,
@@ -203,7 +237,9 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
                 executable: selected
                     .as_ref()
                     .map(|(_, path)| path.display().to_string()),
+                detected: present,
                 available,
+                automatic,
                 runnable,
                 precision: if runnable { "semantic" } else { "syntax-fallback" },
                 reason,
@@ -212,27 +248,79 @@ pub fn status(workspace: &Workspace) -> Result<Vec<SemanticProviderStatus>> {
         .collect())
 }
 
-fn refresh_authorization_operation(path: &str, max_files: usize, max_symbols: usize) -> String {
-    format!("semantic_provider_refresh\0{path}\0{max_files}\0{max_symbols}")
+fn provider_session_operation(provider: &str) -> String {
+    format!("semantic_provider_session\0{provider}")
+}
+
+fn authorize_provider_session(workspace: &Workspace, provider: ProviderCandidate) -> Result<()> {
+    if automatic_provider(provider) || workspace.risky_exec_enabled() {
+        return Ok(());
+    }
+    workspace.authorize_risky_operation(
+        AuthorizationKind::RiskyExecution,
+        &provider_session_operation(provider.id),
+        &format!(
+            "allow warm semantic-provider session for {}; the language server may load repository-controlled project configuration",
+            provider.id
+        ),
+    )
 }
 
 pub async fn refresh(
+    sessions: &SemanticSessionPool,
     workspace: &Workspace,
     path: &str,
     max_files: usize,
     max_symbols: usize,
     existing: &BTreeMap<String, GraphProviderImport>,
 ) -> Result<SemanticProviderRefresh> {
+    refresh_impl(
+        sessions,
+        workspace,
+        path,
+        max_files,
+        max_symbols,
+        existing,
+        false,
+    )
+    .await
+}
+
+pub(crate) async fn refresh_automatic(
+    sessions: &SemanticSessionPool,
+    workspace: &Workspace,
+    path: &str,
+    max_files: usize,
+    max_symbols: usize,
+    existing: &BTreeMap<String, GraphProviderImport>,
+) -> Result<SemanticProviderRefresh> {
+    refresh_impl(
+        sessions,
+        workspace,
+        path,
+        max_files,
+        max_symbols,
+        existing,
+        true,
+    )
+    .await
+}
+
+async fn refresh_impl(
+    sessions: &SemanticSessionPool,
+    workspace: &Workspace,
+    path: &str,
+    max_files: usize,
+    max_symbols: usize,
+    existing: &BTreeMap<String, GraphProviderImport>,
+    automatic_only: bool,
+) -> Result<SemanticProviderRefresh> {
     let statuses = status(workspace)?;
     if !workspace.exec_enabled() {
         bail!("semantic provider refresh requires command execution; restart without --no-exec");
     }
-    if !workspace.risky_exec_enabled() {
-        workspace.authorize_risky_operation(
-            AuthorizationKind::RiskyExecution,
-            &refresh_authorization_operation(path, max_files, max_symbols),
-            "allow semantic-provider refresh; language servers may evaluate repository-controlled project configuration",
-        )?;
+    if !workspace.semantic_exec_enabled() {
+        bail!("semantic provider execution is disabled; restart without --no-semantic");
     }
     let max_files = max_files.clamp(1, MAX_PROVIDER_FILES);
     let max_symbols = max_symbols.clamp(1, MAX_PROVIDER_SYMBOLS);
@@ -243,14 +331,23 @@ pub async fn refresh(
         let Some(language) = language_for_path(&source_path) else {
             continue;
         };
-        let Some((provider, executable)) = select_provider(language) else {
+        let Some((provider, executable)) = select_provider(workspace, language) else {
             continue;
         };
+        if automatic_only && !automatic_provider(provider) {
+            continue;
+        }
         assignments
             .entry(provider.id.to_owned())
             .or_insert_with(|| (provider, executable, Vec::new()))
             .2
             .push((source_path, language));
+    }
+
+    if !automatic_only {
+        for (provider, _, _) in assignments.values() {
+            authorize_provider_session(workspace, *provider)?;
+        }
     }
 
     let mut runs = Vec::new();
@@ -271,6 +368,18 @@ pub async fn refresh(
             .get(&provider_name)
             .filter(|cached| cached.revision == revision)
         {
+            if automatic_provider(provider) || !automatic_only {
+                match sessions.handle(workspace, provider, &executable) {
+                    Ok(handle) => {
+                        if let Err(error) = handle.ensure_started(workspace, provider).await {
+                            failures.push(format!("{}: warm session failed: {error}", provider.id));
+                        }
+                    }
+                    Err(error) => {
+                        failures.push(format!("{}: warm session failed: {error}", provider.id))
+                    }
+                }
+            }
             runs.push(SemanticProviderRun {
                 provider: provider_name,
                 languages: prepared
@@ -295,6 +404,7 @@ pub async fn refresh(
         let outcome = timeout(
             LSP_PROVIDER_TIMEOUT,
             build_provider_import(
+                sessions,
                 workspace,
                 provider,
                 &executable,
@@ -310,8 +420,14 @@ pub async fn refresh(
                 runs.push(run);
                 imports.push(import);
             }
-            Ok(Err(error)) => failures.push(format!("{}: {error}", provider.id)),
-            Err(_) => failures.push(format!("{}: provider timed out", provider.id)),
+            Ok(Err(error)) => {
+                sessions.invalidate(workspace, provider, &executable);
+                failures.push(format!("{}: {error}", provider.id));
+            }
+            Err(_) => {
+                sessions.invalidate(workspace, provider, &executable);
+                failures.push(format!("{}: provider timed out", provider.id));
+            }
         }
     }
     Ok(SemanticProviderRefresh {
@@ -374,268 +490,6 @@ fn provider_revision(
         fingerprints.join("\n")
     );
     format!("sha256:{:x}", Sha256::digest(input.as_bytes()))
-}
-
-async fn build_provider_import(
-    workspace: &Workspace,
-    provider: ProviderCandidate,
-    executable: &Path,
-    files: &[PreparedSemanticSource],
-    max_symbols: usize,
-    revision: String,
-) -> Result<(GraphProviderImport, SemanticProviderRun, bool)> {
-    let mut client = LspClient::start(workspace, provider, executable).await?;
-    let root_uri = Url::from_directory_path(workspace.root())
-        .map_err(|_| anyhow!("workspace root could not be converted to a file URI"))?
-        .to_string();
-    let capabilities = client.initialize(&root_uri).await?;
-    let call_hierarchy = capabilities
-        .get("callHierarchyProvider")
-        .is_some_and(|value| value.as_bool().unwrap_or(!value.is_null()));
-    let implementation_resolution = capabilities
-        .get("implementationProvider")
-        .is_some_and(|value| value.as_bool().unwrap_or(!value.is_null()));
-
-    let mut nodes = BTreeMap::<String, GraphImportNode>::new();
-    let mut edges = Vec::<GraphImportEdge>::new();
-    let mut symbol_positions = Vec::new();
-    let mut truncated = false;
-
-    for prepared in files {
-        if nodes.len() >= max_symbols {
-            truncated = true;
-            break;
-        }
-        let source = &prepared.source;
-        let language = prepared.language;
-        let uri = Url::from_file_path(workspace.root().join(&source.path))
-            .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
-            .to_string();
-        client
-            .notify(
-                "textDocument/didOpen",
-                json!({
-                    "textDocument": {
-                        "uri": uri,
-                        "languageId": language.lsp_language_id(),
-                        "version": 1,
-                        "text": source.content,
-                    }
-                }),
-            )
-            .await?;
-        let result = match client
-            .request(
-                "textDocument/documentSymbol",
-                json!({"textDocument":{"uri":uri}}),
-            )
-            .await
-        {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        let mut symbols = Vec::new();
-        flatten_document_symbols(&result, &source.path, None, &mut symbols);
-        for symbol in symbols {
-            if nodes.len() >= max_symbols {
-                truncated = true;
-                break;
-            }
-            let id = semantic_node_id(
-                provider.id,
-                &symbol.path,
-                symbol.line,
-                symbol.character,
-                &symbol.name,
-            );
-            let mut attributes = BTreeMap::new();
-            attributes.insert("path".into(), json!(symbol.path));
-            attributes.insert("source_sha256".into(), json!(source.sha256.as_str()));
-            attributes.insert("name".into(), json!(symbol.name));
-            attributes.insert("qualified_name".into(), json!(symbol.qualified_name));
-            attributes.insert("lsp_kind".into(), json!(symbol.kind));
-            attributes.insert("line".into(), json!(symbol.line + 1));
-            attributes.insert("character".into(), json!(symbol.character + 1));
-            nodes.entry(id.clone()).or_insert(GraphImportNode {
-                id: id.clone(),
-                kind: lsp_node_kind(symbol.kind),
-                label: symbol.qualified_name.clone(),
-                attributes,
-            });
-            symbol_positions.push((id, uri.clone(), symbol.line, symbol.character));
-        }
-    }
-
-    if call_hierarchy {
-        for (from_id, uri, line, character) in symbol_positions.iter().take(max_symbols) {
-            if edges.len() >= MAX_PROVIDER_EDGES {
-                truncated = true;
-                break;
-            }
-            let prepared = match client
-                .request(
-                    "textDocument/prepareCallHierarchy",
-                    json!({
-                        "textDocument":{"uri":uri},
-                        "position":{"line":line,"character":character}
-                    }),
-                )
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let Some(item) = prepared.as_array().and_then(|items| items.first()).cloned() else {
-                continue;
-            };
-            let outgoing = match client
-                .request("callHierarchy/outgoingCalls", json!({"item":item}))
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            for call in outgoing.as_array().into_iter().flatten() {
-                if edges.len() >= MAX_PROVIDER_EDGES {
-                    truncated = true;
-                    break;
-                }
-                let Some(target) = call.get("to") else {
-                    continue;
-                };
-                let Some(target_node) = call_hierarchy_node(workspace, provider.id, target) else {
-                    continue;
-                };
-                let to_id = target_node.id.clone();
-                nodes.entry(to_id.clone()).or_insert(target_node);
-                if from_id != &to_id
-                    && !edges.iter().any(|edge| {
-                        edge.from == *from_id && edge.to == to_id && edge.kind == EdgeKind::Calls
-                    })
-                {
-                    edges.push(GraphImportEdge {
-                        from: from_id.clone(),
-                        to: to_id,
-                        kind: EdgeKind::Calls,
-                    });
-                }
-            }
-        }
-    }
-
-    if implementation_resolution {
-        for (interface_id, uri, line, character) in symbol_positions.iter().take(max_symbols) {
-            if edges.len() >= MAX_PROVIDER_EDGES {
-                truncated = true;
-                break;
-            }
-            let Some(interface) = nodes.get(interface_id).cloned() else {
-                continue;
-            };
-            let implementations = match client
-                .request(
-                    "textDocument/implementation",
-                    json!({
-                        "textDocument":{"uri":uri},
-                        "position":{"line":line,"character":character}
-                    }),
-                )
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            for (path, target_line, target_character) in
-                implementation_locations(workspace, &implementations)
-            {
-                if edges.len() >= MAX_PROVIDER_EDGES {
-                    truncated = true;
-                    break;
-                }
-                let existing_target = nodes
-                    .values()
-                    .find(|node| node_at_location(node, &path, target_line, target_character))
-                    .map(|node| node.id.clone());
-                let target_id = existing_target.unwrap_or_else(|| {
-                    semantic_node_id(
-                        provider.id,
-                        &path,
-                        target_line,
-                        target_character,
-                        &interface.label,
-                    )
-                });
-                if !nodes.contains_key(&target_id) {
-                    let source_sha256 = workspace
-                        .load_source(&path)
-                        .ok()
-                        .map(|source| source.sha256);
-                    let mut attributes = BTreeMap::new();
-                    attributes.insert("path".into(), json!(path));
-                    if let Some(source_sha256) = source_sha256 {
-                        attributes.insert("source_sha256".into(), json!(source_sha256));
-                    }
-                    attributes.insert("name".into(), json!(interface.label));
-                    attributes.insert("qualified_name".into(), json!(interface.label));
-                    attributes.insert("line".into(), json!(target_line + 1));
-                    attributes.insert("character".into(), json!(target_character + 1));
-                    nodes.insert(
-                        target_id.clone(),
-                        GraphImportNode {
-                            id: target_id.clone(),
-                            kind: interface.kind,
-                            label: format!("implementation of {}", interface.label),
-                            attributes,
-                        },
-                    );
-                }
-                if target_id != *interface_id
-                    && !edges.iter().any(|edge| {
-                        edge.from == target_id
-                            && edge.to == *interface_id
-                            && edge.kind == EdgeKind::Implements
-                    })
-                {
-                    edges.push(GraphImportEdge {
-                        from: target_id,
-                        to: interface_id.clone(),
-                        kind: EdgeKind::Implements,
-                    });
-                }
-            }
-        }
-    }
-
-    let _ = client.shutdown().await;
-    if nodes.is_empty() {
-        bail!("language server returned no semantic document symbols");
-    }
-    let import = GraphProviderImport {
-        provider: format!("lsp:{}", provider.id),
-        precision: GraphPrecision::Semantic,
-        revision: revision.clone(),
-        nodes: nodes.into_values().collect(),
-        edges,
-    };
-    import.validate()?;
-    let languages = files
-        .iter()
-        .map(|source| source.language)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let run = SemanticProviderRun {
-        provider: import.provider.clone(),
-        languages,
-        files: files.len(),
-        nodes: import.nodes.len(),
-        edges: import.edges.len(),
-        call_hierarchy,
-        implementation_resolution,
-        cached: false,
-        revision,
-    };
-    Ok((import, run, truncated))
 }
 
 #[derive(Clone)]
@@ -782,6 +636,14 @@ fn implementation_locations(workspace: &Workspace, value: &Value) -> Vec<(String
         .collect()
 }
 
+fn call_hierarchy_candidate(kind: u64) -> bool {
+    matches!(kind, 6 | 9 | 12)
+}
+
+fn implementation_candidate(kind: u64) -> bool {
+    matches!(kind, 5 | 6 | 11 | 12 | 23)
+}
+
 fn node_at_location(node: &GraphImportNode, path: &str, line: u64, character: u64) -> bool {
     node.attributes.get("path").and_then(Value::as_str) == Some(path)
         && node.attributes.get("line").and_then(Value::as_u64) == Some(line + 1)
@@ -805,18 +667,41 @@ fn lsp_node_kind(kind: u64) -> NodeKind {
     }
 }
 
-fn select_provider(language: SemanticLanguage) -> Option<(ProviderCandidate, PathBuf)> {
+pub(crate) fn provider_available_for_path(workspace: &Workspace, path: &str) -> bool {
+    workspace.exec_enabled()
+        && workspace.semantic_exec_enabled()
+        && language_for_path(path)
+            .and_then(|language| select_provider(workspace, language))
+            .is_some()
+}
+
+fn select_provider(
+    workspace: &Workspace,
+    language: SemanticLanguage,
+) -> Option<(ProviderCandidate, PathBuf)> {
     PROVIDERS
         .iter()
         .copied()
         .filter(|provider| provider.languages.contains(&language))
-        .find_map(|provider| find_executable(provider.executable).map(|path| (provider, path)))
+        .find_map(|provider| {
+            find_executable(workspace, provider.executable).map(|path| (provider, path))
+        })
 }
 
-fn find_executable(name: &str) -> Option<PathBuf> {
+fn trusted_provider_path(workspace: &Workspace, candidate: &Path) -> Option<PathBuf> {
+    let executable = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        env::current_dir().ok()?.join(candidate)
+    };
+    let canonical = executable.canonicalize().ok()?;
+    (!canonical.starts_with(workspace.root())).then_some(executable)
+}
+
+fn find_executable(workspace: &Workspace, name: &str) -> Option<PathBuf> {
     let candidate = PathBuf::from(name);
     if candidate.components().count() > 1 && candidate.is_file() {
-        return Some(candidate);
+        return trusted_provider_path(workspace, &candidate);
     }
     let path = env::var_os("PATH")?;
     #[cfg(windows)]
@@ -832,13 +717,17 @@ fn find_executable(name: &str) -> Option<PathBuf> {
     for directory in env::split_paths(&path) {
         let plain = directory.join(name);
         if plain.is_file() {
-            return Some(plain);
+            if let Some(path) = trusted_provider_path(workspace, &plain) {
+                return Some(path);
+            }
         }
         #[cfg(windows)]
         for extension in &extensions {
             let with_extension = directory.join(format!("{name}{extension}"));
             if with_extension.is_file() {
-                return Some(with_extension);
+                if let Some(path) = trusted_provider_path(workspace, &with_extension) {
+                    return Some(path);
+                }
             }
         }
     }

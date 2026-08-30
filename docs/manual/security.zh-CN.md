@@ -37,7 +37,7 @@ Git 写操作仍保持窄边界：只有显式 `git add` Pathspec、`git commit 
 
 GitHub CLI 也采用独立的有界策略。PR / Issue / Run / Workflow / Release / Repo / Search 的只读查看可以直接执行；显式、非交互的 PR/Issue 创建、评论、Workflow Dispatch、基于已存在且已验证 Tag 的 Release 创建、显式指定 Merge Method 的 PR Merge，以及 Run Rerun/Cancel 进入精确授权。Release Asset 路径仍单独隔离；`gh auth`、`gh api`、Secret/Variable、Extension、Host/Repo 重定向、Admin/Auto Merge 等凭据或策略绕过面继续阻断。
 
-Language Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。除非进程用 `--allow-risky-exec` 做了整体预授权，否则这些精确操作也需要人工批准。确定性 Harness Verification Lane 是例外：固定的 Check/Test/Build 形态由策略直接批准；Rust 仓库同时满足“已安装 cargo-nextest + 仓库声明 nextest 配置”时，会使用 `cargo nextest run [--locked]`，否则继续回退 `cargo test`。
+Language Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。wcode 为此增加独立的 Hardened Semantic Lane：只有拥有显式 Automatic Safety Profile 的内置 Provider 才默认进入这条路径。首个 Auto Profile 是 `rust-analyzer`：其可执行文件必须解析到 Workspace 之外，启动环境会清除凭据和执行注入变量，并关闭 rust-analyzer 的 Build Script、Proc Macro、Cargo 自动 Reload 与 Check-on-save。Warm Session Pool 有固定容量，以 Workspace + Provider Binary Identity 为 Key；一个 Slot 内串行化同一条 Provider Protocol Stream，空闲或旧 Slot 会淘汰，离开有界索引集合的 Document 会发送 `didClose`，Server 退出或 Provider Binary 变化后重建 Session；所有导航结果仍重新经过 Workspace Boundary 过滤。`--no-semantic` 可以彻底关闭这条 Lane。没有 Auto Profile 的 Language Server 和非确定性 Verification Executor 仍然需要显式授权，除非进程使用更宽的 `--allow-risky-exec` 预授权。确定性 Harness Verification Lane 仍是另一条独立例外：固定 Check/Test/Build 形态由策略直接批准；Rust 仓库同时满足“已安装 cargo-nextest + 仓库声明 nextest 配置”时使用 `cargo nextest run [--locked]`，否则继续回退 `cargo test`。这些措施缩小执行面，但并不是 OS Sandbox。
 
 ## 人工授权只能在本地完成
 
@@ -107,3 +107,4 @@ Token 达到上限时淘汰最旧项，不会无限增长。
 - 编辑保留 SHA 前置条件。
 - 优先批准精确请求，不要为了省事扩大整个进程的信任范围。
 - 不需要写入或命令时使用 `--read-only` 或 `--no-exec`。
+- 不希望 Runtime 启动任何第一方 Language Server 时使用 `--no-semantic`。

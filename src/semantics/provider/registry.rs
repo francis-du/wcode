@@ -31,6 +31,10 @@ const RUBY: &[SemanticLanguage] = &[SemanticLanguage::Ruby];
 const RUST: &[SemanticLanguage] = &[SemanticLanguage::Rust];
 const SWIFT: &[SemanticLanguage] = &[SemanticLanguage::Swift];
 
+pub(super) fn automatic_provider(provider: ProviderCandidate) -> bool {
+    provider.id == "rust-analyzer"
+}
+
 pub(super) const PROVIDERS: &[ProviderCandidate] = &[
     ProviderCandidate {
         id: "bash-language-server",

@@ -113,10 +113,12 @@ agent_context(goal, scopes=...)
   ↓
 follow readiness / next_actions
   ↓
+semantic_navigation only for recommended cross-file relationships
+  ↓
 symbol_context only if more source is needed
 ```
 
-`agent_context` chooses a bounded adaptive budget when `budget` is omitted and can carry the relevant Design State, scope-aware repo map, bounded hot source, SHA edit targets, related tests, and readiness. Use `scope_status`, `design_status`, `project_context`, `software_context`, `language_quality_status`, `read_files`, or `search_many` only when the task needs deeper discovery; use `parallel_tools` only after independent operations are known.
+`agent_context` chooses a bounded adaptive budget when `budget` is omitted and can carry the relevant Design State, scope-aware repo map, bounded hot source, SHA edit targets, related tests, and readiness. For ordinary localization keep using `find_symbol` / `search_code`; when readiness flags a syntax-only cross-file relationship task, `semantic_navigation` reuses the warm LSP session for references, callers, callees, or implementations. Use `scope_status`, `design_status`, `project_context`, `software_context`, `language_quality_status`, `read_files`, or `search_many` only when the task needs deeper discovery; use `parallel_tools` only after independent operations are known.
 
 After editing:
 

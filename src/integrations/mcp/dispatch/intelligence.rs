@@ -13,6 +13,7 @@ pub(super) fn handles(name: &str) -> bool {
             | "graph_provider_status"
             | "semantic_provider_status"
             | "semantic_provider_refresh"
+            | "semantic_navigation"
             | "graph_history"
             | "graph_query"
             | "graph_diff"
@@ -181,6 +182,31 @@ pub(super) async fn call(
                 .semantic_provider_refresh(&workspace, &path, max_files, max_symbols)
                 .await
                 .and_then(|refresh| serde_json::to_value(refresh).map_err(Into::into))
+        }
+        "semantic_navigation" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let path = required_string(args, "path")?.to_owned();
+            let symbol = string_arg(args, "symbol").map(str::to_owned);
+            let line = usize_arg(args, "line");
+            let character = usize_arg(args, "character");
+            let intent =
+                serde_json::from_value::<crate::semantic_provider::SemanticNavigationIntent>(
+                    Value::String(string_arg(args, "intent").unwrap_or("inspect").to_owned()),
+                )
+                .map_err(|error| format!("invalid semantic navigation intent: {error}"))?;
+            let max_results = usize_arg(args, "max_results").unwrap_or(50);
+            let request = crate::harness::SemanticNavigationRequest {
+                path,
+                symbol,
+                line,
+                character,
+                intent,
+                max_results,
+            };
+            state
+                .harness
+                .semantic_navigation(&workspace_id, &workspace, &request)
+                .await
         }
         "graph_history" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
