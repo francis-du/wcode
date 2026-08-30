@@ -1,6 +1,23 @@
 use super::*;
 use crate::authorization::AuthorizationStatus;
 
+const MAX_SUBSPACE_SCAN_DEPTH: usize = 8;
+const SUBSPACE_FILE_MARKERS: &[(&str, &str)] = &[
+    ("Cargo.toml", "cargo"),
+    ("package.json", "npm"),
+    ("pyproject.toml", "python"),
+    ("go.mod", "go"),
+    ("pom.xml", "maven"),
+    ("build.gradle", "gradle"),
+    ("build.gradle.kts", "gradle"),
+    ("Package.swift", "swift"),
+];
+
+struct DiscoveredSubspace {
+    root: PathBuf,
+    markers: Vec<&'static str>,
+}
+
 impl Workspaces {
     #[cfg(test)]
     pub fn new<I, P>(roots: I, allow_write: bool, allow_exec: bool) -> Result<Self>
@@ -43,14 +60,35 @@ impl Workspaces {
             validate_non_overlapping_root(&entries, &workspace, security)?;
             let id = next_workspace_id(&workspace.root, &entries, &mut used_ids);
             workspace.set_authorization_workspace_id(&id);
-            entries.push(WorkspaceRoot { id, workspace });
+            entries.push(WorkspaceRoot {
+                id,
+                workspace,
+                parent_id: None,
+                markers: Vec::new(),
+            });
         }
 
-        let Some(first) = entries.first() else {
+        if entries.is_empty() {
             bail!("at least one workspace is required");
-        };
+        }
+        let default_id = entries[0].id.clone();
+        let configured = entries
+            .iter()
+            .map(|entry| (entry.id.clone(), entry.workspace.clone()))
+            .collect::<Vec<_>>();
+        for (parent_id, parent) in configured {
+            append_discovered_subspaces(
+                &mut entries,
+                &parent_id,
+                &parent,
+                allow_write,
+                allow_exec,
+                security,
+                &authorization,
+            );
+        }
         Ok(Self {
-            default_id: first.id.clone(),
+            default_id,
             roots: Arc::new(RwLock::new(entries)),
             allow_write,
             allow_exec,
@@ -63,17 +101,68 @@ impl Workspaces {
         &self.default_id
     }
 
-    pub fn select(&self, id: Option<&str>) -> Result<(String, Workspace)> {
-        let id = id.unwrap_or(&self.default_id);
-        let roots = self.roots.read().expect("workspace registry lock poisoned");
-        let root = roots
+    pub fn configured_roots(&self) -> Vec<PathBuf> {
+        self.roots
+            .read()
+            .expect("workspace registry lock poisoned")
             .iter()
-            .find(|root| root.id == id)
-            .ok_or_else(|| anyhow!("unknown workspace: {id}"))?;
-        Ok((root.id.clone(), root.workspace.clone()))
+            .filter(|root| root.parent_id.is_none())
+            .map(|root| root.workspace.root().to_path_buf())
+            .collect()
+    }
+
+    pub fn select(&self, id: Option<&str>) -> Result<(String, Workspace)> {
+        let requested = id.unwrap_or(&self.default_id).trim_matches('/');
+        let roots = self.roots.read().expect("workspace registry lock poisoned");
+        if let Some(root) = roots.iter().find(|root| root.id == requested) {
+            return Ok((root.id.clone(), root.workspace.clone()));
+        }
+
+        let qualified = if requested == self.default_id
+            || requested.starts_with(&format!("{}/", self.default_id))
+        {
+            None
+        } else {
+            Some(format!("{}/{}", self.default_id, requested))
+        };
+        if let Some(root) = qualified
+            .as_deref()
+            .and_then(|qualified| roots.iter().find(|root| root.id == qualified))
+        {
+            return Ok((root.id.clone(), root.workspace.clone()));
+        }
+
+        Err(anyhow!("unknown workspace: {requested}"))
     }
 
     pub fn add_workspace(&self, root: impl AsRef<Path>) -> Result<(String, PathBuf)> {
+        self.add_workspace_path(root.as_ref(), false)
+    }
+
+    pub fn add_workspace_from(
+        &self,
+        selected: Option<&str>,
+        root: &str,
+    ) -> Result<(String, PathBuf)> {
+        let root = root.trim();
+        if root.is_empty() {
+            bail!("workspace root is required");
+        }
+        let (_, selected_workspace) = self.select(selected)?;
+        let supplied = PathBuf::from(root);
+        let candidate = if supplied.is_absolute() {
+            supplied
+        } else {
+            selected_workspace.root().join(supplied)
+        };
+        let derived = is_lexical_child(selected_workspace.root(), &candidate);
+        if derived {
+            reject_symlink_child(selected_workspace.root(), &candidate)?;
+        }
+        self.add_workspace_path(&candidate, derived)
+    }
+
+    fn add_workspace_path(&self, root: &Path, allow_derived: bool) -> Result<(String, PathBuf)> {
         let workspace = Workspace::new_with_authorization(
             root,
             self.allow_write,
@@ -94,9 +183,39 @@ impl Workspaces {
         if roots.len() >= MAX_WORKSPACES {
             bail!("at most {MAX_WORKSPACES} workspaces may be exposed by one process");
         }
+
+        let derived_parent = if allow_derived {
+            roots
+                .iter()
+                .filter(|entry| entry.parent_id.is_none())
+                .filter(|entry| workspace.root.starts_with(entry.workspace.root()))
+                .max_by_key(|entry| entry.workspace.root().components().count())
+        } else {
+            None
+        };
+        if let Some(parent) = derived_parent {
+            let parent_id = parent.id.clone();
+            let parent_root = parent.workspace.root().to_path_buf();
+            let relative = workspace.root().strip_prefix(&parent_root)?;
+            let relative = portable_relative_path(relative);
+            if relative.is_empty() {
+                return Ok((parent_id, parent_root));
+            }
+            let id = format!("{parent_id}/{relative}");
+            workspace.set_authorization_workspace_id(&id);
+            let canonical = workspace.root.clone();
+            roots.push(WorkspaceRoot {
+                id: id.clone(),
+                workspace,
+                parent_id: Some(parent_id),
+                markers: vec!["authorized"],
+            });
+            return Ok((id, canonical));
+        }
+
         validate_non_overlapping_root(&roots, &workspace, self.security)?;
         let mut used_ids = HashMap::<String, usize>::new();
-        for existing in roots.iter() {
+        for existing in roots.iter().filter(|entry| entry.parent_id.is_none()) {
             *used_ids
                 .entry(workspace_id(&existing.workspace.root))
                 .or_insert(0) += 1;
@@ -104,10 +223,22 @@ impl Workspaces {
         let id = next_workspace_id(&workspace.root, &roots, &mut used_ids);
         workspace.set_authorization_workspace_id(&id);
         let canonical = workspace.root.clone();
+        let parent = workspace.clone();
         roots.push(WorkspaceRoot {
             id: id.clone(),
             workspace,
+            parent_id: None,
+            markers: Vec::new(),
         });
+        append_discovered_subspaces(
+            &mut roots,
+            &id,
+            &parent,
+            self.allow_write,
+            self.allow_exec,
+            self.security,
+            &self.authorization,
+        );
         Ok((id, canonical))
     }
 
@@ -141,6 +272,10 @@ impl Workspaces {
 
     pub fn authorization_requests(&self, limit: usize) -> Vec<AuthorizationRequest> {
         self.authorization.requests(limit)
+    }
+
+    pub fn authorization_request(&self, id: &str) -> Option<AuthorizationRequest> {
+        self.authorization.request_by_id(id)
     }
 
     #[cfg(test)]
@@ -205,7 +340,11 @@ impl Workspaces {
         let mut elevated = workspace.security;
         elevated.allow_risky_exec = true;
         validate_command_policy(program, args, elevated)?;
-        workspace.allow_command(program)?;
+        if !workspace.command_allowed(program) {
+            bail!(
+                "executable access is not authorized for {program}; approve its CommandAccess request before authorizing an exact repository operation"
+            );
+        }
         let operation = format!("run_command\0{program}\0{}\0{cwd}", args.join("\0"));
         let fingerprint = operation_fingerprint(workspace.root(), &operation);
         let request = self.authorization.request(
@@ -242,9 +381,18 @@ impl Workspaces {
                 "destructive_writes_enabled": self.security.allow_destructive_writes,
                 "max_write_bytes": MAX_WRITE_BYTES,
             },
+            "subspace_discovery": {
+                "enabled": true,
+                "max_depth": MAX_SUBSPACE_SCAN_DEPTH,
+                "routing": "select the most specific discovered workspace id for project-scoped work",
+                "markers": [".git", ".wcode/project.yaml", "Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "Package.swift"],
+            },
             "workspaces": roots.iter().map(|root| serde_json::json!({
                 "id": root.id,
                 "root": root.workspace.root,
+                "kind": if root.parent_id.is_some() { "subspace" } else { "configured" },
+                "parent_workspace": root.parent_id.as_deref(),
+                "markers": &root.markers,
                 "write_enabled": root.workspace.allow_write,
                 "exec_enabled": root.workspace.allow_exec,
                 "risky_exec_enabled": root.workspace.security.allow_risky_exec,
@@ -264,6 +412,150 @@ impl Workspaces {
     }
 }
 
+fn is_lexical_child(parent: &Path, candidate: &Path) -> bool {
+    candidate.strip_prefix(parent).is_ok_and(|relative| {
+        relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    })
+}
+
+fn reject_symlink_child(parent: &Path, candidate: &Path) -> Result<()> {
+    let relative = candidate.strip_prefix(parent)?;
+    let mut current = parent.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            bail!("workspace child path contains an unsupported component");
+        };
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => bail!(
+                "symlink workspace paths are blocked to preserve workspace isolation: {}",
+                current.display()
+            ),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+fn append_discovered_subspaces(
+    entries: &mut Vec<WorkspaceRoot>,
+    parent_id: &str,
+    parent: &Workspace,
+    allow_write: bool,
+    allow_exec: bool,
+    security: WorkspaceSecurity,
+    authorization: &AuthorizationManager,
+) {
+    for discovered in discover_subspaces(parent) {
+        if entries.len() >= MAX_WORKSPACES {
+            break;
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.workspace.root == discovered.root)
+        {
+            continue;
+        }
+        let Ok(workspace) = Workspace::new_with_authorization(
+            &discovered.root,
+            allow_write,
+            allow_exec,
+            security,
+            authorization.clone(),
+        ) else {
+            continue;
+        };
+        if workspace.root() == parent.root() || !workspace.root().starts_with(parent.root()) {
+            continue;
+        }
+        let Ok(relative) = workspace.root().strip_prefix(parent.root()) else {
+            continue;
+        };
+        let relative = portable_relative_path(relative);
+        if relative.is_empty() {
+            continue;
+        }
+        let id = format!("{parent_id}/{relative}");
+        if entries.iter().any(|entry| entry.id == id) {
+            continue;
+        }
+        workspace.set_authorization_workspace_id(&id);
+        entries.push(WorkspaceRoot {
+            id,
+            workspace,
+            parent_id: Some(parent_id.to_owned()),
+            markers: discovered.markers,
+        });
+    }
+}
+
+fn discover_subspaces(parent: &Workspace) -> Vec<DiscoveredSubspace> {
+    let mut claimed_roots = Vec::<PathBuf>::new();
+    let mut discovered = Vec::new();
+    for entry in WalkDir::new(parent.root())
+        .min_depth(1)
+        .max_depth(MAX_SUBSPACE_SCAN_DEPTH)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(visible_entry)
+        .filter_map(|entry| entry.ok())
+    {
+        if !entry.file_type().is_dir() {
+            continue;
+        }
+        let root = entry.path();
+        let mut markers = Vec::new();
+        if marker_exists(&root.join(".git"), true) {
+            markers.push("git");
+        }
+        if wcode_project_marker_exists(root) {
+            markers.push("wcode");
+        }
+        for &(file, marker) in SUBSPACE_FILE_MARKERS {
+            if marker_exists(&root.join(file), false) && !markers.contains(&marker) {
+                markers.push(marker);
+            }
+        }
+        if markers.is_empty() {
+            continue;
+        }
+
+        let authoritative = markers.contains(&"git") || markers.contains(&"wcode");
+        if !authoritative
+            && claimed_roots
+                .iter()
+                .any(|claimed| root.starts_with(claimed))
+        {
+            continue;
+        }
+        claimed_roots.push(root.to_path_buf());
+        discovered.push(DiscoveredSubspace {
+            root: root.to_path_buf(),
+            markers,
+        });
+    }
+    discovered.sort_by(|left, right| left.root.cmp(&right.root));
+    discovered
+}
+
+fn wcode_project_marker_exists(root: &Path) -> bool {
+    let directory = root.join(".wcode");
+    let safe_directory = fs::symlink_metadata(&directory)
+        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
+    safe_directory && marker_exists(&directory.join("project.yaml"), false)
+}
+
+fn marker_exists(path: &Path, allow_directory: bool) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| {
+        !metadata.file_type().is_symlink()
+            && (metadata.is_file() || (allow_directory && metadata.is_dir()))
+    })
+}
+
 fn validate_non_overlapping_root(
     entries: &[WorkspaceRoot],
     workspace: &Workspace,
@@ -272,10 +564,14 @@ fn validate_non_overlapping_root(
     if security.allow_overlapping_workspaces {
         return Ok(());
     }
-    if let Some(existing) = entries.iter().find(|existing| {
-        workspace.root.starts_with(&existing.workspace.root)
-            || existing.workspace.root.starts_with(&workspace.root)
-    }) {
+    if let Some(existing) = entries
+        .iter()
+        .filter(|existing| existing.parent_id.is_none())
+        .find(|existing| {
+            workspace.root.starts_with(&existing.workspace.root)
+                || existing.workspace.root.starts_with(&workspace.root)
+        })
+    {
         bail!(
             "overlapping workspace roots are blocked: {} and {}; expose only the narrow roots you need or restart with --allow-overlapping-workspaces",
             existing.workspace.root.display(),
@@ -294,7 +590,9 @@ fn next_workspace_id(
     let count = used_ids.entry(base_id.clone()).or_insert_with(|| {
         entries
             .iter()
-            .filter(|entry| workspace_id(&entry.workspace.root) == base_id)
+            .filter(|entry| {
+                entry.parent_id.is_none() && workspace_id(&entry.workspace.root) == base_id
+            })
             .count()
     });
     *count += 1;

@@ -9,9 +9,24 @@ permalink: /docs/software-intelligence/
 
 # wcode Software Intelligence Runtime
 
-This document describes the Software Intelligence features that are implemented today.
+This guide covers the software-intelligence features that are available now and
+the evidence each view is allowed to claim.
 
-> **Current status:** Software Intelligence is available through MCP, local CLI views, the live TUI, and a token-protected **architecture-first Project Observatory**. The WebUI starts with the complete component architecture, overlays declared Design dependencies with current code-derived Actual relationships, surfaces observed drift/evidence/implementation coverage, then drills into Component and Requirement detail. Requirement detail preserves Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains a low-level intelligence primitive/API rather than the primary visualization. MCP shares one protocol core across Streamable HTTP + OAuth and local `mcp-stdio`; `agent_context` is the compact coding entry point, while deeper Design/Graph/Verification tools stay progressively disclosed. A small `agent-plugin` exporter produces a non-executable Agent Skill / Agent Plugins package without hooks, credentials, or an implicit Workspace. Design/Semantic state, Graph Provider revisions/history, Verification, Evidence, Reconciliation, and execution state remain durable per Workspace. All 22 syntax-indexed languages share the first-party LSP Semantic Provider registry: only fresh real provider facts become semantic precision; otherwise wcode remains honestly at Tree-sitter syntax precision. Property/Mutation/Fuzz/Runtime-Canary use the same cross-language executor registry.
+The same state is available through MCP, local CLI commands, the TUI, and the
+protected WebUI. The **architecture-first** Project Observatory compares
+declared component dependencies with relationships observed in current code,
+then reports **observed drift**, **evidence coverage**, and **implementation
+coverage** before opening component or requirement detail. Requirement detail
+keeps one stable order: Desired State → Actual State → Change → Proof →
+Convergence. The Software Graph stays a lower-level API.
+
+Local `mcp-stdio`, remote Streamable HTTP + OAuth, and legacy SSE share one MCP
+core. `agent_context` is the compact coding entry point; deeper Design, Graph,
+and Verification tools are called only when the task needs them. Plugin exports
+reuse the canonical `wcode-agent-plugin/` package, include standard `mcp.json`,
+and never contain credentials or an implicit Workspace. Persistent state is
+scoped by Workspace. A fact is called semantic only after a real, fresh LSP
+provider returns it; otherwise precision remains Tree-sitter syntax.
 
 ## What changes for the user
 
@@ -39,7 +54,22 @@ wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
-In the live TUI, press `I` for the Intelligence overlay and `W` to open the protected Project Observatory. Pending authorization requests are selectable with ↑/↓ and decided one at a time with `Y`/`N`; the WebUI access panel exposes the same requests plus project and command authorization controls. Observatory starts with overall architecture: component ownership, Design-vs-Actual dependencies, strong observed drift, advisory evidence gaps, and implementation/evidence coverage. Selecting a component reveals responsibilities, implementation mappings, changed paths, Product Scopes, and related Requirements; Requirement drill-down then follows **Desired State → Actual State → Change → Proof → Convergence**. Proof counts only Evidence whose code+design Revision exactly matches the current repository revision. Cloud/web clients connect to `/mcp`; local coding agents can launch `wcode --workspace <repo> mcp-stdio`. Export a portable Skill with `wcode --workspace <repo> agent-plugin`. Host-specific setup is maintained in [Code Agent Integrations](../code-agent-integrations/).
+Press `I` to load Intelligence for the selected project, `C` for the complete
+command catalog, and `W` for the protected Project Observatory. The pairing
+code remains visible after a client connects. The TUI and WebUI show the same
+pending requests and distinguish executable access from an exact repository
+operation.
+
+The Observatory file view comes from the current bounded Software Graph
+snapshot. It shows the project tree, depth, largest files, and files above the
+1,000-line repository limit. If indexing reached its safety bound, the view is
+marked as truncated; the browser does not start a second filesystem scan.
+
+Proof counts only Evidence whose code and Design revisions match the current
+repository. Local agents use `wcode --workspace <repo> mcp-stdio`; remote
+clients prefer `/mcp`; older clients can use `/sse`. Plugin and one-command
+Host setup are documented in
+[Code Agent Integrations](../code-agent-integrations/).
 
 The normal coding workflow is intentionally smaller:
 
@@ -260,7 +290,7 @@ The following tools analyze the current Git working tree and Design State:
 
 These tools require command execution because they internally use the bounded Git change-review path. They therefore do not work with `--no-exec`.
 
-`review_changes` also has three deterministic maintainability signals. `maintainability-file-crossed-1k` is high severity when the current change pushes a non-deleted source file from below 1,000 lines to above 1,000. `maintainability-concentrated-growth` is a warning when one source file adds at least 400 net lines. `maintainability-cross-scope-churn` is a warning when source churn reaches at least 1,000 changed lines across at least three canonical Product Scopes. These are measurable review signals, not proof of bad design; they feed the normal Risk Engine. The separate Convention oversized-module rule remains a 2,000-line repository-level signal. See [maintainability-review.md](../maintainability-review/).
+`review_changes` also reports three deterministic maintainability signals. `maintainability-file-crossed-1k` marks a non-deleted source file that crossed 1,000 lines in the current change. `maintainability-concentrated-growth` marks at least 400 net new lines in one source file. `maintainability-cross-scope-churn` marks at least 1,000 changed source lines across three or more Product Scopes. These are review signals, not a verdict on design. The Convention Engine uses the same 1,000-line boundary for the repository as a whole. See [maintainability-review.md](../maintainability-review/).
 
 ## 4. Verification Mesh
 
@@ -453,7 +483,7 @@ Implemented now:
 - MCP `2026-07-28` task augmentation for `semantic_provider_refresh` and `verification_execute_stages`, with durable-before-handle storage, OAuth-client scoping, polling, bounded cancellation, and synchronous fallback for clients that do not opt into the extension;
 - persistent Reconciliation Plans plus dependency-aware claim/submit/retry execution state and reconciliation Evidence;
 - local `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI flows in addition to read-only status views;
-- live TUI Software Intelligence overlay (`I`) and protected Project Observatory (`W`) with an architecture-first overall component graph, Design-vs-Actual dependency overlay, observed-drift/evidence/implementation coverage metrics, Component Inspector, Requirement drill-down, verification, ADR/constraint context, code statistics, mapped Git changes, risk, and architecture revision history;
+- live TUI Software Intelligence overlay (`I`), complete command catalog (`C`), persistent pairing code, and protected Project Observatory (`W`) with an architecture-first component graph, Design-vs-Actual dependency overlay, observed-drift/evidence/implementation coverage metrics, Component Inspector, Requirement drill-down, verification, ADR/constraint context, a bounded project tree and largest-file view, code statistics, mapped Git changes, risk, and architecture revision history;
 - MCP exposure of the complete higher-level runtime.
 
 Precision and integration boundaries are explicit rather than hidden:

@@ -1,0 +1,360 @@
+.architecture-panel {
+  margin-bottom: 10px;
+}
+.architecture-head {
+  align-items: flex-start;
+}
+.architecture-modes {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.arch-mode {
+  padding: 5px 8px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.arch-mode.active {
+  border-color: color-mix(in srgb,var(--accent) 60%,var(--line));
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.architecture-metrics {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+.architecture-metric {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 9px 10px;
+  min-width: 0;
+}
+.architecture-metric .metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--muted);
+}
+.architecture-metric .metric-value {
+  font-size: 19px;
+  font-weight: 780;
+  margin-top: 3px;
+}
+.architecture-metric .metric-detail {
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.metric-meter {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+  margin-top: 7px;
+}
+.metric-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--good);
+}
+.architecture-metric.drift .metric-meter span {
+  background: var(--bad);
+}
+.architecture-metric.info .metric-meter span {
+  background: var(--info);
+}
+.metric-progress {
+  display: block;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  margin-top: 7px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.metric-progress::-webkit-progress-bar {
+  background: var(--line);
+  border-radius: 99px;
+}
+.metric-progress::-webkit-progress-value {
+  background: var(--good);
+  border-radius: 99px;
+}
+.metric-progress::-moz-progress-bar {
+  background: var(--good);
+  border-radius: 99px;
+}
+.architecture-metric.drift .metric-progress::-webkit-progress-value {
+  background: var(--bad);
+}
+.architecture-metric.drift .metric-progress::-moz-progress-bar {
+  background: var(--bad);
+}
+.architecture-metric.info .metric-progress::-webkit-progress-value {
+  background: var(--info);
+}
+.architecture-metric.info .metric-progress::-moz-progress-bar {
+  background: var(--info);
+}
+.architecture-layout {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 330px;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+.architecture-graph-shell {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.architecture-legend {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 9px;
+  color: var(--muted);
+}
+.architecture-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend-line {
+  width: 19px;
+  height: 0;
+  border-top: 2px solid var(--muted);
+}
+.legend-line.aligned {
+  border-color: var(--good);
+}
+.legend-line.unverified {
+  border-color: var(--warn);
+  border-top-style: dashed;
+}
+.legend-line.observed {
+  border-color: var(--info);
+  border-top-style: dotted;
+}
+.legend-line.drift {
+  border-color: var(--bad);
+}
+.architecture-graph {
+  min-height: 420px;
+  overflow: auto;
+  background: radial-gradient(700px 280px at 50% 0,color-mix(in
+    srgb,var(--accent-bg) 45%,transparent),transparent);
+}
+.architecture-svg {
+  display: block;
+  min-width: 100%;
+  height: auto;
+}
+.arch-edge {
+  fill: none;
+  stroke-width: 1.8;
+  opacity: .82;
+}
+.arch-edge.aligned {
+  stroke: var(--good);
+}
+.arch-edge.unverified {
+  stroke: var(--warn);
+  stroke-dasharray: 6 5;
+}
+.arch-edge.observed {
+  stroke: var(--info);
+  stroke-dasharray: 2 4;
+}
+.arch-edge.drift {
+  stroke: var(--bad);
+  stroke-width: 2.4;
+}
+.arch-marker.aligned {
+  fill: var(--good);
+}
+.arch-marker.unverified {
+  fill: var(--warn);
+}
+.arch-marker.observed {
+  fill: var(--info);
+}
+.arch-marker.drift {
+  fill: var(--bad);
+}
+.arch-edge-label {
+  font: 8px ui-monospace,SFMono-Regular,Menlo,monospace;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+.arch-node {
+  cursor: pointer;
+}
+.arch-node rect {
+  fill: var(--panel);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+.arch-node:hover rect,
+.arch-node.selected rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.arch-node.changed rect {
+  stroke: var(--warn);
+}
+.arch-node.uncertain rect {
+  stroke: var(--info);
+}
+.arch-node.drift rect {
+  stroke: var(--bad);
+  stroke-width: 2;
+}
+.arch-node-title {
+  font: 600 11px
+    ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  fill: var(--text);
+}
+.arch-node-id {
+  font: 8px ui-monospace,SFMono-Regular,Menlo,monospace;
+  fill: var(--info);
+}
+.arch-node-meta {
+  font: 8px
+    ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  fill: var(--muted);
+}
+.component-inspector {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  padding: 11px;
+  min-width: 0;
+  max-height: 610px;
+  overflow: auto;
+}
+.component-inspector h3 {
+  margin: 0;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.component-inspector h4 {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--muted);
+  margin: 13px 0 6px;
+}
+.component-inspector .component-id {
+  margin-top: 3px;
+}
+.inspector-section {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+  margin-top: 9px;
+}
+.inspector-list {
+  display: grid;
+  gap: 5px;
+}
+.inspector-item {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 6px 7px;
+  font-size: 9px;
+  color: var(--soft);
+  overflow-wrap: anywhere;
+}
+.inspector-dep {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  align-items: start;
+}
+.inspector-link {
+  border: 0;
+  background: transparent;
+  color: var(--info);
+  padding: 0;
+  font-size: 9px;
+  text-align: left;
+}
+.inspector-link:hover {
+  text-decoration: underline;
+  background: transparent;
+}
+.drilldown {
+  margin-top: 0;
+}
+@media (max-width:1250px) {
+  .architecture-layout {
+    grid-template-columns: minmax(0,1fr) 300px;
+  }
+  .architecture-metrics {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+@media (max-width:900px) {
+  .architecture-layout {
+    grid-template-columns: 1fr;
+  }
+  .component-inspector {
+    max-height: none;
+  }
+  .architecture-graph {
+    min-height: 360px;
+  }
+}
+@media (max-width:520px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .livebar {
+    display: block;
+  }
+  .live-right {
+    margin-top: 5px;
+    justify-content: flex-start;
+  }
+  .feature-head,
+  .section {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .dep {
+    grid-template-columns: 1fr 18px 1fr;
+  }
+  .dep-state {
+    grid-column: 1/-1;
+    text-align: left;
+  }
+  .controls #workspace {
+    max-width: 100%;
+    width: 100%;
+  }
+  .architecture-metrics {
+    grid-template-columns: 1fr;
+  }
+  .architecture-layout {
+    padding: 9px;
+  }
+  .architecture-graph {
+    min-height: 320px;
+  }
+}

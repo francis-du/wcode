@@ -31,7 +31,7 @@
     - CONSTRAINT-BOUNDED-DEV-TOOLS
   implementation:
     - kind: symbol
-      path: src/workspace/mod.rs
+      path: src/workspace/operations/execution.rs
       symbol: Workspace::run_command
     - kind: symbol
       path: src/workspace/command_policy.rs
@@ -41,13 +41,14 @@
   id: component:mcp-runtime
   name: MCP Runtime
   responsibilities:
-    - support modern and compatibility MCP protocol revisions explicitly
-    - reject unknown protocol revisions
+    - serve local stdio, preferred Streamable HTTP, and legacy SSE through one JSON-RPC dispatcher
+    - apply the same Workspace, OAuth, Origin, and client-owner boundaries to every network transport
+    - bound and clean up legacy SSE sessions while rejecting unknown protocol revisions
   constraints:
     - CONSTRAINT-MCP-COMPATIBILITY
   implementation:
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/integrations/mcp/mod.rs
       symbol: request_protocol
 
 - schema_version: 1
@@ -60,7 +61,7 @@
     - CONSTRAINT-BOUNDED-VERIFICATION
   implementation:
     - kind: symbol
-      path: src/runtime/harness.rs
+      path: src/runtime/harness/quality.rs
       symbol: ToolHarness::verify_project
 
 - schema_version: 1
@@ -73,7 +74,7 @@
     - CONSTRAINT-EXPLICIT-PRECISION
   implementation:
     - kind: symbol
-      path: src/graph/code_index.rs
+      path: src/graph/code_index/api.rs
       symbol: CodeIndex::software_graph
 
 - schema_version: 1
@@ -82,15 +83,18 @@
   responsibilities:
     - load structured desired software state from versioned repository files
     - validate stable identifiers and cross-document references
-    - initialize sparse meaningful Design State without empty collection placeholders
+    - initialize sparse meaningful Design State with repository-wide source, test, and design-sync constraints
   constraints:
     - CONSTRAINT-SPARSE-DESIGN-STATE
+    - CONSTRAINT-SOURCE-DECOMPOSITION
+    - CONSTRAINT-TEST-ROOT
+    - CONSTRAINT-DESIGN-SYNC
   implementation:
     - kind: symbol
       path: src/design/mod.rs
       symbol: load_design
     - kind: symbol
-      path: src/runtime/harness.rs
+      path: src/runtime/harness/core.rs
       symbol: ToolHarness::design_init
 
 - schema_version: 1
@@ -111,7 +115,7 @@
       path: src/graph/graph_store.rs
       symbol: diff
     - kind: symbol
-      path: src/graph/graph_provider_store.rs
+      path: src/graph/provider_store.rs
       symbol: overlay_latest
 
 - schema_version: 1
@@ -127,10 +131,10 @@
     - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
   implementation:
     - kind: symbol
-      path: src/semantics/provider.rs
+      path: src/semantics/provider/mod.rs
       symbol: status
     - kind: symbol
-      path: src/semantics/provider.rs
+      path: src/semantics/provider/mod.rs
       symbol: refresh
 
 - schema_version: 1
@@ -143,16 +147,16 @@
     - expose a fail-closed release check across Design Traceability Product Scope and required Convention state
   implementation:
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::traceability_status
     - kind: symbol
-      path: src/main.rs
+      path: src/app/intelligence.rs
       symbol: intelligence_check_failures
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::drift_status
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::impact_analysis
 
 - schema_version: 1
@@ -166,7 +170,7 @@
     - CONSTRAINT-MAINTAINABILITY-REVIEW
   implementation:
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::risk_status
     - kind: symbol
       path: src/intelligence/risk.rs
@@ -235,7 +239,7 @@
     - component:verification-mesh
   implementation:
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/reconcile.rs
       symbol: SoftwareIntelligenceRuntime::reconciliation_plan
     - kind: symbol
       path: src/reconciliation/mod.rs
@@ -253,7 +257,9 @@
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
-    - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management
+    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, and expose the complete supported-command catalog
+    - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
+    - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
   constraints:
     - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
     - CONSTRAINT-EXPLICIT-PRECISION
@@ -266,31 +272,37 @@
     - component:reconciliation-engine
   implementation:
     - kind: symbol
-      path: src/ui/monitor_detail.rs
+      path: src/ui/monitor/intelligence.rs
       symbol: render_intelligence_overlay
     - kind: symbol
-      path: src/ui/i18n.rs
+      path: src/ui/monitor/i18n.rs
       symbol: UiLanguage::tr
     - kind: symbol
-      path: src/runtime/harness_project.rs
+      path: src/runtime/harness/project.rs
       symbol: ToolHarness::project_observatory
     - kind: symbol
       path: src/intelligence/observatory.rs
       symbol: build_project_observatory
     - kind: symbol
-      path: src/intelligence/observatory_architecture.rs
+      path: src/intelligence/observatory/architecture.rs
       symbol: build_project_architecture
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/intelligence/observatory/files.rs
+      symbol: build_project_structure
+    - kind: symbol
+      path: src/ui/intelligence_web/app/structure.js
+      symbol: renderProjectStructure
+    - kind: symbol
+      path: src/integrations/mcp/web.rs
       symbol: intelligence_web_project
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/integrations/mcp/web.rs
       symbol: intelligence_web_status
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/integrations/mcp/web.rs
       symbol: intelligence_web_scopes
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/integrations/mcp/web.rs
       symbol: intelligence_web_graph
 
 - schema_version: 1
@@ -305,10 +317,10 @@
     - CONSTRAINT-MAINTAINABILITY-REVIEW
   implementation:
     - kind: symbol
-      path: src/runtime/harness.rs
+      path: src/runtime/harness/quality.rs
       symbol: ToolHarness::review_changes
     - kind: symbol
-      path: src/runtime/harness_review.rs
+      path: src/runtime/harness/review.rs
       symbol: append_maintainability_findings
 
 - schema_version: 1
@@ -331,7 +343,7 @@
       path: src/scopes/mod.rs
       symbol: tool_scopes
     - kind: symbol
-      path: src/runtime/harness_scope.rs
+      path: src/runtime/harness/scope.rs
       symbol: ToolHarness::product_scope_status
 
 - schema_version: 1
@@ -340,7 +352,8 @@
   responsibilities:
     - expose bounded create edit batch move metadata and delete primitives
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
-    - allow local runtime addition of validated Workspace roots and per-Workspace authorization/revocation of model-requested bare executable names while preserving no-shell and command-argument safety boundaries
+    - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
+    - keep executable access separate from exact repository-operation approval while preserving no-shell and argument safety boundaries
   constraints:
     - CONSTRAINT-ROOT-ISOLATION
     - CONSTRAINT-SHA-PRECONDITION
@@ -364,6 +377,9 @@
     - kind: symbol
       path: src/workspace/registry.rs
       symbol: Workspaces::add_workspace
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::add_workspace_from
     - kind: symbol
       path: src/workspace/registry.rs
       symbol: Workspaces::allow_command
@@ -420,13 +436,13 @@
     - component:product-scopes
   implementation:
     - kind: symbol
-      path: src/integrations/mcp.rs
+      path: src/integrations/mcp/mod.rs
       symbol: handle_message
     - kind: symbol
-      path: src/integrations/mcp_tasks.rs
+      path: src/integrations/mcp/tasks.rs
       symbol: create_tool_task
     - kind: symbol
-      path: src/integrations/mcp_catalog.rs
+      path: src/integrations/mcp/catalog.rs
       symbol: resources_list
 
 - schema_version: 1
@@ -435,19 +451,28 @@
   responsibilities:
     - publish protected-resource and authorization-server metadata
     - enforce PKCE resource binding and bounded dynamic client registration
+    - derive OAuth metadata and redirects from the verified tunnel that received each request
+    - persist bounded DCR clients and resource-bound tokens per configured Workspace-root scope so sessions survive restarts without clock expiry
+    - distinguish active health-verified request Hosts from historical token resources so tunnel migration cannot reactivate a stale Host
     - support safe web and native MCP registration profiles
   constraints:
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
   implementation:
     - kind: symbol
-      path: src/integrations/auth.rs
+      path: src/integrations/auth/mod.rs
       symbol: protected_resource_metadata
     - kind: symbol
-      path: src/integrations/auth.rs
+      path: src/integrations/auth/mod.rs
       symbol: authorization_server_metadata
     - kind: symbol
-      path: src/integrations/auth.rs
+      path: src/integrations/auth/clients.rs
       symbol: register_client
+    - kind: symbol
+      path: src/integrations/auth/store.rs
+      symbol: AuthStore
+    - kind: symbol
+      path: src/integrations/auth/tokens.rs
+      symbol: refresh_access_token
 
 - schema_version: 1
   id: component:semantic-registry
@@ -471,7 +496,8 @@
   id: component:agent-integration
   name: Portable Agent Integration
   responsibilities:
-    - export a portable skill contract without hidden executable payloads
+    - export canonical repository-owned plugin files without duplicated README or Skill bodies
+    - support skill-only, local stdio, remote HTTP, and automatic export profiles without guessing a Workspace or embedding credentials
     - guide MCP-capable agents through workspace design scope and verification surfaces
   constraints:
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
@@ -480,7 +506,7 @@
     - component:mcp-capabilities
   implementation:
     - kind: symbol
-      path: src/integrations/agent_plugin.rs
+      path: src/integrations/agent_plugin/mod.rs
       symbol: export
 
 - schema_version: 1
@@ -598,13 +624,13 @@
     - component:verification-harness
   implementation:
     - kind: symbol
-      path: src/runtime/harness_agent_context.rs
+      path: src/runtime/harness/agent_context.rs
       symbol: ToolHarness::agent_context
     - kind: symbol
-      path: src/runtime/harness_repo_map.rs
+      path: src/runtime/harness/repo_map.rs
       symbol: ToolHarness::ranked_repo_map
     - kind: symbol
-      path: src/intelligence/mod.rs
+      path: src/intelligence/runtime/reconcile.rs
       symbol: SoftwareIntelligenceRuntime::software_context
 
 - schema_version: 1
@@ -620,14 +646,39 @@
     - component:mcp-runtime
   implementation:
     - kind: symbol
-      path: src/runtime/tunnel.rs
+      path: src/runtime/tunnel/mod.rs
       symbol: spawn_tunnel_supervisor
     - kind: symbol
-      path: src/runtime/tunnel.rs
+      path: src/runtime/tunnel/mod.rs
       symbol: start_ssh_tunnel_once
     - kind: symbol
-      path: src/runtime/tunnel.rs
+      path: src/runtime/tunnel/mod.rs
       symbol: extract_ssh_tunnel_url
     - kind: symbol
-      path: src/runtime/tunnel.rs
+      path: src/runtime/tunnel/mod.rs
       symbol: start_tailscale_funnel_once
+
+- schema_version: 1
+  id: component:agent-host-install
+  name: Agent Host Installer
+  responsibilities:
+    - detect supported local Agent hosts through explicit adapter evidence
+    - plan project-local MCP configuration before any host-level alternative
+    - merge the wcode server into recognized JSON schemas atomically without replacing other servers or writing credentials
+    - report dry-run, installed, updated, already-configured, manual, unsupported, and failed outcomes honestly
+  constraints:
+    - CONSTRAINT-INTEROPERABILITY-STANDARDS
+    - CONSTRAINT-ROOT-ISOLATION
+  depends_on:
+    - component:agent-integration
+    - component:mcp-runtime
+  implementation:
+    - kind: symbol
+      path: src/integrations/agent_install/mod.rs
+      symbol: plan_install
+    - kind: symbol
+      path: src/integrations/agent_install/mod.rs
+      symbol: apply_install
+    - kind: symbol
+      path: src/integrations/agent_install/mod.rs
+      symbol: detect_hosts

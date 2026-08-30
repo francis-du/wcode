@@ -32,7 +32,7 @@ cd /absolute/path/to/repository
 wcode --workspace "$PWD"
 ```
 
-The normal runtime starts the local MCP service, protected WebUI/Setup Hub, OAuth flow, terminal monitor, and the configured public endpoint path for cloud connectors.
+This starts the local MCP service, protected WebUI, OAuth server, TUI, and any configured public tunnels.
 
 Use one repository root by default. Add another root only when one task genuinely needs more than one repository:
 
@@ -42,7 +42,22 @@ wcode \
   --workspace ~/Code/frontend
 ```
 
-## 3. Choose the connection type
+Project markers below the root become selectable subspaces. If you start at
+`~/Code`, an agent can work in `Rust/wcode` without registering a second,
+manually overlapping Workspace.
+
+## 3. Connect an agent
+
+For known local hosts, preview and apply project-local configuration:
+
+```bash
+wcode --workspace "$PWD" agent-plugin --install-all --dry-run
+wcode --workspace "$PWD" agent-plugin --install-all
+```
+
+The first command never writes. The second merges `wcode` into known JSON or
+TOML files, preserves other servers, and reports hosts that still need manual
+setup.
 
 ### Local coding agent
 
@@ -58,11 +73,29 @@ The stdio transport skips HTTP OAuth but keeps the same Workspace, command, path
 
 Use the public `/mcp` URL shown by wcode. The client discovers OAuth metadata, completes PKCE/DCR where supported, and receives a resource-bound token.
 
+The transport model is:
+
+- Local MCP: stdio.
+- Remote MCP, preferred: Streamable HTTP at `/mcp` with OAuth.
+- Legacy remote compatibility: `GET /sse` plus `POST /message` with OAuth.
+
+All three use the same Harness and Workspace policy. SSE does not provide an
+anonymous compatibility path.
+
 By default `--tunnel-provider auto` starts Cloudflare Quick Tunnel, the SSH-based `localhost.run` and Pinggy providers, and Tailscale Funnel concurrently in the background; the dashboard renders immediately and every tunnel that passes the instance-matched health check is listed live. Providers that miss the first round keep retrying every 15 seconds, and a dead tunnel is respawned alone without disturbing the rest. Force one with `--tunnel-provider cloudflare|localhost-run|pinggy|tailscale`. Quick-tunnel URLs can change after restart; use `--public-url` or the Tailscale provider when you need a stable endpoint.
+
+OAuth client registrations and tokens have no clock expiry. They are stored in
+the user's state directory for the configured Workspace roots and loaded again
+after `wcode restart`. A replacement tunnel can keep the session after it
+passes the current instance health check. Authorization always stays on the
+domain that received the request, and unknown or inactive hosts are rejected.
 
 ## 4. Initialize Design State only when useful
 
-A connected agent may call `design_init`. Initialization is sparse: it creates Project/Product state without creating empty requirement/component/constraint/acceptance/decision collections and never overwrites existing Design State.
+A connected agent may call `design_init`. It creates Project/Product state and
+three practical baseline constraints for module size, test placement, and
+Design-reference updates. Other collections stay absent until they carry real
+project decisions. Existing Design State is never overwritten.
 
 Inspect it with:
 
@@ -73,7 +106,7 @@ wcode --workspace "$PWD" intelligence --check --json
 
 ## 5. Give the agent the right first calls
 
-The strong default before editing is one compact call:
+Before editing, start with one compact call:
 
 ```text
 agent_context(goal, scopes=...)
@@ -96,7 +129,8 @@ Add drift / impact / risk / reconciliation / evidence inspection when the change
 
 ## 6. Use the local operator surfaces
 
-The TUI remains intentionally small:
+The TUI main screen is split into connection state, four runtime counters,
+subspace activity, and 30-second throughput. The useful keys are:
 
 - `I` — Intelligence overlay.
 - `W` — open the protected Project Observatory for the focused Workspace.
@@ -106,7 +140,9 @@ The TUI remains intentionally small:
 - `↑/↓` — select a pending authorization request.
 - `Y/N` — approve or deny the selected request.
 
-The protected WebUI exposes the same project and command authorization concepts for browser-based operation.
+The protected WebUI exposes the same requests. It labels executable access and
+exact repository operations separately; approving one does not imply the
+other.
 
 ## 7. Common modes
 

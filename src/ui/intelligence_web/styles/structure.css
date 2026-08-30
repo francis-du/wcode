@@ -1,0 +1,159 @@
+.structure-panel {
+  margin-top: 12px;
+}
+
+.structure-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.structure-pane {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  overflow: hidden;
+}
+
+.structure-pane h3 {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.file-tree,
+.large-files {
+  max-height: 520px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.tree-directory summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 27px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tree-directory summary:hover,
+.tree-file:hover,
+.large-file:hover {
+  background: var(--panel-2);
+}
+
+.tree-directory summary::-webkit-details-marker {
+  display: none;
+}
+
+.tree-directory[open] > summary .tree-marker {
+  transform: rotate(90deg);
+}
+
+.tree-marker {
+  color: var(--accent);
+  transition: transform .12s ease;
+}
+
+.tree-directory summary small {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.tree-children {
+  margin-left: 12px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+}
+
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 25px;
+  padding: 3px 7px 3px 20px;
+  border-radius: 6px;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tree-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-file-meta {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.tree-file.over-limit .tree-file-meta,
+.large-file.over-limit > strong {
+  color: var(--warn);
+}
+
+.large-file {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 39px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.large-file:last-child {
+  border-bottom: 0;
+}
+
+.large-rank {
+  color: var(--muted);
+  text-align: right;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.large-path {
+  min-width: 0;
+}
+
+.large-path code,
+.large-path small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.large-path small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.large-file > strong {
+  color: var(--soft);
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (max-width: 850px) {
+  .structure-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .file-tree,
+  .large-files {
+    max-height: 380px;
+  }
+}

@@ -17,6 +17,10 @@ wcode 的基本原则很简单：连接模型不等于把整台机器暴露给�
 
 应当暴露仓库根目录，而不是用户主目录或文件系统根目录。
 
+配置根目录内部的项目标记可以派生为 Subspace，但不会扩大最外层边界：
+相对路径从当前 Workspace 解析，Canonical Path 会重新检查，Symlink 子目录
+会被拒绝。手工配置的重叠根目录默认仍然禁止。
+
 ## 基于 SHA 的写入保护
 
 编辑已有文件时使用模型读取到的 SHA-256 作为前置条件。原子替换避免半写入；源码已经变化时直接拒绝陈旧写入，而不是静默覆盖新版本。
@@ -49,11 +53,17 @@ Y      批准
 N      拒绝
 ```
 
+命令请求分成两个范围。**可执行程序访问**只允许一个 Workspace 中的一个
+程序名；**精确仓库操作**只允许该 Workspace 中的一组参数 Fingerprint。
+TUI 和 WebUI 会分开显示。批准 `cargo` 不等于批准所有 `cargo` 命令；批准
+`cargo test` 也不会覆盖不同参数或另一个 Subspace。拒绝不会留下 Grant。
+
 批准某个请求不会关闭 Workspace 隔离，也不会把命令执行变成 Shell。
 
 ## OAuth 与远程 MCP
 
-云端或 Web 客户端通过受保护的 `/mcp` Resource 连接。wcode 保留：
+云端或 Web 客户端通常通过受保护的 `/mcp` Resource 连接。旧客户端可以
+使用 `/sse` 和该 Session 对应的 `/message`。两种远程传输都保留：
 
 - Protected Resource Metadata 与 Authorization Server Metadata；
 - Authorization Code + PKCE；
@@ -63,6 +73,18 @@ N      拒绝
 - Refresh Token 轮换；
 - 浏览器 Origin 校验。
 
+Client 注册以及 Access / Refresh Token 不按时间过期。wcode 按配置的
+Workspace 根目录集合把它们写入用户状态目录，进程重启后重新载入。写盘
+使用原子替换；Unix 文件权限为 `0600`；Symlink 状态文件会被拒绝；损坏的
+状态会失败关闭。Authorization Code 仍只存在内存中，并保持短时、一次性。
+Store 继续使用固定容量：Client 达到上限时可回收尚未绑定 Token 的注册，
+Token 达到上限时淘汰最旧项，不会无限增长。
+
+替换隧道只有在公网健康响应与当前进程一致后才会成为有效入口，旧 Token
+的 Resource 随后才能迁移到这个入口。OAuth Metadata 与授权页仍使用请求
+实际进入的 Host。历史 Resource 不会把旧域名重新变成有效 Host；属于另一
+组 Workspace 根目录的 Token 也不会载入。
+
 公网隧道只解决可达性，不提供授权。
 
 ## 多媒体与模型能力
@@ -71,7 +93,7 @@ N      拒绝
 
 ## 凭据与模型上下文
 
-凭据类路径默认受保护；读取源码和符号上下文时会对高置信度 Secret 做脱敏。日志与诊断不得输出 Access Token、Refresh Token、PKCE Verifier 等凭据。
+凭据类路径默认受保护；读取源码和符号上下文时会对高置信度 Secret 做脱敏。日志与诊断不得输出 Access Token、Refresh Token、PKCE Verifier 等凭据。OAuth 状态文件本身含有 Bearer Credential，不要复制进仓库，也不要分享。
 
 ## Verification 与 Evidence
 
@@ -81,7 +103,7 @@ N      拒绝
 
 - 默认只暴露一个仓库 Workspace。
 - 本地 Agent 优先 stdio。
-- 远程 Connector 保留 OAuth。
+- Streamable HTTP 和旧版 SSE 远程连接都保留 OAuth。
 - 编辑保留 SHA 前置条件。
 - 优先批准精确请求，不要为了省事扩大整个进程的信任范围。
 - 不需要写入或命令时使用 `--read-only` 或 `--no-exec`。

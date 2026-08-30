@@ -235,7 +235,7 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         assert!(site.contains("id=\"clientGrid\""));
         assert!(site.contains("id=\"clientSearch\""));
         assert!(site.contains("id=\"sourceList\""));
-        for filter in ["all", "free", "china", "us", "chat", "coding", "native"] {
+        for filter in ["all", "auto", "manual", "cli", "ide", "web"] {
             assert!(
                 site.contains(&format!("data-filter=\"{filter}\"")),
                 "both language homepages must expose the same client filters"
@@ -243,9 +243,24 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         }
     }
     let site_js = fs::read_to_string(root.join("docs/assets/site.js")).unwrap();
-    assert!(site_js.contains("const zhClientCopy = {"));
-    assert!(site_js.contains("function localizedClient(client)"));
-    assert!(site_js.contains("pageIsChinese ? `官方来源 ${index + 1}`"));
+    assert!(site_js.contains("const capabilityLabels = pageIsChinese"));
+    assert!(site_js.contains("function renderCapability(key, value)"));
+    assert!(site_js.contains("pageIsChinese ? `厂商依据 ${index + 1}`"));
+    for capability in [
+        "package: '插件包'",
+        "skill: '通用 Skill'",
+        "stdio: 'stdio'",
+        "http: 'HTTP'",
+        "sse: 'SSE'",
+        "oauth: 'OAuth'",
+        "auto: '一键安装'",
+        "manual: '仅手工'",
+    ] {
+        assert!(
+            site_js.contains(capability),
+            "website client matrix must keep separate capability: {capability}"
+        );
+    }
     assert!(!chinese_site.contains("Documentation"));
     assert!(!chinese_site.contains("CLI/MCP Reference"));
 
@@ -274,6 +289,8 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(layout.contains("'/docs/reference/'"));
     assert!(layout.contains("'/docs/releases/v0.4.0/'"));
     assert!(layout.contains("'/zh/docs/releases/v0.4.0/'"));
+    assert!(layout.contains("'/docs/releases/v0.4.3/'"));
+    assert!(layout.contains("'/zh/docs/releases/v0.4.3/'"));
 
     let docs_css = fs::read_to_string(root.join("docs/assets/docs.css")).unwrap();
     assert!(docs_css.contains(".docs-shell"));

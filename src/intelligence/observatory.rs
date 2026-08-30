@@ -3,15 +3,13 @@ use crate::graph::{EdgeKind, GraphPrecision, NodeKind, SoftwareGraphSnapshot};
 use crate::graph_store::{GraphDiffResult, GraphHistoryEntry};
 use crate::harness::{ChangeReviewReport, ChangedFileReview};
 use crate::intelligence_types::{
-    CodeStatBreakdown, FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView,
-    FeatureConvergenceState, FeatureDecisionView, FeatureDependencyAlignment,
-    FeatureImplementationView, FeatureRequirementView, ProjectChangeView, ProjectCodeStats,
-    ProjectConvergenceSummary, ProjectGraphDeltaView, ProjectGraphPrecisionSummary,
-    ProjectObservatory, ProjectProofSummary, ProjectRevisionView,
+    FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView, FeatureConvergenceState,
+    FeatureDecisionView, FeatureDependencyAlignment, FeatureImplementationView,
+    FeatureRequirementView, ProjectChangeView, ProjectConvergenceSummary, ProjectGraphDeltaView,
+    ProjectGraphPrecisionSummary, ProjectObservatory, ProjectProofSummary, ProjectRevisionView,
 };
 use crate::reconcile::ImpactAnalysis;
 use crate::scopes;
-use crate::semantic_provider::language_for_path;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const MAX_PROJECT_CHANGES: usize = 500;
@@ -47,8 +45,9 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
                 .collect::<HashSet<_>>()
         })
         .unwrap_or_default();
-    let path_lines = graph_file_lines(input.graph);
-    let code = code_stats(input.graph, input.review);
+    let path_lines = super::observatory_files::graph_file_lines(input.graph);
+    let code = super::observatory_files::code_stats(input.graph, input.review);
+    let structure = super::observatory_files::build_project_structure(input.graph);
     let graph_precision = graph_precision_summary(input.graph);
     let component_paths = component_paths(&state);
     let actual_dependencies =
@@ -153,6 +152,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         design_valid,
         coverage: input.traceability,
         code,
+        structure,
         graph_precision,
         language_quality: input.language_quality,
         proof: input.proof,
@@ -219,137 +219,6 @@ fn graph_node_path(node: &crate::graph::GraphNode) -> Option<&str> {
     node.attributes
         .get("path")
         .and_then(serde_json::Value::as_str)
-}
-
-fn graph_file_lines(graph: &SoftwareGraphSnapshot) -> BTreeMap<String, usize> {
-    graph
-        .graph
-        .nodes
-        .values()
-        .filter(|node| node.kind == NodeKind::File)
-        .filter_map(|node| {
-            let path = node
-                .attributes
-                .get("path")
-                .and_then(serde_json::Value::as_str)?;
-            let lines = node
-                .attributes
-                .get("line_count")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or_default();
-            Some((path.to_owned(), lines))
-        })
-        .collect()
-}
-
-fn code_stats(
-    graph: &SoftwareGraphSnapshot,
-    review: Option<&ChangeReviewReport>,
-) -> ProjectCodeStats {
-    let mut source_files = 0usize;
-    let mut source_lines = 0usize;
-    let mut source_bytes = 0u64;
-    let mut symbols = 0usize;
-    let mut languages = BTreeMap::<String, (usize, usize)>::new();
-    let mut product_scopes = BTreeMap::<String, (usize, usize)>::new();
-
-    for node in graph.graph.nodes.values() {
-        let path = node
-            .attributes
-            .get("path")
-            .and_then(serde_json::Value::as_str);
-        if node.kind == NodeKind::File {
-            let Some(path) = path else { continue };
-            source_files = source_files.saturating_add(1);
-            let lines = node
-                .attributes
-                .get("line_count")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or_default();
-            let bytes = node
-                .attributes
-                .get("source_bytes")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or_default();
-            source_lines = source_lines.saturating_add(lines);
-            source_bytes = source_bytes.saturating_add(bytes);
-            let language = node
-                .attributes
-                .get("language")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown")
-                .to_owned();
-            let entry = languages.entry(language).or_default();
-            entry.0 = entry.0.saturating_add(1);
-            entry.1 = entry.1.saturating_add(lines);
-            if let Some(scope) = scopes::source_scope(path) {
-                let entry = product_scopes.entry(scope.as_str().to_owned()).or_default();
-                entry.0 = entry.0.saturating_add(1);
-                entry.1 = entry.1.saturating_add(lines);
-            }
-        } else if path.is_some() {
-            symbols = symbols.saturating_add(1);
-        }
-    }
-
-    let mut language_breakdown = breakdown(languages);
-    language_breakdown.sort_by(|left, right| {
-        right
-            .lines
-            .cmp(&left.lines)
-            .then_with(|| right.files.cmp(&left.files))
-            .then_with(|| left.name.cmp(&right.name))
-    });
-    let mut scope_breakdown = breakdown(product_scopes);
-    scope_breakdown.sort_by(|left, right| {
-        right
-            .lines
-            .cmp(&left.lines)
-            .then_with(|| left.name.cmp(&right.name))
-    });
-
-    let changed_source_files = review
-        .map(|review| {
-            review
-                .files
-                .iter()
-                .filter(|file| language_for_path(&file.path).is_some())
-                .count()
-        })
-        .unwrap_or_default();
-    ProjectCodeStats {
-        source_files,
-        source_lines,
-        source_bytes,
-        symbols,
-        call_edges: graph
-            .graph
-            .edges
-            .iter()
-            .filter(|edge| matches!(edge.kind, EdgeKind::Calls | EdgeKind::RuntimeCalls))
-            .count(),
-        languages: language_breakdown,
-        product_scopes: scope_breakdown,
-        changed_files: review
-            .map(|review| review.files_changed)
-            .unwrap_or_default(),
-        changed_source_files,
-        additions: review.map(|review| review.additions).unwrap_or_default(),
-        deletions: review.map(|review| review.deletions).unwrap_or_default(),
-        untracked_files: review
-            .map(|review| review.untracked_files)
-            .unwrap_or_default(),
-        graph_truncated: graph.truncated || graph.scan_truncated,
-    }
-}
-
-fn breakdown(values: BTreeMap<String, (usize, usize)>) -> Vec<CodeStatBreakdown> {
-    values
-        .into_iter()
-        .map(|(name, (files, lines))| CodeStatBreakdown { name, files, lines })
-        .collect()
 }
 
 fn component_paths(state: &design::DesignState) -> BTreeMap<String, BTreeSet<String>> {

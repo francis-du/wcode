@@ -17,6 +17,11 @@ Only configured Workspace roots exist from the model's point of view. Model-faci
 
 Use repository roots, not a home directory or filesystem root.
 
+Project markers inside a configured root may become derived subspaces. This
+does not widen the outer root: relative paths resolve from the selected
+Workspace, canonical paths are checked again, and symlink children are
+rejected. Manually overlapping configured roots remain blocked by default.
+
 ## Hash-guarded writes
 
 Existing-file edits use the observed SHA-256 as a precondition. Atomic replacement prevents partial writes, while stale revisions fail instead of silently overwriting newer work.
@@ -49,11 +54,20 @@ Y      approve
 N      deny
 ```
 
+Command requests have two distinct scopes. **Executable access** permits one
+program name in one Workspace. **Exact repository operation** permits one
+fingerprinted argument set in that Workspace. The WebUI and TUI show these
+labels separately. Approving `cargo` does not approve every `cargo` command;
+approving `cargo test` does not cover different arguments or another subspace.
+A denial creates no grant.
+
 An approval does not disable Workspace isolation or turn command execution into a shell.
 
 ## OAuth and remote MCP
 
-Cloud/web clients connect through the protected `/mcp` Resource. wcode keeps:
+Cloud/web clients normally connect through the protected `/mcp` Resource.
+Legacy clients may use `/sse` plus the session-specific `/message` endpoint.
+Both remote transports keep:
 
 - Protected Resource Metadata and Authorization Server Metadata;
 - Authorization Code + PKCE;
@@ -63,6 +77,21 @@ Cloud/web clients connect through the protected `/mcp` Resource. wcode keeps:
 - refresh-token rotation;
 - Origin validation for browser-originated requests.
 
+Client registrations and access/refresh tokens have no clock expiry. They are
+persisted per configured Workspace-root set in the user's wcode state directory
+and loaded after a process restart. Writes are atomic; Unix files are restricted
+to mode `0600`, symlink state files are rejected, malformed state fails closed,
+and authorization codes remain short-lived and memory-only. The stores retain
+fixed entry limits: an unbound client registration may be reclaimed at client
+capacity, and token capacity evicts the oldest token instead of growing without
+bound.
+
+A replacement tunnel is accepted only after its public health response matches
+the current process. The saved token resource may then migrate to that active
+endpoint. OAuth metadata and authorization use the exact Host that received the
+request. Historical resources are not active Hosts, and tokens stored for a
+different configured Workspace-root set are not loaded.
+
 The tunnel provides reachability, not authorization.
 
 ## Media and model capability
@@ -71,7 +100,7 @@ The tunnel provides reachability, not authorization.
 
 ## Secrets and model context
 
-Credential-like paths are blocked and high-confidence secret text is redacted from model-facing reads and symbol context. Logs and diagnostics must not expose access tokens, refresh tokens, PKCE verifiers, or equivalent credentials.
+Credential-like paths are blocked and high-confidence secret text is redacted from model-facing reads and symbol context. Logs and diagnostics must not expose access tokens, refresh tokens, PKCE verifiers, or equivalent credentials. The OAuth state file contains bearer credentials; do not copy it into a repository or share it.
 
 ## Verification and Evidence
 
@@ -81,7 +110,7 @@ Security is also an approval problem after code changes. Risk analysis may raise
 
 - Prefer one repository Workspace.
 - Prefer stdio for local agents.
-- Keep OAuth for remote connectors.
+- Keep OAuth for Streamable HTTP and legacy SSE connectors.
 - Keep SHA preconditions on edits.
 - Approve exact command/risky-operation requests instead of enabling broad trust when possible.
 - Use `--read-only` or `--no-exec` when a task does not need writes or commands.

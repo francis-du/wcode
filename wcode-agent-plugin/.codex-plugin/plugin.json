@@ -1,0 +1,27 @@
+{
+  "name": "wcode",
+  "version": "0.4.3",
+  "description": "Workspace-scoped wcode Software Intelligence skill and MCP connection profiles.",
+  "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
+  "homepage": "https://wcode.francis.run/",
+  "repository": "https://github.com/francis-du/wcode",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "software-intelligence", "verification", "agent-skills"],
+  "skills": "./skills/",
+  "mcpServers": {},
+  "interface": {
+    "displayName": "wcode",
+    "shortDescription": "Repository intelligence and guarded MCP operations",
+    "longDescription": "Use wcode for bounded repository context, guarded edits, exact command authorization, and evidence-driven verification.",
+    "developerName": "francis-du",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write", "MCP"],
+    "websiteURL": "https://wcode.francis.run/",
+    "defaultPrompt": [
+      "Use wcode to inspect this repository before editing.",
+      "Review the current changes and run the right verification.",
+      "Map this task to the relevant product scope."
+    ],
+    "brandColor": "#111114"
+  }
+}

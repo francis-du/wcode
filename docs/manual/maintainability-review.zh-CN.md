@@ -23,7 +23,7 @@ wcode 把可维护性当作批准问题，而不是最后的 Cosmetic Cleanup。
 
 这些 Finding 进入正常 Risk Engine。高严重度的 Maintainability Finding 可以像其他 Architecture Risk 一样提高 Verification 深度。
 
-Convention Engine 与之分离。它的 Rust Production Module 2000 行阈值是仓库级 Oversized Module 信号；这里的 1000 行规则专门描述“本次 Change 穿过此前尚未超过的边界”。
+Convention Engine 用同一条 1,000 行边界检查整个仓库；Change Review 还会指出哪个文件是在本次修改中越过边界。wcode 自身对维护中的 Rust 源码与测试执行硬门禁：文件接近边界时，先按职责拆分。
 
 ## 独立 Maintainability Reviewer
 

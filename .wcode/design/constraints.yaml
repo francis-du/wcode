@@ -123,7 +123,7 @@
 - schema_version: 1
   id: CONSTRAINT-INTEROPERABILITY-STANDARDS
   title: Agent and connector interoperability follows explicit standards
-  statement: Remote agent integration must retain explicit MCP revision handling, OAuth PKCE/resource binding, bounded DCR metadata, protected-resource metadata, safe Origin handling and portable local stdio support.
+  statement: Remote agent integration must retain explicit MCP revision handling, OAuth PKCE/resource binding, bounded DCR metadata, protected-resource metadata, safe Origin handling and portable local stdio support. Persistent OAuth clients and tokens must be atomically stored outside repositories, scoped to configured Workspace roots, owner-protected, bounded, symlink-safe and fail closed on malformed state; authorization codes remain ephemeral.
   applies_to:
     - component:mcp-capabilities
     - component:oauth-interoperability
@@ -156,7 +156,7 @@
 - schema_version: 1
   id: CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
   title: Project observability is architecture-first
-  statement: Operator-facing WebUI must show the complete component architecture before Requirement drill-down, overlay declared Design dependencies with current code-derived Actual dependencies using explicit provider/precision, distinguish strong positive-evidence drift from advisory evidence gaps, expose interpretable observed-drift and evidence-coverage metrics, then preserve Requirement → Desired State → Actual State → Change → Proof → Convergence detail with revision-matching Evidence, bounded code/change statistics and revision history. An undifferentiated global node-ball graph must not be the primary project view.
+  statement: Operator-facing WebUI must show the complete component architecture before Requirement drill-down, overlay declared Design dependencies with current code-derived Actual dependencies using explicit provider/precision, distinguish strong positive-evidence drift from advisory evidence gaps, expose interpretable observed-drift and evidence-coverage metrics, then preserve Requirement → Desired State → Actual State → Change → Proof → Convergence detail with revision-matching Evidence, bounded code/change statistics, a bounded project file tree, largest-file and line-limit signals, and revision history. An undifferentiated global node-ball graph must not be the primary project view, and the browser must not perform an independent unbounded filesystem scan.
   applies_to:
     - component:intelligence-ui
     - component:traceability-drift
@@ -203,3 +203,27 @@
     - component:agent-context
     - component:agent-integration
     - component:mcp-capabilities
+
+- schema_version: 1
+  id: CONSTRAINT-SOURCE-DECOMPOSITION
+  title: Source modules stay bounded
+  statement: Maintained text files must stay at or below 1000 physical lines; generated lockfiles and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.
+  applies_to:
+    - component:convention-engine
+    - component:documentation-governance
+
+- schema_version: 1
+  id: CONSTRAINT-TEST-ROOT
+  title: Tests live in the repository test root
+  statement: Standalone automated tests belong under tests/, grouped by source domain. Source modules may attach those files for private unit coverage instead of accumulating large inline test modules.
+  applies_to:
+    - component:verification-harness
+    - component:convention-engine
+
+- schema_version: 1
+  id: CONSTRAINT-DESIGN-SYNC
+  title: Design references move with the code
+  statement: Changes to responsibilities, source paths, test paths, trust boundaries or transport behavior must update the matching .wcode Design State in the same change.
+  applies_to:
+    - component:design-state
+    - component:traceability-drift

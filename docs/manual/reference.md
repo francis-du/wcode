@@ -42,6 +42,19 @@ wcode --workspace /absolute/path/to/repository mcp-stdio
 ```
 
 Cloud/web connectors use the protected public `/mcp` endpoint shown by the runtime.
+Older clients can use `/sse`; the first SSE event supplies the matching
+`/message?sessionId=...` endpoint. Both remote transports require OAuth and
+Origin validation.
+
+Agent setup and plugin export:
+
+```bash
+wcode --workspace "$PWD" agent-plugin --install-all --dry-run [--json]
+wcode --workspace "$PWD" agent-plugin --install-all [--json]
+wcode --workspace "$PWD" agent-plugin --profile skill-only
+wcode --workspace "$PWD" agent-plugin --profile local-stdio
+wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https://host/mcp
+```
 
 ## Common CLI options
 
@@ -188,8 +201,8 @@ The model may request access; it cannot approve itself. Pending requests are dec
 
 Important distinctions:
 
-- **CommandAccess** authorizes a bare executable for one Workspace.
-- **RiskyExecution** authorizes one exact repository-aware operation fingerprint for the current session.
+- **Executable access (`CommandAccess`)** authorizes a bare executable for one Workspace.
+- **Exact repository operation (`RiskyExecution`)** authorizes one operation fingerprint for that Workspace and session.
 - **RuntimeExecutor** covers one exact advanced verification executor operation.
 - **Destructive delete** is one-shot and separate from reusable session grants.
 
@@ -199,7 +212,7 @@ Known development CLIs receive command-specific policy instead of generic progra
 
 ## Diagnostics
 
-The public/local health surface keeps connection state layered rather than flattening everything to “connected/disconnected”. Inspect the runtime TUI first, then `/healthz` when debugging HTTP/tunnel/OAuth state.
+The public/local health surface keeps connection state layered rather than flattening everything to “connected/disconnected”. Inspect the runtime TUI first, then `/healthz` when debugging HTTP, tunnel, or OAuth state. OAuth registrations and tokens are restored for the same configured Workspace roots after restart. A replacement tunnel can keep that session after it passes the instance health check. Metadata and authorization must show the same host the client used; unknown or inactive hosts remain rejected.
 
 For repository correctness use:
 

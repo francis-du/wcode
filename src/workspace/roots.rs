@@ -100,6 +100,13 @@ impl Workspace {
         commands
     }
 
+    pub(crate) fn command_allowed(&self, program: &str) -> bool {
+        self.commands
+            .read()
+            .expect("workspace command allowlist lock poisoned")
+            .contains(program)
+    }
+
     pub(crate) fn available_commands(&self) -> Vec<String> {
         let allowed = self
             .commands

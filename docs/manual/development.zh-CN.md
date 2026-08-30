@@ -18,7 +18,7 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 - `src/main.rs`：CLI 与启动组合，只负责参数、Runtime Lifecycle、Graceful Shutdown/Restart 和 Product Scope Module Wiring；Managed Tunnel 生命周期已下沉到 `src/runtime/tunnel.rs`。
 - `src/scopes/mod.rs`：唯一 Canonical Product Scope Registry，包含 Alias、Source Root 与 Tool-to-scope Mapping，供 Context、Semantic、Convention、Design State、MCP Metadata 和 Operator View 共用。
 - `src/runtime/`：Harness 与 Runtime 编排。`harness.rs` 保留公共核心；`harness_agent_context.rs` 生成 Edit-ready Agent Context，`harness_profile.rs` 缓存 Project/Manifest/Guidance，`harness_repo_map.rs` 负责 Repo-map Ranking/Cache；`harness_graph.rs`、`harness_project.rs`、`harness_review.rs`、`harness_scope.rs`、`harness_text.rs`、`harness_verification.rs` 分离 Graph/Context、Project Observatory、Git Review、Scope Audit、Text/Project Discovery 与 Verification；`harness_tests.rs` 保存 Focused Harness Tests；`control.rs`、`power.rs`、`tunnel.rs` 分别负责 Stop/Restart、Sleep Inhibition 与 Managed Public Tunnel。
-- `src/integrations/`：Model / Client Integration Boundary。`mcp.rs` 负责共享 Protocol Router；`mcp_dispatch.rs` 执行 Tool Call；`mcp_tools.rs` 保存 Deterministic Tool Catalog；`mcp_stdio.rs`、`mcp_tasks.rs`、`mcp_catalog.rs` 分别处理 stdio、Durable Task、Prompt / Resource；`auth.rs` 负责 OAuth/PKCE/DCR；`task_store.rs` 持久化 MCP Task；`agent_plugin.rs` 导出 Non-executable Skill/Plugin。
+- `src/integrations/`：Model / Client Integration Boundary。`mcp.rs` 负责共享 HTTP Route 与 Payload Dispatch；`mcp_stdio.rs`、`mcp_legacy_sse.rs` 把 stdio 和旧版 SSE 适配到同一入口；`mcp_dispatch.rs`、`mcp_tools.rs`、`mcp_tasks.rs`、`mcp_catalog.rs` 分别处理 Tool Call、Catalog、Durable Task、Prompt / Resource。`auth.rs` 负责 OAuth/PKCE/DCR，`auth_origin.rs` 解析当前请求实际使用的已注册 Origin。`agent_plugin.rs` 导出 canonical package；`agent_install*` 模块分别保存 Host Adapter、安全 Merge/Apply、报告与测试。
 - `src/workspace/`：安全 Local Coding Boundary，包含 Bounded File/Search/Edit/Move/Delete Primitive、Root/Registry Isolation、Command Policy、Local Authorization、Media、Convention 与 Dependency-aware Path Scheduler。
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
 - `src/graph/`：Lazy Tree-sitter Code Index、Provider-neutral Software Graph，以及 Provider / Composite Revision Persistence。
@@ -27,7 +27,7 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 - `src/verification/`：Verification Plan、Blind Reviewer/Readiness、Language Quality Provider，以及 Property/Mutation/Fuzz/Runtime Executor。
 - `src/evidence/`：带 Provenance 的 Evidence Contract 与 Bounded Persistence。
 - `src/reconciliation/`：Durable Desired-to-Actual Plan 与 Dependency-aware Execution / Retry State。
-- `src/ui/`：Operator Experience。`monitor.rs` 负责 Ratatui Event/Render Loop 与主布局，`monitor_state.rs` 负责 Task/Connection/Traffic/Agent Context Metrics，`monitor_detail.rs` 负责详细 Overlay，`intelligence_web.rs` 服务受保护的 Architecture-first Project Observatory。
+- `src/ui/`：Operator Experience。`monitor.rs` 负责 Ratatui Event/Render Loop，`monitor_state.rs` 负责 Task/Connection/Traffic，`monitor_detail.rs` 保存 Panel 与 Overlay，`monitor_theme.rs` 让 TUI 色板与 `docs/assets/site.css` 对齐；`intelligence_web.rs` 服务受保护 Project Observatory。
 
 职责移动时，同一个 Change 里要同步更新 Product Scope Source Root 与 Design State Implementation Reference。源码物理移动了、Architecture Contract 还指着旧 Owner，不算完成 Refactor。
 
@@ -62,7 +62,11 @@ Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurre
 
 Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 在后台并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，面板绝不等待隧道。只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算隧道存活——拿到一个 URL String 本身不是 Readiness。所有存活隧道全部保留，最先落地的担任 Primary Endpoint。单条隧道死亡后按指数退避（15s..300s）独自重拉，绝不重启进程；Primary 死亡时按序提升下一条存活隧道。正常 Shutdown（Ctrl-C 或 SIGTERM）会 Abort Owned Task 并 Kill/Wait 全部 Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
 
-HTTP MCP 与 `mcp-stdio` 共用同一个 Protocol/Harness/Workspace Implementation。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
+Streamable HTTP、`mcp-stdio`、旧版 `/sse` + `/message` 共用同一个 JSON-RPC Dispatch、Harness 与 Workspace Implementation。SSE Session 绑定 Owner/Origin，有容量与 Channel 上限，并在 Stream 关闭时删除；Notification 返回 202 且不发送 Response Event，Channel 满时返回 429，不允许阻塞 Server。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
+
+OAuth Origin 按请求解析。只有通过实例健康校验并注册的 Host 才能成为该请求的 Issuer。Access Token 可在已验证入口间继续使用，Refresh 会把绑定迁到本次请求的 Host。Client 与 Token 状态按配置的 Workspace 根目录 Hash 原子持久化，Authorization Code 仍只存在内存。载入历史 Token Resource 只用于跨重启和隧道迁移，不会把旧 Origin 注册成有效请求 Host。Store 保持容量上限；损坏或 Symlink 状态按失败关闭处理。
+
+Agent Installer 不执行任何 Host CLI。Detection 只看 Filesystem/PATH Evidence；Safe Adapter 只写项目文件，Merge 前先 Parse，并复用 Workspace Atomic Write。JSONC/YAML 和未知 Schema 保持 Manual。Host Metadata 统一放 Registry，不能在 `main.rs` 继续堆 Host-specific Branch。
 
 Media 继续 Metadata-first。Image/Audio Binary Content 只有当前 MCP Request 显式声明匹配的 `run.francis.wcode/media-content` Extension 时才发出；Capability Unknown 时只返回 Metadata / Fail-closed，Video 始终 Metadata-only。
 
@@ -93,6 +97,7 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 任何修改都要保持这些 Trust Boundary：
 
 - Canonical Workspace Root Isolation 与 Root Identity Recheck；
+- Derived Subspace 只能位于已配置 Parent 内，相对路径从当前 Workspace 解析，并拒绝 Symlink Component；手工重叠 Configured Root 继续阻断；
 - 拒绝 Absolute Path、Parent Traversal、Protected Path、Symlink Component 与不安全 Hard-link Write；
 - SHA-256 Edit Precondition、Per-file Lock、Post-lock Path Re-resolution、Bounded Atomic Write 与 Create-without-overwrite；
 - `delete_path` 是唯一 Model-facing Delete Primitive，只能在 Exact One-shot Human Approval 后删除一个 Regular File 或 Empty Directory；Recursive/Root/Protected/Symlink/Hard-link Delete 永久阻断；

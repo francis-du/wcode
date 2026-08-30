@@ -41,7 +41,19 @@ wcode --workspace "$PWD" verification --plan-id VP-...
 wcode --workspace /absolute/path/to/repository mcp-stdio
 ```
 
-云端连接器使用运行时输出的受保护公网 `/mcp` 地址。
+云端连接器使用运行时输出的受保护公网 `/mcp` 地址。旧客户端可以使用
+`/sse`；第一条 SSE Event 会给出对应的 `/message?sessionId=...`。两种远程
+传输都要求 OAuth 和 Origin 校验。
+
+Agent 配置与插件导出：
+
+```bash
+wcode --workspace "$PWD" agent-plugin --install-all --dry-run [--json]
+wcode --workspace "$PWD" agent-plugin --install-all [--json]
+wcode --workspace "$PWD" agent-plugin --profile skill-only
+wcode --workspace "$PWD" agent-plugin --profile local-stdio
+wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https://host/mcp
+```
 
 ## 常用 CLI 参数
 
@@ -186,8 +198,8 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 
 模型可以请求权限，但不能自批。待授权请求只能在本地 TUI 或 Token 保护的 WebUI 决策。
 
-- **CommandAccess**：为一个 Workspace 授权裸可执行程序名。
-- **RiskyExecution**：为当前 Session 授权一个精确仓库操作 Fingerprint。
+- **可执行程序访问（`CommandAccess`）**：为一个 Workspace 授权裸程序名。
+- **精确仓库操作（`RiskyExecution`）**：为该 Workspace 和当前 Session 授权一组操作 Fingerprint。
 - **RuntimeExecutor**：为一个精确高级验证 Executor 操作授权。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
 
@@ -197,7 +209,10 @@ Git Mutation 仍然很窄：只有显式 pathspec 的 `git add`、message-only `
 
 ## 诊断
 
-连接问题先看 TUI，再用 `/healthz` 分层排查 HTTP / Tunnel / OAuth。
+连接问题先看 TUI，再用 `/healthz` 分层排查 HTTP、隧道和 OAuth。同一组
+配置的 Workspace 根目录会在重启后恢复 OAuth 注册与 Token；替换隧道通过
+实例健康校验后可以继续该会话。Metadata 和授权页必须显示客户端实际使用
+的 Host，未知或已经失效的 Host 仍会被拒绝。
 
 仓库一致性检查：
 

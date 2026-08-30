@@ -1,0 +1,68 @@
+@media (max-width:1250px) {
+  .stats {
+    grid-template-columns: repeat(3,1fr);
+  }
+  .workspace {
+    grid-template-columns: 290px minmax(0,1fr);
+  }
+  .arch-flow {
+    grid-template-columns: 1fr;
+  }
+  .connector {
+    transform: rotate(90deg);
+    min-height: 16px;
+  }
+  .actual-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width:850px) {
+  .app {
+    width: min(100% - 18px,1580px);
+    margin-top: 10px;
+  }
+  .top {
+    display: block;
+  }
+  .controls {
+    margin-top: 10px;
+    justify-content: flex-start;
+  }
+  .livebar {
+    align-items: flex-start;
+  }
+  .live-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .stats {
+    grid-template-columns: repeat(2,1fr);
+  }
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: static;
+    max-height: none;
+  }
+  .req-list {
+    max-height: 320px;
+  }
+  .lower,
+  .two {
+    grid-template-columns: 1fr;
+  }
+  .convergence-flow {
+    grid-template-columns: 1fr;
+  }
+  .flow-step:not(:last-child):after {
+    content: '↓';
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: -12px;
+  }
+  .access-grid {
+    grid-template-columns: 1fr;
+  }
+}

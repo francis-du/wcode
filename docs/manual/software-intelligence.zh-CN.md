@@ -9,9 +9,22 @@ permalink: /zh/docs/software-intelligence/
 
 # wcode Software Intelligence Runtime 中文指南
 
-本文档说明 **当前已经实现** 的 Software Intelligence 能力，以及现在应该怎么用。
+这份文档只讲已经落地的 Software Intelligence 能力，以及每个界面能凭
+什么证据下结论。
 
-> **当前状态：Software Intelligence 已经是完整产品面。** 当前同时提供 MCP、本地 CLI、实时 TUI，以及带本机高熵 UI Token 的 **Architecture-first Project Observatory**。WebUI 先展示完整 Component Architecture，把声明的 Design Dependency 与当前代码推导出的 Actual Relationship 叠加，并显示 Observed Drift、Evidence Coverage、Implementation Coverage；随后进入 Component Inspector 与 Requirement Drill-down。Requirement Detail 继续保持 Desired State → Actual State → Change → Proof → Convergence。Software Graph 继续作为底层 Intelligence 能力/API，而不是主可视化。MCP 的 Streamable HTTP + OAuth 与本地 `mcp-stdio` 共用同一 Protocol Core；`agent_context` 是紧凑 Coding 主入口，更深的 Design/Graph/Verification Tool 按需渐进披露。`agent-plugin` 导出不含 Hook/脚本/凭据/隐式 Workspace 的 Agent Skill / Agent Plugins 包。Design/Semantic、Graph Provider Revision/History、Verification、Evidence、Reconciliation 与执行状态按 Workspace 持久化。22 种语法索引语言共享第一方 LSP Semantic Provider Registry；只有真实且 Fresh 的 Provider Fact 才进入 semantic precision，否则诚实回退到 syntax。Property / Mutation / Fuzz / Runtime-Canary 走统一跨语言 Executor Registry。
+同一份状态可以从 MCP、本地 CLI、TUI 和受保护 WebUI 查看。
+**architecture-first** Project Observatory 先对照声明的组件依赖和当前代码
+实际观测到的关系，再显示 **observed drift**、**evidence coverage** 与
+**implementation coverage**，之后才进入组件或需求详情。需求页始终按
+Desired State → Actual State → Change → Proof → Convergence 展开。Software
+Graph 是底层能力，不承担主界面叙事。
+
+本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
+Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
+按任务需要再调用。插件导出复用 canonical `wcode-agent-plugin/`，包含标准
+`mcp.json`，不会携带凭据或隐式 Workspace。持久状态按 Workspace 隔离。
+只有真实、Fresh 的 LSP Provider Fact 才标成 Semantic；否则明确保持
+Tree-sitter Syntax Precision。
 
 ## 现在怎么用
 
@@ -39,7 +52,19 @@ wcode --workspace "$PWD" --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
-运行 TUI 时按 `I` 打开 Software Intelligence Overlay，按 `W` 打开受保护 Project Observatory。待授权请求用 ↑/↓ 选择，`Y`/`N` 逐条批准或拒绝；WebUI Access Panel 处理同一批 Pending Request。Observatory 顶层先看整体架构：Component Ownership、Design-vs-Actual Dependency、Strong Observed Drift、Advisory Evidence Gap、Implementation/Evidence Coverage。选择 Component 后查看 Responsibility、Implementation Mapping、Changed Path、Product Scope 与 Related Requirement；Requirement Drill-down 再进入 **Desired State → Actual State → Change → Proof → Convergence**。Proof 只统计与当前 code+design Revision 精确一致的 Evidence。Cloud/Web Connector 连接 `/mcp`；本地 Coding Agent 使用 `wcode --workspace <repo> mcp-stdio`；Skill/Plugin 用 `wcode --workspace <repo> agent-plugin` 导出。Host-specific 接入统一维护在 [Code Agent Integrations](../code-agent-integrations/)。
+在 TUI 中，按 `I` 会读取当前选中项目的智能分析，按 `C` 查看完整命令
+清单，按 `W` 打开受保护的项目观测页。客户端连上以后，配对码仍会留在
+页头，重连时不必再猜它藏在哪里。TUI 和 WebUI 处理同一批待授权请求，
+并把“可执行程序访问”和“精确仓库操作”分开。
+
+项目观测页的文件树来自当前有界软件图谱快照，会列出目录深度、最大文件
+以及超过仓库 1,000 行上限的文件。索引达到安全上限时，页面会明确标记
+“已截断”，浏览器不会另外再扫一遍磁盘。
+
+Proof 只统计与当前代码和设计版本一致的 Evidence。本地 Agent 使用
+`wcode --workspace <repo> mcp-stdio`，远程客户端首选 `/mcp`，旧客户端可以
+使用 `/sse`。插件导出和一键 Host 配置见
+[Agent 与 MCP 集成](../code-agent-integrations/)。
 
 正常 Coding 链路现在更短：
 
@@ -321,7 +346,7 @@ Git change review
 
 并生成对应的 Risk-Adaptive Verification Profile。
 
-`review_changes` 现在还会产生三类确定性的 Maintainability Signal：`maintainability-file-crossed-1k` 表示本次修改把一个未删除源码文件从 1,000 行以下推到 1,000 行以上，严重级别为 high；`maintainability-concentrated-growth` 表示单个源码文件至少净增 400 行；`maintainability-cross-scope-churn` 表示源码变更横跨至少 3 个 canonical Product Scope，且总 churn 至少 1,000 行。它们只是可测量的结构信号，不会假装证明设计质量，但会进入正常 Risk Engine。Convention 中 2,000 行的 oversized-module 规则仍然是另一条仓库级信号。详见 [maintainability-review.md](../maintainability-review/)。
+`review_changes` 会报告三类可复查的结构信号：`maintainability-file-crossed-1k` 表示本次修改让一个未删除源码文件越过 1,000 行；`maintainability-concentrated-growth` 表示单个源码文件净增至少 400 行；`maintainability-cross-scope-churn` 表示源码变更覆盖至少 3 个 Product Scope，且总改动不少于 1,000 行。这些信号用于提醒审查，不直接替代设计判断。Convention Engine 也用 1,000 行边界检查整个仓库。详见 [maintainability-review.md](../maintainability-review/)。
 
 ### reconciliation_plan
 
@@ -572,8 +597,8 @@ wcode --workspace <PATH> intelligence
 wcode --workspace <PATH> --allow-risky-exec intelligence --refresh-semantic
 wcode --workspace <PATH> verification
 wcode --workspace <PATH> --allow-risky-exec verification --plan-id VP-... --execute-stages
-TUI: I = Intelligence, W = Project Observatory
-Web: /intelligence（本机高熵 UI Token 保护 + Architecture-first Project Observatory）
+TUI: I = 当前项目分析, C = 完整命令清单, W = 项目观测页
+Web: /intelligence（本机高熵 UI Token 保护；包含架构、文件树和大文件视图）
 ```
 
 ### 原有底层工具
@@ -619,7 +644,7 @@ run_command
 - MCP 2026 Tasks：对 `semantic_provider_refresh` / `verification_execute_stages` 提供 per-request opt-in 的 Durable Task、Owner Scope、Get/Cancel 和同步兼容路径
 - 持久化 Reconciliation Plan + dependency-aware Claim / Submit / Retry 执行状态机 + Reconciliation Evidence
 - `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI
-- TUI Software Intelligence Overlay 与受保护 Project Observatory：Architecture-first Overall Component Graph、Design ↔ Actual Dependency Overlay、Observed Drift / Evidence / Implementation Coverage、Component Inspector、Requirement Drill-down、Acceptance/Verification、Constraint/ADR、代码统计、Git 改动映射与架构 Revision 历史
+- TUI 项目分析、完整命令清单和持续显示的配对码；受保护的项目观测页包含架构总览、设计与实现依赖对照、组件与需求详情、验收和验证、约束与决策、受限文件树、大文件与 1,000 行越界提示、代码统计、Git 改动映射和架构版本历史
 - `read_media` 的 Capability-aware 多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；只有当前请求显式声明匹配的 `run.francis.wcode/media-content` Client Capability 时才返回 Image/Audio Content，能力未知或不支持时 Fail Closed，视频始终 Metadata-only
 - 完整高阶 MCP Surface
 

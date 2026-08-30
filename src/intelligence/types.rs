@@ -263,6 +263,27 @@ pub struct ProjectCodeStats {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProjectFileView {
+    pub path: String,
+    pub language: String,
+    pub lines: usize,
+    pub bytes: u64,
+    pub depth: usize,
+    pub over_limit: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectStructureView {
+    pub entries: Vec<ProjectFileView>,
+    pub largest_files: Vec<ProjectFileView>,
+    pub directory_count: usize,
+    pub max_depth: usize,
+    pub oversized_files: usize,
+    pub line_limit: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct FeatureImplementationView {
     pub target: String,
     pub path: String,
@@ -484,6 +505,7 @@ pub struct ProjectObservatory {
     pub design_valid: bool,
     pub coverage: TraceabilityStatus,
     pub code: ProjectCodeStats,
+    pub structure: ProjectStructureView,
     pub graph_precision: ProjectGraphPrecisionSummary,
     pub language_quality: crate::quality_provider::LanguageQualityRegistry,
     pub proof: ProjectProofSummary,

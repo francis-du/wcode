@@ -1,22 +1,23 @@
 [package]
 name = "wcode"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 authors = ["francis-du"]
-description = "Local-first Software Intelligence Runtime for AI-native development"
+description = "Local software intelligence runtime for coding agents"
 license = "Apache-2.0"
 repository = "https://github.com/francis-du/wcode"
 homepage = "https://wcode.francis.run/"
 documentation = "https://wcode.francis.run/"
 readme = "README.md"
-keywords = ["mcp", "ai", "coding", "developer-tools", "oauth"]
+keywords = ["mcp", "coding", "software-intelligence", "developer-tools", "oauth"]
 categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.8", default-features = false, features = ["form", "http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["form", "http1", "json", "query", "tokio"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
+futures-util = "0.3"
 rayon = "1"
 memchr = "2"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
@@ -27,6 +28,7 @@ serde_yaml = { package = "yaml_serde", version = "0.10" }
 sha2 = "0.10"
 streaming-iterator = "0.1.9"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+toml_edit = "0.22"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 tree-sitter = "0.26.12"

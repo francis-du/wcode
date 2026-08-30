@@ -87,7 +87,13 @@ impl ProductScope {
 
     pub const fn source_roots(self) -> &'static [&'static str] {
         match self {
-            Self::Runtime => &["src/main.rs", "src/runtime/", "src/scopes/"],
+            Self::Runtime => &[
+                "src/main.rs",
+                "src/lib.rs",
+                "src/app/",
+                "src/runtime/",
+                "src/scopes/",
+            ],
             Self::Integrations => &["src/integrations/"],
             Self::Workspace => &["src/workspace/"],
             Self::Design => &["src/design/"],
@@ -98,9 +104,9 @@ impl ProductScope {
                 "src/intelligence/analysis.rs",
                 "src/intelligence/context.rs",
                 "src/intelligence/observatory.rs",
-                "src/intelligence/observatory_architecture.rs",
+                "src/intelligence/observatory/",
+                "src/intelligence/runtime/",
                 "src/intelligence/types.rs",
-                "src/intelligence/tests.rs",
             ],
             Self::Risk => &["src/intelligence/risk.rs"],
             Self::Verification => &["src/verification/"],
@@ -274,40 +280,5 @@ fn normalize_token(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn product_scope_registry_matches_wcode_product_model() {
-        assert_eq!(registry().len(), ProductScope::ALL.len());
-        assert_eq!(parse("software graph"), Some(ProductScope::Graph));
-        assert_eq!(parse("verification_mesh"), Some(ProductScope::Verification));
-        assert_eq!(
-            source_scope("src/evidence/store.rs"),
-            Some(ProductScope::Evidence)
-        );
-        assert_eq!(
-            source_scope("src/intelligence/risk.rs"),
-            Some(ProductScope::Risk)
-        );
-        assert_eq!(
-            source_scope("src/intelligence/observatory_architecture.rs"),
-            Some(ProductScope::Traceability)
-        );
-    }
-
-    #[test]
-    fn tool_scope_mapping_exposes_cross_scope_context() {
-        let scopes = tool_scopes("software_context");
-        assert!(scopes.contains(&ProductScope::Design));
-        assert!(scopes.contains(&ProductScope::Graph));
-        assert!(scopes.contains(&ProductScope::Semantics));
-        assert!(scopes.contains(&ProductScope::Traceability));
-    }
-
-    #[test]
-    fn freeform_business_scopes_are_preserved_while_product_aliases_canonicalize() {
-        assert_eq!(canonical_name("software graph"), "graph");
-        assert_eq!(canonical_name("Analytics"), "analytics");
-    }
-}
+#[path = "../../tests/unit/scopes/mod.rs"]
+mod tests;

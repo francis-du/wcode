@@ -25,7 +25,7 @@ Source inspiration: `cursor/plugins` → `cursor-team-kit/skills/thermo-nuclear-
 
 These findings feed the normal Risk Engine. A high-severity maintainability finding can raise the verification depth just like other architecture risks.
 
-The existing Convention Engine remains separate. Its 2,000-line Rust production-module threshold is a repository-level oversized-module signal. The 1,000-line rule above is specifically about a change crossing a boundary that was previously below it.
+The Convention Engine applies the same 1,000-line boundary to the current repository, while change review also tells you when a file crossed that line in the current diff. The repository gate is firm for maintained Rust source and tests: split the file by responsibility before it grows past the boundary.
 
 ## Independent maintainability reviewer
 
