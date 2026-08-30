@@ -287,10 +287,21 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(layout.contains("page.alternate"));
     assert!(layout.contains("'/zh/docs/'"));
     assert!(layout.contains("'/docs/reference/'"));
-    assert!(layout.contains("'/docs/releases/v0.4.0/'"));
-    assert!(layout.contains("'/zh/docs/releases/v0.4.0/'"));
-    assert!(layout.contains("'/docs/releases/v0.4.3/'"));
-    assert!(layout.contains("'/zh/docs/releases/v0.4.3/'"));
+    for page in &pages {
+        let Some(route) = page.permalink.strip_prefix("/docs/releases/") else {
+            continue;
+        };
+        assert!(
+            layout.contains(&format!("'/docs/releases/{route}'")),
+            "docs sidebar must link {:?}",
+            page.relative
+        );
+        assert!(
+            layout.contains(&format!("'/zh/docs/releases/{route}'")),
+            "docs sidebar must link the Chinese counterpart of {:?}",
+            page.relative
+        );
+    }
 
     let docs_css = fs::read_to_string(root.join("docs/assets/docs.css")).unwrap();
     assert!(docs_css.contains(".docs-shell"));
