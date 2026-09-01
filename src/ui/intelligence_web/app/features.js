@@ -69,6 +69,11 @@ function renderRequirements() {
           invalidate("requirements", "detail");
           renderRequirements();
           renderDetail();
+          if (window.matchMedia("(max-width: 600px)").matches) {
+            requestAnimationFrame(() =>
+              els.detail.scrollIntoView({ behavior: "smooth", block: "start" })
+            );
+          }
         })
       ),
   );
@@ -438,23 +443,23 @@ function renderDetail() {
 }
 
 function changeTable(items, compact = false) {
-  return `<table class="table"><thead><tr><th>${esc(t("Path"))}</th><th>${
+  return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
   }</th><th>${esc(t("Scope"))}</th><th>${esc(t("Diff"))}</th>${
     compact ? "" : `<th>${esc(t("Requirements"))}</th>`
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) =>
-      `<tr><td><div class="change-path"><code>${
+      `<tr><td data-label="${esc(t("Path"))}"><div class="change-path"><code>${
         esc(item.path)
-      }</code></div></td><td>${esc(statusLabel(item.status))}${
+      }</code></div></td><td data-label="${esc(t("Status"))}">${esc(statusLabel(item.status))}${
         item.untracked ? ` · ${esc(t("untracked"))}` : ""
-      }</td><td>${esc(item.scope || "—")}</td><td>${changeNums(item)}</td>${
+      }</td><td data-label="${esc(t("Scope"))}">${esc(item.scope || "—")}</td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td>${
         compact
           ? ""
-          : `<td>${
+          : `<td data-label="${esc(t("Requirements"))}">${
             (item.affected_requirements || []).slice(0, 6).map((id) =>
-              `<a class="click-req" data-req="${esc(id)}">${esc(id)}</a>`
-            ).join(" · ") || "—"
+              `<button type="button" class="click-req" data-req="${esc(id)}">${esc(id)}</button>`
+            ).join(" ") || "—"
           }</td>`
       }</tr>`
     ).join("")

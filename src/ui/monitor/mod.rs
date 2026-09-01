@@ -27,8 +27,8 @@ use tokio::sync::watch;
 const MAX_RECENT_TASKS: usize = 48;
 const MAX_TRAFFIC_EVENTS: usize = 4096;
 const TRAFFIC_WINDOW: Duration = Duration::from_secs(60);
-const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(150);
-const IDLE_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
+const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+const IDLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const ESTIMATED_BYTES_PER_TOKEN: f64 = 4.0;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 

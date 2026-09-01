@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "wcode"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2094,6 +2094,7 @@ dependencies = [
  "clap",
  "crossterm",
  "futures-util",
+ "libc",
  "memchr",
  "ratatui",
  "rayon",

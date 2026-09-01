@@ -153,12 +153,15 @@
 .architecture-graph {
   min-height: 420px;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
   background: radial-gradient(700px 280px at 50% 0,color-mix(in
     srgb,var(--accent-bg) 45%,transparent),transparent);
 }
 .architecture-svg {
   display: block;
-  min-width: 100%;
+  max-width: none;
   height: auto;
 }
 .arch-edge {
@@ -202,6 +205,11 @@
 }
 .arch-node {
   cursor: pointer;
+  outline: none;
+}
+.arch-node:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
 }
 .arch-node rect {
   fill: var(--panel);

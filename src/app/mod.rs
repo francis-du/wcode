@@ -8,7 +8,7 @@ use crate::tunnel::{
 };
 use crate::workspace::{WorkspaceSecurity, Workspaces};
 use crate::{
-    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, runtime_control,
+    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, resource, runtime_control,
     semantic_runtime,
 };
 use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
@@ -26,13 +26,14 @@ use tokio::task::AbortHandle;
 use tokio::time::{sleep, timeout, Duration};
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_MIN_PARALLEL_TOOLS: usize = 96;
-const DEFAULT_MAX_PARALLEL_TOOLS: usize = 192;
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 
 #[path = "intelligence.rs"]
 mod intelligence;
 use intelligence::{run_intelligence_cli, run_verification_cli};
+#[path = "resources.rs"]
+mod resources;
+use resources::{ResourceArgs, SetupGuideOptions};
 const HELP_FOOTER: &str = r#"
 ╭─ WCode ───────────────────────────────────────────────────╮
 │ __          __    _____    ____    _____    ______        │
@@ -49,22 +50,6 @@ const HELP_FOOTER: &str = r#"
 │ Author      @francis-du                                   │
 ╰───────────────────────────────────────────────────────────╯
 "#;
-
-fn default_max_parallel_tools() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(8)
-        .saturating_mul(12)
-        .clamp(DEFAULT_MIN_PARALLEL_TOOLS, DEFAULT_MAX_PARALLEL_TOOLS)
-}
-
-#[derive(Clone, Copy)]
-struct SetupGuideOptions {
-    local_only: bool,
-    max_parallel_tools: usize,
-    input_token_price_per_million_usd: f64,
-    security: WorkspaceSecurity,
-}
 
 struct AbortTaskOnDrop(AbortHandle);
 
@@ -153,9 +138,8 @@ struct Args {
     #[arg(long, help_heading = "Safety")]
     allow_broad_workspace: bool,
 
-    /// Global cap for concurrently running child tool bodies.
-    #[arg(short = 'j', long, default_value_t = default_max_parallel_tools(), help_heading = "Runtime")]
-    max_parallel_tools: usize,
+    #[command(flatten)]
+    resources: ResourceArgs,
 
     /// Estimated USD cost per million input tokens used for the TUI savings estimate.
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime")]
@@ -274,6 +258,7 @@ pub async fn run() -> Result<()> {
     {
         bail!("--input-token-price-per-million-usd must be a finite non-negative number");
     }
+    let resource_limits = args.resources.activate()?;
     let tui_active = args.monitor && io::stdout().is_terminal();
     if tui_active {
         tracing_subscriber::fmt()
@@ -321,8 +306,20 @@ pub async fn run() -> Result<()> {
         args.allow_exec,
         security,
     )?;
-    let harness = ToolHarness::new(args.max_parallel_tools)?;
+    let harness = ToolHarness::new(resource_limits.effective_parallel_tools)?;
     let monitor = TaskMonitor::new(workspaces.roots().into_iter().map(|(id, _)| id));
+    if resource_limits.requested_parallel_tools != resource_limits.effective_parallel_tools {
+        monitor.operator_message(
+            OperatorMessageKind::Info,
+            "resources",
+            format!(
+                "tool slots clamped from {} to {} by the memory safety policy",
+                resource_limits.requested_parallel_tools, resource_limits.effective_parallel_tools
+            ),
+        );
+    }
+    let resource_task = resource::spawn_monitor(harness.clone(), monitor.clone());
+    let _resource_abort = AbortTaskOnDrop(resource_task.abort_handle());
     let semantic_task = if args.allow_semantic
         && args.allow_exec
         && (args.command.is_none()
@@ -577,6 +574,8 @@ pub async fn run() -> Result<()> {
             SetupGuideOptions {
                 local_only: args.no_tunnel,
                 max_parallel_tools: harness.max_parallel(),
+                max_cpu_percent: resource_limits.max_cpu_percent,
+                max_memory_mb: resource_limits.max_memory_bytes / (1024 * 1024),
                 input_token_price_per_million_usd: args.input_token_price_per_million_usd,
                 security,
             },
@@ -920,6 +919,8 @@ fn print_setup_guide(
     let SetupGuideOptions {
         local_only,
         max_parallel_tools,
+        max_cpu_percent,
+        max_memory_mb,
         input_token_price_per_million_usd,
         security,
     } = options;
@@ -932,7 +933,8 @@ fn print_setup_guide(
     println!("│  Local      {local_url}");
     println!("│  Dashboard  {intelligence_url}");
     println!("│  Verify code  {pairing_code}");
-    println!("│  Slots cap  {max_parallel_tools} concurrent child tasks");
+    println!("│  Slots cap  {max_parallel_tools} concurrent tool bodies");
+    println!("│  Resources  BG {max_cpu_percent:.1}% CPU target · burst-friendly · {max_memory_mb} MiB soft RSS");
     println!("│  Token EST  ~4 bytes/token · ${input_token_price_per_million_usd:.2}/M input");
     println!(
         "│  Security   semantic {} · risky-exec {} · destructive {} · overlap {} · broad {}",

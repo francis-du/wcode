@@ -1,4 +1,3 @@
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    wcode::run().await
+fn main() -> anyhow::Result<()> {
+    wcode::run_main()
 }

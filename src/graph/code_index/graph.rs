@@ -5,6 +5,7 @@ pub(super) fn append_file_graph(
     record: &FileRecord,
     max_symbols: usize,
 ) -> Result<usize> {
+    let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
     let provenance = graph_provenance(record);
     let file_id = format!("file:{}", record.path);
     let mut file_attributes = BTreeMap::new();
@@ -126,6 +127,7 @@ pub(super) fn append_cross_file_call_edges(
         .collect::<HashSet<_>>();
 
     for record in records {
+        let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let definitions = record
             .symbols
             .iter()

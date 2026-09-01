@@ -1,5 +1,7 @@
 use super::*;
 
+const MAX_MOVE_TREE_ENTRIES: usize = 50_000;
+
 #[cfg(unix)]
 pub(super) fn root_identity(path: &Path) -> Result<RootIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -249,12 +251,23 @@ pub(super) fn sha256_file(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
+    let mut chunks = 0usize;
+    let mut cpu_slice = Some(crate::resource::cpu_work(
+        crate::resource::WorkClass::Interactive,
+    ));
     loop {
         let read = file.read(&mut buffer)?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
+        chunks = chunks.saturating_add(1);
+        if chunks.is_multiple_of(16) {
+            drop(cpu_slice.take());
+            cpu_slice = Some(crate::resource::cpu_work(
+                crate::resource::WorkClass::Interactive,
+            ));
+        }
     }
     Ok(format!("{:x}", hasher.finalize()))
 }

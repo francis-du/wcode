@@ -1,7 +1,10 @@
 use super::*;
 
+const MAX_LSP_HEADER_BYTES: usize = 8 * 1024;
+
 pub(super) struct LspClient {
     child: Child,
+    child_group: crate::resource::ChildProcessGuard,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     next_id: u64,
@@ -27,9 +30,11 @@ impl LspClient {
             .kill_on_drop(true)
             .env("NO_COLOR", "1");
         scrub_environment(&mut command);
+        crate::resource::apply_child_limits(&mut command);
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start semantic provider {}", provider.id))?;
+        let child_group = crate::resource::supervise_child(&child);
         let stdin = child
             .stdin
             .take()
@@ -40,6 +45,7 @@ impl LspClient {
             .ok_or_else(|| anyhow!("language server stdout unavailable"))?;
         Ok(Self {
             child,
+            child_group,
             stdin,
             stdout: BufReader::new(stdout),
             next_id: 1,
@@ -154,11 +160,16 @@ impl LspClient {
 
     async fn read_message(&mut self) -> Result<Value> {
         let mut content_length = None;
+        let mut header_bytes = 0usize;
         loop {
             let mut line = String::new();
             let read = self.stdout.read_line(&mut line).await?;
             if read == 0 {
                 bail!("language server closed stdout");
+            }
+            header_bytes = header_bytes.saturating_add(read);
+            if header_bytes > MAX_LSP_HEADER_BYTES {
+                bail!("LSP headers exceed 8 KiB bound");
             }
             let line = line.trim_end_matches(['\r', '\n']);
             if line.is_empty() {
@@ -188,6 +199,7 @@ impl LspClient {
 
 impl Drop for LspClient {
     fn drop(&mut self) {
+        self.child_group.terminate();
         let _ = self.child.start_kill();
     }
 }

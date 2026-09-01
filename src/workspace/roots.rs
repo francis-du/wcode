@@ -220,6 +220,23 @@ impl Workspace {
         path: &str,
         max_entries: usize,
     ) -> Result<(Vec<String>, bool)> {
+        self.source_files_with_class(path, max_entries, crate::resource::WorkClass::Interactive)
+    }
+
+    pub(crate) fn source_files_background(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<String>, bool)> {
+        self.source_files_with_class(path, max_entries, crate::resource::WorkClass::Background)
+    }
+
+    fn source_files_with_class(
+        &self,
+        path: &str,
+        max_entries: usize,
+        work_class: crate::resource::WorkClass,
+    ) -> Result<(Vec<String>, bool)> {
         let start = self.existing_path(path)?;
         if start.is_file() {
             let relative = portable_relative_path(start.strip_prefix(&self.root)?);
@@ -232,12 +249,19 @@ impl Workspace {
         let limit = max_entries.clamp(1, 50_000);
         let mut files = Vec::new();
         let mut truncated = false;
+        let mut visited = 0usize;
+        let mut cpu_slice = Some(crate::resource::cpu_work(work_class));
         for entry in WalkDir::new(start)
             .follow_links(false)
             .into_iter()
             .filter_entry(visible_entry)
             .filter_map(|entry| entry.ok())
         {
+            visited = visited.saturating_add(1);
+            if visited.is_multiple_of(64) {
+                drop(cpu_slice.take());
+                cpu_slice = Some(crate::resource::cpu_work(work_class));
+            }
             if !entry.file_type().is_file() {
                 continue;
             }

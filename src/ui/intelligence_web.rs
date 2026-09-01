@@ -4,9 +4,11 @@ pub(crate) const INTELLIGENCE_CSS: &str = concat!(
     include_str!("intelligence_web/styles/shell.css"),
     include_str!("intelligence_web/styles/features.css"),
     include_str!("intelligence_web/styles/data.css"),
-    include_str!("intelligence_web/styles/responsive.css"),
     include_str!("intelligence_web/styles/architecture.css"),
     include_str!("intelligence_web/styles/structure.css"),
+    // Keep responsive overrides last so component-local desktop rules cannot
+    // accidentally win on narrow touch screens.
+    include_str!("intelligence_web/styles/responsive.css"),
 );
 pub(crate) const INTELLIGENCE_JS: &str = concat!(
     include_str!("intelligence_web/app/core.js"),

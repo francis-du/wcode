@@ -32,6 +32,7 @@ permalink: /zh/docs/
 
 - [CLI 与 MCP 参考手册](reference/) — 命令、操作入口、传输方式与工具族的统一参考。
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
+- [v0.5.1 发布说明](releases/v0.5.1/) — 突发友好的资源治理、持续负载降温、子进程树清理、语义稳定性与移动端 WebUI 优化。
 - [v0.5.0 发布说明](releases/v0.5.0/) — 默认 Hardened Semantic、受限 Warm LSP Session、Agent-native Semantic Navigation 与任务自适应 Syntax/LSP 路由。
 - [v0.4.3 发布说明](releases/v0.4.3/) — Agent 主机安全配置、与当前隧道绑定的稳定 OAuth 会话、统一 MCP 传输层、清晰的 TUI/WebUI 授权和受限仓库结构视图。
 - [v0.4.2 发布说明](releases/v0.4.2/) — 后台并发多隧道与 Tailscale Funnel、iMessage 推送可用链接、单隧道重试与优雅退出。

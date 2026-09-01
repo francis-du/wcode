@@ -1,5 +1,11 @@
 use super::*;
 
+#[tokio::test(flavor = "current_thread")]
+async fn worker_panics_are_contained_for_restart() {
+    assert!(worker_completed(async {}).await);
+    assert!(!worker_completed(async { panic!("fixture panic") }).await);
+}
+
 #[test]
 fn retry_backoff_is_bounded() {
     assert_eq!(

@@ -38,6 +38,7 @@ impl ToolHarness {
             "max_verification_checks": MAX_VERIFICATION_CHECKS,
             "max_review_files": MAX_REVIEW_FILES,
             "max_parallel_tools": self.max_parallel,
+            "resource_governor": crate::resource::capabilities(),
             "software_intelligence": {
                 "design_state": true,
                 "software_graph": "composite-declared-syntax-external",
@@ -957,10 +958,15 @@ impl ToolHarness {
     }
 
     pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
-        self.slots
+        let permit = self
+            .slots
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| "tool harness is shutting down".to_owned())
+            .map_err(|_| "tool harness is shutting down".to_owned())?;
+        // Re-evaluate pressure at the point work can actually start. A request
+        // may have waited in the semaphore queue while memory climbed.
+        crate::resource::global().admit_tool().await?;
+        Ok(permit)
     }
 }

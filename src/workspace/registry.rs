@@ -513,6 +513,10 @@ fn append_discovered_subspaces(
 fn discover_subspaces(parent: &Workspace) -> Vec<DiscoveredSubspace> {
     let mut claimed_roots = Vec::<PathBuf>::new();
     let mut discovered = Vec::new();
+    let mut visited = 0usize;
+    let mut cpu_slice = Some(crate::resource::cpu_work(
+        crate::resource::WorkClass::Interactive,
+    ));
     for entry in WalkDir::new(parent.root())
         .min_depth(1)
         .max_depth(MAX_SUBSPACE_SCAN_DEPTH)
@@ -521,6 +525,13 @@ fn discover_subspaces(parent: &Workspace) -> Vec<DiscoveredSubspace> {
         .filter_entry(visible_entry)
         .filter_map(|entry| entry.ok())
     {
+        visited = visited.saturating_add(1);
+        if visited.is_multiple_of(64) {
+            drop(cpu_slice.take());
+            cpu_slice = Some(crate::resource::cpu_work(
+                crate::resource::WorkClass::Interactive,
+            ));
+        }
         if !entry.file_type().is_dir() {
             continue;
         }

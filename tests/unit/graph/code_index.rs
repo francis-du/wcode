@@ -590,3 +590,31 @@ fn invalidation_rebuilds_changed_symbols() {
     assert_eq!(second["result_count"], 1);
     assert_eq!(second["results"][0]["name"], "NewName");
 }
+
+#[test]
+fn non_aggressive_memory_trim_keeps_a_warm_ast_working_set() {
+    let dir = tempfile::tempdir().unwrap();
+    for file in 0..20 {
+        fs::write(
+            dir.path().join(format!("module_{file}.rs")),
+            format!("pub fn symbol_{file}() {{}}\n"),
+        )
+        .unwrap();
+    }
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    for file in 0..20 {
+        index
+            .file_outline("demo", &workspace, &format!("module_{file}.rs"), 20)
+            .unwrap();
+    }
+    assert_eq!(
+        index.stats_for_root(workspace.root())["ast_cached_files"],
+        20
+    );
+    index.trim_memory(false);
+    let remaining = index.stats_for_root(workspace.root())["ast_cached_files"]
+        .as_u64()
+        .unwrap();
+    assert!((1..20).contains(&remaining));
+}

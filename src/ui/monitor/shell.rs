@@ -189,6 +189,42 @@ fn render_header(
     language: UiLanguage,
 ) {
     let totals = totals(snapshot);
+    let resources = crate::resource::snapshot();
+    let cpu_text = match (resources.cpu_percent, resources.sustained_cpu_percent) {
+        (Some(cpu), Some(sustained)) => format!(
+            "{cpu:.0}% · AVG {sustained:.0}/{:.0}%",
+            resources.interactive_cpu_percent
+        ),
+        (Some(cpu), None) => format!("{cpu:.0}%"),
+        _ => format!("— · AVG —/{:.0}%", resources.interactive_cpu_percent),
+    };
+    let memory_text = resources.resident_memory_bytes.map_or_else(
+        || format!("—/{}M", resources.max_memory_bytes / (1024 * 1024)),
+        |resident| {
+            format!(
+                "{}/{}M",
+                resident / (1024 * 1024),
+                resources.max_memory_bytes / (1024 * 1024)
+            )
+        },
+    );
+    let cpu_color = if resources.cpu_pressure {
+        DANGER
+    } else if resources
+        .sustained_cpu_percent
+        .is_some_and(|cpu| cpu > resources.interactive_cpu_percent)
+    {
+        WARNING
+    } else {
+        SUCCESS
+    };
+    let memory_color = match resources.memory_pressure {
+        crate::resource::MemoryPressure::Normal => SUCCESS,
+        crate::resource::MemoryPressure::Elevated => WARNING,
+        crate::resource::MemoryPressure::Critical | crate::resource::MemoryPressure::OverLimit => {
+            DANGER
+        }
+    };
     let idle = snapshot
         .last_mcp_seen
         .is_some_and(|seen| seen.elapsed() >= Duration::from_secs(300));
@@ -338,6 +374,8 @@ fn render_header(
                     snapshot.peak_active.to_string(),
                     Style::default().fg(SECONDARY),
                 ),
+                Span::styled("   CPU ", Style::default().fg(TEXT_DIM)),
+                Span::styled(cpu_text.clone(), Style::default().fg(cpu_color)),
             ]),
             Line::from(vec![
                 Span::styled("VERIFY CODE ", Style::default().fg(TEXT_DIM)),
@@ -345,6 +383,8 @@ fn render_header(
                     config.pairing_code.clone(),
                     Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
                 ),
+                Span::styled("   MEM ", Style::default().fg(TEXT_DIM)),
+                Span::styled(memory_text.clone(), Style::default().fg(memory_color)),
             ]),
         ];
         frame.render_widget(Paragraph::new(lines), inner);
@@ -432,6 +472,8 @@ fn render_header(
                     snapshot.peak_active.to_string(),
                     Style::default().fg(SECONDARY),
                 ),
+                Span::styled("   CPU ", Style::default().fg(TEXT_DIM)),
+                Span::styled(cpu_text, Style::default().fg(cpu_color)),
             ])
             .right_aligned(),
             Line::from(vec![
@@ -440,6 +482,8 @@ fn render_header(
                     tunnel_status_text(snapshot),
                     Style::default().fg(tunnel_status_color(snapshot)),
                 ),
+                Span::styled("   MEM ", Style::default().fg(TEXT_DIM)),
+                Span::styled(memory_text, Style::default().fg(memory_color)),
             ])
             .right_aligned(),
             Line::from(vec![

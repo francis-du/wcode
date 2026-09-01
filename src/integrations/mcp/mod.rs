@@ -191,6 +191,7 @@ async fn health(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<
         "version": env!("CARGO_PKG_VERSION"),
         "workspaces": state.workspaces.capabilities(),
         "max_parallel_tools": state.harness.max_parallel(),
+        "resources": crate::resource::snapshot(),
         "harness": state.harness.capabilities(),
         "mcp_url": format!("{public_url}/mcp"),
         "legacy_sse_url": format!("{public_url}/sse"),

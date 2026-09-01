@@ -1,7 +1,6 @@
 use super::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-const REPO_MAP_MAX_FILES: usize = 600;
 const REPO_MAP_MAX_SYMBOLS: usize = 6_000;
 const REPO_MAP_MAX_ITEMS: usize = 16;
 const REPO_MAP_ITERATIONS: usize = 6;
@@ -261,6 +260,7 @@ impl ToolHarness {
             candidate.degree = connected.len();
         }
 
+        let rank_cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let personalization = repo_map_personalization(&candidates);
         let mut rank = personalization.clone();
         for _ in 0..REPO_MAP_ITERATIONS {
@@ -295,6 +295,7 @@ impl ToolHarness {
                 .then_with(|| left.path.cmp(&right.path))
         });
         candidates.truncate(max_items);
+        drop(rank_cpu);
 
         let metadata = candidates
             .iter()
@@ -366,16 +367,23 @@ impl ToolHarness {
         )?);
         let fingerprint_after = repo_map_fingerprint(workspace, path)?;
         if fingerprint_before == fingerprint_after {
-            self.repo_map_cache
+            let mut cache = self
+                .repo_map_cache
                 .lock()
-                .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?
-                .insert(
-                    cache_key,
-                    CachedRepoMapGraph {
-                        fingerprint: fingerprint_after,
-                        snapshot: snapshot.clone(),
-                    },
-                );
+                .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?;
+            let limit = crate::resource::limits().repo_map_cache_limit();
+            if cache.len() >= limit {
+                if let Some(oldest) = cache.keys().next().cloned() {
+                    cache.remove(&oldest);
+                }
+            }
+            cache.insert(
+                cache_key,
+                CachedRepoMapGraph {
+                    fingerprint: fingerprint_after,
+                    snapshot: snapshot.clone(),
+                },
+            );
         }
         Ok((snapshot, false))
     }

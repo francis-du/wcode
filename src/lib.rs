@@ -58,6 +58,8 @@ pub mod reconcile;
 mod reconciliation_execution_store;
 #[path = "reconciliation/store.rs"]
 mod reconciliation_store;
+#[path = "runtime/resource.rs"]
+mod resource;
 #[path = "intelligence/risk.rs"]
 pub mod risk;
 #[path = "runtime/control.rs"]
@@ -99,3 +101,13 @@ pub(crate) const AUTHOR_HANDLE: &str = "@francis-du";
 
 pub mod app;
 pub use app::run;
+
+pub fn run_main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(resource::TOKIO_WORKER_THREADS)
+        .max_blocking_threads(resource::TOKIO_MAX_BLOCKING_THREADS)
+        .thread_keep_alive(std::time::Duration::from_secs(10))
+        .enable_all()
+        .build()?
+        .block_on(run())
+}

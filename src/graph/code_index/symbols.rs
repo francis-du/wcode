@@ -8,10 +8,23 @@ pub(super) fn remove_file_record(state: &mut IndexState, key: &FileKey) {
             }
         }
     }
+    state.file_access.remove(key);
+    state.ast_cache.remove(key);
 }
 
 pub(super) fn prune_ast_cache(state: &mut IndexState) {
-    while state.ast_cache.len() > MAX_AST_CACHE_FILES {
+    let limits = crate::resource::limits();
+    prune_ast_cache_to(
+        state,
+        limits.ast_file_limit().min(MAX_AST_CACHE_FILES),
+        limits.ast_byte_limit(),
+    );
+}
+
+pub(super) fn prune_ast_cache_to(state: &mut IndexState, file_limit: usize, byte_limit: usize) {
+    let file_limit = file_limit.max(1);
+    let byte_limit = byte_limit.max(1);
+    while state.ast_cache.len() > file_limit || ast_cache_bytes(state) > byte_limit {
         let Some(oldest) = state
             .ast_cache
             .iter()
@@ -22,6 +35,29 @@ pub(super) fn prune_ast_cache(state: &mut IndexState) {
         };
         state.ast_cache.remove(&oldest);
     }
+}
+
+pub(super) fn prune_file_cache(state: &mut IndexState, target: usize) {
+    let target = target.max(1);
+    while state.files.len() > target {
+        let Some(oldest) = state
+            .files
+            .keys()
+            .min_by_key(|key| state.file_access.get(*key).copied().unwrap_or_default())
+            .cloned()
+        else {
+            break;
+        };
+        remove_file_record(state, &oldest);
+    }
+}
+
+fn ast_cache_bytes(state: &IndexState) -> usize {
+    state
+        .ast_cache
+        .values()
+        .map(|entry| entry.source_bytes.saturating_mul(3))
+        .sum()
 }
 
 pub(super) fn matching_symbols_many(

@@ -2,8 +2,9 @@
 <html lang="en" data-theme="system">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#080a0e">
 <title>wcode · Project Observatory</title>
 <link rel="stylesheet" href="/intelligence/app.css">
 <script defer src="/intelligence/app.js"></script>
@@ -21,9 +22,9 @@
       <select id="language" aria-label="Language"><option value="en">English</option><option value="zh-CN">简体中文</option></select>
       <select id="theme" aria-label="Theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select>
       <label class="auto"><input id="autoRefresh" type="checkbox" checked> <span data-i18n="auto refresh">auto refresh</span></label>
-      <button id="refreshSemantic" class="button-secondary" data-i18n="Refresh semantics">Refresh semantics</button>
-      <button id="manage" data-i18n="Manage access">Manage access</button>
-      <button id="refresh" data-i18n="Refresh now">Refresh now</button>
+      <button id="refreshSemantic" class="button-secondary" type="button" data-i18n="Refresh semantics">Refresh semantics</button>
+      <button id="manage" type="button" aria-controls="accessPanel" aria-expanded="false" data-i18n="Manage access">Manage access</button>
+      <button id="refresh" type="button" data-i18n="Refresh now">Refresh now</button>
     </div>
   </header>
 
@@ -32,12 +33,12 @@
     <div class="live-right"><span id="tunnels" class="tunnel-links"></span><span id="precisionBadge" class="precision-badge">—</span><span id="lastUpdated" class="muted">—</span></div>
   </section>
 
-  <section id="accessPanel" class="panel access-panel hidden">
-    <div class="panel-head"><div><div class="panel-title" data-i18n="Workspace &amp; command access">Workspace &amp; command access</div><div class="panel-meta" data-i18n="access safety note">Session-scoped access stays behind workspace, command and risky-operation policy.</div></div><button id="closeAccess" data-i18n="Close">Close</button></div>
+  <section id="accessPanel" class="panel access-panel hidden" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="accessTitle" tabindex="-1">
+    <div class="panel-head"><div><div id="accessTitle" class="panel-title" data-i18n="Workspace &amp; command access">Workspace &amp; command access</div><div class="panel-meta" data-i18n="access safety note">Session-scoped access stays behind workspace, command and risky-operation policy.</div></div><button id="closeAccess" type="button" data-i18n="Close">Close</button></div>
     <div class="access-grid">
-      <div class="access-card"><h4 data-i18n="Authorized projects">Authorized projects</h4><div id="workspaceList" class="workspace-list"></div><div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path"><button id="addWorkspace" data-i18n="Authorize project">Authorize project</button></div><div id="workspaceMessage" class="access-message" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div></div>
-      <div class="access-card"><h4 data-i18n="Executable access">Executable access</h4><div id="commandList" class="command-list"></div><div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo"><button id="addCommand" data-i18n="Authorize executable">Authorize executable</button></div><div id="commandMessage" class="access-message" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div></div>
-      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="Arguments, whitespace separated"><input id="operationCwd" type="text" value="." aria-label="cwd"><button id="authorizeOperation" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div></div>
+      <div class="access-card"><h4 data-i18n="Authorized projects">Authorized projects</h4><div id="workspaceList" class="workspace-list"></div><div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addWorkspace" type="button" data-i18n="Authorize project">Authorize project</button></div><div id="workspaceMessage" class="access-message" aria-live="polite" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div></div>
+      <div class="access-card"><h4 data-i18n="Executable access">Executable access</h4><div id="commandList" class="command-list"></div><div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div><div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div></div>
+      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="Arguments, whitespace separated" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div></div>
       <div class="access-card"><h4 data-i18n="Pending authorizations">Pending authorizations</h4><div id="authorizationList" class="authorization-list"></div><div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div></div>
     </div>
   </section>
@@ -73,7 +74,7 @@
     <aside class="panel sidebar">
       <div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div>
       <div class="sidebar-tools">
-        <input id="reqSearch" class="search" type="search" placeholder="Search requirement, feature, component…" data-i18n-placeholder="Search requirement, feature, component…">
+        <input id="reqSearch" class="search" type="search" placeholder="Search requirement, feature, component…" data-i18n-placeholder="Search requirement, feature, component…" enterkeyhint="search" autocapitalize="none" spellcheck="false">
         <div class="filters">
           <button class="filter active" data-filter="all" data-i18n="All">All</button>
           <button class="filter" data-filter="changed" data-i18n="Changed">Changed</button>

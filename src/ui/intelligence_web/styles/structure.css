@@ -12,8 +12,8 @@
 .structure-pane {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
+  border-radius: 10px;
+  background: var(--surface);
   overflow: hidden;
 }
 

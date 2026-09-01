@@ -372,9 +372,20 @@ async fn refresh_impl(
     }
     let max_files = max_files.clamp(1, MAX_PROVIDER_FILES);
     let max_symbols = max_symbols.clamp(1, MAX_PROVIDER_SYMBOLS);
-    let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
+    let discovery_limit = if automatic_only {
+        auto::automatic_scan_limit(max_files)
+    } else {
+        max_files
+    };
+    let (paths, scan_truncated) = if automatic_only {
+        workspace.source_files_background(path, discovery_limit)?
+    } else {
+        workspace.source_files(path, discovery_limit)?
+    };
     let mut assignments =
         BTreeMap::<String, (ProviderCandidate, PathBuf, Vec<(String, SemanticLanguage)>)>::new();
+    let mut assigned_files = 0usize;
+    let mut assignment_truncated = false;
     for source_path in paths {
         let Some(language) = language_for_path(&source_path) else {
             continue;
@@ -385,11 +396,16 @@ async fn refresh_impl(
         if automatic_only && !automatic_provider(provider) {
             continue;
         }
+        if automatic_only && assigned_files == max_files {
+            assignment_truncated = true;
+            break;
+        }
         assignments
             .entry(provider.id.to_owned())
             .or_insert_with(|| (provider, executable, Vec::new()))
             .2
             .push((source_path, language));
+        assigned_files = assigned_files.saturating_add(1);
     }
 
     if !automatic_only {
@@ -402,9 +418,14 @@ async fn refresh_impl(
     let mut imports = Vec::new();
     let mut fallbacks = Vec::new();
     let mut failures = Vec::new();
-    let mut truncated = scan_truncated;
+    let mut truncated = scan_truncated || assignment_truncated;
     for (_, (provider, executable, files)) in assignments {
-        let prepared = match prepare_sources(workspace, &files) {
+        let work_class = if automatic_only {
+            crate::resource::WorkClass::Background
+        } else {
+            crate::resource::WorkClass::Interactive
+        };
+        let prepared = match prepare_sources_with_class(workspace, &files, work_class) {
             Ok(prepared) => prepared,
             Err(error) => {
                 failures.push(format!("{}: {error}", provider.id));
@@ -592,13 +613,23 @@ struct PreparedSemanticSource {
     source: SourceDocument,
 }
 
+#[cfg(test)]
 fn prepare_sources(
     workspace: &Workspace,
     files: &[(String, SemanticLanguage)],
 ) -> Result<Vec<PreparedSemanticSource>> {
+    prepare_sources_with_class(workspace, files, crate::resource::WorkClass::Interactive)
+}
+
+fn prepare_sources_with_class(
+    workspace: &Workspace,
+    files: &[(String, SemanticLanguage)],
+    work_class: crate::resource::WorkClass,
+) -> Result<Vec<PreparedSemanticSource>> {
     files
         .iter()
         .map(|(path, language)| {
+            let _cpu = crate::resource::cpu_work(work_class);
             Ok(PreparedSemanticSource {
                 language: *language,
                 source: workspace.load_source(path)?,

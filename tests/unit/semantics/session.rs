@@ -7,7 +7,7 @@ fn session_pool_is_bounded_and_empty_by_default() {
     assert_eq!(status.sessions, 0);
     assert_eq!(status.documents, 0);
     assert_eq!(status.requests, 0);
-    assert_eq!(status.max_sessions, MAX_SESSIONS);
+    assert_eq!(status.max_sessions, session_limit());
 }
 
 #[test]
@@ -99,16 +99,17 @@ fn session_capacity_fails_closed_when_every_slot_is_leased() {
         .copied()
         .find(|provider| provider.id == "rust-analyzer")
         .unwrap();
-    let roots = (0..=MAX_SESSIONS)
+    let limit = session_limit();
+    let roots = (0..=limit)
         .map(|_| tempfile::tempdir().unwrap())
         .collect::<Vec<_>>();
     let pool = SemanticSessionPool::default();
     let mut handles = Vec::new();
-    for root in roots.iter().take(MAX_SESSIONS) {
+    for root in roots.iter().take(limit) {
         let workspace = Workspace::new(root.path(), false, true).unwrap();
         handles.push(pool.handle(&workspace, provider, &executable).unwrap());
     }
-    let extra = Workspace::new(roots[MAX_SESSIONS].path(), false, true).unwrap();
+    let extra = Workspace::new(roots[limit].path(), false, true).unwrap();
     let error = pool.handle(&extra, provider, &executable).err().unwrap();
     assert!(error.to_string().contains("at capacity"));
     drop(handles.pop());

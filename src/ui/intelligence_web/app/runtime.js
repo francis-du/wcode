@@ -128,7 +128,7 @@ async function refreshSemantics() {
   } catch (error) {
     if (error.message.includes("authorization required")) {
       state.semanticRefreshPending = true;
-      els.accessPanel.classList.remove("hidden");
+      setAccessPanel(true);
       await loadAccess();
       setSync("warn", t("Semantic refresh needs approval"));
     } else {
@@ -162,7 +162,7 @@ els.workspace.addEventListener("change", async () => {
     reason: "manual",
     force: true,
   });
-  if (!els.accessPanel.classList.contains("hidden")) await loadAccess();
+  if (accessPanelOpen()) await loadAccess();
 });
 els.language.addEventListener("change", () => {
   state.language = els.language.value === "zh-CN" ? "zh-CN" : "en";
@@ -177,13 +177,11 @@ els.theme.addEventListener("change", () => {
   applyTheme();
 });
 els.manage.addEventListener("click", async () => {
-  els.accessPanel.classList.toggle("hidden");
-  if (!els.accessPanel.classList.contains("hidden")) await loadAccess();
+  const open = !accessPanelOpen();
+  setAccessPanel(open);
+  if (open) await loadAccess();
 });
-els.closeAccess.addEventListener(
-  "click",
-  () => els.accessPanel.classList.add("hidden"),
-);
+els.closeAccess.addEventListener("click", () => setAccessPanel(false));
 els.addWorkspace.addEventListener("click", addWorkspaceFromUi);
 els.workspacePath.addEventListener("keydown", (event) => {
   if (event.key === "Enter") addWorkspaceFromUi();
@@ -198,7 +196,7 @@ els.operationArgs.addEventListener("keydown", (event) => {
 });
 els.refresh.addEventListener("click", async () => {
   await refreshProject({ reason: "manual", force: true });
-  if (!els.accessPanel.classList.contains("hidden")) await loadAccess();
+  if (accessPanelOpen()) await loadAccess();
 });
 els.refreshSemantic.addEventListener("click", refreshSemantics);
 els.auto.addEventListener("change", schedule);
@@ -230,6 +228,18 @@ document.querySelectorAll(".arch-mode").forEach((button) =>
     renderArchitectureGraph();
   })
 );
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && accessPanelOpen()) {
+    event.preventDefault();
+    setAccessPanel(false);
+  }
+});
+window.addEventListener("resize", () => {
+  if (accessPanelOpen()) setAccessPanel(true, false);
+});
+systemThemeQuery.addEventListener?.("change", () => {
+  if (state.theme === "system") applyTheme();
+});
 document.addEventListener("visibilitychange", async () => {
   if (document.hidden) {
     clearTimeout(state.timer);
@@ -238,7 +248,7 @@ document.addEventListener("visibilitychange", async () => {
   }
   if (els.auto.checked) {
     await refreshProject({ reason: "auto" });
-    if (!els.accessPanel.classList.contains("hidden")) await loadAccess();
+    if (accessPanelOpen()) await loadAccess();
     schedule();
   }
 });

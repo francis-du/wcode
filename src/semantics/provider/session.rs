@@ -4,7 +4,13 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 
 const MAX_SESSIONS: usize = 16;
-const SESSION_IDLE_MS: u64 = 30 * 60 * 1_000;
+const SESSION_IDLE_MS: u64 = 10 * 60 * 1_000;
+
+fn session_limit() -> usize {
+    crate::resource::limits()
+        .semantic_session_limit()
+        .min(MAX_SESSIONS)
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct SemanticSessionPool {
@@ -48,7 +54,9 @@ pub(super) struct SemanticSession {
 struct SyncedDocument {
     sha256: String,
     version: i64,
-    content: String,
+    // Full source text already lives in the provider. A full-document
+    // incremental replacement only needs the previous encoded end position.
+    end_position: Value,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,7 +123,7 @@ impl SemanticSessionPool {
         state.slots.retain(|_, slot| {
             !(slot.workspace == workspace.root() && slot.provider == provider.id)
         });
-        while state.slots.len() >= MAX_SESSIONS {
+        while state.slots.len() >= session_limit() {
             let Some(oldest) = state
                 .slots
                 .iter()
@@ -145,7 +153,20 @@ impl SemanticSessionPool {
     pub(crate) fn prune_idle(&self) {
         if let Ok(mut state) = self.state.lock() {
             prune_slots(&mut state, now_ms());
+            prune_to_limit(&mut state, session_limit());
         }
+    }
+
+    pub(crate) fn trim_memory(&self, aggressive: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let target = if aggressive {
+            0
+        } else {
+            (session_limit() / 2).max(1)
+        };
+        prune_to_limit(&mut state, target);
     }
 
     pub(super) fn validated(
@@ -202,7 +223,7 @@ impl SemanticSessionPool {
                 .iter()
                 .map(|slot| slot.metrics.requests.load(Ordering::Relaxed))
                 .sum(),
-            max_sessions: MAX_SESSIONS,
+            max_sessions: session_limit(),
             idle_timeout_seconds: SESSION_IDLE_MS / 1_000,
         }
     }
@@ -317,7 +338,7 @@ impl SemanticSession {
                         DocumentSyncState::Changed
                     }
                     TextDocumentSyncMode::Incremental => {
-                        let end = document_end_position(&document.content, &self.position_encoding);
+                        let end = document.end_position.clone();
                         self.notify(
                             "textDocument/didChange",
                             json!({
@@ -335,7 +356,8 @@ impl SemanticSession {
                 if let Some(document) = self.documents.get_mut(&source.path) {
                     document.version = version;
                     document.sha256 = source.sha256.clone();
-                    document.content = source.content.clone();
+                    document.end_position =
+                        document_end_position(&source.content, &self.position_encoding);
                 }
                 sync_state
             }
@@ -362,7 +384,10 @@ impl SemanticSession {
                     SyncedDocument {
                         sha256: source.sha256.clone(),
                         version: 1,
-                        content: source.content.clone(),
+                        end_position: document_end_position(
+                            &source.content,
+                            &self.position_encoding,
+                        ),
                     },
                 );
                 self.metrics
@@ -494,6 +519,21 @@ fn prune_slots(state: &mut SessionPoolState, now: u64) {
             now.saturating_sub(slot.metrics.last_used_ms.load(Ordering::Relaxed)) > SESSION_IDLE_MS;
         !idle || Arc::strong_count(slot) > 1
     });
+}
+
+fn prune_to_limit(state: &mut SessionPoolState, target: usize) {
+    while state.slots.len() > target {
+        let Some(oldest) = state
+            .slots
+            .iter()
+            .filter(|(_, slot)| Arc::strong_count(slot) == 1)
+            .min_by_key(|(_, slot)| slot.metrics.last_used_ms.load(Ordering::Relaxed))
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        state.slots.remove(&oldest);
+    }
 }
 
 fn now_ms() -> u64 {

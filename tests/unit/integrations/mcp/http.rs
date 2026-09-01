@@ -21,6 +21,41 @@ async fn response_json(response: Response) -> Value {
     serde_json::from_slice(&body).expect("handler JSON response")
 }
 
+#[tokio::test]
+async fn setup_hub_is_mobile_safe_and_stops_polling_while_hidden() {
+    let root = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([root.path()], false, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(2).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    });
+    let response = setup_page(State(state), HeaderMap::new())
+        .await
+        .into_response();
+    let body = to_bytes(response.into_body(), 512 * 1024)
+        .await
+        .expect("setup page body");
+    let html = String::from_utf8(body.to_vec()).expect("setup page is UTF-8");
+
+    for contract in [
+        "viewport-fit=cover",
+        "min-height:100dvh",
+        "safe-area-inset-bottom",
+        "aria-live=\"polite\"",
+        "grid-template-columns:repeat(2,minmax(0,1fr))",
+        "document.hidden",
+        "setTimeout(tick,6000)",
+    ] {
+        assert!(html.contains(contract), "missing {contract}");
+    }
+    assert!(!html.contains("setInterval("));
+    assert!(!html.contains("style=\"height:20px\""));
+}
+
 fn cargo_project(root: &std::path::Path, name: &str) {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(

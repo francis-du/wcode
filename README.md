@@ -21,7 +21,7 @@ other clients connect through MCP.
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Software Intelligence](https://wcode.francis.run/docs/software-intelligence/)
-- [v0.5.0 — Warm Semantic Runtime](https://wcode.francis.run/docs/releases/v0.5.0/)
+- [v0.5.1 — Resource control and mobile WebUI](https://wcode.francis.run/docs/releases/v0.5.1/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 
 ## Install

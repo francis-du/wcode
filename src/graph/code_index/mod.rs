@@ -248,6 +248,7 @@ impl FileKey {
 #[derive(Default)]
 struct IndexState {
     files: HashMap<FileKey, Arc<FileRecord>>,
+    file_access: HashMap<FileKey, u64>,
     symbol_files: HashMap<String, FileKey>,
     ast_cache: HashMap<FileKey, AstEntry>,
     access_tick: u64,
@@ -255,7 +256,7 @@ struct IndexState {
 
 struct AstEntry {
     hash: String,
-    source: Arc<str>,
+    source_bytes: usize,
     tree: Tree,
     last_used: u64,
 }
@@ -308,7 +309,6 @@ struct CodeSymbol {
 
 struct ParsedFile {
     record: FileRecord,
-    source: Arc<str>,
     tree: Tree,
 }
 

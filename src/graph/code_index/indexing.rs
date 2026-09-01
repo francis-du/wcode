@@ -1,7 +1,8 @@
 use super::symbols::{
     assign_containers, contains_case_insensitive, inclusive_end_line, line_excerpt,
     matching_symbols, matching_symbols_many, node_range, normalize_symbol_kind, prune_ast_cache,
-    remove_file_record, semantic_extent, symbol_id, symbol_query_leaf, syntactic_container_hint,
+    prune_ast_cache_to, prune_file_cache, remove_file_record, semantic_extent, symbol_id,
+    symbol_query_leaf, syntactic_container_hint,
 };
 use super::*;
 
@@ -27,6 +28,7 @@ impl CodeIndex {
             });
         }
 
+        let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let prefilter = symbol_query_leaf(query);
         if !contains_case_insensitive(&source.content, prefilter) {
@@ -70,6 +72,7 @@ impl CodeIndex {
                 });
             }
 
+            let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
             let source = workspace.load_source(path)?;
             let parsed = self.parse_source(workspace.root(), &config, source)?;
             let record = self.store_parsed_file(key, parsed)?;
@@ -80,6 +83,7 @@ impl CodeIndex {
             });
         }
 
+        let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let parsed = self.parse_source(workspace.root(), &config, source)?;
         let record = self.store_parsed_file(key, parsed)?;
@@ -110,6 +114,7 @@ impl CodeIndex {
             });
         }
 
+        let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let could_match = queries
             .iter()
@@ -256,7 +261,6 @@ impl CodeIndex {
         });
         let source_bytes = source.content.len();
         let line_count = source.content.lines().count();
-        let source_text: Arc<str> = Arc::from(source.content);
 
         Ok(ParsedFile {
             record: FileRecord {
@@ -269,7 +273,6 @@ impl CodeIndex {
                 parse_errors,
                 symbols,
             },
-            source: source_text,
             tree,
         })
     }
@@ -327,15 +330,21 @@ impl CodeIndex {
         key: &FileKey,
         stamp: &SourceStamp,
     ) -> Result<Option<Arc<FileRecord>>> {
-        let state = self
+        let mut state = self
             .state
             .lock()
             .map_err(|_| anyhow!("code index state poisoned"))?;
-        Ok(state
+        let record = state
             .files
             .get(key)
             .filter(|record| &record.stamp == stamp)
-            .cloned())
+            .cloned();
+        if record.is_some() {
+            state.access_tick = state.access_tick.saturating_add(1);
+            let tick = state.access_tick;
+            state.file_access.insert(key.clone(), tick);
+        }
+        Ok(record)
     }
 
     pub(super) fn store_parsed_file(
@@ -355,16 +364,18 @@ impl CodeIndex {
         state.files.insert(key.clone(), record.clone());
         state.access_tick = state.access_tick.saturating_add(1);
         let tick = state.access_tick;
+        state.file_access.insert(key.clone(), tick);
         state.ast_cache.insert(
             key,
             AstEntry {
                 hash: record.sha256.clone(),
-                source: parsed.source,
+                source_bytes: record.source_bytes,
                 tree: parsed.tree,
                 last_used: tick,
             },
         );
         prune_ast_cache(&mut state);
+        prune_file_cache(&mut state, crate::resource::limits().indexed_file_limit());
         Ok(record)
     }
 
@@ -400,9 +411,29 @@ impl CodeIndex {
         json!({
             "cached": true,
             "root_kind": ast.tree.root_node().kind(),
-            "source_bytes": ast.source.len(),
+            "source_bytes": ast.source_bytes,
             "has_error": ast.tree.root_node().has_error(),
         })
+    }
+
+    pub(crate) fn trim_memory(&self, aggressive: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if aggressive {
+            state.ast_cache.clear();
+            state.files.clear();
+            state.file_access.clear();
+            state.symbol_files.clear();
+        } else {
+            let limits = crate::resource::limits();
+            prune_ast_cache_to(
+                &mut state,
+                limits.ast_file_limit().min(MAX_AST_CACHE_FILES) / 2,
+                limits.ast_byte_limit() / 2,
+            );
+            prune_file_cache(&mut state, limits.indexed_file_limit() / 2);
+        }
     }
 
     pub(super) fn stats_for_root(&self, root: &Path) -> Value {
@@ -423,11 +454,14 @@ impl CodeIndex {
             .keys()
             .filter(|key| key.root == root)
             .count();
+        let limits = crate::resource::limits();
         json!({
             "indexed_files": files.len(),
+            "indexed_file_limit": limits.indexed_file_limit(),
             "symbols": symbols,
             "ast_cached_files": ast_files,
-            "ast_cache_limit": MAX_AST_CACHE_FILES,
+            "ast_cache_limit": limits.ast_file_limit().min(MAX_AST_CACHE_FILES),
+            "ast_cache_byte_limit": limits.ast_byte_limit(),
         })
     }
 }

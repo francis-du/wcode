@@ -3,6 +3,7 @@ const token = fragment.get("token") || "";
 const initialWorkspace = fragment.get("workspace") || "";
 const savedLanguage = localStorage.getItem("wcode.ui.language");
 const savedTheme = localStorage.getItem("wcode.ui.theme");
+const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
 const translations = {
   "zh-CN": {
     "Project Observatory": "项目观测台",
@@ -446,6 +447,25 @@ function setHtml(key, node, html, bind) {
 function invalidate(...keys) {
   for (const key of keys) state.rendered.delete(key);
 }
+function accessPanelOpen() {
+  return !els.accessPanel.classList.contains("hidden");
+}
+function setAccessPanel(open, restoreFocus = true) {
+  const wasOpen = accessPanelOpen();
+  els.accessPanel.classList.toggle("hidden", !open);
+  els.accessPanel.setAttribute("aria-hidden", String(!open));
+  els.manage.setAttribute("aria-expanded", String(open));
+  const modal = open && window.matchMedia(
+    "(max-width: 900px) and (pointer: coarse)",
+  ).matches;
+  els.accessPanel.setAttribute("aria-modal", String(modal));
+  document.documentElement.classList.toggle("access-open", open);
+  if (open && !wasOpen) {
+    requestAnimationFrame(() => els.closeAccess.focus({ preventScroll: true }));
+  } else if (!open && wasOpen && restoreFocus) {
+    els.manage.focus({ preventScroll: true });
+  }
+}
 async function refreshTunnels() {
   try {
     const response = await fetch("/healthz");
@@ -477,6 +497,10 @@ function setSync(kind, label) {
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   els.theme.value = state.theme;
+  const light = state.theme === "light" ||
+    (state.theme === "system" && systemThemeQuery.matches);
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) themeColor.content = light ? "#f4f6f9" : "#080a0e";
 }
 function applyLanguage() {
   document.documentElement.lang = state.language;

@@ -57,6 +57,10 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("cwd is not a directory");
         }
+        let _child_permit = crate::resource::global()
+            .acquire_child()
+            .await
+            .map_err(anyhow::Error::msg)?;
         let effective_args = hardened_command_args(program, args);
         let mut command = Command::new(program);
         command
@@ -72,6 +76,7 @@ impl Workspace {
             args,
             effective_security.allow_risky_exec,
         );
+        crate::resource::apply_child_limits(&mut command);
         if program == "git" {
             command
                 .env("GIT_CEILING_DIRECTORIES", &self.root)
@@ -79,6 +84,7 @@ impl Workspace {
         }
 
         let mut child = command.spawn().context("failed to start command")?;
+        let mut child_group = crate::resource::supervise_child(&child);
         let stdout = child
             .stdout
             .take()
@@ -97,13 +103,14 @@ impl Workspace {
         {
             Ok(result) => result?,
             Err(_) => {
-                let _ = child.kill().await;
+                crate::resource::terminate_child(&mut child);
                 let _ = child.wait().await;
                 let _ = stdout_task.await;
                 let _ = stderr_task.await;
                 bail!("command timed out and was terminated");
             }
         };
+        child_group.terminate();
         let (stdout, stdout_cut) = stdout_task
             .await
             .map_err(|error| anyhow!("stdout reader failed: {error}"))??;
@@ -189,6 +196,10 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("runtime executor cwd is not a directory");
         }
+        let _child_permit = crate::resource::global()
+            .acquire_child()
+            .await
+            .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);
         command
             .args(args)
@@ -198,9 +209,11 @@ impl Workspace {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         scrub_sensitive_environment(&mut command, program, args, false);
+        crate::resource::apply_child_limits(&mut command);
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
+        let mut child_group = crate::resource::supervise_child(&child);
         let stdout = child
             .stdout
             .take()
@@ -219,13 +232,14 @@ impl Workspace {
         {
             Ok(result) => result?,
             Err(_) => {
-                let _ = child.kill().await;
+                crate::resource::terminate_child(&mut child);
                 let _ = child.wait().await;
                 let _ = stdout_task.await;
                 let _ = stderr_task.await;
                 bail!("runtime executor timed out and was terminated");
             }
         };
+        child_group.terminate();
         let (stdout, stdout_cut) = stdout_task
             .await
             .map_err(|error| anyhow!("runtime executor stdout reader failed: {error}"))??;

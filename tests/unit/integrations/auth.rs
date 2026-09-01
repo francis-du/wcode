@@ -16,6 +16,34 @@ async fn response_json(response: Response) -> Value {
 }
 
 #[test]
+fn auth_pages_fit_mobile_viewports_without_disabling_zoom() {
+    let simple = simple_auth_html(
+        "Ready",
+        "A long mobile-safe message",
+        Some("https://example.com/mcp"),
+    );
+    let query = AuthorizeQuery {
+        client_id: "client".to_owned(),
+        redirect_uri: "https://example.com/callback".to_owned(),
+        state: "state".to_owned(),
+        code_challenge: "challenge".to_owned(),
+        code_challenge_method: Some("S256".to_owned()),
+        response_type: Some("code".to_owned()),
+        resource: Some("https://example.com/mcp".to_owned()),
+        scope: Some("mcp".to_owned()),
+    };
+    let authorize = authorize_html(&query, None);
+
+    for html in [&simple, &authorize] {
+        assert!(html.contains("viewport-fit=cover"));
+        assert!(html.contains("min-height:100dvh"));
+        assert!(html.contains("safe-area-inset-bottom"));
+        assert!(!html.contains("maximum-scale"));
+        assert!(!html.contains("user-scalable=no"));
+    }
+}
+
+#[test]
 fn pairing_code_is_always_six_ascii_digits() {
     for _ in 0..64 {
         let state = AuthState::new("https://example.com".to_owned());

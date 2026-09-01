@@ -61,9 +61,11 @@ wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https:/
 | Option | Purpose |
 | --- | --- |
 | `-w, --workspace <PATH>` | Expose one repository root. Repeat only when one task genuinely needs multiple roots. |
-| `-j, --max-parallel-tools <N>` | Override adaptive bounded tool concurrency. |
+| `-j, --max-parallel-tools <N>` | Request concurrent tool bodies. Default: 32. I/O work can fan out while CPU-heavy sections use separate burst and sustained-load controls. |
+| `--max-cpu-percent <PERCENT>` | Sustained CPU target for unattended background work. Default: 10%. Interactive requests may burst across several cores and are paced only when load remains high. |
+| `--max-memory-mb <MIB>` | Soft resident-memory budget. Default: 512 MiB. Cold caches trim at 80%; normal work gets temporary headroom to 125%, and persistent over-limit pressure pauses new admission. |
 | `--public-url https://…` | Use a stable reverse-proxy URL instead of a temporary managed tunnel. |
-| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | Select the managed HTTPS tunnel provider. `auto` starts every provider concurrently in the background, keeps all verified tunnels, and retries unreachable ones every 15s. |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | Select the managed HTTPS tunnel provider. `auto` starts every provider concurrently in the background, keeps all verified tunnels, and retries unreachable providers every 15 seconds. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
 | `--no-semantic` | Disable automatic first-party LSP indexing and all first-party semantic-provider execution. Hardened semantic providers are enabled by default. |

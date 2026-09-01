@@ -26,7 +26,6 @@ const MAX_SAFE_REMOVAL_BYTES: usize = 4 * 1024;
 const MAX_SAFE_REDUCTION_PERCENT: usize = 60;
 const MAX_TEXT_EDITS: usize = 128;
 const MAX_BATCH_WRITE_ITEMS: usize = 64;
-const MAX_MOVE_TREE_ENTRIES: usize = 50_000;
 pub(crate) const COMMAND_CATALOG: &[&str] = &[
     "cargo",
     "rustc",
@@ -264,14 +263,12 @@ pub struct CommandResult {
     pub redacted: bool,
 }
 
-#[path = "registry.rs"]
-mod registry;
-
-#[path = "roots.rs"]
-mod roots;
-
 #[path = "media.rs"]
 mod media;
+#[path = "registry.rs"]
+mod registry;
+#[path = "roots.rs"]
+mod roots;
 
 impl Workspace {
     pub fn list_files(&self, path: &str, max_entries: usize) -> Result<Vec<String>> {
@@ -281,12 +278,23 @@ impl Workspace {
         }
         let max_entries = max_entries.clamp(1, MAX_LIST_ENTRIES);
         let mut files = Vec::new();
+        let mut visited = 0usize;
+        let mut cpu_slice = Some(crate::resource::cpu_work(
+            crate::resource::WorkClass::Interactive,
+        ));
         for entry in WalkDir::new(start)
             .follow_links(false)
             .into_iter()
             .filter_entry(listable_entry)
             .filter_map(|entry| entry.ok())
         {
+            visited = visited.saturating_add(1);
+            if visited.is_multiple_of(64) {
+                drop(cpu_slice.take());
+                cpu_slice = Some(crate::resource::cpu_work(
+                    crate::resource::WorkClass::Interactive,
+                ));
+            }
             if entry.file_type().is_file() {
                 let relative = portable_relative_path(entry.path().strip_prefix(&self.root)?);
                 files.push(relative);
@@ -350,6 +358,7 @@ impl Workspace {
                 if found.load(Ordering::Relaxed) >= limit || !entry.file_type().is_file() {
                     return None;
                 }
+                let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
                 if entry
                     .metadata()
                     .map(|metadata| metadata.len() > MAX_READ_BYTES)
@@ -451,6 +460,7 @@ impl Workspace {
             bail!("file exceeds 1 MiB read limit");
         }
         let content = fs::read_to_string(&file).context("file is not valid UTF-8 text")?;
+        let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let hash = sha256(content.as_bytes());
         let total = content.lines().count();
         let start = start_line.max(1);

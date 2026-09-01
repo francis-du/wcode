@@ -10,7 +10,7 @@
       "name": "wcode",
       "source": "./wcode-agent-plugin",
       "description": "wcode Software Intelligence skill with explicit Workspace-scoped MCP profiles.",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": {"name": "francis-du"},
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],

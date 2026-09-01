@@ -48,6 +48,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 
 const MAX_PARALLEL_TOOLS: usize = 256;
+pub(crate) const REPO_MAP_MAX_FILES: usize = 600;
 const MAX_GUIDANCE_LINES_PER_FILE: usize = 160;
 const MAX_GUIDANCE_CHARS_PER_FILE: usize = 12_000;
 const MAX_GUIDANCE_CHARS_TOTAL: usize = 32_000;
@@ -337,6 +338,9 @@ mod harness_project;
 
 #[path = "profile.rs"]
 mod harness_profile;
+
+#[path = "memory.rs"]
+mod harness_memory;
 
 #[path = "agent_context.rs"]
 mod harness_agent_context;

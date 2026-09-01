@@ -221,7 +221,7 @@ function renderArchitectureGraph() {
       );
     return `<g class="arch-node ${tone}${selected}" data-component="${
       esc(component.id)
-    }" transform="translate(${pos.x - pos.w / 2} ${
+    }" role="button" tabindex="0" aria-label="${esc(component.name)}" transform="translate(${pos.x - pos.w / 2} ${
       pos.y - pos.h / 2
     })"><rect width="${pos.w}" height="${pos.h}" rx="9"></rect><text class="arch-node-title" x="10" y="20">${
       esc(name)
@@ -232,24 +232,46 @@ function renderArchitectureGraph() {
     }</text><title>${esc(component.name)}</title></g>`;
   }).join("");
   const html =
-    `<svg class="architecture-svg" viewBox="0 0 ${layout.width} ${layout.height}" aria-label="${
+    `<svg class="architecture-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" aria-label="${
       esc(localized("Architecture drift graph", "架构偏离图"))
     }"><defs><marker id="arrow-aligned" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker aligned" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-unverified" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker unverified" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-observed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker observed" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-drift" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker drift" d="M0,0 L7,3.5 L0,7 z"></path></marker></defs>${edgeSvg}${nodeSvg}</svg>`;
-  setHtml(
+  const changed = setHtml(
     "architectureGraph",
     els.architectureGraph,
     html,
     () =>
       els.architectureGraph.querySelectorAll("[data-component]").forEach(
-        (node) =>
-          node.addEventListener("click", () => {
+        (node) => {
+          const activate = () => {
             state.selectedComponent = node.dataset.component;
             invalidate("architectureGraph", "componentInspector");
             renderArchitectureGraph();
             renderComponentInspector();
-          }),
+          };
+          node.addEventListener("click", activate);
+          node.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              activate();
+            }
+          });
+        },
       ),
   );
+  if (changed && window.matchMedia("(max-width: 700px)").matches) {
+    const selected = positions.get(state.selectedComponent);
+    requestAnimationFrame(() => {
+      if (!selected || els.architectureGraph.scrollLeft > 0) return;
+      els.architectureGraph.scrollLeft = Math.max(
+        0,
+        selected.x - els.architectureGraph.clientWidth / 2,
+      );
+      els.architectureGraph.scrollTop = Math.max(
+        0,
+        selected.y - els.architectureGraph.clientHeight / 2,
+      );
+    });
+  }
 }
 function renderComponentInspector() {
   const a = architectureData(),

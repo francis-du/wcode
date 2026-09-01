@@ -60,9 +60,11 @@ wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https:/
 | 参数 | 用途 |
 | --- | --- |
 | `-w, --workspace <PATH>` | 暴露一个仓库根目录；只有任务确实跨仓时才重复指定。 |
-| `-j, --max-parallel-tools <N>` | 覆盖自适应的有界并行上限。 |
+| `-j, --max-parallel-tools <N>` | 请求工具并发数，默认 32。I/O 型任务可以高并发，CPU 密集区段由独立的瞬时突发与持续负载治理控制。 |
+| `--max-cpu-percent <百分比>` | 无人值守后台工作的持续 CPU 目标，默认 10%。交互请求可以短时使用多个核心，只有负载持续偏高时才逐步限流。 |
+| `--max-memory-mb <MiB>` | 软常驻内存预算，默认 512 MiB；80% 起清理冷缓存，正常请求允许短时增长到 125%，只有持续超限才暂停新任务。 |
 | `--public-url https://…` | 使用稳定反向代理地址，而不是临时托管隧道。 |
-| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | 选择 HTTPS 隧道 Provider；`auto` 会在后台并发启动全部 Provider，保留所有通过验证的隧道，并对不可达的每 15 秒重试。 |
+| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | 选择 HTTPS 隧道 Provider；`auto` 会在后台并发启动全部 Provider，保留所有通过验证的隧道，并对不可达 Provider 每 15 秒重试。 |
 | `--read-only` | 移除模型侧文件修改能力。 |
 | `--no-exec` | 禁止命令执行。 |
 | `--no-semantic` | 关闭默认自动维护的第一方 LSP 索引，并禁止全部第一方 Semantic Provider 执行；满足 Hardened Profile 的 Provider 默认开启。 |

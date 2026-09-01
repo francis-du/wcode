@@ -34,6 +34,12 @@ impl ToolHarness {
         {
             return Ok((profile, true));
         }
+        let limit = crate::resource::limits().project_cache_limit();
+        if cache.len() >= limit {
+            if let Some(oldest) = cache.keys().next().cloned() {
+                cache.remove(&oldest);
+            }
+        }
         cache.insert(
             root,
             CachedProjectProfile {

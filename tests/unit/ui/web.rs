@@ -56,3 +56,51 @@ fn observatory_exposes_file_structure_and_largest_files() {
     assert!(INTELLIGENCE_JS.contains("line_limit"));
     assert!(INTELLIGENCE_CSS.contains(".file-tree"));
 }
+
+#[test]
+fn observatory_javascript_bundle_parses_without_errors() {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_javascript::LANGUAGE.into())
+        .unwrap();
+    let tree = parser.parse(INTELLIGENCE_JS, None).unwrap();
+    assert!(
+        !tree.root_node().has_error(),
+        "observatory JavaScript bundle contains a syntax error"
+    );
+}
+
+#[test]
+fn observatory_assets_have_a_mobile_safe_touch_layout() {
+    assert!(INTELLIGENCE_APP_PAGE.contains("viewport-fit=cover"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("aria-controls=\"accessPanel\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("role=\"dialog\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("enterkeyhint=\"search\""));
+
+    for contract in [
+        "min-height: 100dvh",
+        "safe-area-inset-bottom",
+        "@media (max-width:600px)",
+        "@media (max-width:900px) and (pointer:coarse)",
+        "scroll-snap-type: x mandatory",
+        ".change-table td::before",
+        "font-size: 16px",
+        ".access-panel:not(.hidden)",
+    ] {
+        assert!(INTELLIGENCE_CSS.contains(contract), "missing {contract}");
+    }
+    assert!(
+        INTELLIGENCE_CSS.rfind("@media (max-width:600px)")
+            > INTELLIGENCE_CSS.rfind(".structure-panel {")
+    );
+
+    for contract in [
+        "function setAccessPanel",
+        "function accessPanelOpen",
+        "width=\"${layout.width}\"",
+        "systemThemeQuery",
+        "scrollIntoView({ behavior: \"smooth\"",
+    ] {
+        assert!(INTELLIGENCE_JS.contains(contract), "missing {contract}");
+    }
+}
