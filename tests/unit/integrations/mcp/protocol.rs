@@ -316,6 +316,14 @@ async fn modern_authorization_fails_closed_without_elicitation_capability() {
     .unwrap();
     assert_eq!(response["error"]["code"], -32021);
     assert!(response["error"]["data"]["requiredCapabilities"]["elicitation"].is_object());
+    assert_eq!(response["error"]["data"]["approvalSurface"], "tui_or_webui");
+    assert_eq!(
+        response["error"]["data"]["nextAction"],
+        "approve_then_retry_same_tool"
+    );
+    assert!(response["error"]["data"]["authorizationRequestId"]
+        .as_str()
+        .is_some_and(|id| id.starts_with("AUTH-")));
 
     let mut url_only = modern_request(
         "tools/call",

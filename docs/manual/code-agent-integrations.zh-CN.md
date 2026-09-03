@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: MCP 客户端接入
-description: 本地客户端、插件包和远程 MCP 的项目级配置
+description: 全局优先的本机配置、可移植 Skill/插件包与远程 MCP 接入
 lang: zh-CN
 alternate: /docs/code-agent-integrations/
 permalink: /zh/docs/code-agent-integrations/
@@ -86,7 +86,7 @@ README、Skill、Manifest 和连接说明，因此安装后的 Setup 可以在�
 # 不带 MCP 目标，适合分发
 wcode agent-plugin --profile skill-only
 
-# stdio 绑定当前仓库
+# stdio Profile；由使用它的 Host 当前目录决定 Workspace
 wcode agent-plugin --profile local-stdio
 
 # 只写远程 URL，不写凭据
@@ -127,7 +127,7 @@ Workspace；`remote-http` 只接受不含
 | Roo Code | — | ✓ | ✓ | ✓ | 依版本 | 依版本 | — | ✓ | 厂商文档 |
 | Continue | — | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 配置结构与版本相关 |
 | ZCode | ✓ | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 仅验证插件包 |
-| Grok Build | — | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 手工绑定 |
+| Grok Build | — | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 手工 stdio 配置 |
 | Windsurf | — | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | 厂商文档 |
 | JetBrains / Junie | — | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 仅 UI 配置 |
 | Zed | — | ✓ | ✓ | 依版本 | 依版本 | 依版本 | — | ✓ | 保留 JSONC |
@@ -221,11 +221,7 @@ WebUI 的相对路径从当前选中的 Workspace 解析，符号链接子目录
 `cargo fmt`、另一个 Workspace 或另一个子空间。拒绝请求不会留下
 授权。
 
-Semantic Provider Trust 与上述 Command Label 分离。未进入 Automatic
-Profile 的 Warm LSP 使用绑定 Workspace + Provider + 当前 Provider Binary
-Identity 的 `RiskyExecution`；批准后 Refresh/Navigation 可以复用这一份
-Provider，但替换后的 Binary、其他 Provider 或无关 Repository Operation
-都不会继承旧 Grant。
+LSP Trust 与上述命令授权分离。未进入 Automatic Profile 的 Warm LSP Session 使用绑定 Workspace + Server + 当前 Binary Identity 的 `RiskyExecution`；批准后 Refresh/Navigation 可以复用这一份 Server，但替换后的 Binary、其他 Server 或无关仓库操作都不会继承旧 Grant。
 
 ## 9. 排查方法
 
@@ -241,7 +237,7 @@ Provider，但替换后的 Binary、其他 Provider 或无关 Repository Operati
 - 旧客户端使用 SSE 时配置 `/sse`；第一条事件会给出对应的
   `/message?sessionId=...`。
 - 重试仍被阻断时，先看待处理请求属于“可执行程序访问”、“精确仓库操作”
-  还是 Semantic Provider Session，再在正确 Workspace 只批准对应请求。
+  还是 LSP Session，再在正确 Workspace 只批准对应请求。
 
 ## 10. 主要依据
 

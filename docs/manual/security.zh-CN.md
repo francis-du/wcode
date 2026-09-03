@@ -31,13 +31,13 @@ wcode 的基本原则很简单：连接模型不等于把整台机器暴露给�
 
 `run_command` 接受裸可执行程序名和参数数组，不解释 Shell 语法。Shell 解释器和带路径的程序名继续在模型执行面被阻断。
 
-常用开发 CLI 现在在“可执行程序名”这一层进入默认 Catalog，但每个工具仍有自己的精确命令策略。当前覆盖 Git/GitHub CLI（`gh`）、Cargo 与常见包管理器，以及 `just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit`、`act`。严格本地的只读 / check-only 形态，例如受限 `fd`、`jq`、Ruff/Biome 检查和部分 Schema/能力查询，可以直接执行；仓库脚本/构建系统、写源码模式、Docker Daemon 读取、Kubernetes Cluster 读取、Provider 执行、远端写操作和 Compose 生命周期操作需要精确 `RiskyExecution` 授权；凭据/配置重定向以及破坏性基础设施操作继续阻断。
+常用开发 CLI 现在在“可执行程序名”这一层进入默认 Catalog，但每个工具仍有自己的精确命令策略。当前覆盖 Git/GitHub CLI（`gh`）、Cargo 与常见包管理器，以及 `just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit`、`act`。严格本地的只读 / check-only 形态，例如受限 `fd`、`jq`、Ruff/Biome 检查和部分 Schema/能力查询，可以直接执行。仓库脚本/构建系统、写源码模式，以及策略未专门识别但仍通过全部硬边界检查的 Project-local Operation，不再永久拒绝，而是 Fail Closed 并生成精确 `RiskyExecution` 请求；用户批准当前 Program + Arguments + Working Directory 后即可重试，不需要放开整个进程。Shell、Workspace Escape、Protected Path、凭据/配置重定向、Host-wide Tool/Runtime Mutation、Package Publication/Ownership 与破坏性基础设施操作继续永久阻断。
 
 Git 写操作仍保持窄边界：只有显式 `git add` Pathspec、`git commit -m ...` 和 `git push <remote> <refspec>` 可以进入精确授权；Force/Delete/Mirror/Reset/Restore 继续阻断。已经批准的 `git push` 可以通过固定的非交互 SSH 命令使用当前 SSH Agent，因此常见 SSH Remote 可以正常 Push；Token、Credential Helper、AskPass、任意 Git Config、Proxy Helper 与 HTTP Extra Header 仍不会被隐式转发。
 
 GitHub CLI 也采用独立的有界策略。PR / Issue / Run / Workflow / Release / Repo / Search 的只读查看可以直接执行；显式、非交互的 PR/Issue 创建、评论、Workflow Dispatch、基于已存在且已验证 Tag 的 Release 创建、显式指定 Merge Method 的 PR Merge，以及 Run Rerun/Cancel 进入精确授权。Release Asset 路径仍单独隔离；`gh auth`、`gh api`、Secret/Variable、Extension、Host/Repo 重定向、Admin/Auto Merge 等凭据或策略绕过面继续阻断。
 
-Language Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。wcode 为此增加独立的 Hardened Semantic Lane：只有拥有显式 Automatic Safety Profile 的内置 Provider 才默认进入这条路径。首个 Auto Profile 是 `rust-analyzer`：其可执行文件必须解析到 Workspace 之外，启动环境会清除凭据和执行注入变量，并关闭 rust-analyzer 的 Build Script、Proc Macro、Cargo 自动 Reload 与 Check-on-save。Warm Session Pool 有固定容量，以 Workspace + Provider Binary Identity 为 Key；一个 Slot 内串行化同一条 Provider Protocol Stream，空闲或旧 Slot 会淘汰，离开有界索引集合的 Document 会发送 `didClose`，Server 退出或 Provider Binary 变化后重建 Session；所有导航结果仍重新经过 Workspace Boundary 过滤。`--no-semantic` 可以彻底关闭这条 Lane。没有 Auto Profile 的 Language Server 和非确定性 Verification Executor 仍然需要显式授权，除非进程使用更宽的 `--allow-risky-exec` 预授权。确定性 Harness Verification Lane 仍是另一条独立例外：固定 Check/Test/Build 形态由策略直接批准；Rust 仓库同时满足“已安装 cargo-nextest + 仓库声明 nextest 配置”时使用 `cargo nextest run [--locked]`，否则继续回退 `cargo test`。这些措施缩小执行面，但并不是 OS Sandbox。
+LSP Server 和高级 Verification Executor 可能加载仓库控制的配置或代码，因此属于更宽的信任边界。wcode 为此增加独立的 Hardened LSP Lane：只有拥有显式 Automatic Safety Profile 的内置 LSP Server 才默认进入这条路径。首个 Auto Profile 是 `rust-analyzer`：其可执行文件必须解析到 Workspace 之外，启动环境会清除凭据和执行注入变量，并关闭 rust-analyzer 的 Build Script、Proc Macro、Cargo 自动 Reload 与 Check-on-save。Warm Session Pool 有固定容量，以 Workspace + Server Binary Identity 为 Key；一个 Slot 内串行化同一条 LSP Protocol Stream，空闲或旧 Slot 会淘汰，离开有界索引集合的 Document 会发送 `didClose`，Server 退出或 Binary 变化后重建 Session；所有导航结果仍重新经过 Workspace Boundary 过滤。`--no-semantic` 可以彻底关闭这条 Lane。没有 Auto Profile 的 LSP Server 和非确定性 Verification Executor 仍然需要显式授权，除非进程使用更宽的 `--allow-risky-exec` 预授权。确定性 Harness Verification Lane 仍是另一条独立例外：固定 Check/Test/Build 形态由策略直接批准；Rust 仓库同时满足“已安装 cargo-nextest + 仓库声明 nextest 配置”时使用 `cargo nextest run [--locked]`，否则继续回退 `cargo test`。这些措施缩小执行面，但并不是 OS Sandbox。
 
 ## 人工授权只能在本地完成
 
@@ -59,10 +59,7 @@ TUI 和 WebUI 会分开显示。批准 `cargo` 不等于批准所有 `cargo` 命
 `cargo test` 也不会覆盖不同参数或另一个 Subspace。拒绝不会留下 Grant。
 
 `RiskyExecution` 是底层的 Fingerprint-scoped Trust 机制，不是整进程命令
-开关。对未进入 Automatic Profile 的 Semantic Provider，Fingerprint 绑定
-Workspace + Provider + 当前 Provider Binary Identity，因此这一份 Warm
-Provider 可以被 Refresh/Navigation 复用，但替换后的 Binary、其他 Provider
-或其他 Workspace 都不会继承旧 Grant。
+开关。对未进入 Automatic Profile 的 LSP Server，Fingerprint 绑定 Workspace + Server + 当前 Binary Identity，因此这一份 Warm Session 可以被 Refresh/Navigation 复用，但替换后的 Binary、其他 Server 或其他 Workspace 都不会继承旧 Grant。
 
 批准某个请求不会关闭 Workspace 隔离，也不会把命令执行变成 Shell。
 
@@ -113,4 +110,4 @@ Token 达到上限时淘汰最旧项，不会无限增长。
 - 编辑保留 SHA 前置条件。
 - 优先批准精确请求，不要为了省事扩大整个进程的信任范围。
 - 不需要写入或命令时使用 `--read-only` 或 `--no-exec`。
-- 不希望 Runtime 启动任何第一方 Language Server 时使用 `--no-semantic`。
+- 不希望 Runtime 启动任何第一方 LSP Server 时使用 `--no-semantic`。

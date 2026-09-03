@@ -440,7 +440,7 @@ async fn syntax_index_tools_flow_through_mcp() {
     assert_eq!(navigation["structuredContent"]["precision"], "syntax");
     assert_eq!(
         navigation["structuredContent"]["routing"],
-        "syntax_fallback"
+        "tree_sitter_fallback"
     );
     assert!(
         navigation["structuredContent"]["syntax_context"]["body"]["content"]

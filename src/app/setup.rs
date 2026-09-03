@@ -41,10 +41,12 @@ pub(super) fn run(
 
 fn choose_scope() -> Result<SetupScope> {
     println!("\nWCode setup");
-    println!("  1) Global (recommended)  Configure detected user-level Agent settings once.");
-    println!("                          MCP command: wcode mcp-stdio");
-    println!("                          The Agent's working directory becomes the Workspace.");
-    println!("  2) Current project       Configure only this repository.");
+    println!("  1) Global (recommended)  Set up WCode once for supported coding agents.");
+    println!("                          They run `wcode mcp-stdio` automatically.");
+    println!(
+        "                          The agent's current directory becomes the project Workspace."
+    );
+    println!("  2) Current project       Set up WCode only for this project.");
     println!("  3) Cancel");
     print!("\nChoose [1]: ");
     io::stdout().flush()?;
@@ -72,7 +74,7 @@ fn run_global(dry_run: bool, json: bool, interactive: bool) -> Result<()> {
         println!("{}", to_string_pretty(&preview)?);
         return Ok(());
     }
-    println!("\nGlobal MCP entries use `wcode mcp-stdio`; no Workspace path is embedded.");
+    println!("\nWCode will use `wcode mcp-stdio`; each coding agent supplies its current project automatically.");
     agent_install::print_human(&preview);
     if dry_run {
         return Ok(());
@@ -80,12 +82,12 @@ fn run_global(dry_run: bool, json: bool, interactive: bool) -> Result<()> {
     if !interactive {
         bail!("global setup writes require an interactive TTY confirmation");
     }
-    print!("\nApply these user-level configuration changes? [y/N]: ");
+    print!("\nApply this WCode setup? [y/N]: ");
     io::stdout().flush()?;
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     if !matches!(input.trim(), "y" | "Y" | "yes" | "YES") {
-        bail!("global setup cancelled; no user-level configuration was changed");
+        bail!("WCode setup cancelled; no user-level configuration was changed");
     }
     let summary = agent_install::apply_install(
         &workspace,
@@ -118,7 +120,7 @@ fn ensure_success(summary: &agent_install::AgentInstallSummary) -> Result<()> {
         Ok(())
     } else {
         bail!(
-            "{} Agent integration(s) failed safe configuration",
+            "WCode could not configure {} coding agent integration(s) safely",
             summary.failed.len()
         )
     }

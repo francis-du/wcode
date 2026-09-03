@@ -156,6 +156,8 @@ struct IntelligenceStats {
     lsp_validated: u64,
     lsp_automatic: u64,
     lsp_runnable: u64,
+    lsp_authorization_required: u64,
+    lsp_missing: u64,
     lsp_fresh: u64,
     lsp_stale: u64,
     lsp_sessions: u64,

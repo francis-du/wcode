@@ -1,6 +1,33 @@
 use super::*;
 use std::collections::HashSet;
 
+fn assert_required_fields_exist(value: &Value, tool_name: &str) {
+    match value {
+        Value::Object(object) => {
+            if let (Some(properties), Some(required)) = (
+                object.get("properties").and_then(Value::as_object),
+                object.get("required").and_then(Value::as_array),
+            ) {
+                for key in required.iter().filter_map(Value::as_str) {
+                    assert!(
+                        properties.contains_key(key),
+                        "tool {tool_name} requires schema field {key} after it was removed from properties"
+                    );
+                }
+            }
+            for child in object.values() {
+                assert_required_fields_exist(child, tool_name);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                assert_required_fields_exist(child, tool_name);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn assert_no_model_tuning_args(value: &Value, tool_name: &str) {
     match value {
         Value::Object(object) => {
@@ -56,6 +83,7 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             "tool {name} must not advertise model-visible default arguments"
         );
         assert_no_model_tuning_args(&tool["inputSchema"], name);
+        assert_required_fields_exist(&tool["inputSchema"], name);
     }
     let agent_context = first
         .iter()

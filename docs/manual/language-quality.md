@@ -11,7 +11,7 @@ permalink: /docs/language-quality/
 
 wcode does not represent language support as one boolean.
 
-A repository can be parseable but have no semantic server, have a formatter but no type checker, have unit tests but no mutation/fuzz runner, or have a quality tool installed that the repository never declared. Those states are materially different and must remain observable.
+A repository can be parseable but have no LSP server, have a formatter but no type checker, have unit tests but no mutation/fuzz runner, or have a quality tool installed that the repository never declared. Those states are materially different and must remain observable.
 
 ## Canonical language surface
 
@@ -37,7 +37,7 @@ For every detected language, `language_quality_status` reports independent dimen
 
 Missing dimensions are returned as explicit `gaps`. A parser or LSP candidate never upgrades the other dimensions automatically.
 
-Semantic provider state is deliberately staged: `available` means an executable candidate exists; `launch_ready` means Workspace execution, semantic policy, and provider-specific trust permit a launch; `session_validated` means that exact provider-binary identity has completed LSP `initialize`; only then does semantic `runnable` become true. `semantic_provider_status` exposes those fields directly, while `language_quality_status.semantic_runnable` consumes the validated result.
+LSP state is deliberately staged: `available` means an LSP executable was found; `launch_ready` means execution policy and trust allow it to start; `session_validated` means that exact server binary completed LSP `initialize`; only then does semantic `runnable` become true. `semantic_provider_status` exposes these fields plus a concrete `action` such as `install_lsp`, `authorize_lsp`, or `initialize_lsp`. `language_quality_status.semantic_runnable` consumes the validated result.
 
 ## Provider state
 

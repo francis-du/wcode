@@ -33,7 +33,7 @@ Convergence
 
 Always-on instructions should stay short. They identify the Workspace/security boundary, Desired State, Product Scopes, the preferred coding path, and authoritative verification tools. Detailed architecture, requirement history, source bodies, language tooling, and verification state should be loaded only when needed.
 
-For normal coding, `agent_context` is the primary entry point. Its bounded adaptive pack can include relevant Design State, scope-aware repo-map results, a small amount of hot source, edit SHA preconditions, related tests, readiness, deterministic next actions, and an explicit parallelism strategy. MCP calls should stay minimal: omit the default Workspace and server-default path/limit/timeout/budget values unless the task genuinely overrides them. Use `symbol_context`, `software_context`, `scope_status`, `language_quality_status`, and deeper graph/traceability tools only when the pack says more context is needed.
+For normal coding, `agent_context` is the primary entry point. Its bounded adaptive pack can include relevant Design State, scope-aware repo-map results, a small amount of hot source, edit SHA preconditions, related tests, readiness, deterministic next actions, and an explicit parallelism strategy. Readiness also exposes a `change_strategy` and `complexity_budget`: a normal single-target task starts as `minimal_patch` with zero new production files, abstractions, configuration knobs, or public API changes. The agent may escalate only when the current requirement, existing duplication, or a proven ownership/boundary problem requires it; hypothetical future extensibility is not evidence. MCP calls should stay minimal: omit the default Workspace and server-default path/limit/timeout/budget values unless the task genuinely overrides them. Use `symbol_context`, `software_context`, `scope_status`, `language_quality_status`, and deeper graph/traceability tools only when the pack says more context is needed.
 
 ### 2. Skills: progressive disclosure, not hidden execution
 
@@ -92,7 +92,7 @@ See [Code Agent Integrations](../code-agent-integrations/) for host-specific con
 Before substantial source edits:
 
 1. call `agent_context(goal, scopes=...)` without a manual budget unless the task needs one;
-2. follow `readiness`, `next_actions`, and `readiness.parallelism`; split independent lanes and run them concurrently at the Host level when supported;
+2. follow `readiness`, `next_actions`, `readiness.parallelism`, `readiness.change_strategy`, and `readiness.complexity_budget`; reuse existing owners/helpers and do not exceed the complexity budget without concrete current-task evidence;
 3. omit default/inferable MCP arguments and keep `find_symbol` / `search_code` as the cheap localization path; use `semantic_navigation` when readiness identifies cross-file references, callers, implementations, rename impact, or equivalent semantic relationships;
 4. use `symbol_context` only when more source is required;
 5. use `language_quality_status`, `scope_status`, `design_status`, `traceability_status`, or deeper graph context only when the task needs those facts.

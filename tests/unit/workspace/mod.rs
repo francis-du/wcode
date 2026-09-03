@@ -2,7 +2,6 @@ use super::*;
 
 #[path = "access.rs"]
 mod access;
-
 #[test]
 fn blocks_path_traversal_and_stale_writes() {
     let dir = tempfile::tempdir().unwrap();
@@ -21,7 +20,6 @@ fn blocks_path_traversal_and_stale_writes() {
         "hi world\n"
     );
 }
-
 #[test]
 fn write_lock_registry_prunes_inactive_paths() {
     let dir = tempfile::tempdir().unwrap();
@@ -40,7 +38,6 @@ fn write_lock_registry_prunes_inactive_paths() {
     drop(locks);
     drop(second);
 }
-
 #[test]
 fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
     let dir = tempfile::tempdir().unwrap();
@@ -57,7 +54,6 @@ fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
     );
     assert!(workspace.search("secret", ".", 100).unwrap().is_empty());
 }
-
 #[test]
 fn model_facing_paths_use_forward_slashes() {
     let dir = tempfile::tempdir().unwrap();
@@ -86,7 +82,6 @@ fn model_facing_paths_use_forward_slashes() {
         .unwrap();
     assert_eq!(created.path, "nested/deeper/created.rs");
 }
-
 #[test]
 fn search_many_handles_overlapping_patterns_without_duplicate_line_matches() {
     let dir = tempfile::tempdir().unwrap();
@@ -114,7 +109,6 @@ fn search_many_handles_overlapping_patterns_without_duplicate_line_matches() {
         .collect::<Vec<_>>();
     assert_eq!(observed, vec![(1, "alpha"), (1, "alphabet"), (2, "alpha")]);
 }
-
 #[test]
 fn rejects_overlapping_workspaces_by_default() {
     let root = tempfile::tempdir().unwrap();
@@ -132,7 +126,6 @@ fn rejects_overlapping_workspaces_by_default() {
             .is_ok()
     );
 }
-
 #[test]
 fn discovers_nested_project_subspaces_without_relaxing_overlap_policy() {
     let root = tempfile::tempdir().unwrap();
@@ -192,7 +185,6 @@ fn discovers_nested_project_subspaces_without_relaxing_overlap_policy() {
     assert_eq!(selected.root(), rust_repo.canonicalize().unwrap());
     assert_eq!(workspaces.select(Some("Rust/wcode")).unwrap().0, rust_id);
 }
-
 #[test]
 fn explicit_nested_workspace_authorization_reuses_parent_security_boundary() {
     let root = tempfile::tempdir().unwrap();
@@ -252,7 +244,6 @@ fn webui_derived_workspace_authorization_blocks_symlink_children() {
         .to_string();
     assert!(error.contains("symlink workspace paths are blocked"));
 }
-
 #[test]
 fn webui_external_workspace_uses_normal_overlap_policy() {
     let root = tempfile::tempdir().unwrap();
@@ -552,8 +543,22 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
     )
     .is_err());
     assert!(validate_command_policy("cargo", &["metadata".to_owned()], safe).is_err());
-    assert!(validate_command_policy("go", &["list".to_owned()], safe).is_err());
-    assert!(validate_command_policy("npm", &["list".to_owned()], safe).is_err());
+    assert!(validate_command_policy(
+        "cargo",
+        &[
+            "metadata".to_owned(),
+            "--format-version".to_owned(),
+            "1".to_owned(),
+            "--no-deps".to_owned(),
+        ],
+        safe,
+    )
+    .is_ok());
+    assert!(validate_command_policy("go", &["list".to_owned()], safe).is_ok());
+    assert!(validate_command_policy("go", &["list".to_owned(), "./...".to_owned()], safe,).is_ok());
+    assert!(validate_command_policy("npm", &["list".to_owned()], safe).is_ok());
+    assert!(validate_command_policy("pnpm", &["why".to_owned(), "serde".to_owned()], safe).is_ok());
+    assert!(validate_command_policy("dotnet", &["list".to_owned()], safe).is_ok());
     assert!(
         validate_command_policy("rg", &["needle".to_owned(), "--hidden".to_owned()], safe,)
             .is_err()
@@ -596,6 +601,21 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
     assert!(validate_command_policy("cargo", &["metadata".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("go", &["list".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("npm", &["list".to_owned()], trusted).is_ok());
+    assert!(validate_command_policy("cargo", &["run".to_owned()], safe).is_err());
+    assert!(validate_command_policy("cargo", &["run".to_owned()], trusted).is_ok());
+    assert!(validate_command_policy("npm", &["install".to_owned()], safe).is_err());
+    assert!(validate_command_policy("npm", &["install".to_owned()], trusted).is_ok());
+    for (program, arguments) in [
+        ("cargo", vec!["publish".to_owned()]),
+        ("npm", vec!["publish".to_owned()]),
+        ("deno", vec!["install".to_owned()]),
+        ("go", vec!["env".to_owned()]),
+    ] {
+        assert!(
+            validate_command_policy(program, &arguments, trusted).is_err(),
+            "permanent host/credential/publish boundary became authorizable: {program} {arguments:?}"
+        );
+    }
     assert!(validate_command_policy(
         "cargo",
         &[

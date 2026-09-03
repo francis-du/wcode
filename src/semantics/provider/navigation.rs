@@ -1,3 +1,4 @@
+use super::client::render_error_chain as render;
 use super::*;
 
 const MAX_NAVIGATION_RESULTS: usize = 100;
@@ -66,21 +67,21 @@ pub(crate) async fn navigate(
     max_results: usize,
 ) -> Result<SemanticNavigationResult> {
     if line == 0 || character == 0 {
-        bail!("semantic navigation line and character are 1-based");
+        bail!("LSP navigation line and character are 1-based");
     }
     if !workspace.exec_enabled() {
-        bail!("semantic navigation requires command execution; restart without --no-exec");
+        bail!("LSP navigation requires command execution; restart without --no-exec");
     }
     if !workspace.semantic_exec_enabled() {
-        bail!("semantic navigation is disabled; restart without --no-semantic");
+        bail!("LSP navigation is disabled; restart without --no-semantic");
     }
     let source = workspace.load_source(path)?;
     let language = language_for_path(&source.path)
-        .ok_or_else(|| anyhow!("semantic navigation does not support this source language"))?;
+        .ok_or_else(|| anyhow!("LSP navigation does not support this source language"))?;
     let candidates = provider_candidates(workspace, language);
     if candidates.is_empty() {
         bail!(
-            "no trusted semantic provider is available for {}",
+            "no trusted LSP server is available for {}",
             language.as_str()
         );
     }
@@ -91,13 +92,13 @@ pub(crate) async fn navigate(
             if startup_failures.is_empty() {
                 return Err(error);
             }
-            startup_failures.push(format!("{} authorization: {error}", provider.id));
+            startup_failures.push(format!("{} authorization: {}", provider.id, render(&error)));
             break;
         }
         let handle = match sessions.handle(workspace, provider, &executable) {
             Ok(handle) => handle,
             Err(error) => {
-                startup_failures.push(format!("{} session: {error}", provider.id));
+                startup_failures.push(format!("{} session: {}", provider.id, render(&error)));
                 continue;
             }
         };
@@ -108,13 +109,13 @@ pub(crate) async fn navigate(
             }
             Err(error) => {
                 sessions.invalidate(workspace, provider, &executable);
-                startup_failures.push(format!("{} initialize: {error}", provider.id));
+                startup_failures.push(format!("{} initialize: {}", provider.id, render(&error)));
             }
         }
     }
     let (provider, _executable, handle, session_reused) = selected.ok_or_else(|| {
         anyhow!(
-            "no installed semantic provider could initialize for {}: {}",
+            "no installed LSP server could initialize for {}: {}",
             language.as_str(),
             startup_failures.join("; ")
         )
@@ -122,7 +123,7 @@ pub(crate) async fn navigate(
     let mut guard = handle.lock().await;
     let session = guard
         .as_mut()
-        .ok_or_else(|| anyhow!("semantic session failed to initialize"))?;
+        .ok_or_else(|| anyhow!("LSP session failed to initialize"))?;
     let (uri, document_sync) = session.sync_document(workspace, &source, language).await?;
     let position = json!({
         "line": line - 1,
@@ -472,10 +473,12 @@ fn byte_column_to_lsp(content: &str, line: u64, column: u64, encoding: &str) -> 
     let text = content
         .split('\n')
         .nth(usize::try_from(line - 1).unwrap_or(usize::MAX))
-        .ok_or_else(|| anyhow!("semantic navigation line is outside the source file"))?;
+        .ok_or_else(|| anyhow!("LSP navigation line is outside the source file"))?;
     let byte_offset = usize::try_from(column - 1).map_err(|_| anyhow!("column is too large"))?;
     if byte_offset > text.len() || !text.is_char_boundary(byte_offset) {
-        bail!("semantic navigation character must be a 1-based UTF-8 byte column on a character boundary");
+        bail!(
+            "LSP navigation character must be a 1-based UTF-8 byte column on a character boundary"
+        );
     }
     let prefix = &text[..byte_offset];
     Ok(match encoding {

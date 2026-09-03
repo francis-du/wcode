@@ -77,18 +77,20 @@ fn semantic_provider_status_distinguishes_available_ready_and_live() {
         "api",
         "semantic_provider_status",
         &serde_json::json!([
-            {"detected":true,"available":true,"launch_ready":true,"session_validated":true,"automatic":true,"runnable":true},
-            {"detected":true,"available":true,"launch_ready":true,"session_validated":false,"automatic":false,"runnable":false},
-            {"detected":true,"available":false,"launch_ready":false,"session_validated":false,"automatic":false,"runnable":false}
+            {"detected":true,"available":true,"launch_ready":true,"session_validated":true,"automatic":true,"runnable":true,"action":null},
+            {"detected":true,"available":true,"launch_ready":false,"session_validated":false,"automatic":false,"runnable":false,"action":"authorize_lsp"},
+            {"detected":true,"available":false,"launch_ready":false,"session_validated":false,"automatic":false,"runnable":false,"action":"install_lsp"}
         ]),
     );
     let snapshot = monitor.snapshot();
     let stats = &snapshot.intelligence["api"];
     assert_eq!(stats.lsp_available, 2);
-    assert_eq!(stats.lsp_launch_ready, 2);
+    assert_eq!(stats.lsp_launch_ready, 1);
     assert_eq!(stats.lsp_validated, 1);
     assert_eq!(stats.lsp_automatic, 1);
     assert_eq!(stats.lsp_runnable, 1);
+    assert_eq!(stats.lsp_authorization_required, 1);
+    assert_eq!(stats.lsp_missing, 1);
 }
 
 #[test]

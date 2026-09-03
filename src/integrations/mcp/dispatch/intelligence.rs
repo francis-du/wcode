@@ -307,9 +307,6 @@ pub(super) async fn call(
             if let Ok(worktree) = worktree {
                 merge_agent_worktree_status(&mut context, &worktree);
             }
-            if let Ok(Some(worklist)) = crate::worklist::active_summary(&workspace) {
-                context["worklist"] = worklist;
-            }
             Ok(context)
         }
         "worklist_status" => {

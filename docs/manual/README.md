@@ -8,9 +8,9 @@ alternate: /zh/docs/
 permalink: /docs/
 ---
 
-# wcode Documentation
+# Make any coding agent understand your repo before it changes it
 
-This is the English documentation home. The product site stays focused on the product and quick start; protocol details, agent integration, security boundaries, quality policy, and development constraints live here.
+**wcode gives coding agents the repository context, real code relationships, guarded actions, and verification they are usually missing.** Use the agent you already like; wcode helps it understand first, change less, and prove the result instead of rebuilding a partial picture from grep, file dumps, and chat history.
 
 ## Start here
 
@@ -32,7 +32,7 @@ This is the English documentation home. The product site stays focused on the pr
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
-- [v0.5.2 release notes](releases/v0.5.2/) — cleaner MCP calls, dependency-aware parallel Agent work, one-command setup, stdio human authorization, and stricter Verification governance.
+- [v0.6 release notes](releases/v0.6/) — parallel-first Agent execution, stronger repository context, LSP-backed understanding, and exact authorization for safe project commands.
 - [Releases](releases/) — latest version plus the complete archive grouped by series. Historical versions stay out of the global sidebar so documentation navigation remains bounded.
 
 ## Recommended workflow

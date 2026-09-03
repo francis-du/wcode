@@ -9,6 +9,7 @@ use uuid::Uuid;
 const UNIX_INSTALLER: &str = include_str!("../../install.sh");
 #[cfg(windows)]
 const WINDOWS_INSTALLER: &str = include_str!("../../install.ps1");
+const RECONNECT_NOTICE: &str = "Reconnect your MCP Host to load the new WCode binary; existing stdio sessions keep running the previous version.";
 
 pub(super) fn run() -> Result<()> {
     let executable = env::current_exe().context("cannot locate the running wcode executable")?;
@@ -70,6 +71,7 @@ fn run_unix(install_dir: &Path) -> Result<()> {
     if !status.success() {
         bail!("wcode update failed; the existing executable was left in place")
     }
+    println!("WCode updated successfully. {RECONNECT_NOTICE}");
     Ok(())
 }
 
@@ -97,7 +99,9 @@ fn run_windows(install_dir: &Path) -> Result<()> {
         .stderr(Stdio::inherit())
         .spawn()
         .context("cannot start the Windows wcode update helper")?;
-    println!("wcode update helper started; replacement begins after this process exits.");
+    println!(
+        "WCode update is ready; replacement begins after this process exits. {RECONNECT_NOTICE}"
+    );
     Ok(())
 }
 

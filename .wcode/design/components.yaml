@@ -133,7 +133,7 @@
     - automatically maintain bounded semantic state for explicitly hardened providers on the most specific project Workspaces while avoiding duplicate parent/subspace indexing
     - reuse bounded Workspace/provider language-server sessions, synchronize source revisions according to server-advertised Full/Incremental/None textDocumentSync and negotiated position encoding, periodically prune idle unleased sessions, refuse capacity eviction of leased slots, and delay provider-identity replacement until the active slot is released
     - ingest real Document Symbol Call Hierarchy and Implementation facts through the global concurrency boundary
-    - expose installed availability, launch readiness, live session validation and runnable semantic precision as distinct provider states so executable presence cannot masquerade as an initialized LSP
+    - discover provider binaries from trusted PATH plus bounded language-native install locations where defined, and expose discovery source, actionable authorization/install/init state, launch readiness, live session validation and runnable semantic precision as distinct provider states so executable presence cannot masquerade as an initialized LSP or a raw OS error
     - expose symbol-first semantic navigation for definition, hover, references, incoming/outgoing calls and implementations while keeping simple localization on Tree-sitter/search, trying an installed alternate when the canonical provider fails initialization, falling back honestly when no trusted provider exists, and reporting unsupported capabilities separately from failed LSP subrequests
     - reject Workspace-local provider executables, scrub execution-injection environment state, and retain explicit trust for providers without an automatic safety profile
     - reject stale semantic revisions from composite graph use
@@ -652,6 +652,7 @@
     - include a bounded hot-source body for the strongest direct match when the pack budget permits, while deferring additional source bodies to progressive disclosure
     - enforce a serialized token budget across structure and hot source
     - expose explicit edit, verification, graph-precision, truncation and parallelism readiness signals plus deterministic next tool actions instead of hiding context quality behind a score
+    - default ordinary single-target changes to minimal_patch and expose an explicit complexity budget that prevents speculative new files, abstractions, config knobs or public API changes without current-task evidence
     - enrich only direct edit targets with fail-soft working-tree state from a parallel bounded Git status probe, warn on existing staged/unstaged/untracked changes and block direct-edit guidance for unmerged targets
     - expose pack build timing alongside serialized token and context-savings telemetry so retrieval speed, context cost and task quality can be evaluated separately
     - aggregate Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache hits in the existing operator Monitor instead of creating a parallel metrics subsystem

@@ -527,6 +527,19 @@ mod tests {
     assert_eq!(pack["readiness"]["recommended_edit_tool"], "apply_edits");
     assert_eq!(pack["readiness"]["parallelism"]["strategy"], "single_lane");
     assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 1);
+    assert_eq!(pack["readiness"]["change_strategy"], "minimal_patch");
+    assert_eq!(
+        pack["readiness"]["complexity_budget"]["new_production_files"],
+        0
+    );
+    assert_eq!(
+        pack["readiness"]["complexity_budget"]["new_abstractions"],
+        0
+    );
+    assert_eq!(
+        pack["readiness"]["complexity_budget"]["new_config_knobs"],
+        0
+    );
     assert_eq!(
         pack["readiness"]["next_actions"],
         json!(["apply_edits", "review_changes", "verify_project"])
@@ -562,6 +575,84 @@ mod tests {
             .unwrap()
             >= 2
     );
+    assert_eq!(
+        parallel_task["readiness"]["parallelism"]["execution_bias"],
+        "parallel_first"
+    );
+    assert!(
+        parallel_task["readiness"]["parallelism"]["recommended_concurrency"]
+            .as_u64()
+            .unwrap()
+            >= 2
+    );
+    assert!(parallel_task["readiness"]["parallelism"]["instruction"]
+        .as_str()
+        .unwrap()
+        .contains("next action"));
+    assert_eq!(
+        parallel_task["readiness"]["parallelism"]["serialize_only"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(
+        parallel_task["readiness"]["change_strategy"],
+        "localized_refactor"
+    );
+    assert_eq!(
+        parallel_task["readiness"]["complexity_budget"]["new_production_files"],
+        1
+    );
+    let compact_parallel_task = harness
+        .agent_context("demo", &workspace, "feature_entry batch_worker", 1_000, &[])
+        .unwrap();
+    assert_eq!(
+        compact_parallel_task["readiness"]["parallelism"]["strategy"],
+        "top_level_concurrent_calls"
+    );
+    assert!(
+        compact_parallel_task["readiness"]["parallelism"]["candidate_lanes"]
+            .as_u64()
+            .unwrap()
+            >= 2
+    );
+    assert_eq!(
+        compact_parallel_task["readiness"]["change_strategy"],
+        "localized_refactor"
+    );
+
+    crate::worklist::update(
+        &workspace,
+        crate::worklist::WorklistUpdate {
+            expected_revision: 0,
+            goal: Some(format!(
+                "resume guarded work {}",
+                "without budget bypass ".repeat(20)
+            )),
+            restart: false,
+            items: (0..8)
+                .map(|index| crate::worklist::WorkItemPatch {
+                    id: format!("item-{index}"),
+                    title: Some(format!(
+                        "Preserve this unfinished item {index}: {}",
+                        "bounded progress context ".repeat(6)
+                    )),
+                    status: None,
+                    depends_on: None,
+                    note: None,
+                })
+                .collect(),
+        },
+    )
+    .unwrap();
+    let worklist_pack = harness
+        .agent_context("demo", &workspace, "feature entry", 1_000, &[])
+        .unwrap();
+    assert!(worklist_pack["worklist"].is_object());
+    assert_eq!(worklist_pack["worklist"]["revision"], 1);
+    assert!(worklist_pack["estimated_tokens"].as_u64().unwrap() <= 1_000);
+    assert!(serde_json::to_vec(&worklist_pack).unwrap().len() <= 4_000);
 
     let relationship_task = harness
         .agent_context(

@@ -52,6 +52,52 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     }
     let reference_en = fs::read_to_string(docs_root.join("reference.md")).unwrap();
     let reference_zh = fs::read_to_string(docs_root.join("reference.zh-CN.md")).unwrap();
+    let readme = fs::read_to_string(root.join("README.md")).unwrap();
+    let homepage_en = fs::read_to_string(root.join("docs/index.html")).unwrap();
+    let homepage_zh = fs::read_to_string(root.join("docs/zh/index.html")).unwrap();
+    let intelligence_en = fs::read_to_string(docs_root.join("software-intelligence.md")).unwrap();
+    let intelligence_zh =
+        fs::read_to_string(docs_root.join("software-intelligence.zh-CN.md")).unwrap();
+    for phrase in [
+        "Make any coding agent understand your repo before it changes it.",
+        "missing repository layer",
+        "minimal-change strategy",
+        "Understand first. Change less. Prove it works.",
+    ] {
+        assert!(
+            readme.contains(phrase),
+            "README must lead with concrete agent value: {phrase}"
+        );
+    }
+    for phrase in [
+        "wcode makes it understand the system",
+        "Ask semantic questions",
+        "blast radius",
+        "Stop paying the context tax",
+        "evidence",
+    ] {
+        assert!(
+            homepage_en.contains(phrase),
+            "English homepage must explain software intelligence as user value: {phrase}"
+        );
+    }
+    for phrase in [
+        "wcode 让它真正理解这个系统",
+        "跨文件语义关系",
+        "Semantic Precision",
+        "改动前先看影响范围",
+        "把“看起来没问题”变成证据",
+        "Context 税",
+    ] {
+        assert!(
+            homepage_zh.contains(phrase),
+            "Chinese homepage must keep the complete software-intelligence value story: {phrase}"
+        );
+    }
+    assert!(intelligence_en.contains("The 60-second mental model"));
+    assert!(intelligence_en.contains("What will this change touch?"));
+    assert!(intelligence_zh.contains("60 秒理解 wcode 的软件智能"));
+    assert!(intelligence_zh.contains("这次修改会碰到什么？"));
     let releases_en = fs::read_to_string(docs_root.join("releases.md")).unwrap();
     let releases_zh = fs::read_to_string(docs_root.join("releases.zh-CN.md")).unwrap();
     assert!(reference_en.contains("agent_context(goal, scopes=...)"));
@@ -62,6 +108,34 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(releases_zh.contains("(v0.5.2/)"));
     let security_en = fs::read_to_string(docs_root.join("security.md")).unwrap();
     let security_zh = fs::read_to_string(docs_root.join("security.zh-CN.md")).unwrap();
+    let development_en = fs::read_to_string(docs_root.join("development.md")).unwrap();
+    let development_zh = fs::read_to_string(docs_root.join("development.zh-CN.md")).unwrap();
+    for development in [&development_en, &development_zh] {
+        for current_path in [
+            "src/app/",
+            "src/runtime/harness/",
+            "src/runtime/tunnel/",
+            "src/integrations/mcp/",
+            "src/integrations/auth/",
+            "src/ui/monitor/",
+        ] {
+            assert!(
+                development.contains(current_path),
+                "maintainer docs must describe the current module layout: {current_path}"
+            );
+        }
+        for obsolete_path in [
+            "src/runtime/tunnel.rs",
+            "harness_agent_context.rs",
+            "mcp_stdio.rs",
+            "monitor_state.rs",
+        ] {
+            assert!(
+                !development.contains(obsolete_path),
+                "maintainer docs must not point agents at obsolete module paths: {obsolete_path}"
+            );
+        }
+    }
     for document in [&security_en, &security_zh, &reference_en, &reference_zh] {
         for tool in [
             "gh",
@@ -219,10 +293,10 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             "software-intelligence",
             &[
                 "agent_context",
-                "architecture-first",
-                "observed drift",
-                "evidence coverage",
-                "implementation coverage",
+                "software intelligence an agent can reason from",
+                "What will this change touch?",
+                "Project Observatory",
+                "durable workspace state",
                 "semantic_provider_refresh",
                 "verification_execute_stages",
             ][..],
@@ -291,6 +365,10 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(site_js.contains("const capabilityLabels = pageIsChinese"));
     assert!(site_js.contains("function renderCapability(key, value)"));
     assert!(site_js.contains("pageIsChinese ? `厂商依据 ${index + 1}`"));
+    assert!(!site_js.contains("bind MCP to the source repository"));
+    assert!(!site_js.contains("explicit repository binding"));
+    assert!(!site_js.contains("把 MCP 绑定到源码仓库"));
+    assert!(!site_js.contains("显式绑定当前仓库"));
     for capability in [
         "package: '插件包'",
         "skill: '通用 Skill'",
@@ -308,6 +386,14 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     }
     assert!(!chinese_site.contains("Documentation"));
     assert!(!chinese_site.contains("CLI/MCP Reference"));
+
+    let integrations_en = fs::read_to_string(docs_root.join("code-agent-integrations.md")).unwrap();
+    let integrations_zh =
+        fs::read_to_string(docs_root.join("code-agent-integrations.zh-CN.md")).unwrap();
+    assert!(integrations_en.contains("Global (recommended)"));
+    assert!(integrations_en.contains("Host working directory is the default Workspace"));
+    assert!(integrations_zh.contains("全局（推荐）"));
+    assert!(integrations_zh.contains("Host 启动进程时的当前目录就是默认 Workspace"));
 
     let release_installer =
         "curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh";

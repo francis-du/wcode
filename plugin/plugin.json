@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wcode",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Portable wcode Software Intelligence skill with explicit safe MCP connection profiles.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",

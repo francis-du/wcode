@@ -13,7 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Latest
 
-- [v0.5.2](v0.5.2/) — cleaner MCP calls, dependency-aware parallel agent work, one-command setup, stdio human authorization, stricter verification governance, self-update, and documentation cleanup.
+- [v0.6](v0.6/) — parallel-first Agent execution, task-ready repository context, standardized LSP semantics, and exact authorization for bounded project commands.
+
+## 0.6.x
+
+- [v0.6](v0.6/) — parallel execution contracts, stronger repository understanding, and less command friction without weakening hard safety boundaries.
 
 ## 0.5.x
 

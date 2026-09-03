@@ -3,13 +3,12 @@ use crate::evidence_store::workspace_state_directory;
 use crate::graph::{
     EdgeKind, GraphImportEdge, GraphImportNode, GraphPrecision, GraphProviderImport, NodeKind,
 };
-use crate::workspace::{SourceDocument, Workspace};
+use crate::workspace::{redact_sensitive_text, SourceDocument, Workspace};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -28,13 +27,19 @@ const LSP_PROVIDER_TIMEOUT: Duration = Duration::from_secs(90);
 mod registry;
 use registry::{automatic_provider, ProviderCandidate, PROVIDERS};
 
+#[path = "discovery.rs"]
+mod discovery;
+use discovery::{executable_discovery_source, find_executable};
+#[cfg(test)]
+use discovery::{executable_name, known_language_tool_paths_from, trusted_provider_path};
+
 #[path = "auto.rs"]
 mod auto;
 pub(crate) use auto::{state as automatic_state, SemanticAutoState};
 
 #[path = "client.rs"]
 mod client;
-use client::LspClient;
+use client::{render_error_chain as render, LspClient};
 
 #[path = "session.rs"]
 mod session;
@@ -171,6 +176,8 @@ pub struct SemanticProviderStatus {
     pub session_validated: bool,
     pub runnable: bool,
     pub precision: &'static str,
+    pub discovery: &'static str,
+    pub action: Option<&'static str>,
     pub reason: String,
 }
 
@@ -246,24 +253,41 @@ pub fn status(
                     })
                 });
             let runnable = launch_ready && session_validated;
+            let discovery = selected
+                .as_ref()
+                .map(|(_, executable)| executable_discovery_source(workspace, executable))
+                .unwrap_or("missing");
+            let action = if !present {
+                None
+            } else if !available {
+                Some("install_lsp")
+            } else if !workspace.exec_enabled() || !workspace.semantic_exec_enabled() {
+                Some("enable_lsp")
+            } else if !authorized {
+                Some("authorize_lsp")
+            } else if !session_validated {
+                Some("initialize_lsp")
+            } else {
+                None
+            };
             let reason = if !present {
                 "no matching source files detected".to_owned()
             } else if !available {
-                "no supported language server was found on trusted PATH; syntax precision remains available".to_owned()
+                "no supported LSP server was found on trusted PATH or known language-tool install directories; install the canonical server and refresh LSP status; Tree-sitter syntax remains available".to_owned()
             } else if !workspace.exec_enabled() {
                 "command execution is disabled".to_owned()
             } else if !workspace.semantic_exec_enabled() {
-                "semantic LSP execution is disabled by --no-semantic".to_owned()
+                "LSP execution is disabled by --no-semantic".to_owned()
             } else if !authorized {
-                "this language server requires a Workspace + Provider + binary-identity RiskyExecution approval (or process-wide --allow-risky-exec) before it may load repository-controlled project configuration".to_owned()
+                "this LSP server requires RiskyExecution approval bound to Workspace + server + current binary identity (or process-wide --allow-risky-exec) before it may load repository-controlled project configuration".to_owned()
             } else if !session_validated {
                 if automatic {
-                    "automatic semantic provider is launch-ready; live validation is pending the first successful LSP initialize".to_owned()
+                    "automatic LSP server is launch-ready; live validation is pending the first successful initialize".to_owned()
                 } else {
-                    "semantic provider is launch-ready and authorized; live validation is pending the first successful LSP initialize".to_owned()
+                    "LSP server is launch-ready and authorized; live validation is pending the first successful initialize".to_owned()
                 }
             } else {
-                "semantic provider completed live LSP initialization for the current provider binary".to_owned()
+                "LSP server completed live initialization for the current binary".to_owned()
             };
             SemanticProviderStatus {
                 language,
@@ -279,7 +303,9 @@ pub fn status(
                 launch_ready,
                 session_validated,
                 runnable,
-                precision: if runnable { "semantic" } else { "syntax-fallback" },
+                precision: if runnable { "semantic" } else { "syntax" },
+                discovery,
+                action,
                 reason,
             }
         })
@@ -309,7 +335,7 @@ fn authorize_provider_session(
         AuthorizationKind::RiskyExecution,
         &provider_session_operation(workspace, provider, executable)?,
         &format!(
-            "allow warm semantic-provider session for {} at the current provider-binary identity; the language server may load repository-controlled project configuration",
+            "allow warm LSP session for {} at the current server-binary identity; the server may load repository-controlled project configuration",
             provider.id
         ),
     )
@@ -365,10 +391,10 @@ async fn refresh_impl(
     automatic_only: bool,
 ) -> Result<SemanticProviderRefresh> {
     if !workspace.exec_enabled() {
-        bail!("semantic provider refresh requires command execution; restart without --no-exec");
+        bail!("LSP refresh requires command execution; restart without --no-exec");
     }
     if !workspace.semantic_exec_enabled() {
-        bail!("semantic provider execution is disabled; restart without --no-semantic");
+        bail!("LSP execution is disabled; restart without --no-semantic");
     }
     let max_files = max_files.clamp(1, MAX_PROVIDER_FILES);
     let max_symbols = max_symbols.clamp(1, MAX_PROVIDER_SYMBOLS);
@@ -428,7 +454,7 @@ async fn refresh_impl(
         let prepared = match prepare_sources_with_class(workspace, &files, work_class) {
             Ok(prepared) => prepared,
             Err(error) => {
-                failures.push(format!("{}: {error}", provider.id));
+                failures.push(format!("{}: {}", provider.id, render(&error)));
                 continue;
             }
         };
@@ -442,12 +468,18 @@ async fn refresh_impl(
                 match sessions.handle(workspace, provider, &executable) {
                     Ok(handle) => {
                         if let Err(error) = handle.ensure_started(workspace, provider).await {
-                            failures.push(format!("{}: warm session failed: {error}", provider.id));
+                            failures.push(format!(
+                                "{}: warm session failed: {}",
+                                provider.id,
+                                render(&error)
+                            ));
                         }
                     }
-                    Err(error) => {
-                        failures.push(format!("{}: warm session failed: {error}", provider.id))
-                    }
+                    Err(error) => failures.push(format!(
+                        "{}: warm session failed: {}",
+                        provider.id,
+                        render(&error)
+                    )),
                 }
             }
             runs.push(SemanticProviderRun {
@@ -493,15 +525,18 @@ async fn refresh_impl(
                     .then(|| alternate_provider_for_sources(workspace, provider, &prepared))
                     .flatten();
                 let Some((alternate, alternate_executable)) = fallback else {
-                    failures.push(format!("{}: {primary_error}", provider.id));
+                    failures.push(format!("{}: {}", provider.id, render(&primary_error)));
                     continue;
                 };
                 if let Err(error) =
                     authorize_provider_session(workspace, alternate, &alternate_executable)
                 {
                     failures.push(format!(
-                        "{}: {primary_error}; fallback {} authorization failed: {error}",
-                        provider.id, alternate.id
+                        "{}: {}; fallback {} authorization failed: {}",
+                        provider.id,
+                        render(&primary_error),
+                        alternate.id,
+                        render(&error)
                     ));
                     continue;
                 }
@@ -538,8 +573,11 @@ async fn refresh_impl(
                     Err(alternate_error) => {
                         sessions.invalidate(workspace, alternate, &alternate_executable);
                         failures.push(format!(
-                            "{}: {primary_error}; fallback {}: {alternate_error}",
-                            provider.id, alternate.id
+                            "{}: {}; fallback {}: {}",
+                            provider.id,
+                            render(&primary_error),
+                            alternate.id,
+                            render(&alternate_error)
                         ));
                     }
                 }
@@ -904,52 +942,6 @@ fn provider_launch_args(workspace: &Workspace, provider: ProviderCandidate) -> R
         _ => {}
     }
     Ok(args)
-}
-
-fn trusted_provider_path(workspace: &Workspace, candidate: &Path) -> Option<PathBuf> {
-    let executable = if candidate.is_absolute() {
-        candidate.to_path_buf()
-    } else {
-        env::current_dir().ok()?.join(candidate)
-    };
-    let canonical = executable.canonicalize().ok()?;
-    (!canonical.starts_with(workspace.root())).then_some(executable)
-}
-
-fn find_executable(workspace: &Workspace, name: &str) -> Option<PathBuf> {
-    let candidate = PathBuf::from(name);
-    if candidate.components().count() > 1 && candidate.is_file() {
-        return trusted_provider_path(workspace, &candidate);
-    }
-    let path = env::var_os("PATH")?;
-    #[cfg(windows)]
-    let extensions = env::var_os("PATHEXT")
-        .map(|value| {
-            value
-                .to_string_lossy()
-                .split(';')
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|| vec![".EXE".into(), ".CMD".into(), ".BAT".into()]);
-    for directory in env::split_paths(&path) {
-        let plain = directory.join(name);
-        if plain.is_file() {
-            if let Some(path) = trusted_provider_path(workspace, &plain) {
-                return Some(path);
-            }
-        }
-        #[cfg(windows)]
-        for extension in &extensions {
-            let with_extension = directory.join(format!("{name}{extension}"));
-            if with_extension.is_file() {
-                if let Some(path) = trusted_provider_path(workspace, &with_extension) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    None
 }
 
 pub fn language_for_path(path: &str) -> Option<SemanticLanguage> {

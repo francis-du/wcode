@@ -3,22 +3,22 @@ use clap::Subcommand;
 
 #[derive(Clone, Debug, PartialEq, Eq, Subcommand)]
 pub(super) enum ControlCommand {
-    /// Configure detected local coding agents. Interactive setup offers Global first, then Current project.
+    /// Set up WCode for detected coding agents.
     Setup {
-        /// Preview detected hosts and planned changes without writing.
+        /// Preview what WCode would configure without changing files.
         #[arg(long)]
         dry_run: bool,
-        /// Configure verified user-level Agent settings. Actual writes require a local TTY confirmation.
+        /// Install user-level configuration for supported coding agents.
         #[arg(long, conflicts_with = "project")]
         global: bool,
-        /// Configure only the current project and skip the interactive scope chooser.
+        /// Configure only the current project.
         #[arg(long, conflicts_with = "global")]
         project: bool,
-        /// Emit machine-readable JSON. Without an explicit scope, non-interactive setup defaults to project scope.
+        /// Print JSON. Without a prompt, setup changes only this project.
         #[arg(long)]
         json: bool,
     },
-    /// Update this wcode installation from the latest verified release.
+    /// Update WCode to the latest verified release.
     Update,
     /// Export a portable Agent Plugins 1.0 package or use the legacy installer surface.
     #[command(hide = true)]
@@ -42,29 +42,29 @@ pub(super) enum ControlCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Serve the same MCP runtime over stdin/stdout for local coding agents and Agent Plugins.
+    /// Connect a coding agent over MCP using its current project directory.
     McpStdio,
-    /// Inspect local Design, Graph, Semantic, Evidence, and Reconciliation runtime state.
+    /// Show project health, language-server readiness, and code intelligence.
     Intelligence {
-        /// Refresh detected first-party LSP semantic providers before rendering status.
+        /// Discover and initialize available language servers before showing status.
         #[arg(long)]
         refresh_semantic: bool,
-        /// Fail closed when Design, Traceability, Product Scope, or required convention gates are incomplete.
+        /// Exit with failure when required project checks are incomplete.
         #[arg(long)]
         check: bool,
-        /// Emit machine-readable JSON instead of the compact terminal summary.
+        /// Print JSON instead of the terminal summary.
         #[arg(long)]
         json: bool,
     },
-    /// Inspect persisted Verification Plans and their current readiness gates.
+    /// Show verification plans and whether they are ready to run.
     Verification {
-        /// Inspect one specific Verification Plan ID. Omit to list recent plans.
+        /// Show one verification plan. Omit to list recent plans.
         #[arg(long = "plan-id", alias = "plan")]
         plan: Option<String>,
-        /// Execute configured or auto-discovered Property/Mutation/Fuzz/Canary stages first.
+        /// Run configured advanced checks before showing status.
         #[arg(long)]
         execute_stages: bool,
-        /// Emit machine-readable JSON instead of the compact terminal summary.
+        /// Print JSON instead of the terminal summary.
         #[arg(long)]
         json: bool,
     },

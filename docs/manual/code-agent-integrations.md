@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: MCP Client Integrations
-description: Project-local setup for MCP clients, plugin packages, and remote connections
+description: Global-first local setup, portable Skill/plugin packaging, and remote MCP connections
 lang: en
 alternate: /zh/docs/code-agent-integrations/
 permalink: /docs/code-agent-integrations/
@@ -92,7 +92,7 @@ works from any directory even when no package folder exists there.
 # No MCP target; safe to distribute
 wcode agent-plugin --profile skill-only
 
-# Bind stdio to this repository
+# stdio profile; the consuming Host working directory selects the Workspace
 wcode agent-plugin --profile local-stdio
 
 # Publish a credential-free remote profile
@@ -134,7 +134,7 @@ that every host version passed an end-to-end OAuth session.
 | Roo Code | — | ✓ | ✓ | ✓ | varies | varies | — | ✓ | Vendor-documented transport |
 | Continue | — | ✓ | ✓ | varies | varies | varies | — | ✓ | Schema/version dependent |
 | ZCode | ✓ | ✓ | ✓ | varies | varies | varies | — | ✓ | Package validation only |
-| Grok Build | — | ✓ | ✓ | varies | varies | varies | — | ✓ | Manual binding |
+| Grok Build | — | ✓ | ✓ | varies | varies | varies | — | ✓ | Manual stdio setup |
 | Windsurf | — | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | Vendor-documented transport |
 | JetBrains / Junie | — | ✓ | ✓ | varies | varies | varies | — | ✓ | UI setup only |
 | Zed | — | ✓ | ✓ | varies | varies | varies | — | ✓ | JSONC left untouched |
@@ -235,11 +235,7 @@ Approving `cargo` does not approve arbitrary `cargo` arguments. An approval for
 `cargo test` does not cover `cargo fmt`, another Workspace, or another
 subspace. Denial creates no grant.
 
-Semantic-provider trust is separate from those command labels. A non-automatic
-warm LSP uses `RiskyExecution` scoped to Workspace + Provider + current
-provider-binary identity; approving it allows refresh/navigation to reuse that
-exact provider, not a replacement binary, another provider, or an unrelated
-repository operation.
+LSP trust is separate from those command labels. A non-automatic warm LSP session uses `RiskyExecution` scoped to Workspace + server + current binary identity; approval lets refresh/navigation reuse that exact server, not a replacement binary, another server, or an unrelated repository operation.
 
 ## 9. Troubleshooting
 
@@ -254,7 +250,7 @@ repository operation.
 - If an old client needs SSE, configure `/sse`; the server sends the matching
   `/message?sessionId=...` endpoint as its first event.
 - If a retry is still blocked, check whether the pending request is for
-  executable access, an exact repository operation, or a semantic-provider
+  executable access, an exact repository operation, or an LSP
   session, then approve only that matching request in the selected Workspace.
 
 ## 10. Primary references

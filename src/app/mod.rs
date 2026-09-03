@@ -51,22 +51,25 @@ const HELP_FOOTER: &str = r#"
 │    \  /\  /     | |____  | |__| | | |__| | | |____        │
 │     \/  \/       \_____|  \____/  |_____/  |______|       │
 ├───────────────────────────────────────────────────────────┤
-│ Local Software Intelligence Runtime for coding agents     │
+│ Software intelligence + safe coding tools for AI agents   │
 │ Repository  https://github.com/francis-du/wcode           │
 │ Docs        https://wcode.francis.run/                    │
 │ Author      @francis-du                                   │
 ╰───────────────────────────────────────────────────────────╯
 
-CLI CONTRACT
-  wcode [OPTIONS]                         Start the local runtime and MCP HTTP server.
-  wcode setup                             Configure local coding agents globally or for this project.
-  wcode update                            Replace this installation with the latest verified release.
-  wcode mcp-stdio                         Serve MCP over stdin/stdout using the Host working directory as the default Workspace.
-  wcode intelligence                      Inspect Design/Graph/Semantic/Evidence state for the current directory.
-  wcode verification                      Inspect or execute Verification Plan stages for the current directory.
+QUICK START
+  wcode                         Start WCode for the current project.
+  wcode setup                   Set up WCode for detected coding agents.
+  wcode mcp-stdio               Connect an MCP Host; its current directory becomes the project.
+  wcode intelligence            Inspect project intelligence and LSP readiness.
+  wcode intelligence --refresh-semantic
+                                Discover and initialize available language servers.
+  wcode verification            Inspect project verification state.
+  wcode update                  Update WCode, then reconnect running MCP Host sessions.
 
-Advanced package export remains available through hidden `agent-plugin`; process lifecycle is owned by the terminal/OS or MCP Host.
-Use `wcode <COMMAND> --help` for command-specific options.
+The current directory is used automatically. Most users do not need --workspace.
+Language servers are discovered automatically; WCode asks before running providers that require approval.
+Use `wcode <COMMAND> --help` only when you need command-specific options.
 "#;
 
 struct AbortTaskOnDrop(AbortHandle);
@@ -82,8 +85,8 @@ impl Drop for AbortTaskOnDrop {
     name = "wcode",
     author,
     version,
-    about = "Local Software Intelligence Runtime for coding agents",
-    long_about = "Run wcode as a local software-intelligence runtime, expose the same governed MCP surface over HTTP or stdio, inspect project intelligence, manage Agent integration, or safely update the installed binary.",
+    about = "Software intelligence and governed coding tools for AI agents",
+    long_about = "Run WCode in the current project, connect coding agents over MCP, discover language-server semantics, inspect project intelligence and verification, or update the installed binary. The current directory is the default Workspace, so most users do not need extra path arguments.",
     disable_help_subcommand = true,
     after_help = HELP_FOOTER
 )]
@@ -91,13 +94,13 @@ struct Args {
     #[command(subcommand)]
     command: Option<ControlCommand>,
 
-    /// Local code directory exposed to connected MCP clients. Repeat to expose multiple roots.
+    /// Project directory to use instead of the current directory. Usually unnecessary.
     #[arg(
         short = 'w',
         long,
         value_name = "PATH",
         default_value = ".",
-        help_heading = "Workspace"
+        help_heading = "Project"
     )]
     workspace: Vec<PathBuf>,
 
@@ -133,23 +136,23 @@ struct Args {
     #[arg(long, help_heading = "Connection", hide = true)]
     imessage_to: Option<String>,
 
-    /// Keep the server local and do not start a public tunnel.
+    /// Keep WCode local and disable the managed public tunnel.
     #[arg(long, help_heading = "Connection")]
     no_tunnel: bool,
 
-    /// Disable file modification tools.
+    /// Read-only mode: disable file modification tools.
     #[arg(long = "read-only", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_write: bool,
 
-    /// Disable build/test/status command execution.
+    /// Do not let WCode run build, test, or repository commands.
     #[arg(long = "no-exec", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_exec: bool,
 
-    /// Disable automatic first-party semantic LSP indexing and all semantic-provider execution.
+    /// Do not discover or run language servers.
     #[arg(long = "no-semantic", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_semantic: bool,
 
-    /// Grant system-tool access to the current user Home with repository-aware execution and destructive replacements enabled. Hard protected-path, symlink/hard-link, no-shell and filesystem-root boundaries remain enforced.
+    /// Allow approved tools to work across your Home directory. Filesystem root, credentials, symlinks/hard-links, and shell execution remain blocked.
     #[arg(long, help_heading = "Safety")]
     full_access: bool,
 
@@ -176,7 +179,7 @@ struct Args {
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
-    /// Disable the live terminal task monitor.
+    /// Hide the live terminal activity view.
     #[arg(long = "no-monitor", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
     monitor: bool,
 
@@ -184,7 +187,7 @@ struct Args {
     #[arg(long, help_heading = "Experience", hide = true)]
     no_install: bool,
 
-    /// Open wcode's client-neutral setup hub in the browser after startup. Links stay available in the TUI without this.
+    /// Open the WCode setup page in your browser after startup.
     #[arg(long = "open", default_value_t = false, help_heading = "Experience")]
     open_setup: bool,
 

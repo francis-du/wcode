@@ -1,12 +1,30 @@
 use super::*;
+use std::env;
+use std::sync::{Arc, Mutex, PoisonError};
 
 const MAX_LSP_HEADER_BYTES: usize = 8 * 1024;
+const MAX_LSP_STDERR_BYTES: usize = 16 * 1024;
+const LSP_STDERR_SETTLE_DELAY: Duration = Duration::from_millis(100);
+
+pub(super) fn render_error_chain(error: &anyhow::Error) -> String {
+    // Render the whole chain: the stage context alone hides the root cause
+    // (and captured server stderr) that the operator needs to act on.
+    let mut rendered = error.to_string();
+    for source in error.chain().skip(1) {
+        rendered.push_str(": ");
+        rendered.push_str(&source.to_string());
+    }
+    rendered
+}
 
 pub(super) struct LspClient {
     child: Child,
     child_group: crate::resource::ChildProcessGuard,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    // Continuously drained by a background task so chatty servers can never
+    // block on a full stderr pipe; only the bounded tail is kept for failures.
+    stderr_tail: Arc<Mutex<Vec<u8>>>,
     next_id: u64,
     provider_id: &'static str,
     workspace_uri: Option<String>,
@@ -26,28 +44,57 @@ impl LspClient {
             .current_dir(workspace.root())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .env("NO_COLOR", "1");
         scrub_environment(&mut command);
         crate::resource::apply_child_limits(&mut command);
-        let mut child = command
-            .spawn()
-            .with_context(|| format!("failed to start semantic provider {}", provider.id))?;
+        let mut child = command.spawn().with_context(|| {
+            format!(
+                "LSP stage=spawn server={} executable={} action=check_server_permissions_or_reinstall",
+                provider.id,
+                executable.display()
+            )
+        })?;
         let child_group = crate::resource::supervise_child(&child);
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| anyhow!("language server stdin unavailable"))?;
+            .ok_or_else(|| anyhow!("LSP server stdin unavailable"))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| anyhow!("language server stdout unavailable"))?;
+            .ok_or_else(|| anyhow!("LSP server stdout unavailable"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("LSP server stderr unavailable"))?;
+        let stderr_tail = Arc::new(Mutex::new(Vec::new()));
+        {
+            let tail = stderr_tail.clone();
+            tokio::spawn(async move {
+                let mut stderr = BufReader::new(stderr);
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let read = match stderr.read(&mut chunk).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => read,
+                    };
+                    let mut tail = tail.lock().unwrap_or_else(PoisonError::into_inner);
+                    tail.extend_from_slice(&chunk[..read]);
+                    let excess = tail.len().saturating_sub(MAX_LSP_STDERR_BYTES);
+                    if excess > 0 {
+                        tail.drain(..excess);
+                    }
+                }
+            });
+        }
         Ok(Self {
             child,
             child_group,
             stdin,
             stdout: BufReader::new(stdout),
+            stderr_tail,
             next_id: 1,
             provider_id: provider.id,
             workspace_uri: None,
@@ -150,11 +197,21 @@ impl LspClient {
 
     async fn write_message(&mut self, value: &Value) -> Result<()> {
         let body = serde_json::to_vec(value)?;
+        let protocol_context = || {
+            format!(
+                "LSP stage=protocol server={} action=restart_or_reinstall_lsp",
+                self.provider_id
+            )
+        };
         self.stdin
             .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
-            .await?;
-        self.stdin.write_all(&body).await?;
-        self.stdin.flush().await?;
+            .await
+            .with_context(protocol_context)?;
+        self.stdin
+            .write_all(&body)
+            .await
+            .with_context(protocol_context)?;
+        self.stdin.flush().await.with_context(protocol_context)?;
         Ok(())
     }
 
@@ -163,9 +220,22 @@ impl LspClient {
         let mut header_bytes = 0usize;
         loop {
             let mut line = String::new();
-            let read = self.stdout.read_line(&mut line).await?;
+            let read = self.stdout.read_line(&mut line).await.with_context(|| {
+                format!(
+                    "LSP stage=protocol server={} action=restart_or_reinstall_lsp",
+                    self.provider_id
+                )
+            })?;
             if read == 0 {
-                bail!("language server closed stdout");
+                // Give the stderr drain task a moment to collect crash-time output
+                // before snapshotting the tail for diagnostics.
+                tokio::time::sleep(LSP_STDERR_SETTLE_DELAY).await;
+                let diagnostics = self.failure_diagnostics();
+                bail!(
+                    "LSP stage=protocol server={} action=check_lsp_configuration_or_permissions: server closed stdout{}",
+                    self.provider_id,
+                    diagnostics
+                );
             }
             header_bytes = header_bytes.saturating_add(read);
             if header_bytes > MAX_LSP_HEADER_BYTES {
@@ -192,8 +262,35 @@ impl LspClient {
             bail!("LSP message exceeds 8 MiB bound");
         }
         let mut body = vec![0u8; length];
-        self.stdout.read_exact(&mut body).await?;
-        Ok(serde_json::from_slice(&body)?)
+        self.stdout.read_exact(&mut body).await.with_context(|| {
+            format!(
+                "LSP stage=protocol server={} action=restart_or_reinstall_lsp",
+                self.provider_id
+            )
+        })?;
+        serde_json::from_slice(&body).with_context(|| {
+            format!(
+                "LSP stage=protocol server={} action=check_lsp_compatibility",
+                self.provider_id
+            )
+        })
+    }
+
+    fn failure_diagnostics(&self) -> String {
+        let bytes = self
+            .stderr_tail
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if bytes.is_empty() {
+            return String::new();
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let (safe, _) = redact_sensitive_text(text.trim());
+        if safe.is_empty() {
+            String::new()
+        } else {
+            format!("; stderr={safe}")
+        }
     }
 }
 
@@ -213,14 +310,17 @@ pub(super) fn provider_launch_executable(
         executable.to_path_buf()
     } else {
         env::current_dir()
-            .context("cannot resolve current directory for semantic provider")?
+            .context("cannot resolve current directory for LSP server")?
             .join(executable)
     };
-    let canonical = executable
-        .canonicalize()
-        .with_context(|| format!("cannot resolve semantic provider {}", executable.display()))?;
+    let canonical = executable.canonicalize().with_context(|| {
+        format!(
+            "LSP stage=discovery executable={} action=refresh_lsp_discovery_or_reinstall",
+            executable.display()
+        )
+    })?;
     if canonical.starts_with(workspace.root()) {
-        bail!("semantic provider executable resolves inside the workspace and is not trusted");
+        bail!("LSP executable resolves inside the Workspace and is not trusted");
     }
     // Validate the canonical target. Most providers execute the discovered path so
     // argv[0]-sensitive proxies such as rustup's rust-analyzer keep their identity.

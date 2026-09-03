@@ -114,15 +114,12 @@ pub(super) async fn run_intelligence_cli(
         println!("{}", serde_json::to_string_pretty(&value)?);
         if enforce_check {
             if let Some(error) = check_error {
-                bail!("Software Intelligence check failed: {error}");
+                bail!("WCode project check failed: {error}");
             }
         }
         return Ok(());
     }
-    println!(
-        "wcode Software Intelligence Runtime {}",
-        env!("CARGO_PKG_VERSION")
-    );
+    println!("WCode Intelligence {}", env!("CARGO_PKG_VERSION"));
     for workspace in value["workspaces"].as_array().into_iter().flatten() {
         let id = workspace["workspace"].as_str().unwrap_or("workspace");
         let root = workspace["root"].as_str().unwrap_or(".");
@@ -146,7 +143,7 @@ pub(super) async fn run_intelligence_cli(
             .unwrap_or(0);
         println!("\n{id}  {root}");
         println!(
-            "  Design        {} · {} req · {} components",
+            "  Design         {} · {} requirements · {} components",
             if design["valid"].as_bool().unwrap_or(false) {
                 "valid"
             } else if design["initialized"].as_bool().unwrap_or(false) {
@@ -158,7 +155,7 @@ pub(super) async fn run_intelligence_cli(
             design["components"].as_u64().unwrap_or(0)
         );
         println!(
-            "  Traceability  implementation {}% · verification {}%",
+            "  Coverage       code {}% · tests {}%",
             trace["design_to_implementation"]["percent"]
                 .as_u64()
                 .unwrap_or(0),
@@ -167,7 +164,7 @@ pub(super) async fn run_intelligence_cli(
                 .unwrap_or(0)
         );
         println!(
-            "  Product Scope {}/{} mapped · {} unmapped",
+            "  Project map    {}/{} files mapped · {} unmapped",
             scope_status["mapped_files"].as_u64().unwrap_or(0),
             scope_status["source_files"].as_u64().unwrap_or(0),
             scope_status["unmapped_files"]
@@ -176,12 +173,12 @@ pub(super) async fn run_intelligence_cli(
                 .unwrap_or(0)
         );
         println!(
-            "  Conventions   {} errors · {} warnings",
+            "  Code rules     {} errors · {} warnings",
             conventions["errors"].as_u64().unwrap_or(0),
             conventions["warnings"].as_u64().unwrap_or(0)
         );
         println!(
-            "  Semantics     {} confirmed · {} candidates",
+            "  Project terms  {} confirmed · {} candidates",
             semantics["confirmed"].as_u64().unwrap_or(0),
             semantics["candidates"].as_u64().unwrap_or(0)
         );
@@ -203,12 +200,31 @@ pub(super) async fn run_intelligence_cli(
                     .count()
             })
             .unwrap_or(0);
+        let providers = workspace["semantic_providers"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let approval_count = providers
+            .iter()
+            .filter(|provider| provider["action"].as_str() == Some("authorize_lsp"))
+            .count();
+        let missing_count = providers
+            .iter()
+            .filter(|provider| {
+                provider["detected"].as_bool() == Some(true)
+                    && provider["action"].as_str() == Some("install_lsp")
+            })
+            .count();
+        println!("  Verification    {executor_count} executors available");
         println!(
-            "  Providers     {provider_count} semantic LSP · {executor_count} verification executors"
+            "  Language servers  {provider_count} ready · {approval_count} need approval · {missing_count} missing"
         );
+        if approval_count > 0 || missing_count > 0 {
+            println!("                    Run `wcode intelligence --refresh-semantic` to set up available language servers.");
+        }
         if let Some(diff) = workspace["graph_diff"].as_object() {
             println!(
-                "  Graph Δ       nodes +{}/-{}/~{} · edges +{}/-{}/~{}",
+                "  Code graph Δ   nodes +{}/-{}/~{} · links +{}/-{}/~{}",
                 diff.get("added_node_count")
                     .and_then(Value::as_u64)
                     .unwrap_or(0),
@@ -231,7 +247,7 @@ pub(super) async fn run_intelligence_cli(
         }
         if let Some(risk) = workspace["risk"].as_object() {
             println!(
-                "  Risk          {} · {} findings",
+                "  Change risk    {} · {} findings",
                 risk.get("level")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown"),
@@ -241,10 +257,10 @@ pub(super) async fn run_intelligence_cli(
                     .unwrap_or(0)
             );
         } else {
-            println!("  Risk          unavailable (Git/exec review not available)");
+            println!("  Change risk    unavailable (Git command review is disabled)");
         }
         println!(
-            "  Evidence      {} total · {} failed · {} disagreed",
+            "  Checks         {} recorded · {} failed · {} disagreed",
             evidence["total"].as_u64().unwrap_or(0),
             evidence["failed"].as_u64().unwrap_or(0),
             evidence["disagreed"].as_u64().unwrap_or(0)
@@ -254,18 +270,18 @@ pub(super) async fn run_intelligence_cli(
             .filter(|status| status["ready"].as_bool() == Some(true))
             .count();
         println!(
-            "  Runtime       {graph_history} graph revisions · {reconciliation} reconciliation plans · {}/{} verification ready",
+            "  History        {graph_history} graph revisions · {reconciliation} repair plans · {}/{} verification plans ready",
             ready,
             verification.len()
         );
     }
     println!(
-        "\n  Check         {}",
+        "\n  Overall        {}",
         if check_passed { "PASS" } else { "FAIL" }
     );
     if enforce_check {
         if let Some(error) = check_error {
-            bail!("Software Intelligence check failed: {error}");
+            bail!("WCode project check failed: {error}");
         }
     }
     Ok(())

@@ -9,7 +9,7 @@ permalink: /zh/docs/language-quality/
 
 # 语言质量能力模型
 
-wcode 不用一个 Boolean 表示“语言支持”。一个仓库可能能解析但没有 Semantic Server，有 Formatter 但没有 Type Checker，有 Unit Test 但没有 Mutation/Fuzz Runner，或者机器上安装了某个工具但仓库从未声明它。它们是不同状态，必须分别可观测。
+wcode 不用一个 Boolean 表示“语言支持”。一个仓库可能能解析但没有 LSP Server，有 Formatter 但没有 Type Checker，有 Unit Test 但没有 Mutation/Fuzz Runner，或者机器上安装了某个工具但仓库从未声明它。它们是不同状态，必须分别可观测。
 
 ## 规范语言面
 
@@ -24,7 +24,7 @@ Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua�
 对每种检测到的语言，`language_quality_status` 分别报告：
 
 - `syntax`：Tree-sitter 解析与导航；
-- `semantic`：当前 Provider Binary 对应的第一方 LSP Session 已真实完成 Initialize；仅有 Executable 不够；
+- `semantic`：当前 LSP Server Binary 对应的 Session 已真实完成 Initialize；仅有 Executable 不够；
 - `format`：仓库声明或语言原生的 Check-only 格式 Provider；
 - `lint`：仓库声明的 Lint Provider；
 - `type_check`：仓库声明或语言原生 Type Checker；
@@ -35,7 +35,7 @@ Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua�
 
 缺失维度作为显式 `gaps` 返回。Parser 或 LSP Candidate 不会自动把其他能力升级成“已支持”。
 
-Semantic Provider State 被明确拆成多层：`available` 表示存在 Executable Candidate；`launch_ready` 表示 Workspace Execution、Semantic Policy 与 Provider-specific Trust 已允许启动；`session_validated` 表示这一份 Provider Binary Identity 已真实完成 LSP `initialize`；只有到这一步 Semantic `runnable` 才为 true。`semantic_provider_status` 直接暴露这些字段，`language_quality_status.semantic_runnable` 消费的是完成验证后的结果。
+LSP 状态被明确拆成多层：`available` 表示已经发现 LSP 可执行文件；`launch_ready` 表示执行策略和授权允许启动；`session_validated` 表示当前 Server Binary 已真实完成 LSP `initialize`；只有到这一步 Semantic `runnable` 才为 true。`semantic_provider_status` 还会给出明确的下一步 `action`，例如 `install_lsp`、`authorize_lsp`、`initialize_lsp`；`language_quality_status.semantic_runnable` 消费的是完成验证后的结果。
 
 ## Provider 状态
 

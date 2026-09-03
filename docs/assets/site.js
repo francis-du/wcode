@@ -162,15 +162,15 @@ const clients = [
     name: 'ZCode', mark: 'Z', tags: ['cli', 'manual'], mode: 'manual',
     package: yes, skill: yes, stdio: yes, http: varies, sse: varies, oauth: varies,
     evidence: 'version', target: 'ZCode marketplace',
-    en: 'Install the exported package, then bind MCP to the source repository.',
-    zh: '先安装导出的插件包，再把 MCP 绑定到源码仓库。'
+    en: 'Install the exported package, then configure `wcode mcp-stdio`; the Host working directory selects the Workspace.',
+    zh: '先安装导出的插件包，再配置 `wcode mcp-stdio`；由 Host 当前目录决定 Workspace。'
   },
   {
     name: 'Grok Build', mark: '✦', tags: ['cli', 'manual'], mode: 'manual',
     package: no, skill: yes, stdio: yes, http: varies, sse: varies, oauth: varies,
     evidence: 'version', target: 'Project agent settings',
-    en: 'The portable skill is safe to copy; MCP still needs an explicit repository binding.',
-    zh: '通用 Skill 可以复制，MCP 仍需显式绑定当前仓库。'
+    en: 'The portable Skill is safe to copy; add `wcode mcp-stdio` and let the Host working directory select the Workspace.',
+    zh: '通用 Skill 可以复制；添加 `wcode mcp-stdio`，由 Host 当前目录决定 Workspace。'
   },
   {
     name: 'Windsurf', mark: 'W', tags: ['ide', 'manual'], mode: 'manual',

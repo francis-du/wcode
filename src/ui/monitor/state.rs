@@ -432,6 +432,20 @@ impl TaskMonitor {
                             && provider["runnable"].as_bool() == Some(true)
                     })
                     .count() as u64;
+                stats.lsp_authorization_required = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["action"].as_str() == Some("authorize_lsp")
+                    })
+                    .count() as u64;
+                stats.lsp_missing = providers
+                    .iter()
+                    .filter(|provider| {
+                        provider["detected"].as_bool() == Some(true)
+                            && provider["action"].as_str() == Some("install_lsp")
+                    })
+                    .count() as u64;
             }
             "semantic_session_status" => {
                 stats.lsp_sessions = value["sessions"].as_u64().unwrap_or(0);

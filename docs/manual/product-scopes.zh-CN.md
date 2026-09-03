@@ -20,7 +20,7 @@ wcode 按产品行为组织 Control-plane 能力，而不是按通用 Backend La
 | `workspace` | 安全文件原语、授权、Scheduler、Convention、命令策略 | `src/workspace/` |
 | `design` | 结构化 Desired Software State 与校验 | `src/design/` |
 | `graph` | Syntax Index、Composite Software Graph、Graph Persistence/Provider | `src/graph/` |
-| `semantics` | 持久化 Semantic Registry 与 Semantic Provider | `src/semantics/` |
+| `semantics` | 持久化 Semantic Registry 与第一方 LSP Adapter | `src/semantics/` |
 | `traceability` | Requirement Traceability、Drift、Impact、Scoped Software Context、Project Architecture Projection | `src/intelligence/` 中除 Risk 外的 Traceability/Observatory 逻辑 |
 | `risk` | Risk-adaptive Policy 与 Verification 深度 | `src/intelligence/risk.rs` |
 | `verification` | Deterministic / Stage Verification 与 Blind Review Mesh | `src/verification/` |

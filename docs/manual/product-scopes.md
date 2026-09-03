@@ -20,7 +20,7 @@ wcode organizes its control-plane capabilities by product behavior rather than g
 | `workspace` | Secure filesystem primitives, authorization, scheduler, conventions | `src/workspace/` |
 | `design` | Structured Desired Software State and validation | `src/design/` |
 | `graph` | Syntax index, composite Software Graph, graph persistence/providers | `src/graph/` |
-| `semantics` | Persistent semantic registry and semantic providers | `src/semantics/` |
+| `semantics` | Persistent semantic registry and first-party LSP adapters | `src/semantics/` |
 | `traceability` | Requirement traceability, scoped context, Project Observatory architecture projection, drift and impact | `src/intelligence/` traceability/observatory sources excluding `risk.rs` |
 | `risk` | Risk-adaptive policy and verification depth | `src/intelligence/risk.rs` |
 | `verification` | Deterministic and staged verification, blind review mesh | `src/verification/` |

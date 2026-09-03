@@ -1,6 +1,6 @@
 [package]
 name = "wcode"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 authors = ["francis-du"]
 description = "Local software intelligence runtime for coding agents"

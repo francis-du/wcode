@@ -266,7 +266,7 @@ function renderAttention() {
     items.push(
       attentionItem(
         "info",
-        t("Syntax fallback"),
+        t("Tree-sitter only"),
         t("Refresh semantics for stronger dependency evidence"),
       ),
     );

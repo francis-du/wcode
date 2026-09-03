@@ -38,7 +38,9 @@ the MCP Host; `restart` and `stop` are no longer public wcode commands.
 `WCODE_INSTALL_DIR` explicitly overrides it. It reuses the release installer
 contract: download release artifacts, verify SHA-256, stage the candidate, run
 `--version` and `--help`, and replace only after those checks pass. Windows waits
-for the running executable to exit before replacement.
+for the running executable to exit before replacement. Existing MCP stdio
+children keep running the old process image, so reconnect or restart the MCP
+Host/session after an update before expecting new Tool schemas or runtime behavior.
 
 Local Software Intelligence views:
 
@@ -74,8 +76,10 @@ form elicitation can approve or decline inside the MCP Host. MCP 2026 uses
 `input_required` MRTR; compatible 2025-era stdio sessions use
 `elicitation/create`. The response is validated against the pending request,
 opaque challenge, and MCP client owner before the existing AuthorizationManager
-creates a grant. Clients without form elicitation receive a missing-capability
-failure; wcode never turns that limitation into implicit approval.
+creates a grant. Clients without form elicitation still fail closed, but the
+error includes the pending `AUTH-...` request ID plus `approvalSurface=tui_or_webui`
+and `nextAction=approve_then_retry_same_tool`, so the operator can approve the exact
+request locally and retry it without widening access.
 
 Agent setup:
 
@@ -99,7 +103,7 @@ embedded in the binary.
 | `-w, --workspace <PATH>` | Override the default current-directory Workspace. Repeat only when one task genuinely needs multiple roots. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
-| `--no-semantic` | Disable automatic first-party LSP indexing and semantic-provider execution. |
+| `--no-semantic` | Disable first-party LSP execution; Tree-sitter syntax capability is retained. |
 | `--full-access` | Explicitly expose the current-user Home and enable otherwise-authorizable runtime capabilities; hard protected-path/symlink/hard-link/no-shell/filesystem-root boundaries remain. |
 | `--no-tunnel` | Keep the runtime local-only. |
 | `--no-monitor` | Disable the live terminal dashboard. |
@@ -208,8 +212,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | External SCIP/LSP/compiler/runtime graph facts. |
 | `semantic_status` / `semantic_query` | Persistent candidate/confirmed/retired semantic facts. |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | Human-governed semantic lifecycle. |
-| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Status exposes the selected provider, `canonical`, `available_candidates`, `launch_ready`, and `session_validated`; `runnable` becomes true only after live initialization. Refresh reports canonical→alternate recovery in `fallbacks`. All 22 indexed languages have one tested canonical launch profile. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
-| `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; unavailable providers return explicit syntax fallback; `unsupported` capabilities and LSP `failures` remain separate from successful empty relationship sets. |
+| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Status exposes the selected provider, discovery source, `action`, `canonical`, `available_candidates`, `launch_ready`, and `session_validated`; `runnable` becomes true only after live initialization. Go discovery also checks `$GOBIN`, `$GOPATH/bin`, and `~/go/bin` when `gopls` is not on PATH. Provider failures identify discovery/authorization/spawn/initialize/protocol stages with an actionable next step instead of leaving a raw OS error. Refresh reports canonical→alternate recovery in `fallbacks`. All 22 indexed languages have one tested canonical launch profile. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
+| `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; an unavailable LSP returns explicit Tree-sitter-only fallback; `unsupported` capabilities and LSP `failures` remain separate from successful empty relationship sets. |
 | `language_quality_status` / `language_quality_run` | Explicit syntax/semantic/format/lint/type/static/test/security capability matrix and check-only execution. |
 
 ### Change, risk, verification, and evidence
@@ -234,7 +238,7 @@ evidence_status
 
 ## Precision rules
 
-Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Project Observatory exposes the active provider/precision instead of presenting syntax fallback as compiler truth.
+Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Project Observatory exposes the active provider/precision instead of presenting Tree-sitter-only results as compiler truth.
 
 A missing relationship in a bounded syntax graph is not proof that the relationship does not exist. Negative inference stays advisory unless stronger evidence supports it. See [Software Intelligence](../software-intelligence/) and [Language Quality](../language-quality/).
 
@@ -245,7 +249,7 @@ The model may request access; it cannot approve itself. Pending requests are dec
 Important distinctions:
 
 - **Executable access (`CommandAccess`)** authorizes a bare executable for one Workspace.
-- **Fingerprint-scoped trust (`RiskyExecution`)** authorizes only the requested trust fingerprint in that Workspace and session. Command/repository mutations bind the exact operation and arguments; a non-automatic warm semantic provider binds Workspace + Provider + current provider-binary identity so refresh/navigation can reuse that exact provider without granting a replacement binary or other providers.
+- **Fingerprint-scoped trust (`RiskyExecution`)** authorizes only the requested trust fingerprint in that Workspace and session. Command/repository mutations bind the exact operation and arguments; a non-automatic warm LSP server binds Workspace + server + current binary identity so refresh/navigation can reuse that exact server without granting a replacement binary or another server.
 - **RuntimeExecutor** covers one exact advanced verification executor operation.
 - **Destructive delete** is one-shot and separate from reusable session grants.
 

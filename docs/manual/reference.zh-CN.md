@@ -36,7 +36,9 @@ wcode verification --help
 `wcode update` 默认更新当前正在运行的二进制所在目录，也可以通过
 `WCODE_INSTALL_DIR` 显式覆盖。更新继续复用 Release Installer 的安全合同：
 下载 Artifact、校验 SHA-256、暂存候选二进制、执行 `--version` / `--help`
-Smoke Test，通过后才替换；Windows 会等当前 exe 退出后再执行替换。
+Smoke Test，通过后才替换；Windows 会等当前 exe 退出后再执行替换。已经由
+MCP Host 启动的 stdio 子进程仍然是旧进程镜像，因此升级后需要重新连接或重启
+MCP Host / 会话，新的 Tool Schema 与 Runtime 行为才会真正生效。
 
 本地软件智能：
 
@@ -71,7 +73,9 @@ stdio 工具触发人工授权时，如果 MCP Host 声明支持 form elicitatio
 2025 协议的 stdio Session 使用 `elicitation/create`。wcode 会把响应与当前
 Pending Request、Opaque Challenge 和 MCP Client Owner 一起校验，通过后才
 交给原有 AuthorizationManager 建立授权。客户端不支持 form elicitation 时
-直接返回缺少能力，不会自动扩大命令权限。
+仍然 Fail Closed，但错误会返回待处理的 `AUTH-...` 请求 ID，以及
+`approvalSurface=tui_or_webui` 和 `nextAction=approve_then_retry_same_tool`；用户可以在
+TUI / 受保护 WebUI 精确批准这一次请求，再重试原操作，不需要扩大权限。
 
 Agent 配置：
 
@@ -94,7 +98,7 @@ Binary 中。
 | `-w, --workspace <PATH>` | 覆盖默认的当前目录 Workspace；只有任务确实跨仓时才重复指定。 |
 | `--read-only` | 移除模型侧文件修改能力。 |
 | `--no-exec` | 禁止命令执行。 |
-| `--no-semantic` | 关闭自动第一方 LSP 索引与 Semantic Provider 执行。 |
+| `--no-semantic` | 关闭第一方 LSP 执行；Tree-sitter 语法能力仍保留。 |
 | `--full-access` | 显式加入当前用户 Home，并放开其他可授权 Runtime 能力；Protected Path、Symlink/Hard-link、No-shell、Filesystem Root 等硬边界继续保留。 |
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
@@ -202,8 +206,8 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | 外部 SCIP / LSP / Compiler / Runtime Graph Fact。 |
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
-| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Status 暴露 Selected Provider、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；只有真实 Initialize 后 `runnable` 才为 true。Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
-| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 Provider 时明确回退 Syntax；`unsupported` Capability、LSP `failures` 与成功但为空的 Relationship Set 会明确区分。 |
+| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Status 暴露 Selected Provider、Discovery 来源、`action`、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；只有真实 Initialize 后 `runnable` 才为 true。Go 在 PATH 未找到 `gopls` 时还会检查 `$GOBIN`、`$GOPATH/bin` 与 `~/go/bin`。Provider Failure 会区分 Discovery / Authorization / Spawn / Initialize / Protocol 阶段并给出下一步，不再只暴露裸 OS Error。Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
+| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 LSP Server 时明确回退 Tree-sitter；`unsupported` Capability、LSP `failures` 与成功但为空的 Relationship Set 会明确区分。 |
 | `language_quality_status` / `language_quality_run` | Syntax / Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵及 check-only 执行。 |
 
 ### Change、Risk、Verification 与 Evidence
@@ -228,7 +232,7 @@ evidence_status
 
 ## Precision 规则
 
-Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Project Observatory 会直接显示当前 Provider / Precision，不把 syntax fallback 冒充成编译器级语义。
+Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Project Observatory 会直接显示当前 Provider / Precision，不把仅 Tree-sitter 的结果冒充成编译器级语义。
 
 有界 syntax graph 里“没看到关系”并不等于关系不存在。弱精度下的 negative inference 只能是 advisory，不能直接变成 blocker。详见 [Software Intelligence](../software-intelligence/) 与 [语言质量](../language-quality/)。
 
@@ -237,7 +241,7 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 模型可以请求权限，但不能自批。待授权请求只能在本地 TUI 或 Token 保护的 WebUI 决策。
 
 - **可执行程序访问（`CommandAccess`）**：为一个 Workspace 授权裸程序名。
-- **Fingerprint-scoped Trust（`RiskyExecution`）**：只授权该 Workspace / Session 中当前请求对应的 Trust Fingerprint。命令与仓库 Mutation 绑定精确 Operation + Arguments；未进入 Automatic Profile 的 Warm Semantic Provider 则绑定 Workspace + Provider + 当前 Provider Binary Identity，让 Refresh/Navigation 可以复用这一份 Provider，但不会放开替换后的 Binary 或其他 Provider。
+- **Fingerprint-scoped Trust（`RiskyExecution`）**：只授权该 Workspace / Session 中当前请求对应的 Trust Fingerprint。命令与仓库 Mutation 绑定精确 Operation + Arguments；未进入 Automatic Profile 的 Warm LSP Server 则绑定 Workspace + Server + 当前 Binary Identity，让 Refresh/Navigation 可以复用这一份 Server，但不会放开替换后的 Binary 或其他 Server。
 - **RuntimeExecutor**：为一个精确高级验证 Executor 操作授权。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
 

@@ -223,7 +223,10 @@ fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
         "auth" | "tool" | "python" | "self" | "cache" | "pip" => {
             bail!("uv {subcommand} is blocked because it can alter host-wide tools, credentials, interpreters, caches, or unmanaged environments")
         }
-        _ => bail!("uv subcommand is blocked by the bounded project policy: {subcommand}"),
+        _ => require_risky_exec(
+            &format!("uv user-authorized project operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -256,7 +259,10 @@ fn validate_ruff_command(args: &[String], allow_risky_exec: bool) -> Result<()> 
             }
         }
         "rule" | "config" | "linter" => Ok(()),
-        _ => bail!("ruff subcommand is blocked by the bounded quality policy: {subcommand}"),
+        _ => require_risky_exec(
+            &format!("ruff user-authorized operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -275,7 +281,10 @@ fn validate_biome_command(args: &[String], allow_risky_exec: bool) -> Result<()>
                 Ok(())
             }
         }
-        _ => bail!("biome subcommand is blocked by the bounded quality policy: {subcommand}"),
+        _ => require_risky_exec(
+            &format!("Biome user-authorized operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -288,10 +297,18 @@ fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> Result<()> 
         "lint" | "check" => Ok(()),
         "fmt" if args.iter().any(|arg| arg == "--check") => Ok(()),
         "test" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
+        "install" | "uninstall" | "upgrade" => {
+            bail!(
+                "deno {subcommand} is blocked because it can alter host-wide tools or the runtime"
+            )
+        }
         "fmt" | "test" | "run" | "task" => {
             require_risky_exec(&format!("deno {subcommand}"), allow_risky_exec)
         }
-        _ => bail!("deno subcommand is blocked by the bounded runtime policy: {subcommand}"),
+        _ => require_risky_exec(
+            &format!("deno user-authorized operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -322,13 +339,20 @@ fn validate_dotnet_command(args: &[String], allow_risky_exec: bool) -> Result<()
         bail!("dotnet source/config/output redirection or interactive execution is blocked");
     }
     match subcommand {
-        "build" | "test" | "format" | "restore" | "list" => {
+        "list" => Ok(()),
+        "build" | "test" | "format" | "restore" => {
             require_risky_exec(&format!("dotnet {subcommand}"), allow_risky_exec)
         }
-        "run" | "publish" | "pack" | "tool" | "workload" | "nuget" | "new" | "sdk" => {
-            bail!("dotnet {subcommand} is blocked by the bounded project/host policy")
+        "tool" | "workload" | "nuget" | "sdk" => {
+            bail!("dotnet {subcommand} is blocked because it can alter host-wide tools, workloads, SDKs, or package sources")
         }
-        _ => bail!("dotnet subcommand is blocked by the bounded project policy: {subcommand}"),
+        "run" | "publish" | "pack" | "new" => {
+            require_risky_exec(&format!("dotnet {subcommand}"), allow_risky_exec)
+        }
+        _ => require_risky_exec(
+            &format!("dotnet user-authorized project operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -453,6 +477,9 @@ fn is_default_safe_cargo_command(args: &[String]) -> bool {
         ["fmt", "--check"]
             | ["check"]
             | ["check", "--locked"]
+            | ["metadata", "--no-deps"]
+            | ["metadata", "--no-deps", "--format-version", "1"]
+            | ["metadata", "--format-version", "1", "--no-deps"]
             | ["clippy", "--", "-D", "warnings"]
             | ["clippy", "--locked", "--", "-D", "warnings"]
     )
@@ -500,7 +527,13 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             }
             require_risky_exec(&format!("cargo nextest {action}"), allow_risky_exec)
         }
-        _ => bail!("cargo subcommand is blocked by the safe execution policy: {subcommand}"),
+        "install" | "uninstall" | "login" | "logout" | "owner" | "publish" | "yank" => {
+            bail!("cargo {subcommand} is blocked because it can alter host-wide tools, credentials, ownership, or remote registries")
+        }
+        _ => require_risky_exec(
+            &format!("cargo user-authorized project operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -520,10 +553,22 @@ fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
     match subcommand {
+        "list"
+            if matches!(args, [command] if command == "list")
+                || matches!(args, [command, target] if command == "list" && target == "./...") =>
+        {
+            Ok(())
+        }
+        "env" | "install" | "telemetry" | "tool" => {
+            bail!("go {subcommand} is blocked because it can alter host-wide configuration, tools, or telemetry")
+        }
         "list" | "test" | "vet" | "build" => {
             require_risky_exec("go project inspection/execution", allow_risky_exec)
         }
-        _ => bail!("go subcommand is blocked by the safe execution policy: {subcommand}"),
+        _ => require_risky_exec(
+            &format!("go user-authorized project operation: {subcommand}"),
+            allow_risky_exec,
+        ),
     }
 }
 
@@ -550,16 +595,25 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
         }
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
+    if matches!(subcommand, "list" | "ls" | "why") {
+        return Ok(());
+    }
     if matches!(
         subcommand,
-        "list" | "ls" | "why" | "run" | "test" | "build" | "lint" | "check" | "typecheck"
+        "login" | "logout" | "publish" | "unpublish" | "owner" | "token" | "config" | "cache"
     ) {
-        return require_risky_exec(
-            &format!("{program} project inspection/script"),
-            allow_risky_exec,
-        );
+        bail!("{program} {subcommand} is blocked because it can alter credentials, remote packages, ownership, or host-wide configuration");
     }
-    bail!("{program} subcommand is blocked by the safe execution policy: {subcommand}")
+    if matches!(
+        subcommand,
+        "run" | "test" | "build" | "lint" | "check" | "typecheck"
+    ) {
+        return require_risky_exec(&format!("{program} project script"), allow_risky_exec);
+    }
+    require_risky_exec(
+        &format!("{program} user-authorized project operation: {subcommand}"),
+        allow_risky_exec,
+    )
 }
 
 fn require_risky_exec(label: &str, enabled: bool) -> Result<()> {

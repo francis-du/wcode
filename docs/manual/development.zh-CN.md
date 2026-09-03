@@ -15,19 +15,20 @@ permalink: /zh/docs/development/
 
 wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Service Layer。
 
-- `src/main.rs`：CLI 与启动组合，只负责参数、Runtime Lifecycle、Graceful Shutdown 和 Product Scope Module Wiring；Managed Tunnel 生命周期已下沉到 `src/runtime/tunnel.rs`。
+- `src/main.rs`：保持为极薄 Binary Launcher；产品启动逻辑位于 `src/app/`。
+- `src/app/`：CLI 与启动组合。`mod.rs` 负责 Runtime Lifecycle 与 Graceful Shutdown，`commands.rs` 维护稳定命令面，`setup.rs` / `update.rs` 负责安装生命周期，`tunnel_lifecycle.rs` 将 Reconnect / Failover Policy 与 Provider Process 分离。
 - `src/scopes/mod.rs`：唯一 Canonical Product Scope Registry，包含 Alias、Source Root 与 Tool-to-scope Mapping，供 Context、Semantic、Convention、Design State、MCP Metadata 和 Operator View 共用。
-- `src/runtime/`：Harness 与 Runtime 编排。`harness.rs` 保留公共核心；`harness_agent_context.rs` 生成 Edit-ready Agent Context，`harness_profile.rs` 缓存 Project/Manifest/Guidance，`harness_repo_map.rs` 负责 Repo-map Ranking/Cache；`harness_graph.rs`、`harness_project.rs`、`harness_review.rs`、`harness_scope.rs`、`harness_text.rs`、`harness_verification.rs` 分离 Graph/Context、Project Observatory、Git Review、Scope Audit、Text/Project Discovery 与 Verification；`semantic.rs` 负责在最具体 Workspace 上自动维护有界 Semantic Freshness；`harness_tests.rs` 保存 Focused Harness Tests；`power.rs` 与 `tunnel.rs` 分别负责 Sleep Inhibition 与 Managed Public Tunnel。前台进程由 OS Signal 退出，stdio 生命周期由 MCP Host 管理。
-- `src/integrations/`：Model / Client Integration Boundary。`mcp.rs` 负责共享 HTTP Route 与 Payload Dispatch；`mcp_stdio.rs`、`mcp_legacy_sse.rs` 把 stdio 和旧版 SSE 适配到同一入口；`mcp_dispatch.rs`、`mcp_tools.rs`、`mcp_tasks.rs`、`mcp_catalog.rs` 分别处理 Tool Call、Catalog、Durable Task、Prompt / Resource。`auth.rs` 负责 OAuth/PKCE/DCR，`auth_origin.rs` 解析当前请求实际使用的已注册 Origin。`agent_plugin.rs` 导出 canonical package；`agent_install*` 模块分别保存 Host Adapter、安全 Merge/Apply、报告与测试。
+- `src/runtime/`：Harness 与 Runtime 编排。`src/runtime/harness/` 负责公共 Harness Core，以及 Agent Context、Profile/Cache、Repo-map、Graph、Review、Quality 与 Verification 模块；`src/runtime/semantic.rs` 维护有界 Semantic Freshness，`src/runtime/worklist.rs` 保存 Durable Agent Progress，`src/runtime/power.rs` 负责 Sleep Inhibition，`src/runtime/tunnel/` 负责 Managed Public Tunnel Provider 与健康检查。
+- `src/integrations/`：Model / Client Integration Boundary。`src/integrations/mcp/` 统一负责 Route、stdio/SSE Adapter、Dispatch、Compact Tool Schema、Durable Task、Authorization 与 Web Transport；`src/integrations/auth/` 负责 OAuth/PKCE/DCR 与 Request-origin State；`src/integrations/agent_plugin/` 导出 Canonical Package，`src/integrations/agent_install/` 负责 Host Detection、安全 Merge/Apply 与报告。
 - `src/workspace/`：安全 Local Coding Boundary，包含 Bounded File/Search/Edit/Move/Delete Primitive、Root/Registry Isolation、Command Policy、Local Authorization、Media、Convention 与 Dependency-aware Path Scheduler。
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
 - `src/graph/`：Lazy Tree-sitter Code Index、Provider-neutral Software Graph，以及 Provider / Composite Revision Persistence。
 - `src/semantics/`：Persistent Candidate/Confirmed/Retired Semantic Registry 与第一方 LSP Provider Runtime。
-- `src/intelligence/`：Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Observatory Projection；`observatory_architecture.rs` 专门负责 Architecture-first Design-vs-Actual Component Projection。
+- `src/intelligence/`：Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Observatory Projection；`src/intelligence/observatory/architecture.rs` 专门负责 Architecture-first Design-vs-Actual Component Projection。
 - `src/verification/`：Verification Plan、Blind Reviewer/Readiness、Language Quality Provider，以及 Property/Mutation/Fuzz/Runtime Executor。
 - `src/evidence/`：带 Provenance 的 Evidence Contract 与 Bounded Persistence。
 - `src/reconciliation/`：Durable Desired-to-Actual Plan 与 Dependency-aware Execution / Retry State。
-- `src/ui/`：Operator Experience。`monitor.rs` 负责 Ratatui Event/Render Loop，`monitor_state.rs` 负责 Task/Connection/Traffic，`monitor_detail.rs` 保存 Panel 与 Overlay，`monitor_theme.rs` 让 TUI 色板与 `docs/assets/site.css` 对齐；`intelligence_web.rs` 服务受保护 Project Observatory。
+- `src/ui/`：Operator Experience。`src/ui/monitor/` 负责 Ratatui Runtime、State、Metrics、Commands、Detail Panel、Overlay、Shell Action、i18n 与 Theme；`src/ui/intelligence_web.rs` 和 `src/ui/intelligence_web/` 资产共同服务受保护 Project Observatory。
 
 职责移动时，同一个 Change 里要同步更新 Product Scope Source Root 与 Design State Implementation Reference。源码物理移动了、Architecture Contract 还指着旧 Owner，不算完成 Refactor。
 
@@ -108,8 +109,8 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 - Git Mutation 只允许 Explicit-path `git add`、Message-only `git commit`、Explicit Remote+Ref Non-force `git push` 进入授权。批准后的 SSH Push 只允许通过 wcode 固定 Non-interactive SSH Command 使用当前 `SSH_AUTH_SOCK`；Token-like Env、Credential Helper、AskPass、任意 Git Config、Proxy Helper、HTTP Extra Header、Hook、External Diff 仍被移除/禁用；
 - `gh` Remote Mutation 必须 Non-interactive 且通过 Option Allowlist；未来新增未知 Write Flag 默认 Fail Closed，不能自动继承已有 Trust；
 - URL Argument 不能内嵌 Credential，Credential/Environment File 不进入 Model-facing Filesystem / Index Surface；
-- 每一种 Indexed Language 必须恰好保留一个经过 Contract Test 的 Canonical LSP Launch Profile；Provider-specific Executable Alias / Argument（包括 JDT LS `-data` 这种 Workspace/Runtime 唯一 State）属于 Semantic Provider Adapter 的正式职责，只有被证明可用的 Alternate 才能进入 Fallback Order；Compatibility Test 不冒充外部 Server 已安装，真实 Initialize Failure 必须可观测，而且只能切到单独获得 Trust 的已安装 Alternate；
-- 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + Provider Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有 Profile 的 LSP 与 Advanced Verification Executor 仍需显式 Trust，除非 Process-wide `--allow-risky-exec` 已明确预授权；
+- 每一种 Indexed Language 必须恰好保留一个经过 Contract Test 的 Canonical LSP Launch Profile；Provider-specific Executable Alias / Argument（包括 JDT LS `-data` 这种 Workspace/Runtime 唯一 State）属于 LSP Adapter 的正式职责，只有被证明可用的 Alternate 才能进入 Fallback Order；Compatibility Test 不冒充外部 Server 已安装，真实 Initialize Failure 必须可观测，而且只能切到单独获得 Trust 的已安装 Alternate；
+- 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + LSP Server Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有 Profile 的 LSP 与 Advanced Verification Executor 仍需显式 Trust，除非 Process-wide `--allow-risky-exec` 已明确预授权；
 - Output Bounded、Timeout Termination、Sensitive Environment Scrub、Interactive Prompt Disabled；
 - Public URL 只允许 HTTPS / Loopback HTTP，OAuth PKCE/Resource Binding、Bounded DCR Metadata、Redirect、Origin、Refresh-token Rotation 保持显式。
 
@@ -123,7 +124,7 @@ Managed Tunnel 依 Provider 而异：Cloudflare 使用 `cloudflared`；显式 Cl
 
 Known Development CLI 不由 wcode 自动安装。Harness / Quality / Provider Discovery 只报告真实 Availability。存在正确 Fallback 的 Optional Accelerator 必须保留回退，例如 Rust Full Verification 只有在 Repository 声明 Nextest Config 且本机安装 `cargo-nextest` 时才优先使用，否则继续 `cargo test`。Strict Harness Lane 只允许固定 `cargo nextest run [--locked]`，不开放任意 Nextest Argument。
 
-Language Server 与 Stage Executor 同样区分 Registered 与 Available。自动 LSP Worker 只在最具体的 Discovered Workspace 上运行，避免 Broad Parent Root 与项目 Subspace 对同一批文件重复索引；每次真实 Auto Refresh 都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。wcode 知道某个 Ecosystem Tool 的名字，不代表它已经安装或可运行。
+LSP Server 与 Stage Executor 同样区分 Registered 与 Available。自动 LSP Worker 只在最具体的 Discovered Workspace 上运行，避免 Broad Parent Root 与项目 Subspace 对同一批文件重复索引；每次真实 Auto Refresh 都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。wcode 知道某个 Ecosystem Tool 的名字，不代表它已经安装或可运行。
 
 ## 必需验证
 

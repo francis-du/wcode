@@ -1,7 +1,42 @@
 use super::*;
+use crate::{authorization::AuthorizationKind, workspace::Workspace};
+use std::fs;
 
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+#[tokio::test]
+async fn repository_commands_request_exact_authorization_instead_of_staying_hard_blocked() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname='authorized-run'\nversion='0.1.0'\nedition='2021'\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/main.rs"),
+        "fn main() { println!(\"authorized\"); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, true).unwrap();
+
+    let blocked = workspace
+        .run_command("cargo", &["run".to_owned()], ".", 30)
+        .await
+        .unwrap_err();
+    assert!(blocked.to_string().contains("authorization required"));
+    let request = workspace.authorization.latest_pending().unwrap();
+    assert_eq!(request.kind, AuthorizationKind::RiskyExecution);
+    assert!(workspace.authorization.approve_session(&request.id));
+
+    let result = workspace
+        .run_command("cargo", &["run".to_owned()], ".", 30)
+        .await
+        .unwrap();
+    assert!(result.success, "cargo run failed: {}", result.stderr);
+    assert!(result.stdout.contains("authorized"));
 }
 
 #[test]

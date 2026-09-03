@@ -14,7 +14,7 @@ pub(super) async fn build_provider_import(
     let mut guard = handle.lock().await;
     let session = guard
         .as_mut()
-        .ok_or_else(|| anyhow!("semantic session failed to initialize"))?;
+        .ok_or_else(|| anyhow!("LSP session failed to initialize"))?;
     let call_hierarchy = session
         .capabilities
         .get("callHierarchyProvider")
@@ -233,7 +233,7 @@ pub(super) async fn build_provider_import(
     }
 
     if nodes.is_empty() {
-        bail!("language server returned no semantic document symbols");
+        bail!("LSP server returned no semantic document symbols");
     }
     let import = GraphProviderImport {
         provider: format!("lsp:{}", provider.id),

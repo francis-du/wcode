@@ -75,7 +75,7 @@ impl ProductScope {
             Self::Workspace => "workspace isolation, bounded coding primitives, scheduling, authorization and repository conventions",
             Self::Design => "machine-operable desired software state, constraints, acceptance criteria and decisions",
             Self::Graph => "syntax index plus durable provider-neutral Software Graph state",
-            Self::Semantics => "confirmed/candidate workspace semantics and first-party semantic provider adapters",
+            Self::Semantics => "confirmed/candidate workspace semantics and first-party LSP adapters",
             Self::Traceability => "software context, requirement traceability, drift and transitive impact analysis",
             Self::Risk => "multi-dimensional risk derivation and risk-adaptive policy",
             Self::Verification => "deterministic and independent reviewer/stage verification orchestration",

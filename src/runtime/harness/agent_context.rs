@@ -232,6 +232,29 @@ impl ToolHarness {
                 })
             })
             .collect::<Vec<_>>();
+        let semantic_provider_hints = if query_needs_semantic_relationships(query) {
+            self.semantic_provider_status(workspace)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|status| status.detected && status.action.is_some())
+                .take(4)
+                .map(|status| {
+                    json!({
+                        "language": status.language,
+                        "provider": status.provider,
+                        "executable": status.executable,
+                        "discovery": status.discovery,
+                        "action": status.action,
+                        "reason": status.reason,
+                    })
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        // Fail-soft like the old MCP-layer merge: a broken worklist store must not
+        // take down the whole context pack.
+        let worklist = crate::worklist::active_summary(workspace).unwrap_or(None);
 
         let mut pack = json!({
             "workspace": workspace_id,
@@ -274,8 +297,10 @@ impl ToolHarness {
             "relations": {"nodes": graph_nodes, "edges": graph_edges},
             "risks": risks,
             "checks": checks,
+            "semantic_provider_hints": semantic_provider_hints,
+            "worklist": worklist,
             "workflow": [
-                "Split the task into dependency lanes first; run independent discovery/read/review work concurrently as separate top-level MCP calls when the host supports it.",
+                "Parallel-first: before the next tool call, split work into dependency lanes. If readiness.parallelism.strategy is top_level_concurrent_calls, launch independent discovery/read/review calls together now; do not serialize them merely for convenience.",
                 "Start from hot_source; open additional bodies only when the edit requires them.",
                 "Reuse existing components/helpers before adding branches, wrappers, or new modules.",
                 "Edit independent target files concurrently; serialize only edits with real data or path dependencies. Keep parallel_tools for compact fan-out rather than large nested arguments.",
@@ -502,6 +527,20 @@ fn update_agent_readiness(value: &mut Value) {
         .is_some_and(query_needs_semantic_relationships);
     let recommend_semantic_navigation =
         semantic_relationship_task && graph_precision == "syntax" && targets > 0;
+    let semantic_provider_actions = value
+        .get("semantic_provider_hints")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let semantic_provider_authorization = semantic_provider_actions
+        .iter()
+        .any(|provider| provider.get("action").and_then(Value::as_str) == Some("authorize_lsp"));
+    let semantic_provider_initialization = semantic_provider_actions
+        .iter()
+        .any(|provider| provider.get("action").and_then(Value::as_str) == Some("initialize_lsp"));
+    let semantic_provider_missing = semantic_provider_actions
+        .iter()
+        .any(|provider| provider.get("action").and_then(Value::as_str) == Some("install_lsp"));
 
     let edit = if !write_enabled {
         "read_only_workspace"
@@ -540,6 +579,12 @@ fn update_agent_readiness(value: &mut Value) {
     if recommend_semantic_navigation {
         advisories.push("semantic_navigation_recommended");
     }
+    if semantic_provider_authorization {
+        advisories.push("lsp_authorization_required");
+    }
+    if semantic_provider_missing {
+        advisories.push("lsp_install_required");
+    }
     if hot_source == 0 && targets > 0 {
         advisories.push("source_body_not_in_pack");
     }
@@ -557,12 +602,22 @@ fn update_agent_readiness(value: &mut Value) {
     let mut next_actions = Vec::<&str>::new();
     match edit {
         "ready" => {
+            if recommend_semantic_navigation
+                && (semantic_provider_authorization || semantic_provider_initialization)
+            {
+                next_actions.push("semantic_provider_refresh");
+            }
             if recommend_semantic_navigation {
                 next_actions.push("semantic_navigation");
             }
             next_actions.push(edit_tool);
         }
         "needs_source" => {
+            if recommend_semantic_navigation
+                && (semantic_provider_authorization || semantic_provider_initialization)
+            {
+                next_actions.push("semantic_provider_refresh");
+            }
             if recommend_semantic_navigation {
                 next_actions.push("semantic_navigation");
             }
@@ -571,6 +626,11 @@ fn update_agent_readiness(value: &mut Value) {
         }
         "needs_target" => {
             next_actions.push("find_symbol");
+            if recommend_semantic_navigation
+                && (semantic_provider_authorization || semantic_provider_initialization)
+            {
+                next_actions.push("semantic_provider_refresh");
+            }
             if recommend_semantic_navigation {
                 next_actions.push("semantic_navigation");
             }
@@ -578,6 +638,11 @@ fn update_agent_readiness(value: &mut Value) {
             next_actions.push(edit_tool);
         }
         "needs_sha" => {
+            if recommend_semantic_navigation
+                && (semantic_provider_authorization || semantic_provider_initialization)
+            {
+                next_actions.push("semantic_provider_refresh");
+            }
             if recommend_semantic_navigation {
                 next_actions.push("semantic_navigation");
             }
@@ -595,11 +660,59 @@ fn update_agent_readiness(value: &mut Value) {
         next_actions.push("verify_project");
     }
 
-    let candidate_lanes = target_paths.len().max(editable_files).max(1);
+    let previous_candidate_lanes = value
+        .pointer("/readiness/parallelism/candidate_lanes")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0);
+    let candidate_lanes = target_paths
+        .len()
+        .max(editable_files)
+        .max(previous_candidate_lanes)
+        .max(1);
     let parallel_strategy = if candidate_lanes > 1 {
         "top_level_concurrent_calls"
     } else {
         "single_lane"
+    };
+    let architecture_intent = value
+        .get("query")
+        .and_then(Value::as_str)
+        .is_some_and(query_requests_architecture_change);
+    let inferred_change_strategy = if architecture_intent && target_paths.len() >= 3 {
+        "cross_module_change"
+    } else if target_paths.len() > 1 {
+        "localized_refactor"
+    } else {
+        "minimal_patch"
+    };
+    let previous_change_strategy = value
+        .pointer("/readiness/change_strategy")
+        .and_then(Value::as_str);
+    let change_strategy = match (previous_change_strategy, inferred_change_strategy) {
+        (Some("cross_module_change"), _) => "cross_module_change",
+        (Some("localized_refactor"), "minimal_patch") => "localized_refactor",
+        _ => inferred_change_strategy,
+    };
+    let complexity_budget = match change_strategy {
+        "minimal_patch" => json!({
+            "new_production_files": 0,
+            "new_abstractions": 0,
+            "new_config_knobs": 0,
+            "public_api_changes": 0,
+        }),
+        "localized_refactor" => json!({
+            "new_production_files": 1,
+            "new_abstractions": 1,
+            "new_config_knobs": 0,
+            "public_api_changes": 0,
+        }),
+        _ => json!({
+            "new_production_files": "evidence_required",
+            "new_abstractions": "evidence_required",
+            "new_config_knobs": "only_if_required",
+            "public_api_changes": "only_if_required",
+        }),
     };
 
     value["readiness"] = json!({
@@ -610,8 +723,18 @@ fn update_agent_readiness(value: &mut Value) {
         "parallelism": {
             "strategy": parallel_strategy,
             "candidate_lanes": candidate_lanes,
+            "execution_bias": if candidate_lanes > 1 { "parallel_first" } else { "single_lane" },
+            "recommended_concurrency": candidate_lanes.min(4),
+            "instruction": if candidate_lanes > 1 {
+                "Launch independent top-level tool calls concurrently in the next action. Serialize only true data dependencies or overlapping writes."
+            } else {
+                "Keep this task in one lane unless new independent targets are discovered."
+            },
+            "serialize_only": ["overlapping file writes", "shared mutable state", "output-dependent follow-ups"],
             "parallel_tools": "compact_fanout_only"
         },
+        "change_strategy": change_strategy,
+        "complexity_budget": complexity_budget,
         "direct_targets": targets,
         "hot_source_items": hot_source,
         "direct_target_files": target_paths.len(),
@@ -623,6 +746,23 @@ fn update_agent_readiness(value: &mut Value) {
         "graph_truncated": graph_truncated,
         "advisories": advisories,
     });
+}
+
+fn query_requests_architecture_change(query: &str) -> bool {
+    let query = query.to_ascii_lowercase();
+    [
+        "architecture",
+        "architectural",
+        "cross-module",
+        "cross module",
+        "redesign",
+        "re-architect",
+        "架构",
+        "跨模块",
+        "重构架构",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle))
 }
 
 fn query_needs_semantic_relationships(query: &str) -> bool {
@@ -742,9 +882,13 @@ fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
             || pop_nested_array(value, "relations", "nodes", 0)
             || pop_array(value, "guidance", 0)
             || pop_array(value, "workflow", 0)
+            || pop_nested_array(value, "worklist", "parallel_runnable", 0)
+            || pop_nested_array(value, "worklist", "items", 0)
+            || pop_nested_array(value, "worklist", "runnable", 0)
             || pop_nested_array(value, "repo_map", "items", 1)
             || pop_array(value, "design", 1)
             || pop_array(value, "checks", 1)
+            || pop_array(value, "semantic_provider_hints", 1)
             || pop_array(value, "tests", 1)
             || pop_array(value, "targets", 1)
             || pop_array(value, "files", 1)
@@ -798,7 +942,7 @@ fn finalize_agent_context(
     baseline_context_bytes: u64,
     budget: usize,
 ) -> Result<()> {
-    for _ in 0..8 {
+    for _ in 0..32 {
         let previous = (
             value["serialized_bytes"].clone(),
             value["estimated_tokens"].clone(),
@@ -833,7 +977,21 @@ fn finalize_agent_context(
             return Ok(());
         }
     }
-
+    for _ in 0..8 {
+        let bytes = serde_json::to_vec(value)?.len() as u64;
+        let tokens = bytes.div_ceil(4);
+        value["serialized_bytes"] = json!(bytes);
+        value["estimated_tokens"] = json!(tokens);
+        let actual_bytes = serde_json::to_vec(value)?.len() as u64;
+        if actual_bytes == bytes
+            && value["estimated_tokens"].as_u64() == Some(actual_bytes.div_ceil(4))
+        {
+            break;
+        }
+    }
+    let bytes = serde_json::to_vec(value)?.len() as u64;
+    value["serialized_bytes"] = json!(bytes);
+    value["estimated_tokens"] = json!(bytes.div_ceil(4));
     let bytes = serde_json::to_vec(value)?.len();
     if bytes.div_ceil(4) > budget {
         bail!("agent context could not satisfy the {budget}-token budget after finalization");

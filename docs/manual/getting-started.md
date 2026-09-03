@@ -7,9 +7,11 @@ alternate: /zh/docs/getting-started/
 permalink: /docs/getting-started/
 ---
 
-# Getting Started
+# Get one repository working with wcode
 
-This page is the shortest path from an existing repository to a working wcode runtime.
+wcode is not another coding agent. It is the local repository layer your existing agent calls when it needs to understand code, follow real cross-file relationships, make guarded changes, or prove the current revision works.
+
+The first successful setup is only three steps: **install → `wcode setup` → run `wcode` from the repository**. Everything else on this page explains what those three steps give you.
 
 ## 1. Install
 
@@ -84,12 +86,15 @@ next wcode process. A replacement tunnel can keep the session after it passes
 the current instance health check. Authorization always stays on the domain
 that received the request, and unknown or inactive hosts are rejected.
 
-## 4. Initialize Design State only when useful
+## 4. Let the agent start small
 
-A connected agent may call `design_init`. It creates Project/Product state and
-three practical baseline constraints for module size, test placement, and
-Design-reference updates. Other collections stay absent until they carry real
-project decisions. Existing Design State is never overwritten.
+You do not need to design the whole repository before the first task. A connected
+agent starts with `agent_context`, which defaults ordinary work toward a minimal
+change and asks for stronger context only when the task needs it.
+
+If the project benefits from durable requirements or architecture constraints,
+call `design_init` then. It creates sparse Project/Product state and practical
+baseline constraints without overwriting existing Design State.
 
 Inspect it with:
 

@@ -365,19 +365,20 @@ pub(super) fn render_intelligence_overlay(
             "LSP",
             if config.semantic_auto {
                 format!(
-                    "ready {}/{} · live {} · auto {} · warm {}/{} · q {} · fresh {}/{}",
+                    "ready {}/{} · live {} · auth {} · missing {} · auto {} · warm {}/{} · fresh {}/{}",
                     stats.lsp_launch_ready,
                     stats.lsp_available,
                     stats.lsp_validated,
+                    stats.lsp_authorization_required,
+                    stats.lsp_missing,
                     stats.lsp_automatic,
                     stats.lsp_sessions,
                     stats.lsp_documents,
-                    stats.lsp_requests,
                     stats.lsp_fresh,
                     stats.lsp_stale
                 )
             } else {
-                "off · syntax fallback".to_owned()
+                "off · Tree-sitter only".to_owned()
             },
             if !config.semantic_auto {
                 TEXT_MUTED

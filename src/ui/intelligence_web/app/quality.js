@@ -168,7 +168,7 @@ function renderLanguageQuality() {
             ? `<span title="${
               esc(
                 language.semantic_provider ||
-                  localized("semantic provider", "语义分析器"),
+                  localized("LSP server", "LSP Server"),
               )
             }">${
               pill(
@@ -176,7 +176,7 @@ function renderLanguageQuality() {
                 language.semantic_runnable ? "good" : "info",
               )
             }</span>`
-            : `<span class="panel-meta">${esc(t("Syntax fallback"))}</span>`
+            : `<span class="panel-meta">${esc(t("Tree-sitter only"))}</span>`
         }</td><td>${qualityCell(language, "format")}</td><td>${
           qualityCell(language, "lint")
         }</td><td>${qualityCell(language, "type_check")}</td><td>${

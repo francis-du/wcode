@@ -7,9 +7,11 @@ alternate: /docs/getting-started/
 permalink: /zh/docs/getting-started/
 ---
 
-# 快速开始
+# 先让一个仓库真正跑通 wcode
 
-这页只保留从现有仓库到可用 wcode Runtime 的最短路径。
+wcode 不是另一个 Coding Agent，而是现有 Agent 调用的本地仓库层：需要理解代码、确认跨文件关系、受控修改或证明当前 Revision 时，由 wcode 提供稳定的工程上下文与边界。
+
+第一次跑通其实只有三步：**安装 → `wcode setup` → 在仓库里运行 `wcode`**。下面的内容只是把这三步背后的行为讲清楚。
 
 ## 1. 安装
 
@@ -79,11 +81,13 @@ OAuth Client 注册和 Token 不按时间过期。wcode 按配置的 Workspace �
 当前实例健康校验后可以继续原会话；授权始终留在请求实际进入的域名，未知或
 已经失效的 Host 仍会被拒绝。
 
-## 4. 需要时再初始化 Design State
+## 4. 先让 Agent 从小改动开始
 
-连接后的 Agent 可以调用 `design_init`。初始化会写入 Project/Product 状态，
-以及模块行数、测试位置、Design 引用同步三条基础约束；其他集合只有在有
-实际内容时才创建，也不会覆盖已有 Design State。
+第一次使用不需要先把整个仓库建模完。连接后的 Agent 从 `agent_context` 开始，
+普通任务默认按最小改动处理，只有任务真的需要时才继续展开更深上下文。
+
+当项目确实需要持久 Requirement 或架构约束时，再调用 `design_init`。它会稀疏
+创建 Project/Product 状态与基础约束，不会覆盖已有 Design State。
 
 本地查看：
 

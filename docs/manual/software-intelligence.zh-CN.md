@@ -7,17 +7,34 @@ alternate: /docs/software-intelligence/
 permalink: /zh/docs/software-intelligence/
 ---
 
-# wcode Software Intelligence Runtime 中文指南
+# 别再让 Agent 每次会话都重新猜你的代码库
 
-这份文档只讲已经落地的 Software Intelligence 能力，以及每个界面能凭
-什么证据下结论。
+Coding Agent 写代码可以很快，但仍可能看错代码周围的系统。wcode 在仓库旁维护一份本地、可复用的软件模型，让不同 Agent 在修改前后都能回答四个实际问题：
 
-同一份状态可以从 MCP、本地 CLI、TUI 和受保护 WebUI 查看。
-**architecture-first** Project Observatory 先对照声明的组件依赖和当前代码
-实际观测到的关系，再显示 **observed drift**、**evidence coverage** 与
-**implementation coverage**，之后才进入组件或需求详情。需求页始终按
-Desired State → Actual State → Change → Proof → Convergence 展开。Software
-Graph 是底层能力，不承担主界面叙事。
+1. **这个系统本来应该是什么样？** —— Requirement、Component、Constraint、Decision、Acceptance。
+2. **它现在到底怎么工作？** —— Syntax 结构，加上真实 LSP Reference、Caller、Implementation，以及外部 Runtime / Compiler Relationship。
+3. **这次修改会碰到什么？（What will this change touch?）** —— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
+4. **凭什么相信改对了？** —— 确定性检查、语言原生验证、独立 Review，以及绑定当前 Revision 的 Evidence。
+
+这就是“AI 能搜索仓库”和**software intelligence an agent can reason from**之间的区别：Agent 真正拥有可推理的软件智能。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
+
+## 60 秒理解 wcode 的软件智能
+
+```text
+你正在使用的 Coding Agent
+      ↓ 请求任务上下文
+agent_context
+      ↓ 聚焦代码 + Design + Test + Semantic Gap
+Tree-sitter ── Warm LSP ── Design State ── Git Actual State
+      ↓
+Impact / Drift / Risk
+      ↓ 受控编辑
+Verification / Reviewer / Evidence
+      ↓
+Project Observatory + 持久 Workspace State
+```
+
+Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把 durable workspace state（持久 Workspace State）留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
 
 本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
 Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
@@ -46,7 +63,7 @@ wcode verification --plan-id VP-...
 
 `intelligence --check` 会把只读状态面变成 fail-closed 的 CI / Release Gate：Design State 未初始化或无效、Requirement→Component / Design→Implementation / Acceptance→Verification 任一维度低于 100%、以及 Required Convention 出现 Error 时都会返回非零退出码。只有当 Design State 显式声明 `CONSTRAINT-PRODUCT-SCOPE-CANONICAL` 时，Product Scope 扫描截断或存在未映射受支持源码才会成为硬门槛；普通第三方仓库仍可查看 `scope_status`，但不会被强制套用 wcode 自身的 12 个 Product Scope 目录模型。JSON 会同时带出 Runtime 使用的 `scope_status` 与 `conventions`；Convention Warning 仍保持建议性质，不会阻断发布。
 
-Semantic Provider 和 Stage Executor 都可能加载/执行仓库控制的配置或代码，因此不再共用一条笼统的 Trust 规则。拥有 Hardened Profile 的第一方 Semantic Provider 默认通过独立有界 Lane 自动运行；当前首个 Auto Profile 是 `rust-analyzer`。`--no-semantic` 可以关闭全部第一方 Language Server 执行。没有 Auto Profile 的 Provider 与 Stage Executor 仍属于显式 Trust Expansion：第一次尚未授权的精确操作会 fail closed 并生成本地 Authorization Request，可在 TUI 或受保护 WebUI 批准后重试；`--allow-risky-exec` 仍是这些非 Auto 操作更宽的进程级预授权方式：
+LSP Server 和 Stage Executor 都可能加载/执行仓库控制的配置或代码，因此不共用一条笼统的 Trust 规则。拥有 Hardened Profile 的第一方 LSP Server 默认通过独立有界 Lane 自动运行；当前首个 Auto Profile 是 `rust-analyzer`。`--no-semantic` 可以关闭全部第一方 LSP 执行。没有 Auto Profile 的 LSP Server 与 Stage Executor 仍属于显式 Trust Expansion：第一次尚未授权的精确操作会 fail closed 并生成本地 Authorization Request，可在 TUI 或受保护 WebUI 批准后重试；`--allow-risky-exec` 仍是这些非 Auto 操作更宽的进程级预授权方式：
 
 ```bash
 wcode --no-semantic
@@ -267,7 +284,7 @@ Coverage 不会被压成一个总分，而是分别返回：
 - Design → Implementation
 - Acceptance → Verification
 
-### 22 语言 Semantic Provider
+### 22 种语言的 LSP 支持
 
 `semantic_provider_status` 会扫描 Workspace，并对当前语法索引已经支持的全部 22 种语言报告真实 Provider 状态：Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua、OCaml/Interface、PHP、Python、R、Ruby、Rust、Swift、TypeScript、TSX。
 
@@ -296,21 +313,21 @@ v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry �
 
 拥有 Alternate 的语言，在前台 Navigation 和手工 Semantic Refresh 两条路径里都会在 Canonical Provider 已安装但 Initialize 失败时尝试 Alternate。Alternate 仍然经过自己独立的 Trust Boundary；Refresh 成功切换后会在 `fallbacks` 中显式记录，绝不会把一个 Provider 的 Grant 偷偷扩大到另一个 Provider。
 
-Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + Provider + Provider Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。Provider Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
+Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + LSP Server + 当前 Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。LSP Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
 
 Warm Session 的 Document Sync 现在严格跟随 Server 返回的 `textDocumentSync` Contract：Numeric Full/Incremental 兼容形态按完整 Open 处理；Options 形态尊重 `openClose`；Full Change 发送整文档，Incremental Change 使用旧内容在已协商 UTF-8/UTF-16/UTF-32 Position Encoding 下计算合法 Replacement Range；None 不会硬发 Server 没声明支持的 Change；只有 Server 要求 Open/Close Sync 时才发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。
 
-Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：Language Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 Provider，需要绑定 Workspace + Provider + 当前 Provider Binary Identity 的 `RiskyExecution` Grant；Refresh/Navigation 只能复用这一个已批准的 Warm Provider，Executable 被替换以后旧 Grant 自动失效。只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
+Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：LSP Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 LSP Server，需要绑定 Workspace + Server + 当前 Binary Identity 的 `RiskyExecution` Grant；Refresh/Navigation 只能复用这一个已批准的 Warm Session，Executable 被替换以后旧 Grant 自动失效。只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
 
 没有可安全运行或已安装的 Provider 时，Tree-sitter 仍提供 `precision=syntax` 的基础图。SCIP / Compiler / Runtime 等其他 Provider 继续使用 `graph_provider_import`，两条路径共享同一个带 Provenance 的 Software Graph。
 
 ### `semantic_navigation`
 
-`semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee，或一组有界的 Impact 关系。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 Language Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。
+`semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee，或一组有界的 Impact 关系。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 LSP Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。
 
-`intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。Result 会把 `unsupported` 与 `failures` 分开：空 Relationship List 只表示“这个能力受支持、请求成功、没有匹配关系”；LSP Timeout/Error 会单独暴露，绝不会被当成 Negative Semantic Evidence。没有可信 Provider 时，Tool 明确返回 Tree-sitter `syntax_fallback`，不会伪装成 Compiler-level Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
+`intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。Result 会把 `unsupported` 与 `failures` 分开：空 Relationship List 只表示“这个能力受支持、请求成功、没有匹配关系”；LSP Timeout/Error 会单独暴露，绝不会被当成 Negative Semantic Evidence。没有可信 LSP Server 时，Tool 明确返回 `precision=syntax` 与 `routing=tree_sitter_fallback`，不会伪装成 Semantic Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
 
-TUI Intelligence 会把 Installed `available`、Policy/Trust `launch-ready`、已真实 Initialize 的 `validated`、Runnable/Fresh Semantic State 分开，再显示 Warm Session 数、已同步 Document 数、Semantic Query 数、Provider Start 次数和 Fresh/Stale 状态，可以直接判断问题发生在安装、权限、启动还是语义新鲜度。
+TUI Intelligence 会把 Installed `available`、Policy/Trust `launch-ready`、已真实 Initialize 的 `validated`、Runnable/Fresh 状态分开，再显示 Warm Session 数、已同步 Document 数、待授权与缺失 Server 数、Provider Start 次数和 Fresh/Stale 状态，可以直接判断问题发生在安装、权限、启动还是语义新鲜度。
 
 ### Language Quality Matrix
 
@@ -654,7 +671,7 @@ run_command
 - `delete_path` 的精确一次性人工授权：只能删除普通文件或空目录；文件删除要求当前 SHA-256，递归删除、Workspace Root、受保护路径、Symlink Alias、Hard-linked File 永久禁止
 - 持久化 Semantic Registry；Conversation/Model 推断默认只能成为 Candidate，必须显式人工确认后才进入权威 Context
 - Design + Tree-sitter + Fresh 第一方 LSP + External Provider Composite Software Graph
-- 全部 22 种索引语言的统一 Semantic Provider Registry；真实 LSP Document Symbol / Call Hierarchy / Implementation 才会成为 `precision=semantic` 事实，并支持 Source Hash Freshness / Stale Exclusion / Revision Cache
+- 全部 22 种索引语言的第一方 LSP 支持；真实 LSP Document Symbol / Call Hierarchy / Implementation 才会成为 `precision=semantic` 事实，并支持 Source Hash Freshness / Stale Exclusion / Revision Cache
 - 可唯一判定的跨文件 Syntax Calls、Graph History / Query / Diff，以及外部 SCIP/Compiler/Runtime Provider Import Contract
 - Requirement → Component → Code/Test Traceability
 - Token-efficient `agent_context`：Adaptive Budget、Scope-aware Repo Map、Revision-aware Cache、Multi-query Single-pass Search、Bounded Hot Source、Fresh Semantic/Runtime Ranking、Exact SHA Target、Working-tree Advisory、Readiness 与 Next Actions；更深层仍保留 Budget-aware / Semantic-aware `software_context`
@@ -670,9 +687,9 @@ run_command
 
 ### 明确精度 / 集成边界
 
-- 永远可用的内置代码索引仍是 Tree-sitter `precision=syntax`；第一方 LSP Adapter 只有在本机真实 Language Server 返回结果后才把对应事实标成 `precision=semantic`，外部 SCIP / Compiler / Runtime Provider 仍走带 `provider + precision + revision` 的 Import Contract。
-- 全部 22 种语言共享同一套 Semantic Provider / Verification Executor 架构，但 wcode 不捆绑每一种第三方 LSP 和测试二进制；`semantic_provider_status` / `verification_executor_status` 会展示本机真实 availability，不把缺失程序算成已安装。
-- 拥有 Hardened Profile 的第一方 Semantic Provider 可以通过有界 Semantic Lane 自动刷新，并可用 `--no-semantic` 关闭；没有 Profile 的 LSP Refresh 与 Property / Mutation / Fuzz / Runtime-Canary 继续要求显式操作者信任，`--allow-risky-exec` 仍是进程级预授权；这些机制都不是 OS Sandbox。
+- 永远可用的内置代码索引仍是 Tree-sitter `precision=syntax`；第一方 LSP Adapter 只有在本机真实 LSP Server 返回结果后才把对应事实标成 `precision=semantic`，外部 SCIP / Compiler / Runtime Provider 仍走带 `provider + precision + revision` 的 Import Contract。
+- 全部 22 种语言共享同一套 LSP / Verification Executor 架构，但 wcode 不捆绑每一种第三方 LSP 和测试二进制；`semantic_provider_status` / `verification_executor_status` 会展示本机真实 availability，不把缺失程序算成已安装。
+- 拥有 Hardened Profile 的第一方 LSP Server 可以通过有界 LSP Lane 自动刷新，并可用 `--no-semantic` 关闭；没有 Profile 的 LSP Refresh 与 Property / Mutation / Fuzz / Runtime-Canary 继续要求显式操作者信任，`--allow-risky-exec` 仍是进程级预授权；这些机制都不是 OS Sandbox。
 - Model-facing Command Execution 对内置 Development CLI Catalog 使用 Command-specific Policy，对有界 Repository/Remote Operation 使用精确 `RiskyExecution` Fingerprint。Repository Mutation 只允许显式 Path 的 `git add`、Message-only `git commit`、显式 Remote+Ref 的 Non-force `git push` 进入授权；批准后的 SSH Push 只通过固定非交互 SSH 命令使用当前 SSH Agent。Force/Delete/Reset/Restore、Shell Interpreter、Credential-bypass Surface、Workspace Escape 与 Protected Resource 继续阻断。
 - Reconciliation 可以持久化编排并跨模型继续执行，但实际源码修改仍走 wcode 的受限、原子、SHA-256 Guarded Edit Tool，不存在绕过安全边界的隐藏自动 Patch。
 - 删除是单独的破坏性授权路径：第一次 `delete_path` 会创建精确的本地 Authorization Request，操作者在 TUI 或受保护 WebUI 中批准或拒绝；只有参数和目标完全匹配的重试才能消耗这一次性 Grant。

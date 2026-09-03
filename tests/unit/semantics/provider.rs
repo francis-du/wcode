@@ -363,6 +363,70 @@ fn automatic_semantics_only_trust_the_hardened_rust_provider() {
 }
 
 #[test]
+fn gopls_discovery_includes_standard_go_install_locations() {
+    let home = PathBuf::from("/fixture/home");
+    let gobin = PathBuf::from("/fixture/gobin");
+    let gopath = PathBuf::from("/fixture/gopath");
+    let paths = known_language_tool_paths_from(
+        "gopls",
+        Some(gobin.clone().into_os_string()),
+        Some(gopath.clone().into_os_string()),
+        Some(home.clone().into_os_string()),
+    );
+    assert!(paths.contains(&gobin.join(executable_name("gopls"))));
+    assert!(paths.contains(&gopath.join("bin").join(executable_name("gopls"))));
+    assert!(paths.contains(&home.join("go/bin").join(executable_name("gopls"))));
+}
+
+#[test]
+fn external_gopls_needs_provider_identity_approval_not_home_workspace_access() {
+    let workspace_dir = tempfile::tempdir().unwrap();
+    let tools_dir = tempfile::tempdir().unwrap();
+    let gopls = tools_dir.path().join(executable_name("gopls"));
+    std::fs::write(&gopls, "fixture").unwrap();
+    let workspaces =
+        crate::workspace::Workspaces::new([workspace_dir.path()], false, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let (_, workspace) = workspaces.select(Some(&workspace_id)).unwrap();
+    let provider = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "gopls")
+        .unwrap();
+
+    let error = authorize_provider_session(&workspace, provider, &gopls).unwrap_err();
+    assert!(error.to_string().contains("authorization required"));
+    let request = workspaces.latest_pending_authorization().unwrap();
+    assert_eq!(request.kind, AuthorizationKind::RiskyExecution);
+    assert!(request.summary.contains("gopls"));
+    assert!(!workspaces.full_access_enabled());
+
+    assert!(workspaces.approve_authorization_session(&request.id));
+    authorize_provider_session(&workspace, provider, &gopls).unwrap();
+    let operation = provider_session_operation(&workspace, provider, &gopls).unwrap();
+    assert!(workspace.risky_operation_authorized(&operation));
+    assert!(!workspaces.full_access_enabled());
+}
+
+#[test]
+fn missing_provider_binary_reports_discovery_stage_and_action() {
+    let workspace_dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(workspace_dir.path(), false, true).unwrap();
+    let provider = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "gopls")
+        .unwrap();
+    let missing = workspace_dir.path().join("../definitely-missing-gopls");
+    let error = client::provider_launch_executable(&workspace, provider, &missing)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("stage=discovery"));
+    assert!(error.contains("action=refresh_lsp_discovery_or_reinstall"));
+    assert!(!error.starts_with("No such file or directory"));
+}
+
+#[test]
 fn provider_executables_inside_the_workspace_are_rejected() {
     let workspace_dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(workspace_dir.path(), false, false).unwrap();

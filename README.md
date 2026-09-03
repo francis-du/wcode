@@ -9,19 +9,39 @@
   <a href="https://wcode.francis.run/"><img src="https://img.shields.io/badge/docs-wcode.francis.run-f05aa6" alt="Documentation"></a>
 </p>
 
-wcode is a local software-intelligence runtime for code repositories. MCP
-clients get bounded repository tools, while design, implementation state, and
-verification evidence remain in the repository runtime instead of a chat.
+# Make any coding agent understand your repo before it changes it.
 
-You choose the Workspace. wcode owns the filesystem and command boundary;
-Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and
-other clients connect through MCP.
+**wcode is not another coding agent. It is the missing repository layer for Claude Code, Codex, Cursor, Copilot, and other agents: task-ready context, real code relationships, guarded actions, and proof tied to the current revision.**
+
+Coding agents are already good at writing code. The expensive failures happen around the code: they miss a caller, guess an architecture boundary, edit too much, run with too much access, or declare success without enough proof. **wcode fixes that layer without asking you to replace the agent you already use.**
+
+> **Understand first. Change less. Prove it works.**
+
+### What wcode fixes
+
+| The problem | What wcode does |
+| --- | --- |
+| **The agent does not understand the repo** | Builds task-ready context from code, architecture, requirements, tests, conventions, and the active worklist |
+| **Search misses real relationships** | Uses LSP for callers, references, implementations, hover, and cross-file impact; precision stays explicit when only syntax is available |
+| **A small task turns into a redesign** | Starts ordinary work with a minimal-change strategy and complexity budget, then surfaces scope and maintainability growth |
+| **Agent tools have too much machine access** | Keeps work inside governed Workspace roots with no-shell execution, protected paths, SHA-safe writes, and exact human authorization |
+| **“Looks good” becomes the merge criterion** | Runs deterministic checks and keeps revision-bound verification and Evidence so proof survives the chat |
+| **Every model starts from zero** | Keeps repository intelligence and work state local and reusable across coding agents and sessions |
+
+Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and other MCP clients can all use the same local runtime.
+
+<p align="center">
+  <a href="docs/assets/wcode-architecture.png"><img src="docs/assets/wcode-architecture.png" alt="wcode Project Observatory architecture view" width="49%"></a>
+  <a href="docs/assets/wcode-verification-detail.png"><img src="docs/assets/wcode-verification-detail.png" alt="wcode requirement verification and evidence view" width="49%"></a>
+</p>
+
+<p align="center"><sub>Architecture and change impact on the left. Requirement-to-proof traceability on the right.</sub></p>
 
 - [Documentation](https://wcode.francis.run/docs/)
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Software Intelligence](https://wcode.francis.run/docs/software-intelligence/)
-- [v0.5.2 — Cleaner MCP calls, parallel Agent work, and one-command setup](https://wcode.francis.run/docs/releases/v0.5.2/)
+- [v0.6 — Parallel-first agents, authorizable project commands, and stronger repository context](https://wcode.francis.run/docs/releases/v0.6/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 
 ## Install
@@ -53,22 +73,17 @@ wcode setup
 wcode
 ```
 
-Interactive `wcode setup` offers **Global (recommended)** first and **Current
-project** second. Global mode configures only verified user-level Host files
-after local confirmation; project mode keeps the config in this repository.
-Both install only `wcode mcp-stdio`, preserve unrelated servers/secrets, and
-fail closed on unknown schemas. The binary embeds the canonical `plugin/`
-package and `wcode` Skill, so setup works even when the current repository has
-no plugin directory. Use `wcode setup --dry-run` to preview the plan.
+That is the normal path. `wcode setup` configures supported local Hosts with the
+path-free `wcode mcp-stdio` command; Global setup is recommended, project scope
+is available when repository-local configuration is intentional, and unknown
+config schemas fail closed. The binary already embeds the `wcode` Skill and
+plugin package, so the target repository needs no plugin directory.
 
-`wcode` uses the current directory as the default Workspace, so normal use does
-not need `--workspace "$PWD"`. The TUI opens immediately; the normal runtime also
-starts the local HTTP service, protected WebUI, OAuth server, and managed HTTPS
-tunnels.
-While the alternate-screen dashboard is active it owns terminal output:
-background tunnel/setup diagnostics are captured into `TaskMonitor` state
-instead of writing over the ratatui frame. Every tunnel is accepted only after
-its public `/healthz` response matches the current runtime instance.
+`wcode` uses the current directory as the default Workspace. The TUI opens
+immediately and the runtime exposes the same governed repository layer to local
+stdio clients and protected remote MCP clients. Advanced tunnel, OAuth,
+resource, and deployment details belong in the focused documentation rather
+than the first-run path.
 
 The selected root remains the security boundary. Project markers below it are
 discovered as subspaces, so a broad root such as `~/Code` can safely expose
@@ -113,8 +128,7 @@ For stdio, command authorization stays human-controlled: MCP 2026 clients use
 `input_required` multi-round-trip elicitation, while compatible 2025-era stdio
 clients receive `elicitation/create`. The retry is bound to the MCP client,
 pending authorization, and an opaque challenge; there is no model-callable
-approval tool. A host that does not advertise form elicitation fails closed
-instead of silently widening command access. wcode does not add anonymous or
+approval tool. If a Host cannot open an approval form, wcode returns the pending `AUTH-...` request ID and tells the user to approve it in the TUI or protected WebUI before retrying; access is never widened automatically. wcode does not add anonymous or
 static-secret fallback just because a client cannot complete OAuth; use stdio,
 a local bridge, or a trusted reverse proxy for that client.
 
@@ -178,16 +192,14 @@ JavaScript, Lua, OCaml, OCaml Interface, PHP, Python, R, Ruby, Rust, Swift,
 TypeScript, and TSX. v0.5 gives every one of those 22 languages exactly one
 tested canonical LSP launch profile; PHP, Python, and Ruby also keep bounded
 installed-provider fallbacks when the canonical server fails initialization.
-Hardened first-party semantics are enabled by default when an eligible installed
-provider is present; the first automatic profile is `rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
+Hardened first-party LSP semantics are enabled by default when an eligible server is installed; the first automatic profile is `rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
 project Workspaces, and keep stale semantic revisions out of graph consumers.
 A bounded warm session is reused across indexing and `semantic_navigation`; document
 sync follows each server's advertised LSP Full / Incremental / None policy instead of
 assuming one `didOpen` / `didChange` shape for every language. Agents keep
 Tree-sitter/search for simple localization and use the warm LSP path for
 cross-file references, callers, implementations, and semantic impact. Use
-`--no-semantic` to disable every first-party language server. Providers without
-an automatic safety profile retain explicit execution trust. Semantic precision
+`--no-semantic` to disable every first-party LSP server. LSP servers without an automatic safety profile retain explicit execution trust. Semantic precision
 is reported only after a real server answers for the current source revision;
 otherwise wcode says `precision=syntax`.
 
@@ -243,7 +255,7 @@ wcode verification --plan-id VP-...
 ```
 
 `intelligence --check` is the repository gate for initialized, valid Design
-State and complete required traceability. Repository-aware language servers and
+State and complete required traceability. Repository-aware LSP servers and
 advanced verification stages can require an exact local authorization before
 they run.
 

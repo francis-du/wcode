@@ -117,7 +117,7 @@ impl SemanticSessionPool {
                 && Arc::strong_count(slot) > 1
         }) {
             bail!(
-                "semantic provider session is busy while provider identity changed; retry after the active request completes"
+                "LSP session is busy while server identity changed; retry after the active request completes"
             );
         }
         state.slots.retain(|_, slot| {
@@ -132,7 +132,7 @@ impl SemanticSessionPool {
                 .map(|(key, _)| key.clone())
             else {
                 bail!(
-                    "semantic session pool is at capacity and every slot is currently leased; retry after an active request completes"
+                    "LSP session pool is at capacity and every slot is in use; retry after an active request completes"
                 );
             };
             state.slots.remove(&oldest);
@@ -288,11 +288,23 @@ impl SemanticSession {
         executable: &Path,
         metrics: Arc<SessionMetrics>,
     ) -> Result<Self> {
-        let mut client = LspClient::start(workspace, provider, executable).await?;
+        let mut client = LspClient::start(workspace, provider, executable)
+            .await
+            .with_context(|| {
+                format!(
+                    "LSP stage=spawn server={} action=check_server_permissions_or_reinstall",
+                    provider.id
+                )
+            })?;
         let root_uri = Url::from_directory_path(workspace.root())
             .map_err(|_| anyhow!("workspace root could not be converted to a file URI"))?
             .to_string();
-        let capabilities = client.initialize(&root_uri).await?;
+        let capabilities = client.initialize(&root_uri).await.with_context(|| {
+            format!(
+                "LSP stage=initialize server={} action=check_workspace_access_or_lsp_configuration",
+                provider.id
+            )
+        })?;
         let position_encoding = capabilities
             .get("positionEncoding")
             .and_then(Value::as_str)
@@ -490,13 +502,26 @@ pub(super) fn session_key(
     provider: ProviderCandidate,
     executable: &Path,
 ) -> Result<String> {
-    let canonical = executable
-        .canonicalize()
-        .with_context(|| format!("cannot resolve semantic provider {}", executable.display()))?;
+    let canonical = executable.canonicalize().with_context(|| {
+        format!(
+            "LSP stage=discovery server={} executable={} action=refresh_lsp_discovery_or_reinstall",
+            provider.id,
+            executable.display()
+        )
+    })?;
     if canonical.starts_with(workspace.root()) {
-        bail!("semantic provider executable resolves inside the workspace and is not trusted");
+        bail!(
+            "LSP stage=authorization server={} action=install_lsp_outside_workspace: executable resolves inside the Workspace and is not trusted",
+            provider.id
+        );
     }
-    let metadata = std::fs::metadata(&canonical)?;
+    let metadata = std::fs::metadata(&canonical).with_context(|| {
+        format!(
+            "LSP stage=discovery server={} executable={} action=refresh_lsp_discovery_or_reinstall",
+            provider.id,
+            canonical.display()
+        )
+    })?;
     let modified = metadata
         .modified()
         .ok()

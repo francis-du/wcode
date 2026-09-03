@@ -33,7 +33,7 @@ Convergence
 
 常驻指令应保持短小，只说明 Workspace / 安全边界、Desired State、Product Scope、推荐编程路径和权威验证工具。详细架构、Requirement 历史、源码正文、语言工具和 Verification 状态只在任务需要时加载。
 
-正常编程时，`agent_context` 是主入口。它的有界自适应 Context Pack 可以包含相关 Design State、按 Scope 收窄的 Repo Map、少量 Hot Source、编辑 SHA 前置条件、相关测试、Readiness、确定性的 Next Actions 与显式 Parallelism Strategy。MCP 调用保持最小：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都不要传，除非任务确实需要覆盖。只有 Pack 明确需要更多上下文时，再使用 `symbol_context`、`software_context`、`scope_status`、`language_quality_status` 或更深的 Graph / Traceability 工具。
+正常编程时，`agent_context` 是主入口。它的有界自适应 Context Pack 可以包含相关 Design State、按 Scope 收窄的 Repo Map、少量 Hot Source、编辑 SHA 前置条件、相关测试、Readiness、确定性的 Next Actions 与显式 Parallelism Strategy。Readiness 还会给出 `change_strategy` 与 `complexity_budget`：普通单目标任务默认是 `minimal_patch`，预算为 0 个新增 Production File、0 个新增 Abstraction、0 个新增 Config Knob、0 个 Public API 变化。只有当前 Requirement、已经存在的重复实现，或已证实的 Ownership / Boundary 问题要求时才能升级；“未来可能会用”本身不算证据。MCP 调用保持最小：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都不要传，除非任务确实需要覆盖。只有 Pack 明确需要更多上下文时，再使用 `symbol_context`、`software_context`、`scope_status`、`language_quality_status` 或更深的 Graph / Traceability 工具。
 
 ### 2. Skill：渐进披露，不是隐藏执行
 
@@ -92,7 +92,7 @@ Host 具体接入方式见 [Agent 与 MCP 集成](../code-agent-integrations/)�
 进行较大源码修改前：
 
 1. 调用 `agent_context(goal, scopes=...)`，通常不手工传 Budget；
-2. 按 `readiness`、`next_actions` 与 `readiness.parallelism` 执行；Host 支持时把独立 Lane 拆成多个顶层调用并发；
+2. 按 `readiness`、`next_actions`、`readiness.parallelism`、`readiness.change_strategy` 与 `readiness.complexity_budget` 执行；优先复用现有 Owner / Helper，没有当前任务证据时不要突破复杂度预算；
 3. 省略默认 / 可推导 MCP 参数，`find_symbol` / `search_code` 继续作为低成本定位路径；只有 Readiness 判断任务需要跨文件 Reference、Caller、Implementation、Rename Impact 等语义关系时才调用 `semantic_navigation`；
 4. 只有需要更多源码时才调用 `symbol_context`；
 5. 只有任务确实需要时再调用 `language_quality_status`、`scope_status`、`design_status`、`traceability_status` 或更深 Graph Context。

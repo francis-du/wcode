@@ -20,8 +20,12 @@ fn help_exposes_the_stable_agent_and_transport_commands() {
     }
     assert!(stdout.contains("╭─ WCode"));
     assert!(stdout.contains("__          __"));
-    assert!(stdout.contains("CLI CONTRACT"));
-    assert!(stdout.contains("wcode [OPTIONS]"));
+    assert!(stdout.contains("QUICK START"));
+    assert!(stdout.contains("wcode                         Start WCode for the current project."));
+    assert!(stdout.contains("Most users do not need --workspace"));
+    assert!(stdout.contains("Language servers are discovered automatically"));
+    assert!(stdout.contains("Do not discover or run language servers"));
+    assert!(stdout.contains("Open the WCode setup page"));
     for hidden in ["agent-plugin", "help"] {
         assert!(
             !stdout.lines().any(|line| {
@@ -70,6 +74,17 @@ fn update_help_is_stable_and_hidden_agent_plugin_remains_compatible() {
     assert!(update.status.success());
     let update_help = String::from_utf8(update.stdout).unwrap();
     assert!(update_help.contains("latest verified release"));
+    assert!(update_help.contains("Update WCode"));
+
+    let intelligence = Command::new(env!("CARGO_BIN_EXE_wcode"))
+        .args(["intelligence", "--help"])
+        .output()
+        .expect("wcode intelligence --help must run");
+    let intelligence_help = String::from_utf8(intelligence.stdout).unwrap();
+    assert!(intelligence_help.contains("language-server readiness"));
+    assert!(intelligence_help.contains("Discover and initialize available language servers"));
+    assert!(intelligence_help.contains("required project checks"));
+    assert!(!intelligence_help.contains("Reconciliation runtime state"));
 
     let plugin = Command::new(env!("CARGO_BIN_EXE_wcode"))
         .args(["agent-plugin", "--help"])

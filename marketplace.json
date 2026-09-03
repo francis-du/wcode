@@ -10,7 +10,7 @@
       "name": "wcode",
       "source": "./plugin",
       "description": "wcode skill and MCP profiles with current-directory Workspace defaults.",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "author": {"name": "francis-du"},
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],

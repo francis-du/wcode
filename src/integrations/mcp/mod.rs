@@ -758,8 +758,13 @@ pub(crate) async fn handle_message(
                                 "id":id,
                                 "error":{
                                     "code":-32021,
-                                    "message":"Client does not advertise elicitation required for human authorization",
-                                    "data":{"requiredCapabilities":{"elicitation":{}}}
+                                    "message":"Human approval required. This MCP client cannot open an approval form; approve the pending request in the wcode TUI or protected WebUI, then retry the same tool call",
+                                    "data":{
+                                        "requiredCapabilities":{"elicitation":{}},
+                                        "authorizationRequestId":request.id,
+                                        "approvalSurface":"tui_or_webui",
+                                        "nextAction":"approve_then_retry_same_tool"
+                                    }
                                 }
                             }));
                         }

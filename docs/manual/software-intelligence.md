@@ -7,18 +7,34 @@ alternate: /zh/docs/software-intelligence/
 permalink: /docs/software-intelligence/
 ---
 
-# wcode Software Intelligence Runtime
+# Stop making the agent rediscover your codebase every session
 
-This guide covers the software-intelligence features that are available now and
-the evidence each view is allowed to claim.
+A coding agent can write code quickly and still be wrong about the system around it. wcode keeps a local, reusable model of the repository so every agent can answer four practical questions before and after it edits:
 
-The same state is available through MCP, local CLI commands, the TUI, and the
-protected WebUI. The **architecture-first** Project Observatory compares
-declared component dependencies with relationships observed in current code,
-then reports **observed drift**, **evidence coverage**, and **implementation
-coverage** before opening component or requirement detail. Requirement detail
-keeps one stable order: Desired State → Actual State → Change → Proof →
-Convergence. The Software Graph stays a lower-level API.
+1. **What is this system supposed to do?** — requirements, components, constraints, decisions, and acceptance criteria.
+2. **How does it work right now?** — syntax structure plus real LSP references, callers, implementations, and imported runtime/compiler relationships.
+3. **What will this change touch?** — Git-aware impact, product scopes, drift, public API/security signals, and maintainability risk.
+4. **What proves the change is safe?** — deterministic checks, language-native verification, independent review, and revision-bound Evidence.
+
+That is the difference between “AI can search this repository” and **software intelligence an agent can reason from**. The state is available through MCP, local CLI commands, the TUI, and the protected Project Observatory, and it persists beyond a single model or conversation.
+
+## The 60-second mental model
+
+```text
+Your coding agent
+      ↓ asks for task context
+agent_context
+      ↓ focused code + design + tests + semantic gaps
+Tree-sitter ── warm LSP ── Design State ── Git Actual State
+      ↓
+impact / drift / risk
+      ↓ guarded edits
+verification / reviewers / evidence
+      ↓
+Project Observatory + durable workspace state
+```
+
+The Project Observatory makes the same model human-readable: Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains the provenance-bearing substrate, not a graph visualization users have to decipher.
 
 Local `mcp-stdio`, remote Streamable HTTP + OAuth, and legacy SSE share one MCP
 core. `agent_context` is the compact coding entry point; deeper Design, Graph,
@@ -48,7 +64,7 @@ wcode verification --plan-id VP-...
 
 `intelligence --check` turns the read-only status surface into a fail-closed CI/release gate. It returns non-zero for invalid or uninitialized Design State, incomplete Requirement→Component / Design→Implementation / Acceptance→Verification coverage, or required Convention errors. Product Scope mapping becomes a hard gate only when Design State explicitly declares `CONSTRAINT-PRODUCT-SCOPE-CANONICAL`; third-party repositories can still inspect `scope_status` without being forced into wcode's own 12-scope source layout. Its JSON output includes the same `scope_status` and `conventions` state used by the runtime; Convention warnings do not fail the check.
 
-Semantic providers and stage executors can load or run repository-controlled code/configuration, so they do not share one blanket trust rule. Hardened first-party semantic providers are enabled by default through a separate bounded lane; today `rust-analyzer` is the first automatic profile. `--no-semantic` disables every first-party language-server execution. Providers without an automatic profile and stage executors remain explicit trust expansions: the first untrusted exact operation returns a local authorization request that can be approved in the TUI or protected WebUI and retried. `--allow-risky-exec` remains the broader process-wide pre-authorization path for those non-automatic operations:
+LSP servers and stage executors can load or run repository-controlled code/configuration, so they do not share one blanket trust rule. Hardened first-party LSP servers are enabled by default through a separate bounded lane; today `rust-analyzer` is the first automatic profile. `--no-semantic` disables every first-party LSP execution. LSP servers without an automatic profile and stage executors remain explicit trust expansions: the first untrusted exact operation returns a local authorization request that can be approved in the TUI or protected WebUI and retried. `--allow-risky-exec` remains the broader process-wide pre-authorization path for those non-automatic operations:
 
 ```bash
 wcode --no-semantic
@@ -236,7 +252,7 @@ Coverage is returned as separate dimensions rather than one health score:
 - design → implementation
 - acceptance → verification
 
-### 22-language Semantic Providers
+### LSP support for 22 languages
 
 `semantic_provider_status` scans the workspace and reports provider availability for every language already supported by wcode's syntax index: Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java, JavaScript, Lua, OCaml/interfaces, PHP, Python, R, Ruby, Rust, Swift, TypeScript, and TSX.
 
@@ -265,21 +281,21 @@ v0.5 locks this into an explicit compatibility contract instead of treating “a
 
 For providers with an alternate, both foreground navigation and manual semantic refresh can recover from a canonical provider that is installed but fails initialization. The alternate crosses its own normal trust boundary and successful refreshes report the switch in `fallbacks`; wcode never silently broadens one provider grant into another.
 
-The runtime automatically maintains providers that have an explicit hardened profile. It watches only the most-specific discovered project Workspaces, waits for a short stable-source window before refreshing, retries failures with bounded exponential backoff, and acquires the same global Harness semaphore as model-facing work. This prevents a broad root and its nested project subspaces from launching duplicate semantic indexing. The Harness owns a bounded warm session pool keyed by Workspace, provider, and provider-binary identity; a live session is reused by both background indexing and foreground navigation. The coordinator periodically prunes idle unleased slots, capacity eviction never removes a leased slot, and an all-busy pool fails closed instead of temporarily exceeding its process bound. Provider-binary replacement also waits for the active lease to finish before the old slot is dropped and a new one can start. `semantic_provider_refresh` remains available as a force-refresh surface.
+The runtime automatically maintains providers that have an explicit hardened profile. It watches only the most-specific discovered project Workspaces, waits for a short stable-source window before refreshing, retries failures with bounded exponential backoff, and acquires the same global Harness semaphore as model-facing work. This prevents a broad root and its nested project subspaces from launching duplicate semantic indexing. The Harness owns a bounded warm session pool keyed by Workspace, LSP server, and current binary identity; a live session is reused by both background indexing and foreground navigation. The coordinator periodically prunes idle unleased slots, capacity eviction never removes a leased slot, and an all-busy pool fails closed instead of temporarily exceeding its process bound. LSP binary replacement also waits for the active lease to finish before the old slot is dropped and a new one can start. `semantic_provider_refresh` remains available as a force-refresh surface.
 
 Within a warm session, document synchronization follows the server's advertised `textDocumentSync` contract. Numeric Full/Incremental compatibility capabilities open with full content; detailed options honor `openClose`; Full changes send the whole document, Incremental changes send a valid replacement range in the negotiated UTF-8/UTF-16/UTF-32 position encoding, and None leaves disk-backed content to the server instead of sending an unsupported change. `didClose` is sent only when the server requested open/close synchronization. A refresh requests real hierarchical Document Symbols and, when supported, imports a bounded set of high-value Call Hierarchy / Implementation relationships rather than expanding every variable and field. Successful first-party nodes carry `source_sha256`; provider status therefore reports `fresh` / `stale`, and stale LSP revisions are excluded from graph overlays, impact, reconciliation, and `software_context.graph_context`. The graph revision key still comes from source hashes, provider executable metadata, and the symbol bound: unchanged inputs skip graph reconstruction, while a runtime may warm one provider session so later semantic queries do not pay startup cost. A server that returns no semantic symbols does not create a fake semantic revision.
 
-Automatic execution is intentionally provider-specific rather than a general LSP exemption. The current `rust-analyzer` profile rejects an executable that resolves inside the Workspace, scrubs credential and execution-injection environment variables, and sends initialization options that disable build scripts, proc macros, Cargo auto-reload, and check-on-save. This reduces the default execution surface but is not an OS sandbox: language servers can still parse project metadata and configuration. `--no-semantic` is the fail-closed opt-out. A detected provider without an automatic safety profile requires a `RiskyExecution` grant bound to Workspace + provider + current provider-binary identity; refresh and navigation may reuse that exact warm provider, while replacing the executable invalidates the old grant. Process-wide `--allow-risky-exec` remains the deliberate broader trust path.
+Automatic execution is intentionally LSP-server-specific rather than a general LSP exemption. The current `rust-analyzer` profile rejects an executable that resolves inside the Workspace, scrubs credential and execution-injection environment variables, and sends initialization options that disable build scripts, proc macros, Cargo auto-reload, and check-on-save. This reduces the default execution surface but is not an OS sandbox: LSP servers can still parse project metadata and configuration. `--no-semantic` is the fail-closed opt-out. A detected LSP server without an automatic safety profile requires a `RiskyExecution` grant bound to Workspace + server + current binary identity; refresh and navigation may reuse that exact warm session, while replacing the executable invalidates the old grant. Process-wide `--allow-risky-exec` remains the deliberate broader trust path.
 
 When no trusted/installed provider can run, Tree-sitter remains available as `precision=syntax`. External SCIP/compiler/runtime indexers can still use `graph_provider_import`; the first-party LSP registry supplements rather than replaces the provider-neutral import contract.
 
 ### `semantic_navigation`
 
-Use `semantic_navigation` for relationship questions where repository text search is incomplete: definitions/hover when semantic resolution matters, references, implementations, incoming callers, outgoing callees, or a bounded impact bundle. Prefer the `path + symbol` form; wcode resolves the symbol through its syntax index and converts its 1-based UTF-8 byte position into the position encoding negotiated with the language server, so the agent does not calculate UTF-16 offsets. A direct `line + character` selector remains available for callers that already own a precise source position.
+Use `semantic_navigation` for relationship questions where repository text search is incomplete: definitions/hover when semantic resolution matters, references, implementations, incoming callers, outgoing callees, or a bounded impact bundle. Prefer the `path + symbol` form; wcode resolves the symbol through its syntax index and converts its 1-based UTF-8 byte position into the position encoding negotiated with the LSP server, so the agent does not calculate UTF-16 offsets. A direct `line + character` selector remains available for callers that already own a precise source position.
 
-The `intent` controls which LSP requests are issued: `definition`, `hover`, `references`, `incoming_calls`, `outgoing_calls`, `calls`, `implementations`, or `impact`. `impact` deliberately favors cross-file completeness—references, incoming callers, and implementations—rather than issuing every supported request. The result distinguishes `unsupported` capabilities from `failures`: an empty relationship list means a supported request completed with no matching relationships, while an LSP timeout/error is surfaced separately and is never presented as negative semantic evidence. If no trusted provider is available, the tool returns an explicit Tree-sitter `syntax_fallback` instead of pretending compiler-level precision. For simple “where is this symbol?” work, continue to use `find_symbol` / `search_code`; this keeps LSP cost proportional to the tasks that benefit from semantic completeness.
+The `intent` controls which LSP requests are issued: `definition`, `hover`, `references`, `incoming_calls`, `outgoing_calls`, `calls`, `implementations`, or `impact`. `impact` deliberately favors cross-file completeness—references, incoming callers, and implementations—rather than issuing every supported request. The result distinguishes `unsupported` capabilities from `failures`: an empty relationship list means a supported request completed with no matching relationships, while an LSP timeout/error is surfaced separately and is never presented as negative semantic evidence. If no trusted LSP server is available, the tool returns `precision=syntax` with `routing=tree_sitter_fallback` instead of pretending semantic precision. For simple “where is this symbol?” work, continue to use `find_symbol` / `search_code`; this keeps LSP cost proportional to the tasks that benefit from semantic completeness.
 
-The TUI Intelligence view separates installed `available`, policy/trust `launch-ready`, live-initialized `validated`, and final runnable/fresh semantic state, then exposes warm session count, synchronized document count, semantic query count, provider starts, and fresh/stale provider state so operators can tell whether session reuse is actually working.
+The TUI Intelligence view separates installed `available`, policy/trust `launch-ready`, live-initialized `validated`, and final runnable/fresh state, then exposes warm session count, synchronized document count, pending authorization and missing-server counts, provider starts, and fresh/stale state so operators can tell whether session reuse is actually working.
 
 ### Language Quality Matrix
 
@@ -494,7 +510,7 @@ Implemented now:
 - exact one-shot human-authorized `delete_path` for a regular file or empty directory; file deletion requires the current SHA-256, while recursive/root/protected/symlink/hard-link deletion stays blocked;
 - a persistent Semantic Registry with candidate/confirmed/retired lifecycle, provenance, human attestation, confirmed-semantic expansion, and provenance-bearing `graph_context` retrieval inside `software_context`;
 - composite Software Graph with declared Design nodes/edges, Tree-sitter code nodes, cross-file syntax calls, fresh first-party LSP semantic facts, external semantic/runtime providers, durable graph history/query, and bounded structural `graph_diff`;
-- a 22-language first-party Semantic Provider registry with real LSP Document Symbol, Call Hierarchy, and Implementation ingestion, source-hash freshness/stale exclusion, and revision-cache reuse when semantic inputs have not changed;
+- first-party LSP support for all 22 indexed languages with real LSP Document Symbol, Call Hierarchy, and Implementation ingestion, source-hash freshness/stale exclusion, and revision-cache reuse when semantic inputs have not changed;
 - Requirement → Component → implementation/test traceability;
 - Git-aware drift, graph-aware transitive impact, structured risk, and deterministic maintainability review findings for 1,000-line threshold crossings, concentrated source growth, and cross-Product-Scope churn;
 - risk-adaptive Verification Plans with persistent blind reviewer Plan/Job state; medium-and-higher risk plans include a dedicated `maintainability_review` job with structural simplification guidance, while reviewer disagreement Evidence, per-producer fail-closed stage aggregation, HumanApproval Evidence, Verification history, and stale-workspace-revision protection remain explicit;
@@ -508,8 +524,8 @@ Implemented now:
 Precision and integration boundaries are explicit rather than hidden:
 
 - the always-available code index remains Tree-sitter `precision=syntax`; a first-party LSP adapter may upgrade individual facts to `precision=semantic` only after a real installed server responds, while SCIP/compiler/runtime providers can still enter through the external import contract;
-- all 22 indexed languages share one semantic-provider and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
-- hardened first-party semantic providers may auto-refresh through the bounded semantic lane and can be disabled with `--no-semantic`; non-profiled LSP refresh plus Property/Mutation/Fuzz/Runtime execution still require explicit operator trust, while `--allow-risky-exec` remains process-wide pre-authorization; none of these mechanisms is an OS sandbox;
+- all 22 indexed languages share one LSP and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
+- hardened first-party LSP servers may auto-refresh through the bounded LSP lane and can be disabled with `--no-semantic`; non-profiled LSP refresh plus Property/Mutation/Fuzz/Runtime execution still require explicit operator trust, while `--allow-risky-exec` remains process-wide pre-authorization; none of these mechanisms is an OS sandbox;
 - model-facing command execution uses command-specific policy for the built-in development CLI catalog and exact `RiskyExecution` fingerprints for bounded repository/remote operations. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross exact approval; an approved SSH push may use the current SSH Agent only through wcode's fixed non-interactive SSH command. Force/delete/reset/restore-style mutation, shell interpreters, credential-bypass surfaces, workspace escapes, and protected resources remain blocked;
 - `read_media` never infers vision/audio support from a model or vendor name. `include_content=true` emits an image/audio MCP content block only when the current request declares the matching `run.francis.wcode/media-content` extension; otherwise it returns a structured capability error without binary content;
 - Reconciliation execution coordinates durable tasks and evidence, but source edits still use the normal bounded/hash-guarded wcode edit surface instead of a hidden unrestricted patch engine;

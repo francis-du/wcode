@@ -16,6 +16,12 @@ fn update_targets_the_running_binary_directory_unless_explicitly_overridden() {
 }
 
 #[test]
+fn update_notice_requires_reconnecting_existing_mcp_children() {
+    assert!(RECONNECT_NOTICE.contains("Reconnect your MCP Host"));
+    assert!(RECONNECT_NOTICE.contains("existing stdio sessions"));
+}
+
+#[test]
 fn update_stages_unique_helper_scripts_outside_the_installation() {
     let first = temporary_script("sh");
     let second = temporary_script("sh");
