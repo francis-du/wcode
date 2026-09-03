@@ -238,6 +238,47 @@ async fn parallel_fanout_uses_child_slots_without_parent_deadlock() {
 }
 
 #[tokio::test]
+async fn parallel_fanout_inherits_the_parent_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let api = root.path().join("api");
+    let web = root.path().join("web");
+    fs::create_dir_all(&api).unwrap();
+    fs::create_dir_all(&web).unwrap();
+    fs::write(api.join("name.txt"), "api\n").unwrap();
+    fs::write(web.join("name.txt"), "web\n").unwrap();
+    let workspaces = Workspaces::new([&api, &web], false, false).unwrap();
+    let default_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([default_id]),
+        tasks: TaskRuntime::default(),
+    };
+
+    let response = call_tool(
+        &state,
+        json!({
+            "name":"parallel_tools",
+            "arguments":{
+                "workspace":"web",
+                "tasks":[
+                    {"id":"a","tool":"read_file","arguments":{"path":"name.txt"}},
+                    {"id":"b","tool":"path_info","arguments":{"path":"name.txt"}},
+                    {"id":"api","tool":"read_file","arguments":{"workspace":"api","path":"name.txt"}}
+                ]
+            }
+        }),
+    )
+    .await
+    .unwrap();
+    let items = response["structuredContent"]["items"].as_array().unwrap();
+    assert_eq!(items[0]["result"]["content"], "web");
+    assert_eq!(items[1]["result"]["path"], "name.txt");
+    assert_eq!(items[2]["result"]["content"], "api");
+}
+
+#[tokio::test]
 async fn parallel_fanout_runs_writes_and_coalesces_same_file_edits() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("shared.txt"), "same\nmiddle\nsame\n").unwrap();

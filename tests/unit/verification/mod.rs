@@ -8,6 +8,14 @@ fn maintainability_jobs_carry_the_structural_review_rubric() {
             "VP-maintainability".into(),
             "demo".into(),
             "change:maintainability".into(),
+            VerificationPlanBinding {
+                revision: Revision {
+                    design: Some("sha256:design".into()),
+                    code: "sha256:maintainability".into(),
+                },
+                stage_targets: vec![],
+                automation_gaps: vec![],
+            },
             RiskLevel::Medium,
             ["VJ-correctness".into(), "VJ-maintainability".into()].into_iter(),
         )
@@ -39,6 +47,53 @@ fn maintainability_jobs_carry_the_structural_review_rubric() {
 }
 
 #[test]
+fn correctness_jobs_carry_contract_first_rubric() {
+    let mut state = VerificationState::default();
+    state
+        .create_plan(
+            "VP-correctness".into(),
+            "demo".into(),
+            "change:correctness".into(),
+            VerificationPlanBinding {
+                revision: Revision {
+                    design: Some("sha256:design".into()),
+                    code: "sha256:correctness".into(),
+                },
+                stage_targets: vec![],
+                automation_gaps: vec![],
+            },
+            RiskLevel::Low,
+            ["VJ-correctness".into()].into_iter(),
+        )
+        .unwrap();
+    let capabilities = BTreeSet::from(["correctness_review".to_owned()]);
+    let job = state
+        .claim(
+            "demo",
+            "reviewer-correctness",
+            &capabilities,
+            Some(ReviewerRole::Correctness),
+        )
+        .unwrap();
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("active Design State")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("Inconclusive")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("counterexample")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("counterfactual")));
+}
+
+#[test]
 fn blind_jobs_are_claimed_by_capability_and_do_not_expose_other_submissions() {
     let mut state = VerificationState::default();
     let plan = state
@@ -46,6 +101,14 @@ fn blind_jobs_are_claimed_by_capability_and_do_not_expose_other_submissions() {
             "VP-1".into(),
             "demo".into(),
             "change:1".into(),
+            VerificationPlanBinding {
+                revision: Revision {
+                    design: None,
+                    code: "sha256:1".into(),
+                },
+                stage_targets: vec![],
+                automation_gaps: vec![],
+            },
             RiskLevel::Medium,
             ["VJ-1".into(), "VJ-2".into()].into_iter(),
         )

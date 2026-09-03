@@ -193,6 +193,143 @@ fn modern_results_include_server_identity_and_private_cache_hints() {
 }
 
 #[tokio::test]
+async fn modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([dir.path()], false, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    workspaces
+        .revoke_command(Some(&workspace_id), "cargo")
+        .unwrap();
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(2).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    });
+    let owner = "a".repeat(64);
+    let request = elicitation_capable(modern_request(
+        "tools/call",
+        json!({
+            "name":"run_command",
+            "arguments":{"program":"cargo","args":["--version"],"cwd":".","timeout_seconds":30}
+        }),
+    ));
+
+    let first = handle_message(
+        state.clone(),
+        request.clone(),
+        MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first["result"]["resultType"], "input_required");
+    assert_eq!(
+        first["result"]["inputRequests"][AUTHORIZATION_INPUT_KEY]["method"],
+        "elicitation/create"
+    );
+    assert_eq!(
+        first["result"]["inputRequests"][AUTHORIZATION_INPUT_KEY]["params"]["requestedSchema"]
+            ["properties"]["approved"]["type"],
+        "boolean"
+    );
+    let request_state = first["result"]["requestState"].as_str().unwrap().to_owned();
+
+    let mut forged_parts = request_state.split(':').collect::<Vec<_>>();
+    assert_eq!(forged_parts.len(), 4);
+    forged_parts[2] = "forged-challenge";
+    let mut forged = request.clone();
+    forged["id"] = json!(2);
+    forged["params"]["requestState"] = json!(forged_parts.join(":"));
+    forged["params"]["inputResponses"] = json!({
+        (AUTHORIZATION_INPUT_KEY): {"action":"accept","content":{"approved":true}}
+    });
+    let rejected = handle_message(state.clone(), forged, MODERN_PROTOCOL_VERSION, &owner)
+        .await
+        .unwrap();
+    assert_eq!(rejected["error"]["code"], -32602);
+    assert!(rejected["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("challenge does not match"));
+
+    let mut wrong_owner = request.clone();
+    wrong_owner["id"] = json!(2);
+    wrong_owner["params"]["requestState"] = json!(request_state.clone());
+    wrong_owner["params"]["inputResponses"] = json!({
+        (AUTHORIZATION_INPUT_KEY): {"action":"accept","content":{"approved":true}}
+    });
+    let rejected = handle_message(
+        state.clone(),
+        wrong_owner,
+        MODERN_PROTOCOL_VERSION,
+        &"b".repeat(64),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rejected["error"]["code"], -32602);
+    assert!(rejected["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("different MCP client"));
+
+    let mut retry = request;
+    retry["id"] = json!(3);
+    retry["params"]["requestState"] = json!(request_state);
+    retry["params"]["inputResponses"] = json!({
+        (AUTHORIZATION_INPUT_KEY): {"action":"accept","content":{"approved":true}}
+    });
+    let completed = handle_message(state, retry, MODERN_PROTOCOL_VERSION, &owner)
+        .await
+        .unwrap();
+    assert_eq!(completed["result"]["resultType"], "complete");
+    assert_eq!(completed["result"]["isError"], false);
+    assert_eq!(completed["result"]["structuredContent"]["success"], true);
+}
+
+#[tokio::test]
+async fn modern_authorization_fails_closed_without_elicitation_capability() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([dir.path()], false, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    workspaces
+        .revoke_command(Some(&workspace_id), "cargo")
+        .unwrap();
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(2).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    });
+    let response = handle_message(
+        state.clone(),
+        modern_request(
+            "tools/call",
+            json!({"name":"run_command","arguments":{"program":"cargo","args":["--version"]}}),
+        ),
+        MODERN_PROTOCOL_VERSION,
+        &"a".repeat(64),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["error"]["code"], -32021);
+    assert!(response["error"]["data"]["requiredCapabilities"]["elicitation"].is_object());
+
+    let mut url_only = modern_request(
+        "tools/call",
+        json!({"name":"run_command","arguments":{"program":"cargo","args":["--version"]}}),
+    );
+    url_only["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"]["elicitation"] =
+        json!({"url":{}});
+    let response = handle_message(state, url_only, MODERN_PROTOCOL_VERSION, &"a".repeat(64))
+        .await
+        .unwrap();
+    assert_eq!(response["error"]["code"], -32021);
+}
+
+#[tokio::test]
 async fn task_capability_is_per_request_and_advertised_by_discovery() {
     let plain = modern_request(
         "tools/call",

@@ -21,26 +21,27 @@ Graph 是底层能力，不承担主界面叙事。
 
 本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
 Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
-按任务需要再调用。插件导出复用 canonical `wcode-agent-plugin/`，包含标准
+按任务需要再调用。插件导出复用 binary 内嵌的 canonical `plugin/` 源包，包含标准
 `mcp.json`，不会携带凭据或隐式 Workspace。持久状态按 Workspace 隔离。
 只有真实、Fresh 的 LSP Provider Fact 才标成 Semantic；否则明确保持
 Tree-sitter Syntax Precision。
 
 ## 现在怎么用
 
-启动方式没有变化：
+正常仓库流程现在是：
 
 ```bash
-wcode --workspace "$PWD"
+wcode setup
+wcode
 ```
 
-不连接模型也可以直接查看本地 Runtime 状态：
+当前目录就是默认 Workspace。不连接模型也可以直接查看本地 Runtime 状态：
 
 ```bash
-wcode --workspace "$PWD" intelligence
-wcode --workspace "$PWD" intelligence --check --json
-wcode --workspace "$PWD" verification
-wcode --workspace "$PWD" verification --plan-id VP-...
+wcode intelligence
+wcode intelligence --check --json
+wcode verification
+wcode verification --plan-id VP-...
 ```
 
 `intelligence --check` 会把只读状态面变成 fail-closed 的 CI / Release Gate：Design State 未初始化或无效、Requirement→Component / Design→Implementation / Acceptance→Verification 任一维度低于 100%、以及 Required Convention 出现 Error 时都会返回非零退出码。只有当 Design State 显式声明 `CONSTRAINT-PRODUCT-SCOPE-CANONICAL` 时，Product Scope 扫描截断或存在未映射受支持源码才会成为硬门槛；普通第三方仓库仍可查看 `scope_status`，但不会被强制套用 wcode 自身的 12 个 Product Scope 目录模型。JSON 会同时带出 Runtime 使用的 `scope_status` 与 `conventions`；Convention Warning 仍保持建议性质，不会阻断发布。
@@ -48,8 +49,8 @@ wcode --workspace "$PWD" verification --plan-id VP-...
 Semantic Provider 和 Stage Executor 都可能加载/执行仓库控制的配置或代码，因此不再共用一条笼统的 Trust 规则。拥有 Hardened Profile 的第一方 Semantic Provider 默认通过独立有界 Lane 自动运行；当前首个 Auto Profile 是 `rust-analyzer`。`--no-semantic` 可以关闭全部第一方 Language Server 执行。没有 Auto Profile 的 Provider 与 Stage Executor 仍属于显式 Trust Expansion：第一次尚未授权的精确操作会 fail closed 并生成本地 Authorization Request，可在 TUI 或受保护 WebUI 批准后重试；`--allow-risky-exec` 仍是这些非 Auto 操作更宽的进程级预授权方式：
 
 ```bash
-wcode --workspace "$PWD" --no-semantic
-wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
+wcode --no-semantic
+wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 在 TUI 中，按 `I` 会读取当前选中项目的智能分析，按 `C` 查看完整命令
@@ -61,8 +62,8 @@ wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --exec
 以及超过仓库 1,000 行上限的文件。索引达到安全上限时，页面会明确标记
 “已截断”，浏览器不会另外再扫一遍磁盘。
 
-Proof 只统计与当前代码和设计版本一致的 Evidence。本地 Agent 使用
-`wcode --workspace <repo> mcp-stdio`，远程客户端首选 `/mcp`，旧客户端可以
+Proof 只统计与当前代码和设计版本一致的 Evidence。本地 Agent 在项目工作目录中使用
+`wcode mcp-stdio`，当前目录自动成为默认 Workspace；远程客户端首选 `/mcp`，旧客户端可以
 使用 `/sse`。插件导出和一键 Host 配置见
 [Agent 与 MCP 集成](../code-agent-integrations/)。
 
@@ -70,14 +71,10 @@ Proof 只统计与当前代码和设计版本一致的 Evidence。本地 Agent �
 
 ```text
 agent_context(goal, scopes=...)
-    ↓
-symbol_context（仅 Readiness 要求更多源码时）
-    ↓
-apply_edits / apply_file_edits
-    ↓
-review_changes
-    ↓
-verify_project
+    ↓ readiness / next_actions / parallelism
+独立 Lane ── 多个顶层 MCP Call 并发
+    ↓ 只有真实依赖才串行
+有界编辑 → review_changes → verify_project
     ↓
 只有需要更深收敛分析时再进入 drift / risk / reconciliation / evidence
 ```
@@ -90,13 +87,7 @@ verify_project
 curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
-如果 wcode 已经在运行，需要让正在使用的 MCP Server 加载新的 Tool Schema：
-
-```bash
-wcode restart
-```
-
-某些 MCP 客户端会缓存 `tools/list`，因此重启 wcode 后可能还需要在客户端里重新连接/刷新一次 MCP。
+执行 `wcode update` 后，由终端或 MCP Host 在下一次启动时直接运行新版本。某些 MCP 客户端会缓存 `tools/list`，因此升级后可能还需要在客户端里重新连接或刷新一次 MCP 才能拿到新 Schema。
 
 ## 2. 给项目加入 Design State
 
@@ -211,8 +202,8 @@ precision = syntax
 
 ```text
 1. agent_context(goal, scopes=...)
-2. 按 readiness / next_actions 执行
-3. 只有 Readiness 明确要求跨文件引用 / 调用 / 实现关系时才用 semantic_navigation；普通定位继续用 find_symbol / search_code
+2. 按 readiness / next_actions / parallelism 执行；Host 支持时把独立 Lane 并发出去
+3. 省略默认 / 可推导 MCP 参数；只有 Readiness 明确要求跨文件引用 / 调用 / 实现关系时才用 semantic_navigation，普通定位继续用 find_symbol / search_code
 4. 只有缺源码时调用 symbol_context
 5. apply_edits / apply_file_edits
 6. review_changes
@@ -221,7 +212,7 @@ precision = syntax
 9. 只有 Convergence / Proof 需要深入时再进入 evidence_status / reconciliation
 ```
 
-`agent_context` 省略 `budget` 时使用有界 Adaptive Budget，组合相关 Design State、Scope-aware Repo-map Ranking、可用时的 Fresh Semantic/Runtime Evidence、Bounded Hot Source、Exact SHA Edit Target、Related Test、Working-tree Advisory、Readiness 与 Deterministic Next Actions。1000-token 极限模式优先保证能直接开工；默认 Adaptive Path 会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk Tool 保留为按需深入，而不是固定启动成本。
+`agent_context` 省略 `budget` 时使用有界 Adaptive Budget，组合相关 Design State、Scope-aware Repo-map Ranking、可用时的 Fresh Semantic/Runtime Evidence、Bounded Hot Source、Exact SHA Edit Target、Related Test、Working-tree Advisory、Readiness、Deterministic Next Actions 与显式 Parallelism Strategy。模型侧 MCP 调用应省略默认 Workspace 以及服务端默认的 Path / Limit / Timeout / Budget。1000-token 极限模式优先保证能直接开工；默认 Adaptive Path 会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk Tool 保留为按需深入，而不是固定启动成本。
 
 ### `agent_context`
 
@@ -242,8 +233,6 @@ Product Scope 描述的是 wcode 自身能力边界，不是模型厂商，也�
 ```json
 {
   "query": "workspace command security",
-  "intent": "modify",
-  "budget": 12000,
   "scopes": ["workspace"]
 }
 ```
@@ -438,7 +427,7 @@ executors:
 配置 Executor 无 Shell 执行、沿用 Workspace canonical root / symlink 防护、对状态/UI 隐藏配置参数，并清理敏感环境和输出。没有进程级 `--allow-risky-exec` 时，第一次尚未授权的精确 Executor 操作会生成本地 `RuntimeExecutor` Authorization Request；TUI 或受保护 WebUI 批准后重试即可。需要整进程预授权时使用：
 
 ```bash
-wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
+wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 缺少可执行程序时只会报告 unavailable / missing executor，不会生成假的 Pass Evidence。
@@ -574,7 +563,7 @@ Reviewer Submit 也会形成 Model Review Evidence，并记录：
 - Reconciliation Execution：可恢复的 Task 状态 Snapshot
 - MCP Tasks：有界不可变 Task Snapshot；Owner 绑定 OAuth Client Fingerprint
 
-因此 `wcode restart`、断开 MCP、切换 Model Executor 后，Software Intelligence 的持久状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
+因此进程重启、断开 MCP、切换 Model Executor 后，Software Intelligence 的持久状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
 
 ## 6. 当前 MCP Tool Surface
 

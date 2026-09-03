@@ -1,5 +1,5 @@
 {
-  "name": "wcode-plugins",
+  "name": "wcode",
   "description": "Official wcode plugin marketplace.",
   "owner": {
     "name": "francis-du",
@@ -8,9 +8,9 @@
   "plugins": [
     {
       "name": "wcode",
-      "source": "./wcode-agent-plugin",
-      "description": "wcode Software Intelligence skill with explicit Workspace-scoped MCP profiles.",
-      "version": "0.5.1",
+      "source": "./plugin",
+      "description": "wcode skill and MCP profiles with current-directory Workspace defaults.",
+      "version": "0.5.2",
       "author": {"name": "francis-du"},
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],

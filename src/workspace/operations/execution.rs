@@ -24,11 +24,7 @@ impl Workspace {
                 program,
                 fingerprint,
             );
-            bail!(
-                "authorization required: {} · {}. Approve this request in the TUI or Web UI, then retry the operation",
-                request.id,
-                request.summary
-            );
+            return Err(AuthorizationRequired::new(request).into());
         }
         if program == "cargo" && args == ["fmt"] && !self.allow_write {
             bail!("cargo fmt modifies source files and is blocked in a read-only workspace");

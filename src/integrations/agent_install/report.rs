@@ -59,6 +59,7 @@ pub(crate) struct AgentInstallResult {
 #[derive(Debug, Serialize)]
 pub(crate) struct AgentInstallSummary {
     pub dry_run: bool,
+    pub scope: String,
     pub workspace: String,
     pub detected: Vec<String>,
     pub planned: Vec<String>,
@@ -90,6 +91,7 @@ pub(crate) fn result_status(
 
 pub(crate) fn summarize(
     dry_run: bool,
+    scope: String,
     workspace: String,
     results: Vec<AgentInstallResult>,
 ) -> AgentInstallSummary {
@@ -102,6 +104,7 @@ pub(crate) fn summarize(
     };
     AgentInstallSummary {
         dry_run,
+        scope,
         workspace,
         detected: results
             .iter()
@@ -122,45 +125,91 @@ pub(crate) fn summarize(
 }
 
 pub(crate) fn print_human(summary: &AgentInstallSummary) {
-    for result in &summary.results {
-        let target = result.target.as_deref().unwrap_or("manual");
+    println!("\n  Scope: {} · Root: {}", summary.scope, summary.workspace);
+    println!(
+        "  ┌──────────┬──────────────────────────────┬──────────────────────────────────────┐"
+    );
+    println!(
+        "  │ STATUS   │ HOST                         │ TARGET                               │"
+    );
+    println!(
+        "  ├──────────┼──────────────────────────────┼──────────────────────────────────────┤"
+    );
+    let visible = summary
+        .results
+        .iter()
+        .filter(|result| result.detected || result.status != AgentInstallStatus::Unsupported)
+        .collect::<Vec<_>>();
+    for result in &visible {
+        let target = result.target.as_deref().unwrap_or("manual / host UI");
         println!(
-            "  {:>18}  {:<28}  {}",
+            "  │ {:<8} │ {:<28} │ {:<36} │",
             status_label(result.status),
-            result.host,
-            target
+            truncate(&result.host, 28),
+            truncate(target, 36)
         );
-        if !result.evidence.is_empty() {
-            println!("  {:>18}  {}", "evidence", result.evidence.join("; "));
-        }
+    }
+    println!(
+        "  └──────────┴──────────────────────────────┴──────────────────────────────────────┘"
+    );
+    for result in visible {
         if matches!(
             result.status,
             AgentInstallStatus::Manual | AgentInstallStatus::Failed
         ) {
-            println!("  {:>18}  {}", "guidance", result.detail);
+            println!(
+                "  {} {}: {}",
+                status_icon(result.status),
+                result.host,
+                result.detail
+            );
         }
     }
     println!(
-        "Summary: detected={} planned={} installed={} updated={} already={} manual={} unsupported={} failed={}",
+        "\n  Summary: detected={} planned={} installed={} updated={} ready={} manual={} failed={} ({} undiscovered omitted)",
         summary.detected.len(),
         summary.planned.len(),
         summary.installed.len(),
         summary.updated.len(),
         summary.already_configured.len(),
         summary.manual.len(),
-        summary.unsupported.len(),
-        summary.failed.len()
+        summary.failed.len(),
+        summary.unsupported.len()
     );
+}
+
+fn truncate(value: &str, width: usize) -> String {
+    let count = value.chars().count();
+    if count <= width {
+        return value.to_owned();
+    }
+    let mut output = value
+        .chars()
+        .take(width.saturating_sub(1))
+        .collect::<String>();
+    output.push('…');
+    output
+}
+
+fn status_icon(status: AgentInstallStatus) -> &'static str {
+    match status {
+        AgentInstallStatus::Planned => "○",
+        AgentInstallStatus::Installed | AgentInstallStatus::AlreadyConfigured => "✓",
+        AgentInstallStatus::Updated => "↻",
+        AgentInstallStatus::Manual => "!",
+        AgentInstallStatus::Unsupported => "·",
+        AgentInstallStatus::Failed => "×",
+    }
 }
 
 fn status_label(status: AgentInstallStatus) -> &'static str {
     match status {
-        AgentInstallStatus::Planned => "planned",
-        AgentInstallStatus::Installed => "installed",
-        AgentInstallStatus::Updated => "updated",
-        AgentInstallStatus::AlreadyConfigured => "already_configured",
-        AgentInstallStatus::Manual => "manual",
-        AgentInstallStatus::Unsupported => "unsupported",
-        AgentInstallStatus::Failed => "failed",
+        AgentInstallStatus::Planned => "○ plan",
+        AgentInstallStatus::Installed => "✓ install",
+        AgentInstallStatus::Updated => "↻ update",
+        AgentInstallStatus::AlreadyConfigured => "✓ ready",
+        AgentInstallStatus::Manual => "! manual",
+        AgentInstallStatus::Unsupported => "· absent",
+        AgentInstallStatus::Failed => "× failed",
     }
 }

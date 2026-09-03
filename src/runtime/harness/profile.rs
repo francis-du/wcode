@@ -199,7 +199,7 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
                 .to_owned(),
             "Batch writes when targets are already known: use one apply_edits for multiple changes in a file, apply_file_edits for independent existing files, and create_files for independent new files instead of serial single-file tool calls."
                 .to_owned(),
-            "Use isolated workers or parallel_tools for independent research/review when the host supports it, but never treat worker consensus as deterministic proof.".to_owned(),
+            "Decompose work into dependency lanes before execution. Run independent discovery, reads, reviews, and file-local edits concurrently through separate top-level tool calls when the host supports it; serialize only true dependencies. Use parallel_tools only for compact fan-out, not to wrap large nested argument payloads. Never treat worker consensus as deterministic proof.".to_owned(),
             "Keep mandatory policy in deterministic Harness gates and Evidence rather than relying on an agent instruction to remember it.".to_owned(),
             "Prefer the smallest coherent change that preserves existing architecture and public behavior."
                 .to_owned(),

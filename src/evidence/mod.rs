@@ -71,6 +71,8 @@ pub struct Evidence {
     pub claims: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub risks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<String>,
     pub timestamp_ms: u64,
 }
 
@@ -98,6 +100,7 @@ impl Evidence {
             summary: None,
             claims: Vec::new(),
             risks: Vec::new(),
+            targets: Vec::new(),
             timestamp_ms: now_ms(),
         };
         evidence.validate()?;
@@ -131,11 +134,16 @@ impl Evidence {
                 .is_some_and(|summary| summary.trim().is_empty() || summary.chars().count() > 2_000)
             || self.claims.len() > 32
             || self.risks.len() > 32
+            || self.targets.len() > 32
             || self
                 .claims
                 .iter()
                 .chain(&self.risks)
                 .any(|value| value.trim().is_empty() || value.chars().count() > 1_000)
+            || self
+                .targets
+                .iter()
+                .any(|target| !valid_text_id(target, 128))
         {
             return Err(EvidenceError::InvalidEvidence);
         }

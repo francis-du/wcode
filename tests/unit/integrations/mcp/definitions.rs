@@ -1,6 +1,30 @@
 use super::*;
 use std::collections::HashSet;
 
+fn assert_no_model_tuning_args(value: &Value, tool_name: &str) {
+    match value {
+        Value::Object(object) => {
+            if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+                for key in MODEL_HIDDEN_TUNING_ARGS {
+                    assert!(
+                        !properties.contains_key(*key),
+                        "tool {tool_name} exposes model tuning argument {key}"
+                    );
+                }
+            }
+            for child in object.values() {
+                assert_no_model_tuning_args(child, tool_name);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                assert_no_model_tuning_args(child, tool_name);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[test]
 fn tool_catalog_is_deterministic_compact_and_unique() {
     let first = tools();
@@ -20,8 +44,18 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             "tool {name} description is too long"
         );
         if let Some(workspace) = tool["inputSchema"]["properties"].get("workspace") {
-            assert_eq!(workspace["description"], "Workspace ID; omit for default.");
+            assert_eq!(
+                workspace["description"],
+                "Only pass when switching away from the default Workspace."
+            );
         }
+        assert!(
+            !serde_json::to_string(&tool["inputSchema"])
+                .unwrap()
+                .contains("\"default\":"),
+            "tool {name} must not advertise model-visible default arguments"
+        );
+        assert_no_model_tuning_args(&tool["inputSchema"], name);
     }
     let agent_context = first
         .iter()

@@ -16,7 +16,7 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 
 | 客户端位置 | 传输 | 配置 |
 | --- | --- | --- |
-| 同一台机器 | stdio | `wcode --workspace /absolute/repo mcp-stdio` |
+| 同一台机器 | stdio | `wcode mcp-stdio`（Host 当前目录 = Workspace） |
 | 远程，首选 | Streamable HTTP | `https://host/mcp` + OAuth |
 | 旧版远程客户端 | SSE 兼容层 | `GET /sse` + `POST /message?sessionId=...` + OAuth |
 
@@ -25,14 +25,31 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 状态。SSE 只为仍使用 2024 传输方式的客户端保留；新配置直接使用
 `/mcp`。
 
-stdio 必须指向真实源码仓库，不能把插件安装目录当 Workspace：
+本地 stdio 配置不写死仓库路径：
 
 ```json
 {
   "command": "wcode",
-  "args": ["--workspace", "/absolute/repository", "mcp-stdio"]
+  "args": ["mcp-stdio"]
 }
 ```
+
+MCP Host 启动进程时的当前目录就是默认 Workspace，因此一份全局 Host
+配置可以跨仓库复用，也不会误把插件包目录当源码。`--workspace` 只作为
+用户显式覆盖。
+
+### stdio 下的人工授权
+
+`stdin` / `stdout` 本身就是 MCP 协议通道，所以 wcode 不会在这里插入终端
+`yes/no` 输入把 JSON-RPC 流打断。支持 form elicitation 的 Host 会通过 MCP
+收到授权请求，并由 Host 自己向用户展示确认。2026 协议使用
+`input_required` MRTR；兼容 2025 协议的 stdio 使用 `elicitation/create`。
+只有响应同时匹配 Pending Authorization、Opaque Challenge 和 MCP Client
+Owner 时，wcode 才会交给原有 AuthorizationManager 建立授权；不存在允许
+模型给自己批准的 MCP Tool。
+
+如果 Host 没有声明 form elicitation，受限命令会返回缺少 Client Capability，
+不会因为客户端交互能力不足就自动放权。
 
 ## 2. 检测并配置本机客户端
 
@@ -42,48 +59,45 @@ stdio 必须指向真实源码仓库，不能把插件安装目录当 Workspace�
 curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
-先看会改哪些项目文件：
+然后配置本机 Host：
 
 ```bash
-wcode --workspace "$PWD" agent-plugin --install-all --dry-run
+wcode setup
 ```
 
-确认后执行：
-
-```bash
-wcode --workspace "$PWD" agent-plugin --install-all
-```
-
-需要交给其他程序处理时加 `--json`。报告把结果分成 `detected`、
+需要无写入预览时用 `wcode setup --dry-run`；需要交给其他程序处理时加 `--json`。报告把结果分成 `detected`、
 `installed`、`updated`、`already_configured`、`manual`、`unsupported` 和
 `failed`，并附上检测依据与目标文件。
 
-安装器只写仓库内配置。JSON / TOML 会先解析，再合并 `wcode` 服务；
-已有服务不受影响。更新采用原子写入，并用 SHA 防止覆盖并发改动。遇到
-符号链接、超大配置、错误字段类型、无效 JSON/TOML、JSONC 或 YAML 时
-直接停止，不猜测配置结构。它不会调用 shell、下载第三方包、保存凭据、
-修改未知全局文件，也不会替用户批准 RiskyExecution。
+交互 Setup 第一项是**全局（推荐）**，第二项是**当前项目**。全局模式只在
+本机确认后修改已经验证过的用户级 Host 配置路径；项目模式只修改识别出的
+仓库配置。两种模式都只安装 `wcode mcp-stdio`，不写死仓库路径，并保留
+其他 MCP Server。JSON / TOML 先解析再做原子 SHA 保护更新；未知结构、
+JSONC、YAML 等直接 Fail Closed。Setup 不下载插件，不要求用户项目里存在
+`plugin/` 目录，不保存凭据，也不会替用户批准 RiskyExecution。
 
 ## 3. 导出 Skill 与插件包
 
-`wcode-agent-plugin/` 是唯一内容源。Rust 导出器通过 `include_str!`
-直接复用其中的 README、Skill、清单和连接说明，不再维护第二份长文档。
+`plugin/` 是唯一源码包。Rust Binary 通过 `include_str!` 内嵌其中的
+README、Skill、Manifest 和连接说明，因此安装后的 Setup 可以在任意目录
+运行，用户当前项目不需要存在插件目录。
 
 ```bash
 # 不带 MCP 目标，适合分发
-wcode --workspace "$PWD" agent-plugin --profile skill-only
+wcode agent-plugin --profile skill-only
 
 # stdio 绑定当前仓库
-wcode --workspace "$PWD" agent-plugin --profile local-stdio
+wcode agent-plugin --profile local-stdio
 
 # 只写远程 URL，不写凭据
-wcode --workspace "$PWD" agent-plugin \
+wcode agent-plugin \
   --profile remote-http \
   --remote-url https://current-host.example/mcp
 ```
 
 所有导出都包含标准 `mcp.json`。`skill-only` 的 `mcpServers` 为空；
-`local-stdio` 写入当前 Workspace 的绝对路径；`remote-http` 只接受不含
+`local-stdio` 只写 `wcode mcp-stdio`，由使用它的 Host 当前目录决定
+Workspace；`remote-http` 只接受不含
 凭据、查询参数或片段的 HTTPS 来源或 `/mcp` 地址。OAuth 令牌始终由 MCP
 客户端保存。
 
@@ -129,8 +143,8 @@ wcode --workspace "$PWD" agent-plugin \
 
 ## 5. 需要手工配置的客户端
 
-- **Kimi Code CLI：**在当前 MCP UI / CLI 中加入绝对路径 stdio 命令；
-  wcode 不假设其项目配置结构。
+- **Kimi Code CLI：**在当前 MCP UI / CLI 中加入 `wcode mcp-stdio`；Host
+  当前工作目录决定 Workspace，wcode 不假设其项目配置结构。
 - **Cline：**使用 MCP 设置页或 CLI。当前 MCP 配置属于应用状态，仓库
   安装器不会改写它。
 - **Roo Code、Windsurf：**从 Workspace MCP 设置页面添加，扩展全局状态
@@ -138,8 +152,9 @@ wcode --workspace "$PWD" agent-plugin \
 - **Continue：**常见配置使用 YAML；手工添加比有损重写更可靠。
 - **Zed：**项目设置可能是 JSONC，保留原有注释。
 - **JetBrains / Junie、TRAE、CodeBuddy：**使用当前 IDE 的 MCP 页面。
-- **ZCode：**安装导出的插件包，再把 stdio 绑定到源码仓库。
-- **Grok Build：**复制通用 Skill，并显式添加仓库级 stdio server。
+- **ZCode：**安装导出的插件包，再配置 `wcode mcp-stdio`。
+- **Grok Build：**复制通用 Skill，并添加 `wcode mcp-stdio`；Host 当前目录
+  决定源码 Workspace。
 
 `manual` 表示需要手工配置，安装器不会把它计为成功。
 
@@ -170,16 +185,22 @@ wcode 会在它下一次完成 `/authorize` 时恢复这条注册。Redirect URI
 默认可以从这条链路开始：
 
 ```text
-workspace_info → agent_context(goal, scopes=...) → symbol_context
-    ↓
-read_file / apply_edits
-    ↓
-review_changes → verify_project → evidence_status
+agent_context(goal, scopes=...)
+    ↓ readiness + parallelism
+独立 Lane ── 多个顶层 MCP Call 并发
+    ↓ 只有真实依赖才串行
+有界编辑 → review_changes → verify_project
 ```
 
-输入已经明确时优先用 `search_many`、`read_files`，只有互不依赖的工作才
-并行。`agent_context` 先给紧凑上下文，`symbol_context` 补语法细节，
-`apply_edits` 让一组不重叠编辑共用同一个 SHA 前置条件。
+调用保持紧凑：默认 `workspace`，以及服务端默认的 Path / Limit / Timeout /
+Budget 都不要显式传。只有多个 Root / Subspace 导致目标不明确时才先调用
+`workspace_info`。编辑时单文件用 `apply_edits`，多个独立文件用
+`apply_file_edits`。输入已经明确时优先用 `search_many`、`read_files`、
+`apply_file_edits`、`create_files`，减少 Round Trip 但不制造一个巨大的嵌套
+Arguments JSON。Host 支持时，独立 Lane 使用多个顶层 Tool Call 并发；
+`parallel_tools` 只保留给参数很小的紧凑 Fan-out。`agent_context` 现在会直接
+返回 Parallelism Strategy；只有 Readiness 明确缺更多源码时才调用
+`symbol_context`。
 
 部分模型 API 提供 `defer_loading` 一类服务端工具选项。它只用于 API
 连接，不是 Claude Code、Codex 或通用 MCP 的项目配置；不要把这类 API
@@ -208,8 +229,8 @@ Provider，但替换后的 Binary、其他 Provider 或无关 Repository Operati
 
 ## 9. 排查方法
 
-- 运行 `agent-plugin --install-all --dry-run --json`，查看客户端的
-  `evidence`、`target` 和 `guidance`。
+- 运行 `wcode setup --dry-run --json`，查看客户端的 `evidence`、`target` 和
+  `guidance`。
 - OAuth 如果打开了错误域名，先确认客户端连接的是当前隧道 URL；元数据
   中的来源应与它一致。
 - 临时隧道换域名后，先把客户端的 MCP URL 改成当前地址；已有 OAuth

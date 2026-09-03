@@ -16,9 +16,10 @@ use crate::risk::{Risk, RiskCategory, RiskLevel, VerificationProfile};
 use crate::scopes;
 use crate::semantic::{self, SemanticCandidateInput, SemanticFact, SemanticMatch, SemanticStatus};
 use crate::semantic_store;
+use crate::stage_executor::{self, StageExecutorRegistry};
 use crate::verification::{
     ReviewSubmission, ReviewerRole, StageSubmission, VerificationJob, VerificationPlan,
-    VerificationStage, VerificationState, VerificationStatus,
+    VerificationPlanBinding, VerificationStage, VerificationState, VerificationStatus,
 };
 use crate::verification_store;
 use crate::workspace::Workspace;
@@ -107,11 +108,37 @@ impl SoftwareIntelligenceRuntime {
         workspace: &Workspace,
         risk_level: RiskLevel,
     ) -> Result<VerificationPlan> {
+        let registry = stage_executor::registry(workspace)?;
+        let stage_targets = registry
+            .detected_languages
+            .iter()
+            .copied()
+            .map(stage_executor::language_target)
+            .collect::<Vec<_>>();
+        self.create_plan_for_risk_with_targets(
+            workspace_id,
+            workspace,
+            risk_level,
+            stage_targets,
+            &registry,
+        )
+    }
+
+    fn create_plan_for_risk_with_targets(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        risk_level: RiskLevel,
+        stage_targets: Vec<String>,
+        registry: &StageExecutorRegistry,
+    ) -> Result<VerificationPlan> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
         let revision = workspace_revision(workspace)?;
         let subject = format!("change:{}", revision.code);
         let plan_id = self.next_id("VP");
         let job_ids = std::iter::repeat_with(|| self.next_id("VJ"));
+        let profile = VerificationProfile::for_risk(risk_level);
+        let automation_gaps = verification_automation_gaps(&profile, registry, &stage_targets);
         let (plan, snapshot) = {
             let mut state = self
                 .state
@@ -121,6 +148,11 @@ impl SoftwareIntelligenceRuntime {
                 plan_id,
                 workspace_id.to_owned(),
                 subject,
+                VerificationPlanBinding {
+                    revision,
+                    stage_targets,
+                    automation_gaps,
+                },
                 risk_level,
                 job_ids,
             )?;
@@ -161,6 +193,14 @@ impl SoftwareIntelligenceRuntime {
     }
 }
 
+fn evidence_matches_plan_revision(record: &Evidence, plan: &VerificationPlan) -> bool {
+    record.subject == plan.subject
+        && plan
+            .revision
+            .as_ref()
+            .is_none_or(|revision| record.revision == *revision)
+}
+
 fn apply_stage_status(
     status: &mut VerificationStatus,
     evidence: &[Evidence],
@@ -177,53 +217,119 @@ fn apply_stage_status(
         VerificationStage::Fuzz => "fuzz",
         VerificationStage::RuntimeCanary => "runtime_canary",
     };
-    let mut latest_by_producer = BTreeMap::<String, &Evidence>::new();
-    for record in evidence
+    let records = evidence
         .iter()
-        .filter(|record| record.subject == status.plan.subject && record.kind == kind)
-    {
-        let replace = latest_by_producer
-            .get(&record.producer)
-            .is_none_or(|current| {
-                (current.timestamp_ms, current.id.as_str())
-                    < (record.timestamp_ms, record.id.as_str())
-            });
-        if replace {
-            latest_by_producer.insert(record.producer.clone(), record);
+        .filter(|record| {
+            evidence_matches_plan_revision(record, &status.plan) && record.kind == kind
+        })
+        .collect::<Vec<_>>();
+    let producer_results = latest_results_by_producer(records.iter().copied());
+    if !producer_results.is_empty() {
+        status
+            .stage_producer_results
+            .insert(key.to_owned(), producer_results.clone());
+    }
+
+    if status.plan.stage_targets.is_empty() {
+        let result = aggregate_results(producer_results.values().copied());
+        if let Some(result) = result {
+            status.stage_results.insert(key.to_owned(), result);
+        }
+        apply_stage_blocker(status, key, result);
+        return;
+    }
+
+    let mut target_results = BTreeMap::new();
+    let mut missing_targets = Vec::new();
+    for target in &status.plan.stage_targets {
+        let results = latest_results_by_producer(
+            records
+                .iter()
+                .copied()
+                .filter(|record| record.targets.iter().any(|covered| covered == target)),
+        );
+        match aggregate_results(results.values().copied()) {
+            Some(result) => {
+                target_results.insert(target.clone(), result);
+                match result {
+                    EvidenceResult::Pass => {}
+                    EvidenceResult::Fail => status
+                        .blockers
+                        .push(format!("{key}-target-failed:{target}")),
+                    EvidenceResult::Inconclusive | EvidenceResult::Disagree => status
+                        .blockers
+                        .push(format!("{key}-target-inconclusive:{target}")),
+                }
+            }
+            None => {
+                missing_targets.push(target.clone());
+                status
+                    .blockers
+                    .push(format!("{key}-target-missing:{target}"));
+            }
         }
     }
-    let producer_results = latest_by_producer
-        .into_iter()
-        .map(|(producer, record)| (producer, record.result))
-        .collect::<BTreeMap<_, _>>();
-    let result = if producer_results
-        .values()
-        .any(|result| *result == EvidenceResult::Fail)
-    {
-        Some(EvidenceResult::Fail)
-    } else if producer_results
-        .values()
-        .any(|result| *result == EvidenceResult::Disagree)
-    {
-        Some(EvidenceResult::Disagree)
-    } else if producer_results
-        .values()
-        .any(|result| *result == EvidenceResult::Inconclusive)
-    {
-        Some(EvidenceResult::Inconclusive)
-    } else if !producer_results.is_empty() {
-        Some(EvidenceResult::Pass)
+    if !target_results.is_empty() {
+        status
+            .stage_target_results
+            .insert(key.to_owned(), target_results.clone());
+    }
+    let target_result = aggregate_results(target_results.values().copied());
+    let result = if missing_targets.is_empty() || target_result == Some(EvidenceResult::Fail) {
+        target_result
     } else {
         None
     };
     if let Some(result) = result {
         status.stage_results.insert(key.to_owned(), result);
     }
-    if !producer_results.is_empty() {
-        status
-            .stage_producer_results
-            .insert(key.to_owned(), producer_results);
+    if !missing_targets.is_empty() {
+        status.blockers.push(format!("{key}-evidence-missing"));
     }
+    if matches!(target_result, Some(EvidenceResult::Fail)) {
+        status.blockers.push(format!("{key}-evidence-failed"));
+    } else if matches!(
+        target_result,
+        Some(EvidenceResult::Inconclusive | EvidenceResult::Disagree)
+    ) {
+        status.blockers.push(format!("{key}-evidence-inconclusive"));
+    }
+}
+
+fn latest_results_by_producer<'a>(
+    records: impl Iterator<Item = &'a Evidence>,
+) -> BTreeMap<String, EvidenceResult> {
+    let mut latest = BTreeMap::<String, &Evidence>::new();
+    for record in records {
+        let replace = latest.get(&record.producer).is_none_or(|current| {
+            (current.timestamp_ms, current.id.as_str()) < (record.timestamp_ms, record.id.as_str())
+        });
+        if replace {
+            latest.insert(record.producer.clone(), record);
+        }
+    }
+    latest
+        .into_iter()
+        .map(|(producer, record)| (producer, record.result))
+        .collect()
+}
+
+fn aggregate_results(results: impl Iterator<Item = EvidenceResult>) -> Option<EvidenceResult> {
+    let results = results.collect::<Vec<_>>();
+    if results.contains(&EvidenceResult::Fail) {
+        Some(EvidenceResult::Fail)
+    } else if results.contains(&EvidenceResult::Disagree) {
+        Some(EvidenceResult::Disagree)
+    } else if results.contains(&EvidenceResult::Inconclusive) {
+        Some(EvidenceResult::Inconclusive)
+    } else if !results.is_empty() {
+        Some(EvidenceResult::Pass)
+    } else {
+        None
+    }
+}
+
+fn apply_stage_blocker(status: &mut VerificationStatus, key: &str, result: Option<EvidenceResult>) {
     match result {
         Some(EvidenceResult::Pass) => {}
         Some(EvidenceResult::Fail) => status.blockers.push(format!("{key}-evidence-failed")),

@@ -33,7 +33,7 @@ Convergence
 
 Always-on instructions should stay short. They identify the Workspace/security boundary, Desired State, Product Scopes, the preferred coding path, and authoritative verification tools. Detailed architecture, requirement history, source bodies, language tooling, and verification state should be loaded only when needed.
 
-For normal coding, `agent_context` is the primary entry point. Its bounded adaptive pack can include relevant Design State, scope-aware repo-map results, a small amount of hot source, edit SHA preconditions, related tests, readiness, and deterministic next actions. Use `symbol_context`, `software_context`, `scope_status`, `language_quality_status`, and deeper graph/traceability tools only when the pack says more context is needed.
+For normal coding, `agent_context` is the primary entry point. Its bounded adaptive pack can include relevant Design State, scope-aware repo-map results, a small amount of hot source, edit SHA preconditions, related tests, readiness, deterministic next actions, and an explicit parallelism strategy. MCP calls should stay minimal: omit the default Workspace and server-default path/limit/timeout/budget values unless the task genuinely overrides them. Use `symbol_context`, `software_context`, `scope_status`, `language_quality_status`, and deeper graph/traceability tools only when the pack says more context is needed.
 
 ### 2. Skills: progressive disclosure, not hidden execution
 
@@ -41,7 +41,7 @@ The portable wcode Agent Skill is instructions-only. It contains no hooks, crede
 
 ### 3. Isolated workers: parallelize independent reasoning
 
-Subagents, worktrees, and equivalent isolated contexts are useful for independent repository research, alternative implementation analysis, test generation, security review, and maintainability review. Independent work should fan out when it reduces latency or context interference.
+Subagents, worktrees, equivalent isolated contexts, and concurrent top-level MCP calls are useful for independent repository research, alternative implementation analysis, test generation, security review, and maintainability review. Split the task into dependency lanes before execution. Independent lanes should fan out when it reduces latency or context interference; only true data/path dependencies should serialize. When the inputs are already known, prefer bulk primitives such as `read_files`, `search_many`, `apply_file_edits`, and `create_files`. Use nested `parallel_tools` only for compact fan-out so Host call displays do not become large recursive JSON payloads.
 
 Workers must not concurrently mutate shared or dependent state outside wcode's path-resource Scheduler and SHA preconditions. Related state updates should remain atomic when partial application would make the system harder to reason about. Agreement between multiple models is still model evidence, not deterministic proof.
 
@@ -92,8 +92,8 @@ See [Code Agent Integrations](../code-agent-integrations/) for host-specific con
 Before substantial source edits:
 
 1. call `agent_context(goal, scopes=...)` without a manual budget unless the task needs one;
-2. follow `readiness` and `next_actions`;
-3. keep `find_symbol` / `search_code` as the cheap localization path; use `semantic_navigation` when readiness identifies cross-file references, callers, implementations, rename impact, or equivalent semantic relationships;
+2. follow `readiness`, `next_actions`, and `readiness.parallelism`; split independent lanes and run them concurrently at the Host level when supported;
+3. omit default/inferable MCP arguments and keep `find_symbol` / `search_code` as the cheap localization path; use `semantic_navigation` when readiness identifies cross-file references, callers, implementations, rename impact, or equivalent semantic relationships;
 4. use `symbol_context` only when more source is required;
 5. use `language_quality_status`, `scope_status`, `design_status`, `traceability_status`, or deeper graph context only when the task needs those facts.
 

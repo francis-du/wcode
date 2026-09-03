@@ -1,4 +1,5 @@
 use super::*;
+use crate::authorization::AuthorizationStatus;
 
 pub(super) async fn setup_page(
     State(state): State<Arc<AppState>>,

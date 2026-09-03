@@ -14,6 +14,7 @@ else {
 $InstallDir = if ($env:WCODE_INSTALL_DIR) { $env:WCODE_INSTALL_DIR } else { Join-Path $env:USERPROFILE ".local\bin" }
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wcode-install-" + [System.Guid]::NewGuid().ToString("N"))
 $Archive = "wcode-windows-x86_64.zip"
+$InstallTemp = $null
 
 $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
 if ($Architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
@@ -57,20 +58,45 @@ try {
     }
 
     $InstallPath = Join-Path $InstallDir "wcode.exe"
-    Copy-Item -Force $Binary.FullName $InstallPath
+    $InstallTemp = Join-Path $InstallDir (".wcode-install-" + [System.Guid]::NewGuid().ToString("N") + ".exe")
+    Copy-Item -Force $Binary.FullName $InstallTemp
+
+    & $InstallTemp --version | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "wcode install: downloaded binary failed the version smoke test"
+    }
+    & $InstallTemp --help | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "wcode install: downloaded binary failed the help smoke test"
+    }
+
+    Move-Item -Force $InstallTemp $InstallPath
+    $InstallTemp = $null
 
     Write-Host ""
     Write-Host "Installed wcode to $InstallPath"
 
     $PathEntries = $env:PATH -split ';'
-    if ($PathEntries -notcontains $InstallDir) {
-        Write-Host ""
+    Write-Host ""
+    if ($PathEntries -contains $InstallDir) {
+        Write-Host "Next, from a repository:"
+        Write-Host "  wcode setup"
+        Write-Host "  wcode"
+    }
+    else {
         Write-Host "Add this directory to PATH if needed:"
         Write-Host "  $InstallDir"
+        Write-Host ""
+        Write-Host "Or use the installed binary directly from a repository:"
+        Write-Host "  & `"$InstallPath`" setup"
+        Write-Host "  & `"$InstallPath`""
     }
 
     & $InstallPath --version
 }
 finally {
+    if ($InstallTemp) {
+        Remove-Item -Force -ErrorAction SilentlyContinue $InstallTemp
+    }
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $TempDir
 }

@@ -20,6 +20,8 @@ pub(super) fn handles(name: &str) -> bool {
             | "traceability_status"
             | "software_context"
             | "agent_context"
+            | "worklist_status"
+            | "worklist_update"
             | "semantic_status"
             | "semantic_query"
             | "semantic_record"
@@ -68,8 +70,9 @@ pub(super) async fn call(
                         "video": "metadata-only"
                     }
                 },
-                "local_command": "wcode --workspace <ABSOLUTE_REPOSITORY_PATH> mcp-stdio",
-                "agent_plugin_export": "wcode --workspace <REPOSITORY> agent-plugin",
+                "local_command": "wcode mcp-stdio",
+                "workspace_default": "MCP Host working directory",
+                "agent_plugin_export": "wcode agent-plugin",
                 "remote_auth": "oauth-pkce-resource-bound",
             });
             info["mcp_tasks"] = task_capabilities();
@@ -304,7 +307,20 @@ pub(super) async fn call(
             if let Ok(worktree) = worktree {
                 merge_agent_worktree_status(&mut context, &worktree);
             }
+            if let Ok(Some(worklist)) = crate::worklist::active_summary(&workspace) {
+                context["worklist"] = worklist;
+            }
             Ok(context)
+        }
+        "worklist_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            run_blocking(move || crate::worklist::status(&workspace)).await
+        }
+        "worklist_update" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let update = serde_json::from_value::<crate::worklist::WorklistUpdate>(args.clone())
+                .map_err(|error| format!("invalid worklist update: {error}"))?;
+            run_blocking(move || crate::worklist::update(&workspace, update)).await
         }
         "semantic_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;

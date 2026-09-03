@@ -93,6 +93,7 @@ impl Workspaces {
             allow_write,
             allow_exec,
             security,
+            full_access: Arc::new(AtomicBool::new(false)),
             authorization,
         })
     }
@@ -139,6 +140,93 @@ impl Workspaces {
         self.add_workspace_path(root.as_ref(), false)
     }
 
+    fn full_access_security(&self) -> WorkspaceSecurity {
+        WorkspaceSecurity {
+            allow_risky_exec: true,
+            allow_semantic_exec: true,
+            allow_destructive_writes: true,
+            allow_overlapping_workspaces: true,
+            allow_user_home_workspace: true,
+            allow_broad_workspace: self.security.allow_broad_workspace,
+        }
+    }
+
+    fn effective_security(&self) -> WorkspaceSecurity {
+        if self.full_access.load(Ordering::Relaxed) {
+            self.full_access_security()
+        } else {
+            self.security
+        }
+    }
+
+    pub fn full_access_enabled(&self) -> bool {
+        self.full_access.load(Ordering::Relaxed)
+    }
+
+    pub fn grant_full_user_access(&self) -> Result<(String, PathBuf)> {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .context("HOME/USERPROFILE is not set")?
+            .canonicalize()
+            .context("cannot resolve the current user home directory")?;
+        let security = self.full_access_security();
+        let mut roots = self
+            .roots
+            .write()
+            .expect("workspace registry lock poisoned");
+
+        let mut elevated = Vec::with_capacity(roots.len());
+        for entry in roots.iter() {
+            let workspace = Workspace::new_with_authorization(
+                entry.workspace.root(),
+                true,
+                true,
+                security,
+                self.authorization.clone(),
+            )?;
+            workspace.set_authorization_workspace_id(&entry.id);
+            elevated.push(workspace);
+        }
+        for (entry, workspace) in roots.iter_mut().zip(elevated) {
+            entry.workspace = workspace;
+            if !entry.markers.contains(&"full-access") {
+                entry.markers.push("full-access");
+            }
+        }
+
+        if let Some(existing) = roots.iter().find(|entry| entry.workspace.root() == home) {
+            self.full_access.store(true, Ordering::Relaxed);
+            return Ok((existing.id.clone(), home));
+        }
+        if roots.len() >= MAX_WORKSPACES {
+            bail!("at most {MAX_WORKSPACES} workspaces may be exposed by one process");
+        }
+        let workspace = Workspace::new_with_authorization(
+            &home,
+            true,
+            true,
+            security,
+            self.authorization.clone(),
+        )?;
+        let mut used_ids = HashMap::<String, usize>::new();
+        for existing in roots.iter().filter(|entry| entry.parent_id.is_none()) {
+            *used_ids
+                .entry(workspace_id(existing.workspace.root()))
+                .or_insert(0) += 1;
+        }
+        let id = next_workspace_id(&workspace.root, &roots, &mut used_ids);
+        workspace.set_authorization_workspace_id(&id);
+        roots.push(WorkspaceRoot {
+            id: id.clone(),
+            workspace,
+            parent_id: None,
+            markers: vec!["full-access", "user-home"],
+        });
+        self.full_access.store(true, Ordering::Relaxed);
+        Ok((id, home))
+    }
+
     pub fn add_workspace_from(
         &self,
         selected: Option<&str>,
@@ -163,11 +251,14 @@ impl Workspaces {
     }
 
     fn add_workspace_path(&self, root: &Path, allow_derived: bool) -> Result<(String, PathBuf)> {
+        let security = self.effective_security();
+        let allow_write = self.allow_write || self.full_access_enabled();
+        let allow_exec = self.allow_exec || self.full_access_enabled();
         let workspace = Workspace::new_with_authorization(
             root,
-            self.allow_write,
-            self.allow_exec,
-            self.security,
+            allow_write,
+            allow_exec,
+            security,
             self.authorization.clone(),
         )?;
         let mut roots = self
@@ -213,7 +304,7 @@ impl Workspaces {
             return Ok((id, canonical));
         }
 
-        validate_non_overlapping_root(&roots, &workspace, self.security)?;
+        validate_non_overlapping_root(&roots, &workspace, security)?;
         let mut used_ids = HashMap::<String, usize>::new();
         for existing in roots.iter().filter(|entry| entry.parent_id.is_none()) {
             *used_ids
@@ -234,9 +325,9 @@ impl Workspaces {
             &mut roots,
             &id,
             &parent,
-            self.allow_write,
-            self.allow_exec,
-            self.security,
+            allow_write,
+            allow_exec,
+            security,
             &self.authorization,
         );
         Ok((id, canonical))
@@ -276,6 +367,10 @@ impl Workspaces {
 
     pub fn authorization_request(&self, id: &str) -> Option<AuthorizationRequest> {
         self.authorization.request_by_id(id)
+    }
+
+    pub(crate) fn authorization_interactive_token(&self, id: &str) -> Option<String> {
+        self.authorization.interactive_token(id)
     }
 
     #[cfg(test)]
@@ -365,6 +460,7 @@ impl Workspaces {
 
     pub fn capabilities(&self) -> serde_json::Value {
         let roots = self.roots.read().expect("workspace registry lock poisoned");
+        let security = self.effective_security();
         serde_json::json!({
             "default_workspace": self.default_id,
             "security": {
@@ -373,13 +469,16 @@ impl Workspaces {
                 "coding_primitives": ["create_directory", "move_path", "path_info", "write_file", "apply_edits", "create_files", "move_paths", "apply_file_edits", "delete_path"],
                 "symlink_paths": "blocked",
                 "protected_paths": "blocked",
-                "overlapping_workspaces": self.security.allow_overlapping_workspaces,
-                "broad_workspace_roots": self.security.allow_broad_workspace,
-                "risky_exec_enabled": self.security.allow_risky_exec,
-                "semantic_exec_enabled": self.allow_exec && self.security.allow_semantic_exec,
+                "full_access": self.full_access_enabled(),
+                "full_access_scope": "current-user-home; filesystem root and hard protected-path/symlink/hard-link/no-shell boundaries remain",
+                "overlapping_workspaces": security.allow_overlapping_workspaces,
+                "user_home_workspace": security.allow_user_home_workspace,
+                "broad_workspace_roots": security.allow_broad_workspace,
+                "risky_exec_enabled": security.allow_risky_exec,
+                "semantic_exec_enabled": (self.allow_exec || self.full_access_enabled()) && security.allow_semantic_exec,
                 "dynamic_authorization": true,
                 "pending_authorizations": self.authorization.requests(MAX_WORKSPACES).iter().filter(|request| matches!(request.status, crate::authorization::AuthorizationStatus::Pending)).count(),
-                "destructive_writes_enabled": self.security.allow_destructive_writes,
+                "destructive_writes_enabled": security.allow_destructive_writes,
                 "max_write_bytes": MAX_WRITE_BYTES,
             },
             "subspace_discovery": {

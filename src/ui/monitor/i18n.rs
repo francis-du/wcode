@@ -48,6 +48,23 @@ impl UiLanguage {
             (Self::ZhCn, "open project repository") => "打开项目仓库",
             (Self::ZhCn, "open author profile") => "打开作者主页",
             (Self::ZhCn, "toggle language") => "切换语言",
+            (Self::ZhCn, "grant full user access") => "授权用户目录完整访问",
+            (Self::ZhCn, "FULL ACCESS") => "完整访问授权",
+            (Self::ZhCn, "Grant wcode system-tool access for this session?") => {
+                "为本次运行授予 wcode 系统工具访问权限？"
+            }
+            (Self::ZhCn, "Adds your Home directory as a Workspace and enables repository-aware execution plus destructive replacements.") => {
+                "把用户 Home 目录加入 Workspace，并开启仓库感知执行和大幅删除式替换。"
+            }
+            (Self::ZhCn, "Hard boundaries stay enforced: protected credentials, .env, symlinks, hard links, shells, and filesystem-root escape remain blocked.") => {
+                "硬安全边界仍然生效：凭据目录、.env、符号链接、硬链接、Shell 和文件系统根越界仍然禁止。"
+            }
+            (Self::ZhCn, "grant full access") => "确认完整授权",
+            (Self::ZhCn, "cancel") => "取消",
+            (Self::ZhCn, "full access granted") => "已授予完整访问",
+            (Self::ZhCn, "full access failed") => "完整访问授权失败",
+            (Self::ZhCn, "full access cancelled") => "已取消完整访问授权",
+            (Self::ZhCn, "full access already enabled") => "完整访问已经启用",
             (Self::ZhCn, "open or close help") => "打开或关闭帮助",
             (Self::ZhCn, "approve selected authorization") => "批准所选授权请求",
             (Self::ZhCn, "deny selected authorization") => "拒绝所选授权请求",

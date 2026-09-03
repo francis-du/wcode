@@ -171,11 +171,7 @@ impl Workspace {
             summary,
             fingerprint,
         );
-        bail!(
-            "authorization required: {} · {}. Approve this request in the TUI, then retry the operation",
-            request.id,
-            request.summary
-        )
+        Err(AuthorizationRequired::new(request).into())
     }
 
     pub(crate) fn source_stamp(&self, path: &str) -> Result<SourceStamp> {

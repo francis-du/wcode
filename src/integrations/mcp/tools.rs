@@ -24,7 +24,9 @@ pub(super) fn tools() -> Vec<Value> {
         tool("risk_status", "Assess the current change set, traceability gaps, and drift findings into structured Risk records and a risk-adaptive verification profile. Risk is multi-dimensional evidence for verification depth, not a single quality score.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("software_context", "Retrieve bounded task-oriented software intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
-        tool("agent_context", "Compile an edit-ready pack with adaptive token sizing when budget is omitted, or honor an explicit budget while preserving design, repo-map, SHA, verification and hot-source context.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
+        tool("agent_context", "Compile an edit-ready pack with adaptive token sizing when budget is omitted. Active persistent worklist state is included automatically so interrupted multi-step work can resume.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
+        tool("worklist_status", "Read the persistent active model worklist for this Workspace, including revision, incomplete items and runnable dependency lanes.", schema(json!({}), &[]), true, false),
+        tool("worklist_update", "Create or patch the persistent model worklist with optimistic revision control. Unfinished items cannot be silently deleted; restart requires a completed list.", schema(json!({"expected_revision":{"type":"integer","minimum":0},"goal":{"type":"string","minLength":1,"maxLength":1000},"restart":{"type":"boolean"},"items":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64},"title":{"type":"string","minLength":1,"maxLength":300},"status":{"type":"string","enum":["pending","in_progress","done","blocked"]},"depends_on":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":64}},"note":{"type":"string","maxLength":1000}},"required":["id"],"additionalProperties":false}}}), &["expected_revision"]), false, false),
         tool("semantic_status", "Read the persistent workspace semantic registry. Candidate facts are non-authoritative conversation/provider/user proposals; only explicitly confirmed facts are used as authoritative query expansion, and retired facts are excluded.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}), &[]), true, false),
         tool("semantic_query", "Search the persistent semantic registry by canonical term, alias, description, scope, or relationship triple. Optional scopes now act as real filters: scoped facts must overlap a requested scope while unscoped facts remain global. Canonical wcode Product Scope aliases are normalized alongside freeform business scopes.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"include_candidates":{"type":"boolean","default":true},"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}), &["query"]), true, false),
         tool("semantic_record", "Record a persistent semantic candidate without making it authoritative. Use this for user-proposed, design-derived, conversation-learned, or external-provider semantic facts; candidates never auto-promote into confirmed semantics.", schema(json!({"fact":{"type":"object","properties":{"kind":{"type":"string","enum":["concept","alias","entity","metric","dimension","relationship","rule","domain_term"]},"canonical":{"type":"string","minLength":1,"maxLength":300},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"description":{"type":"string","minLength":1,"maxLength":2000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"subject":{"type":"string","minLength":1,"maxLength":512},"predicate":{"type":"string","minLength":1,"maxLength":256},"object":{"type":"string","minLength":1,"maxLength":512},"origin":{"type":"string","enum":["user","conversation","design","provider"]},"provider":{"type":"string","minLength":1,"maxLength":256},"confidence":{"type":"string","enum":["low","medium","high"]},"source":{"type":"string","minLength":1,"maxLength":1000}},"required":["kind","canonical","description","origin","confidence"],"additionalProperties":false}}), &["fact"]), false, false),
@@ -34,8 +36,8 @@ pub(super) fn tools() -> Vec<Value> {
         tool("verification_claim", "Claim one queued blind Verification Job whose required capabilities match the reviewer. The job does not expose other reviewer submissions, preserving independent first-pass review, and carries bounded role-specific guidance when that role has a shared review rubric.", schema(json!({"reviewer":{"type":"string","minLength":1,"maxLength":256},"capabilities":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":128}},"role":{"type":"string","enum":["design_compliance","correctness","maintainability","architecture","security","performance","compatibility","adversarial","test_synthesis"]}}), &["reviewer","capabilities"]), false, false),
         tool("verification_submit", "Submit a structured verdict for a claimed Verification Job. The submission is converted into persistent provenance-bearing model-review Evidence including summary, claims, risks, and model identity.", schema(json!({"job_id":{"type":"string","minLength":1,"maxLength":160},"reviewer":{"type":"string","minLength":1,"maxLength":256},"submission":{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","fail","inconclusive"]},"summary":{"type":"string","minLength":1,"maxLength":2000},"claims":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":1000}},"risks":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":1000}},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["verdict","summary"],"additionalProperties":false}}), &["job_id","reviewer","submission"]), false, false),
         tool("verification_executor_status", "Inspect the cross-language Property/Mutation/Fuzz/Runtime executor registry. wcode auto-discovers common framework runners and also accepts bounded no-shell executors in .wcode/executors.yaml, so every indexed language can plug into the same Verification Mesh.", schema(json!({}), &[]), true, false),
-        tool("verification_execute_stages", "Execute all currently required Property/Mutation/Fuzz/Runtime stages for one Verification Plan using the first matching configured or auto-discovered executor. Each real command result becomes persistent stage Evidence. Requires --allow-risky-exec because project tests and configured executors run repository-controlled code.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), false, false),
-        tool("verification_stage_submit", "Submit real Property, Mutation, Fuzz, or Runtime/Canary stage evidence for a Verification Plan. This is the provider-neutral execution adapter: external test systems or agents submit their actual result and artifact digest; verification_status keeps the latest result per producer and aggregates the stage fail-closed, so another producer's later Pass cannot mask a Fail.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"submission":{"type":"object","properties":{"stage":{"type":"string","enum":["property","mutation","fuzz","runtime_canary"]},"producer":{"type":"string","minLength":1,"maxLength":256},"verdict":{"type":"string","enum":["pass","fail","inconclusive"]},"summary":{"type":"string","minLength":1,"maxLength":2000},"artifact_digest":{"type":"string","minLength":1,"maxLength":512},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["stage","producer","verdict","summary","artifact_digest"],"additionalProperties":false}}), &["plan_id","submission"]), false, false),
+        tool("verification_execute_stages", "Execute all currently required Property/Mutation/Fuzz/Runtime stages using configured or auto-discovered executors until the Verification Plan's fixed stage targets are covered. Each real command result becomes persistent target-scoped stage Evidence. Requires --allow-risky-exec because project tests and configured executors run repository-controlled code.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), false, false),
+        tool("verification_stage_submit", "Submit real Property, Mutation, Fuzz, or Runtime/Canary stage evidence for a Verification Plan. New target-scoped plans require the producer to name the plan targets covered by this artifact; readiness aggregates fail closed by both producer and target, so one language or subsystem cannot clear another target's gate. Legacy targetless plans remain readable.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"submission":{"type":"object","properties":{"stage":{"type":"string","enum":["property","mutation","fuzz","runtime_canary"]},"producer":{"type":"string","minLength":1,"maxLength":256},"verdict":{"type":"string","enum":["pass","fail","inconclusive"]},"summary":{"type":"string","minLength":1,"maxLength":2000},"artifact_digest":{"type":"string","minLength":1,"maxLength":512},"targets":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":128}},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["stage","producer","verdict","summary","artifact_digest"],"additionalProperties":false}}), &["plan_id","submission"]), false, false),
         tool("verification_approve", "Record explicit human approval as persistent HumanApproval Evidence for a Verification Plan that requires it. Only call this after a human has explicitly approved the plan; confirmed=true is required and models must never self-approve.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"approver":{"type":"string","minLength":1,"maxLength":256},"statement":{"type":"string","minLength":1,"maxLength":2000},"confirmed":{"type":"boolean","const":true}}), &["plan_id","approver","statement","confirmed"]), false, false),
         tool("verification_status", "Read one Verification Plan's durable reviewer state and readiness gate: deterministic result, stage evidence, queued/claimed/submitted jobs, reviewer failures/inconclusive/disagreement, human approval, stale-revision blockers, and final ready state. The plan must belong to the selected workspace.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), true, false),
         tool("verification_history", "List recent persisted Verification Plans with their current readiness, evidence-stage results, reviewer state, human approval, and blockers. This survives wcode restarts.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}), &[]), true, false),
@@ -57,29 +59,24 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool(
             "parallel_tools",
-            "Schedule 2-128 bounded read/discovery operations or workspace file writes. Every child uses a real global semaphore slot and appears separately in the TUI. Same-file apply_edits with the same SHA are coalesced into one atomic commit; the resource dependency graph fans out independent tasks and orders overlapping read/write, parent/child, move, delete, and directory-creation dependencies.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "tasks": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": MAX_PARALLEL_FANOUT_ITEMS,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"},
-                                "tool": {"type": "string", "enum": PARALLEL_READ_TOOLS.iter().chain(PARALLEL_WRITE_TOOLS.iter()).copied().collect::<Vec<_>>()},
-                                "arguments": {"type": "object"}
-                            },
-                            "required": ["tool"],
-                            "additionalProperties": false
-                        }
+            "Schedule independent bounded operations. The parent Workspace is inherited by children unless a child explicitly switches Workspace; prefer top-level concurrent calls when the Host supports them.",
+            schema(json!({
+                "tasks": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": MAX_PARALLEL_FANOUT_ITEMS,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "tool": {"type": "string", "enum": PARALLEL_READ_TOOLS.iter().chain(PARALLEL_WRITE_TOOLS.iter()).copied().collect::<Vec<_>>()},
+                            "arguments": {"type": "object"}
+                        },
+                        "required": ["tool"],
+                        "additionalProperties": false
                     }
-                },
-                "required": ["tasks"],
-                "additionalProperties": false
-            }),
+                }
+            }), &["tasks"]),
             false,
             true,
         ),
@@ -111,16 +108,16 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool(
             "symbol_context",
-            "Expand a symbol ID returned by file_outline or find_symbol into bounded source, syntax-level calls, same-file call targets, nested definitions, parse status, and in-memory AST cache metadata.",
+            "Expand a symbol ID returned by file_outline or find_symbol into up to 1,000 lines of original line-preserving source plus syntax-level calls, same-file call targets, nested definitions, parse status, and AST cache metadata. Prefer this after structure-first localization instead of repeated tiny source reads.",
             schema(json!({
                 "symbol_id": {"type": "string"},
-                "max_body_lines": {"type": "integer", "minimum": 1, "maximum": 500, "default": 200}
+                "max_body_lines": {"type": "integer", "minimum": 1, "maximum": 1000}
             }), &["symbol_id"]),
             true,
             false,
         ),
-        tool("read_file", "Read one UTF-8 file with line bounds and receive its SHA-256 edit precondition.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
-        tool("read_files", "Read up to 32 UTF-8 files in one MCP round trip. Reads run in parallel and each file reports success or failure independently.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
+        tool("read_file", "Read up to 1,000 original line-preserving UTF-8 source lines and receive the file SHA-256 edit precondition. Omit line bounds for the first 1,000 lines; request another window only when needed.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
+        tool("read_files", "Read up to 32 UTF-8 files in one MCP round trip, with at most 1,000 original line-preserving lines per file. Reads run in parallel and each file reports success or failure independently.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
         tool("read_media", "Inspect one bounded workspace media file. Metadata is always safe to return. Set include_content=true only when the MCP client explicitly advertises the run.francis.wcode/media-content extension for the media kind; otherwise wcode fails closed without emitting image/audio payloads. PNG/JPEG/GIF/WebP image content and MP3/WAV/Ogg/FLAC audio content are supported; MP4/WebM are metadata-only.", schema(json!({"path":{"type":"string"},"include_content":{"type":"boolean","default":false}}), &["path"]), true, false),
         tool("path_info", "Inspect one workspace path without loading the whole file into model context. Returns type, size, SHA-256 for files, readonly state, modification time, and hard-link count when available.", schema(json!({"path":{"type":"string"}}), &["path"]), true, false),
         tool("replace_text", "Atomically replace one exact text occurrence with a SHA-256 precondition and optional 1-based original line bounds. When start_line/end_line are supplied together, old_text must match exactly once inside that original range. Protected/symlink/hard-link targets remain blocked.", schema(json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path","old_text","new_text","expected_sha256"]), false, true),
@@ -143,7 +140,7 @@ fn schema(mut properties: Value, required: &[&str]) -> Value {
             "workspace".to_owned(),
             json!({
                 "type": "string",
-                "description": "Workspace ID; omit for default."
+                "description": "Only pass when switching away from the default Workspace."
             }),
         );
     }
@@ -189,13 +186,63 @@ pub(super) fn compact_tool_description(description: &str) -> String {
     compact
 }
 
+fn strip_schema_defaults(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.remove("default");
+            for child in object.values_mut() {
+                strip_schema_defaults(child);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                strip_schema_defaults(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+const MODEL_HIDDEN_TUNING_ARGS: &[&str] = &[
+    "timeout_seconds",
+    "limit",
+    "max_results",
+    "max_files",
+    "max_symbols",
+    "max_entries",
+    "max_body_lines",
+];
+
+fn strip_model_tuning_args(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+                for key in MODEL_HIDDEN_TUNING_ARGS {
+                    properties.remove(*key);
+                }
+            }
+            for child in object.values_mut() {
+                strip_model_tuning_args(child);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                strip_model_tuning_args(child);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn tool(
     name: &str,
     description: &str,
-    input_schema: Value,
+    mut input_schema: Value,
     read_only: bool,
     destructive: bool,
 ) -> Value {
+    strip_schema_defaults(&mut input_schema);
+    strip_model_tuning_args(&mut input_schema);
     let product_scopes = scopes::tool_scopes(name)
         .into_iter()
         .map(|scope| scope.as_str())
@@ -510,7 +557,7 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
         "symbol_context" => format!(
             "symbol id {} chars · body limit {} lines",
             string_arg(args, "symbol_id").map(str::len).unwrap_or(0),
-            usize_arg(args, "max_body_lines").unwrap_or(200)
+            usize_arg(args, "max_body_lines").unwrap_or(1_000)
         ),
         "read_file" => format!(
             "{} · lines {}-{}",

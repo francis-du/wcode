@@ -6,7 +6,7 @@ fn skill_only_export_reuses_every_canonical_source() {
     let workspace = Workspace::new(dir.path(), true, false).unwrap();
     let exported = export(
         &workspace,
-        "dist/wcode-agent-plugin",
+        "dist/wcode",
         AgentPluginProfile::SkillOnly,
         None,
     )
@@ -14,12 +14,11 @@ fn skill_only_export_reuses_every_canonical_source() {
 
     for (relative, expected) in CANONICAL_FILES {
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("dist/wcode-agent-plugin").join(relative))
-                .unwrap(),
+            std::fs::read_to_string(dir.path().join("dist/wcode").join(relative)).unwrap(),
             *expected
         );
     }
-    let mcp = std::fs::read_to_string(dir.path().join("dist/wcode-agent-plugin/mcp.json")).unwrap();
+    let mcp = std::fs::read_to_string(dir.path().join("dist/wcode/mcp.json")).unwrap();
     assert_eq!(mcp, MCP_JSON);
     assert_eq!(
         serde_json::from_str::<Value>(&mcp).unwrap()["mcpServers"],
@@ -28,7 +27,7 @@ fn skill_only_export_reuses_every_canonical_source() {
     assert!(exported.mcp_setup_required);
     assert!(export(
         &workspace,
-        "dist/wcode-agent-plugin",
+        "dist/wcode",
         AgentPluginProfile::SkillOnly,
         None
     )
@@ -50,14 +49,7 @@ fn local_and_remote_profiles_never_guess_or_embed_credentials() {
         &std::fs::read_to_string(dir.path().join("local-plugin/mcp.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        local["mcpServers"]["wcode"]["args"],
-        json!([
-            "--workspace",
-            workspace.root().to_str().unwrap(),
-            "mcp-stdio"
-        ])
-    );
+    assert_eq!(local["mcpServers"]["wcode"]["args"], json!(["mcp-stdio"]));
     assert_eq!(local["mcpServers"]["wcode"]["type"], "stdio");
     assert!(!local.to_string().contains("PLUGIN_ROOT"));
     let codex: Value = serde_json::from_str(
@@ -95,6 +87,21 @@ fn canonical_manifest_versions_match_the_crate() {
         let value: Value = serde_json::from_str(marketplace).unwrap();
         assert_eq!(value["plugins"][0]["version"], env!("CARGO_PKG_VERSION"));
     }
+    assert!(SKILL.contains("name: wcode"));
     assert!(SKILL.contains("progressive disclosure"));
+    for contract in [
+        "wcode setup",
+        "wcode update",
+        "wcode mcp-stdio",
+        "worklist_status",
+        "concurrent top-level wcode calls",
+        "overlapping generic filesystem",
+    ] {
+        assert!(
+            SKILL.contains(contract),
+            "missing Skill contract: {contract}"
+        );
+    }
     assert!(!SKILL.contains("dangerously-skip"));
+    assert!(!SKILL.contains("--workspace <"));
 }

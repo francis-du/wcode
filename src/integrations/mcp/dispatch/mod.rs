@@ -291,7 +291,18 @@ pub(super) async fn call_leaf_tool(
     match outcome {
         Ok(value) if name == "agent_context" => Ok(agent_context_tool_result(value, false)),
         Ok(value) => Ok(tool_result(value, false)),
-        Err(error) => Ok(tool_result(json!({"error": error.to_string()}), true)),
+        Err(error) => {
+            if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
+                return Ok(tool_result(
+                    json!({
+                        "error": error.to_string(),
+                        "authorization_required": required.request,
+                    }),
+                    true,
+                ));
+            }
+            Ok(tool_result(json!({"error": error.to_string()}), true))
+        }
     }
 }
 
@@ -499,6 +510,15 @@ fn parallel_tool_allowed(name: &str) -> bool {
     PARALLEL_READ_TOOLS.contains(&name) || PARALLEL_WRITE_TOOLS.contains(&name)
 }
 
+fn inherit_parallel_workspace(arguments: &mut Value, workspace: &str) {
+    let Some(object) = arguments.as_object_mut() else {
+        return;
+    };
+    object
+        .entry("workspace".to_owned())
+        .or_insert_with(|| json!(workspace));
+}
+
 async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String> {
     let items = args
         .get("tasks")
@@ -510,8 +530,13 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
         ));
     }
 
-    let default_workspace = state.workspaces.default_id();
-    let (prepared, aliases, skipped) = scheduler::coalesce_apply_edits(default_workspace, items)?;
+    let inherited_workspace =
+        string_arg(args, "workspace").unwrap_or(state.workspaces.default_id());
+    state
+        .workspaces
+        .select(Some(inherited_workspace))
+        .map_err(|error| error.to_string())?;
+    let (prepared, aliases, skipped) = scheduler::coalesce_apply_edits(inherited_workspace, items)?;
     let started = std::time::Instant::now();
     let mut results = vec![None; items.len()];
     let mut workloads = Vec::new();
@@ -537,12 +562,13 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
             ));
             continue;
         }
-        let arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
         if !arguments.is_object() {
             results[index] = Some(parallel_item_error(id, name, "arguments must be an object"));
             continue;
         }
-        match scheduler::resource_model(default_workspace, name, &arguments) {
+        inherit_parallel_workspace(&mut arguments, inherited_workspace);
+        match scheduler::resource_model(inherited_workspace, name, &arguments) {
             Ok(resources) => workloads.push((index, resources)),
             Err(error) => results[index] = Some(parallel_item_error(id, name, error)),
         }
@@ -570,7 +596,8 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                 .get("tool")
                 .and_then(Value::as_str)
                 .expect("scheduled tasks were validated before graph construction");
-            let arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            inherit_parallel_workspace(&mut arguments, inherited_workspace);
             let child_state = state.clone();
             let child_name = name.to_owned();
             let id_for_task = id.clone();

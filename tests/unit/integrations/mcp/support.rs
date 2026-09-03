@@ -33,6 +33,12 @@ pub(super) fn modern_request(method: &str, params: Value) -> Value {
     request
 }
 
+pub(super) fn elicitation_capable(mut request: Value) -> Value {
+    request["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"]["elicitation"] =
+        json!({});
+    request
+}
+
 pub(super) fn task_capable(mut request: Value) -> Value {
     request["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] = json!({
         "extensions": {(TASK_EXTENSION_ID): {}}

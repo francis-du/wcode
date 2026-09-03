@@ -1,12 +1,12 @@
 {
-  "name": "wcode-plugins",
+  "name": "wcode",
   "description": "Official wcode plugin marketplace.",
   "plugins": [
     {
       "name": "wcode",
       "source": ".",
-      "description": "wcode Software Intelligence skill with explicit Workspace-scoped MCP profiles.",
-      "version": "0.5.1",
+      "description": "wcode Software Intelligence skill with current-directory MCP defaults.",
+      "version": "0.5.2",
       "category": "developer-tools",
       "tags": ["mcp", "software-intelligence", "verification"],
       "strict": true

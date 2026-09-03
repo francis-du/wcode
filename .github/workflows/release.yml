@@ -67,11 +67,11 @@ jobs:
           test "${RELEASE_TAG}" = "${full_tag}" || test "${RELEASE_TAG}" = "${short_tag}"
           for manifest in \
             marketplace.json \
-            wcode-agent-plugin/marketplace.json \
-            wcode-agent-plugin/plugin.json \
-            wcode-agent-plugin/.claude-plugin/plugin.json \
-            wcode-agent-plugin/.codex-plugin/plugin.json \
-            wcode-agent-plugin/.zcode-plugin/plugin.json
+            plugin/marketplace.json \
+            plugin/plugin.json \
+            plugin/.claude-plugin/plugin.json \
+            plugin/.codex-plugin/plugin.json \
+            plugin/.zcode-plugin/plugin.json
           do
             grep -q '"version": "'"${package_version}"'"' "${manifest}"
           done

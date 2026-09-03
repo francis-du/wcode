@@ -46,6 +46,63 @@ pub(super) fn render_workspace_input_overlay(
     );
 }
 
+pub(super) fn render_full_access_overlay(frame: &mut Frame<'_>, area: Rect, language: UiLanguage) {
+    if area.width < 48 || area.height < 12 {
+        return;
+    }
+    let width = area.width.saturating_sub(10).clamp(46, 96);
+    let height = 10;
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(DANGER))
+        .style(Style::default().bg(SURFACE_SELECTED))
+        .padding(Padding::horizontal(1))
+        .title(Span::styled(
+            format!(" {} ", language.tr("FULL ACCESS")),
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                language.tr("Grant wcode system-tool access for this session?"),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                language.tr("Adds your Home directory as a Workspace and enables repository-aware execution plus destructive replacements."),
+                Style::default().fg(WARNING),
+            )),
+            Line::from(Span::styled(
+                language.tr("Hard boundaries stay enforced: protected credentials, .env, symlinks, hard links, shells, and filesystem-root escape remain blocked."),
+                Style::default().fg(TEXT_MUTED),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                keycap("Y"),
+                Span::styled(
+                    format!(" {}   ", language.tr("grant full access")),
+                    Style::default().fg(DANGER),
+                ),
+                keycap("N / Esc"),
+                Span::styled(
+                    format!(" {}", language.tr("cancel")),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ]),
+        ]),
+        inner,
+    );
+}
+
 pub(super) fn render_authorization_overlay(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -241,6 +298,7 @@ pub(super) fn render_help_overlay(
                 help_hint_line("O", language.tr("open Connector setup")),
                 help_hint_line("W", language.tr("open Project Observatory")),
                 help_hint_line("L", language.tr("toggle language")),
+                help_hint_line("P", language.tr("grant full user access")),
                 help_hint_line(
                     "↑/↓ Y/N",
                     language.tr("select / approve / deny authorization"),
@@ -279,6 +337,7 @@ pub(super) fn render_help_overlay(
             help_hint_line("I", language.tr("show live intelligence")),
             help_hint_line("C", language.tr("show supported commands")),
             help_hint_line("L", language.tr("toggle language")),
+            help_hint_line("P", language.tr("grant full user access")),
             help_hint_line("↑ / ↓", language.tr("select authorization")),
             help_hint_line("Y", language.tr("approve selected authorization")),
             help_hint_line("N", language.tr("deny selected authorization")),

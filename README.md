@@ -21,7 +21,7 @@ other clients connect through MCP.
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Software Intelligence](https://wcode.francis.run/docs/software-intelligence/)
-- [v0.5.1 — Resource control and mobile WebUI](https://wcode.francis.run/docs/releases/v0.5.1/)
+- [v0.5.2 — Cleaner MCP calls, parallel Agent work, and one-command setup](https://wcode.francis.run/docs/releases/v0.5.2/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 
 ## Install
@@ -38,14 +38,33 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/francis-du/wcode/main/install.ps1 | iex
 ```
 
-## Start
+Update an existing installation with the same checksum and smoke-test contract:
 
 ```bash
-wcode --workspace "$PWD"
+wcode update
 ```
 
-The TUI opens immediately. In the normal configuration wcode also starts the
-local HTTP service, protected WebUI, OAuth server, and managed HTTPS tunnels.
+## Configure and start
+
+From the repository you want an Agent to work in:
+
+```bash
+wcode setup
+wcode
+```
+
+Interactive `wcode setup` offers **Global (recommended)** first and **Current
+project** second. Global mode configures only verified user-level Host files
+after local confirmation; project mode keeps the config in this repository.
+Both install only `wcode mcp-stdio`, preserve unrelated servers/secrets, and
+fail closed on unknown schemas. The binary embeds the canonical `plugin/`
+package and `wcode` Skill, so setup works even when the current repository has
+no plugin directory. Use `wcode setup --dry-run` to preview the plan.
+
+`wcode` uses the current directory as the default Workspace, so normal use does
+not need `--workspace "$PWD"`. The TUI opens immediately; the normal runtime also
+starts the local HTTP service, protected WebUI, OAuth server, and managed HTTPS
+tunnels.
 While the alternate-screen dashboard is active it owns terminal output:
 background tunnel/setup diagnostics are captured into `TaskMonitor` state
 instead of writing over the ratatui frame. Every tunnel is accepted only after
@@ -58,28 +77,16 @@ workspaces into the default.
 
 ## Connect a client
 
-Preview every safe project-local change:
+For supported local coding agents, `wcode setup` is the normal configuration
+entry point. It reports `installed`, `updated`, `already_configured`, `manual`,
+`unsupported`, and `failed` outcomes. JSON and TOML files are parsed and merged;
+other MCP servers are preserved. Unknown schemas, JSONC, and YAML stay untouched
+when a safe merge cannot be guaranteed. No shell command is run, no third-party
+package is downloaded, and no token is written to the repository.
 
-```bash
-wcode --workspace "$PWD" agent-plugin --install-all --dry-run
-```
-
-Apply the plan:
-
-```bash
-wcode --workspace "$PWD" agent-plugin --install-all
-```
-
-The installer detects known hosts, reports its evidence, and returns separate
-`installed`, `updated`, `already_configured`, `manual`, `unsupported`, and
-`failed` results. JSON and TOML files are parsed and merged; other MCP servers
-are preserved. Unknown schemas, JSONC, and YAML stay untouched when a safe
-merge cannot be guaranteed. No shell command is run, no third-party package is
-downloaded, and no token is written to the repository.
-
-Current project-local adapters cover Claude Code, OpenAI Codex, GitHub Copilot
+Verified automatic adapters cover Claude Code, OpenAI Codex, GitHub Copilot
 CLI, VS Code + Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, Qoder CLI, and
-OpenCode. The report gives explicit manual steps for Cline, Kimi Code CLI, Roo
+OpenCode across the scopes each Host safely supports. The report gives explicit manual steps for Cline, Kimi Code CLI, Roo
 Code, Continue, ZCode, Grok Build, Windsurf, JetBrains/Junie, Zed, TRAE,
 CodeBuddy, and account-level web connectors.
 
@@ -87,22 +94,40 @@ CodeBuddy, and account-level web connectors.
 
 | Use case | Transport | Endpoint and authentication |
 | --- | --- | --- |
-| Local MCP client | stdio | `wcode --workspace /absolute/repo mcp-stdio` |
+| Local MCP client | stdio | `wcode mcp-stdio` — Host working directory is the default Workspace |
 | Remote client, preferred | Streamable HTTP | `https://host/mcp` + OAuth |
 | Older remote client | SSE compatibility | `GET /sse` + `POST /message?sessionId=...` + OAuth |
 
 All transports call the same JSON-RPC dispatch, Harness, Workspace policy, and
 authorization system. SSE is a compatibility layer, not a second tool runtime.
-wcode does not add anonymous or static-secret fallback just because a client
-cannot complete OAuth; use stdio, a local bridge, or a trusted reverse proxy for
-that client.
+For local stdio the Host working directory selects the Workspace; setup does not
+bake an absolute repository path into the MCP entry.
+
+MCP calls are intentionally compact in v0.5.2: model-visible schemas omit server
+defaults and low-frequency tuning fields, and agents are instructed not to send
+the default Workspace or inferable path/limit/timeout/budget values. For speed,
+independent dependency lanes should use concurrent top-level MCP calls when the
+Host supports them; bulk `read_files`, `search_many`, `apply_file_edits`, and
+`create_files` remain the low-noise path when the inputs are already known.
+For stdio, command authorization stays human-controlled: MCP 2026 clients use
+`input_required` multi-round-trip elicitation, while compatible 2025-era stdio
+clients receive `elicitation/create`. The retry is bound to the MCP client,
+pending authorization, and an opaque challenge; there is no model-callable
+approval tool. A host that does not advertise form elicitation fails closed
+instead of silently widening command access. wcode does not add anonymous or
+static-secret fallback just because a client cannot complete OAuth; use stdio,
+a local bridge, or a trusted reverse proxy for that client.
 
 ### Tunnel and OAuth sessions
 
 OAuth client registrations and tokens have no clock expiry. wcode stores them
 in the user's state directory, separated by the configured Workspace roots,
-and reloads them after a restart. A replacement tunnel can continue the same
-session after it passes the instance health check.
+and reloads them after a process restart. A replacement tunnel can continue the same
+session after it passes the instance health check. Managed tunnels self-heal;
+when all public tunnels are unavailable, wcode falls back to the local endpoint
+while reconnecting. Temporary Cloudflare/localhost.run/Pinggy hostnames can
+change on reconnect, so durable remote connectors should use Tailscale Funnel
+or another stable `--public-url`.
 
 Authorization pages and metadata still use the domain that received the
 request: `tunnel-b.example` never sends approval to `tunnel-a.example`. An old
@@ -113,27 +138,28 @@ the client.
 
 ## Export the portable plugin
 
-`wcode-agent-plugin/` is the source of truth for the package, README, connection
-notes, manifests, and Skill. The Rust exporter embeds those files instead of
-maintaining another copy.
+`plugin/` is the repository source package for manifests, connection notes, and
+the canonical `wcode` Skill. The binary embeds these assets at compile time, so
+installed users do **not** need a `plugin/` directory beside their repository or
+current working directory.
 
 ```bash
 # Safe package with no MCP target
-wcode --workspace "$PWD" agent-plugin --profile skill-only
+wcode agent-plugin --profile skill-only
 
-# stdio bound to this exact repository
-wcode --workspace "$PWD" agent-plugin --profile local-stdio
+# stdio profile; the Host working directory becomes the Workspace
+wcode agent-plugin --profile local-stdio
 
 # Remote URL only; OAuth credentials stay in the client
-wcode --workspace "$PWD" agent-plugin \
+wcode agent-plugin \
   --profile remote-http \
   --remote-url https://current-tunnel.example/mcp
 ```
 
 The standard `mcp.json` is present in every export. `skill-only` leaves its
-server map empty. `local-stdio` writes the canonical absolute Workspace, never
-the plugin directory. `remote-http` accepts HTTPS without credentials, query,
-or fragment and never embeds an OAuth token.
+server map empty. `local-stdio` writes only `wcode mcp-stdio`; the MCP Host's
+working directory becomes the default Workspace. `remote-http` accepts HTTPS
+without credentials, query, or fragment and never embeds an OAuth token.
 
 ## Repository capabilities
 
@@ -210,10 +236,10 @@ truncated instead of being presented as complete.
 An MCP client is optional for status and verification:
 
 ```bash
-wcode --workspace "$PWD" intelligence
-wcode --workspace "$PWD" intelligence --check --json
-wcode --workspace "$PWD" verification
-wcode --workspace "$PWD" verification --plan-id VP-...
+wcode intelligence
+wcode intelligence --check --json
+wcode verification
+wcode verification --plan-id VP-...
 ```
 
 `intelligence --check` is the repository gate for initialized, valid Design
@@ -221,16 +247,11 @@ State and complete required traceability. Repository-aware language servers and
 advanced verification stages can require an exact local authorization before
 they run.
 
-## Runtime control
+## Runtime lifecycle
 
-```bash
-wcode restart
-wcode stop
-```
-
-These commands use the per-user authenticated runtime control file. Restart
-restores the original arguments after cleaning up the terminal, server, and
-owned tunnel processes.
+Foreground HTTP/TUI runtimes stop through Ctrl-C or SIGTERM. stdio runtimes are
+owned by the MCP Host that launched them. Upgrades use `wcode update`; there is
+no separate restart/stop control socket or per-user runtime token file.
 
 ## Security summary
 

@@ -32,13 +32,8 @@ This is the English documentation home. The product site stays focused on the pr
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
-- [v0.5.1 release notes](releases/v0.5.1/) — burst-friendly resource governance, sustained-load cooling, subprocess cleanup, semantic stability, and mobile WebUI improvements.
-- [v0.5.0 release notes](releases/v0.5.0/) — default hardened semantics, bounded warm LSP sessions, agent-native semantic navigation, and task-adaptive syntax/LSP routing.
-- [v0.4.3 release notes](releases/v0.4.3/) — safe Agent host setup, stable tunnel-bound OAuth sessions, shared MCP transports, clearer TUI/WebUI authorization, and bounded repository structure views.
-- [v0.4.2 release notes](releases/v0.4.2/) — concurrent background tunnels with Tailscale Funnel, iMessage delivery of live links, per-tunnel retry, and graceful shutdown.
-- [v0.4.1 release notes](releases/v0.4.1/) — tunnel URL extraction and Agent Context budget fixes, expanded client matrix, redesigned docs.
-- [v0.4.0 release notes](releases/v0.4.0/) — faster Agent Context, architecture-first observability, resilient tunnels, and bounded development CLI automation.
-- [v0.3.0 release notes](releases/v0.3.0/) — historical 0.3 product shape and major changes.
+- [v0.5.2 release notes](releases/v0.5.2/) — cleaner MCP calls, dependency-aware parallel Agent work, one-command setup, stdio human authorization, and stricter Verification governance.
+- [Releases](releases/) — latest version plus the complete archive grouped by series. Historical versions stay out of the global sidebar so documentation navigation remains bounded.
 
 ## Recommended workflow
 

@@ -62,8 +62,6 @@ mod reconciliation_store;
 mod resource;
 #[path = "intelligence/risk.rs"]
 pub mod risk;
-#[path = "runtime/control.rs"]
-mod runtime_control;
 #[path = "workspace/scheduler.rs"]
 mod scheduler;
 #[path = "scopes/mod.rs"]
@@ -86,6 +84,8 @@ mod tunnel;
 pub mod verification;
 #[path = "verification/store.rs"]
 mod verification_store;
+#[path = "runtime/worklist.rs"]
+mod worklist;
 #[path = "workspace/mod.rs"]
 mod workspace;
 

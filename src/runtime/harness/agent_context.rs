@@ -275,8 +275,10 @@ impl ToolHarness {
             "risks": risks,
             "checks": checks,
             "workflow": [
+                "Split the task into dependency lanes first; run independent discovery/read/review work concurrently as separate top-level MCP calls when the host supports it.",
                 "Start from hot_source; open additional bodies only when the edit requires them.",
                 "Reuse existing components/helpers before adding branches, wrappers, or new modules.",
+                "Edit independent target files concurrently; serialize only edits with real data or path dependencies. Keep parallel_tools for compact fan-out rather than large nested arguments.",
                 "Edit with listed SHA preconditions; justify any file outside this pack.",
                 "After edits run review_changes, then verify_project at the recommended level."
             ],
@@ -593,11 +595,23 @@ fn update_agent_readiness(value: &mut Value) {
         next_actions.push("verify_project");
     }
 
+    let candidate_lanes = target_paths.len().max(editable_files).max(1);
+    let parallel_strategy = if candidate_lanes > 1 {
+        "top_level_concurrent_calls"
+    } else {
+        "single_lane"
+    };
+
     value["readiness"] = json!({
         "edit": edit,
         "verify": verify,
         "graph_precision": graph_precision,
         "next_actions": next_actions,
+        "parallelism": {
+            "strategy": parallel_strategy,
+            "candidate_lanes": candidate_lanes,
+            "parallel_tools": "compact_fanout_only"
+        },
         "direct_targets": targets,
         "hot_source_items": hot_source,
         "direct_target_files": target_paths.len(),

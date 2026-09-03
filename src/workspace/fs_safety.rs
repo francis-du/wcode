@@ -26,10 +26,7 @@ pub(super) fn root_identity(path: &Path) -> Result<RootIdentity> {
 }
 
 pub(super) fn validate_workspace_root(root: &Path, security: WorkspaceSecurity) -> Result<()> {
-    if security.allow_broad_workspace {
-        return Ok(());
-    }
-    if root.parent().is_none() {
+    if root.parent().is_none() && !security.allow_broad_workspace {
         bail!(
             "filesystem roots are too broad to expose as a workspace; choose a project directory or restart with --allow-broad-workspace"
         );
@@ -38,9 +35,12 @@ pub(super) fn validate_workspace_root(root: &Path, security: WorkspaceSecurity) 
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .and_then(|path| path.canonicalize().ok());
-    if home.as_deref() == Some(root) {
+    if home.as_deref() == Some(root)
+        && !security.allow_user_home_workspace
+        && !security.allow_broad_workspace
+    {
         bail!(
-            "the user home directory is too broad to expose as a workspace; choose a project directory or restart with --allow-broad-workspace"
+            "the user home directory is too broad to expose as a workspace; choose a project directory, grant Full Access, or use --full-access"
         );
     }
     Ok(())

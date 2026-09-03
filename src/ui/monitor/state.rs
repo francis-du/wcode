@@ -317,6 +317,10 @@ impl TaskMonitor {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         state.tunnel_running = Some(false);
         state.tunnel_error = Some(error.into());
+        state.public_url_healthy = None;
+        state.public_url_consecutive_failures = 0;
+        state.public_url_last_checked = None;
+        state.public_url_error = None;
     }
 
     pub fn connection_status(&self) -> MonitorConnectionStatus {

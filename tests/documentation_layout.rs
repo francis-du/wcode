@@ -41,6 +41,8 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             "review_changes",
             "verify_project",
             "defer_loading",
+            "wcode setup",
+            "parallelism",
         ] {
             assert!(
                 integration.contains(required),
@@ -50,8 +52,14 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     }
     let reference_en = fs::read_to_string(docs_root.join("reference.md")).unwrap();
     let reference_zh = fs::read_to_string(docs_root.join("reference.zh-CN.md")).unwrap();
+    let releases_en = fs::read_to_string(docs_root.join("releases.md")).unwrap();
+    let releases_zh = fs::read_to_string(docs_root.join("releases.zh-CN.md")).unwrap();
     assert!(reference_en.contains("agent_context(goal, scopes=...)"));
     assert!(reference_zh.contains("agent_context(goal, scopes=...)"));
+    assert!(reference_en.contains("wcode setup"));
+    assert!(reference_zh.contains("wcode setup"));
+    assert!(releases_en.contains("(v0.5.2/)"));
+    assert!(releases_zh.contains("(v0.5.2/)"));
     let security_en = fs::read_to_string(docs_root.join("security.md")).unwrap();
     let security_zh = fs::read_to_string(docs_root.join("security.zh-CN.md")).unwrap();
     for document in [&security_en, &security_zh, &reference_en, &reference_zh] {
@@ -132,14 +140,24 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             counterpart.relative
         );
 
-        let is_index = matches!(
-            page.relative.to_string_lossy().as_ref(),
-            "README.md" | "README.zh-CN.md"
-        );
+        let relative = page.relative.to_string_lossy();
+        let is_index = matches!(relative.as_ref(), "README.md" | "README.zh-CN.md");
         if !is_index {
+            let (navigation_index, navigation_route) = if relative.starts_with("releases/v") {
+                (
+                    if page.lang == "zh-CN" {
+                        &releases_zh
+                    } else {
+                        &releases_en
+                    },
+                    route.strip_prefix("releases/").unwrap_or(route),
+                )
+            } else {
+                (index, route)
+            };
             assert!(
-                index.contains(&format!("({route})")),
-                "language index must link to {:?}",
+                navigation_index.contains(&format!("({navigation_route})")),
+                "the appropriate documentation index must link to {:?}",
                 page.relative
             );
         }
@@ -218,6 +236,16 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
                 "localhost.run",
                 "pinggy",
                 "riskyexecution",
+            ][..],
+        ),
+        (
+            "releases/v0.5.2",
+            &[
+                "wcode setup",
+                "input_required",
+                "parallelism",
+                "target-aware",
+                "wcode update",
             ][..],
         ),
         (
@@ -304,21 +332,12 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     assert!(layout.contains("page.alternate"));
     assert!(layout.contains("'/zh/docs/'"));
     assert!(layout.contains("'/docs/reference/'"));
-    for page in &pages {
-        let Some(route) = page.permalink.strip_prefix("/docs/releases/") else {
-            continue;
-        };
-        assert!(
-            layout.contains(&format!("'/docs/releases/{route}'")),
-            "docs sidebar must link {:?}",
-            page.relative
-        );
-        assert!(
-            layout.contains(&format!("'/zh/docs/releases/{route}'")),
-            "docs sidebar must link the Chinese counterpart of {:?}",
-            page.relative
-        );
-    }
+    assert!(layout.contains("'/docs/releases/'"));
+    assert!(layout.contains("'/zh/docs/releases/'"));
+    assert!(
+        !layout.contains("'/docs/releases/v0.5.1/'"),
+        "release versions belong in the release index, not the global sidebar"
+    );
 
     let docs_css = fs::read_to_string(root.join("docs/assets/docs.css")).unwrap();
     assert!(docs_css.contains(".docs-shell"));

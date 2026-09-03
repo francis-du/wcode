@@ -585,6 +585,52 @@ fn package_run_command(workspace: &Workspace, script: &str) -> (String, Vec<Stri
     }
 }
 
+pub(crate) fn language_target(language: SemanticLanguage) -> String {
+    format!("language:{}", language.as_str())
+}
+
+pub(crate) fn executor_targets(
+    executor: &StageExecutorSpec,
+    required_targets: &[String],
+) -> Vec<String> {
+    if required_targets.is_empty() {
+        return Vec::new();
+    }
+    if executor.languages.is_empty() {
+        return required_targets.to_vec();
+    }
+    let supported = executor
+        .languages
+        .iter()
+        .copied()
+        .map(language_target)
+        .collect::<BTreeSet<_>>();
+    required_targets
+        .iter()
+        .filter(|target| supported.contains(*target))
+        .cloned()
+        .collect()
+}
+
+pub(crate) fn stage_target_available(
+    registry: &StageExecutorRegistry,
+    stage: VerificationStage,
+    target: &str,
+) -> bool {
+    registry.executors.iter().any(|executor| {
+        executor.available
+            && executor.spec.stage == stage
+            && (executor.spec.languages.is_empty()
+                || executor
+                    .spec
+                    .languages
+                    .iter()
+                    .copied()
+                    .map(language_target)
+                    .any(|supported| supported == target))
+    })
+}
+
 fn first_rust_fuzz_target(workspace: &Workspace) -> Result<Option<String>> {
     let root = workspace.root().join("fuzz/fuzz_targets");
     if !root.is_dir() {

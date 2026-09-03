@@ -42,7 +42,8 @@
   name: MCP Runtime
   responsibilities:
     - serve local stdio, preferred Streamable HTTP, and legacy SSE through one JSON-RPC dispatcher
-    - apply the same Workspace, OAuth, Origin, and client-owner boundaries to every network transport
+    - apply the same Workspace, OAuth, Origin, client-owner and human-authorization boundaries to every transport
+    - bridge pending authorization through modern input_required MRTR or capability-negotiated legacy stdio elicitation without exposing a model-callable approval tool
     - bound and clean up legacy SSE sessions while rejecting unknown protocol revisions
   constraints:
     - CONSTRAINT-MCP-COMPATIBILITY
@@ -50,6 +51,12 @@
     - kind: symbol
       path: src/integrations/mcp/mod.rs
       symbol: request_protocol
+    - kind: symbol
+      path: src/integrations/mcp/stdio.rs
+      symbol: serve
+    - kind: symbol
+      path: src/integrations/mcp/authorization.rs
+      symbol: apply_authorization_response
 
 - schema_version: 1
   id: component:verification-harness
@@ -188,6 +195,7 @@
   responsibilities:
     - derive structured multi-dimensional risks from design git and graph state
     - promote deterministic maintainability regressions into architecture risk instead of treating them as cosmetic nits
+    - expose local verification automation coverage gaps when a selected risk profile requires stages without runnable executors while preserving external evidence channels
     - select deeper verification profiles as risk increases
   constraints:
     - CONSTRAINT-MAINTAINABILITY-REVIEW
@@ -219,9 +227,10 @@
   id: component:verification-mesh
   name: Verification Mesh
   responsibilities:
-    - create persistent blind independent reviewer jobs
-    - aggregate deterministic reviewer and stage evidence fail closed
-    - discover and execute bounded property mutation fuzz and runtime-canary adapters
+    - create persistent blind independent reviewer jobs with contract-first correctness guidance
+    - bind plans and admissible evidence to the exact active code plus Design State revision and fixed changed-language verification targets
+    - aggregate deterministic reviewer and stage evidence fail closed by producer and required target
+    - discover and execute bounded property mutation fuzz and runtime-canary adapters with explicit per-target coverage
   constraints:
     - CONSTRAINT-FAIL-CLOSED-VERIFICATION
     - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
@@ -377,6 +386,7 @@
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
     - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
     - keep executable access separate from exact repository-operation approval while preserving no-shell and argument safety boundaries
+    - expose explicit Full Access for the current user Home only after operator confirmation while retaining filesystem-root, protected-path, symlink/hard-link and no-shell hard boundaries
   constraints:
     - CONSTRAINT-ROOT-ISOLATION
     - CONSTRAINT-SHA-PRECONDITION
@@ -409,6 +419,9 @@
     - kind: symbol
       path: src/workspace/registry.rs
       symbol: Workspaces::revoke_command
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::grant_full_user_access
 
 - schema_version: 1
   id: component:scheduler
@@ -432,6 +445,8 @@
   name: Dynamic Authorization Manager
   responsibilities:
     - create exact operation-bound human authorization requests
+    - keep interactive approval challenges private from serialized AuthorizationRequest data and invalidate them after a decision
+    - preserve the distinction between exact per-operation approval and explicit operator-chosen Full Access while permanent filesystem and command safety boundaries stay non-bypassable
     - consume one-shot destructive grants once and preserve session grants explicitly
   constraints:
     - CONSTRAINT-DESTRUCTIVE-AUTH
@@ -442,6 +457,9 @@
     - kind: symbol
       path: src/workspace/authorization.rs
       symbol: AuthorizationManager::consume_one_shot_grant
+    - kind: symbol
+      path: src/workspace/authorization.rs
+      symbol: AuthorizationManager::interactive_token
 
 - schema_version: 1
   id: component:mcp-capabilities
@@ -449,6 +467,9 @@
   responsibilities:
     - expose Tools Prompts Resources and durable Tasks over one shared runtime
     - attach Product Scope metadata so agents can discover capability boundaries
+    - honor per-request client capability metadata for form elicitation, media content and Tasks instead of assuming optional client support
+    - keep model-facing Tool schemas compact by omitting runtime defaults and low-frequency tuning fields while preserving runtime compatibility for explicit legacy arguments
+    - guide agents to omit default/inferable arguments and use host-level concurrent top-level calls for independent lanes instead of large nested parallel_tools payloads
     - preserve owner-scoped task execution across modern MCP requests
   constraints:
     - CONSTRAINT-MCP-COMPATIBILITY
@@ -625,11 +646,12 @@
   name: Agent Context Compiler
   responsibilities:
     - compile one task-specific edit-ready context pack instead of requiring a broad startup sequence
+    - persist and restore a revision-guarded per-Workspace Worklist so reconnects model switches and user-added tasks do not drop unfinished work
     - prioritize relevant Design State, symbol signatures, exact file SHA preconditions, verification references, graph evidence, risks and quality gates
     - rank a compact repository map from task relevance plus dependency centrality so direct matches include likely callers, callees and canonical helpers, with explicit caller/callee/dependency reasons and provider precision
     - include a bounded hot-source body for the strongest direct match when the pack budget permits, while deferring additional source bodies to progressive disclosure
     - enforce a serialized token budget across structure and hot source
-    - expose explicit edit, verification, graph-precision and truncation readiness signals plus deterministic next tool actions instead of hiding context quality behind a score
+    - expose explicit edit, verification, graph-precision, truncation and parallelism readiness signals plus deterministic next tool actions instead of hiding context quality behind a score
     - enrich only direct edit targets with fail-soft working-tree state from a parallel bounded Git status probe, warn on existing staged/unstaged/untracked changes and block direct-edit guidance for unmerged targets
     - expose pack build timing alongside serialized token and context-savings telemetry so retrieval speed, context cost and task quality can be evaluated separately
     - aggregate Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache hits in the existing operator Monitor instead of creating a parallel metrics subsystem
@@ -655,6 +677,15 @@
     - kind: symbol
       path: src/intelligence/runtime/reconcile.rs
       symbol: SoftwareIntelligenceRuntime::software_context
+    - kind: symbol
+      path: src/runtime/worklist.rs
+      symbol: status
+    - kind: symbol
+      path: src/runtime/worklist.rs
+      symbol: active_summary
+    - kind: symbol
+      path: src/runtime/worklist.rs
+      symbol: update
 
 - schema_version: 1
   id: component:managed-tunnel
@@ -662,8 +693,8 @@
   responsibilities:
     - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
     - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers on a fixed interval and keep every instance-health-verified tunnel live
-    - respawn a single dead tunnel after an exponential backoff without restarting the process or disturbing live tunnels, promoting the next live tunnel when the primary endpoint dies
-    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification
+    - respawn a single dead tunnel with bounded fast-start exponential backoff without restarting the process or disturbing live tunnels, reset death history after a verified reconnect, promote the next live tunnel when the primary dies, and fall back to pending/local state when no public tunnel remains
+    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification, and make it explicit that quick-tunnel hostnames may change across reconnects while Tailscale/custom endpoints can remain stable
     - route provider attempts, retries, dependency/install diagnostics, stale-process reclamation and connection events through TaskMonitor operator messages; never write directly to the terminal or inherit installer stdio while the runtime may be rendering the TUI
     - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
   depends_on:
@@ -681,14 +712,19 @@
     - kind: symbol
       path: src/runtime/tunnel/mod.rs
       symbol: start_tailscale_funnel_once
+    - kind: file
+      path: src/app/tunnel_lifecycle.rs
 
 - schema_version: 1
   id: component:agent-host-install
   name: Agent Host Installer
   responsibilities:
+    - expose wcode setup as the stable one-command path with interactive Global-first and Current-project scopes while keeping package export and legacy installer controls separate
     - detect supported local Agent hosts through explicit adapter evidence
-    - plan project-local MCP configuration before any host-level alternative
-    - merge the wcode server into recognized JSON schemas atomically without replacing other servers or writing credentials
+    - configure local stdio as path-free `wcode mcp-stdio` so Host working directory selects the default Workspace
+    - keep non-interactive setup project-scoped and require explicit local confirmation before verified user-level global configuration writes
+    - embed the canonical `plugin/` package and `wcode` Skill so installed setup never depends on a plugin directory in the user's current project
+    - merge the wcode server into recognized JSON/TOML schemas atomically without replacing other servers or writing credentials
     - report dry-run, installed, updated, already-configured, manual, unsupported, and failed outcomes honestly
   constraints:
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
@@ -706,3 +742,31 @@
     - kind: symbol
       path: src/integrations/agent_install/mod.rs
       symbol: detect_hosts
+    - kind: symbol
+      path: src/integrations/agent_install/mod.rs
+      symbol: plan_global_install
+    - kind: symbol
+      path: src/app/setup.rs
+      symbol: run
+
+- schema_version: 1
+  id: component:cli-lifecycle
+  name: Governed CLI Lifecycle
+  responsibilities:
+    - keep the default command catalog compact stable and directly understandable by humans and coding agents
+    - remove restart and stop plus the separate runtime-control route/state so process lifecycle belongs to OS signals or the MCP Host rather than another wcode control plane
+    - disable the redundant generated help subcommand while retaining command-specific --help
+    - update the current installation through embedded verified platform installers and never replace the installed binary before checksum plus version/help smoke checks pass
+  constraints:
+    - CONSTRAINT-CLI-SURFACE
+    - CONSTRAINT-VERIFIED-SELF-UPDATE
+  implementation:
+    - kind: symbol
+      path: src/app/mod.rs
+      symbol: run
+    - kind: symbol
+      path: src/app/commands.rs
+      symbol: ControlCommand
+    - kind: symbol
+      path: src/app/update.rs
+      symbol: run

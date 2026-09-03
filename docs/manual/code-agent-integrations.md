@@ -17,7 +17,7 @@ instructions; MCP is what gives the client access to wcode tools.
 
 | Client location | Transport | Configuration |
 | --- | --- | --- |
-| Same machine | stdio | `wcode --workspace /absolute/repo mcp-stdio` |
+| Same machine | stdio | `wcode mcp-stdio` (Host working directory = Workspace) |
 | Remote, preferred | Streamable HTTP | `https://host/mcp` with OAuth |
 | Older remote client | SSE compatibility | `GET /sse` and `POST /message?sessionId=...` with OAuth |
 
@@ -26,15 +26,33 @@ the Harness, Workspace selection, command policy, authorization, Tools,
 Prompts, Resources, and Software Intelligence state. SSE is kept for clients
 that still implement the 2024 transport; new setups should use `/mcp`.
 
-Never point stdio at a plugin installation folder. Bind it to the real source
-repository with an absolute path:
+Local stdio configuration is intentionally path-free:
 
 ```json
 {
   "command": "wcode",
-  "args": ["--workspace", "/absolute/repository", "mcp-stdio"]
+  "args": ["mcp-stdio"]
 }
 ```
+
+The MCP Host working directory is the default Workspace. This lets one global
+Host configuration work across repositories and avoids accidentally treating a
+plugin/package directory as source code. `--workspace` is only an explicit
+operator override.
+
+### Human authorization over stdio
+
+`stdin` and `stdout` are the MCP protocol channel, so wcode never pauses that
+stream to read a terminal yes/no prompt. Instead, a Host that supports form
+elicitation receives the authorization request through MCP and presents the
+user interaction itself. Protocol 2026 uses `input_required` MRTR; compatible
+2025-era stdio uses `elicitation/create`. Approval is accepted only when the
+reply matches the pending authorization, an opaque challenge, and the MCP
+client owner. There is no MCP tool that lets a model approve its own request.
+
+If the Host does not advertise form elicitation, the gated command fails with a
+missing-client-capability error. That is deliberate: unsupported interaction is
+not treated as consent.
 
 ## 2. Detect and configure local hosts
 
@@ -44,52 +62,49 @@ Install wcode first:
 curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
-Then preview the project-local changes:
+Then configure local Hosts:
 
 ```bash
-wcode --workspace "$PWD" agent-plugin --install-all --dry-run
+wcode setup
 ```
 
-Apply exactly that plan:
-
-```bash
-wcode --workspace "$PWD" agent-plugin --install-all
-```
-
-Add `--json` when another tool needs the structured report. Each result is one
+Use `wcode setup --dry-run` for a no-write preview. Add `--json` when another tool needs the structured report. Each result is one
 of `detected`, `installed`, `updated`, `already_configured`, `manual`,
 `unsupported`, or `failed`, and includes its detection evidence and target
 file.
 
-The installer only writes inside the repository. It parses JSON and TOML,
-merges the `wcode` server, and preserves unrelated settings. Updates use atomic,
-SHA-guarded writes. Symlinks, oversized files, an unexpected container type,
-invalid JSON/TOML, JSONC, and YAML all fail closed. It does not call a shell,
-download a plugin, store a secret, edit an unknown global file, or approve
+Interactive setup offers **Global (recommended)** first and **Current project**
+second. Global setup writes only verified user-level Host configuration paths
+after local confirmation; project mode writes recognized repository-local
+config. Both install `wcode mcp-stdio` without a repository path and preserve
+unrelated servers. Updates use parsed JSON/TOML plus atomic SHA-guarded writes;
+unknown/JSONC/YAML shapes fail closed. Setup does not download a plugin, require
+a `plugin/` directory in the user's project, store credentials, or approve
 RiskyExecution.
 
 ## 3. Export the Skill and plugin package
 
-`wcode-agent-plugin/` is the canonical package. The Rust exporter embeds its
-README, Skill, manifests, and connection notes with `include_str!`; those long
-files are not maintained twice.
+`plugin/` is the canonical source package. The Rust binary embeds its README,
+Skill, manifests, and connection notes with `include_str!`, so installed setup
+works from any directory even when no package folder exists there.
 
 ```bash
 # No MCP target; safe to distribute
-wcode --workspace "$PWD" agent-plugin --profile skill-only
+wcode agent-plugin --profile skill-only
 
 # Bind stdio to this repository
-wcode --workspace "$PWD" agent-plugin --profile local-stdio
+wcode agent-plugin --profile local-stdio
 
 # Publish a credential-free remote profile
-wcode --workspace "$PWD" agent-plugin \
+wcode agent-plugin \
   --profile remote-http \
   --remote-url https://current-host.example/mcp
 ```
 
 Every export contains the standard `mcp.json`. The canonical `skill-only`
-package has an empty `mcpServers` object. `local-stdio` writes the selected
-absolute Workspace. `remote-http` accepts an HTTPS origin or `/mcp` URL without
+package has an empty `mcpServers` object. `local-stdio` writes only
+`wcode mcp-stdio` and uses the consuming Host working directory. `remote-http`
+accepts an HTTPS origin or `/mcp` URL without
 credentials, query, or fragment. OAuth tokens remain in the MCP client.
 
 The package also carries `.claude-plugin`, `.codex-plugin`, and `.zcode-plugin`
@@ -135,8 +150,8 @@ containers are detected before the `wcode` entry is merged.
 
 ## 5. Manual hosts
 
-- **Kimi Code CLI:** add the absolute stdio command through the current MCP UI
-  or CLI. wcode does not assume a repository schema.
+- **Kimi Code CLI:** add `wcode mcp-stdio` through the current MCP UI or CLI.
+  The Host working directory selects the Workspace; wcode does not assume a repository schema.
 - **Cline:** use its MCP settings screen or CLI. Current MCP state is
   application-level, so the repository installer leaves it alone.
 - **Roo Code and Windsurf:** use the workspace MCP settings page. Extension
@@ -145,10 +160,9 @@ containers are detected before the `wcode` entry is merged.
   lossy rewrite.
 - **Zed:** project settings may be JSONC; preserve the comments.
 - **JetBrains / Junie, TRAE, and CodeBuddy:** use the current IDE MCP page.
-- **ZCode:** install the exported package, then bind stdio to the source
-  repository.
-- **Grok Build:** copy the portable Skill and add an explicit repository-bound
-  stdio server.
+- **ZCode:** install the exported package, then configure `wcode mcp-stdio`.
+- **Grok Build:** copy the portable Skill and add `wcode mcp-stdio`; the Host
+  working directory selects the source repository.
 
 “Manual” is a result, not a failed installation disguised as success.
 
@@ -182,17 +196,23 @@ validation, and the normal Workspace boundary.
 A useful default sequence is:
 
 ```text
-workspace_info → agent_context(goal, scopes=...) → symbol_context
-    ↓
-read_file / apply_edits
-    ↓
-review_changes → verify_project → evidence_status
+agent_context(goal, scopes=...)
+    ↓ readiness + parallelism
+independent lanes ── concurrent top-level MCP calls
+    ↓ true dependencies only
+bounded edits → review_changes → verify_project
 ```
 
-Use `search_many` and `read_files` when the inputs are already known; use
-parallel tool calls only for genuinely independent work. `agent_context` is the
-compact first pass. `symbol_context` adds syntax detail. `apply_edits` keeps one
-SHA precondition across a group of non-overlapping edits.
+Keep calls compact: omit the default `workspace` and server-default path, limit,
+timeout, and budget values. Use `workspace_info` only when multiple roots or
+subspaces make the target ambiguous. For edits, use `apply_edits` for one file
+and `apply_file_edits` for independent files. When inputs are already known,
+prefer `search_many`, `read_files`, `apply_file_edits`, and `create_files` because they
+reduce round trips without one giant nested argument object. Use separate
+concurrent top-level calls for independent lanes when the Host supports them;
+reserve `parallel_tools` for small compact fan-out. `agent_context` is the
+compact first pass and now reports an explicit parallelism strategy; call
+`symbol_context` only when readiness says more source is needed.
 
 Some model APIs expose server-tool features such as `defer_loading`. That is an
 API connector option, not a Claude Code, Codex, or generic MCP project setting.
@@ -223,8 +243,8 @@ repository operation.
 
 ## 9. Troubleshooting
 
-- Run `agent-plugin --install-all --dry-run --json` and inspect `evidence`,
-  `target`, and `guidance` for the Host.
+- Run `wcode setup --dry-run --json` and inspect `evidence`, `target`, and
+  `guidance` for the Host.
 - If OAuth opens the wrong domain, reconnect using the current tunnel URL. The
   metadata response should contain that same origin.
 - If a temporary tunnel hostname changed after a runtime restart, authorize the

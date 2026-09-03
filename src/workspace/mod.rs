@@ -1,4 +1,6 @@
-use crate::authorization::{AuthorizationKind, AuthorizationManager, AuthorizationRequest};
+use crate::authorization::{
+    AuthorizationKind, AuthorizationManager, AuthorizationRequest, AuthorizationRequired,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use memchr::memmem;
 use rayon::prelude::*;
@@ -9,7 +11,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
@@ -20,6 +22,7 @@ use walkdir::{DirEntry, WalkDir};
 const MAX_WORKSPACES: usize = 32;
 const MAX_LIST_ENTRIES: usize = 10_000;
 const MAX_READ_BYTES: u64 = 1024 * 1024;
+const MAX_MODEL_READ_LINES: usize = 1_000;
 const MAX_WRITE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_SAFE_REMOVAL_BYTES: usize = 4 * 1024;
@@ -76,6 +79,7 @@ pub struct WorkspaceSecurity {
     pub allow_semantic_exec: bool,
     pub allow_destructive_writes: bool,
     pub allow_overlapping_workspaces: bool,
+    pub allow_user_home_workspace: bool,
     pub allow_broad_workspace: bool,
 }
 
@@ -86,6 +90,7 @@ impl Default for WorkspaceSecurity {
             allow_semantic_exec: true,
             allow_destructive_writes: false,
             allow_overlapping_workspaces: false,
+            allow_user_home_workspace: false,
             allow_broad_workspace: false,
         }
     }
@@ -111,6 +116,7 @@ pub struct Workspaces {
     allow_write: bool,
     allow_exec: bool,
     security: WorkspaceSecurity,
+    full_access: Arc<AtomicBool>,
     authorization: AuthorizationManager,
 }
 
@@ -120,17 +126,6 @@ struct WorkspaceRoot {
     workspace: Workspace,
     parent_id: Option<String>,
     markers: Vec<&'static str>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FileView {
-    pub path: String,
-    pub sha256: String,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub total_lines: usize,
-    pub content: String,
-    pub redacted: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -262,6 +257,10 @@ pub struct CommandResult {
     pub truncated: bool,
     pub redacted: bool,
 }
+
+#[path = "models.rs"]
+mod models;
+pub use models::FileView;
 
 #[path = "media.rs"]
 mod media;
@@ -464,8 +463,10 @@ impl Workspace {
         let hash = sha256(content.as_bytes());
         let total = content.lines().count();
         let start = start_line.max(1);
-        let end = end_line
-            .unwrap_or(start.saturating_add(499))
+        let requested_end = end_line
+            .unwrap_or_else(|| start.saturating_add(MAX_MODEL_READ_LINES.saturating_sub(1)));
+        let end = requested_end
+            .min(start.saturating_add(MAX_MODEL_READ_LINES.saturating_sub(1)))
             .min(total)
             .max(start.saturating_sub(1));
         let selected = if total == 0 || start > total {
@@ -943,11 +944,7 @@ impl Workspace {
                 format!("delete {kind}: {}", portable_relative_path(&relative)),
                 fingerprint,
             );
-            bail!(
-                "authorization required: {} · {}. Approve this one-shot destructive request in the TUI, then retry the operation",
-                request.id,
-                request.summary
-            );
+            return Err(AuthorizationRequired::new(request).into());
         }
 
         let locked = self.existing_path(path)?;

@@ -59,13 +59,7 @@
         <div class="docs-nav-label">{% if is_zh %}参考{% else %}Reference{% endif %}</div>
         <a {% if page.url contains '/reference/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/reference/' | relative_url }}{% else %}{{ '/docs/reference/' | relative_url }}{% endif %}">{% if is_zh %}CLI 与 MCP 参考手册{% else %}CLI &amp; MCP Reference{% endif %}</a>
         <a {% if page.url contains '/development/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/development/' | relative_url }}{% else %}{{ '/docs/development/' | relative_url }}{% endif %}">{% if is_zh %}开发说明{% else %}Development{% endif %}</a>
-        <a {% if page.url contains '/releases/v0.3.0/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.3.0/' | relative_url }}{% else %}{{ '/docs/releases/v0.3.0/' | relative_url }}{% endif %}">v0.3.0</a>
-        <a {% if page.url contains '/releases/v0.4.0/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.4.0/' | relative_url }}{% else %}{{ '/docs/releases/v0.4.0/' | relative_url }}{% endif %}">v0.4.0</a>
-        <a {% if page.url contains '/releases/v0.4.1/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.4.1/' | relative_url }}{% else %}{{ '/docs/releases/v0.4.1/' | relative_url }}{% endif %}">v0.4.1</a>
-        <a {% if page.url contains '/releases/v0.4.2/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.4.2/' | relative_url }}{% else %}{{ '/docs/releases/v0.4.2/' | relative_url }}{% endif %}">v0.4.2</a>
-        <a {% if page.url contains '/releases/v0.4.3/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.4.3/' | relative_url }}{% else %}{{ '/docs/releases/v0.4.3/' | relative_url }}{% endif %}">v0.4.3</a>
-        <a {% if page.url contains '/releases/v0.5.0/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.5.0/' | relative_url }}{% else %}{{ '/docs/releases/v0.5.0/' | relative_url }}{% endif %}">v0.5.0</a>
-        <a {% if page.url contains '/releases/v0.5.1/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/v0.5.1/' | relative_url }}{% else %}{{ '/docs/releases/v0.5.1/' | relative_url }}{% endif %}">v0.5.1</a>
+        <a {% if page.url == '/docs/releases/' or page.url == '/zh/docs/releases/' or page.url contains '/releases/v' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/' | relative_url }}{% else %}{{ '/docs/releases/' | relative_url }}{% endif %}">{% if is_zh %}发布版本{% else %}Releases{% endif %}</a>
       </div>
     </aside>
     <article class="docs-content" id="docs-content">

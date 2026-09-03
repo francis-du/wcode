@@ -23,26 +23,27 @@ Convergence. The Software Graph stays a lower-level API.
 Local `mcp-stdio`, remote Streamable HTTP + OAuth, and legacy SSE share one MCP
 core. `agent_context` is the compact coding entry point; deeper Design, Graph,
 and Verification tools are called only when the task needs them. Plugin exports
-reuse the canonical `wcode-agent-plugin/` package, include standard `mcp.json`,
+reuse the canonical embedded `plugin/` package, include standard `mcp.json`,
 and never contain credentials or an implicit Workspace. Persistent state is
 scoped by Workspace. A fact is called semantic only after a real, fresh LSP
 provider returns it; otherwise precision remains Tree-sitter syntax.
 
 ## What changes for the user
 
-The normal startup and connection flow does not change:
+The normal repository flow is:
 
 ```bash
-wcode --workspace "$PWD"
+wcode setup
+wcode
 ```
 
-You can also inspect durable state without connecting a model:
+The current directory is the default Workspace. You can also inspect durable state without connecting a model:
 
 ```bash
-wcode --workspace "$PWD" intelligence
-wcode --workspace "$PWD" intelligence --check --json
-wcode --workspace "$PWD" verification
-wcode --workspace "$PWD" verification --plan-id VP-...
+wcode intelligence
+wcode intelligence --check --json
+wcode verification
+wcode verification --plan-id VP-...
 ```
 
 `intelligence --check` turns the read-only status surface into a fail-closed CI/release gate. It returns non-zero for invalid or uninitialized Design State, incomplete Requirement→Component / Design→Implementation / Acceptance→Verification coverage, or required Convention errors. Product Scope mapping becomes a hard gate only when Design State explicitly declares `CONSTRAINT-PRODUCT-SCOPE-CANONICAL`; third-party repositories can still inspect `scope_status` without being forced into wcode's own 12-scope source layout. Its JSON output includes the same `scope_status` and `conventions` state used by the runtime; Convention warnings do not fail the check.
@@ -50,8 +51,8 @@ wcode --workspace "$PWD" verification --plan-id VP-...
 Semantic providers and stage executors can load or run repository-controlled code/configuration, so they do not share one blanket trust rule. Hardened first-party semantic providers are enabled by default through a separate bounded lane; today `rust-analyzer` is the first automatic profile. `--no-semantic` disables every first-party language-server execution. Providers without an automatic profile and stage executors remain explicit trust expansions: the first untrusted exact operation returns a local authorization request that can be approved in the TUI or protected WebUI and retried. `--allow-risky-exec` remains the broader process-wide pre-authorization path for those non-automatic operations:
 
 ```bash
-wcode --workspace "$PWD" --no-semantic
-wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
+wcode --no-semantic
+wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 Press `I` to load Intelligence for the selected project, `C` for the complete
@@ -66,7 +67,7 @@ snapshot. It shows the project tree, depth, largest files, and files above the
 marked as truncated; the browser does not start a second filesystem scan.
 
 Proof counts only Evidence whose code and Design revisions match the current
-repository. Local agents use `wcode --workspace <repo> mcp-stdio`; remote
+repository. Local agents use `wcode mcp-stdio` from the Host's project working directory; remote
 clients prefer `/mcp`; older clients can use `/sse`. Plugin and one-command
 Host setup are documented in
 [Code Agent Integrations](../code-agent-integrations/).
@@ -75,14 +76,10 @@ The normal coding workflow is intentionally smaller:
 
 ```text
 agent_context(goal, scopes=...)
-    ↓
-symbol_context only when readiness needs more source
-    ↓
-apply_edits / apply_file_edits
-    ↓
-review_changes
-    ↓
-verify_project
+    ↓ readiness / next_actions / parallelism
+independent lanes ── concurrent top-level MCP calls
+    ↓ real dependencies only
+bounded edits → review_changes → verify_project
     ↓
 deeper drift / risk / reconciliation / evidence only when needed
 ```
@@ -95,13 +92,7 @@ Install the latest release:
 curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh
 ```
 
-If wcode is already running, restart the installed/current executable so the MCP client receives the new tool schemas:
-
-```bash
-wcode restart
-```
-
-A client that cached `tools/list` may also need to reconnect or refresh its MCP connection.
+After `wcode update`, let the terminal or MCP Host start the updated executable on its next run. A client that cached `tools/list` may need to reconnect or refresh its MCP connection so it receives the new schemas.
 
 ## 2. Add Design State to a project
 
@@ -190,8 +181,8 @@ For substantial coding work, start from one compact task-specific call rather th
 
 ```text
 1. agent_context(goal, scopes=...)
-2. follow readiness / next_actions
-3. use semantic_navigation only when readiness recommends cross-file references/calls/implementations; keep find_symbol/search_code for simple localization
+2. follow readiness / next_actions / parallelism; run independent lanes concurrently at the Host level when supported
+3. omit default/inferable MCP arguments; use semantic_navigation only when readiness recommends cross-file references/calls/implementations and keep find_symbol/search_code for simple localization
 4. symbol_context only if more source is needed
 5. apply_edits or apply_file_edits
 6. review_changes
@@ -200,7 +191,7 @@ For substantial coding work, start from one compact task-specific call rather th
 9. evidence_status / reconciliation only when convergence or proof needs deeper inspection
 ```
 
-`agent_context` uses a bounded adaptive budget when `budget` is omitted. It combines relevant Design State, scope-aware repo-map ranking, fresh semantic/runtime evidence when usable, bounded Hot Source, exact SHA edit targets, related tests, working-tree advisories, readiness, and deterministic next actions. The 1000-token extreme mode prioritizes direct editability; the default adaptive path can grow when the task is ambiguous or cross-module. `project_context`, `scope_status`, `design_status`, `traceability_status`, `software_context`, `language_quality_status`, and graph/risk tools remain available for deliberate deeper inspection rather than mandatory startup overhead.
+`agent_context` uses a bounded adaptive budget when `budget` is omitted. It combines relevant Design State, scope-aware repo-map ranking, fresh semantic/runtime evidence when usable, bounded Hot Source, exact SHA edit targets, related tests, working-tree advisories, readiness, deterministic next actions, and an explicit parallelism strategy. Model-facing MCP calls should omit the default Workspace and server-default path/limit/timeout/budget values. The 1000-token extreme mode prioritizes direct editability; the default adaptive path can grow when the task is ambiguous or cross-module. `project_context`, `scope_status`, `design_status`, `traceability_status`, `software_context`, `language_quality_status`, and graph/risk tools remain available for deliberate deeper inspection rather than mandatory startup overhead.
 
 ### `agent_context`
 
@@ -221,8 +212,6 @@ Example arguments:
 ```json
 {
   "query": "workspace command security",
-  "intent": "modify",
-  "budget": 12000,
   "scopes": ["workspace"]
 }
 ```
@@ -352,7 +341,7 @@ executors:
 Configured executors run without a shell, remain workspace-scoped, hide configured arguments from status/UI serialization, and scrub sensitive environment/output. Workspace-relative programs are resolved through the same canonical-root and symlink protections as other workspace operations. Without process-wide `--allow-risky-exec`, the first exact executor operation creates a local `RuntimeExecutor` authorization request; approve it in the TUI or protected WebUI and retry. Use the flag when repository-aware executor work is intentionally pre-authorized for the process:
 
 ```bash
-wcode --workspace "$PWD" --allow-risky-exec verification --plan-id VP-... --execute-stages
+wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 A missing executable is reported as unavailable/missing; it never produces pass Evidence.

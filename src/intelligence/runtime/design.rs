@@ -196,8 +196,19 @@ impl SoftwareIntelligenceRuntime {
             self.traceability_status(workspace_id.clone(), workspace, code_index, known_checks)?;
         let state = design::load_design(workspace)?.state;
         let drift = build_drift_status(workspace_id.clone(), &state, &traceability, review);
-        let (level, risks) = assess_risk(&workspace_id, review, &traceability, &drift);
+        let (level, mut risks) = assess_risk(&workspace_id, review, &traceability, &drift);
         let profile = VerificationProfile::for_risk(level);
+        if !required_verification_stages(&profile).is_empty() {
+            let registry = stage_executor::registry(workspace)?;
+            let stage_targets = verification_targets_for_review(review, &registry);
+            append_verification_automation_gap(
+                &workspace_id,
+                &profile,
+                &registry,
+                &stage_targets,
+                &mut risks,
+            );
+        }
         self.state
             .lock()
             .map_err(|_| anyhow!("software intelligence state poisoned"))?
@@ -263,7 +274,15 @@ impl SoftwareIntelligenceRuntime {
             known_checks,
             review,
         )?;
-        self.create_plan_for_risk(&workspace_id, workspace, risk.level)
+        let registry = stage_executor::registry(workspace)?;
+        let stage_targets = verification_targets_for_review(review, &registry);
+        self.create_plan_for_risk_with_targets(
+            &workspace_id,
+            workspace,
+            risk.level,
+            stage_targets,
+            &registry,
+        )
     }
 
     pub(crate) fn verification_claim(
@@ -388,6 +407,17 @@ impl SoftwareIntelligenceRuntime {
         if !required {
             return Err(anyhow!("verification stage is not required by this plan"));
         }
+        if !plan.stage_targets.is_empty()
+            && (submission.targets.is_empty()
+                || submission
+                    .targets
+                    .iter()
+                    .any(|target| !plan.stage_targets.contains(target)))
+        {
+            return Err(anyhow!(
+                "stage evidence must explicitly cover only targets declared by this verification plan"
+            ));
+        }
         let kind = match submission.stage {
             VerificationStage::Property => EvidenceKind::Property,
             VerificationStage::Mutation => EvidenceKind::Mutation,
@@ -413,6 +443,7 @@ impl SoftwareIntelligenceRuntime {
             Some(format!("{}/stage/{:?}", plan.policy, submission.stage).to_ascii_lowercase());
         evidence.artifact_digest = Some(submission.artifact_digest.clone());
         evidence.summary = Some(submission.summary.clone());
+        evidence.targets = submission.targets.clone();
         evidence.validate()?;
         evidence_store::persist(workspace, &evidence)?;
         let mut state = self
@@ -499,18 +530,33 @@ impl SoftwareIntelligenceRuntime {
                 .collect::<Vec<_>>();
             (status, memory_evidence)
         };
-        let current_subject = format!("change:{}", workspace_revision(workspace)?.code);
-        if current_subject != status.plan.subject {
-            status
-                .blockers
-                .push("workspace-revision-changed-since-plan".into());
+        let current_revision = workspace_revision(workspace)?;
+        if let Some(plan_revision) = status.plan.revision.as_ref() {
+            if current_revision.code != plan_revision.code {
+                status
+                    .blockers
+                    .push("workspace-revision-changed-since-plan".into());
+            }
+            if current_revision.design != plan_revision.design {
+                status
+                    .blockers
+                    .push("design-revision-changed-since-plan".into());
+            }
+        } else {
+            let current_subject = format!("change:{}", current_revision.code);
+            if current_subject != status.plan.subject {
+                status
+                    .blockers
+                    .push("workspace-revision-changed-since-plan".into());
+            }
         }
         let mut evidence = evidence_store::load(workspace)?;
         evidence.extend(memory_evidence);
         status.deterministic_result = evidence
             .iter()
             .filter(|record| {
-                record.subject == status.plan.subject && record.kind == EvidenceKind::Verification
+                evidence_matches_plan_revision(record, &status.plan)
+                    && record.kind == EvidenceKind::Verification
             })
             .max_by_key(|record| record.timestamp_ms)
             .map(|record| record.result);
@@ -565,7 +611,8 @@ impl SoftwareIntelligenceRuntime {
         status.human_approval = evidence
             .iter()
             .filter(|record| {
-                record.subject == status.plan.subject && record.kind == EvidenceKind::HumanApproval
+                evidence_matches_plan_revision(record, &status.plan)
+                    && record.kind == EvidenceKind::HumanApproval
             })
             .max_by_key(|record| record.timestamp_ms)
             .is_some_and(|record| record.result == EvidenceResult::Pass);

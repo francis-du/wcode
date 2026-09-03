@@ -107,7 +107,8 @@
 - schema_version: 1
   id: REQ-AGENT-INSTALL-001
   title: Safe one-command Agent host installation
-  intent: agent-plugin --install-all must detect known local hosts through adapter evidence, show a no-write dry run, merge wcode into recognized project-local JSON schemas atomically and idempotently, preserve every unrelated MCP server, write no credential, and report unsafe or unknown host schemas as manual or failed instead of claiming success.
+  intent: >-
+    wcode setup must be the stable one-command Agent configuration path. Interactive setup offers Global as the recommended first choice and Current project as the second choice; non-interactive callers default to project scope and cannot silently mutate user-level configuration. Both scopes install the path-free `wcode mcp-stdio` command so the MCP Host working directory becomes the default Workspace, merge only verified JSON/TOML Host schemas atomically and idempotently, preserve unrelated MCP servers, write no credential, and report unsafe or unknown schemas as manual or failed. Global setup may write only verified user-level Host paths after explicit local confirmation. The canonical `plugin/` package and `wcode` Skill are embedded into the binary, so setup must work when no plugin directory exists in the user's project. The older agent-plugin surface remains hidden for compatibility and standalone package export.
   priority: critical
   implemented_by:
     - component:agent-host-install
@@ -194,8 +195,8 @@
 
 - schema_version: 1
   id: REQ-AUTH-001
-  title: Dynamic destructive authorization
-  intent: Destructive and dynamically gated operations, including narrowly authorizable repository mutations, must require explicit human authorization bound to the exact operation; one-shot destructive grants must be consumed once and session grants must not widen permanently blocked command shapes.
+  title: Dynamic human authorization
+  intent: Destructive and dynamically gated operations, including narrowly authorizable repository mutations, must require explicit human authorization bound to the exact operation. Local stdio MCP must surface the same pending authorization through standards-based human elicitation instead of requiring a separate TUI/WebUI, while the model remains unable to approve itself. Modern MRTR retries must bind the pending request to the exact MCP owner plus an opaque one-time challenge; legacy stdio may issue elicitation/create only when the client declared form elicitation support. TUI/CLI Full Access is an explicit operator decision that may add the current user Home and enable otherwise-authorizable runtime capabilities, but it must not enable filesystem-root exposure or bypass protected-path, symlink/hard-link, no-shell, or permanent command-policy boundaries. One-shot destructive grants must be consumed once and session grants must not widen permanently blocked command shapes.
   priority: critical
   implemented_by:
     - component:authorization
@@ -211,7 +212,8 @@
 - schema_version: 1
   id: REQ-MCP-002
   title: Complete MCP capability surface
-  intent: The shared MCP runtime must expose Tools, Prompts, Resources and durable owner-scoped Tasks, attach wcode Product Scope metadata, and keep optional media Tool Results capability-aware so binary image/audio content is emitted only when the current client request explicitly advertises support while unknown/legacy capability remains metadata-only or fails closed.
+  intent: >-
+    The shared MCP runtime must expose Tools, Prompts, Resources and durable owner-scoped Tasks, attach wcode Product Scope metadata, keep optional media Tool Results capability-aware, and preserve human-in-the-loop authorization across MCP generations. Model-facing Tool schemas must stay compact: server defaults and low-frequency tuning arguments are omitted from advertised schemas while the runtime remains backward-compatible with callers that explicitly send them, and guidance tells agents to omit the default Workspace and inferable arguments. Agent Context must expose explicit parallelism readiness so independent work can use host-level concurrent top-level calls while nested parallel_tools remains a compact-fanout tool rather than a large argument wrapper. Modern 2026 requests use input_required MRTR for elicitation and fail with the standard missing-client-capability shape when form elicitation is unavailable; legacy stdio may bridge the same flow to elicitation/create only after capability negotiation. Binary image/audio content is emitted only when the current client request explicitly advertises support while unknown/legacy capability remains metadata-only or fails closed.
   priority: critical
   implemented_by:
     - component:mcp-runtime
@@ -315,7 +317,7 @@
 - schema_version: 1
   id: REQ-VERIFY-001
   title: Fail-closed Verification Mesh
-  intent: Deterministic checks, independent reviewers and Property Mutation Fuzz Runtime-Canary stage evidence must aggregate fail closed by producer and revision, with explicit human approval where required.
+  intent: Deterministic checks, independent reviewers and Property Mutation Fuzz Runtime-Canary stage evidence must aggregate fail closed by producer, fixed verification target, and the exact active code-plus-Design-State revision, with explicit human approval where required. Verification Plans must freeze the changed-language targets that require advanced evidence so a pass for one language cannot clear another language's gate. Correctness reviewers must evaluate the active contract, distinguish specification uncertainty from implementation failure, and ground failures in observable counterexamples rather than preferred fixes. Risk reporting must also distinguish required stage policy from locally executable per-target automation, surfacing missing local executors without excluding externally produced target-attested stage evidence.
   priority: critical
   implemented_by:
     - component:verification-harness
@@ -494,7 +496,7 @@
 - schema_version: 1
   id: REQ-AGENT-CONTEXT-001
   title: Token-efficient edit-ready agent context
-  intent: Coding agents must be able to start substantial implementation work from one bounded task-specific context pack that prioritizes relevant Design State, symbol signatures, exact edit SHA preconditions, verification references, graph evidence and quality gates while excluding unrelated traceability, ranking likely callers/callees/helpers through a compact repository map, and deferring source bodies until explicitly requested.
+  intent: Coding agents must be able to start substantial implementation work from one bounded task-specific context pack that prioritizes relevant Design State, symbol signatures, exact edit SHA preconditions, verification references, graph evidence and quality gates while excluding unrelated traceability, ranking likely callers/callees/helpers through a compact repository map, and deferring source bodies until explicitly requested. Multi-step work must persist a per-Workspace revision-guarded Worklist across reconnects/model switches; Agent Context restores active unfinished work, stale concurrent updates fail closed, blocked items remain unfinished, and a new list cannot silently replace unfinished user tasks.
   priority: critical
   implemented_by:
     - component:agent-context
@@ -511,12 +513,29 @@
 - schema_version: 1
   id: REQ-TUNNEL-001
   title: Public tunnel availability is provider-resilient
-  intent: Remote MCP startup must not depend on one tunnel vendor. wcode keeps every instance-health-verified tunnel live, self-heals failures without restarting the process, directs OAuth to the hostname receiving the request, preserves scoped persisted sessions when clients reconnect through another verified alias or restart the runtime, and routes background provider diagnostics through structured monitor state rather than direct terminal writes while the TUI owns the terminal.
+  intent: Remote MCP startup must not depend on one tunnel vendor. wcode keeps every instance-health-verified tunnel live, self-heals failures without restarting the process, never indexes an empty live-tunnel set after the last endpoint disappears, returns public health to pending while recovering, resets provider backoff after a verified reconnect, directs OAuth to the hostname receiving the request, preserves scoped persisted sessions when clients reconnect through another verified alias or restart the runtime, distinguishes session-style quick-tunnel hostnames from stable endpoints, and routes background provider diagnostics through structured monitor state rather than direct terminal writes while the TUI owns the terminal.
   priority: high
   implemented_by:
     - component:managed-tunnel
   acceptance:
     - AC-TUNNEL-001
+  risk:
+    reliability: critical
+    compatibility: high
+
+- schema_version: 1
+  id: REQ-CLI-001
+  title: Governed stable CLI lifecycle
+  intent: >-
+    The default CLI command catalog must stay small and model-readable. No subcommand starts the runtime; setup, update, mcp-stdio, intelligence and verification are the stable visible task-level commands. agent-plugin remains a hidden advanced export control, while restart and stop are removed so process lifecycle belongs to Ctrl-C/SIGTERM for foreground runtimes and to the MCP Host for stdio. The runtime must not retain a separate control route or per-user restart/stop token file. Low-frequency resource, transport-provider and trust-boundary flags stay accepted but hidden from default help. The redundant generated help subcommand is disabled. wcode update must target the running binary's installation directory by default and reuse the verified release installer contract with official release artifacts, SHA-256 verification, a staged candidate binary, version/help smoke tests, and replacement only after those checks succeed.
+  priority: high
+  implemented_by:
+    - component:cli-lifecycle
+  acceptance:
+    - AC-CLI-001
+  constraints:
+    - CONSTRAINT-CLI-SURFACE
+    - CONSTRAINT-VERIFIED-SELF-UPDATE
   risk:
     reliability: critical
     compatibility: high

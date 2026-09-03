@@ -59,6 +59,7 @@ fn unix_installer_uses_tested_macos_asset_and_replaces_only_after_smoke_tests() 
         "\"$install_tmp\" --version >/dev/null",
         "\"$install_tmp\" --help >/dev/null",
         "mv -f \"$install_tmp\" \"$install_path\"",
+        "wcode setup",
     ] {
         assert!(
             installer.contains(required),
@@ -75,5 +76,31 @@ fn unix_installer_uses_tested_macos_asset_and_replaces_only_after_smoke_tests() 
     assert!(
         smoke < replace,
         "installer must smoke-test before replacement"
+    );
+}
+
+#[test]
+fn windows_installer_stages_and_smoke_tests_before_replacement() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let installer = fs::read_to_string(root.join("install.ps1")).unwrap();
+    for required in [
+        "$InstallTemp = Join-Path $InstallDir",
+        "& $InstallTemp --version",
+        "& $InstallTemp --help",
+        "Move-Item -Force $InstallTemp $InstallPath",
+        "wcode setup",
+    ] {
+        assert!(
+            installer.contains(required),
+            "Windows installer must keep the staged update contract: {required}"
+        );
+    }
+    let smoke = installer.find("& $InstallTemp --help").unwrap();
+    let replace = installer
+        .find("Move-Item -Force $InstallTemp $InstallPath")
+        .unwrap();
+    assert!(
+        smoke < replace,
+        "Windows installer must smoke-test before replacement"
     );
 }

@@ -68,7 +68,7 @@
 - schema_version: 1
   id: CONSTRAINT-FAIL-CLOSED-VERIFICATION
   title: Required verification stages fail closed
-  statement: A required verification stage may clear only from real evidence and one producer failure or disagreement must not be hidden by another producer pass.
+  statement: A required verification stage may clear only from real evidence bound to the Verification Plan's exact active code and Design State revision; stale contract evidence must not clear readiness, and one producer failure or disagreement must not be hidden by another producer pass.
   applies_to:
     - component:verification-mesh
 
@@ -227,3 +227,17 @@
   applies_to:
     - component:design-state
     - component:traceability-drift
+
+- schema_version: 1
+  id: CONSTRAINT-CLI-SURFACE
+  title: Default CLI surface stays task-level and model-readable
+  statement: Default help must explain the no-subcommand runtime behavior and expose only stable task-level commands. One-command setup belongs in that default surface; package-export, compatibility, low-frequency transport/resource tuning and broad trust-boundary controls must not expand the normal model-facing catalog and may remain accepted but hidden when removing them would break existing workflows.
+  applies_to:
+    - component:cli-lifecycle
+
+- schema_version: 1
+  id: CONSTRAINT-VERIFIED-SELF-UPDATE
+  title: Self-update cannot replace an unverified candidate
+  statement: Self-update must use the release checksum contract, stage the downloaded binary separately, require successful version and help smoke tests, and replace the installation only afterward. A failed download, checksum, signature or smoke test must leave the existing installed binary in place; Windows replacement must occur only after the running executable exits.
+  applies_to:
+    - component:cli-lifecycle

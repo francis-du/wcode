@@ -1,6 +1,6 @@
 {
   "name": "wcode",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Workspace-scoped wcode Software Intelligence skill and MCP connection profiles.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",

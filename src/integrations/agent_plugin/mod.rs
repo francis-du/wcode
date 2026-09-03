@@ -3,19 +3,17 @@ use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::Path;
 use url::{Host, Url};
 
-const PLUGIN_JSON: &str = include_str!("../../../wcode-agent-plugin/plugin.json");
-const MCP_JSON: &str = include_str!("../../../wcode-agent-plugin/mcp.json");
-const README: &str = include_str!("../../../wcode-agent-plugin/README.md");
-const CONNECTIONS: &str = include_str!("../../../wcode-agent-plugin/CONNECTIONS.md");
-const MARKETPLACE: &str = include_str!("../../../wcode-agent-plugin/marketplace.json");
-const CLAUDE_PLUGIN: &str = include_str!("../../../wcode-agent-plugin/.claude-plugin/plugin.json");
-const CODEX_PLUGIN: &str = include_str!("../../../wcode-agent-plugin/.codex-plugin/plugin.json");
-const ZCODE_PLUGIN: &str = include_str!("../../../wcode-agent-plugin/.zcode-plugin/plugin.json");
-const SKILL: &str =
-    include_str!("../../../wcode-agent-plugin/skills/wcode-software-intelligence/SKILL.md");
+const PLUGIN_JSON: &str = include_str!("../../../plugin/plugin.json");
+const MCP_JSON: &str = include_str!("../../../plugin/mcp.json");
+const README: &str = include_str!("../../../plugin/README.md");
+const CONNECTIONS: &str = include_str!("../../../plugin/CONNECTIONS.md");
+const MARKETPLACE: &str = include_str!("../../../plugin/marketplace.json");
+const CLAUDE_PLUGIN: &str = include_str!("../../../plugin/.claude-plugin/plugin.json");
+const CODEX_PLUGIN: &str = include_str!("../../../plugin/.codex-plugin/plugin.json");
+const ZCODE_PLUGIN: &str = include_str!("../../../plugin/.zcode-plugin/plugin.json");
+const SKILL: &str = include_str!("../../../plugin/skills/wcode/SKILL.md");
 
 const CANONICAL_FILES: &[(&str, &str)] = &[
     ("plugin.json", PLUGIN_JSON),
@@ -25,7 +23,7 @@ const CANONICAL_FILES: &[(&str, &str)] = &[
     (".claude-plugin/plugin.json", CLAUDE_PLUGIN),
     (".codex-plugin/plugin.json", CODEX_PLUGIN),
     (".zcode-plugin/plugin.json", ZCODE_PLUGIN),
-    ("skills/wcode-software-intelligence/SKILL.md", SKILL),
+    ("skills/wcode/SKILL.md", SKILL),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ValueEnum)]
@@ -61,7 +59,7 @@ pub(crate) fn export(
         (AgentPluginProfile::Auto, None) => AgentPluginProfile::LocalStdio,
         (profile, _) => profile,
     };
-    let mcp = mcp_profile(workspace.root(), profile, remote_url)?;
+    let mcp = mcp_profile(profile, remote_url)?;
     let codex_manifest = codex_manifest_profile(profile, &mcp)?;
 
     let mut files = CANONICAL_FILES
@@ -82,7 +80,7 @@ pub(crate) fn export(
         format!("{root}/.codex-plugin"),
         format!("{root}/.zcode-plugin"),
         format!("{root}/skills"),
-        format!("{root}/skills/wcode-software-intelligence"),
+        format!("{root}/skills/wcode"),
     ] {
         workspace.ensure_directory(&directory)?;
     }
@@ -99,15 +97,13 @@ pub(crate) fn export(
     let (mcp_setup_required, note) = match profile {
         AgentPluginProfile::SkillOnly => (
             true,
-            "Skill exported without an MCP target; choose local-stdio, remote-http, or --install-all."
+            "Skill exported without an MCP target; choose local-stdio, remote-http, or run wcode setup."
                 .to_owned(),
         ),
         AgentPluginProfile::LocalStdio => (
             false,
-            format!(
-                "stdio MCP is bound to the explicit Workspace {}.",
-                workspace.root().display()
-            ),
+            "stdio MCP uses the Host working directory as the default Workspace; no repository path is embedded."
+                .to_owned(),
         ),
         AgentPluginProfile::RemoteHttp => (
             false,
@@ -125,16 +121,12 @@ pub(crate) fn export(
     })
 }
 
-fn mcp_profile(
-    workspace_root: &Path,
-    profile: AgentPluginProfile,
-    remote_url: Option<&str>,
-) -> Result<String> {
+fn mcp_profile(profile: AgentPluginProfile, remote_url: Option<&str>) -> Result<String> {
     if profile == AgentPluginProfile::SkillOnly {
         return Ok(MCP_JSON.to_owned());
     }
     let server = match profile {
-        AgentPluginProfile::LocalStdio => portable_stdio_server(workspace_root)?,
+        AgentPluginProfile::LocalStdio => portable_stdio_server(),
         AgentPluginProfile::RemoteHttp => {
             let url = remote_url.context("--remote-url is required with --profile remote-http")?;
             json!({"type": "streamable-http", "url": normalize_remote_mcp_url(url)?})
@@ -161,20 +153,17 @@ fn codex_manifest_profile(profile: AgentPluginProfile, mcp: &str) -> Result<Stri
     Ok(output)
 }
 
-pub(crate) fn local_stdio_server(workspace_root: &Path) -> Result<Value> {
-    let workspace_root = workspace_root
-        .to_str()
-        .context("workspace path is not valid UTF-8 and cannot be exported to MCP JSON")?;
-    Ok(json!({
+pub(crate) fn local_stdio_server() -> Value {
+    json!({
         "command": "wcode",
-        "args": ["--workspace", workspace_root, "mcp-stdio"]
-    }))
+        "args": ["mcp-stdio"]
+    })
 }
 
-fn portable_stdio_server(workspace_root: &Path) -> Result<Value> {
-    let mut server = local_stdio_server(workspace_root)?;
+fn portable_stdio_server() -> Value {
+    let mut server = local_stdio_server();
     server["type"] = json!("stdio");
-    Ok(server)
+    server
 }
 
 pub(crate) fn canonical_skill() -> &'static str {

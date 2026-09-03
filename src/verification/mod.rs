@@ -47,6 +47,8 @@ pub struct StageSubmission {
     pub verdict: ReviewVerdict,
     pub summary: String,
     pub artifact_digest: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -59,6 +61,9 @@ impl StageSubmission {
             || self.summary.chars().count() > 2_000
             || self.artifact_digest.trim().is_empty()
             || self.artifact_digest.len() > 512
+            || self.targets.len() > 32
+            || self.targets.iter().any(|target| !valid_target(target))
+            || self.targets.iter().collect::<BTreeSet<_>>().len() != self.targets.len()
             || self
                 .model
                 .as_ref()
@@ -131,11 +136,20 @@ pub struct VerificationJob {
     pub submission: Option<ReviewSubmission>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct VerificationPlanBinding {
+    pub revision: Revision,
+    pub stage_targets: Vec<String>,
+    pub automation_gaps: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VerificationPlan {
     pub id: String,
     pub workspace: String,
     pub subject: NodeId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<Revision>,
     pub risk_level: RiskLevel,
     pub policy: String,
     pub deterministic_level: String,
@@ -145,6 +159,8 @@ pub struct VerificationPlan {
     pub require_mutation: bool,
     pub require_fuzz: bool,
     pub require_human_approval: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stage_targets: Vec<String>,
     #[serde(default)]
     pub automation_gaps: Vec<String>,
     pub job_ids: Vec<String>,
@@ -163,6 +179,7 @@ pub struct VerificationStatus {
     pub deterministic_result: Option<EvidenceResult>,
     pub stage_results: BTreeMap<String, EvidenceResult>,
     pub stage_producer_results: BTreeMap<String, BTreeMap<String, EvidenceResult>>,
+    pub stage_target_results: BTreeMap<String, BTreeMap<String, EvidenceResult>>,
     pub human_approval: bool,
     pub ready: bool,
     pub blockers: Vec<String>,
@@ -214,6 +231,26 @@ impl VerificationState {
                 || plan.workspace.trim().is_empty()
                 || plan.subject.trim().is_empty()
                 || plan.job_ids.len() > MAX_VERIFICATION_JOBS
+                || plan.stage_targets.len() > 32
+                || plan
+                    .stage_targets
+                    .iter()
+                    .any(|target| !valid_target(target))
+                || plan.stage_targets.iter().collect::<BTreeSet<_>>().len()
+                    != plan.stage_targets.len()
+                || plan.automation_gaps.len() > 32
+                || plan
+                    .automation_gaps
+                    .iter()
+                    .any(|gap| gap.trim().is_empty() || gap.len() > 256)
+                || plan.revision.as_ref().is_some_and(|revision| {
+                    revision.code.trim().is_empty()
+                        || revision.code.len() > 256
+                        || revision
+                            .design
+                            .as_ref()
+                            .is_some_and(|design| design.trim().is_empty() || design.len() > 256)
+                })
             {
                 return Err(VerificationError::InvalidPersistedState);
             }
@@ -236,16 +273,32 @@ impl VerificationState {
         Ok(())
     }
 
-    pub fn create_plan(
+    pub(crate) fn create_plan(
         &mut self,
         plan_id: String,
         workspace: String,
         subject: NodeId,
+        binding: VerificationPlanBinding,
         risk_level: RiskLevel,
         job_ids: impl Iterator<Item = String>,
     ) -> Result<VerificationPlan, VerificationError> {
         if self.plans.contains_key(&plan_id) {
             return Err(VerificationError::DuplicatePlan);
+        }
+        if binding.stage_targets.len() > 32
+            || binding
+                .stage_targets
+                .iter()
+                .any(|target| !valid_target(target))
+            || binding.stage_targets.iter().collect::<BTreeSet<_>>().len()
+                != binding.stage_targets.len()
+            || binding.automation_gaps.len() > 32
+            || binding
+                .automation_gaps
+                .iter()
+                .any(|gap| gap.trim().is_empty() || gap.len() > 256)
+        {
+            return Err(VerificationError::InvalidPlan);
         }
         let profile = VerificationProfile::for_risk(risk_level);
         let roles = reviewer_roles(&profile);
@@ -260,16 +313,13 @@ impl VerificationState {
         } else {
             "quick"
         };
-        // Retained for wire compatibility with older clients. Required stage work is now
-        // represented by explicit require_* flags and satisfied by verification_stage_submit
-        // Evidence, so this legacy field must not advertise phantom missing executors.
-        let automation_gaps = Vec::new();
         let plan = VerificationPlan {
             id: plan_id.clone(),
             workspace: workspace.clone(),
             subject: subject.clone(),
+            revision: Some(binding.revision),
             risk_level,
-            policy: format!("risk-adaptive/v1/{risk_level:?}").to_ascii_lowercase(),
+            policy: format!("risk-adaptive/v2/{risk_level:?}").to_ascii_lowercase(),
             deterministic_level: deterministic_level.to_owned(),
             deterministic_checks: profile.deterministic_checks.clone(),
             reviewer_roles: roles.clone(),
@@ -277,7 +327,8 @@ impl VerificationState {
             require_mutation: profile.require_mutation,
             require_fuzz: profile.require_fuzz,
             require_human_approval: profile.require_human_approval,
-            automation_gaps,
+            stage_targets: binding.stage_targets,
+            automation_gaps: binding.automation_gaps,
             job_ids: ids.clone(),
         };
         for (id, role) in ids.into_iter().zip(roles) {
@@ -412,6 +463,7 @@ impl VerificationState {
             deterministic_result: None,
             stage_results: BTreeMap::new(),
             stage_producer_results: BTreeMap::new(),
+            stage_target_results: BTreeMap::new(),
             human_approval: false,
             ready: false,
             blockers,
@@ -477,6 +529,12 @@ fn reviewer_roles(profile: &VerificationProfile) -> Vec<ReviewerRole> {
 
 fn role_guidance(role: ReviewerRole) -> Vec<String> {
     match role {
+        ReviewerRole::Correctness => vec![
+            "Judge the implementation against the active Design State contract and acceptance criteria, not an inferred or preferred requirement.".to_owned(),
+            "If the active contract is ambiguous or insufficient to decide expected behavior, return Inconclusive instead of inventing a requirement or reporting a speculative failure.".to_owned(),
+            "A Fail verdict must identify an observable counterexample, violated invariant, or reproducible behavior tied to the active contract; a proposed fix is not proof by itself.".to_owned(),
+            "Prefer executable evidence from existing or contract-constrained tests, and treat a suggested patch as a counterfactual to validate rather than as evidence that the original is wrong.".to_owned(),
+        ],
         ReviewerRole::Maintainability => vec![
             "Do not approve only because behavior is correct; reject clear structural regressions.".to_owned(),
             "Look first for a code-judo restructuring that deletes branches, helpers, modes, or layers instead of rearranging them.".to_owned(),
@@ -509,6 +567,7 @@ fn role_capabilities(role: ReviewerRole) -> Vec<String> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerificationError {
     DuplicatePlan,
+    InvalidPlan,
     CapacityExceeded,
     InvalidReviewer,
     NoMatchingJob,
@@ -524,6 +583,7 @@ impl std::fmt::Display for VerificationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
             Self::DuplicatePlan => "verification plan already exists",
+            Self::InvalidPlan => "verification plan metadata is invalid",
             Self::CapacityExceeded => "verification job capacity exceeded",
             Self::InvalidReviewer => "reviewer identity is invalid",
             Self::NoMatchingJob => "no queued verification job matches the requested capabilities",
@@ -539,6 +599,10 @@ impl std::fmt::Display for VerificationError {
 }
 
 impl std::error::Error for VerificationError {}
+
+fn valid_target(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+}
 
 #[cfg(test)]
 #[path = "../../tests/unit/verification/mod.rs"]

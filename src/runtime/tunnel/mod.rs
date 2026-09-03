@@ -9,6 +9,7 @@ use tokio::time::{sleep, timeout, Duration};
 use url::{Host, Url};
 
 const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(25);
+const PUBLIC_RECOVERY_HEALTH_INTERVAL: Duration = Duration::from_secs(5);
 const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 6;
 const AUTO_PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -210,7 +211,6 @@ pub(crate) fn spawn_tunnel_supervisor(
             });
         }
         drop(result_tx);
-        let mut connected = 0usize;
         while let Some(result) = result_rx.recv().await {
             let Ok(active) = result else {
                 continue;
@@ -224,12 +224,9 @@ pub(crate) fn spawn_tunnel_supervisor(
                     active.public_url()
                 ),
             );
-            let first = connected == 0;
-            connected += 1;
-            if first {
-                monitor.mark_public_endpoint("quick-tunnel", Some(true));
-                monitor.mark_public_url_check(true, None);
-            }
+            // Primary endpoint health belongs to the app-level selector. A
+            // reconnected alternate must never clear the primary's failure
+            // counter merely because the alternate itself became reachable.
             monitor.register_tunnel(active.provider_label(), active.public_url());
             if event_tx.send(TunnelEvent::Connected(active)).await.is_err() {
                 return;
@@ -291,14 +288,23 @@ pub(crate) async fn public_endpoint_health_loop(
             Ok(()) => monitor.mark_public_url_check(true, None),
             Err(error) => monitor.mark_public_url_check(false, Some(error)),
         }
+        let interval = public_health_interval(monitor.connection_status().public_url_healthy);
         tokio::select! {
-            _ = sleep(PUBLIC_HEALTH_INTERVAL) => {},
+            _ = sleep(interval) => {},
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
                     return;
                 }
             }
         }
+    }
+}
+
+fn public_health_interval(healthy: Option<bool>) -> Duration {
+    if healthy == Some(true) {
+        PUBLIC_HEALTH_INTERVAL
+    } else {
+        PUBLIC_RECOVERY_HEALTH_INTERVAL
     }
 }
 

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "access.rs"]
+mod access;
+
 #[test]
 fn blocks_path_traversal_and_stale_writes() {
     let dir = tempfile::tempdir().unwrap();

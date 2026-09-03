@@ -33,7 +33,7 @@ Convergence
 
 常驻指令应保持短小，只说明 Workspace / 安全边界、Desired State、Product Scope、推荐编程路径和权威验证工具。详细架构、Requirement 历史、源码正文、语言工具和 Verification 状态只在任务需要时加载。
 
-正常编程时，`agent_context` 是主入口。它的有界自适应 Context Pack 可以包含相关 Design State、按 Scope 收窄的 Repo Map、少量 Hot Source、编辑 SHA 前置条件、相关测试、Readiness 和确定性的 Next Actions。只有 Pack 明确需要更多上下文时，再使用 `symbol_context`、`software_context`、`scope_status`、`language_quality_status` 或更深的 Graph / Traceability 工具。
+正常编程时，`agent_context` 是主入口。它的有界自适应 Context Pack 可以包含相关 Design State、按 Scope 收窄的 Repo Map、少量 Hot Source、编辑 SHA 前置条件、相关测试、Readiness、确定性的 Next Actions 与显式 Parallelism Strategy。MCP 调用保持最小：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都不要传，除非任务确实需要覆盖。只有 Pack 明确需要更多上下文时，再使用 `symbol_context`、`software_context`、`scope_status`、`language_quality_status` 或更深的 Graph / Traceability 工具。
 
 ### 2. Skill：渐进披露，不是隐藏执行
 
@@ -41,7 +41,7 @@ Convergence
 
 ### 3. 隔离 Worker：并行独立推理
 
-Subagent、Worktree 和类似隔离上下文适合做独立仓库调研、替代实现分析、测试生成、安全审查和可维护性审查。独立工作在能降低延迟或上下文互相干扰时应并行执行。
+Subagent、Worktree、类似隔离上下文以及多个顶层 MCP Call 都适合做独立仓库调研、替代实现分析、测试生成、安全审查和可维护性审查。执行前先按依赖拆 Lane；能降低延迟或上下文互相干扰的独立 Lane 应并发，只有真实 Data / Path Dependency 才串行。输入已经明确时优先用 `read_files`、`search_many`、`apply_file_edits`、`create_files` 等 Bulk Primitive。嵌套 `parallel_tools` 只用于紧凑 Fan-out，避免 Host 的 Tool Call 展示重新变成长串递归 JSON。
 
 Worker 不应绕过 wcode 的路径资源 Scheduler 与 SHA 前置条件并发修改共享或相互依赖的状态。相关状态在部分应用会让系统更难推理时应保持原子更新。多个模型意见一致仍然只是模型证据，不是确定性证明。
 
@@ -92,8 +92,8 @@ Host 具体接入方式见 [Agent 与 MCP 集成](../code-agent-integrations/)�
 进行较大源码修改前：
 
 1. 调用 `agent_context(goal, scopes=...)`，通常不手工传 Budget；
-2. 按 `readiness` 和 `next_actions` 执行；
-3. `find_symbol` / `search_code` 继续作为低成本定位路径；只有 Readiness 判断任务需要跨文件 Reference、Caller、Implementation、Rename Impact 等语义关系时才调用 `semantic_navigation`；
+2. 按 `readiness`、`next_actions` 与 `readiness.parallelism` 执行；Host 支持时把独立 Lane 拆成多个顶层调用并发；
+3. 省略默认 / 可推导 MCP 参数，`find_symbol` / `search_code` 继续作为低成本定位路径；只有 Readiness 判断任务需要跨文件 Reference、Caller、Implementation、Rename Impact 等语义关系时才调用 `semantic_navigation`；
 4. 只有需要更多源码时才调用 `symbol_context`；
 5. 只有任务确实需要时再调用 `language_quality_status`、`scope_status`、`design_status`、`traceability_status` 或更深 Graph Context。
 

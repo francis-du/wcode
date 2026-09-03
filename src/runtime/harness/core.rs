@@ -759,11 +759,7 @@ impl ToolHarness {
             required.push(crate::verification::VerificationStage::RuntimeCanary);
         }
 
-        let detected = registry
-            .detected_languages
-            .iter()
-            .copied()
-            .collect::<BTreeSet<_>>();
+        let required_targets = before.plan.stage_targets.clone();
         let mut results = Vec::<StageExecutionResult>::new();
         let mut missing = Vec::new();
         let mut skipped_passing = Vec::new();
@@ -774,43 +770,72 @@ impl ToolHarness {
                 .stage_results
                 .get(&key)
                 .is_some_and(|result| *result == crate::evidence::EvidenceResult::Pass);
+            let pending_targets = required_targets
+                .iter()
+                .filter(|target| {
+                    before
+                        .stage_target_results
+                        .get(&key)
+                        .and_then(|results| results.get(*target))
+                        != Some(&crate::evidence::EvidenceResult::Pass)
+                })
+                .cloned()
+                .collect::<BTreeSet<_>>();
             let executors = registry
                 .executors
                 .iter()
                 .filter(|executor| {
                     executor.available
                         && executor.spec.stage == stage
-                        && (executor.spec.languages.is_empty()
-                            || executor
-                                .spec
-                                .languages
-                                .iter()
-                                .any(|language| detected.contains(language)))
+                        && (required_targets.is_empty()
+                            || !stage_executor::executor_targets(&executor.spec, &required_targets)
+                                .is_empty())
                 })
                 .collect::<Vec<_>>();
-            if executors.is_empty() {
-                if !stage_already_passed {
-                    missing.push(key);
+            if required_targets.is_empty() {
+                if executors.is_empty() && !stage_already_passed {
+                    missing.push(key.clone());
                 }
-                continue;
+            } else {
+                for target in &pending_targets {
+                    if !executors.iter().any(|executor| {
+                        stage_executor::executor_targets(&executor.spec, &required_targets)
+                            .iter()
+                            .any(|covered| covered == target)
+                    }) {
+                        missing.push(format!("{key}:{target}"));
+                    }
+                }
             }
             for executor in executors {
-                let producer = format!("executor:{}", executor.spec.id);
-                if before
-                    .stage_producer_results
-                    .get(&key)
-                    .and_then(|results| results.get(&producer))
-                    .is_some_and(|result| *result == crate::evidence::EvidenceResult::Pass)
+                let targets = stage_executor::executor_targets(&executor.spec, &required_targets);
+                if required_targets.is_empty() {
+                    let producer = format!("executor:{}", executor.spec.id);
+                    if stage_already_passed
+                        && before
+                            .stage_producer_results
+                            .get(&key)
+                            .and_then(|results| results.get(&producer))
+                            .is_some_and(|result| *result == crate::evidence::EvidenceResult::Pass)
+                    {
+                        skipped_passing.push(executor.spec.id.clone());
+                        continue;
+                    }
+                } else if !targets
+                    .iter()
+                    .any(|target| pending_targets.contains(target))
                 {
                     skipped_passing.push(executor.spec.id.clone());
                     continue;
                 }
+                let producer = format!("executor:{}", executor.spec.id);
                 let execution = match stage_executor::execute(workspace, &executor.spec).await {
                     Ok(execution) => execution,
                     Err(error) => {
                         execution_errors.push(json!({
                             "executor_id": executor.spec.id,
                             "stage": key,
+                            "targets": targets,
                             "error": error.to_string(),
                         }));
                         continue;
@@ -826,6 +851,7 @@ impl ToolHarness {
                         verdict: execution.verdict,
                         summary: execution.summary.clone(),
                         artifact_digest: execution.artifact_digest.clone(),
+                        targets,
                         model: None,
                     },
                 )?;

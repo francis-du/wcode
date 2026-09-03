@@ -350,6 +350,7 @@ struct DashboardState {
     command_offset: usize,
     workspace_input: Option<String>,
     workspace_message: Option<String>,
+    full_access_confirm: bool,
     authorization_focus: usize,
     language: UiLanguage,
 }

@@ -42,6 +42,8 @@ fn installer_merges_other_servers_and_is_idempotent() {
         serde_json::from_str(&fs::read_to_string(root.path().join(".mcp.json")).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["other"]["command"], "other");
     assert_eq!(config["mcpServers"]["wcode"]["command"], "wcode");
+    assert_eq!(config["mcpServers"]["wcode"]["args"], json!(["mcp-stdio"]));
+    assert!(!config.to_string().contains("--workspace"));
     assert!(!config.to_string().contains("secret"));
 
     let second = apply_install(&workspace, plan_install(&workspace), false);
@@ -106,6 +108,28 @@ fn opencode_merge_handles_v1_and_v2_without_losing_other_servers() {
             .iter()
             .any(|host| host == "OpenCode"));
     }
+}
+
+#[test]
+fn global_setup_uses_user_config_paths_without_embedding_a_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".codex")).unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let summary = apply_install(&workspace, plan_global_install(&workspace), false);
+
+    assert_eq!(summary.scope, "global");
+    assert!(summary.installed.iter().any(|host| host == "OpenAI Codex"));
+    let config = fs::read_to_string(root.path().join(".codex/config.toml")).unwrap();
+    assert!(config.contains("command = \"wcode\""));
+    assert!(config.contains("\"mcp-stdio\""));
+    assert!(!config.contains("--workspace"));
+    assert_eq!(
+        fs::read_to_string(root.path().join(".agents/skills/wcode/SKILL.md")).unwrap(),
+        agent_plugin::canonical_skill()
+    );
+    assert!(summary.results.iter().any(|result| {
+        result.host == "Global Agent Skill" && result.detail.starts_with("User-level skill")
+    }));
 }
 
 #[test]

@@ -156,14 +156,14 @@ pub(crate) const HOSTS: &[AgentHost] = &[
         "ZCode",
         &["zcode"],
         &[".zcode-plugin"],
-        "Install the exported plugin or skill, then bind MCP to this repository.",
+        "Install the exported plugin or skill, then configure `wcode mcp-stdio`; the Host working directory is the Workspace.",
     ),
     manual(
         "grok-build",
         "Grok Build",
         &["grok"],
         &[".agents"],
-        "Install the portable skill, then add the repository-bound stdio MCP entry.",
+        "Install the portable skill, then add `wcode mcp-stdio`; the Host working directory is the Workspace.",
     ),
     manual(
         "windsurf",

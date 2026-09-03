@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 const MAX_AUTHORIZATION_REQUESTS: usize = 256;
 
@@ -38,12 +39,36 @@ pub struct AuthorizationRequest {
     pub decided_at_ms: Option<u64>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AuthorizationRequired {
+    pub request: AuthorizationRequest,
+}
+
+impl AuthorizationRequired {
+    pub fn new(request: AuthorizationRequest) -> Self {
+        Self { request }
+    }
+}
+
+impl std::fmt::Display for AuthorizationRequired {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "authorization required: {} · {}. Explicit human approval is required before retrying the operation",
+            self.request.id, self.request.summary
+        )
+    }
+}
+
+impl std::error::Error for AuthorizationRequired {}
+
 #[derive(Default)]
 struct AuthorizationState {
     next_id: u64,
     requests: BTreeMap<String, AuthorizationRequest>,
     session_grants: HashSet<String>,
     one_shot_grants: HashSet<String>,
+    interactive_tokens: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Default)]
@@ -124,6 +149,9 @@ impl AuthorizationManager {
             created_at_ms: now_ms(),
             decided_at_ms: None,
         };
+        state
+            .interactive_tokens
+            .insert(request.id.clone(), Uuid::new_v4().simple().to_string());
         state.requests.insert(request.id.clone(), request.clone());
         while state.requests.len() > MAX_AUTHORIZATION_REQUESTS {
             let removable = state
@@ -135,6 +163,7 @@ impl AuthorizationManager {
                 break;
             };
             state.requests.remove(&id);
+            state.interactive_tokens.remove(&id);
         }
         request
     }
@@ -146,6 +175,18 @@ impl AuthorizationManager {
             .requests
             .get(id)
             .cloned()
+    }
+
+    pub fn interactive_token(&self, id: &str) -> Option<String> {
+        let state = self
+            .state
+            .lock()
+            .expect("authorization state lock poisoned");
+        state
+            .requests
+            .get(id)
+            .filter(|request| request.status == AuthorizationStatus::Pending)
+            .and_then(|_| state.interactive_tokens.get(id).cloned())
     }
 
     pub fn approve_session(&self, id: &str) -> bool {
@@ -169,6 +210,7 @@ impl AuthorizationManager {
             request.decided_at_ms = Some(now_ms());
             (request.fingerprint.clone(), one_shot)
         };
+        state.interactive_tokens.remove(id);
         if one_shot {
             state.one_shot_grants.insert(fingerprint);
         } else {
@@ -198,6 +240,7 @@ impl AuthorizationManager {
         }
         request.status = AuthorizationStatus::Denied;
         request.decided_at_ms = Some(now_ms());
+        state.interactive_tokens.remove(id);
         true
     }
 

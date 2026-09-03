@@ -279,6 +279,126 @@ pub(super) fn assess_risk(
     (overall, risks)
 }
 
+pub(super) fn verification_targets_for_review(
+    review: &ChangeReviewReport,
+    registry: &StageExecutorRegistry,
+) -> Vec<String> {
+    let mut targets = review
+        .files
+        .iter()
+        .filter(|file| file.category == "source")
+        .filter_map(|file| crate::semantic_provider::language_for_path(&file.path))
+        .map(stage_executor::language_target)
+        .collect::<BTreeSet<_>>();
+    if targets.is_empty() {
+        targets.extend(
+            registry
+                .detected_languages
+                .iter()
+                .copied()
+                .map(stage_executor::language_target),
+        );
+    }
+    targets.into_iter().collect()
+}
+
+pub(super) fn required_verification_stages(
+    profile: &VerificationProfile,
+) -> Vec<VerificationStage> {
+    let mut required = Vec::new();
+    if profile.require_property {
+        required.push(VerificationStage::Property);
+    }
+    if profile.require_mutation {
+        required.push(VerificationStage::Mutation);
+    }
+    if profile.require_fuzz {
+        required.push(VerificationStage::Fuzz);
+    }
+    if profile
+        .deterministic_checks
+        .iter()
+        .any(|check| check == "runtime-gate")
+    {
+        required.push(VerificationStage::RuntimeCanary);
+    }
+    required
+}
+
+pub(super) fn verification_automation_gaps(
+    profile: &VerificationProfile,
+    registry: &StageExecutorRegistry,
+    targets: &[String],
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    for stage in required_verification_stages(profile) {
+        let stage_key = format!("{stage:?}").to_ascii_lowercase();
+        if targets.is_empty() {
+            if !registry
+                .executors
+                .iter()
+                .any(|executor| executor.available && executor.spec.stage == stage)
+            {
+                missing.push(stage_key);
+            }
+            continue;
+        }
+        for target in targets {
+            if !stage_executor::stage_target_available(registry, stage, target) {
+                missing.push(format!("{stage_key}:{target}"));
+            }
+        }
+    }
+    missing
+}
+
+pub(super) fn append_verification_automation_gap(
+    workspace: &str,
+    profile: &VerificationProfile,
+    registry: &StageExecutorRegistry,
+    targets: &[String],
+    risks: &mut Vec<Risk>,
+) {
+    let missing = verification_automation_gaps(profile, registry, targets);
+    if missing.is_empty() {
+        return;
+    }
+
+    let mut signals = vec!["local-verification-automation-gap".to_owned()];
+    signals.extend(
+        missing
+            .iter()
+            .map(|gap| format!("missing-local-stage-target:{gap}")),
+    );
+    signals.extend(
+        targets
+            .iter()
+            .map(|target| format!("verification-target:{target}")),
+    );
+    signals.truncate(32);
+    push_valid_risk(
+        risks,
+        Risk {
+            id: stable_prefixed_id(
+                "RISK",
+                &format!(
+                    "verification-automation-gap:{workspace}:{}",
+                    missing.join(",")
+                ),
+            ),
+            subject: format!("workspace:{workspace}"),
+            category: RiskCategory::VerificationGap,
+            level: profile.level,
+            summary: bounded_message(&format!(
+                "Risk-adaptive verification has no runnable local executor for required stage/target coverage: {}. External stage evidence remains admissible when it explicitly attests the affected verification targets.",
+                missing.join(", ")
+            )),
+            signals,
+            guards: Vec::new(),
+        },
+    );
+}
+
 pub(super) fn build_impact_analysis(
     workspace: String,
     state: &design::DesignState,

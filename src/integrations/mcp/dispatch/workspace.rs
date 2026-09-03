@@ -81,7 +81,7 @@ pub(super) async fn call(
         "symbol_context" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let symbol_id = required_string(args, "symbol_id")?.to_owned();
-            let max_body_lines = usize_arg(args, "max_body_lines").unwrap_or(200);
+            let max_body_lines = usize_arg(args, "max_body_lines").unwrap_or(1_000);
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness.symbol_context(workspace_id, &workspace, &symbol_id, max_body_lines)

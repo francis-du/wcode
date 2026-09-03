@@ -8,12 +8,11 @@ use crate::tunnel::{
 };
 use crate::workspace::{WorkspaceSecurity, Workspaces};
 use crate::{
-    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, resource, runtime_control,
-    semantic_runtime,
+    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, resource, semantic_runtime,
 };
 use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
 use anyhow::{bail, Context, Result};
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Parser};
 use serde_json::{json, Value};
 use std::future::pending;
 use std::io::{self, IsTerminal};
@@ -28,12 +27,21 @@ use tracing_subscriber::EnvFilter;
 
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 
+#[path = "commands.rs"]
+mod commands;
+use commands::ControlCommand;
 #[path = "intelligence.rs"]
 mod intelligence;
 use intelligence::{run_intelligence_cli, run_verification_cli};
 #[path = "resources.rs"]
 mod resources;
 use resources::{ResourceArgs, SetupGuideOptions};
+#[path = "setup.rs"]
+mod setup;
+#[path = "tunnel_lifecycle.rs"]
+mod tunnel_lifecycle;
+#[path = "update.rs"]
+mod update;
 const HELP_FOOTER: &str = r#"
 ╭─ WCode ───────────────────────────────────────────────────╮
 │ __          __    _____    ____    _____    ______        │
@@ -44,11 +52,21 @@ const HELP_FOOTER: &str = r#"
 │     \/  \/       \_____|  \____/  |_____/  |______|       │
 ├───────────────────────────────────────────────────────────┤
 │ Local Software Intelligence Runtime for coding agents     │
-│                                                           │
 │ Repository  https://github.com/francis-du/wcode           │
-│ Docs        https://francis-du.github.io/wcode/           │
+│ Docs        https://wcode.francis.run/                    │
 │ Author      @francis-du                                   │
 ╰───────────────────────────────────────────────────────────╯
+
+CLI CONTRACT
+  wcode [OPTIONS]                         Start the local runtime and MCP HTTP server.
+  wcode setup                             Configure local coding agents globally or for this project.
+  wcode update                            Replace this installation with the latest verified release.
+  wcode mcp-stdio                         Serve MCP over stdin/stdout using the Host working directory as the default Workspace.
+  wcode intelligence                      Inspect Design/Graph/Semantic/Evidence state for the current directory.
+  wcode verification                      Inspect or execute Verification Plan stages for the current directory.
+
+Advanced package export remains available through hidden `agent-plugin`; process lifecycle is owned by the terminal/OS or MCP Host.
+Use `wcode <COMMAND> --help` for command-specific options.
 "#;
 
 struct AbortTaskOnDrop(AbortHandle);
@@ -65,6 +83,8 @@ impl Drop for AbortTaskOnDrop {
     author,
     version,
     about = "Local Software Intelligence Runtime for coding agents",
+    long_about = "Run wcode as a local software-intelligence runtime, expose the same governed MCP surface over HTTP or stdio, inspect project intelligence, manage Agent integration, or safely update the installed binary.",
+    disable_help_subcommand = true,
     after_help = HELP_FOOTER
 )]
 struct Args {
@@ -86,24 +106,31 @@ struct Args {
         short = 'H',
         long,
         default_value = "127.0.0.1",
-        help_heading = "Connection"
+        help_heading = "Connection",
+        hide = true
     )]
     host: String,
 
     /// Local port for the MCP server.
-    #[arg(short = 'p', long, default_value_t = 8765, help_heading = "Connection")]
+    #[arg(
+        short = 'p',
+        long,
+        default_value_t = 8765,
+        help_heading = "Connection",
+        hide = true
+    )]
     port: u16,
 
     /// Use an existing public base URL instead of starting a managed tunnel.
-    #[arg(long, help_heading = "Connection")]
+    #[arg(long, help_heading = "Connection", hide = true)]
     public_url: Option<String>,
 
     /// Managed tunnel provider. auto falls back across free providers when startup or health checks fail.
-    #[arg(long, value_enum, default_value_t = TunnelProvider::Auto, help_heading = "Connection")]
+    #[arg(long, value_enum, default_value_t = TunnelProvider::Auto, help_heading = "Connection", hide = true)]
     tunnel_provider: TunnelProvider,
 
     /// Send every tunnel URL to this phone number or email over local iMessage (macOS only).
-    #[arg(long, help_heading = "Connection")]
+    #[arg(long, help_heading = "Connection", hide = true)]
     imessage_to: Option<String>,
 
     /// Keep the server local and do not start a public tunnel.
@@ -122,27 +149,31 @@ struct Args {
     #[arg(long = "no-semantic", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_semantic: bool,
 
-    /// Allow arbitrary model-facing repository-aware commands beyond the Harness verification allowlist.
+    /// Grant system-tool access to the current user Home with repository-aware execution and destructive replacements enabled. Hard protected-path, symlink/hard-link, no-shell and filesystem-root boundaries remain enforced.
     #[arg(long, help_heading = "Safety")]
+    full_access: bool,
+
+    /// Allow arbitrary model-facing repository-aware commands beyond the Harness verification allowlist.
+    #[arg(long, help_heading = "Safety", hide = true)]
     allow_risky_exec: bool,
 
     /// Allow replacements that empty a file or remove most of its content.
-    #[arg(long, help_heading = "Safety")]
+    #[arg(long, help_heading = "Safety", hide = true)]
     allow_destructive_writes: bool,
 
     /// Allow nested or parent/child workspace roots in one process.
-    #[arg(long, help_heading = "Safety")]
+    #[arg(long, help_heading = "Safety", hide = true)]
     allow_overlapping_workspaces: bool,
 
     /// Allow exposing a filesystem root or the current user's home directory.
-    #[arg(long, help_heading = "Safety")]
+    #[arg(long, help_heading = "Safety", hide = true)]
     allow_broad_workspace: bool,
 
     #[command(flatten)]
     resources: ResourceArgs,
 
     /// Estimated USD cost per million input tokens used for the TUI savings estimate.
-    #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime")]
+    #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
     /// Disable the live terminal task monitor.
@@ -150,7 +181,7 @@ struct Args {
     monitor: bool,
 
     /// Do not offer to install a missing managed-tunnel dependency.
-    #[arg(long, help_heading = "Experience")]
+    #[arg(long, help_heading = "Experience", hide = true)]
     no_install: bool,
 
     /// Open wcode's client-neutral setup hub in the browser after startup. Links stay available in the TUI without this.
@@ -158,7 +189,7 @@ struct Args {
     open_setup: bool,
 
     /// Allow idle system sleep while wcode is running.
-    #[arg(long, help_heading = "Runtime")]
+    #[arg(long, help_heading = "Runtime", hide = true)]
     allow_sleep: bool,
 
     /// Deprecated alias, accepted and ignored; the setup hub no longer auto-opens.
@@ -171,85 +202,32 @@ struct Args {
     legacy_open_setup: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Subcommand)]
-enum ControlCommand {
-    /// Restart the running wcode instance with its original arguments.
-    Restart,
-    /// Stop the running wcode instance.
-    Stop,
-    /// Export a portable Agent Plugins 1.0 Skill package inside the selected workspace.
-    AgentPlugin {
-        /// Repository-relative output directory. Existing files are never overwritten.
-        #[arg(long, default_value = "wcode-agent-plugin")]
-        output: String,
-        /// Export connection profile. The canonical skill-only profile never guesses a Workspace.
-        #[arg(long, value_enum, default_value = "skill-only")]
-        profile: agent_plugin::AgentPluginProfile,
-        /// Streamable HTTP endpoint used by the remote-http or auto profile. Secrets are never embedded.
-        #[arg(long)]
-        remote_url: Option<String>,
-        /// Detect every known local Agent host and safely merge project-local wcode configuration.
-        #[arg(long)]
-        install_all: bool,
-        /// Show detection evidence and planned files without writing.
-        #[arg(long, requires = "install_all")]
-        dry_run: bool,
-        /// Emit machine-readable JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Serve the same MCP runtime over stdin/stdout for local coding agents and Agent Plugins.
-    McpStdio,
-    /// Inspect local Design, Graph, Semantic, Evidence, and Reconciliation runtime state.
-    Intelligence {
-        /// Refresh detected first-party LSP semantic providers before rendering status.
-        #[arg(long)]
-        refresh_semantic: bool,
-        /// Fail closed when Design, Traceability, Product Scope, or required convention gates are incomplete.
-        #[arg(long)]
-        check: bool,
-        /// Emit machine-readable JSON instead of the compact terminal summary.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Inspect persisted Verification Plans and their current readiness gates.
-    Verification {
-        /// Inspect one specific Verification Plan ID. Omit to list recent plans.
-        #[arg(long = "plan-id", alias = "plan")]
-        plan: Option<String>,
-        /// Execute configured or auto-discovered Property/Mutation/Fuzz/Canary stages first.
-        #[arg(long)]
-        execute_stages: bool,
-        /// Emit machine-readable JSON instead of the compact terminal summary.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
 pub async fn run() -> Result<()> {
-    if let Some(delay) = std::env::var_os("WCODE_INTERNAL_RESTART_DELAY_MS") {
-        std::env::remove_var("WCODE_INTERNAL_RESTART_DELAY_MS");
-        let delay = delay
-            .to_string_lossy()
-            .parse::<u64>()
-            .unwrap_or(750)
-            .min(5_000);
-        sleep(Duration::from_millis(delay)).await;
-    }
     let args = Args::parse();
     if let Some(command) = args.command.as_ref() {
-        let action = match command {
-            ControlCommand::Restart => Some(runtime_control::ControlAction::Restart),
-            ControlCommand::Stop => Some(runtime_control::ControlAction::Stop),
+        match command {
+            ControlCommand::Update => {
+                update::run()?;
+                return Ok(());
+            }
+            ControlCommand::Setup {
+                dry_run,
+                global,
+                project,
+                json,
+            } => {
+                let root = args
+                    .workspace
+                    .first()
+                    .map(PathBuf::as_path)
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                setup::run(root, *dry_run, *json, *global, *project)?;
+                return Ok(());
+            }
             ControlCommand::AgentPlugin { .. }
             | ControlCommand::McpStdio
             | ControlCommand::Intelligence { .. }
-            | ControlCommand::Verification { .. } => None,
-        };
-        if let Some(action) = action {
-            runtime_control::send(action)?;
-            println!("Requested wcode {}.", action.as_str());
-            return Ok(());
+            | ControlCommand::Verification { .. } => {}
         }
     }
     let open_setup = args.open_setup;
@@ -293,19 +271,22 @@ pub async fn run() -> Result<()> {
             }
         }
     };
+    let allow_write = args.allow_write || args.full_access;
+    let allow_exec = args.allow_exec || args.full_access;
+    let allow_semantic = args.allow_semantic || args.full_access;
     let security = WorkspaceSecurity {
-        allow_risky_exec: args.allow_risky_exec,
-        allow_semantic_exec: args.allow_semantic,
-        allow_destructive_writes: args.allow_destructive_writes,
-        allow_overlapping_workspaces: args.allow_overlapping_workspaces,
+        allow_risky_exec: args.allow_risky_exec || args.full_access,
+        allow_semantic_exec: allow_semantic,
+        allow_destructive_writes: args.allow_destructive_writes || args.full_access,
+        allow_overlapping_workspaces: args.allow_overlapping_workspaces || args.full_access,
+        allow_user_home_workspace: args.full_access,
         allow_broad_workspace: args.allow_broad_workspace,
     };
-    let workspaces = Workspaces::new_with_security(
-        &args.workspace,
-        args.allow_write,
-        args.allow_exec,
-        security,
-    )?;
+    let workspaces =
+        Workspaces::new_with_security(&args.workspace, allow_write, allow_exec, security)?;
+    if args.full_access {
+        workspaces.grant_full_user_access()?;
+    }
     let harness = ToolHarness::new(resource_limits.effective_parallel_tools)?;
     let monitor = TaskMonitor::new(workspaces.roots().into_iter().map(|(id, _)| id));
     if resource_limits.requested_parallel_tools != resource_limits.effective_parallel_tools {
@@ -320,8 +301,8 @@ pub async fn run() -> Result<()> {
     }
     let resource_task = resource::spawn_monitor(harness.clone(), monitor.clone());
     let _resource_abort = AbortTaskOnDrop(resource_task.abort_handle());
-    let semantic_task = if args.allow_semantic
-        && args.allow_exec
+    let semantic_task = if allow_semantic
+        && allow_exec
         && (args.command.is_none()
             || matches!(args.command.as_ref(), Some(ControlCommand::McpStdio)))
     {
@@ -338,6 +319,9 @@ pub async fn run() -> Result<()> {
         .map(|task| AbortTaskOnDrop(task.abort_handle()));
     if let Some(command) = args.command.as_ref() {
         match command {
+            ControlCommand::Setup { .. } => {
+                unreachable!("setup returns before runtime initialization")
+            }
             ControlCommand::AgentPlugin {
                 output,
                 profile,
@@ -387,7 +371,7 @@ pub async fn run() -> Result<()> {
                     &harness,
                     &monitor,
                     *refresh_semantic,
-                    args.allow_semantic && args.allow_exec,
+                    allow_semantic && allow_exec,
                     *check,
                     *json,
                 )
@@ -409,15 +393,13 @@ pub async fn run() -> Result<()> {
                 .await?;
                 return Ok(());
             }
-            ControlCommand::Restart | ControlCommand::Stop => {}
+            ControlCommand::Update => {}
         }
     }
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port))
         .await
         .with_context(|| format!("cannot bind {}:{}", args.host, args.port))?;
     let local_url = format!("http://{}:{}", args.host, listener.local_addr()?.port());
-    let (control_router, mut control_rx, runtime_registration) =
-        runtime_control::register(listener.local_addr()?)?;
     let auth = Arc::new(AuthState::new_with_monitor(
         local_url.clone(),
         monitor.clone(),
@@ -430,9 +412,7 @@ pub async fn run() -> Result<()> {
         monitor: monitor.clone(),
         tasks: mcp::TaskRuntime::default(),
     });
-    let app = auth::router(auth.clone())
-        .merge(mcp::router(app_state))
-        .merge(control_router);
+    let app = auth::router(auth.clone()).merge(mcp::router(app_state));
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
 
@@ -540,7 +520,7 @@ pub async fn run() -> Result<()> {
         pairing_code: auth.pairing_code().to_owned(),
         max_parallel: harness.max_parallel(),
         input_token_price_per_million_usd: args.input_token_price_per_million_usd,
-        semantic_auto: args.allow_semantic && args.allow_exec,
+        semantic_auto: allow_semantic && allow_exec,
         workspaces: workspaces.clone(),
         harness: harness.clone(),
     };
@@ -583,7 +563,6 @@ pub async fn run() -> Result<()> {
     }
 
     let monitor_interrupt = renderer.as_ref().map(MonitorRenderer::interrupt_receiver);
-    let mut restart_requested = false;
     let mut server_task_finished = false;
     loop {
         tokio::select! {
@@ -595,12 +574,11 @@ pub async fn run() -> Result<()> {
             _ = tokio::signal::ctrl_c() => break,
             _ = wait_for_terminate_signal() => break,
             _ = wait_for_monitor_interrupt(monitor_interrupt.clone()) => break,
-            Some(action) = control_rx.recv() => {
-                restart_requested = action == runtime_control::ControlAction::Restart;
-                break;
-            },
             event = tunnel_event_rx.recv() => {
                 if let Some(TunnelEvent::Connected(active)) = event {
+                        let recovered_provider = active.provider();
+                        tunnel_lifecycle::record_recovered_provider(&mut death_counts, recovered_provider);
+                        pending_respawns.retain(|(provider, _)| *provider != recovered_provider);
                         auth.register_public_url(active.public_url().to_owned());
                         if tunnels.is_empty() {
                             // No live tunnel yet: this one becomes the primary
@@ -608,6 +586,8 @@ pub async fn run() -> Result<()> {
                             // existing primary, so retries cannot disturb the
                             // tunnels that are already up.
                             let _ = tunnel_settled_tx.send(true);
+                            monitor.mark_public_endpoint("quick-tunnel", Some(true));
+                            monitor.mark_public_url_check(true, None);
                             let public_url = active.public_url().to_owned();
                             *shared_public_url.write().unwrap() = public_url.clone();
                             auth.set_public_url(public_url.clone());
@@ -676,13 +656,12 @@ pub async fn run() -> Result<()> {
                     false
                 });
                 let health_failed = monitor.connection_status().public_url_healthy == Some(false);
-                let dead_index = if health_failed {
-                    Some(0usize)
-                } else {
-                    (0..tunnels.len()).find(|&index| {
-                        matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_))
-                    })
-                };
+                let tunnel_count = tunnels.len();
+                let dead_index = tunnel_lifecycle::dead_tunnel_index(
+                    health_failed,
+                    tunnel_count,
+                    |index| matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_)),
+                );
                 if let Some(index) = dead_index {
                     let reason = if health_failed {
                         "primary endpoint health failed three times".to_owned()
@@ -712,6 +691,8 @@ pub async fn run() -> Result<()> {
                     auth.unregister_public_url(&dead_url);
                     if tunnels.is_empty() {
                         monitor.mark_tunnel_stopped(reason);
+                        *shared_public_url.write().unwrap() = local_url.clone();
+                        auth.set_public_url(local_url.clone());
                     }
                     if was_primary {
                         if let Some(task) = public_health_task.take() {
@@ -730,11 +711,9 @@ pub async fn run() -> Result<()> {
                             )));
                         }
                     }
-                    let deaths = death_counts
-                        .entry(dead_provider)
-                        .and_modify(|count| *count += 1)
-                        .or_insert(1);
-                    let backoff_secs = (15u64 << (*deaths - 1).min(4)).min(300);
+                    let backoff_secs =
+                        tunnel_lifecycle::record_dead_provider(&mut death_counts, dead_provider);
+                    let deaths = death_counts.get(&dead_provider).copied().unwrap_or(1);
                     monitor.operator_message(
                         OperatorMessageKind::Warning,
                         "tunnel",
@@ -766,12 +745,6 @@ pub async fn run() -> Result<()> {
     if !server_task_finished {
         server_task.abort();
         let _ = server_task.await;
-    }
-    if restart_requested {
-        drop(runtime_registration);
-        drop(_awake_guard);
-        drop(_server_abort);
-        spawn_replacement()?;
     }
     Ok(())
 }
@@ -875,37 +848,6 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
             format!("could not open the browser ({error}); visit {setup_url}"),
         );
     }
-}
-
-#[cfg(unix)]
-fn spawn_replacement() -> Result<()> {
-    use std::os::unix::process::CommandExt;
-    let executable = std::env::current_exe().context("cannot locate wcode for restart")?;
-    println!("  ↻ wcode restarting");
-    let error = StdCommand::new(executable)
-        .args(std::env::args_os().skip(1))
-        .exec();
-    Err(error).context("cannot replace the wcode process during restart")
-}
-
-#[cfg(windows)]
-fn spawn_replacement() -> Result<()> {
-    let executable = std::env::current_exe().context("cannot locate wcode for restart")?;
-    println!("  ↻ wcode restarting");
-    StdCommand::new(executable)
-        .args(std::env::args_os().skip(1))
-        .env("WCODE_INTERNAL_RESTART_DELAY_MS", "750")
-        .stdin(StdStdio::inherit())
-        .stdout(StdStdio::inherit())
-        .stderr(StdStdio::inherit())
-        .spawn()
-        .context("cannot restart wcode")?;
-    Ok(())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn spawn_replacement() -> Result<()> {
-    bail!("automatic restart is supported on Unix-like systems and Windows")
 }
 
 fn print_setup_guide(

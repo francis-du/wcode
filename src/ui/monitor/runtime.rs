@@ -70,6 +70,45 @@ pub(super) fn run_dashboard(
                         let _ = interrupt_tx.send(true);
                         break;
                     }
+                    if ui.full_access_confirm {
+                        match key.code {
+                            KeyCode::Char('y') | KeyCode::Char('Y')
+                                if key.kind == KeyEventKind::Press =>
+                            {
+                                ui.full_access_confirm = false;
+                                match config.workspaces.grant_full_user_access() {
+                                    Ok((id, root)) => {
+                                        monitor.register_workspace(id.clone());
+                                        ui.workspace_message = Some(format!(
+                                            "{} {id}: {}",
+                                            ui.language.tr("full access granted"),
+                                            root.display()
+                                        ));
+                                        let workspaces = configured_workspaces(&config);
+                                        if let Some(index) = workspaces
+                                            .iter()
+                                            .position(|workspace| workspace.0 == id)
+                                        {
+                                            ui.workspace_focus = index;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        ui.workspace_message = Some(format!(
+                                            "{}: {error}",
+                                            ui.language.tr("full access failed")
+                                        ));
+                                    }
+                                }
+                            }
+                            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                                ui.full_access_confirm = false;
+                                ui.workspace_message =
+                                    Some(ui.language.tr("full access cancelled").to_owned());
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
                     if ui.workspace_input.is_some() {
                         match key.code {
                             KeyCode::Esc => {
@@ -166,6 +205,20 @@ pub(super) fn run_dashboard(
                             ui.command_offset = 0;
                             ui.help_open = false;
                             ui.intelligence_open = false;
+                        }
+                        KeyCode::Char('p') | KeyCode::Char('P')
+                            if key.kind == KeyEventKind::Press =>
+                        {
+                            if config.workspaces.full_access_enabled() {
+                                ui.workspace_message =
+                                    Some(ui.language.tr("full access already enabled").to_owned());
+                            } else {
+                                ui.full_access_confirm = true;
+                                ui.workspace_message = None;
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                                ui.commands_open = false;
+                            }
                         }
                         KeyCode::Char('l') | KeyCode::Char('L')
                             if key.kind == KeyEventKind::Press =>

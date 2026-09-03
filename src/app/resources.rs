@@ -20,15 +20,15 @@ pub(super) struct SetupGuideOptions {
 #[derive(Debug, Args)]
 pub(super) struct ResourceArgs {
     /// Requested cap for concurrent tool bodies. CPU-heavy sections are governed separately.
-    #[arg(short = 'j', long = "max-parallel-tools", default_value_t = default_parallel_tools(), help_heading = "Runtime")]
+    #[arg(short = 'j', long = "max-parallel-tools", default_value_t = default_parallel_tools(), help_heading = "Runtime", hide = true)]
     parallel_tools: usize,
 
     /// Sustained CPU target for unattended background work; interactive requests may burst higher.
-    #[arg(long, default_value_t = resource::DEFAULT_MAX_CPU_PERCENT, help_heading = "Runtime")]
+    #[arg(long, default_value_t = resource::DEFAULT_MAX_CPU_PERCENT, help_heading = "Runtime", hide = true)]
     max_cpu_percent: f64,
 
     /// Soft resident-memory budget in MiB with temporary burst headroom before admission pauses.
-    #[arg(long, default_value_t = resource::DEFAULT_MAX_MEMORY_MB, help_heading = "Runtime")]
+    #[arg(long, default_value_t = resource::DEFAULT_MAX_MEMORY_MB, help_heading = "Runtime", hide = true)]
     max_memory_mb: u64,
 }
 

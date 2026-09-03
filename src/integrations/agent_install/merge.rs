@@ -65,11 +65,7 @@ pub(crate) fn plan_json(
     ))
 }
 
-pub(crate) fn plan_codex_toml(
-    workspace: &Workspace,
-    target: &str,
-    workspace_root: &Path,
-) -> Result<PlannedFile> {
+pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<PlannedFile> {
     let existing = read_existing(workspace, target)?;
     let mut document = existing
         .as_ref()
@@ -89,10 +85,7 @@ pub(crate) fn plan_codex_toml(
     let wcode = servers["wcode"]
         .as_table_mut()
         .ok_or_else(|| anyhow!("{target} field mcp_servers.wcode must be a TOML table"))?;
-    let root = workspace_root
-        .to_str()
-        .context("workspace path is not valid UTF-8")?;
-    let desired_args = ["--workspace", root, "mcp-stdio"];
+    let desired_args = ["mcp-stdio"];
     let already = wcode.get("command").and_then(Item::as_str) == Some("wcode")
         && wcode
             .get("args")
@@ -120,11 +113,7 @@ pub(crate) fn plan_codex_toml(
     ))
 }
 
-pub(crate) fn plan_opencode(
-    workspace: &Workspace,
-    target: &str,
-    workspace_root: &Path,
-) -> Result<PlannedFile> {
+pub(crate) fn plan_opencode(workspace: &Workspace, target: &str) -> Result<PlannedFile> {
     let existing = read_existing(workspace, target)?;
     let mut root = match existing.as_ref() {
         Some((content, _)) => serde_json::from_str::<Value>(content).with_context(|| {
@@ -154,12 +143,9 @@ pub(crate) fn plan_opencode(
     } else {
         mcp
     };
-    let root_path = workspace_root
-        .to_str()
-        .context("workspace path is not valid UTF-8")?;
     let server = serde_json::json!({
         "type": "local",
-        "command": ["wcode", "--workspace", root_path, "mcp-stdio"]
+        "command": ["wcode", "mcp-stdio"]
     });
     if servers.get("wcode") == Some(&server) {
         return Ok(unchanged(

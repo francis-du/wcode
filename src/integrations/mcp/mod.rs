@@ -1,5 +1,5 @@
 use crate::auth::AuthState;
-use crate::authorization::AuthorizationStatus;
+use crate::authorization::AuthorizationRequired;
 use crate::graph::GraphProviderImport;
 use crate::graph_store::{GraphDiffInput, GraphQueryInput};
 use crate::harness::ToolHarness;
@@ -100,6 +100,18 @@ const PARALLEL_WRITE_TOOLS: &[&str] = &[
     "move_paths",
     "delete_path",
 ];
+
+#[path = "authorization.rs"]
+mod mcp_authorization;
+#[cfg(test)]
+pub(crate) use mcp_authorization::AUTHORIZATION_INPUT_KEY;
+pub(crate) use mcp_authorization::{
+    apply_authorization_response, authorization_elicitation_params,
+    authorization_request_from_tool_result, authorization_request_state, supports_form_elicitation,
+};
+use mcp_authorization::{
+    apply_authorization_retry, authorization_input_required, client_supports_elicitation,
+};
 
 #[path = "web.rs"]
 mod web;
@@ -558,7 +570,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Work only inside configured workspace roots and never bypass authorization or path protections. For coding call agent_context first and omit budget unless fixed. Follow readiness/next_actions; do not reread hot_source. Use find_symbol/search_code for simple localization and semantic_navigation for cross-file references/callers/implementations when recommended. Use symbol_context only for missing bodies, then guarded edits, review_changes and verify_project. Tree-sitter remains syntax precision unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, or HumanApproval.";
+const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or path protections. Send only required arguments; omit the default Workspace and server-default path/limit/timeout/budget values. For coding call agent_context first and follow readiness/next_actions/parallelism; resume its active Worklist and update status without dropping unfinished items. Run independent dependency lanes as concurrent top-level calls when supported; use bulk tools for known inputs and parallel_tools only for compact fanout. Use find_symbol/search_code for localization, semantic_navigation only for needed cross-file relations, and symbol_context/read_file only for missing source while preserving original formatting. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax precision unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
 
 fn join_error_message(scope: &str, error: &JoinError) -> String {
     let kind = if error.is_cancelled() {
@@ -626,6 +638,19 @@ pub(crate) async fn handle_message(
             Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
             Err(error) => task_rpc_error(id, error),
         });
+    }
+    if modern && method == "tools/call" {
+        match apply_authorization_retry(&state, owner, &message) {
+            Ok(Some(value)) => {
+                return Some(json!({
+                    "jsonrpc":"2.0",
+                    "id":id,
+                    "result":modern_result(value)
+                }));
+            }
+            Ok(None) => {}
+            Err(error) => return Some(jsonrpc_error(id, -32602, error)),
+        }
     }
     if modern && method == "tools/call" && client_supports_tasks(&message) {
         let params = message.get("params").cloned().unwrap_or_default();
@@ -723,9 +748,30 @@ pub(crate) async fn handle_message(
                 None => Err("resources/read is missing params.uri".to_owned()),
             }
         }
-        "tools/call" => call_tool(&state, message.get("params").cloned().unwrap_or_default())
-            .await
-            .map(|value| if modern { modern_result(value) } else { value }),
+        "tools/call" => {
+            match call_tool(&state, message.get("params").cloned().unwrap_or_default()).await {
+                Ok(value) if modern => {
+                    if let Some(request) = authorization_request_from_tool_result(&state, &value) {
+                        if !client_supports_elicitation(&message) {
+                            return Some(json!({
+                                "jsonrpc":"2.0",
+                                "id":id,
+                                "error":{
+                                    "code":-32021,
+                                    "message":"Client does not advertise elicitation required for human authorization",
+                                    "data":{"requiredCapabilities":{"elicitation":{}}}
+                                }
+                            }));
+                        }
+                        authorization_input_required(&state, &request, owner)
+                    } else {
+                        Ok(modern_result(value))
+                    }
+                }
+                Ok(value) => Ok(value),
+                Err(error) => Err(error),
+            }
+        }
         _ => {
             return Some(jsonrpc_error(
                 id,

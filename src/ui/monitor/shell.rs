@@ -106,7 +106,13 @@ pub(super) fn draw_dashboard(
     } else if ui.help_open {
         render_help_overlay(frame, area, config, ui.language);
     }
-    if !ui.help_open && !ui.intelligence_open && !ui.commands_open && ui.workspace_input.is_none() {
+    if ui.full_access_confirm {
+        render_full_access_overlay(frame, area, ui.language);
+    } else if !ui.help_open
+        && !ui.intelligence_open
+        && !ui.commands_open
+        && ui.workspace_input.is_none()
+    {
         let pending = pending_authorizations(config);
         if !pending.is_empty() {
             render_authorization_overlay(

@@ -3,13 +3,13 @@ mod merge;
 mod report;
 
 use crate::agent_plugin;
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, WorkspaceSecurity};
 use adapters::{AdapterKind, AgentHost, HOSTS};
 use merge::{FileOutcome, PlannedFile};
-pub(crate) use report::print_human;
+pub(crate) use report::{print_human, AgentInstallSummary};
 use report::{
     AgentInstallAction, AgentInstallDisposition, AgentInstallResult, AgentInstallStatus,
-    AgentInstallSummary, DetectedHost,
+    DetectedHost,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 pub(crate) struct AgentInstallPlan {
+    pub scope: String,
     pub workspace: String,
     pub actions: Vec<AgentInstallAction>,
     #[serde(skip)]
@@ -39,12 +40,36 @@ pub(crate) fn detect_hosts(workspace: &Workspace) -> Vec<DetectedHost> {
         .collect()
 }
 
+pub(crate) fn user_home_workspace() -> anyhow::Result<Workspace> {
+    let home = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("HOME/USERPROFILE is not set"))?;
+    Workspace::new_with_security(
+        home,
+        true,
+        false,
+        WorkspaceSecurity {
+            allow_user_home_workspace: true,
+            ..WorkspaceSecurity::default()
+        },
+    )
+}
+
 pub(crate) fn plan_install(workspace: &Workspace) -> AgentInstallPlan {
+    plan_install_for_scope(workspace, false)
+}
+
+pub(crate) fn plan_global_install(workspace: &Workspace) -> AgentInstallPlan {
+    plan_install_for_scope(workspace, true)
+}
+
+fn plan_install_for_scope(workspace: &Workspace, global: bool) -> AgentInstallPlan {
     let detections = detect_hosts(workspace)
         .into_iter()
         .map(|host| (host.id.clone(), host))
         .collect::<BTreeMap<_, _>>();
-    let server = agent_plugin::local_stdio_server(workspace.root());
+    let server = agent_plugin::local_stdio_server();
     let mut writes = BTreeMap::<String, PlannedFile>::new();
     let mut actions = Vec::new();
 
@@ -73,21 +98,31 @@ pub(crate) fn plan_install(workspace: &Workspace) -> AgentInstallPlan {
             });
             continue;
         }
-        let plan = match (&host.adapter, &server) {
-            (_, Err(error)) => Err(anyhow::anyhow!(error.to_string())),
-            (AdapterKind::JsonMcpServers { path }, Ok(server)) => {
-                merge::plan_json(workspace, path, "mcpServers", server)
+        let plan = if global {
+            match global_plan(workspace, host, &server) {
+                Some(plan) => plan,
+                None => {
+                    actions.push(AgentInstallAction {
+                        disposition: AgentInstallDisposition::Manual,
+                        method: "global setup requires host UI".to_owned(),
+                        guidance: "A safe user-level config path is not verified for this Host; use its UI or choose project setup.".to_owned(),
+                        ..base()
+                    });
+                    continue;
+                }
             }
-            (AdapterKind::JsonServers { path }, Ok(server)) => {
-                merge::plan_json(workspace, path, "servers", server)
+        } else {
+            match &host.adapter {
+                AdapterKind::JsonMcpServers { path } => {
+                    merge::plan_json(workspace, path, "mcpServers", &server)
+                }
+                AdapterKind::JsonServers { path } => {
+                    merge::plan_json(workspace, path, "servers", &server)
+                }
+                AdapterKind::CodexToml => merge::plan_codex_toml(workspace, ".codex/config.toml"),
+                AdapterKind::OpenCode => merge::plan_opencode(workspace, "opencode.json"),
+                AdapterKind::Manual => unreachable!(),
             }
-            (AdapterKind::CodexToml, Ok(_)) => {
-                merge::plan_codex_toml(workspace, ".codex/config.toml", workspace.root())
-            }
-            (AdapterKind::OpenCode, Ok(_)) => {
-                merge::plan_opencode(workspace, "opencode.json", workspace.root())
-            }
-            (AdapterKind::Manual, _) => unreachable!(),
         };
         match plan {
             Ok(plan) => {
@@ -111,8 +146,13 @@ pub(crate) fn plan_install(workspace: &Workspace) -> AgentInstallPlan {
         }
     }
 
-    add_skill_plan(workspace, &detections, &mut writes, &mut actions);
+    if global {
+        add_global_skill_plan(workspace, &detections, &mut writes, &mut actions);
+    } else {
+        add_skill_plan(workspace, &detections, &mut writes, &mut actions);
+    }
     AgentInstallPlan {
+        scope: if global { "global" } else { "project" }.to_owned(),
         workspace: workspace.root().to_string_lossy().into_owned(),
         actions,
         writes,
@@ -158,7 +198,79 @@ pub(crate) fn apply_install(
             }
         })
         .collect::<Vec<_>>();
-    report::summarize(dry_run, plan.workspace, results)
+    report::summarize(dry_run, plan.scope, plan.workspace, results)
+}
+
+fn global_plan(
+    workspace: &Workspace,
+    host: &AgentHost,
+    server: &serde_json::Value,
+) -> Option<anyhow::Result<PlannedFile>> {
+    let plan = match host.id {
+        "claude-code" => merge::plan_json(workspace, ".claude.json", "mcpServers", server),
+        "openai-codex" => merge::plan_codex_toml(workspace, ".codex/config.toml"),
+        "cursor" => merge::plan_json(workspace, ".cursor/mcp.json", "mcpServers", server),
+        "gemini-cli" => merge::plan_json(workspace, ".gemini/settings.json", "mcpServers", server),
+        "qwen-code" => merge::plan_json(workspace, ".qwen/settings.json", "mcpServers", server),
+        "kiro" => merge::plan_json(workspace, ".kiro/settings/mcp.json", "mcpServers", server),
+        "opencode" => merge::plan_opencode(workspace, ".config/opencode/opencode.json"),
+        _ => return None,
+    };
+    Some(plan)
+}
+
+struct SkillTarget {
+    target: &'static str,
+    host_id: &'static str,
+    host: &'static str,
+    placement: &'static str,
+    evidence: Vec<String>,
+}
+
+fn add_global_skill_plan(
+    workspace: &Workspace,
+    detections: &BTreeMap<String, DetectedHost>,
+    writes: &mut BTreeMap<String, PlannedFile>,
+    actions: &mut Vec<AgentInstallAction>,
+) {
+    let detected_names = HOSTS
+        .iter()
+        .filter_map(|host| detections.get(host.id))
+        .filter(|host| host.detected)
+        .map(|host| host.name.clone())
+        .collect::<Vec<_>>();
+    if detected_names.is_empty() {
+        return;
+    }
+    add_skill_action(
+        workspace,
+        SkillTarget {
+            target: ".agents/skills/wcode/SKILL.md",
+            host_id: "global-agent-skill",
+            host: "Global Agent Skill",
+            placement: "User-level",
+            evidence: detected_names,
+        },
+        writes,
+        actions,
+    );
+    if detections
+        .get("claude-code")
+        .is_some_and(|host| host.detected)
+    {
+        add_skill_action(
+            workspace,
+            SkillTarget {
+                target: ".claude/skills/wcode/SKILL.md",
+                host_id: "global-claude-skill",
+                host: "Global Claude Code Skill",
+                placement: "User-level",
+                evidence: vec!["Claude Code detected".to_owned()],
+            },
+            writes,
+            actions,
+        );
+    }
 }
 
 fn add_skill_plan(
@@ -179,10 +291,13 @@ fn add_skill_plan(
     }
     add_skill_action(
         workspace,
-        ".agents/skills/wcode-software-intelligence/SKILL.md",
-        "portable-agent-skill",
-        "Portable Agent Skill",
-        detected_names,
+        SkillTarget {
+            target: ".agents/skills/wcode/SKILL.md",
+            host_id: "portable-agent-skill",
+            host: "Portable Agent Skill",
+            placement: "Project-local",
+            evidence: detected_names,
+        },
         writes,
         actions,
     );
@@ -192,10 +307,13 @@ fn add_skill_plan(
     {
         add_skill_action(
             workspace,
-            ".claude/skills/wcode-software-intelligence/SKILL.md",
-            "claude-skill",
-            "Claude Code Skill",
-            vec!["Claude Code detected".to_owned()],
+            SkillTarget {
+                target: ".claude/skills/wcode/SKILL.md",
+                host_id: "claude-skill",
+                host: "Claude Code Skill",
+                placement: "Project-local",
+                evidence: vec!["Claude Code detected".to_owned()],
+            },
             writes,
             actions,
         );
@@ -204,13 +322,17 @@ fn add_skill_plan(
 
 fn add_skill_action(
     workspace: &Workspace,
-    target: &str,
-    host_id: &str,
-    host: &str,
-    evidence: Vec<String>,
+    target: SkillTarget,
     writes: &mut BTreeMap<String, PlannedFile>,
     actions: &mut Vec<AgentInstallAction>,
 ) {
+    let SkillTarget {
+        target,
+        host_id,
+        host,
+        placement,
+        evidence,
+    } = target;
     match merge::plan_canonical_text(workspace, target, agent_plugin::canonical_skill()) {
         Ok(plan) => {
             let disposition = disposition(plan.outcome);
@@ -228,8 +350,7 @@ fn add_skill_action(
                     "Existing skill differs from wcode's canonical source; review it manually."
                         .to_owned()
                 } else {
-                    "Project-local skill; no hooks, scripts, or credentials are installed."
-                        .to_owned()
+                    format!("{placement} skill; no hooks, scripts, or credentials are installed.")
                 },
             });
         }

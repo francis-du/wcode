@@ -146,17 +146,32 @@
 
 - schema_version: 1
   id: AC-AUTH-001
-  title: Destructive approval is operation-bound and one-shot
-  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused.
+  title: Human approval remains operation client and challenge bound
+  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio drives elicitation/create only for clients that negotiated compatible form elicitation and then retries the original tool call through the same AuthorizationManager. Explicit Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure remains disabled and protected-path/symlink/hard-link/no-shell boundaries remain enforced.
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
       symbol: destructive_approval_is_exact_and_consumed_once
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: modern_authorization_fails_closed_without_elicitation_capability
+    - kind: test
+      path: tests/unit/integrations/mcp/stdio.rs
+      symbol: protocol_selection_supports_modern_stdio_and_legacy_sessions
+    - kind: test
+      path: tests/unit/integrations/mcp/stdio.rs
+      symbol: legacy_stdio_elicitation_approves_and_retries_the_original_tool_call
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_elevates_existing_roots_and_keeps_hard_path_boundaries
 
 - schema_version: 1
   id: AC-MCP-002
-  title: MCP exposes portable capabilities and durable tasks
-  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, the tool catalog exposes Product Scope metadata, and optional image/audio Tool Result content is returned only when the current request explicitly advertises the wcode media extension; capability absence fails closed without binary payloads.
+  title: MCP exposes compact portable capabilities durable tasks and negotiated human input
+  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, the tool catalog exposes Product Scope metadata without model-visible server defaults or low-frequency tuning fields, agent guidance keeps default Workspace and inferable arguments out of calls, Agent Context exposes explicit independent-lane parallelism guidance, modern human-input requests use input_required with owner/challenge-bound requestState, legacy stdio uses elicitation/create only after form-mode capability negotiation, and optional image/audio Tool Result content is returned only when the current request explicitly advertises the wcode media extension; capability absence fails closed without authorization bypass or binary payloads.
   verification:
     - kind: test
       path: tests/unit/integrations/mcp/calls.rs
@@ -168,11 +183,20 @@
       path: tests/unit/integrations/mcp/calls.rs
       symbol: tool_list_exposes_bulk_index_and_positive_harness_tools
     - kind: test
+      path: tests/unit/integrations/mcp/definitions.rs
+      symbol: tool_catalog_is_deterministic_compact_and_unique
+    - kind: test
       path: tests/unit/integrations/mcp/dispatch.rs
       symbol: media_content_is_fail_closed_without_explicit_client_extension
     - kind: test
       path: tests/unit/integrations/mcp/dispatch.rs
       symbol: media_content_requires_matching_kind_and_optional_mime_filter
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
+    - kind: test
+      path: tests/unit/integrations/mcp/stdio.rs
+      symbol: legacy_stdio_elicitation_approves_and_retries_the_original_tool_call
 
 - schema_version: 1
   id: AC-MCP-003
@@ -330,11 +354,26 @@
 - schema_version: 1
   id: AC-VERIFY-001
   title: Verification readiness aggregates required evidence fail closed
-  statement: Stage readiness keeps the latest result per producer and a producer failure cannot be masked by another producer pass.
+  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, and one changed language's pass cannot clear another changed language's target. Verification Plans bind the exact active code and Design State revision plus fixed changed-language stage targets so stale or under-scoped evidence cannot clear readiness. Correctness reviewers receive a contract-first counterexample rubric, and risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible.
   verification:
     - kind: test
-      path: tests/unit/intelligence/mod.rs
+      path: tests/unit/intelligence/verification.rs
+      symbol: verification_targets_follow_changed_source_languages
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
+      symbol: required_stage_without_local_executor_is_an_explicit_verification_gap
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
+      symbol: stage_readiness_requires_every_changed_language_target
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
       symbol: stage_readiness_aggregates_latest_result_per_producer_fail_closed
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
+      symbol: design_revision_change_invalidates_plan_and_evidence
+    - kind: test
+      path: tests/unit/verification/mod.rs
+      symbol: correctness_jobs_carry_contract_first_rubric
     - kind: check
       id: rust-test
 
@@ -503,7 +542,7 @@
 - schema_version: 1
   id: AC-AGENT-CONTEXT-001
   title: Coding agents receive a bounded edit-ready context pack
-  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
+  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. A revision-guarded per-Workspace Worklist persists unfinished multi-step work across reconnects/model switches, is surfaced by Agent Context, rejects stale concurrent updates, preserves blocked items as unfinished, and prevents a new list from silently replacing unfinished user tasks. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
   verification:
     - kind: test
       path: tests/unit/runtime/harness.rs
@@ -526,11 +565,17 @@
     - kind: test
       path: tests/unit/integrations/mcp/dispatch.rs
       symbol: worktree_status_warns_on_existing_changes_and_blocks_conflicts
+    - kind: test
+      path: tests/unit/runtime/worklist.rs
+      symbol: worklist_preserves_unfinished_items_and_exposes_runnable_parallel_lanes
+    - kind: test
+      path: tests/unit/runtime/worklist.rs
+      symbol: stale_revision_and_premature_restart_fail_closed
 
 - schema_version: 1
   id: AC-TUNNEL-001
   title: Managed tunnel selection supports free provider fallback
-  statement: Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, OAuth metadata plus existing sessions follow only the verified aliases owned by the running wcode process, and managed tunnel/provider dependency paths never write directly to stdout/stderr or inherit child terminal output; diagnostics flow through TaskMonitor so an active alternate-screen TUI cannot be corrupted.
+  statement: Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, OAuth metadata plus existing sessions follow only verified aliases owned by the running wcode process, an unhealthy last tunnel cannot produce an empty-set index panic, all-down state resets public health to pending/local recovery, verified reconnect clears provider death history, and managed tunnel/provider dependency paths never write directly to stdout/stderr or inherit child terminal output; diagnostics flow through TaskMonitor so an active alternate-screen TUI cannot be corrupted.
   verification:
     - kind: test
       path: tests/unit/runtime/tunnel/mod.rs
@@ -541,11 +586,17 @@
     - kind: test
       path: tests/unit/runtime/tunnel/mod.rs
       symbol: parses_free_ssh_tunnel_urls_without_accepting_provider_hosts
+    - kind: test
+      path: tests/unit/app/tunnel_lifecycle.rs
+      symbol: empty_tunnel_set_never_produces_a_dead_index
+    - kind: test
+      path: tests/unit/app/tunnel_lifecycle.rs
+      symbol: reconnect_backoff_is_bounded_and_recovery_resets_history
 
 - schema_version: 1
   id: AC-AGENT-INSTALL-001
-  title: Agent host installation is dry-run safe and idempotent
-  statement: The adapter registry reports detection evidence, plans project-local changes without writing, merges only recognized JSON shapes, preserves unrelated servers, repeats without churn, and marks manual-only hosts honestly.
+  title: One-command Agent setup is dry-run safe and idempotent
+  statement: wcode setup drives the same adapter registry and reports detection evidence, supports a no-write dry run, offers Global-first interactive and Current-project scopes, keeps non-interactive writes project-scoped, installs path-free `wcode mcp-stdio`, safely writes only verified user-level Host paths for confirmed Global setup, installs the embedded `wcode` Skill without requiring a plugin directory in the user's project, merges only recognized JSON/TOML shapes, preserves unrelated servers, repeats without churn, and marks manual-only hosts honestly.
   verification:
     - kind: test
       path: tests/unit/integrations/agent/install.rs
@@ -558,10 +609,13 @@
       symbol: unknown_json_schema_shape_fails_closed_and_preserves_file
     - kind: test
       path: tests/unit/integrations/agent/install.rs
+      symbol: global_setup_uses_user_config_paths_without_embedding_a_workspace
+    - kind: test
+      path: tests/unit/integrations/agent/install.rs
       symbol: manual_only_detection_does_not_create_a_portable_skill_plan
     - kind: test
       path: tests/cli.rs
-      symbol: install_all_dry_run_is_structured_and_does_not_write
+      symbol: setup_dry_run_is_structured_and_does_not_write
 
 - schema_version: 1
   id: AC-SOURCE-LAYOUT-001
@@ -589,3 +643,29 @@
     - kind: test
       path: tests/unit/runtime/harness.rs
       symbol: design_init_bootstraps_minimal_valid_state_without_overwrite
+
+- schema_version: 1
+  id: AC-CLI-001
+  title: CLI exposes a compact stable catalog one-command setup and verified self-update
+  statement: Default help presents the explicit runtime command contract and only setup/update/mcp-stdio/intelligence/verification as stable task-level commands, omits the redundant generated help command and low-frequency advanced flags, keeps only agent-plugin as a hidden advanced export control, rejects removed restart/stop commands, and exposes update without requiring Workspace initialization. Foreground lifecycle is Ctrl-C/SIGTERM owned and stdio lifecycle is MCP-Host owned with no separate runtime-control route/state file. Setup provides the safe Global-first / Current-project Agent host installer while local MCP configuration remains path-free and current-directory scoped. Self-update targets the running installation unless explicitly overridden and preserves checksum, staged smoke-test and replace-after-success behavior on Unix and Windows.
+  verification:
+    - kind: test
+      path: tests/cli.rs
+      symbol: help_exposes_the_stable_agent_and_transport_commands
+    - kind: test
+      path: tests/cli.rs
+      symbol: update_help_is_stable_and_hidden_agent_plugin_remains_compatible
+    - kind: test
+      path: tests/cli.rs
+      symbol: setup_dry_run_is_structured_and_does_not_write
+    - kind: test
+      path: tests/unit/app/update.rs
+      symbol: update_targets_the_running_binary_directory_unless_explicitly_overridden
+    - kind: test
+      path: tests/unit/app/update.rs
+      symbol: embedded_unix_installer_keeps_checksum_smoke_and_atomic_replace_contract
+    - kind: test
+      path: tests/release_contract.rs
+      symbol: windows_installer_stages_and_smoke_tests_before_replacement
+    - kind: check
+      id: rust-test

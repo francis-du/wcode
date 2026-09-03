@@ -11,71 +11,108 @@ permalink: /docs/reference/
 
 This page is the canonical compact reference for day-to-day wcode operation. Conceptual behavior lives in the focused guides; this page answers “what do I run or call?”.
 
-## Start and control the runtime
+## Stable CLI command surface
 
-The normal path is intentionally small:
-
-```bash
-wcode --workspace "$PWD"
-```
-
-Useful control commands:
+No subcommand starts the normal runtime:
 
 ```bash
-wcode restart
-wcode stop
+wcode
 ```
+
+The default command catalog is intentionally task-level and model-readable:
+
+```bash
+wcode setup
+wcode update
+wcode mcp-stdio
+wcode intelligence --help
+wcode verification --help
+```
+
+The generated `help` subcommand is disabled; use `--help` and
+`<command> --help`. `agent-plugin` remains available only for advanced package
+export and older automation. Process lifecycle belongs to the terminal/OS or
+the MCP Host; `restart` and `stop` are no longer public wcode commands.
+
+`wcode update` targets the directory containing the running executable unless
+`WCODE_INSTALL_DIR` explicitly overrides it. It reuses the release installer
+contract: download release artifacts, verify SHA-256, stage the candidate, run
+`--version` and `--help`, and replace only after those checks pass. Windows waits
+for the running executable to exit before replacement.
 
 Local Software Intelligence views:
 
 ```bash
-wcode --workspace "$PWD" intelligence
-wcode --workspace "$PWD" intelligence --check --json
-wcode --workspace "$PWD" verification
-wcode --workspace "$PWD" verification --plan-id VP-...
+wcode intelligence
+wcode intelligence --check --json
+wcode verification
+wcode verification --plan-id VP-...
 ```
 
-Local coding agents should normally use stdio:
+Local coding agents should normally use stdio. From inside the repository:
 
 ```bash
-wcode --workspace /absolute/path/to/repository mcp-stdio
+wcode mcp-stdio
 ```
+
+Generated Host configs use the same path-free command:
+
+```bash
+wcode mcp-stdio
+```
+
+The Host working directory is the default Workspace. `--workspace` remains an
+explicit operator override, not an installation requirement.
 
 Cloud/web connectors use the protected public `/mcp` endpoint shown by the runtime.
 Older clients can use `/sse`; the first SSE event supplies the matching
 `/message?sessionId=...` endpoint. Both remote transports require OAuth and
 Origin validation.
 
-Agent setup and plugin export:
+When a stdio tool hits a human authorization gate, a client that advertises
+form elicitation can approve or decline inside the MCP Host. MCP 2026 uses
+`input_required` MRTR; compatible 2025-era stdio sessions use
+`elicitation/create`. The response is validated against the pending request,
+opaque challenge, and MCP client owner before the existing AuthorizationManager
+creates a grant. Clients without form elicitation receive a missing-capability
+failure; wcode never turns that limitation into implicit approval.
+
+Agent setup:
 
 ```bash
-wcode --workspace "$PWD" agent-plugin --install-all --dry-run [--json]
-wcode --workspace "$PWD" agent-plugin --install-all [--json]
-wcode --workspace "$PWD" agent-plugin --profile skill-only
-wcode --workspace "$PWD" agent-plugin --profile local-stdio
-wcode --workspace "$PWD" agent-plugin --profile remote-http --remote-url https://host/mcp
+wcode setup
+wcode setup --dry-run
+wcode setup --project
+wcode setup --json
 ```
+
+The hidden `agent-plugin` command remains available for advanced portable package
+export (`skill-only`, `local-stdio`, or `remote-http`) and compatibility with
+older automation. It is not required for normal local setup, and setup does
+not require the repository source `plugin/` directory because those assets are
+embedded in the binary.
 
 ## Common CLI options
 
 | Option | Purpose |
 | --- | --- |
-| `-w, --workspace <PATH>` | Expose one repository root. Repeat only when one task genuinely needs multiple roots. |
-| `-j, --max-parallel-tools <N>` | Request concurrent tool bodies. Default: 32. I/O work can fan out while CPU-heavy sections use separate burst and sustained-load controls. |
-| `--max-cpu-percent <PERCENT>` | Sustained CPU target for unattended background work. Default: 10%. Interactive requests may burst across several cores and are paced only when load remains high. |
-| `--max-memory-mb <MIB>` | Soft resident-memory budget. Default: 512 MiB. Cold caches trim at 80%; normal work gets temporary headroom to 125%, and persistent over-limit pressure pauses new admission. |
-| `--public-url https://…` | Use a stable reverse-proxy URL instead of a temporary managed tunnel. |
-| `--tunnel-provider auto\|cloudflare\|localhost-run\|pinggy\|tailscale` | Select the managed HTTPS tunnel provider. `auto` starts every provider concurrently in the background, keeps all verified tunnels, and retries unreachable providers every 15 seconds. |
+| `-w, --workspace <PATH>` | Override the default current-directory Workspace. Repeat only when one task genuinely needs multiple roots. |
 | `--read-only` | Remove model-facing file mutation capabilities. |
 | `--no-exec` | Disable command execution. |
-| `--no-semantic` | Disable automatic first-party LSP indexing and all first-party semantic-provider execution. Hardened semantic providers are enabled by default. |
-| `--open` | Open the Setup Hub in the browser after startup; links always stay visible in the TUI and setup page. |
-| `--imessage-to <phone-or-email>` | Send every live tunnel link (setup, MCP, Web UI, pairing code) over local iMessage on macOS. |
+| `--no-semantic` | Disable automatic first-party LSP indexing and semantic-provider execution. |
+| `--full-access` | Explicitly expose the current-user Home and enable otherwise-authorizable runtime capabilities; hard protected-path/symlink/hard-link/no-shell/filesystem-root boundaries remain. |
+| `--no-tunnel` | Keep the runtime local-only. |
 | `--no-monitor` | Disable the live terminal dashboard. |
-| `--allow-sleep` | Do not hold the platform idle-sleep assertion while serving. |
-| `--allow-risky-exec` | Process-wide pre-authorization for repository-aware execution. Prefer exact session approvals when possible. |
+| `--open` | Open Setup Hub in the browser after startup. |
 
-Advanced trust-boundary flags exist for exceptional deployments. They are intentionally not the normal setup path; see [Security](../security/).
+### Advanced operator options
+
+The runtime still accepts low-frequency deployment and tuning controls such as
+`--public-url`, `--tunnel-provider`, `--imessage-to`, `--max-parallel-tools`,
+`--max-cpu-percent`, `--max-memory-mb`, `--allow-sleep`, and
+`--allow-risky-exec`. They are hidden from default `--help` so ordinary users
+and coding agents do not treat them as required setup parameters. Broader
+Workspace/destructive-write trust controls are documented in [Security](../security/).
 
 ## TUI shortcuts
 
@@ -88,6 +125,7 @@ Advanced trust-boundary flags exist for exceptional deployments. They are intent
 | `+` | Add a Workspace. |
 | `↑ / ↓` | Select a pending authorization request. |
 | `Y / N` | Approve or deny the selected request. |
+| `P` | Open the explicit Full Access confirmation. |
 
 ## Recommended MCP workflow
 
@@ -137,7 +175,8 @@ evidence_status
 | `design_init` | Create sparse Design State without overwriting existing design files. |
 | `design_status` | Validate structured Desired State. |
 | `traceability_status` | Requirement → Component → implementation and Acceptance → verification coverage. |
-| `agent_context` | Primary coding entry point: adaptive/explicit token budget, relevant design, scope-aware repo-map, bounded hot source, SHA edit targets, verification refs, readiness and next actions. |
+| `agent_context` | Primary coding entry point: adaptive/explicit token budget, relevant design, scope-aware repo-map, bounded hot source, SHA edit targets, active Worklist recovery, verification refs, readiness and next actions. |
+| `worklist_status` / `worklist_update` | Recover and update the durable model work plan across reconnects/model switches without dropping unfinished items; updates are revision-guarded. |
 | `software_context` | Deeper budget-aware software-intelligence context with optional Product Scope narrowing and graph context. |
 
 ### Source navigation and bounded I/O
@@ -146,7 +185,7 @@ evidence_status
 | --- | --- |
 | `file_outline` / `find_symbol` / `symbol_context` | Tree-sitter definition navigation with explicit syntax precision. |
 | `search_code` / `search_many` | Exact repository discovery; prefer the bulk form when queries are known together. |
-| `read_file` / `read_files` | Bounded UTF-8 reads with SHA-256 edit preconditions. |
+| `read_file` / `read_files` | Original-format UTF-8 reads with SHA-256 edit preconditions, bounded to at most 1,000 source lines per file/call. |
 | `read_media` | Metadata-first bounded media inspection; binary content requires explicit client capability. |
 | `parallel_tools` | Fan out already-known independent reads/discovery/writes through path-resource scheduling. |
 
@@ -216,12 +255,12 @@ Known development CLIs receive command-specific policy instead of generic progra
 
 ## Diagnostics
 
-The public/local health surface keeps connection state layered rather than flattening everything to “connected/disconnected”. Inspect the runtime TUI first, then `/healthz` when debugging HTTP, tunnel, or OAuth state. OAuth registrations and tokens are restored for the same configured Workspace roots after restart. A replacement tunnel can keep that session after it passes the instance health check. Metadata and authorization must show the same host the client used; unknown or inactive hosts remain rejected.
+The public/local health surface keeps connection state layered rather than flattening everything to “connected/disconnected”. Inspect the runtime TUI first, then `/healthz` when debugging HTTP, tunnel, or OAuth state. OAuth registrations and tokens are restored for the same configured Workspace roots after a process restart. A replacement tunnel can keep that session after it passes the instance health check. Managed tunnel recovery is automatic, but session-style quick-tunnel hostnames may change; use a stable endpoint for durable remote connector configuration. Metadata and authorization must show the same host the client used; unknown or inactive hosts remain rejected.
 
 For repository correctness use:
 
 ```bash
-wcode --workspace "$PWD" intelligence --check --json
+wcode intelligence --check --json
 ```
 
 For implementation quality use the repository-native checks returned by `project_context` / `language_quality_status`, then finish with `verify_project`.

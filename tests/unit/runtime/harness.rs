@@ -459,6 +459,11 @@ mod tests {
 "#,
     )
     .unwrap();
+    fs::write(
+        root.path().join("src/worker.rs"),
+        "pub fn batch_worker() { let _ = 1 + 1; }\n",
+    )
+    .unwrap();
 
     let workspace = Workspace::new(root.path(), true, true).unwrap();
     let harness = ToolHarness::new(4).unwrap();
@@ -520,6 +525,8 @@ mod tests {
     assert_eq!(pack["readiness"]["verify"], "ready");
     assert_eq!(pack["readiness"]["graph_precision"], "syntax");
     assert_eq!(pack["readiness"]["recommended_edit_tool"], "apply_edits");
+    assert_eq!(pack["readiness"]["parallelism"]["strategy"], "single_lane");
+    assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 1);
     assert_eq!(
         pack["readiness"]["next_actions"],
         json!(["apply_edits", "review_changes", "verify_project"])
@@ -533,7 +540,7 @@ mod tests {
         .any(|advisory| advisory == "syntax_only_relationships"));
     assert_eq!(pack["repo_map"]["cache_hit"], false);
     assert_eq!(pack["repo_map"]["scope_path"], "src");
-    assert_eq!(pack["repo_map"]["files_indexed"], 1);
+    assert_eq!(pack["repo_map"]["files_indexed"], 2);
     assert!(pack["context_bytes_avoided"].as_u64().unwrap() > 0);
     assert!(pack["context_reduction_percent"].as_f64().unwrap() > 20.0);
 
@@ -541,6 +548,20 @@ mod tests {
         .agent_context("demo", &workspace, "feature entry", 2_000, &[])
         .unwrap();
     assert_eq!(cached["repo_map"]["cache_hit"], true);
+
+    let parallel_task = harness
+        .agent_context("demo", &workspace, "feature_entry batch_worker", 3_000, &[])
+        .unwrap();
+    assert_eq!(
+        parallel_task["readiness"]["parallelism"]["strategy"],
+        "top_level_concurrent_calls"
+    );
+    assert!(
+        parallel_task["readiness"]["parallelism"]["candidate_lanes"]
+            .as_u64()
+            .unwrap()
+            >= 2
+    );
 
     let relationship_task = harness
         .agent_context(
