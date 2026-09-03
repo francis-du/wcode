@@ -140,8 +140,8 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             counterpart.relative
         );
 
-        let relative = page.relative.to_string_lossy();
-        let is_index = matches!(relative.as_ref(), "README.md" | "README.zh-CN.md");
+        let relative = page.relative.to_string_lossy().replace('\\', "/");
+        let is_index = matches!(relative.as_str(), "README.md" | "README.zh-CN.md");
         if !is_index {
             let (navigation_index, navigation_route) = if relative.starts_with("releases/v") {
                 (
