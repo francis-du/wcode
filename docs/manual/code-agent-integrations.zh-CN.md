@@ -43,7 +43,8 @@ MCP Host 启动进程时的当前目录就是默认 Workspace，因此一份全�
 `stdin` / `stdout` 本身就是 MCP 协议通道，所以 wcode 不会在这里插入终端
 `yes/no` 输入把 JSON-RPC 流打断。支持 form elicitation 的 Host 会通过 MCP
 收到授权请求，并由 Host 自己向用户展示确认。2026 协议使用
-`input_required` MRTR；兼容 2025 协议的 stdio 使用 `elicitation/create`。
+`input_required` 多轮往返（MRTR）；兼容 2025 协议的 stdio 使用
+`elicitation/create`。
 只有响应同时匹配 Pending Authorization、Opaque Challenge 和 MCP Client
 Owner 时，wcode 才会交给原有 AuthorizationManager 建立授权；不存在允许
 模型给自己批准的 MCP Tool。
@@ -178,7 +179,7 @@ wcode 会在它下一次完成 `/authorize` 时恢复这条注册。Redirect URI
 原规则校验，只有本机配对码通过后才会持久保存。
 
 不支持 OAuth 的客户端应改用本地 stdio、本地桥接或可信反向代理。
-`/sse` 兼容入口同样要求 OAuth、Origin 校验和正常 Workspace 策略。
+`/sse` 兼容入口同样要求 OAuth、Origin 校验和常规 Workspace 策略。
 
 ## 7. 一条够用的编程流程
 

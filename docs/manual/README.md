@@ -10,7 +10,7 @@ permalink: /docs/
 
 # Make any coding agent understand your repo before it changes it
 
-**wcode gives coding agents the repository context, real code relationships, guarded actions, and verification they are usually missing.** Use the agent you already like; wcode helps it understand first, change less, and prove the result instead of rebuilding a partial picture from grep, file dumps, and chat history.
+**wcode gives coding agents the task-ready context, real code relationships, guarded actions, and revision-bound proof they are usually missing.** Use the agent you already like; wcode helps it understand first, change less, and prove the result instead of rebuilding a partial picture from grep, file dumps, and chat history.
 
 ## Start here
 

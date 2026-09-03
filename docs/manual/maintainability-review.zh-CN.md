@@ -21,7 +21,7 @@ wcode 把可维护性当作批准问题，而不是最后的 Cosmetic Cleanup。
 - `maintainability-concentrated-growth`：单个源码文件净新增至少 400 行，需要检查是否把多个职责集中到同一位置，或遗漏了更简单的模型。
 - `maintainability-cross-scope-churn`：源码变更跨至少 3 个规范 Product Scope 且总变更达到至少 1000 行，需要检查 Ownership、Dependency Direction，以及独立关注点是否应拆分。
 
-这些 Finding 进入正常 Risk Engine。高严重度的 Maintainability Finding 可以像其他 Architecture Risk 一样提高 Verification 深度。
+这些 Finding 进入常规 Risk Engine。高严重度的 Maintainability Finding 可以像其他 Architecture Risk 一样提高 Verification 深度。
 
 Convention Engine 用同一条 1,000 行边界检查整个仓库；Change Review 还会指出哪个文件是在本次修改中越过边界。wcode 自身对维护中的 Rust 源码与测试执行硬门禁：文件接近边界时，先按职责拆分。
 

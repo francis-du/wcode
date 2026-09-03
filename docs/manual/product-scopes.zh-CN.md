@@ -44,7 +44,7 @@ Convention Engine 会按 Architecture Domain 与 Product Scope 分类源码，�
 
 推荐 Agent Flow：
 
-1. `agent_context(goal, scopes=...)` 作为正常 Coding 主入口；
+1. `agent_context(goal, scopes=...)` 作为日常编码主入口；
 2. 只有需要 Scope Audit 时调用 `scope_status`，特别关注新增 Production Structure 前的 `unmapped_files`；
 3. 只有需要完整 Desired State / Repository Guidance 时再调用 `design_status`、`project_context`、`traceability_status`；
 4. 选择与行为对应的 Product Scope；

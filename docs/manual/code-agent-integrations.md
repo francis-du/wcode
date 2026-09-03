@@ -45,7 +45,7 @@ operator override.
 `stdin` and `stdout` are the MCP protocol channel, so wcode never pauses that
 stream to read a terminal yes/no prompt. Instead, a Host that supports form
 elicitation receives the authorization request through MCP and presents the
-user interaction itself. Protocol 2026 uses `input_required` MRTR; compatible
+user interaction itself. Protocol 2026 uses the `input_required` multi-round-trip (MRTR) form; compatible
 2025-era stdio uses `elicitation/create`. Approval is accepted only when the
 reply matches the pending authorization, an opaque challenge, and the MCP
 client owner. There is no MCP tool that lets a model approve its own request.

@@ -47,7 +47,7 @@ Metadata，所以用户项目里不需要存在 `plugin/` 目录。需要预览�
 wcode
 ```
 
-当前目录就是默认 Workspace，因此正常使用不再需要 `--workspace "$PWD"`。
+当前目录就是默认 Workspace，因此日常使用不再需要 `--workspace "$PWD"`。
 这条命令会启动本地 MCP、受保护 WebUI、OAuth、TUI 和已配置的公网连接。
 根目录下的项目标记会自动成为可选择的 Subspace。
 
@@ -74,7 +74,7 @@ MCP Host 启动进程时的当前目录就是默认 Workspace。stdio 不走 HTT
 
 三种方式共用 Harness 和 Workspace 策略；SSE 不提供匿名兼容路径。
 
-正常 Runtime 会自动处理公网连接。Tunnel Provider 选择、稳定反向代理等高级选项统一放在 [CLI 与 MCP 参考手册](../reference/)；本机正常接入不需要先理解这些参数。
+Runtime 默认会自动处理公网连接。Tunnel Provider 选择、稳定反向代理等高级选项统一放在 [CLI 与 MCP 参考手册](../reference/)；本机接入不需要先理解这些参数。
 
 OAuth Client 注册和 Token 不按时间过期。wcode 按配置的 Workspace 根目录
 把它们保存在用户状态目录中，下一次启动 wcode 时会重新载入。替换隧道通过
@@ -110,7 +110,7 @@ agent_context(goal, scopes=...)
 只有缺更多源码时才调用 symbol_context
 ```
 
-`agent_context` 省略 `budget` 时会选择有界 Adaptive Budget，并可携带相关 Design State、Scope-aware Repo Map、Bounded Hot Source、SHA Edit Target、Related Test、Readiness 与显式 Parallelism Guidance。模型只应发送当前动作真正需要的 MCP 参数：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都应省略。先按依赖拆 Lane；Host 支持时，独立 Discovery、Read、Review 和 File-local Edit 用多个顶层 Tool Call 并发，真实依赖才串行。输入已经明确时优先用 `read_files`、`search_many`、`apply_file_edits`、`create_files`；`parallel_tools` 只用于参数很小的紧凑 Fan-out。普通定位继续走 `find_symbol` / `search_code`，只有 Readiness 需要更强跨文件关系时才调用 `semantic_navigation`。
+`agent_context` 省略 `budget` 时会选择有界自适应预算，并可携带相关 Design State、按 Scope 收窄的仓库地图、有界热源、SHA 编辑目标、关联测试、就绪度（Readiness）与显式并行指引。模型只应发送当前动作真正需要的 MCP 参数：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都应省略。先按依赖拆 Lane；Host 支持时，独立 Discovery、Read、Review 和 File-local Edit 用多个顶层 Tool Call 并发，真实依赖才串行。输入已经明确时优先用 `read_files`、`search_many`、`apply_file_edits`、`create_files`；`parallel_tools` 只用于参数很小的紧凑 Fan-out。普通定位继续走 `find_symbol` / `search_code`，只有就绪度要求更强跨文件关系时才调用 `semantic_navigation`。
 
 改完后默认：
 

@@ -13,7 +13,7 @@ permalink: /zh/docs/reference/
 
 ## 稳定 CLI 命令面
 
-不带子命令时启动正常运行时：
+不带子命令时启动默认运行时：
 
 ```bash
 wcode
@@ -69,7 +69,7 @@ Host 启动进程时的当前目录就是默认 Workspace；`--workspace` 只作
 传输都要求 OAuth 和 Origin 校验。
 
 stdio 工具触发人工授权时，如果 MCP Host 声明支持 form elicitation，用户
-可以直接在 Host 里批准或拒绝。MCP 2026 使用 `input_required` MRTR；兼容
+可以直接在 Host 里批准或拒绝。MCP 2026 使用 `input_required` 多轮往返（MRTR）；兼容
 2025 协议的 stdio Session 使用 `elicitation/create`。wcode 会把响应与当前
 Pending Request、Opaque Challenge 和 MCP Client Owner 一起校验，通过后才
 交给原有 AuthorizationManager 建立授权。客户端不支持 form elicitation 时
@@ -87,7 +87,7 @@ wcode setup --json
 ```
 
 隐藏的 `agent-plugin` 继续保留高级可移植插件包导出（`skill-only`、
-`local-stdio`、`remote-http`）以及旧自动化兼容；本机正常接入不需要它，
+`local-stdio`、`remote-http`）以及旧自动化兼容；本机日常接入不需要它，
 Setup 也不依赖用户项目里存在源码 `plugin/` 目录，因为相关资产已经内嵌在
 Binary 中。
 
@@ -127,7 +127,7 @@ Workspace / Destructive Write Trust 控制见 [安全模型](../security/)。
 
 ## 推荐 MCP 工作流
 
-正常编程任务：
+日常编程任务：
 
 ```text
 agent_context(goal, scopes=...)
@@ -195,7 +195,7 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
-| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作继续需要授权。 |
+| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。 |
 
 ### Graph、Semantic 与 Language Quality
 
@@ -206,9 +206,11 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | 外部 SCIP / LSP / Compiler / Runtime Graph Fact。 |
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
-| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / Auto Eligibility，或强制执行一次有界 Refresh。Status 暴露 Selected Provider、Discovery 来源、`action`、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；只有真实 Initialize 后 `runnable` 才为 true。Go 在 PATH 未找到 `gopls` 时还会检查 `$GOBIN`、`$GOPATH/bin` 与 `~/go/bin`。Provider Failure 会区分 Discovery / Authorization / Spawn / Initialize / Protocol 阶段并给出下一步，不再只暴露裸 OS Error。Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile。Hardened Provider 默认后台维护，未进入 Auto Profile 的 Provider 继续要求显式信任。 |
+| `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / 自动运行资格，或强制执行一次有界 Refresh。只有真实完成 Initialize 后 `runnable` 才为 true。 |
 | `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 LSP Server 时明确回退 Tree-sitter；`unsupported` Capability、LSP `failures` 与成功但为空的 Relationship Set 会明确区分。 |
 | `language_quality_status` / `language_quality_run` | Syntax / Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵及 check-only 执行。 |
+
+`semantic_provider_status` 的细节：它会暴露选中 Provider、Discovery 来源、`action`、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；Go 在 PATH 未找到 `gopls` 时还会检查 `$GOBIN`、`$GOPATH/bin` 与 `~/go/bin`。Provider 失败会区分 Discovery / Authorization / Spawn / Initialize / Protocol 阶段并给出下一步，不再只暴露裸 OS 错误；Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile；Hardened Provider 默认后台维护，未进入自动 Profile 的 Provider 继续要求显式信任。
 
 ### Change、Risk、Verification 与 Evidence
 

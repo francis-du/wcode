@@ -53,7 +53,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 - Scope-aware Cold Repo-map 在 Ownership 已知时避免构建 Full-repository Graph；
 - Repo-map Structure 按 Revision Cache，但每个 Task 的 Query Ranking 都重新计算；
 - Multi-query Symbol Search 对一个 Source Root 只 Traversal / Index 一次，不为每个 Query Token 重扫；
-- Bounded Hot Source 可以保留最强 Direct Body，其他 Body 继续 Progressive Disclosure；
+- 有界热源可以保留最强的直接源码体，其余源码体继续渐进披露；
 - Fresh Semantic/Runtime/Deterministic Graph Evidence 可以增强 Caller/Callee/Dependency Ranking；Stale Semantic Revision 自动回退 Syntax；普通 Symbol 定位继续走 Tree-sitter/Search，只有显式跨文件关系任务才可路由到 `semantic_navigation` 和对应 Warm Provider Session；
 - Edit Target 保留 SHA、Writeability 与 Direct Working-tree State；
 - `readiness` 与 Deterministic `next_actions` 告诉 Agent 现在应直接 Edit、补 Source/Semantic，还是进入 Verify；

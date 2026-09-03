@@ -73,7 +73,7 @@ Origin validation.
 
 When a stdio tool hits a human authorization gate, a client that advertises
 form elicitation can approve or decline inside the MCP Host. MCP 2026 uses
-`input_required` MRTR; compatible 2025-era stdio sessions use
+the `input_required` multi-round-trip (MRTR) form; compatible 2025-era stdio sessions use
 `elicitation/create`. The response is validated against the pending request,
 opaque challenge, and MCP client owner before the existing AuthorizationManager
 creates a grant. Clients without form elicitation still fail closed, but the
@@ -212,9 +212,11 @@ evidence_status
 | `graph_provider_import` / `graph_provider_status` | External SCIP/LSP/compiler/runtime graph facts. |
 | `semantic_status` / `semantic_query` | Persistent candidate/confirmed/retired semantic facts. |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | Human-governed semantic lifecycle. |
-| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. Status exposes the selected provider, discovery source, `action`, `canonical`, `available_candidates`, `launch_ready`, and `session_validated`; `runnable` becomes true only after live initialization. Go discovery also checks `$GOBIN`, `$GOPATH/bin`, and `~/go/bin` when `gopls` is not on PATH. Provider failures identify discovery/authorization/spawn/initialize/protocol stages with an actionable next step instead of leaving a raw OS error. Refresh reports canonical→alternate recovery in `fallbacks`. All 22 indexed languages have one tested canonical launch profile. Hardened providers are auto-maintained by default; non-automatic providers retain explicit trust. |
+| `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. `runnable` becomes true only after a real live initialization. |
 | `semantic_navigation` | Reuse the warm LSP session for symbol-first definition/hover, references, incoming/outgoing calls, implementations, or cross-file impact. Prefer syntax/search tools for simple localization; an unavailable LSP returns explicit Tree-sitter-only fallback; `unsupported` capabilities and LSP `failures` remain separate from successful empty relationship sets. |
 | `language_quality_status` / `language_quality_run` | Explicit syntax/semantic/format/lint/type/static/test/security capability matrix and check-only execution. |
+
+`semantic_provider_status` detail: it also exposes the selected provider, discovery source, `action`, `canonical`, `available_candidates`, `launch_ready`, and `session_validated`; Go discovery checks `$GOBIN`, `$GOPATH/bin`, and `~/go/bin` when `gopls` is not on PATH. Provider failures identify discovery/authorization/spawn/initialize/protocol stages with an actionable next step instead of leaving a raw OS error, and refresh reports canonical→alternate recovery in `fallbacks`. All 22 indexed languages have one tested canonical launch profile; hardened providers are auto-maintained by default, while non-automatic providers retain explicit trust.
 
 ### Change, risk, verification, and evidence
 

@@ -13,10 +13,10 @@ Coding Agent 写代码可以很快，但仍可能看错代码周围的系统。w
 
 1. **这个系统本来应该是什么样？** —— Requirement、Component、Constraint、Decision、Acceptance。
 2. **它现在到底怎么工作？** —— Syntax 结构，加上真实 LSP Reference、Caller、Implementation，以及外部 Runtime / Compiler Relationship。
-3. **这次修改会碰到什么？（What will this change touch?）** —— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
+3. **这次修改会碰到什么？** —— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
 4. **凭什么相信改对了？** —— 确定性检查、语言原生验证、独立 Review，以及绑定当前 Revision 的 Evidence。
 
-这就是“AI 能搜索仓库”和**software intelligence an agent can reason from**之间的区别：Agent 真正拥有可推理的软件智能。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
+这就是“AI 能搜索仓库”和“**Agent 能据以推理的软件智能**”之间的区别。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
 
 ## 60 秒理解 wcode 的软件智能
 
@@ -34,7 +34,7 @@ Verification / Reviewer / Evidence
 Project Observatory + 持久 Workspace State
 ```
 
-Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把 durable workspace state（持久 Workspace State）留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
+Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把持久 Workspace State 留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
 
 本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
 Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
@@ -45,7 +45,7 @@ Tree-sitter Syntax Precision。
 
 ## 现在怎么用
 
-正常仓库流程现在是：
+日常仓库流程现在是：
 
 ```bash
 wcode setup
@@ -84,7 +84,7 @@ Proof 只统计与当前代码和设计版本一致的 Evidence。本地 Agent �
 使用 `/sse`。插件导出和一键 Host 配置见
 [Agent 与 MCP 集成](../code-agent-integrations/)。
 
-正常 Coding 链路现在更短：
+常规编码链路现在更短：
 
 ```text
 agent_context(goal, scopes=...)
@@ -229,11 +229,11 @@ precision = syntax
 9. 只有 Convergence / Proof 需要深入时再进入 evidence_status / reconciliation
 ```
 
-`agent_context` 省略 `budget` 时使用有界 Adaptive Budget，组合相关 Design State、Scope-aware Repo-map Ranking、可用时的 Fresh Semantic/Runtime Evidence、Bounded Hot Source、Exact SHA Edit Target、Related Test、Working-tree Advisory、Readiness、Deterministic Next Actions 与显式 Parallelism Strategy。模型侧 MCP 调用应省略默认 Workspace 以及服务端默认的 Path / Limit / Timeout / Budget。1000-token 极限模式优先保证能直接开工；默认 Adaptive Path 会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk Tool 保留为按需深入，而不是固定启动成本。
+`agent_context` 省略 `budget` 时使用有界自适应预算，组合相关 Design State、按 Scope 收窄的仓库地图排序、可用时的新鲜语义/运行时证据、有界热源、精确 SHA 编辑目标、关联测试、工作区提示、就绪度（Readiness）、确定性下一步动作与显式并行策略。模型侧 MCP 调用应省略默认 Workspace 以及服务端默认的 Path / Limit / Timeout / Budget。1,000 token 的下限模式优先保证直接可编辑；默认自适应档位会在任务模糊或跨模块时自动放大。`project_context`、`scope_status`、`design_status`、`traceability_status`、`software_context`、`language_quality_status` 与 Graph/Risk 工具保留为按需深入，而不是固定启动成本。
 
 ### `agent_context`
 
-正常 Coding 优先调用 `agent_context`。它把过去多次 Startup Discovery 合成一个有界 Edit-ready Pack：Repo-map Ranking 同时使用 Task Relevance 与 Software Graph Relationship；Fresh Semantic/Runtime/Deterministic Evidence 可以增强关系，Stale Provider 自动回退 Syntax。当任务明确涉及 Caller、Reference、Implementation、Rename Impact 或其他跨文件关系，而且当前图只有 Syntax Precision 时，Readiness 才会推荐 `semantic_navigation`；普通 Symbol 定位不承担这笔 LSP 成本。性能 Telemetry 放在 Tool Result `_meta`，模型可见 Context 只保留做决策真正需要的信息。
+日常编码优先调用 `agent_context`。它把过去多次启动发现合成一个有界、可直接编辑的上下文包：仓库地图排序同时使用任务相关性与 Software Graph 关系；新鲜的语义/运行时/确定性证据可以增强关系，过期的 Provider 事实自动回退语法精度。当任务明确涉及 Caller、Reference、Implementation、Rename Impact 或其他跨文件关系，而且当前图只有语法精度时，就绪度信息才会推荐 `semantic_navigation`；普通 Symbol 定位不承担这笔 LSP 成本。性能遥测放在 Tool Result 的 `_meta` 里，模型可见上下文只保留做决策真正需要的信息。
 
 ### Product Scope
 
@@ -315,7 +315,7 @@ v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry �
 
 Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + LSP Server + 当前 Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。LSP Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
 
-Warm Session 的 Document Sync 现在严格跟随 Server 返回的 `textDocumentSync` Contract：Numeric Full/Incremental 兼容形态按完整 Open 处理；Options 形态尊重 `openClose`；Full Change 发送整文档，Incremental Change 使用旧内容在已协商 UTF-8/UTF-16/UTF-32 Position Encoding 下计算合法 Replacement Range；None 不会硬发 Server 没声明支持的 Change；只有 Server 要求 Open/Close Sync 时才发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。
+Warm Session 的 Document Sync 现在严格跟随 Server 返回的 `textDocumentSync` Contract：Numeric Full/Incremental 兼容形态按完整 Open 处理；Options 形态尊重 `openClose`；Full Change 发送整文档，Incremental Change 使用旧内容在已协商 UTF-8/UTF-16/UTF-32 Position Encoding 下计算合法 Replacement Range；None 不会硬发 Server 没声明支持的 Change；只有 Server 要求 Open/Close Sync 时才发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。返回空符号集的 Server 也不会制造一个假的语义 Revision。
 
 Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授权”。当前 `rust-analyzer` Profile 会拒绝解析到 Workspace 内的可执行文件，清理凭据与执行注入环境变量，并通过 Initialization Options 关闭 Build Script、Proc Macro、Cargo Auto Reload 与 Check-on-save。这会显著缩小默认执行面，但不是 OS Sandbox：LSP Server 仍可能读取项目元数据和配置。`--no-semantic` 是 Fail-closed Opt-out。检测到但没有 Auto Safety Profile 的 LSP Server，需要绑定 Workspace + Server + 当前 Binary Identity 的 `RiskyExecution` Grant；Refresh/Navigation 只能复用这一个已批准的 Warm Session，Executable 被替换以后旧 Grant 自动失效。只有操作者明确扩大整进程 Trust 时才使用 `--allow-risky-exec`。
 
@@ -343,64 +343,23 @@ wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_st
 
 ### Change Intelligence
 
-### drift_status
+下面这组工具分析当前 Git Working Tree 与 Design State：
 
-检测两类问题：
+| Tool | 用途 |
+| --- | --- |
+| `drift_status` | 检测 Implementation Drift 与 Design Drift：Design 已声明但实现/验证链不完整，或 Desired State 改了而 Actual State 没有对应变化；以及反向的“实现变了、Design 没跟上”。当前 Drift 是保守启发式，不是编译器级程序等价。 |
+| `impact_analysis` | 把变更路径映射到声明的 Component、Requirement、Acceptance、实现 Symbol、有界反向调用者、公共 API 与安全边界信号。有真实 LSP / Runtime Provider 事实时优先消费这些带 provenance 的边，否则退回 Tree-sitter 语法调用边；Provider / Precision / 截断状态始终显式。 |
+| `risk_status` | 把 Git 变更审查、Traceability 缺口、Drift 与 Design 声明的风险合并为结构化 Risk，并生成风险自适应 Verification Profile。 |
+| `reconciliation_plan` | 把 Design Change、Drift、Impact、Risk、Reconciliation Task、Change IR Intent 与 Verification Plan 组织成有界收敛计划并持久化。 |
+| `reconciliation_status` / `reconciliation_history` | 重连 / 重启后重载或列出持久化计划。 |
+| `reconciliation_execution_status` | 读取持久化、依赖感知的执行状态；Verification / Human Approval 任务只根据真实证据推进。 |
+| `reconciliation_claim` / `reconciliation_submit` / `reconciliation_retry` | 认领可运行的设计/实现/审查任务，写入成败与 Evidence，显式重排队失败任务。源码修改本身仍走普通 wcode 编辑工具及其安全不变量。 |
 
-- **Implementation Drift**：Design 已经声明，但实现/验证链不完整，或者 Desired State 改了而 Actual State 没有对应变化。
-- **Design Drift**：Design 映射过的实现发生变化，但当前变更中没有对应 Design State 变化。
+Plan 生成后会进入**持久化 Reconciliation Execution 状态机**：执行者领取任务、提交结果，重启或换模型后仍可继续。
 
-当前 Drift 是保守式 heuristic，不是 compiler-grade program equivalence。
-
-### impact_analysis
-
-结合当前 Git Working Tree 与 Design State，返回：
-
-- changed paths
-- impacted components
-- impacted requirements
-- impacted acceptance criteria
-- impacted symbols
-- bounded transitive callers
-- graph provider / precision / truncation
-- public API signal
-- security boundary signal
-- risk level
-
-当前会沿 Composite Software Graph 的 `Calls` / `RuntimeCalls` 反向传播到调用者：如果已经刷新真实 LSP / Runtime Provider，就优先消费这些带 semantic/runtime provenance 的边；没有对应 Provider 时继续使用 Tree-sitter syntax call edge。Impact 仍保持保守边界，不会把缺失的 type / overload / dynamic-dispatch 事实假装成已经解析。
-
-### risk_status
-
-把下面几类信号合并为结构化 Risk：
-
-```text
-Git change review
-+ traceability gap
-+ drift
-+ design-declared risk
-```
-
-并生成对应的 Risk-Adaptive Verification Profile。
+这组工具内部使用有界的 Git 变更审查路径，因此需要命令执行，`--no-exec` 下不可用。
 
 `review_changes` 会报告三类可复查的结构信号：`maintainability-file-crossed-1k` 表示本次修改让一个未删除源码文件越过 1,000 行；`maintainability-concentrated-growth` 表示单个源码文件净增至少 400 行；`maintainability-cross-scope-churn` 表示源码变更覆盖至少 3 个 Product Scope，且总改动不少于 1,000 行。这些信号用于提醒审查，不直接替代设计判断。Convention Engine 也用 1,000 行边界检查整个仓库。详见 [maintainability-review.md](../maintainability-review/)。
-
-### reconciliation_plan
-
-把当前状态组织成：
-
-```text
-Design Change
-+ Drift
-+ Impact
-+ Risk
-+ Reconciliation Task
-+ Change IR Intent
-+ Verification Plan
-```
-
-Plan 生成后会进入 **持久化 Reconciliation Execution 状态机**。通过 `reconciliation_execution_status` 查看依赖与进度，执行者使用 `reconciliation_claim` 领取当前可运行任务，通过 `reconciliation_submit` 写入成功/失败与 Evidence，失败任务可以用 `reconciliation_retry` 显式重排队。Verification / Human Approval Task 会根据真实 Verification/HumanApproval Evidence 自动推进。
-
-源码修改本身仍然走 wcode 原有的 SHA-256 前置条件、原子写入和 Workspace 安全工具；Reconciliation 不会绕过这些边界偷偷执行无限制 Patch。Plan 和 Execution 都持久化到用户级 Workspace State，重启或换模型后仍可继续。
 
 ## 4. Verification Mesh
 
@@ -425,9 +384,11 @@ Plan 还会包含：
 
 Medium 及以上风险的 Plan 会额外加入一个盲审 `maintainability` Reviewer Job，Capability 是 `maintainability_review`。它会检查是否能通过删除分支/Helper/Layer 来简化实现、是否在堆叠零散 Special Case、逻辑是否留在 canonical Product Scope/Layer、1,000 行边界是否需要拆分，以及独立工作并行/相关状态原子化能否让结构更简单。Correctness Pass 不能代替这份结构审查。
 
-Verification Plan 和 Reviewer Job 会按 Workspace 持久化，因此 wcode 重启或换模型后可以继续领取/提交同一个 Plan。`verification_executor_status` 会返回跨语言 Executor Registry，并区分“已经注册”和“本机真实可执行”；`verification_execute_stages` 会运行当前 Stage 下**所有适用且真实可用**的 Executor，只跳过“这个 Producer 自己已经有最新 Pass Evidence”的 Runner，并把每次真实 Command Result 分别写成 Stage Evidence。`verification_status` 会保留每个 Producer 的最新结果，并按 `Fail > Disagree > Inconclusive > Pass` fail-closed 聚合，所以另一个晚到的 Pass 不能盖掉真实 Runner 的 Fail。CI 或其他外部系统仍然可以用 `verification_stage_submit` 提交真实 Verdict、Producer、Summary 与 Artifact Digest；Workspace Code Revision 变化后旧 Plan 仍会被 stale-revision blocker 阻止。
+Verification Plan 和 Reviewer Job 会按 Workspace 持久化，因此 wcode 重启或换模型后可以继续领取/提交同一个 Plan。
 
-wcode 会自动发现一批常见生态，例如 Rust proptest/quickcheck/cargo-fuzz/cargo-mutants、Go Property/Fuzz、Python Hypothesis/mutmut、JS/TS fast-check/Stryker、Java jqwik/PIT、C# FsCheck/.NET Stryker、SwiftCheck/Muter、Elixir StreamData、Dart Glados、Ruby Rantly、PHP Eris/Infection、OCaml QCheck、R quickcheck。对于其他框架和所有 22 种语言，都可以通过同一份 `.wcode/executors.yaml` 接入：
+`verification_executor_status` 会返回跨语言 Executor Registry，并区分“已经注册”和“本机真实可执行”；`verification_execute_stages` 会运行当前 Stage 下**所有适用且真实可用**的 Executor，只跳过“这个 Producer 自己已经有最新 Pass Evidence”的 Runner，并把每次真实 Command Result 分别写成 Stage Evidence。`verification_status` 会保留每个 Producer 的最新结果，并按 `Fail > Disagree > Inconclusive > Pass` fail-closed 聚合，所以另一个晚到的 Pass 不能盖掉真实 Runner 的 Fail。CI 或其他外部系统仍然可以用 `verification_stage_submit` 提交真实 Verdict、Producer、Summary 与 Artifact Digest；Workspace Code Revision 变化后旧 Plan 仍会被 stale-revision blocker 阻止。
+
+wcode 会自动发现一批常见生态，例如 Rust proptest/quickcheck/cargo-fuzz/cargo-mutants、Go Property/Fuzz、Python Hypothesis/mutmut、JS/TS fast-check/Stryker、Java jqwik/PIT、C# FsCheck/.NET Stryker、SwiftCheck/Muter、Elixir StreamData、Dart Glados、Ruby Rantly、PHP Eris/Infection、OCaml QCheck、R quickcheck。这些内置发现只是便捷适配器，不是封闭清单。对于其他框架和所有 22 种语言，都可以通过同一份 `.wcode/executors.yaml` 接入：
 
 ```yaml
 schema_version: 1
@@ -536,7 +497,7 @@ EvidenceResult::Disagree
 
 ## 5. Evidence
 
-现在 `verify_project` 完成后，会把确定性检查结果写入 Runtime Evidence。
+现在 `verify_project` 完成后，会把确定性检查结果写入 Runtime Evidence。声明验证引用被实际执行到的 Acceptance，同样会获得对应证据。
 
 例如：
 
@@ -579,6 +540,8 @@ Reviewer Submit 也会形成 Model Review Evidence，并记录：
 - Reconciliation Plan：不可变 Plan Artifact
 - Reconciliation Execution：可恢复的 Task 状态 Snapshot
 - MCP Tasks：有界不可变 Task Snapshot；Owner 绑定 OAuth Client Fingerprint
+
+这些存储都不会修改 Git 仓库，也不要求 Workspace 可写。
 
 因此进程重启、断开 MCP、切换 Model Executor 后，Software Intelligence 的持久状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
 
@@ -629,11 +592,12 @@ evidence_status
 ### 本地产品界面
 
 ```text
-wcode --workspace <PATH> intelligence
-wcode --workspace <PATH> --no-semantic          # 完全关闭第一方 LSP
-wcode --workspace <PATH> intelligence --refresh-semantic  # 强制一次 Refresh
-wcode --workspace <PATH> verification
-wcode --workspace <PATH> --allow-risky-exec verification --plan-id VP-... --execute-stages
+# 在仓库目录中运行；当前目录就是默认 Workspace
+wcode intelligence
+wcode --no-semantic                       # 完全关闭第一方 LSP
+wcode intelligence --refresh-semantic     # 强制一次 Refresh
+wcode verification
+wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 TUI: I = 当前项目分析, C = 完整命令清单, W = 项目观测页
 Web: /intelligence（本机高熵 UI Token 保护；包含架构、文件树和大文件视图）
 ```
@@ -674,7 +638,7 @@ run_command
 - 全部 22 种索引语言的第一方 LSP 支持；真实 LSP Document Symbol / Call Hierarchy / Implementation 才会成为 `precision=semantic` 事实，并支持 Source Hash Freshness / Stale Exclusion / Revision Cache
 - 可唯一判定的跨文件 Syntax Calls、Graph History / Query / Diff，以及外部 SCIP/Compiler/Runtime Provider Import Contract
 - Requirement → Component → Code/Test Traceability
-- Token-efficient `agent_context`：Adaptive Budget、Scope-aware Repo Map、Revision-aware Cache、Multi-query Single-pass Search、Bounded Hot Source、Fresh Semantic/Runtime Ranking、Exact SHA Target、Working-tree Advisory、Readiness 与 Next Actions；更深层仍保留 Budget-aware / Semantic-aware `software_context`
+- 低上下文成本的 `agent_context`：自适应预算、按 Scope 收窄的仓库地图、Revision 感知缓存、多查询单趟搜索、有界热源、新鲜语义/运行时排序、精确 SHA 目标、工作区提示、就绪度与下一步动作；更深层仍保留预算感知 / 语义感知的 `software_context`
 - Drift、Transitive Impact、结构化 Risk，以及针对 1,000 行阈值跨越、单文件集中增长、跨 Product Scope 大规模 churn 的确定性 Maintainability Finding
 - Risk-Adaptive Verification + 持久化 Blind Reviewer Job；Medium 及以上风险会加入独立 `maintainability_review`，并继续保留 Disagreement Evidence、HumanApproval Evidence、Verification History、Stale Revision Gate，以及 per-producer fail-closed Stage 聚合
 - 跨语言 Property / Mutation / Fuzz / Runtime-Canary Executor Registry：常见生态自动发现 + 通用 `.wcode/executors.yaml` + 外部 Stage Evidence Adapter；自动执行会跑所有适用可用 Runner
