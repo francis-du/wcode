@@ -13,10 +13,10 @@ Coding Agent 写代码可以很快，但仍可能看错代码周围的系统。w
 
 1. **这个系统本来应该是什么样？** —— Requirement、Component、Constraint、Decision、Acceptance。
 2. **它现在到底怎么工作？** —— Syntax 结构，加上真实 LSP Reference、Caller、Implementation，以及外部 Runtime / Compiler Relationship。
-3. **这次修改会碰到什么？** —— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
+3. **这次修改会碰到什么？**（What will this change touch?）—— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
 4. **凭什么相信改对了？** —— 确定性检查、语言原生验证、独立 Review，以及绑定当前 Revision 的 Evidence。
 
-这就是“AI 能搜索仓库”和“**Agent 能据以推理的软件智能**”之间的区别。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
+这就是“AI 能搜索仓库”和“**Agent 能据以推理的软件智能**（software intelligence an agent can reason from）”之间的区别。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
 
 ## 60 秒理解 wcode 的软件智能
 
@@ -34,7 +34,7 @@ Verification / Reviewer / Evidence
 Project Observatory + 持久 Workspace State
 ```
 
-Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把持久 Workspace State 留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
+Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把持久 Workspace State（durable workspace state）留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
 
 本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
 Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
