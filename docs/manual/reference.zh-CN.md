@@ -185,7 +185,7 @@ evidence_status
 | `search_code` / `search_many` | 精确仓库搜索；已知多个查询时优先批量形式。 |
 | `read_file` / `read_files` | 保留源码原格式的 UTF-8 读取，并返回 SHA-256；每个文件 / 调用最多返回 1,000 行。 |
 | `read_media` | Metadata-first 媒体检查；二进制内容需要客户端显式声明能力。 |
-| `parallel_tools` | 对已知独立读/发现/写操作做路径资源感知并行。 |
+| `parallel_tools` | 完成驱动的路径资源批次；后续任务就绪即启动，失败依赖跳过，排队子任务归父任务管理。父子空间别名共享依赖身份。 |
 
 ### Workspace 修改
 

@@ -36,6 +36,8 @@ Project Observatory + 持久 Workspace State
 
 Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把持久 Workspace State（durable workspace state）留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
 
+验证映射与实际证据明确分开：`Mapped` 表示某个 Acceptance Criterion 声明的验证引用都能解析，并不代表已经运行；`Executed` 表示存在合格的验证 Evidence；`Passed` 表示最新一条此类 Evidence 通过；`Fresh` 表示最新 Evidence 与当前代码及 Design State Revision 完全一致。这些计数分别暴露在 `ProjectObservatory.proof.acceptance`，因此 100% Traceability Mapping 不会被误读为当前版本已经验证通过。
+
 本地 `mcp-stdio`、远程 Streamable HTTP + OAuth 和旧版 SSE 共用一个 MCP
 Core。`agent_context` 是紧凑编程入口；Design、Graph、Verification 工具
 按任务需要再调用。插件导出复用 binary 内嵌的 canonical `plugin/` 源包，包含标准

@@ -50,10 +50,22 @@ pub(super) fn run_dashboard(
         }
 
         let size = session.terminal.size()?;
+        let area = Rect::new(0, 0, size.width, size.height);
         let workspace_count = config.workspaces.roots().len();
         let visible = workspace_column_count(size.width, workspace_count);
         ui.clamp(workspace_count, visible);
-        ui.clamp_authorizations(pending_authorizations(&config).len());
+        // Render and decide against the same request IDs, even if the queue changes
+        // while waiting for keyboard input.
+        ui.pending_authorizations = pending_authorizations(&config);
+        ui.clamp_authorizations(ui.pending_authorizations.len());
+        if ui.commands_open {
+            if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
+                let total = command_count(&config.workspaces, &workspace_id);
+                ui.command_offset = ui
+                    .command_offset
+                    .min(total.saturating_sub(command_page_size(area)));
+            }
+        }
         let snapshot = monitor.snapshot();
         session
             .terminal
@@ -73,7 +85,8 @@ pub(super) fn run_dashboard(
                     if ui.full_access_confirm {
                         match key.code {
                             KeyCode::Char('y') | KeyCode::Char('Y')
-                                if key.kind == KeyEventKind::Press =>
+                                if key.kind == KeyEventKind::Press
+                                    && ui.full_access_visible(area) =>
                             {
                                 ui.full_access_confirm = false;
                                 match config.workspaces.grant_full_user_access() {
@@ -130,8 +143,14 @@ pub(super) fn run_dashboard(
                                                 "authorized workspace {id}: {}",
                                                 root.display()
                                             ));
-                                            let count = config.workspaces.roots().len();
-                                            ui.workspace_focus = count.saturating_sub(1);
+                                            let workspaces = configured_workspaces(&config);
+                                            let count = workspaces.len();
+                                            if let Some(index) = workspaces
+                                                .iter()
+                                                .position(|workspace| workspace.0 == id)
+                                            {
+                                                ui.workspace_focus = index;
+                                            }
                                             ui.clamp(
                                                 count,
                                                 workspace_column_count(size.width, count),
@@ -171,7 +190,7 @@ pub(super) fn run_dashboard(
                             ui.workspace_message = None;
                         }
                         KeyCode::Char('?') if key.kind == KeyEventKind::Press => {
-                            ui.help_open = true;
+                            ui.help_open = !ui.help_open;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
                         }
@@ -268,10 +287,12 @@ pub(super) fn run_dashboard(
                             ui.commands_open = false;
                         }
                         KeyCode::Char('y') | KeyCode::Char('Y')
-                            if key.kind == KeyEventKind::Press =>
+                            if key.kind == KeyEventKind::Press
+                                && ui.authorization_visible(area) =>
                         {
-                            let pending = pending_authorizations(&config);
-                            if let Some(request) = pending.get(ui.authorization_focus) {
+                            if let Some(request) =
+                                ui.pending_authorizations.get(ui.authorization_focus)
+                            {
                                 let approved =
                                     config.workspaces.approve_authorization_session(&request.id);
                                 ui.workspace_message = Some(if approved {
@@ -292,10 +313,12 @@ pub(super) fn run_dashboard(
                             }
                         }
                         KeyCode::Char('n') | KeyCode::Char('N')
-                            if key.kind == KeyEventKind::Press =>
+                            if key.kind == KeyEventKind::Press
+                                && ui.authorization_visible(area) =>
                         {
-                            let pending = pending_authorizations(&config);
-                            if let Some(request) = pending.get(ui.authorization_focus) {
+                            if let Some(request) =
+                                ui.pending_authorizations.get(ui.authorization_focus)
+                            {
                                 let denied = config.workspaces.deny_authorization(&request.id);
                                 ui.workspace_message = Some(if denied {
                                     format!("{} {}", ui.language.tr("denied"), request.id)
@@ -433,16 +456,25 @@ pub(super) fn dashboard_link_at(
     ui: &DashboardState,
     config: &MonitorConfig,
 ) -> Option<String> {
-    if mouse.kind != MouseEventKind::Down(MouseButton::Left) || width == 0 || height == 0 {
+    if mouse.kind != MouseEventKind::Down(MouseButton::Left)
+        || mouse.column >= width
+        || mouse.row >= height
+    {
         return None;
     }
     let point = (mouse.column, mouse.row);
     let area = Rect::new(0, 0, width, height);
 
+    if ui.full_access_confirm
+        || ui.workspace_input.is_some()
+        || ui.commands_open
+        || ui.intelligence_open
+        || ui.authorization_visible(area)
+    {
+        return None;
+    }
     if ui.help_open {
-        if let Some(url) = help_link_at(point, area, config) {
-            return Some(url);
-        }
+        return help_link_at(point, area, config);
     }
 
     if width >= 124 && mouse.row >= height.saturating_sub(2) {
@@ -454,7 +486,7 @@ pub(super) fn dashboard_link_at(
             .unwrap_or(&config.project_url)
             .trim_end_matches('/');
         let project_x = links_row.x.saturating_add("  wcode  ".len() as u16);
-        let project_rect = Rect::new(project_x, links_row.y, project.len() as u16, 1);
+        let project_rect = Rect::new(project_x, links_row.y, Span::raw(project).width() as u16, 1);
         if point_in_rect(point, project_rect) {
             return Some(config.project_url.clone());
         }
@@ -462,7 +494,12 @@ pub(super) fn dashboard_link_at(
             .x
             .saturating_add(project_rect.width)
             .saturating_add("  by  ".len() as u16);
-        let author_rect = Rect::new(author_x, links_row.y, config.author_handle.len() as u16, 1);
+        let author_rect = Rect::new(
+            author_x,
+            links_row.y,
+            Span::raw(&config.author_handle).width() as u16,
+            1,
+        );
         if point_in_rect(point, author_rect) {
             return Some(config.author_url.clone());
         }
@@ -473,8 +510,8 @@ pub(super) fn dashboard_link_at(
             .iter()
             .filter(|request| request.status == AuthorizationStatus::Pending)
             .count();
-        let key_width = |key: &str| key.chars().count() as u16 + 2;
-        let label_width = |label: &str| label.chars().count() as u16 + 3;
+        let key_width = |key: &str| Span::raw(key).width() as u16 + 2;
+        let label_width = |label: &str| Span::raw(label).width() as u16 + 3;
         let pending_width = if pending_authorizations > 0 {
             pending_authorizations.to_string().chars().count() as u16 + 2
         } else {
@@ -517,7 +554,7 @@ pub(super) fn dashboard_link_at(
     None
 }
 
-fn point_in_rect((x, y): (u16, u16), rect: Rect) -> bool {
+pub(super) fn point_in_rect((x, y): (u16, u16), rect: Rect) -> bool {
     x >= rect.x
         && x < rect.x.saturating_add(rect.width)
         && y >= rect.y

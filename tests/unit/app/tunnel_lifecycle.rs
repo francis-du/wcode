@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn advertised_tunnel_is_registered_without_changing_the_primary() {
+    let auth = AuthState::new("http://127.0.0.1:8765".to_owned());
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    publish_verified_endpoint(&auth, &monitor, "tailscale", "https://verified.example");
+    for (_, url) in monitor.tunnel_links() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("host", "verified.example".parse().unwrap());
+        headers.insert("origin", url.parse().unwrap());
+        assert_eq!(auth.request_public_url(&headers), Some(url));
+        assert!(auth.origin_allowed(&headers));
+    }
+    assert_eq!(monitor.tunnel_links().len(), 1);
+    assert_eq!(auth.public_url(), "http://127.0.0.1:8765");
+}
+
+#[test]
 fn empty_tunnel_set_never_produces_a_dead_index() {
     assert_eq!(dead_tunnel_index(true, 0, |_| true), None);
     assert_eq!(dead_tunnel_index(false, 0, |_| true), None);

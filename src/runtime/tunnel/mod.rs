@@ -215,19 +215,9 @@ pub(crate) fn spawn_tunnel_supervisor(
             let Ok(active) = result else {
                 continue;
             };
-            monitor.operator_message(
-                OperatorMessageKind::Success,
-                "tunnel",
-                format!(
-                    "{} connected · {}",
-                    active.provider_label(),
-                    active.public_url()
-                ),
-            );
-            // Primary endpoint health belongs to the app-level selector. A
-            // reconnected alternate must never clear the primary's failure
-            // counter merely because the alternate itself became reachable.
-            monitor.register_tunnel(active.provider_label(), active.public_url());
+            // The app registers the verified endpoint in AuthState before
+            // publishing its link. Advertising here races Host validation.
+            // Primary endpoint health still belongs to the app-level selector.
             if event_tx.send(TunnelEvent::Connected(active)).await.is_err() {
                 return;
             }

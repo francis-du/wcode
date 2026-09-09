@@ -155,7 +155,7 @@ pub(super) async fn run_intelligence_cli(
             design["components"].as_u64().unwrap_or(0)
         );
         println!(
-            "  Coverage       code {}% · tests {}%",
+            "  Mapping        implementation {}% · verification refs {}%",
             trace["design_to_implementation"]["percent"]
                 .as_u64()
                 .unwrap_or(0),
@@ -302,7 +302,10 @@ fn intelligence_check_failures(workspaces: &[Value]) -> Vec<String> {
         for (key, label) in [
             ("requirement_to_component", "requirement→component"),
             ("design_to_implementation", "design→implementation"),
-            ("acceptance_to_verification", "acceptance→verification"),
+            (
+                "acceptance_to_verification",
+                "acceptance→verification mapping",
+            ),
         ] {
             if traceability[key]["percent"].as_u64() != Some(100) {
                 failures.push(format!("{id}: {label} traceability is incomplete"));

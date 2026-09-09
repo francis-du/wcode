@@ -97,10 +97,10 @@ pub(super) fn intelligence_ui_authorized(
     state: &AppState,
     headers: &HeaderMap,
 ) -> std::result::Result<(), Box<Response>> {
-    let Some(public_url) = state.auth.request_public_url(headers) else {
-        return Err(Box::new(forbidden_origin_response()));
-    };
-    if !origin_allowed(&public_url, headers) {
+    if state.auth.request_public_url(headers).is_none() {
+        return Err(Box::new(forbidden_host_response()));
+    }
+    if !origin_allowed(&state.auth, headers) {
         return Err(Box::new(forbidden_origin_response()));
     }
     if !state.auth.ui_authorized(headers) {

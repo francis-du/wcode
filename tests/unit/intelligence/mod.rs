@@ -4,6 +4,7 @@ use crate::stage_executor::{execute as execute_stage, StageExecutorSpec};
 use crate::workspace::{Workspace, WorkspaceSecurity};
 use std::fs;
 
+mod revision;
 mod verification;
 
 #[test]
@@ -218,6 +219,70 @@ fn software_context_scopes_narrow_source_navigation() {
             .and_then(serde_json::Value::as_str)
             .is_some_and(|name| name.contains("scope_marker_graph"))
     }));
+}
+
+#[test]
+fn scoped_context_skips_absent_roots_without_losing_present_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src/runtime")).unwrap();
+    fs::write(
+        dir.path().join("src/runtime/partial.rs"),
+        "pub fn partial_scope_marker() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let index = CodeIndex::new().unwrap();
+    let request = SoftwareContextRequest {
+        query: "partial_scope_marker".into(),
+        intent: "inspect".into(),
+        budget: 4_000,
+        scopes: vec!["runtime".into(), "workspace".into()],
+    };
+    let context = runtime
+        .software_context("demo", &workspace, &index, &HashSet::new(), &request)
+        .unwrap();
+    assert!(context
+        .symbols
+        .iter()
+        .any(|symbol| symbol["qualified_name"] == "partial_scope_marker"));
+    assert!(context
+        .symbols
+        .iter()
+        .all(|symbol| symbol["path"] == "src/runtime/partial.rs"));
+
+    fs::remove_dir_all(dir.path().join("src")).unwrap();
+    let empty = runtime
+        .software_context("demo", &workspace, &index, &HashSet::new(), &request)
+        .unwrap();
+    assert!(empty.symbols.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_context_does_not_hide_symlinks_or_a_missing_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("src/app")).unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let index = CodeIndex::new().unwrap();
+    let request = SoftwareContextRequest {
+        query: "anything".into(),
+        intent: "inspect".into(),
+        budget: 4_000,
+        scopes: vec!["runtime".into()],
+    };
+    let error = runtime
+        .software_context("demo", &workspace, &index, &HashSet::new(), &request)
+        .err()
+        .expect("symlinked scope roots must fail closed");
+    assert!(error.to_string().contains("symlink"));
+    dir.close().unwrap();
+    assert!(runtime
+        .software_context("demo", &workspace, &index, &HashSet::new(), &request)
+        .is_err());
 }
 
 #[test]

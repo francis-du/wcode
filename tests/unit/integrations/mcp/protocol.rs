@@ -3,14 +3,280 @@ use super::*;
 use crate::task_store;
 use crate::workspace::WorkspaceSecurity;
 
+fn cancellation_test_state(root: &std::path::Path) -> Arc<AppState> {
+    let workspaces = Workspaces::new([root], true, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(1).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    })
+}
+
+async fn wait_for_task_queue(state: &AppState, count: usize) {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while state.monitor.connection_status().queued_tasks as usize != count {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "expected {count} queued tasks, observed {}",
+            state.monitor.connection_status().queued_tasks
+        )
+    });
+}
+
+#[test]
+fn durable_recovery_missing_worker_is_failed_not_left_working() {
+    let root = tempfile::tempdir().unwrap();
+    let state = cancellation_test_state(root.path());
+    let (workspace_id, workspace) = state.workspaces.select(None).unwrap();
+    let owner = "a".repeat(64);
+    let record = task_store::TaskRecord::working(
+        owner.clone(),
+        workspace_id,
+        "semantic_provider_refresh".into(),
+        state.auth.instance_id().to_owned(),
+    );
+    task_store::persist(&workspace, &record).unwrap();
+    assert!(get_task(&state, &record.task_id, &"b".repeat(64)).is_err());
+    assert_eq!(
+        task_store::load(&workspace, &record.task_id)
+            .unwrap()
+            .unwrap()
+            .status,
+        task_store::TaskStatus::Working
+    );
+    let recovered = get_task(&state, &record.task_id, &owner).unwrap();
+    assert_eq!(recovered["status"], "failed");
+    assert_eq!(recovered["error"]["code"], -32603);
+    assert!(recovered["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("worker"));
+    assert_eq!(
+        get_task(&state, &record.task_id, &owner).unwrap()["status"],
+        "failed"
+    );
+}
+
+#[tokio::test]
+async fn durable_recovery_subspace_tasks_keep_poll_and_cancel_ownership() {
+    let root = tempfile::tempdir().unwrap();
+    let child = root.path().join("nested/project");
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(
+        child.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let state = cancellation_test_state(root.path());
+    let (_, workspace) = state.workspaces.select(Some("nested/project")).unwrap();
+    let permit = state.harness.acquire().await.unwrap();
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({"name":"semantic_provider_refresh","arguments":{"workspace":"nested/project"}}),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let id = created["taskId"].as_str().unwrap();
+    wait_for_task_queue(&state, 1).await;
+    assert!(task_store::load(&workspace, id).unwrap().is_some());
+    assert_eq!(get_task(&state, id, &owner).unwrap()["status"], "working");
+    assert!(cancel_task(&state, id, &"b".repeat(64)).is_err());
+    cancel_task(&state, id, &owner).unwrap();
+    wait_for_task_queue(&state, 0).await;
+    drop(permit);
+    let reloaded = cancellation_test_state(root.path());
+    assert_eq!(
+        get_task(&reloaded, id, &owner).unwrap()["status"],
+        "cancelled"
+    );
+}
+
+#[tokio::test]
+async fn storage_failure_does_not_prevent_task_cancellation_or_expiry() {
+    use sha2::{Digest, Sha256};
+    for expired in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let state = cancellation_test_state(root.path());
+        let permit = state.harness.acquire().await.unwrap();
+        let owner = "a".repeat(64);
+        let created = create_tool_task(
+            state.clone(),
+            json!({"name":"semantic_provider_refresh","arguments":{}}),
+            owner.clone(),
+        )
+        .await
+        .unwrap();
+        let id = created["taskId"].as_str().unwrap();
+        wait_for_task_queue(&state, 1).await;
+        let (_, workspace, mut record) = task_store::find(&state.workspaces, id).unwrap().unwrap();
+        // Pin the next timestamp without timing assumptions or global clock changes.
+        record.updated_at_ms = u64::MAX - 2;
+        if expired {
+            record.created_at_ms = record.created_at_ms.saturating_sub(record.ttl_ms + 1);
+        }
+        task_store::persist(&workspace, &record).unwrap();
+        let mut terminal = record.clone();
+        if expired {
+            terminal.fail(-32603, "task exceeded its durable TTL".to_owned());
+        } else {
+            terminal.cancel();
+        }
+        let bytes = serde_json::to_vec(&terminal).unwrap();
+        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let blocked = crate::evidence_store::workspace_state_directory(&workspace)
+            .unwrap()
+            .join("mcp-tasks")
+            .join(id)
+            .join(format!(
+                "{:020}-{}.json",
+                terminal.updated_at_ms,
+                &digest[..24]
+            ));
+        // A directory at the exact output path lets reads succeed but blocks saving.
+        std::fs::create_dir(&blocked).unwrap();
+        let result = if expired {
+            get_task(&state, id, &owner)
+        } else {
+            cancel_task(&state, id, &owner)
+        };
+        assert_eq!(result.unwrap_err().code(), -32603);
+        wait_for_task_queue(&state, 0).await;
+        drop(permit);
+        let _permit = state.harness.acquire().await.unwrap();
+        std::fs::remove_dir(&blocked).unwrap();
+        assert_eq!(get_task(&state, id, &owner).unwrap()["status"], "failed");
+    }
+}
+
+#[tokio::test]
+async fn durable_task_cancellation_aborts_its_queued_tool_worker() {
+    let root = tempfile::tempdir().unwrap();
+    let state = cancellation_test_state(root.path());
+    let permit = state.harness.acquire().await.unwrap();
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({"name":"semantic_provider_refresh","arguments":{}}),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let task_id = created["taskId"].as_str().unwrap();
+    wait_for_task_queue(&state, 1).await;
+
+    assert!(cancel_task(&state, task_id, &"b".repeat(64)).is_err());
+    assert_eq!(
+        get_task(&state, task_id, &owner).unwrap()["status"],
+        "working"
+    );
+    cancel_task(&state, task_id, &owner).unwrap();
+    wait_for_task_queue(&state, 0).await;
+    drop(permit);
+    let _permit = state.harness.acquire().await.unwrap();
+    assert_eq!(
+        get_task(&state, task_id, &owner).unwrap()["status"],
+        "cancelled"
+    );
+    cancel_task(&state, task_id, &owner).unwrap();
+    assert_eq!(
+        get_task(&state, task_id, &owner).unwrap()["status"],
+        "cancelled"
+    );
+}
+
+#[tokio::test]
+async fn expired_durable_task_aborts_its_queued_tool_worker() {
+    let root = tempfile::tempdir().unwrap();
+    let state = cancellation_test_state(root.path());
+    let permit = state.harness.acquire().await.unwrap();
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({"name":"semantic_provider_refresh","arguments":{}}),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let task_id = created["taskId"].as_str().unwrap();
+    wait_for_task_queue(&state, 1).await;
+    let (_, workspace, mut record) = task_store::find(&state.workspaces, task_id)
+        .unwrap()
+        .unwrap();
+    record.created_at_ms = record.created_at_ms.saturating_sub(record.ttl_ms + 1);
+    record.updated_at_ms += 1;
+    task_store::persist(&workspace, &record).unwrap();
+    let expired = get_task(&state, task_id, &owner).unwrap();
+    assert_eq!(expired["status"], "failed");
+    assert!(expired["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("TTL"));
+    wait_for_task_queue(&state, 0).await;
+    drop(permit);
+    let _permit = state.harness.acquire().await.unwrap();
+    assert_eq!(
+        get_task(&state, task_id, &owner).unwrap()["status"],
+        "failed"
+    );
+}
+
+#[tokio::test]
+async fn isolated_request_cancellation_aborts_its_queued_write() {
+    for (params, queued) in [
+        (
+            json!({"name":"create_file","arguments":{"path":"cancelled.txt","content":"must not run"}}),
+            1,
+        ),
+        (
+            json!({"name":"parallel_tools","arguments":{"tasks":[
+                {"tool":"create_file","arguments":{"path":"cancelled.txt","content":"must not run"}},
+                {"tool":"create_file","arguments":{"path":"second.txt","content":"must not run"}}
+            ]}}),
+            2,
+        ),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let state = cancellation_test_state(root.path());
+        let permit = state.harness.acquire().await.unwrap();
+        let child_state = state.clone();
+        let request = tokio::spawn(async move {
+            handle_message_isolated(
+                child_state,
+                modern_request("tools/call", params),
+                MODERN_PROTOCOL_VERSION,
+                &"a".repeat(64),
+            )
+            .await
+        });
+        wait_for_task_queue(&state, queued).await;
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        wait_for_task_queue(&state, 0).await;
+        drop(permit);
+        let _permit = state.harness.acquire().await.unwrap();
+        assert!(!root.path().join("cancelled.txt").exists());
+        assert!(!root.path().join("second.txt").exists());
+    }
+}
+
 #[tokio::test]
 async fn isolated_message_turns_panics_and_cancellation_into_jsonrpc_errors() {
-    let panic_task = tokio::spawn(async move {
+    let mut panic_tasks = JoinSet::new();
+    panic_tasks.spawn(async move {
         panic!("synthetic MCP child panic");
         #[allow(unreachable_code)]
         None::<Value>
     });
-    let panic_response = join_message_task(Some(json!(41)), panic_task)
+    let panic_response = join_message_task(Some(json!(41)), panic_tasks)
         .await
         .unwrap();
     assert_eq!(panic_response["error"]["code"], -32603);
@@ -19,9 +285,10 @@ async fn isolated_message_turns_panics_and_cancellation_into_jsonrpc_errors() {
         .unwrap()
         .contains("panicked"));
 
-    let cancelled_task = tokio::spawn(async move { std::future::pending::<Option<Value>>().await });
-    cancelled_task.abort();
-    let cancelled_response = join_message_task(Some(json!(42)), cancelled_task)
+    let mut cancelled_tasks = JoinSet::new();
+    cancelled_tasks.spawn(async move { std::future::pending::<Option<Value>>().await });
+    cancelled_tasks.abort_all();
+    let cancelled_response = join_message_task(Some(json!(42)), cancelled_tasks)
         .await
         .unwrap();
     assert_eq!(cancelled_response["error"]["code"], -32603);
@@ -76,14 +343,15 @@ fn protocol_detection_supports_modern_and_legacy_clients() {
 
 #[test]
 fn origin_validation_accepts_same_origin_and_rejects_cross_origin() {
+    let auth = AuthState::new("https://example.com/gateway".to_owned());
     let mut headers = HeaderMap::new();
-    assert!(origin_allowed("https://example.com/gateway", &headers));
+    assert!(origin_allowed(&auth, &headers));
 
     headers.insert("origin", "https://example.com".parse().unwrap());
-    assert!(origin_allowed("https://example.com/gateway", &headers));
+    assert!(origin_allowed(&auth, &headers));
 
     headers.insert("origin", "https://grok.com".parse().unwrap());
-    assert!(!origin_allowed("https://example.com/gateway", &headers));
+    assert!(!origin_allowed(&auth, &headers));
 }
 
 #[test]
@@ -408,16 +676,29 @@ async fn task_augmented_tool_is_durable_pollable_and_owner_scoped() {
         tasks: TaskRuntime::default(),
     });
     let owner = "a".repeat(64);
-    let created = create_tool_task(
-        state.clone(),
-        json!({
-            "name":"semantic_provider_refresh",
-            "arguments":{"workspace":workspace_id}
-        }),
-        owner.clone(),
+    let held_permits = [
+        state.harness.acquire().await.unwrap(),
+        state.harness.acquire().await.unwrap(),
+    ];
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        handle_message_isolated(
+            state.clone(),
+            task_capable(modern_request(
+                "tools/call",
+                json!({
+                    "name":"semantic_provider_refresh",
+                    "arguments":{"workspace":workspace_id}
+                }),
+            )),
+            MODERN_PROTOCOL_VERSION,
+            &owner,
+        ),
     )
     .await
+    .unwrap()
     .unwrap();
+    let created = &response["result"];
     assert_eq!(created["resultType"], "task");
     assert_eq!(created["status"], "working");
     let task_id = created["taskId"].as_str().unwrap().to_owned();
@@ -425,6 +706,8 @@ async fn task_augmented_tool_is_durable_pollable_and_owner_scoped() {
         .unwrap()
         .expect("task must be durable before its handle is returned");
     assert_eq!(found.2.owner, owner);
+    wait_for_task_queue(&state, 1).await;
+    drop(held_permits);
 
     let mut completed = None;
     for _ in 0..100 {

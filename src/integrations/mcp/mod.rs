@@ -34,7 +34,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use tokio::task::{JoinError, JoinHandle, JoinSet};
+use tokio::task::{JoinError, JoinSet};
 
 pub(crate) const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 pub(crate) const LEGACY_PROTOCOL_VERSIONS: &[&str] =
@@ -169,9 +169,9 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 async fn mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     let Some(public_url) = state.auth.request_public_url(&headers) else {
-        return forbidden_origin_response();
+        return forbidden_host_response();
     };
-    if !origin_allowed(&public_url, &headers) {
+    if !origin_allowed(&state.auth, &headers) {
         return forbidden_origin_response();
     }
     if state
@@ -246,9 +246,9 @@ async fn mcp(
     Json(payload): Json<Value>,
 ) -> Response {
     let Some(public_url) = state.auth.request_public_url(&headers) else {
-        return forbidden_origin_response();
+        return forbidden_host_response();
     };
-    if !origin_allowed(&public_url, &headers) {
+    if !origin_allowed(&state.auth, &headers) {
         return forbidden_origin_response();
     }
     let Some(owner) = state
@@ -362,35 +362,28 @@ fn request_protocol(headers: &HeaderMap, payload: &Value) -> String {
         .to_owned()
 }
 
-pub(crate) fn origin_allowed(public_url: &str, headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) else {
-        return true;
-    };
-    let (Ok(origin), Ok(public)) = (url::Url::parse(origin), url::Url::parse(public_url)) else {
-        return false;
-    };
-    origin.query().is_none()
-        && origin.fragment().is_none()
-        && origin.path() == "/"
-        && origin.scheme() == public.scheme()
-        && origin.host_str().is_some_and(|host| {
-            public
-                .host_str()
-                .is_some_and(|public_host| host.eq_ignore_ascii_case(public_host))
-        })
-        && origin.port_or_known_default() == public.port_or_known_default()
+pub(crate) fn origin_allowed(auth: &AuthState, headers: &HeaderMap) -> bool {
+    auth.origin_allowed(headers)
+}
+
+pub(crate) fn forbidden_host_response() -> Response {
+    forbidden_endpoint_response(
+        "untrusted_host",
+        "Host does not match a configured or verified active MCP endpoint; reconnect using the current MCP URL and preserve its Host through the proxy",
+    )
 }
 
 pub(crate) fn forbidden_origin_response() -> Response {
-    (
-        StatusCode::FORBIDDEN,
-        Json(jsonrpc_error(
-            Value::Null,
-            -32600,
-            "Origin does not match the configured public MCP origin",
-        )),
+    forbidden_endpoint_response(
+        "untrusted_origin",
+        "Origin is malformed or is not a configured or verified active MCP origin; use an active endpoint without disabling Origin validation",
     )
-        .into_response()
+}
+
+fn forbidden_endpoint_response(reason: &str, message: &str) -> Response {
+    let mut error = jsonrpc_error(Value::Null, -32600, message);
+    error["error"]["data"] = json!({"reason": reason});
+    (StatusCode::FORBIDDEN, Json(error)).into_response()
 }
 
 pub(crate) fn validate_modern_payload(payload: &Value) -> Result<(), &'static str> {
@@ -583,12 +576,13 @@ fn join_error_message(scope: &str, error: &JoinError) -> String {
     format!("{scope} {kind}; the MCP session remains available")
 }
 
-async fn join_message_task(id: Option<Value>, task: JoinHandle<Option<Value>>) -> Option<Value> {
-    match task.await {
-        Ok(response) => response,
-        Err(error) => {
+async fn join_message_task(id: Option<Value>, mut tasks: JoinSet<Option<Value>>) -> Option<Value> {
+    match tasks.join_next().await {
+        Some(Ok(response)) => response,
+        Some(Err(error)) => {
             id.map(|id| jsonrpc_error(id, -32603, join_error_message("tool request", &error)))
         }
+        None => id.map(|id| jsonrpc_error(id, -32603, "tool request worker did not start")),
     }
 }
 
@@ -601,8 +595,11 @@ pub(crate) async fn handle_message_isolated(
     let id = message.get("id").cloned();
     let protocol = protocol.to_owned();
     let owner = owner.to_owned();
-    let task = tokio::spawn(async move { handle_message(state, message, &protocol, &owner).await });
-    join_message_task(id, task).await
+    // Own the panic-isolated worker so cancellation reaches ordinary requests
+    // and their queued fan-out children instead of detaching a pending write.
+    let mut tasks = JoinSet::new();
+    tasks.spawn(async move { handle_message(state, message, &protocol, &owner).await });
+    join_message_task(id, tasks).await
 }
 
 pub(crate) async fn handle_message(

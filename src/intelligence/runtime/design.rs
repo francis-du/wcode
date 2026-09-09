@@ -653,9 +653,24 @@ impl SoftwareIntelligenceRuntime {
         &self,
         workspace_id: &str,
         workspace: &Workspace,
+        expected_revision: &Revision,
         report: &VerificationReport,
     ) -> Result<Vec<Evidence>> {
-        let revision = workspace_revision(workspace)?;
+        // A bounded scan is not proof of the whole workspace, even when two
+        // partial digests match. Never mint complete verification evidence.
+        if expected_revision.code.ends_with(":partial")
+            || expected_revision
+                .design
+                .as_deref()
+                .is_some_and(|revision| revision.ends_with(":partial"))
+        {
+            return Err(anyhow!(
+                "verification revision is incomplete; no evidence was recorded; use a workspace within the revision scan limit"
+            ));
+        }
+        // Evidence belongs to the inputs captured before execution, never to
+        // whichever files happen to exist when the checks finish.
+        let revision = expected_revision.clone();
         let design = design::load_design(workspace)?;
         let mut produced = Vec::new();
         for check in &report.checks {
@@ -729,6 +744,12 @@ impl SoftwareIntelligenceRuntime {
             )?;
             evidence.policy = Some(format!("acceptance/{}/v1", report.level));
             produced.push(evidence);
+        }
+        let current = workspace_revision(workspace)?;
+        if current.code != revision.code || current.design != revision.design {
+            return Err(anyhow!(
+                "verification revision changed during execution; results are stale, no evidence was recorded; rerun verification on a stable workspace"
+            ));
         }
         for evidence in &produced {
             evidence_store::persist(workspace, evidence)?;

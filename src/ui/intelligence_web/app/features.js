@@ -244,12 +244,12 @@ function featureFlow(r) {
     r.changed ? "warn" : "good",
   ], [
     t("Proof"),
-    localized(
-      `${verified}/${ver.length} verification references`,
-      `${verified}/${ver.length} 个验证引用`,
-    ),
+    `${t("Mapped")} ${verified}/${ver.length}`,
     ver.length && verified === ver.length
-      ? localized("acceptance mapped", "验收已映射")
+      ? localized(
+        "References resolved; execution, result and freshness are separate.",
+        "引用已解析；执行、结果和新鲜度分别统计。",
+      )
       : localized("verification mapping incomplete", "验证映射不完整"),
     ver.length && verified === ver.length ? "good" : "warn",
   ], [

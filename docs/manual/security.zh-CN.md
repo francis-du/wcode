@@ -88,6 +88,10 @@ Token 达到上限时淘汰最旧项，不会无限增长。
 实际进入的 Host。历史 Resource 不会把旧域名重新变成有效 Host；属于另一
 组 Workspace 根目录的 Token 也不会载入。
 
+Host 校验与 Origin 校验分别执行。请求携带 Origin 时，它必须是单个有效 HTTP(S) 来源，并匹配已配置或通过当前实例健康验证的**有效**入口，包括仍有效的非主隧道别名。非浏览器客户端可以不发送 Origin；畸形、重复、带凭据以及仅存在于历史记录的来源仍会被拒绝。不会隐式信任任意客户端网站来源。请求仍须提供原有 Bearer 或受保护 WebUI 凭据，旧版 SSE Session 继续绑定 Owner 和入口。
+
+已验证隧道先进入可信入口登记表，再显示链接或发出设置就绪信号。拒绝响应通过 `untrusted_host` 或 `untrusted_origin` 区分原因，不回显凭据。遇到 `untrusted_host`，应重连当前登记的入口并确保反向代理保留该公网 Host；不可信的 `Forwarded` / `X-Forwarded-Host` 不能登记新入口。不要通过关闭 Origin 校验或信任全部 Host 修复连接。
+
 公网隧道只解决可达性，不提供授权。
 
 ## 多媒体与模型能力

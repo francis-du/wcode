@@ -119,6 +119,8 @@ symbol_context only if more source is needed
 
 `agent_context` chooses a bounded adaptive budget when `budget` is omitted and can carry the relevant Design State, scope-aware repo map, bounded hot source, SHA edit targets, related tests, readiness, and explicit parallelism guidance. Models should send only required MCP arguments: omit the default Workspace and server-default path/limit/timeout/budget values. Split work into dependency lanes first; run independent discovery, reads, reviews, and file-local edits as concurrent top-level calls when the Host supports it, while serializing real dependencies. Use `read_files`, `search_many`, `apply_file_edits`, or `create_files` when inputs are already known; reserve nested `parallel_tools` for compact fan-out. For ordinary localization keep using `find_symbol` / `search_code`, and use `semantic_navigation` only when readiness requests stronger cross-file relationships.
 
+Reuse discovered tool schemas and context already supplied by `agent_context`; `project_context` is not a second mandatory startup call. Parallel lane counts are hints bounded by the runtime cap, not proof that writes are independent. In a compact `parallel_tools` batch, ready successors start on completion rather than waiting for a whole layer; failed dependencies skip their successors while independent work continues.
+
 After editing:
 
 ```text
@@ -130,8 +132,10 @@ Add drift / impact / risk / reconciliation / evidence inspection when the change
 
 ## 6. Use the local operator surfaces
 
-The TUI main screen is split into connection state, four runtime counters,
-subspace activity, and 30-second throughput. The useful keys are:
+The TUI prioritizes connection state and subspace activity; the redundant
+OVERVIEW panel is removed. Short terminals use a compact header, and 30-second
+throughput appears only when recent traffic and available space justify it.
+The useful keys are:
 
 - `I` — Intelligence overlay.
 - `W` — open the protected Project Observatory for the focused Workspace.

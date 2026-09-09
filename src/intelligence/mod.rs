@@ -70,10 +70,10 @@ pub use crate::intelligence_types::{
     DriftStatus, EvidenceStatus, FeatureAcceptanceView, FeatureComponentView,
     FeatureConstraintView, FeatureConvergenceState, FeatureDecisionView,
     FeatureDependencyAlignment, FeatureImplementationView, FeatureRequirementView, GraphContext,
-    GraphContextEdge, GraphContextNode, ProjectChangeView, ProjectCodeStats,
-    ProjectConvergenceSummary, ProjectFileView, ProjectGraphDeltaView, ProjectObservatory,
-    ProjectProofSummary, ProjectRevisionView, ProjectStructureView, RequirementTrace,
-    RequirementTraceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
+    GraphContextEdge, GraphContextNode, ProjectAcceptanceProofSummary, ProjectChangeView,
+    ProjectCodeStats, ProjectConvergenceSummary, ProjectFileView, ProjectGraphDeltaView,
+    ProjectObservatory, ProjectProofSummary, ProjectRevisionView, ProjectStructureView,
+    RequirementTrace, RequirementTraceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
     SoftwareContextRequest, TraceReference, TraceReferenceKind, TraceabilityStatus,
 };
 

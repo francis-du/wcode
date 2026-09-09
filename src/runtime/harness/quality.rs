@@ -432,6 +432,7 @@ impl ToolHarness {
         }
 
         let workspace_id = workspace_id.into();
+        let revision = self.intelligence.current_revision(workspace)?;
         let (profile, _) = self.load_project_profile(workspace)?;
         let mut plan = profile
             .recommended_checks
@@ -530,8 +531,12 @@ impl ToolHarness {
             summary,
             checks,
         };
-        self.intelligence
-            .record_verification_report(&workspace_id, workspace, &report)?;
+        self.intelligence.record_verification_report(
+            &workspace_id,
+            workspace,
+            &revision,
+            &report,
+        )?;
         Ok(report)
     }
 }

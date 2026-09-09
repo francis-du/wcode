@@ -1,4 +1,7 @@
-use crate::mcp::{dispatch_mcp_payload, forbidden_origin_response, origin_allowed, AppState};
+use crate::mcp::{
+    dispatch_mcp_payload, forbidden_host_response, forbidden_origin_response, origin_allowed,
+    AppState,
+};
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -56,9 +59,9 @@ fn sessions() -> &'static Mutex<HashMap<String, Session>> {
 
 async fn open_session(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     let Some(public_url) = state.auth.request_public_url(&headers) else {
-        return forbidden_origin_response();
+        return forbidden_host_response();
     };
-    if !origin_allowed(&public_url, &headers) {
+    if !origin_allowed(&state.auth, &headers) {
         return forbidden_origin_response();
     }
     let Some(owner) = state
@@ -125,9 +128,9 @@ async fn post_message(
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let Some(public_url) = state.auth.request_public_url(&headers) else {
-        return forbidden_origin_response();
+        return forbidden_host_response();
     };
-    if !origin_allowed(&public_url, &headers) {
+    if !origin_allowed(&state.auth, &headers) {
         return forbidden_origin_response();
     }
     let Some(owner) = state

@@ -19,7 +19,7 @@
 - schema_version: 1
   id: AC-SEC-003
   title: Command policy blocks unbounded project execution by default
-  statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion.
+  statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion. Command args must preserve every string including empty arguments; explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of falling back to defaults.
   verification:
     - kind: test
       path: tests/unit/workspace/mod.rs
@@ -27,6 +27,15 @@
     - kind: test
       path: tests/unit/workspace/policy.rs
       symbol: common_development_tools_have_bounded_read_verify_and_mutation_policies
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_command_rejects_invalid_argument_types
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_command_arguments_preserve_omission_and_empty_strings
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_command_rejects_invalid_optional_settings
 
 - schema_version: 1
   id: AC-SEC-004
@@ -102,7 +111,7 @@
 - schema_version: 1
   id: AC-WORKSPACE-001
   title: Workspace coding primitives remain transactional and guarded
-  statement: Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules; executable access and exact repository-operation grants remain separate, workspace-bound, argument-bound, and deny-safe.
+  statement: Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules; executable access and exact repository-operation grants remain separate, workspace-bound, argument-bound, and deny-safe. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string; malformed routing never silently selects the default Workspace.
   verification:
     - kind: test
       path: tests/unit/workspace/mod.rs
@@ -131,11 +140,17 @@
     - kind: test
       path: tests/unit/integrations/mcp/http.rs
       symbol: exact_operation_endpoint_does_not_implicitly_allow_an_executable
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_workspace_selector_rejects_invalid_explicit_values
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_tool_envelopes_and_workspace_types_never_write
 
 - schema_version: 1
   id: AC-SCHEDULER-001
   title: Scheduler orders conflicts and coalesces only safe edits
-  statement: Resource dependencies order move delete and directory creation conflicts while same-file same-SHA edits coalesce only when safe.
+  statement: Resource dependencies order move delete and directory creation conflicts while same-file same-SHA edits coalesce only when safe. Successors become ready on their own predecessor completion, physical parent/subspace aliases conflict, failed dependencies skip successors, queued children remain owned by the parent, and coalescing preserves intervening dependent operations and the 128-edit limit. Partial bulk failures preserve per-item results, fail the batch and block dependent successors without stopping independent work. Started blocking workers retain their real semaphore permit until completion or panic even when their async caller is cancelled.
   verification:
     - kind: test
       path: tests/unit/workspace/scheduler.rs
@@ -143,11 +158,53 @@
     - kind: test
       path: tests/unit/workspace/scheduler.rs
       symbol: same_file_same_sha_coalesces_and_conflicts_are_rejected
+    - kind: test
+      path: tests/unit/workspace/scheduler.rs
+      symbol: ready_successors_do_not_wait_for_an_unrelated_slow_branch
+    - kind: test
+      path: tests/unit/workspace/scheduler.rs
+      symbol: parent_and_subspace_aliases_share_resource_dependencies
+    - kind: test
+      path: tests/unit/workspace/scheduler.rs
+      symbol: coalescing_preserves_intervening_reads_and_independent_work
+    - kind: test
+      path: tests/unit/workspace/scheduler.rs
+      symbol: coalesced_transaction_limit_is_checked_before_execution
+    - kind: test
+      path: tests/unit/integrations/mcp/calls.rs
+      symbol: parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
+    - kind: test
+      path: tests/unit/integrations/mcp/calls.rs
+      symbol: cancelling_fanout_does_not_detach_queued_writes
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: batch_outcomes_preserve_partial_results_for_every_bulk_primitive
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: partial_bulk_read_is_an_error_with_usable_successes
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: partial_bulk_write_blocks_successors_but_preserves_independent_work
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: invalid_fanout_preflight_never_executes_any_mutation
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: strict_fanout_workspace_validation_precedes_coalescing
+    - kind: test
+      path: tests/unit/integrations/mcp/definitions.rs
+      symbol: cancelled_blocking_worker_retains_its_real_permit_until_finished
+    - kind: test
+      path: tests/unit/integrations/mcp/definitions.rs
+      symbol: panicking_blocking_worker_releases_its_permit
+    - kind: test
+      path: tests/unit/integrations/mcp/definitions.rs
+      symbol: cancelled_queued_blocking_worker_never_starts
 
 - schema_version: 1
   id: AC-AUTH-001
   title: Human approval remains operation client and challenge bound
-  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio drives elicitation/create only for clients that negotiated compatible form elicitation and then retries the original tool call through the same AuthorizationManager. Explicit Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure remains disabled and protected-path/symlink/hard-link/no-shell boundaries remain enforced.
+  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio drives elicitation/create only for clients that negotiated compatible form elicitation and then retries the original tool call through the same AuthorizationManager. Explicit Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure remains disabled and protected-path/symlink/hard-link/no-shell boundaries remain enforced. The transition validates capacity and every root before committing the registry and flag together; failure leaves previous permissions untouched, existing file locks and command revocations stay shared, and concurrent workspace additions observe the same committed policy.
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
@@ -167,11 +224,26 @@
     - kind: test
       path: tests/unit/workspace/access.rs
       symbol: full_access_elevates_existing_roots_and_keeps_hard_path_boundaries
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_capacity_failure_preserves_registry
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_preparation_failures_leave_policy_unchanged
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_preserves_shared_locks_and_command_revocations
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_at_capacity_reuses_registered_home
+    - kind: test
+      path: tests/unit/workspace/access.rs
+      symbol: full_access_and_workspace_addition_publish_consistent_policy
 
 - schema_version: 1
   id: AC-MCP-002
   title: MCP exposes compact portable capabilities durable tasks and negotiated human input
-  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, the tool catalog exposes Product Scope metadata without model-visible server defaults or low-frequency tuning fields, agent guidance keeps default Workspace and inferable arguments out of calls, Agent Context exposes explicit independent-lane parallelism guidance, modern human-input requests use input_required with owner/challenge-bound requestState, legacy stdio uses elicitation/create only after form-mode capability negotiation, and optional image/audio Tool Result content is returned only when the current request explicitly advertises the wcode media extension; capability absence fails closed without authorization bypass or binary payloads.
+  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, durable cancellation and polled TTL expiry abort owned tool futures even when terminal status persistence fails after owner validation, missing or finished workers become explicit failures, snapshot size validation precedes capacity changes and snapshots publish from complete synced staging files, matching regular files are required for idempotent retries, UTF-8 status and error fields share a byte bound and oversized completion results fall back to bounded failures, ordinary isolated request cancellation reaches queued writes and fan-out children while accepted durable Tasks outlive creation requests, the tool catalog exposes Product Scope metadata without model-visible server defaults or low-frequency tuning fields, agent guidance keeps default Workspace and inferable arguments out of calls, Agent Context exposes explicit independent-lane parallelism guidance, modern human-input requests use input_required with owner/challenge-bound requestState, legacy stdio uses elicitation/create only after form-mode capability negotiation, and optional image/audio Tool Result content is returned only when the current request explicitly advertises the wcode media extension; capability absence fails closed without authorization bypass or binary payloads.
   verification:
     - kind: test
       path: tests/unit/integrations/mcp/calls.rs
@@ -179,6 +251,48 @@
     - kind: test
       path: tests/unit/integrations/mcp/protocol.rs
       symbol: task_augmented_tool_is_durable_pollable_and_owner_scoped
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: durable_task_cancellation_aborts_its_queued_tool_worker
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: expired_durable_task_aborts_its_queued_tool_worker
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: isolated_request_cancellation_aborts_its_queued_write
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: durable_recovery_missing_worker_is_failed_not_left_working
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: durable_recovery_subspace_tasks_keep_poll_and_cancel_ownership
+    - kind: test
+      path: tests/unit/integrations/mcp/protocol.rs
+      symbol: storage_failure_does_not_prevent_task_cancellation_or_expiry
+    - kind: test
+      path: tests/unit/integrations/mcp/store.rs
+      symbol: durable_recovery_multibyte_errors_fit_the_persistent_byte_bound
+    - kind: test
+      path: tests/unit/integrations/mcp/store.rs
+      symbol: durable_recovery_oversized_records_do_not_consume_store_capacity
+    - kind: test
+      path: tests/unit/integrations/mcp/store.rs
+      symbol: durable_recovery_corrupt_existing_snapshot_is_not_acknowledged
+    - kind: test
+      path: tests/unit/integrations/mcp/store.rs
+      symbol: durable_recovery_snapshot_retry_is_idempotent_without_temporary_files
+    - kind: test
+      path: tests/unit/integrations/mcp/store.rs
+      symbol: durable_recovery_snapshot_symlinks_are_never_acknowledged
+    - kind: test
+      path: tests/unit/integrations/mcp/tasks.rs
+      symbol: oversized_task_result_becomes_a_durable_failure
+    - kind: test
+      path: tests/unit/integrations/mcp/tasks.rs
+      symbol: successful_task_result_is_not_replaced_by_recovery
+    - kind: test
+      path: tests/unit/integrations/mcp/tasks.rs
+      symbol: finished_task_handle_is_not_a_live_worker
     - kind: test
       path: tests/unit/integrations/mcp/calls.rs
       symbol: tool_list_exposes_bulk_index_and_positive_harness_tools
@@ -201,7 +315,7 @@
 - schema_version: 1
   id: AC-MCP-003
   title: OAuth discovery and registration remain resource-bound
-  statement: OAuth metadata and redirects use the verified Host that received the request. DCR clients and resource-bound tokens survive a fresh runtime load for the same configured Workspace roots without clock expiry; a verified replacement tunnel can continue the session, while malformed or symlinked state, unknown Hosts, stale historical Hosts and different Workspace scopes remain outside the boundary.
+  statement: OAuth metadata and redirects use the verified Host that received the request. DCR clients and resource-bound tokens survive a fresh runtime load for the same configured Workspace roots without clock expiry; a verified replacement tunnel can continue the session, while malformed or symlinked state, unknown Hosts, stale historical Hosts and different Workspace scopes remain outside the boundary. MCP GET/POST, legacy SSE and protected WebUI share active-alias Origin validation without skipping authentication or trusting arbitrary client origins; malformed, duplicate and credential-bearing headers fail closed, historical token resources do not authorize browser origins, and diagnostics distinguish untrusted_host from untrusted_origin without exposing credentials.
   verification:
     - kind: test
       path: tests/unit/integrations/auth.rs
@@ -230,6 +344,27 @@
     - kind: test
       path: tests/unit/integrations/auth/origin.rs
       symbol: removed_tunnel_is_historical_only
+    - kind: test
+      path: tests/unit/integrations/auth/origin.rs
+      symbol: browser_origins_follow_active_aliases_not_the_primary_or_token_history
+    - kind: test
+      path: tests/unit/integrations/auth/origin.rs
+      symbol: origin_headers_reject_url_repairs_credentials_and_untrusted_origins
+    - kind: test
+      path: tests/unit/integrations/auth/origin.rs
+      symbol: malformed_and_duplicate_origin_headers_are_not_treated_as_absent
+    - kind: test
+      path: tests/unit/integrations/auth/origin.rs
+      symbol: request_hosts_reject_duplicates_spoofed_forwarding_and_url_syntax
+    - kind: test
+      path: tests/unit/integrations/auth/origin.rs
+      symbol: missing_host_does_not_resurrect_an_unregistered_primary
+    - kind: test
+      path: tests/unit/integrations/mcp/http.rs
+      symbol: mcp_and_webui_accept_verified_alias_origins_without_skipping_authentication
+    - kind: test
+      path: tests/unit/integrations/mcp/http.rs
+      symbol: transport_rejections_distinguish_host_origin_and_retired_aliases
     - kind: test
       path: tests/unit/integrations/auth/session.rs
       symbol: persistent_oauth_state_is_owner_only_and_rejects_symlinks
@@ -354,7 +489,7 @@
 - schema_version: 1
   id: AC-VERIFY-001
   title: Verification readiness aggregates required evidence fail closed
-  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, and one changed language's pass cannot clear another changed language's target. Verification Plans bind the exact active code and Design State revision plus fixed changed-language stage targets so stale or under-scoped evidence cannot clear readiness. Correctness reviewers receive a contract-first counterexample rubric, and risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible.
+  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, and one changed language's pass cannot clear another changed language's target. Verification Plans bind the exact active code and Design State revision plus fixed changed-language stage targets so stale or under-scoped evidence cannot clear readiness. Project and language-quality checks capture revisions before execution and reject changed or incomplete code or Design State revisions before persisting report evidence; stable results retain the captured revision. MCP command and verification error flags reflect actual failures and zero-check verification rather than mere successful report serialization. Correctness reviewers receive a contract-first counterexample rubric, and risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible.
   verification:
     - kind: test
       path: tests/unit/intelligence/verification.rs
@@ -371,6 +506,24 @@
     - kind: test
       path: tests/unit/intelligence/verification.rs
       symbol: design_revision_change_invalidates_plan_and_evidence
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: verification_rejects_source_changes_before_recording_any_evidence
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: verification_rejects_design_only_changes_before_recording_evidence
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: stable_verification_keeps_the_captured_revision
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: incomplete_revisions_cannot_produce_verification_evidence
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: command_and_verification_failures_keep_reports_and_error_flags
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: verification_without_inferred_checks_is_not_success
     - kind: test
       path: tests/unit/verification/mod.rs
       symbol: correctness_jobs_carry_contract_first_rubric
@@ -485,7 +638,7 @@
 - schema_version: 1
   id: AC-OBSERVABILITY-001
   title: Project observatory is architecture-first and code-derived
-  statement: The WebUI first exposes the complete component architecture with Design / Implementation / Overlay graph modes, clickable component drill-down, visible graph provider/precision, an observed-drift percentage based only on strong positive undeclared Actual dependencies, evidence coverage for declared dependencies, and implementation coverage for components. Requirement detail then exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with real blockers, verification, mapped Git changes, code statistics and graph revision history. The same bounded graph snapshot also supplies a project file tree and largest-file list with 1000-line violations and truncation visible. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory; the generic undifferentiated ball graph is absent from the primary page.
+  statement: The WebUI first exposes the complete component architecture with Design / Implementation / Overlay graph modes, clickable component drill-down, visible graph provider/precision, an observed-drift percentage based only on strong positive undeclared Actual dependencies, evidence coverage for declared dependencies, and implementation coverage for components. Requirement detail then exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with real blockers, verification, mapped Git changes, code statistics and graph revision history. Project Proof exposes Acceptance Mapped, Executed, Passed, and Fresh as distinct values; 100% mapping alone never renders as an executed or current passing result. The same bounded graph snapshot also supplies a project file tree and largest-file list with 1000-line violations and truncation visible. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory; the generic undifferentiated ball graph is absent from the primary page.
   verification:
     - kind: test
       path: tests/unit/runtime/harness/observatory.rs
@@ -542,11 +695,32 @@
 - schema_version: 1
   id: AC-AGENT-CONTEXT-001
   title: Coding agents receive a bounded edit-ready context pack
-  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Readiness classifies ordinary single-target work as minimal_patch and exposes a zero-growth complexity budget for new production files, abstractions, config knobs and public API changes, while broader localized or architecture work requires correspondingly stronger current-task evidence. A revision-guarded per-Workspace Worklist persists unfinished multi-step work across reconnects/model switches, is surfaced by Agent Context, rejects stale concurrent updates, preserves blocked items as unfinished, and prevents a new list from silently replacing unfinished user tasks. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
+  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Readiness classifies ordinary single-target work as minimal_patch and exposes a zero-growth complexity budget for new production files, abstractions, config knobs and public API changes, while broader localized or architecture work requires correspondingly stronger current-task evidence. A revision-guarded per-Workspace Worklist persists unfinished multi-step work across reconnects/model switches, is surfaced by Agent Context, rejects stale concurrent updates, preserves blocked items as unfinished, and prevents a new list from silently replacing unfinished user tasks. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and literal and qualified symbol names outrank partial helper matches after merging bounded scope candidates, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
   verification:
     - kind: test
       path: tests/unit/runtime/harness.rs
       symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
+    - kind: test
+      path: tests/unit/runtime/harness.rs
+      symbol: agent_context_keeps_direct_sha_ahead_of_alphabetical_design_paths
+    - kind: test
+      path: tests/unit/runtime/harness.rs
+      symbol: agent_context_parallel_discovery_respects_the_runtime_slot_cap
+    - kind: test
+      path: tests/unit/runtime/harness/context_rank.rs
+      symbol: exact_symbol_outranks_helpers_across_scope_roots
+    - kind: test
+      path: tests/unit/runtime/harness/context_rank.rs
+      symbol: qualified_symbol_in_prose_is_kept_whole
+    - kind: test
+      path: tests/unit/intelligence/mod.rs
+      symbol: scoped_context_skips_absent_roots_without_losing_present_sources
+    - kind: test
+      path: tests/unit/intelligence/mod.rs
+      symbol: scoped_context_does_not_hide_symlinks_or_a_missing_workspace
+    - kind: test
+      path: tests/unit/integrations/mcp/definitions.rs
+      symbol: core_tool_routing_survives_compact_description_limits
     - kind: test
       path: tests/unit/intelligence/mod.rs
       symbol: software_context_uses_token_scoring_and_real_budget_caps
@@ -592,6 +766,9 @@
     - kind: test
       path: tests/unit/app/tunnel_lifecycle.rs
       symbol: reconnect_backoff_is_bounded_and_recovery_resets_history
+    - kind: test
+      path: tests/unit/app/tunnel_lifecycle.rs
+      symbol: advertised_tunnel_is_registered_without_changing_the_primary
 
 - schema_version: 1
   id: AC-AGENT-INSTALL-001

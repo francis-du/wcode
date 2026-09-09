@@ -238,6 +238,95 @@ async fn parallel_fanout_uses_child_slots_without_parent_deadlock() {
 }
 
 #[tokio::test]
+async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work() {
+    for cap in [1, 4] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("exists.txt"), "original").unwrap();
+        let workspaces = Workspaces::new([dir.path()], true, false).unwrap();
+        let workspace_id = workspaces.default_id().to_owned();
+        let state = AppState {
+            auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+            workspaces,
+            harness: ToolHarness::new(cap).unwrap(),
+            monitor: TaskMonitor::new([workspace_id]),
+            tasks: TaskRuntime::default(),
+        };
+        let response = tokio::time::timeout(std::time::Duration::from_secs(3), call_tool(&state, json!({
+            "name":"parallel_tools","arguments":{"tasks":[
+                {"id":"fail","tool":"create_file","arguments":{"path":"exists.txt","content":"replacement"}},
+                {"id":"dependent","tool":"move_path","arguments":{"source":"exists.txt","destination":"moved.txt"}},
+                {"id":"transitive","tool":"read_file","arguments":{"path":"moved.txt"}},
+                {"id":"independent","tool":"create_file","arguments":{"path":"independent.txt","content":"ok"}}
+            ]}
+        }))).await.unwrap().unwrap();
+        let result = &response["structuredContent"];
+        assert_eq!(result["dispatch"], "completion-driven");
+        assert_eq!(result["succeeded"], 1);
+        assert_eq!(result["failed"], 3);
+        for index in [1, 2] {
+            assert!(result["items"][index]["error"]
+                .as_str()
+                .unwrap()
+                .contains("dependency failed"));
+        }
+        assert_eq!(
+            fs::read_to_string(dir.path().join("exists.txt")).unwrap(),
+            "original"
+        );
+        assert!(!dir.path().join("moved.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("independent.txt")).unwrap(),
+            "ok"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cancelling_fanout_does_not_detach_queued_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([dir.path()], true, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(1).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+    let permit = state.harness.acquire().await.unwrap();
+    let child_state = state.clone();
+    let parent = tokio::spawn(async move {
+        call_tool(
+            &child_state,
+            json!({"name":"parallel_tools","arguments":{"tasks":[
+                {"tool":"create_file","arguments":{"path":"one.txt","content":"one"}},
+                {"tool":"create_file","arguments":{"path":"two.txt","content":"two"}}
+            ]}}),
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while state.monitor.connection_status().queued_tasks != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    parent.abort();
+    assert!(parent.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while state.monitor.connection_status().queued_tasks != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled parent must drop its queued children before slots reopen");
+    drop(permit);
+    assert!(!dir.path().join("one.txt").exists());
+    assert!(!dir.path().join("two.txt").exists());
+}
+
+#[tokio::test]
 async fn parallel_fanout_inherits_the_parent_workspace() {
     let root = tempfile::tempdir().unwrap();
     let api = root.path().join("api");

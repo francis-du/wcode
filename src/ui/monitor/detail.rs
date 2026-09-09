@@ -88,7 +88,19 @@ pub(super) fn render_setup(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    if compact || inner.width < 78 || inner.height < 7 {
+    if usize::from(inner.height) < 4 + snapshot.tunnels.len().max(1) {
+        let mut lines = vec![setup_step(1, language.tr("Open this setup page · press O"))];
+        let link_width = inner.width.saturating_sub(15) as usize;
+        lines.extend(if snapshot.tunnels.is_empty() {
+            endpoint_link_lines(snapshot, config, link_width)
+        } else {
+            tunnel_lines(snapshot, link_width)
+        });
+        frame.render_widget(Paragraph::new(lines), inner);
+        return;
+    }
+
+    if compact || inner.width < 78 || inner.height < 6 {
         let mut lines = vec![
             setup_step(1, language.tr("Open this wcode setup page")),
             setup_step(2, language.tr("Add the MCP URL and choose OAuth")),
@@ -113,7 +125,7 @@ pub(super) fn render_setup(
                 },
             ),
         ];
-        let link_width = inner.width.saturating_sub(8) as usize;
+        let link_width = inner.width.saturating_sub(15) as usize;
         if snapshot.tunnels.is_empty() {
             lines.extend(endpoint_link_lines(snapshot, config, link_width));
         } else {
@@ -158,10 +170,10 @@ pub(super) fn render_setup(
                 endpoint_link_lines(
                     snapshot,
                     config,
-                    columns[0].width.saturating_sub(10) as usize,
+                    columns[0].width.saturating_sub(18) as usize,
                 )
             } else {
-                tunnel_lines(snapshot, columns[0].width.saturating_sub(10) as usize)
+                tunnel_lines(snapshot, columns[0].width.saturating_sub(18) as usize)
             })
             .collect::<Vec<_>>(),
         )
@@ -813,15 +825,6 @@ pub(super) fn totals(snapshot: &MonitorSnapshot) -> WorkspaceStats {
                 .saturating_add(stats.agent_repo_map_cache_hits);
             total
         })
-}
-
-pub(super) fn success_rate(completed: u64, failed: u64) -> f64 {
-    let finished = completed.saturating_add(failed);
-    if finished == 0 {
-        100.0
-    } else {
-        completed as f64 * 100.0 / finished as f64
-    }
 }
 
 pub(super) fn window_totals(snapshot: &MonitorSnapshot, window: Duration) -> (u64, u64, u64) {

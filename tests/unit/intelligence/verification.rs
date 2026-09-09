@@ -148,6 +148,7 @@ fn low_risk_verification_becomes_ready_after_deterministic_and_blind_review_pass
         .record_verification_report(
             "demo",
             &workspace,
+            &runtime.current_revision(&workspace).unwrap(),
             &VerificationReport {
                 workspace: "demo".into(),
                 level: "quick".into(),
@@ -226,6 +227,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
         .record_verification_report(
             "demo",
             &workspace,
+            &runtime.current_revision(&workspace).unwrap(),
             &VerificationReport {
                 workspace: "demo".into(),
                 level: "quick".into(),
@@ -282,6 +284,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
         .record_verification_report(
             "demo",
             &workspace,
+            &runtime.current_revision(&workspace).unwrap(),
             &VerificationReport {
                 workspace: "demo".into(),
                 level: "quick".into(),

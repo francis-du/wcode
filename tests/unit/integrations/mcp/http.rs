@@ -21,6 +21,136 @@ async fn response_json(response: Response) -> Value {
     serde_json::from_slice(&body).expect("handler JSON response")
 }
 
+fn origin_test_state() -> (Arc<AppState>, tempfile::TempDir) {
+    let root = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([root.path()], false, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let auth = Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned()));
+    auth.set_public_url("https://primary.example".to_owned());
+    auth.register_public_url("https://secondary.example".to_owned());
+    auth.insert_test_access_token(
+        "test-origin-access",
+        "test-client",
+        "https://primary.example/mcp",
+    );
+    (
+        Arc::new(AppState {
+            auth,
+            workspaces,
+            harness: ToolHarness::new(2).unwrap(),
+            monitor: TaskMonitor::new([workspace_id]),
+            tasks: TaskRuntime::default(),
+        }),
+        root,
+    )
+}
+
+#[tokio::test]
+async fn mcp_and_webui_accept_verified_alias_origins_without_skipping_authentication() {
+    let (state, _root) = origin_test_state();
+    for host in ["primary.example", "secondary.example", "127.0.0.1:8765"] {
+        for origin in ["https://PRIMARY.EXAMPLE:443", "https://secondary.example"] {
+            let mut headers = HeaderMap::new();
+            headers.insert("host", host.parse().unwrap());
+            headers.insert("origin", origin.parse().unwrap());
+            headers.insert(
+                "authorization",
+                "Bearer test-origin-access".parse().unwrap(),
+            );
+            assert_eq!(
+                mcp_get(State(state.clone()), headers.clone())
+                    .await
+                    .status(),
+                StatusCode::METHOD_NOT_ALLOWED
+            );
+            let response = mcp(
+                State(state.clone()),
+                headers.clone(),
+                Json(json!({"jsonrpc":"2.0","id":1,"method":"ping"})),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response_json(response).await.get("result").is_some());
+            headers.remove("authorization");
+            assert_eq!(
+                mcp_get(State(state.clone()), headers.clone())
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                intelligence_ui_authorized(&state, &headers)
+                    .unwrap_err()
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            headers.insert("x-wcode-ui-token", state.auth.ui_token().parse().unwrap());
+            assert!(intelligence_ui_authorized(&state, &headers).is_ok());
+        }
+    }
+}
+
+#[tokio::test]
+async fn transport_rejections_distinguish_host_origin_and_retired_aliases() {
+    let (state, _root) = origin_test_state();
+    for (host, origin, reason) in [
+        (
+            "attacker.example",
+            "https://primary.example",
+            "untrusted_host",
+        ),
+        (
+            "primary.example",
+            "https://attacker.example",
+            "untrusted_origin",
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", host.parse().unwrap());
+        headers.insert("origin", origin.parse().unwrap());
+        headers.insert("x-forwarded-host", "primary.example".parse().unwrap());
+        headers.insert(
+            "authorization",
+            "Bearer test-origin-access".parse().unwrap(),
+        );
+        let response = mcp_get(State(state.clone()), headers.clone()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["data"]["reason"], reason);
+        assert!(!body.to_string().contains("test-origin-access"));
+        let response = mcp(
+            State(state.clone()),
+            headers.clone(),
+            Json(json!({"jsonrpc":"2.0","id":1,"method":"ping"})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response_json(response).await["error"]["data"]["reason"],
+            reason
+        );
+        headers.insert("x-wcode-ui-token", state.auth.ui_token().parse().unwrap());
+        assert_eq!(
+            intelligence_ui_authorized(&state, &headers)
+                .unwrap_err()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    state
+        .auth
+        .unregister_public_url("https://secondary.example");
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "primary.example".parse().unwrap());
+    headers.insert("origin", "https://secondary.example".parse().unwrap());
+    let response = mcp_get(State(state), headers).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(response).await["error"]["data"]["reason"],
+        "untrusted_origin"
+    );
+}
+
 #[tokio::test]
 async fn setup_hub_is_mobile_safe_and_stops_polling_while_hidden() {
     let root = tempfile::tempdir().unwrap();

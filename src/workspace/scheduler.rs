@@ -14,6 +14,24 @@ pub struct WorkloadResources {
 }
 
 impl WorkloadResources {
+    /// Compare physical workspace paths, including parent/subspace aliases.
+    /// This is scheduling identity only; execution still rechecks Workspace policy.
+    pub fn in_root(mut self, root: &Path) -> Self {
+        for path in self
+            .reads
+            .iter_mut()
+            .chain(&mut self.writes)
+            .chain(&mut self.creates)
+            .chain(&mut self.moves_from)
+            .chain(&mut self.moves_to)
+            .chain(&mut self.deletes)
+        {
+            *path = root.join(&*path);
+        }
+        self.workspace.clear();
+        self
+    }
+
     fn mutations(&self) -> impl Iterator<Item = &PathBuf> {
         self.writes
             .iter()
@@ -34,20 +52,24 @@ pub struct DependencyGraph {
 }
 
 impl DependencyGraph {
+    pub fn ready(&self, pending: &BTreeSet<usize>, completed: &BTreeSet<usize>) -> Vec<usize> {
+        pending
+            .iter()
+            .copied()
+            .filter(|index| {
+                self.predecessors
+                    .get(*index)
+                    .is_some_and(|dependencies| dependencies.is_subset(completed))
+            })
+            .collect()
+    }
+
     pub fn layers(&self, active: &BTreeSet<usize>) -> Result<Vec<Vec<usize>>, String> {
         let mut remaining = active.clone();
         let mut completed = BTreeSet::new();
         let mut layers = Vec::new();
         while !remaining.is_empty() {
-            let ready = remaining
-                .iter()
-                .copied()
-                .filter(|index| {
-                    self.predecessors
-                        .get(*index)
-                        .is_none_or(|dependencies| dependencies.is_subset(&completed))
-                })
-                .collect::<Vec<_>>();
+            let ready = self.ready(&remaining, &completed);
             if ready.is_empty() {
                 return Err("scheduler dependency graph contains a cycle".to_owned());
             }
@@ -112,6 +134,24 @@ pub fn coalesce_apply_edits(
                     index + 1
                 ));
             }
+            // Moving a later write before an intervening read/move changes its
+            // meaning. Reject the batch before any child runs rather than silently
+            // reading a future revision. Different workspace aliases are conservative.
+            let current = resource_model(default_workspace, "apply_edits", &item["arguments"])?;
+            for (offset, between) in items[first + 1..index].iter().enumerate() {
+                if skipped.contains(&(first + 1 + offset)) {
+                    continue;
+                }
+                let tool = between.get("tool").and_then(Value::as_str).unwrap_or("");
+                let arguments = between
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
+                let other = resource_model(default_workspace, tool, &arguments)?;
+                if current.workspace != other.workspace || resources_conflict(&current, &other) {
+                    return Err("cannot coalesce same-file edits across an intervening dependent operation; combine edits before dependent reads or use separate calls".to_owned());
+                }
+            }
             let extra = item
                 .pointer("/arguments/edits")
                 .and_then(Value::as_array)
@@ -121,6 +161,11 @@ pub fn coalesce_apply_edits(
                 .pointer_mut("/arguments/edits")
                 .and_then(Value::as_array_mut)
                 .ok_or("coalesced apply_edits target is missing edits")?;
+            if target.len().saturating_add(extra.len()) > 128 {
+                return Err(
+                    "coalesced apply_edits exceeds the 128-edit transaction limit".to_owned(),
+                );
+            }
             validate_merge(target, &extra)?;
             target.extend(extra);
             aliases.entry(first).or_default().push((index, id));

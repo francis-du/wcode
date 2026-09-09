@@ -19,12 +19,12 @@ pub(super) fn tools() -> Vec<Value> {
         tool("graph_history", "List bounded persisted composite Software Graph snapshots. Identical graph content is deduplicated, so history represents meaningful graph revisions rather than read frequency.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":64,"default":20}}), &[]), true, false),
         tool("graph_query", "Query a persisted Software Graph snapshot by node id/kind/label or by incoming/outgoing relationship. Omit snapshot_id to query the latest snapshot; results remain bounded and include the snapshot/provider precision metadata.", schema(json!({"query":{"type":"object","properties":{"snapshot_id":{"type":"string","minLength":1,"maxLength":160},"node_id":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["product","requirement","acceptance_criterion","constraint","decision","component","package","module","file","symbol","function","struct","trait","class","interface","api","database","queue","config","test","verification","risk","evidence"]},"label_contains":{"type":"string","minLength":1,"maxLength":500},"related_to":{"type":"string","minLength":1,"maxLength":512},"edge_kind":{"type":"string","enum":["contains","defines","references","calls","imports","depends_on","implements","extends","implements_requirement","constrained_by","tested_by","verified_by","guards_against","produces_evidence","runtime_calls","conflicts_with"]},"direction":{"type":"string","enum":["incoming","outgoing","both"]},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}},"additionalProperties":false}}), &["query"]), true, false),
         tool("graph_diff", "Compare two persisted Software Graph revisions without treating provenance revision churn as delete/add noise. Node IDs and stable edge identities are aligned first; true additions/removals and changed attributes/provenance are returned separately with bounded counts. Omit IDs to compare the latest two meaningful graph snapshots.", schema(json!({"diff":{"type":"object","properties":{"from_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"to_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"limit":{"type":"integer","minimum":1,"maximum":200,"default":50}},"additionalProperties":false}}), &[]), true, false),
-        tool("traceability_status", "Resolve Requirement → Component → implementation and Acceptance Criterion → verification chains from structured Design State. File existence is deterministic; symbol/test resolution uses Tree-sitter syntax precision; Harness check references resolve only when present in the inferred project verification profile. Returns separate coverage dimensions rather than one health score.", schema(json!({}), &[]), true, false),
+        tool("traceability_status", "Resolve Requirement → Component → implementation and Acceptance Criterion → verification mapping chains from structured Design State. This reports mapping coverage, not execution or pass status: Project Observatory Proof reports acceptance Mapped, Executed, Passed, and Fresh separately. File existence is deterministic; symbol/test resolution uses Tree-sitter syntax precision; Harness check references resolve only when present in the inferred project verification profile.", schema(json!({}), &[]), true, false),
         tool("drift_status", "Compare the current Git change set with Design State traceability and report bounded implementation drift and design drift findings. The result distinguishes desired-state changes that are not reflected in Actual State from design-mapped implementation changes that have no corresponding Design State change.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("risk_status", "Assess the current change set, traceability gaps, and drift findings into structured Risk records and a risk-adaptive verification profile. Risk is multi-dimensional evidence for verification depth, not a single quality score.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("software_context", "Retrieve bounded task-oriented software intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
-        tool("agent_context", "Compile an edit-ready pack with adaptive token sizing when budget is omitted. Active persistent worklist state is included automatically so interrupted multi-step work can resume.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
+        tool("agent_context", "Start coding here: task targets, source, SHA, checks, parallel lanes and active worklist. Omit budget for adaptive sizing. Read only missing context, then edit, review and verify.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
         tool("worklist_status", "Read the persistent active model worklist for this Workspace, including revision, incomplete items and runnable dependency lanes.", schema(json!({}), &[]), true, false),
         tool("worklist_update", "Create or patch the persistent model worklist with optimistic revision control. Unfinished items cannot be silently deleted; restart requires a completed list.", schema(json!({"expected_revision":{"type":"integer","minimum":0},"goal":{"type":"string","minLength":1,"maxLength":1000},"restart":{"type":"boolean"},"items":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64},"title":{"type":"string","minLength":1,"maxLength":300},"status":{"type":"string","enum":["pending","in_progress","done","blocked"]},"depends_on":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":64}},"note":{"type":"string","maxLength":1000}},"required":["id"],"additionalProperties":false}}}), &["expected_revision"]), false, false),
         tool("semantic_status", "Read the persistent workspace semantic registry. Candidate facts are non-authoritative conversation/provider/user proposals; only explicitly confirmed facts are used as authoritative query expansion, and retired facts are excluded.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}), &[]), true, false),
@@ -49,7 +49,7 @@ pub(super) fn tools() -> Vec<Value> {
         tool("reconciliation_claim", "Claim one currently runnable Design, Implementation, or Review task from a persisted Reconciliation execution. Dependency order is enforced and system Verification/HumanApproval tasks cannot be claimed by models.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"executor":{"type":"string","minLength":1,"maxLength":256},"kinds":{"type":"array","maxItems":3,"items":{"type":"string","enum":["design","implementation","review"]}}}), &["plan_id","executor"]), false, false),
         tool("reconciliation_submit", "Complete or fail one claimed Reconciliation task. The executor identity must match the claimant; the result is persisted in execution history and also emitted as provenance-bearing Reconciliation Evidence.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"task_id":{"type":"string","minLength":1,"maxLength":160},"executor":{"type":"string","minLength":1,"maxLength":256},"submission":{"type":"object","properties":{"success":{"type":"boolean"},"summary":{"type":"string","minLength":1,"maxLength":2000},"artifact_digest":{"type":"string","minLength":1,"maxLength":512}},"required":["success","summary"],"additionalProperties":false}}), &["plan_id","task_id","executor","submission"]), false, false),
         tool("reconciliation_retry", "Requeue one failed model-executable Reconciliation task. This never bypasses dependencies or retries Verification/HumanApproval system gates; it only resets a failed Design/Implementation/Review task so another executor can claim it.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"task_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id","task_id"]), false, false),
-        tool("project_context", "Build a bounded, cached coding context for one workspace: repository guidance excerpts, detected project types and manifests, recommended quality checks, and a preferred change workflow. Call this before substantial coding work.", schema(json!({}), &[]), true, false),
+        tool("project_context", "Read repository-wide guidance and quality configuration only when agent_context leaves a specific gap. Not a second mandatory startup call; use scoped source tools for implementation details.", schema(json!({}), &[]), true, false),
         tool(
             "review_changes",
             "Review the current Git change set before verification. Runs bounded Git status, diff-check, and numstat probes in parallel; classifies changed files; adds maintainability signals for 1k-line threshold crossings, concentrated source growth, and cross-Product-Scope churn; and recommends quick or full verification.",
@@ -59,7 +59,7 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool(
             "parallel_tools",
-            "Schedule independent bounded operations. The parent Workspace is inherited by children unless a child explicitly switches Workspace; prefer top-level concurrent calls when the Host supports them.",
+            "Run a compact batch when top-level concurrency is unavailable. Children inherit Workspace. Ready successors start immediately; overlapping paths serialize and failed dependencies skip.",
             schema(json!({
                 "tasks": {
                     "type": "array",
@@ -80,13 +80,13 @@ pub(super) fn tools() -> Vec<Value> {
             false,
             true,
         ),
-        tool("verify_project", "Run exact Harness-inferred quality checks with bounded, phased parallelism. This dedicated verification lane may execute approved check/test/Clippy/build shapes without --allow-risky-exec; arbitrary model-facing run_command calls remain under the stricter trust policy. Independent checks in the same phase use separate semaphore slots; tests, Clippy, and builds are sequenced to reduce compiler-cache contention.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300,"default":120}}), &[]), false, false),
+        tool("verify_project", "Run quick/full checks after review_changes. Independent checks run concurrently; compiler-cache phases stay ordered. Use full before release, without duplicating checks manually.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300,"default":120}}), &[]), false, false),
         tool("list_files", "Fast recursive file listing inside one workspace root. All regular files are visible except protected credential, repository-control, and wcode-internal paths; symlinks are not followed.", schema(json!({"path":{"type":"string"},"max_entries":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}), &[]), true, false),
         tool("search_code", "Fast exact-substring search in one workspace. File scanning runs off the async runtime and uses parallel workers.", schema(json!({"query":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":500}}), &["query"]), true, false),
         tool("search_many", "Search up to 32 exact substrings in one filesystem traversal. Prefer this over repeated search_code calls when looking for several symbols.", schema(json!({"queries":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":1000}}), &["queries"]), true, false),
         tool(
             "file_outline",
-            "Parse one supported source file with Tree-sitter and return syntax-level definitions, qualified names, exact ranges, redacted signatures, total/returned symbol counts, parse status, and cache metadata. Supports Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java, JavaScript, Lua, OCaml/interfaces, PHP, Python, R, Ruby, Rust, Swift, and TypeScript/TSX. HTML indexes id-bearing elements and custom components; CSS indexes selectors, custom properties, and keyframes.",
+            "Inspect definitions and exact ranges in one known source file without loading bodies. Returns syntax-level symbol IDs for symbol_context; use find_symbol when the file is unknown.",
             schema(json!({
                 "path": {"type": "string"},
                 "max_symbols": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 500}
@@ -96,7 +96,7 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool(
             "find_symbol",
-            "Find syntax-level symbol definitions by name or qualified name across a file or directory. Results include opaque symbol IDs for symbol_context, provider/precision metadata, exact ranges, redacted signatures, and language. IDs are tied to the current indexed revision, so query again after edits. The index is lazy and parallel.",
+            "Locate definitions by name or qualified name within a file/directory. Returns syntax-level symbol IDs and ranges for symbol_context. Re-query IDs after edits, not before every read.",
             schema(json!({
                 "query": {"type": "string"},
                 "path": {"type": "string", "default": "."},
@@ -108,7 +108,7 @@ pub(super) fn tools() -> Vec<Value> {
         ),
         tool(
             "symbol_context",
-            "Expand a symbol ID returned by file_outline or find_symbol into up to 1,000 lines of original line-preserving source plus syntax-level calls, same-file call targets, nested definitions, parse status, and AST cache metadata. Prefer this after structure-first localization instead of repeated tiny source reads.",
+            "Read a symbol body and syntax links from a find_symbol/file_outline ID. Preserves original source formatting and line bounds. Skip this when agent_context already includes the needed body.",
             schema(json!({
                 "symbol_id": {"type": "string"},
                 "max_body_lines": {"type": "integer", "minimum": 1, "maximum": 1000}
@@ -117,7 +117,7 @@ pub(super) fn tools() -> Vec<Value> {
             false,
         ),
         tool("read_file", "Read up to 1,000 original line-preserving UTF-8 source lines and receive the file SHA-256 edit precondition. Omit line bounds for the first 1,000 lines; request another window only when needed.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
-        tool("read_files", "Read up to 32 UTF-8 files in one MCP round trip, with at most 1,000 original line-preserving lines per file. Reads run in parallel and each file reports success or failure independently.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
+        tool("read_files", "Read up to 32 known files concurrently in one round trip, up to 1,000 original lines each. Each file returns its SHA and its own success/error. Prefer this over repeated read_file calls.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
         tool("read_media", "Inspect one bounded workspace media file. Metadata is always safe to return. Set include_content=true only when the MCP client explicitly advertises the run.francis.wcode/media-content extension for the media kind; otherwise wcode fails closed without emitting image/audio payloads. PNG/JPEG/GIF/WebP image content and MP3/WAV/Ogg/FLAC audio content are supported; MP4/WebM are metadata-only.", schema(json!({"path":{"type":"string"},"include_content":{"type":"boolean","default":false}}), &["path"]), true, false),
         tool("path_info", "Inspect one workspace path without loading the whole file into model context. Returns type, size, SHA-256 for files, readonly state, modification time, and hard-link count when available.", schema(json!({"path":{"type":"string"}}), &["path"]), true, false),
         tool("replace_text", "Atomically replace one exact text occurrence with a SHA-256 precondition and optional 1-based original line bounds. When start_line/end_line are supplied together, old_text must match exactly once inside that original range. Protected/symlink/hard-link targets remain blocked.", schema(json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path","old_text","new_text","expected_sha256"]), false, true),
@@ -152,22 +152,46 @@ fn schema(mut properties: Value, required: &[&str]) -> Value {
     })
 }
 
+pub(super) fn workspace_arg(args: &Value) -> Result<Option<&str>, String> {
+    let args = args.as_object().ok_or("arguments must be an object")?;
+    match args.get("workspace") {
+        None => Ok(None),
+        Some(Value::String(value)) if !value.trim().is_empty() => Ok(Some(value)),
+        Some(_) => Err("workspace must be a non-empty string when provided".to_owned()),
+    }
+}
+
 pub(crate) fn selected_workspace(
     state: &AppState,
     args: &Value,
 ) -> Result<(String, Workspace), String> {
     state
         .workspaces
-        .select(string_arg(args, "workspace"))
+        .select(workspace_arg(args)?)
         .map_err(|error| error.to_string())
 }
 
-pub(super) async fn run_blocking<F>(work: F) -> AnyResult<Value>
+tokio::task_local! {
+    pub(super) static BLOCKING_PERMIT: std::sync::Arc<tokio::sync::OwnedSemaphorePermit>;
+}
+
+pub(super) async fn run_blocking<F, T>(work: F) -> AnyResult<T>
 where
-    F: FnOnce() -> AnyResult<Value> + Send + 'static,
+    F: FnOnce() -> AnyResult<T> + Send + 'static,
+    T: Send + 'static,
 {
-    tokio::task::spawn_blocking(work)
+    // A started blocking worker outlives cancellation of its async caller.
+    // Keep its real slot until it finishes; JoinSet aborts work still queued.
+    let permit = BLOCKING_PERMIT.try_with(std::sync::Arc::clone).ok();
+    let mut tasks = tokio::task::JoinSet::new();
+    tasks.spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    });
+    tasks
+        .join_next()
         .await
+        .expect("one blocking worker was scheduled")
         .map_err(|error| anyhow!("blocking task failed: {error}"))?
 }
 

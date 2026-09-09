@@ -11,6 +11,39 @@ struct DocPage {
 }
 
 #[test]
+fn release_061_workflow_docs_keep_parallel_and_context_contracts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        let index = fs::read_to_string(root.join(format!("README{suffix}.md"))).unwrap();
+        assert!(index.contains("releases/v0.6.1/"));
+        let releases = fs::read_to_string(root.join(format!("releases{suffix}.md"))).unwrap();
+        assert!(releases.contains("(v0.6.1/)"));
+        let getting_started =
+            fs::read_to_string(root.join(format!("getting-started{suffix}.md"))).unwrap();
+        for term in [
+            "agent_context",
+            "project_context",
+            "parallel_tools",
+            "OVERVIEW",
+        ] {
+            assert!(getting_started.contains(term));
+        }
+        assert!(!getting_started.contains("four runtime counters"));
+        assert!(!getting_started.contains("四项运行指标"));
+        let notes = fs::read_to_string(root.join(format!("releases/v0.6.1{suffix}.md"))).unwrap();
+        for term in [
+            "0.6.1",
+            "parallel_tools",
+            "project_context",
+            "128",
+            "cargo test --locked",
+        ] {
+            assert!(notes.contains(term));
+        }
+    }
+}
+
+#[test]
 fn documentation_is_unified_bilingual_and_hosted_as_html() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 

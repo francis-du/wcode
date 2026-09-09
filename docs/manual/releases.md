@@ -13,10 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Latest
 
-- [v0.6](v0.6/) — parallel-first Agent execution, task-ready repository context, standardized LSP semantics, and exact authorization for bounded project commands.
+- [v0.6.1](v0.6.1/) — completion-driven parallel scheduling, focused context, compact tool routing, and a task-first TUI. Release preparation; publication is a separate action.
 
 ## 0.6.x
 
+- [v0.6.1](v0.6.1/) — ready successors no longer wait for unrelated tasks; safer dependencies and fewer redundant model tool calls.
 - [v0.6](v0.6/) — parallel execution contracts, stronger repository understanding, and less command friction without weakening hard safety boundaries.
 
 ## 0.5.x

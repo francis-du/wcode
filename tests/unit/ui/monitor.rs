@@ -15,6 +15,251 @@ fn monitor_test_workspaces(names: &[&str]) -> (tempfile::TempDir, Workspaces) {
     (root, workspaces)
 }
 
+fn monitor_test_config(workspaces: Workspaces) -> MonitorConfig {
+    MonitorConfig {
+        version: "test".to_owned(),
+        instance_id: "test-instance".to_owned(),
+        local_health_url: "http://127.0.0.1:8765/healthz".to_owned(),
+        public_url: Arc::new(std::sync::RwLock::new("https://example.test".to_owned())),
+        intelligence_url: "http://127.0.0.1:8765/intelligence".to_owned(),
+        project_url: "https://github.com/francis-du/wcode".to_owned(),
+        author_url: "https://github.com/francis-du".to_owned(),
+        author_handle: "@francis-du".to_owned(),
+        pairing_code: "123456".to_owned(),
+        max_parallel: 8,
+        input_token_price_per_million_usd: 5.0,
+        semantic_auto: true,
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+    }
+}
+
+fn monitor_test_request() -> AuthorizationRequest {
+    AuthorizationRequest {
+        id: "AUTH-00000001".to_owned(),
+        workspace: "backend".to_owned(),
+        kind: crate::authorization::AuthorizationKind::CommandAccess,
+        summary: "authorize command: git".to_owned(),
+        program: Some("git".to_owned()),
+        fingerprint: "test-request".to_owned(),
+        status: AuthorizationStatus::Pending,
+        created_at_ms: 1,
+        decided_at_ms: None,
+    }
+}
+
+fn monitor_test_text(
+    monitor: &TaskMonitor,
+    config: &MonitorConfig,
+    width: u16,
+    height: u16,
+    ui: &DashboardState,
+) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| draw_dashboard(frame, &monitor.snapshot(), config, 0, ui))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(usize::from(width))
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn dashboard_prioritizes_tasks_without_overview_in_both_languages() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    for provider in ["cloudflare", "localhost.run", "pinggy", "tailscale"] {
+        monitor.register_tunnel(provider, &format!("https://{provider}.test"));
+    }
+    let mut task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
+    task.start();
+    for connected in [false, true] {
+        if connected {
+            monitor.mark_mcp_initialized();
+        }
+        for (width, height) in [(40, 24), (80, 24), (100, 32), (140, 40)] {
+            for language in [UiLanguage::En, UiLanguage::ZhCn] {
+                let ui = DashboardState {
+                    language,
+                    ..DashboardState::default()
+                };
+                let text = monitor_test_text(&monitor, &config, width, height, &ui);
+                assert!(!text.contains("OVERVIEW") && !text.contains("总览"));
+                assert!(
+                    text.contains("read_file"),
+                    "task missing at {width}x{height}"
+                );
+                assert!(text.contains("123456"));
+                if !connected {
+                    for provider in ["cloudflare", "localhost.run", "pinggy", "tailscale"] {
+                        assert!(
+                            text.contains(provider),
+                            "missing {provider} at {width}x{height}"
+                        );
+                    }
+                }
+                if height < 28 {
+                    assert!(!text.contains("THROUGHPUT") && !text.contains("吞吐量"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn minimum_connected_dashboard_contains_real_task_rows() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.mark_mcp_initialized();
+    let _first = monitor.queue("backend", "read_file", "first", 1);
+    let _second = monitor.queue("backend", "search_code", "second", 1);
+    let text = monitor_test_text(&monitor, &config, 80, 14, &DashboardState::default());
+    assert!(text.contains("read_file"));
+    assert!(text.contains("search_code"));
+}
+
+#[test]
+fn hidden_or_tiny_authorization_overlays_are_not_actionable() {
+    let area = Rect::new(0, 0, 100, 24);
+    let mut ui = DashboardState {
+        pending_authorizations: vec![monitor_test_request()],
+        ..DashboardState::default()
+    };
+    assert!(ui.authorization_visible(area));
+    assert!(!ui.authorization_visible(Rect::new(0, 0, 39, 24)));
+    assert!(!ui.authorization_visible(Rect::new(0, 0, 100, 9)));
+    ui.help_open = true;
+    assert!(!ui.authorization_visible(area));
+    ui.help_open = false;
+    ui.commands_open = true;
+    assert!(!ui.authorization_visible(area));
+    ui.commands_open = false;
+    ui.intelligence_open = true;
+    assert!(!ui.authorization_visible(area));
+    ui.intelligence_open = false;
+    ui.workspace_input = Some(String::new());
+    assert!(!ui.authorization_visible(area));
+    ui.workspace_input = None;
+    ui.full_access_confirm = true;
+    assert!(!ui.authorization_visible(area));
+    assert!(ui.full_access_visible(area));
+    assert!(!ui.full_access_visible(Rect::new(0, 0, 47, 24)));
+    assert!(!ui.full_access_visible(Rect::new(0, 0, 100, 11)));
+}
+
+#[test]
+fn authorization_controls_stay_above_status_messages() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    let ui = DashboardState {
+        pending_authorizations: vec![monitor_test_request()],
+        workspace_message: Some("previous operation finished".to_owned()),
+        ..DashboardState::default()
+    };
+    let text = monitor_test_text(&monitor, &config, 100, 24, &ui);
+    assert!(text.contains("AUTH-00000001"));
+    assert!(text.contains("approve selected"));
+    assert!(text.contains("deny selected"));
+}
+
+#[test]
+fn help_clicks_match_rendered_rows_and_do_not_click_through() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    let ui = DashboardState {
+        help_open: true,
+        ..DashboardState::default()
+    };
+    for (width, height) in [(70, 18), (140, 32)] {
+        let text = monitor_test_text(&monitor, &config, width, height, &ui);
+        for (label, target) in [
+            ("Project:", &config.project_url),
+            ("Health:", &config.local_health_url),
+        ] {
+            let row = text.lines().position(|line| line.contains(label)).unwrap() as u16;
+            assert!((0..width).any(|column| {
+                let click = MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                };
+                dashboard_link_at(&click, width, height, &ui, &config).as_ref() == Some(target)
+            }));
+        }
+        for row in [height - 2, height - 1] {
+            for column in 0..width {
+                let click = MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                };
+                assert!(dashboard_link_at(&click, width, height, &ui, &config).is_none());
+            }
+        }
+    }
+    assert!(help_link_at((3, 13), Rect::new(0, 0, 70, 14), &config).is_none());
+}
+
+#[test]
+fn chinese_footer_setup_hitbox_uses_display_columns() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    for language in [UiLanguage::En, UiLanguage::ZhCn] {
+        let ui = DashboardState {
+            language,
+            ..DashboardState::default()
+        };
+        let mut terminal = Terminal::new(TestBackend::new(140, 32)).unwrap();
+        terminal
+            .draw(|frame| render_footer(frame, Rect::new(0, 30, 140, 2), &config, language))
+            .unwrap();
+        let row = &terminal.backend().buffer().content[140 * 31..140 * 32];
+        let column = row.iter().position(|cell| cell.symbol() == "O").unwrap() as u16;
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row: 31,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            dashboard_link_at(&click, 140, 32, &ui, &config),
+            Some(config.setup_url())
+        );
+    }
+}
+
+#[test]
+fn truncation_preserves_graphemes_and_respects_terminal_width() {
+    for value in ["abcdef", "工作区路径", "e\u{301}abc", "👩‍💻文件.rs"] {
+        for width in 0..16 {
+            assert!(Span::raw(truncate_end(value, width)).width() <= width);
+            assert!(Span::raw(truncate_middle(value, width)).width() <= width);
+        }
+    }
+    assert_eq!(truncate_end("工作区", 5), "工作…");
+    assert_eq!(truncate_end("e\u{301}abc", 2), "e\u{301}…");
+    assert_eq!(truncate_end("👩‍💻abc", 3), "👩‍💻…");
+    assert_eq!(truncate_middle("abcdef", 5), "ab…ef");
+}
+
+#[test]
+fn sparkline_handles_saturated_counters_without_overflow() {
+    assert_eq!(sparkline(&[0, u64::MAX]), "▁█");
+    assert_eq!(sparkline(&[]), "");
+    assert_eq!(sparkline(&[0, 0]), "▁▁");
+}
+
 #[test]
 fn tracks_task_lifecycle_per_workspace_and_bytes() {
     let monitor = TaskMonitor::new(["api".to_owned(), "web".to_owned()]);
@@ -464,7 +709,7 @@ fn help_and_footer_render_project_and_author_links() {
     assert!(text.contains("VERIFY CODE 123456"));
     assert!(text.contains("INSTANCE"));
     assert!(text.contains("127.0.0.1:8765"));
-    assert!(text.contains("OVERVIEW"));
+    assert!(!text.contains("OVERVIEW"));
     assert!(text.contains("WORKSPACE ACTIVITY"));
     assert!(text.contains("THROUGHPUT"));
     assert!(text.contains("SLOT UTILIZATION"));

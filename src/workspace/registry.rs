@@ -152,7 +152,7 @@ impl Workspaces {
     }
 
     fn effective_security(&self) -> WorkspaceSecurity {
-        if self.full_access.load(Ordering::Relaxed) {
+        if self.full_access_enabled() {
             self.full_access_security()
         } else {
             self.security
@@ -160,14 +160,19 @@ impl Workspaces {
     }
 
     pub fn full_access_enabled(&self) -> bool {
-        self.full_access.load(Ordering::Relaxed)
+        self.full_access.load(Ordering::Acquire)
     }
 
     pub fn grant_full_user_access(&self) -> Result<(String, PathBuf)> {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
-            .context("HOME/USERPROFILE is not set")?
+            .context("HOME/USERPROFILE is not set")?;
+        self.grant_full_user_access_at(&home)
+    }
+
+    pub(super) fn grant_full_user_access_at(&self, home: &Path) -> Result<(String, PathBuf)> {
+        let home = home
             .canonicalize()
             .context("cannot resolve the current user home directory")?;
         let security = self.full_access_security();
@@ -175,55 +180,56 @@ impl Workspaces {
             .roots
             .write()
             .expect("workspace registry lock poisoned");
+        let existing_id = roots
+            .iter()
+            .find(|entry| entry.workspace.root() == home)
+            .map(|entry| entry.id.clone());
+        if existing_id.is_none() && roots.len() >= MAX_WORKSPACES {
+            bail!("at most {MAX_WORKSPACES} workspaces may be exposed by one process");
+        }
 
-        let mut elevated = Vec::with_capacity(roots.len());
-        for entry in roots.iter() {
+        // Stage the whole transition without mutating shared command/lock state.
+        // Existing handles retain their policy; registry clones share the same
+        // per-file locks and explicit command approvals/revocations.
+        let mut elevated = roots.clone();
+        for entry in &mut elevated {
+            entry.workspace.path_info(".")?;
+            entry.workspace.allow_write = true;
+            entry.workspace.allow_exec = true;
+            entry.workspace.security = security;
+            if !entry.markers.contains(&"full-access") {
+                entry.markers.push("full-access");
+            }
+        }
+        let id = if let Some(id) = existing_id {
+            id
+        } else {
             let workspace = Workspace::new_with_authorization(
-                entry.workspace.root(),
+                &home,
                 true,
                 true,
                 security,
                 self.authorization.clone(),
             )?;
-            workspace.set_authorization_workspace_id(&entry.id);
-            elevated.push(workspace);
-        }
-        for (entry, workspace) in roots.iter_mut().zip(elevated) {
-            entry.workspace = workspace;
-            if !entry.markers.contains(&"full-access") {
-                entry.markers.push("full-access");
+            let mut used_ids = HashMap::<String, usize>::new();
+            for existing in elevated.iter().filter(|entry| entry.parent_id.is_none()) {
+                *used_ids
+                    .entry(workspace_id(existing.workspace.root()))
+                    .or_insert(0) += 1;
             }
-        }
-
-        if let Some(existing) = roots.iter().find(|entry| entry.workspace.root() == home) {
-            self.full_access.store(true, Ordering::Relaxed);
-            return Ok((existing.id.clone(), home));
-        }
-        if roots.len() >= MAX_WORKSPACES {
-            bail!("at most {MAX_WORKSPACES} workspaces may be exposed by one process");
-        }
-        let workspace = Workspace::new_with_authorization(
-            &home,
-            true,
-            true,
-            security,
-            self.authorization.clone(),
-        )?;
-        let mut used_ids = HashMap::<String, usize>::new();
-        for existing in roots.iter().filter(|entry| entry.parent_id.is_none()) {
-            *used_ids
-                .entry(workspace_id(existing.workspace.root()))
-                .or_insert(0) += 1;
-        }
-        let id = next_workspace_id(&workspace.root, &roots, &mut used_ids);
-        workspace.set_authorization_workspace_id(&id);
-        roots.push(WorkspaceRoot {
-            id: id.clone(),
-            workspace,
-            parent_id: None,
-            markers: vec!["full-access", "user-home"],
-        });
-        self.full_access.store(true, Ordering::Relaxed);
+            let id = next_workspace_id(&workspace.root, &elevated, &mut used_ids);
+            workspace.set_authorization_workspace_id(&id);
+            elevated.push(WorkspaceRoot {
+                id: id.clone(),
+                workspace,
+                parent_id: None,
+                markers: vec!["full-access", "user-home"],
+            });
+            id
+        };
+        // No fallible operation follows publication of the prepared registry.
+        *roots = elevated;
+        self.full_access.store(true, Ordering::Release);
         Ok((id, home))
     }
 
@@ -251,6 +257,11 @@ impl Workspaces {
     }
 
     fn add_workspace_path(&self, root: &Path, allow_derived: bool) -> Result<(String, PathBuf)> {
+        // Read effective policy under the same lock as full-access publication.
+        let mut roots = self
+            .roots
+            .write()
+            .expect("workspace registry lock poisoned");
         let security = self.effective_security();
         let allow_write = self.allow_write || self.full_access_enabled();
         let allow_exec = self.allow_exec || self.full_access_enabled();
@@ -261,10 +272,6 @@ impl Workspaces {
             security,
             self.authorization.clone(),
         )?;
-        let mut roots = self
-            .roots
-            .write()
-            .expect("workspace registry lock poisoned");
         if let Some(existing) = roots
             .iter()
             .find(|existing| existing.workspace.root == workspace.root)

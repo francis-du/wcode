@@ -313,6 +313,7 @@ impl TerminalSession {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide) {
+            let _ = execute!(stdout, DisableMouseCapture, Show, LeaveAlternateScreen);
             let _ = disable_raw_mode();
             return Err(error);
         }
@@ -354,10 +355,26 @@ struct DashboardState {
     workspace_message: Option<String>,
     full_access_confirm: bool,
     authorization_focus: usize,
+    pending_authorizations: Vec<AuthorizationRequest>,
     language: UiLanguage,
 }
 
 impl DashboardState {
+    fn authorization_visible(&self, area: Rect) -> bool {
+        !self.pending_authorizations.is_empty()
+            && !self.help_open
+            && !self.intelligence_open
+            && !self.commands_open
+            && !self.full_access_confirm
+            && self.workspace_input.is_none()
+            && area.width >= 40
+            && area.height >= 10
+    }
+
+    fn full_access_visible(&self, area: Rect) -> bool {
+        self.full_access_confirm && area.width >= 48 && area.height >= 12
+    }
+
     fn clamp(&mut self, total: usize, visible: usize) {
         if total == 0 {
             self.workspace_focus = 0;

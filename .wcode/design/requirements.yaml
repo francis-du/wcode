@@ -180,7 +180,7 @@
 - schema_version: 1
   id: REQ-SCHEDULER-001
   title: Dependency-aware parallel tool scheduling
-  intent: Independent workspace reads and writes must fan out under the global capacity cap while conflicting resources are dependency ordered and safe same-file edits are coalesced atomically.
+  intent: Independent workspace reads and writes must fan out under the global capacity cap while conflicting resources are dependency ordered and safe same-file edits are coalesced atomically. Ready successors must dispatch on predecessor completion without unrelated layer barriers. Parent and discovered subspace aliases must share physical-path dependency identity. Failed predecessors skip dependent work while unrelated branches continue; parent cancellation must not detach queued writes. Coalescing must not cross intervening dependent operations or exceed the transaction edit limit.
   priority: critical
   implemented_by:
     - component:scheduler
@@ -429,7 +429,7 @@
 - schema_version: 1
   id: REQ-OBSERVABILITY-001
   title: Architecture-first project observability
-  intent: The protected WebUI must first expose the complete component architecture as a Design-vs-Actual dependency graph with interpretable observed-drift, evidence-coverage and implementation-coverage metrics, explicit provider/precision, and component/module drill-down for responsibilities, implementation mappings, related requirements, dependencies and current changes. Requirement detail then remains organized as Desired State → Actual State → Change → Proof → Convergence with revision-exact Evidence and real blockers. Negative inference must remain precision-aware; absence from a bounded syntax graph is advisory rather than proof of a missing dependency.
+  intent: The protected WebUI must first expose the complete component architecture as a Design-vs-Actual dependency graph with interpretable observed-drift, evidence-coverage and implementation-coverage metrics, explicit provider/precision, and component/module drill-down for responsibilities, implementation mappings, related requirements, dependencies and current changes. Requirement detail then remains organized as Desired State → Actual State → Change → Proof → Convergence with revision-exact Evidence and real blockers. Verification mapping must be reported separately from actual Executed, Passed, and Fresh acceptance Evidence so complete traceability never implies a current passing run. Negative inference must remain precision-aware; absence from a bounded syntax graph is advisory rather than proof of a missing dependency.
   priority: critical
   implemented_by:
     - component:intelligence-ui
@@ -496,7 +496,7 @@
 - schema_version: 1
   id: REQ-AGENT-CONTEXT-001
   title: Token-efficient edit-ready agent context
-  intent: Coding agents must be able to start substantial implementation work from one bounded task-specific context pack that prioritizes relevant Design State, symbol signatures, exact edit SHA preconditions, verification references, graph evidence and quality gates while excluding unrelated traceability, ranking likely callers/callees/helpers through a compact repository map, and deferring source bodies until explicitly requested. Readiness must default ordinary single-target work to a minimal-patch strategy with an explicit zero-growth complexity budget for new production files, abstractions, configuration knobs and public API changes, escalating only when current-task evidence requires broader structure. Multi-step work must persist a per-Workspace revision-guarded Worklist across reconnects/model switches; Agent Context restores active unfinished work, stale concurrent updates fail closed, blocked items remain unfinished, and a new list cannot silently replace unfinished user tasks.
+  intent: Coding agents must be able to start substantial implementation work from one bounded task-specific context pack that prioritizes relevant Design State, symbol signatures, exact edit SHA preconditions, verification references, graph evidence and quality gates while excluding unrelated traceability, ranking likely callers/callees/helpers through a compact repository map, and deferring source bodies until explicitly requested. Readiness must default ordinary single-target work to a minimal-patch strategy with an explicit zero-growth complexity budget for new production files, abstractions, configuration knobs and public API changes, escalating only when current-task evidence requires broader structure. Multi-step work must persist a per-Workspace revision-guarded Worklist across reconnects/model switches; Agent Context restores active unfinished work, stale concurrent updates fail closed, blocked items remain unfinished, and a new list cannot silently replace unfinished user tasks. Direct edit targets must retain file-SHA priority over unrelated alphabetical mappings; repeated sizing must preserve truncation state. Parallel recommendations may use discovery scopes and active Worklist lanes but must respect the runtime cap. Tool routing must not require duplicate repository-context startup or repeated schema discovery.
   priority: critical
   implemented_by:
     - component:agent-context

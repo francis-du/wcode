@@ -203,6 +203,11 @@ mod tests {
     assert_eq!(project.convergence.stable_requirements, 1);
     assert_eq!(project.convergence.needs_convergence_requirements, 0);
     assert_eq!(project.proof.current_evidence, 0);
+    assert_eq!(project.proof.acceptance.total, 1);
+    assert_eq!(project.proof.acceptance.mapped, 1);
+    assert_eq!(project.proof.acceptance.executed, 0);
+    assert_eq!(project.proof.acceptance.passed, 0);
+    assert_eq!(project.proof.acceptance.fresh, 0);
     assert_eq!(project.architecture.components.len(), 2);
     assert_eq!(project.architecture.desired_edges, 1);
     assert_eq!(project.architecture.aligned_edges, 1);
@@ -224,6 +229,45 @@ mod tests {
             && dependency.actual
             && dependency.status == "aligned"
     }));
+
+    harness
+        .intelligence
+        .record_verification_report(
+            "demo",
+            &workspace,
+            &harness.intelligence.current_revision(&workspace).unwrap(),
+            &crate::harness::VerificationReport {
+                workspace: "demo".into(),
+                level: "quick".into(),
+                execution: "fixture".into(),
+                phases_run: 1,
+                passed: true,
+                checks_run: 1,
+                checks_failed: 0,
+                elapsed_ms: 1,
+                summary: "fixture passed".into(),
+                checks: vec![crate::harness::VerificationCheck {
+                    id: "rust-test".into(),
+                    phase: 0,
+                    command: "cargo test --locked".into(),
+                    reason: "fixture".into(),
+                    success: true,
+                    exit_code: Some(0),
+                    elapsed_ms: 1,
+                    stdout_tail: String::new(),
+                    stderr_tail: String::new(),
+                    output_truncated: false,
+                }],
+            },
+        )
+        .unwrap();
+    let proved = harness
+        .project_observatory("demo", &workspace, None)
+        .unwrap();
+    assert_eq!(proved.proof.acceptance.mapped, 1);
+    assert_eq!(proved.proof.acceptance.executed, 1);
+    assert_eq!(proved.proof.acceptance.passed, 1);
+    assert_eq!(proved.proof.acceptance.fresh, 1);
 
     fs::write(
         root.path().join("src/lib.rs"),
@@ -248,6 +292,9 @@ mod tests {
     let changed = harness
         .project_observatory("demo", &workspace, None)
         .unwrap();
+    assert_eq!(changed.proof.acceptance.executed, 1);
+    assert_eq!(changed.proof.acceptance.passed, 1);
+    assert_eq!(changed.proof.acceptance.fresh, 0);
     assert!(changed.history.len() >= 2);
     let changed_feature = changed
         .requirements

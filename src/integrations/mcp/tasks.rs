@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
-use tokio::task::AbortHandle;
+use tokio::task::{AbortHandle, JoinSet};
 
 pub(crate) const TASK_EXTENSION_ID: &str = "io.modelcontextprotocol/tasks";
 const TASK_AUGMENTED_TOOLS: &[&str] = &["semantic_provider_refresh", "verification_execute_stages"];
@@ -27,6 +27,14 @@ impl TaskRuntime {
             .lock()
             .expect("MCP task worker lock poisoned")
             .insert(task_id, handle);
+    }
+
+    fn running(&self, task_id: &str) -> bool {
+        self.workers
+            .lock()
+            .expect("MCP task worker lock poisoned")
+            .get(task_id)
+            .is_some_and(|handle| !handle.is_finished())
     }
 
     fn remove(&self, task_id: &str) {
@@ -149,15 +157,15 @@ pub(super) async fn create_tool_task(
         tool_name,
         state.auth.instance_id().to_owned(),
     );
-    {
-        let _guard = state
-            .tasks
-            .state_lock
-            .lock()
-            .map_err(|_| TaskRpcError::internal("MCP task state lock poisoned"))?;
-        task_store::persist(&workspace, &record)
-            .map_err(|error| TaskRpcError::internal(error.to_string()))?;
-    }
+    // Creation and registration are one transition: a concurrent poll must
+    // never observe a working record before its worker has been registered.
+    let _guard = state
+        .tasks
+        .state_lock
+        .lock()
+        .map_err(|_| TaskRpcError::internal("MCP task state lock poisoned"))?;
+    task_store::persist(&workspace, &record)
+        .map_err(|error| TaskRpcError::internal(error.to_string()))?;
 
     let task_id = record.task_id.clone();
     let worker_task_id = task_id.clone();
@@ -165,18 +173,25 @@ pub(super) async fn create_tool_task(
     let worker_workspace = workspace.clone();
     let (start_tx, start_rx) = oneshot::channel::<()>();
     let join = tokio::spawn(async move {
-        let _ = start_rx.await;
+        if start_rx.await.is_err() {
+            worker_state.tasks.remove(&worker_task_id);
+            return;
+        }
         let tool_state = worker_state.clone();
-        let outcome = match tokio::spawn(async move { call_tool(&tool_state, params).await }).await
-        {
-            Ok(outcome) => outcome,
-            Err(error) => Err(if error.is_cancelled() {
+        // The durable worker deliberately outlives its creation request, but
+        // cancel/TTL aborts must also stop the tool future that it owns.
+        let mut tools = JoinSet::new();
+        tools.spawn(async move { call_tool(&tool_state, params).await });
+        let outcome = match tools.join_next().await {
+            Some(Ok(outcome)) => outcome,
+            Some(Err(error)) => Err(if error.is_cancelled() {
                 "task tool worker was cancelled".to_owned()
             } else if error.is_panic() {
                 "task tool worker panicked".to_owned()
             } else {
                 format!("task tool worker failed to join: {error}")
             }),
+            None => Err("task tool worker did not start".to_owned()),
         };
         let Ok(_guard) = worker_state.tasks.state_lock.lock() else {
             worker_state.tasks.remove(&worker_task_id);
@@ -194,12 +209,27 @@ pub(super) async fn create_tool_task(
             Ok(value) => current.complete(modern_result(value)),
             Err(error) => current.fail(-32602, error),
         }
-        let _ = task_store::persist(&worker_workspace, &current);
+        if let Err(error) = persist_task_result(&worker_workspace, &mut current) {
+            tracing::warn!(task_id = %worker_task_id, %error, "MCP task final state was not persisted");
+        }
         worker_state.tasks.remove(&worker_task_id);
     });
     state.tasks.register(task_id, join.abort_handle());
     let _ = start_tx.send(());
     Ok(modern_result(record.create_result()))
+}
+
+fn persist_task_result(workspace: &Workspace, record: &mut TaskRecord) -> anyhow::Result<()> {
+    if let Err(error) = task_store::persist(workspace, record) {
+        tracing::warn!(task_id = %record.task_id, %error, "MCP task result was not persisted");
+        record.fail(
+            -32603,
+            "task result could not be persisted; inspect actual effects before retrying the tool"
+                .to_owned(),
+        );
+        task_store::persist(workspace, record)?;
+    }
+    Ok(())
 }
 
 fn load_owned_task(
@@ -240,10 +270,19 @@ pub(super) fn get_task(
             .map_err(|error| TaskRpcError::internal(error.to_string()))?;
         state.tasks.remove(task_id);
     } else if record.status == TaskStatus::Working && record.expired(task_store_now_ms()) {
+        state.tasks.abort(task_id);
         record.fail(-32603, "task exceeded its durable TTL".to_owned());
         task_store::persist(&workspace, &record)
             .map_err(|error| TaskRpcError::internal(error.to_string()))?;
-        state.tasks.abort(task_id);
+    } else if record.status == TaskStatus::Working && !state.tasks.running(task_id) {
+        record.fail(
+            -32603,
+            "task worker ended without a durable result; inspect actual effects before retrying"
+                .to_owned(),
+        );
+        task_store::persist(&workspace, &record)
+            .map_err(|error| TaskRpcError::internal(error.to_string()))?;
+        state.tasks.remove(task_id);
     }
     if record.status.terminal() {
         state.tasks.remove(task_id);
@@ -262,12 +301,13 @@ pub(super) fn cancel_task(
         .lock()
         .map_err(|_| TaskRpcError::internal("MCP task state lock poisoned"))?;
     let (_workspace_id, workspace, mut record) = load_owned_task(state, task_id, owner)?;
+    // Once ownership is verified, a disk error must not keep the tool running.
+    state.tasks.abort(task_id);
     if !record.status.terminal() {
         record.cancel();
         task_store::persist(&workspace, &record)
             .map_err(|error| TaskRpcError::internal(error.to_string()))?;
     }
-    state.tasks.abort(task_id);
     Ok(modern_result(json!({"resultType":"complete"})))
 }
 
@@ -293,3 +333,7 @@ fn task_store_now_ms() -> u64 {
         .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/integrations/mcp/tasks.rs"]
+mod tests;

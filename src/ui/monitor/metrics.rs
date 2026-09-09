@@ -1,175 +1,5 @@
 use super::*;
 
-pub(super) fn render_overview(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    snapshot: &MonitorSnapshot,
-    config: &MonitorConfig,
-    compact: bool,
-    language: UiLanguage,
-) {
-    let totals = totals(snapshot);
-    let observed_active = snapshot.observed_active.max(totals.active);
-    let observed_queued = snapshot.observed_queued.max(totals.queued);
-    let success = success_rate(totals.completed, totals.failed);
-    let (requests, rx_30s, tx_30s) = window_totals(snapshot, Duration::from_secs(30));
-    let rate = requests as f64 / 30.0;
-    let context_tokens = estimated_tokens(totals.response_bytes);
-    let saved_tokens = estimated_tokens(totals.context_bytes_avoided);
-    let estimated_context_cost = estimated_cost_usd(
-        totals.response_bytes,
-        config.input_token_price_per_million_usd,
-    );
-    let estimated_savings = estimated_cost_usd(
-        totals.context_bytes_avoided,
-        config.input_token_price_per_million_usd,
-    );
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE))
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(
-            format!(" {} ", language.tr("OVERVIEW")),
-            Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-        ))
-        .title(
-            Line::from(Span::styled(
-                format!(
-                    " 30S  {rate:.1} req/s · RX {} · TX {} ",
-                    short_bytes(rx_30s),
-                    short_bytes(tx_30s)
-                ),
-                Style::default().fg(TEXT_DIM),
-            ))
-            .right_aligned(),
-        );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    if compact || inner.width < 82 || inner.height < 2 {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(vec![
-                    compact_metric(language.tr("RUN"), observed_active, ACCENT),
-                    Span::raw("   "),
-                    compact_metric(language.tr("WAIT"), observed_queued, WARNING),
-                    Span::raw("   "),
-                    compact_metric(language.tr("DONE"), totals.completed, SUCCESS),
-                    Span::raw("   "),
-                    compact_metric(
-                        language.tr("FAIL"),
-                        totals.failed,
-                        if totals.failed > 0 { DANGER } else { TEXT_DIM },
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::styled("SUCCESS ", Style::default().fg(TEXT_DIM)),
-                    Span::styled(format!("{success:.1}%"), Style::default().fg(SUCCESS)),
-                    Span::styled("   CTX ~", Style::default().fg(TEXT_DIM)),
-                    Span::styled(short_tokens(context_tokens), Style::default().fg(LINK)),
-                    Span::styled(
-                        format!(" · COST {}", short_usd(estimated_context_cost)),
-                        Style::default().fg(LINK),
-                    ),
-                    Span::styled("   SAVED ~", Style::default().fg(TEXT_DIM)),
-                    Span::styled(short_tokens(saved_tokens), Style::default().fg(SECONDARY)),
-                    Span::styled(
-                        format!(" · SAVE {}", short_usd(estimated_savings)),
-                        Style::default().fg(SUCCESS),
-                    ),
-                ]),
-            ]),
-            inner,
-        );
-        return;
-    }
-
-    let cards = split_rects_with_gap(inner, 4, 1);
-    render_metric_card(
-        frame,
-        cards[0],
-        language.tr("ACTIVE"),
-        observed_active.to_string(),
-        if observed_active > totals.active {
-            format!("now {} · peak {}", totals.active, snapshot.peak_active)
-        } else {
-            format!("peak {}", snapshot.peak_active)
-        },
-        ACCENT,
-    );
-    render_metric_card(
-        frame,
-        cards[1],
-        language.tr("QUEUED"),
-        observed_queued.to_string(),
-        if observed_queued > totals.queued {
-            format!("now {} · recent peak", totals.queued)
-        } else {
-            "waiting".to_owned()
-        },
-        WARNING,
-    );
-    render_metric_card(
-        frame,
-        cards[2],
-        language.tr("COMPLETED"),
-        totals.completed.to_string(),
-        format!("{success:.1}% success"),
-        SUCCESS,
-    );
-    render_metric_card(
-        frame,
-        cards[3],
-        language.tr("FAILED"),
-        totals.failed.to_string(),
-        if totals.failed == 0 {
-            "clean".to_owned()
-        } else {
-            "inspect".to_owned()
-        },
-        if totals.failed > 0 { DANGER } else { TEXT_DIM },
-    );
-}
-
-fn compact_metric(label: &'static str, value: u64, color: Color) -> Span<'static> {
-    Span::styled(
-        format!("{label} {value}"),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    )
-}
-
-fn render_metric_card(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    label: &str,
-    value: String,
-    detail: String,
-    color: Color,
-) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE_RAISED))
-        .padding(Padding::horizontal(1));
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                value,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(vec![
-                Span::styled(label.to_owned(), Style::default().fg(TEXT_DIM)),
-                Span::styled(format!("  {detail}"), Style::default().fg(TEXT_MUTED)),
-            ]),
-        ])
-        .block(block),
-        area,
-    );
-}
-
 pub(super) fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
     if count == 0 {
         return Vec::new();
@@ -196,7 +26,7 @@ pub(super) fn render_throughput(
     language: UiLanguage,
 ) {
     let totals = totals(snapshot);
-    let bins = request_bins(snapshot, 12, Duration::from_secs(3));
+    let bins = request_bins(snapshot, 10, Duration::from_secs(3));
     let sparkline = sparkline(&bins);
     let (requests, rx, tx) = window_totals(snapshot, Duration::from_secs(30));
     let avoided_30s = window_context_avoided(snapshot, Duration::from_secs(30));
@@ -222,7 +52,11 @@ pub(super) fn render_throughput(
     frame.render_widget(block, area);
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .constraints(if inner.width < 100 {
+            [Constraint::Percentage(100), Constraint::Percentage(0)]
+        } else {
+            [Constraint::Percentage(58), Constraint::Percentage(42)]
+        })
         .split(inner);
 
     frame.render_widget(
@@ -295,8 +129,8 @@ pub(super) fn sparkline(values: &[u64]) -> String {
             if maximum == 0 {
                 LEVELS[0]
             } else {
-                let index = (*value as usize * (LEVELS.len() - 1)) / maximum as usize;
-                LEVELS[index]
+                let index = u128::from(*value) * (LEVELS.len() - 1) as u128 / u128::from(maximum);
+                LEVELS[index as usize]
             }
         })
         .collect()
@@ -368,36 +202,58 @@ pub(super) fn short_usd(value: f64) -> String {
     }
 }
 
-pub(super) fn truncate_end(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        value.to_owned()
-    } else if max_chars <= 1 {
-        "…".to_owned()
-    } else {
-        let mut output = value.chars().take(max_chars - 1).collect::<String>();
-        output.push('…');
-        output
+pub(super) fn truncate_end(value: &str, max_columns: usize) -> String {
+    if max_columns == 0 {
+        return String::new();
     }
-}
-
-pub(super) fn truncate_middle(value: &str, max_chars: usize) -> String {
-    let len = value.chars().count();
-    if len <= max_chars {
+    let span = Span::raw(value);
+    if span.width() <= max_columns {
         return value.to_owned();
     }
-    if max_chars <= 3 {
-        return "…".to_owned();
+    let mut output = String::new();
+    let mut remaining = max_columns - 1;
+    for grapheme in span.styled_graphemes(Style::default()) {
+        let width = Span::raw(grapheme.symbol).width();
+        if width > remaining {
+            break;
+        }
+        output.push_str(grapheme.symbol);
+        remaining -= width;
     }
-    let left = (max_chars - 1) / 2;
-    let right = max_chars - left - 1;
-    let start = value.chars().take(left).collect::<String>();
-    let end = value
-        .chars()
-        .rev()
-        .take(right)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-    format!("{start}…{end}")
+    output.push('…');
+    output
+}
+
+pub(super) fn truncate_middle(value: &str, max_columns: usize) -> String {
+    if max_columns == 0 {
+        return String::new();
+    }
+    let span = Span::raw(value);
+    if span.width() <= max_columns {
+        return value.to_owned();
+    }
+    let graphemes = span
+        .styled_graphemes(Style::default())
+        .map(|grapheme| (grapheme.symbol, Span::raw(grapheme.symbol).width()))
+        .collect::<Vec<_>>();
+    let mut start = String::new();
+    let mut left = (max_columns - 1) / 2;
+    for (symbol, width) in &graphemes {
+        if *width > left {
+            break;
+        }
+        start.push_str(symbol);
+        left -= width;
+    }
+    let mut right = max_columns - 1 - Span::raw(start.as_str()).width();
+    let mut suffix = graphemes.len();
+    while suffix > 0 && graphemes[suffix - 1].1 <= right {
+        suffix -= 1;
+        right -= graphemes[suffix].1;
+    }
+    start.push('…');
+    for (symbol, _) in &graphemes[suffix..] {
+        start.push_str(symbol);
+    }
+    start
 }

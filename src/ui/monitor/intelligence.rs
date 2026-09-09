@@ -323,7 +323,9 @@ pub(super) fn render_intelligence_overlay(
         ),
         intelligence_line(
             language.tr("TRACE"),
-            format!("implementation {implementation} · verification {verification}"),
+            format!(
+                "implementation mapped {implementation} · verification refs mapped {verification}"
+            ),
             if stats.implementation_coverage == Some(100)
                 && stats.verification_coverage == Some(100)
             {

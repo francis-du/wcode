@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "context_budget.rs"]
+mod context_budget;
+use context_budget::trim_agent_context;
+
 const MIN_AGENT_CONTEXT_BUDGET: usize = 1_000;
 const MAX_AGENT_CONTEXT_BUDGET: usize = 12_000;
 const MAX_AGENT_GUIDANCE: usize = 2;
@@ -142,6 +146,16 @@ impl ToolHarness {
                 }
             }
         }
+        // A lexical path limit can evict the actual edit target behind unrelated
+        // Design mappings. Preserve direct-symbol order, then ranked repo-map order.
+        let mut paths = paths.into_iter().collect::<Vec<_>>();
+        paths.sort_by_key(|(path, _)| {
+            let direct = targets.iter().position(|target| target["path"] == *path);
+            let ranked = repo_map["items"]
+                .as_array()
+                .and_then(|items| items.iter().position(|item| item["path"] == *path));
+            (direct.unwrap_or(usize::MAX), ranked.unwrap_or(usize::MAX))
+        });
         let files = paths
             .into_iter()
             .filter_map(|(path, reasons)| {
@@ -274,7 +288,7 @@ impl ToolHarness {
                 "profile_ms": profile_ms,
                 "software_context_ms": software_context_ms,
             },
-            "readiness": {},
+            "readiness": {"parallelism": {"max_parallel": self.max_parallel}},
             "provenance_defaults": {
                 "targets": {"provider": "tree-sitter", "precision": "syntax"},
                 "repo_map_symbols": {"provider": "tree-sitter", "precision": "syntax"},
@@ -309,13 +323,7 @@ impl ToolHarness {
             ],
         });
         update_agent_readiness(&mut pack);
-        trim_agent_context(&mut pack, budget)?;
-        update_agent_readiness(&mut pack);
-        trim_agent_context(&mut pack, budget)?;
-        update_agent_readiness(&mut pack);
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
-        trim_agent_context(&mut pack, budget)?;
-        update_agent_readiness(&mut pack);
         finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
         Ok(pack)
     }
@@ -665,9 +673,25 @@ fn update_agent_readiness(value: &mut Value) {
         .and_then(Value::as_u64)
         .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(0);
+    let discovery_lanes = if targets == 0 {
+        value["scopes"].as_array().map_or(0, Vec::len)
+    } else {
+        0
+    };
+    let worklist_lanes = value
+        .pointer("/worklist/parallel_runnable")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let max_parallel = value
+        .pointer("/readiness/parallelism/max_parallel")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .max(1) as usize;
     let candidate_lanes = target_paths
         .len()
         .max(editable_files)
+        .max(discovery_lanes)
+        .max(worklist_lanes)
         .max(previous_candidate_lanes)
         .max(1);
     let parallel_strategy = if candidate_lanes > 1 {
@@ -724,7 +748,8 @@ fn update_agent_readiness(value: &mut Value) {
             "strategy": parallel_strategy,
             "candidate_lanes": candidate_lanes,
             "execution_bias": if candidate_lanes > 1 { "parallel_first" } else { "single_lane" },
-            "recommended_concurrency": candidate_lanes.min(4),
+            "max_parallel": max_parallel,
+            "recommended_concurrency": candidate_lanes.min(max_parallel),
             "instruction": if candidate_lanes > 1 {
                 "Launch independent top-level tool calls concurrently in the next action. Serialize only true data dependencies or overlapping writes."
             } else {
@@ -846,61 +871,6 @@ fn precision_rank(value: &str) -> u8 {
 fn estimated_json_tokens(value: &Value) -> Result<usize> {
     let bytes = serde_json::to_vec(value)?.len();
     Ok(bytes.div_ceil(4))
-}
-
-fn pop_array(value: &mut Value, key: &str, minimum: usize) -> bool {
-    let Some(items) = value.get_mut(key).and_then(Value::as_array_mut) else {
-        return false;
-    };
-    if items.len() <= minimum {
-        return false;
-    }
-    items.pop();
-    true
-}
-
-fn pop_nested_array(value: &mut Value, parent: &str, key: &str, minimum: usize) -> bool {
-    let Some(items) = value
-        .get_mut(parent)
-        .and_then(|parent| parent.get_mut(key))
-        .and_then(Value::as_array_mut)
-    else {
-        return false;
-    };
-    if items.len() <= minimum {
-        return false;
-    }
-    items.pop();
-    true
-}
-
-fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
-    let mut truncated = false;
-    while estimated_json_tokens(value)? > budget {
-        let changed = pop_array(value, "risks", 0)
-            || pop_nested_array(value, "relations", "edges", 0)
-            || pop_nested_array(value, "relations", "nodes", 0)
-            || pop_array(value, "guidance", 0)
-            || pop_array(value, "workflow", 0)
-            || pop_nested_array(value, "worklist", "parallel_runnable", 0)
-            || pop_nested_array(value, "worklist", "items", 0)
-            || pop_nested_array(value, "worklist", "runnable", 0)
-            || pop_nested_array(value, "repo_map", "items", 1)
-            || pop_array(value, "design", 1)
-            || pop_array(value, "checks", 1)
-            || pop_array(value, "semantic_provider_hints", 1)
-            || pop_array(value, "tests", 1)
-            || pop_array(value, "targets", 1)
-            || pop_array(value, "files", 1)
-            || shrink_hot_source_body(value, budget)?
-            || pop_array(value, "hot_source", 0);
-        if !changed {
-            break;
-        }
-        truncated = true;
-    }
-    value["truncated"] = json!(truncated);
-    Ok(())
 }
 
 fn shrink_hot_source_body(value: &mut Value, budget: usize) -> Result<bool> {

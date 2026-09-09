@@ -42,7 +42,7 @@ request → queued → semaphore acquired → running → completed | failed
 
 Global Semaphore 是唯一并发 Gate。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
 
-`parallel_tools` 不是“全部一起跑”的通用 Helper，而是 Resource-aware Scheduler。它显式建模 `reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`；独立资源可以 Fan-out，重叠资源按依赖排序。同文件 `apply_edits` 只有在调用方 Pin 同一份 Observed SHA、Edit 不重叠且定位无歧义时才允许 Coalesce；无效 Overlap 在执行前就拒绝。
+`parallel_tools` 不是“全部一起跑”的通用 Helper，而是 Resource-aware Scheduler。它显式建模 `reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`；独立资源可以 Fan-out，重叠资源按依赖排序。同文件 `apply_edits` 只有在调用方 Pin 同一份 Observed SHA、Edit 不重叠且定位无歧义时才允许 Coalesce；无效 Overlap 在执行前就拒绝。调度由完成事件驱动，不等待整层结束；失败依赖跳过后续任务，父子空间物理别名共享调度身份，取消父任务不能留下脱离管理的排队子任务。已经运行的阻塞文件操作不会回滚。Coalesce 不能跨过中间的依赖操作，也不能超过 128 项编辑的事务上限。
 
 所有 Runtime Collection 都必须有界。Fan-out 数量、单项/聚合 Result Byte、Model-facing Read/Write Size、Source Scan、保留的 Complete AST、Git Review File/Finding、Traffic History、Persistent State History 与 Per-path Lock Map 都有显式 Limit。新增 Cache 必须跟真实 Source/Profile/Provider Revision 失效，不能按“调用了几次”猜 Cache Freshness。
 

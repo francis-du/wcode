@@ -36,6 +36,8 @@ Project Observatory + durable workspace state
 
 The Project Observatory makes the same model human-readable: Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains the provenance-bearing substrate, not a graph visualization users have to decipher.
 
+Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` reflects the latest such Evidence result, and `Fresh` means that latest Evidence matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
+
 Local `mcp-stdio`, remote Streamable HTTP + OAuth, and legacy SSE share one MCP
 core. `agent_context` is the compact coding entry point; deeper Design, Graph,
 and Verification tools are called only when the task needs them. Plugin exports

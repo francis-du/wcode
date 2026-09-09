@@ -1,5 +1,50 @@
 use super::*;
 
+fn literal_symbol_queries(query: &str) -> Vec<String> {
+    query
+        .split(|ch: char| !ch.is_alphanumeric() && !matches!(ch, '_' | ':' | '.'))
+        .map(|word| word.trim_matches([':', '.']))
+        .filter(|word| {
+            !word.is_empty()
+                && (word.contains('_')
+                    || word.contains("::")
+                    || word.contains('.')
+                    || *word == query.trim())
+        })
+        .take(4)
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+fn context_symbol_rank(
+    symbol: &serde_json::Value,
+    literals: &[String],
+    queries: &[String],
+) -> (u8, usize) {
+    let name = symbol["name"].as_str().unwrap_or("").to_ascii_lowercase();
+    let qualified = symbol["qualified_name"]
+        .as_str()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    for (class, terms, exact) in [
+        (0, literals, true),
+        (1, queries, true),
+        (2, literals, false),
+        (3, queries, false),
+    ] {
+        if let Some(index) = terms.iter().position(|term| {
+            if exact {
+                name == *term || qualified == *term
+            } else {
+                name.contains(term.as_str()) || qualified.contains(term.as_str())
+            }
+        }) {
+            return (class, index);
+        }
+    }
+    (4, usize::MAX)
+}
+
 impl SoftwareIntelligenceRuntime {
     pub(crate) fn software_context(
         &self,
@@ -133,19 +178,38 @@ impl SoftwareIntelligenceRuntime {
             .take(4)
             .cloned()
             .collect::<Vec<_>>();
+        let literals = literal_symbol_queries(query);
+        symbol_queries.splice(0..0, literals.iter().cloned());
+        let mut seen_queries = HashSet::new();
+        symbol_queries.retain(|term| seen_queries.insert(term.clone()));
+        symbol_queries.truncate(8);
         if symbol_queries.is_empty() {
             symbol_queries.push(query.to_owned());
         }
         let source_roots = scopes::source_roots_for(&requested_scopes);
         for source_root in &source_roots {
-            let search = code_index.find_symbols_many(
+            let search = match code_index.find_symbols_many(
                 workspace_id.clone(),
                 workspace,
                 &symbol_queries,
                 source_root,
                 None,
-                symbol_cap,
-            )?;
+                symbol_cap.saturating_mul(symbol_queries.len()).min(200),
+            ) {
+                Ok(search) => search,
+                Err(error)
+                    if *source_root != "."
+                        && error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    // Product Scope roots are optional in smaller repositories.
+                    // Do not mistake a vanished/replaced Workspace for an absent scope.
+                    workspace.path_info(".")?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             for symbol in search
                 .get("results")
                 .and_then(serde_json::Value::as_array)
@@ -159,15 +223,13 @@ impl SoftwareIntelligenceRuntime {
                     .unwrap_or_else(|| symbol.to_string());
                 if symbol_ids.insert(key) {
                     symbols.push(symbol.clone());
-                    if symbols.len() >= symbol_cap {
-                        break;
-                    }
                 }
             }
-            if symbols.len() >= symbol_cap {
-                break;
-            }
         }
+        // Merge bounded candidates from every scope before truncating: an
+        // earlier directory's helpers must not evict a later exact definition.
+        symbols.sort_by_key(|symbol| context_symbol_rank(symbol, &literals, &symbol_queries));
+        symbols.truncate(symbol_cap);
         let graph_context = provider_graph_context(
             workspace,
             &semantic_expansion,

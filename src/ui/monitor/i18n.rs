@@ -100,7 +100,6 @@ impl UiLanguage {
             (Self::ZhCn, "waiting for MCP handshake") => "等待 MCP 握手",
             (Self::ZhCn, "Setup required") => "需要完成设置",
             (Self::ZhCn, "press O to open Connector setup") => "按 O 打开连接设置",
-            (Self::ZhCn, "OVERVIEW") => "总览",
             (Self::ZhCn, "RUN") => "运行",
             (Self::ZhCn, "WAIT") => "等待",
             (Self::ZhCn, "DONE") => "完成",

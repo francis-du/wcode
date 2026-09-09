@@ -693,6 +693,7 @@ impl ToolHarness {
         provider_id: &str,
         timeout_seconds: u64,
     ) -> Result<LanguageQualityRun> {
+        let revision = self.intelligence.current_revision(workspace)?;
         let started = Instant::now();
         let mut run =
             quality_provider::execute(workspace, language, provider_id, timeout_seconds).await?;
@@ -727,7 +728,7 @@ impl ToolHarness {
         };
         run.evidence_records = self
             .intelligence
-            .record_verification_report(workspace_id, workspace, &report)?
+            .record_verification_report(workspace_id, workspace, &revision, &report)?
             .len();
         Ok(run)
     }

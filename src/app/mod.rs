@@ -460,20 +460,26 @@ pub async fn run() -> Result<()> {
                     &local_url,
                     &instance_id,
                     install_missing,
-                    monitor,
+                    monitor.clone(),
                 );
                 let mut first = true;
                 while let Some(event) = events.recv().await {
+                    let TunnelEvent::Connected(active) = &event;
+                    tunnel_lifecycle::publish_verified_endpoint(
+                        &auth,
+                        &monitor,
+                        active.provider_label(),
+                        active.public_url(),
+                    );
                     if first {
                         // Announce the endpoint the moment the first tunnel
                         // lands so setup-guide/open waits are not blocked on
                         // the supervision loop starting later.
-                        let _ = settled_tx.send(true);
-                        let TunnelEvent::Connected(active) = &event;
                         let public_url = active.public_url().to_owned();
-                        *url_slot.write().unwrap() = public_url.clone();
-                        auth.set_public_url(public_url);
+                        auth.set_public_url(public_url.clone());
+                        *url_slot.write().unwrap() = public_url;
                         first = false;
+                        let _ = settled_tx.send(true);
                     }
                     if forward_tx.send(event).await.is_err() {
                         return;
@@ -582,7 +588,6 @@ pub async fn run() -> Result<()> {
                         let recovered_provider = active.provider();
                         tunnel_lifecycle::record_recovered_provider(&mut death_counts, recovered_provider);
                         pending_respawns.retain(|(provider, _)| *provider != recovered_provider);
-                        auth.register_public_url(active.public_url().to_owned());
                         if tunnels.is_empty() {
                             // No live tunnel yet: this one becomes the primary
                             // endpoint. Reconnected tunnels never take over an
@@ -642,15 +647,23 @@ pub async fn run() -> Result<()> {
                     let instance_id = auth.instance_id().to_owned();
                     let install_missing = !args.no_install;
                     let monitor = monitor.clone();
+                    let auth = auth.clone();
                     tokio::spawn(async move {
                         let mut events = spawn_tunnel_supervisor(
                             provider,
                             &local_url,
                             &instance_id,
                             install_missing,
-                            monitor,
+                            monitor.clone(),
                         );
                         while let Some(event) = events.recv().await {
+                            let TunnelEvent::Connected(active) = &event;
+                            tunnel_lifecycle::publish_verified_endpoint(
+                                &auth,
+                                &monitor,
+                                active.provider_label(),
+                                active.public_url(),
+                            );
                             if forward_tx.send(event).await.is_err() {
                                 return;
                             }

@@ -673,6 +673,9 @@
       path: src/runtime/harness/agent_context.rs
       symbol: ToolHarness::agent_context
     - kind: symbol
+      path: src/runtime/harness/context_budget.rs
+      symbol: trim_agent_context
+    - kind: symbol
       path: src/runtime/harness/repo_map.rs
       symbol: ToolHarness::ranked_repo_map
     - kind: symbol

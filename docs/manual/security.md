@@ -95,6 +95,10 @@ endpoint. OAuth metadata and authorization use the exact Host that received the
 request. Historical resources are not active Hosts, and tokens stored for a
 different configured Workspace-root set are not loaded.
 
+Host validation and Origin validation are separate checks. A present Origin must be a single valid HTTP(S) origin matching a configured or instance-verified **active** endpoint, including an active non-primary tunnel alias. Missing Origin remains valid for non-browser clients, but malformed, duplicate, credential-bearing or historical-only origins are rejected. Arbitrary client-site origins are not implicitly trusted. Requests still require the original bearer or protected WebUI credential, and legacy SSE sessions remain owner/endpoint-bound.
+
+Verified tunnels enter the trusted endpoint registry before their links are displayed or setup readiness is signalled. A rejected request reports `untrusted_host` or `untrusted_origin` without echoing credentials. For `untrusted_host`, reconnect to a currently registered endpoint and ensure the reverse proxy preserves that public Host; untrusted `Forwarded` / `X-Forwarded-Host` headers cannot register an endpoint. Never disable Origin checking or trust all hosts to repair a connection.
+
 The tunnel provides reachability, not authorization.
 
 ## Media and model capability

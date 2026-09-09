@@ -59,22 +59,24 @@ function renderStats() {
       (conv.incomplete_requirements || 0),
     precision = graphPrecision(),
     complete = coverage.complete_requirements || 0,
-    total = coverage.requirements_total || 0;
-  const proofState = proof.current_failed
-      ? statusLabel("failed")
-      : proof.current_disagreed
-      ? statusLabel("disagreed")
-      : proof.current_evidence
-      ? localized(
-        `${proof.current_passed}/${proof.current_evidence} pass`,
-        `${proof.current_passed}/${proof.current_evidence} 通过`,
-      )
-      : localized("no current evidence", "暂无当前证据"),
+    total = coverage.requirements_total || 0,
+    acceptance = proof.acceptance || {},
+    acceptanceTotal = Number(acceptance.total || 0),
+    acceptanceMapped = Number(acceptance.mapped || 0),
+    acceptanceExecuted = Number(acceptance.executed || 0),
+    acceptancePassed = Number(acceptance.passed || 0),
+    acceptanceFresh = Number(acceptance.fresh || 0);
+  const proofState = acceptanceTotal
+      ? `${t("Fresh")} ${acceptanceFresh}/${acceptanceTotal}`
+      : localized("no acceptance criteria", "暂无验收条件"),
+    proofDetail = `${t("Mapped")} ${acceptanceMapped}/${acceptanceTotal} · ${t("Executed")} ${acceptanceExecuted} · ${t("Passed")} ${acceptancePassed}`,
     proofTone = proof.current_failed
       ? "bad"
-      : proof.current_disagreed
+      : proof.current_disagreed || acceptanceMapped < acceptanceTotal
       ? "warn"
-      : proof.current_evidence
+      : acceptanceTotal &&
+        acceptanceFresh === acceptanceTotal &&
+        acceptancePassed === acceptanceTotal
       ? "good"
       : "info";
   const actualDetail = localized(
@@ -122,14 +124,7 @@ function renderStats() {
       stat(
         t("Proof"),
         proofState,
-        localized(
-          `${proof.current_verification_ready || 0} ready / ${
-            proof.current_verification_blocked || 0
-          } blocked`,
-          `${proof.current_verification_ready || 0} 个就绪 / ${
-            proof.current_verification_blocked || 0
-          } 个阻塞`,
-        ),
+        proofDetail,
         proofTone,
       ),
       stat(

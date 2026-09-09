@@ -46,11 +46,12 @@ fn test_state() -> (Arc<AppState>, tempfile::TempDir) {
 async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
     let (state, _root) = test_state();
     let baseline = active_session_count();
-    let response = open_session(
-        State(state.clone()),
-        request_headers("client-one", "127.0.0.1:8765"),
-    )
-    .await;
+    state
+        .auth
+        .register_public_url("https://verified.example".to_owned());
+    let mut alias_headers = request_headers("client-one", "127.0.0.1:8765");
+    alias_headers.insert("origin", "https://verified.example".parse().unwrap());
+    let response = open_session(State(state.clone()), alias_headers.clone()).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(active_session_count(), baseline + 1);
 
@@ -74,7 +75,7 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
         Query(MessageQuery {
             session_id: session_id.clone(),
         }),
-        request_headers("client-one", "127.0.0.1:8765"),
+        alias_headers.clone(),
         Json(json!({"jsonrpc":"2.0","method":"notifications/initialized"})),
     )
     .await;
@@ -85,7 +86,7 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
         Query(MessageQuery {
             session_id: session_id.clone(),
         }),
-        request_headers("client-one", "127.0.0.1:8765"),
+        alias_headers.clone(),
         Json(json!([
             {"jsonrpc":"2.0","id":1,"method":"ping"},
             {"jsonrpc":"2.0","id":2,"method":"tools/list"}
@@ -97,6 +98,18 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
     assert!(message.contains("event: message"));
     assert!(message.contains("\"id\":1"));
     assert!(message.contains("\"id\":2"));
+
+    state.auth.unregister_public_url("https://verified.example");
+    let retired = post_message(
+        State(state.clone()),
+        Query(MessageQuery {
+            session_id: session_id.clone(),
+        }),
+        alias_headers,
+        Json(json!({"jsonrpc":"2.0","id":4,"method":"ping"})),
+    )
+    .await;
+    assert_eq!(retired.status(), StatusCode::FORBIDDEN);
 
     state
         .auth

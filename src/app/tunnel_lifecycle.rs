@@ -1,5 +1,24 @@
+use crate::auth::AuthState;
+use crate::monitor::{OperatorMessageKind, TaskMonitor};
 use crate::tunnel::TunnelProvider;
 use std::collections::HashMap;
+
+/// Publish only after the supervisor has verified instance-matched health.
+/// Register trust before exposing the URL to setup pages or operator output.
+pub(super) fn publish_verified_endpoint(
+    auth: &AuthState,
+    monitor: &TaskMonitor,
+    provider: &str,
+    public_url: &str,
+) {
+    auth.register_public_url(public_url.to_owned());
+    monitor.register_tunnel(provider, public_url);
+    monitor.operator_message(
+        OperatorMessageKind::Success,
+        "tunnel",
+        format!("{provider} connected · {public_url}"),
+    );
+}
 
 pub(super) fn dead_tunnel_index<F>(
     health_failed: bool,

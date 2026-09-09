@@ -234,6 +234,10 @@ impl AuthState {
         self.public_endpoints.for_headers(headers)
     }
 
+    pub(crate) fn origin_allowed(&self, headers: &HeaderMap) -> bool {
+        self.public_endpoints.origin_allowed(headers)
+    }
+
     pub fn pairing_code(&self) -> &str {
         &self.pairing_code
     }

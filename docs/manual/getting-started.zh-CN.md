@@ -112,6 +112,8 @@ agent_context(goal, scopes=...)
 
 `agent_context` 省略 `budget` 时会选择有界自适应预算，并可携带相关 Design State、按 Scope 收窄的仓库地图、有界热源、SHA 编辑目标、关联测试、就绪度（Readiness）与显式并行指引。模型只应发送当前动作真正需要的 MCP 参数：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都应省略。先按依赖拆 Lane；Host 支持时，独立 Discovery、Read、Review 和 File-local Edit 用多个顶层 Tool Call 并发，真实依赖才串行。输入已经明确时优先用 `read_files`、`search_many`、`apply_file_edits`、`create_files`；`parallel_tools` 只用于参数很小的紧凑 Fan-out。普通定位继续走 `find_symbol` / `search_code`，只有就绪度要求更强跨文件关系时才调用 `semantic_navigation`。
 
+复用已经发现的工具 Schema 和 `agent_context` 已提供的上下文；`project_context` 不是第二个必需启动调用。并行 Lane 数是受运行时上限约束的建议，不代表写操作一定独立。在紧凑 `parallel_tools` 批次中，后续任务在自身前置任务完成后即可启动，不再等整层结束；失败依赖会跳过后续分支，独立工作继续执行。
+
 改完后默认：
 
 ```text
@@ -123,7 +125,8 @@ Change 或 Readiness 要求更深分析时，再补 Drift / Impact / Risk / Reco
 
 ## 6. 本地操作界面
 
-TUI 主屏只保留连接状态、四项运行指标、Subspace 活动和 30 秒吞吐。
+TUI 主屏优先展示连接状态和 Subspace 活动，移除了重复的 OVERVIEW 面板。
+较矮终端使用紧凑顶栏；仅在有近期流量且空间充足时显示 30 秒吞吐。
 常用快捷键：
 
 - `I`：打开 Intelligence 视图。

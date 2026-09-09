@@ -43,6 +43,8 @@ Convergence
 
 Subagent、Worktree、类似隔离上下文以及多个顶层 MCP Call 都适合做独立仓库调研、替代实现分析、测试生成、安全审查和可维护性审查。执行前先按依赖拆 Lane；能降低延迟或上下文互相干扰的独立 Lane 应并发，只有真实 Data / Path Dependency 才串行。输入已经明确时优先用 `read_files`、`search_many`、`apply_file_edits`、`create_files` 等 Bulk Primitive。嵌套 `parallel_tools` 只用于紧凑 Fan-out，避免 Host 的 Tool Call 展示重新变成长串递归 JSON。
 
+`parallel_tools` 使用完成驱动调度：每个后续任务在自身前置任务完成后即可启动。失败依赖会跳过后续分支，独立分支继续；取消父任务会取消排队子任务，而非让它们脱离父任务继续执行。已经运行的阻塞文件操作不会回滚。调度根据实际根目录识别父工作区和子空间别名；同文件编辑不能跨过中间的依赖读取合并。候选 Lane 数仍是受运行时 Slot 上限约束的建议，不是必须跑满的目标。
+
 Worker 不应绕过 wcode 的路径资源 Scheduler 与 SHA 前置条件并发修改共享或相互依赖的状态。相关状态在部分应用会让系统更难推理时应保持原子更新。多个模型意见一致仍然只是模型证据，不是确定性证明。
 
 ### 4. Deterministic Gate：强制策略必须在 Prompt 外

@@ -1,6 +1,109 @@
 use super::*;
 use std::collections::HashSet;
 
+#[tokio::test]
+async fn cancelled_blocking_worker_retains_its_real_permit_until_finished() {
+    use std::sync::Arc;
+    use std::time::Duration;
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let parent = tokio::spawn(BLOCKING_PERMIT.scope(
+        permit,
+        run_blocking(move || {
+            let _ = started_tx.send(());
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(json!({"done": true}))
+        }),
+    ));
+    tokio::time::timeout(Duration::from_secs(3), started_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    parent.abort();
+    assert!(parent.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        slots.available_permits(),
+        0,
+        "running work still owns the slot"
+    );
+    release_tx.send(()).unwrap();
+    let permit = tokio::time::timeout(Duration::from_secs(3), slots.clone().acquire_owned())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(permit);
+    assert_eq!(slots.available_permits(), 1);
+}
+
+#[test]
+fn cancelled_queued_blocking_worker_never_starts() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use std::time::Duration;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let blocker = tokio::task::spawn_blocking(move || {
+            let _ = started_tx.send(());
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        started_rx.await.unwrap();
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+        let executed = Arc::new(AtomicBool::new(false));
+        let worker_executed = executed.clone();
+        let (queued_tx, queued_rx) = tokio::sync::oneshot::channel();
+        let parent = tokio::spawn(BLOCKING_PERMIT.scope(permit, async move {
+            let mut work = Box::pin(run_blocking(move || {
+                worker_executed.store(true, Ordering::SeqCst);
+                Ok(())
+            }));
+            std::future::poll_fn(|cx| {
+                assert!(std::future::Future::poll(work.as_mut(), cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            let _ = queued_tx.send(());
+            work.await
+        }));
+        queued_rx.await.unwrap();
+        parent.abort();
+        assert!(parent.await.unwrap_err().is_cancelled());
+        release_tx.send(()).unwrap();
+        blocker.await.unwrap();
+        let permit = tokio::time::timeout(Duration::from_secs(3), slots.acquire_owned())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!executed.load(Ordering::SeqCst));
+        drop(permit);
+    });
+}
+
+#[tokio::test]
+async fn panicking_blocking_worker_releases_its_permit() {
+    use std::sync::Arc;
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+    let result: AnyResult<Value> = BLOCKING_PERMIT
+        .scope(permit, run_blocking(|| panic!("synthetic blocking panic")))
+        .await;
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("blocking task failed"));
+    assert_eq!(slots.available_permits(), 1);
+}
+
 fn assert_required_fields_exist(value: &Value, tool_name: &str) {
     match value {
         Value::Object(object) => {
@@ -50,6 +153,35 @@ fn assert_no_model_tuning_args(value: &Value, tool_name: &str) {
         }
         _ => {}
     }
+}
+
+#[test]
+fn core_tool_routing_survives_compact_description_limits() {
+    let catalog = tools();
+    for name in [
+        "agent_context",
+        "project_context",
+        "parallel_tools",
+        "file_outline",
+        "find_symbol",
+        "symbol_context",
+        "verify_project",
+        "read_files",
+    ] {
+        let tool = catalog.iter().find(|tool| tool["name"] == name).unwrap();
+        assert!(
+            !tool["description"].as_str().unwrap().ends_with('…'),
+            "{name} routing was truncated"
+        );
+    }
+    let project = catalog
+        .iter()
+        .find(|tool| tool["name"] == "project_context")
+        .unwrap();
+    assert!(project["description"]
+        .as_str()
+        .unwrap()
+        .contains("Not a second mandatory"));
 }
 
 #[test]

@@ -191,7 +191,7 @@ evidence_status
 | `search_code` / `search_many` | Exact repository discovery; prefer the bulk form when queries are known together. |
 | `read_file` / `read_files` | Original-format UTF-8 reads with SHA-256 edit preconditions, bounded to at most 1,000 source lines per file/call. |
 | `read_media` | Metadata-first bounded media inspection; binary content requires explicit client capability. |
-| `parallel_tools` | Fan out already-known independent reads/discovery/writes through path-resource scheduling. |
+| `parallel_tools` | Completion-driven path-resource batches; successors start when ready, failed dependencies skip, and queued children remain parent-owned. Parent/subspace aliases share dependency identity. |
 
 ### Workspace mutation
 

@@ -10,9 +10,9 @@ Tool visibility bootstrap:
   separate Host capabilities.
 - Look first for the canonical `mcp__wcode__*` namespace. Some Hosts lazy-load
   or abbreviate tools, so inspect the available/deferred tool registry before
-  concluding that wcode is unavailable. Search at minimum for `wcode`,
-  `agent_context`, `worklist_status`, `software_graph`, `find_symbol`,
-  `read_file`, `apply_edits`, `review_changes`, and `verify_project`.
+  concluding that wcode is unavailable. Discover `wcode` or `agent_context`
+  once, then load only the tools needed by `next_actions`. Reuse discovered
+  schemas; do not repeatedly load the entire tool catalog.
 - Once found, use the real wcode MCP tools and keep one namespace for the task.
   Do not switch to an alias such as `hcode` merely because both are registered.
 - The minimum coding chain is `agent_context` first, guarded wcode reads/edits
@@ -63,7 +63,9 @@ Before editing:
    the task actually needs an override. Use `workspace_info` only when multiple roots/subspaces make the
    target ambiguous. Call `scope_status`, `design_status`, `project_context`, or
    `language_quality_status` only when readiness or the task requires deeper
-   inspection.
+   inspection. Do not call `project_context` as a second mandatory startup
+   step or search again for targets already present in the pack. A truncated
+   pack means some context is omitted, not that all supplied context is stale.
 2. Prefer `file_outline`, `find_symbol`, and `search_code` for structure-first
    localization before loading source bodies. Use `symbol_context` when the
    implementation body is actually needed; it may return up to 1,000 original
@@ -99,7 +101,11 @@ While editing:
   targets are known, prefer one `apply_edits`, `apply_file_edits`, or
   `create_files` call. Keep arguments minimal. Use `parallel_tools` only for
   compact child arguments; its parent Workspace is inherited by children unless
-  a child intentionally overrides it.
+  a child intentionally overrides it. The batch dispatches successors on completion,
+  not at whole-layer barriers; failed dependencies skip their successors while
+  unrelated work continues. Do not coalesce edits across an intervening dependent
+  read. Candidate lane counts are hints, not proof of independence or a target
+  for saturation; respect the runtime cap and actual resource dependencies.
 - Reuse the canonical owner/model/helper before adding another wrapper, mode,
   config option, extension point, compatibility layer, or subsystem. Do not add
   architecture for hypothetical future use. Exceed the reported complexity

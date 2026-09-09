@@ -13,6 +13,85 @@ fn layers(workloads: Vec<WorkloadResources>) -> Vec<Vec<usize>> {
 }
 
 #[test]
+fn ready_successors_do_not_wait_for_an_unrelated_slow_branch() {
+    let workloads = vec![
+        (0, model("create_file", json!({"path":"fast.txt"}))),
+        (1, model("create_file", json!({"path":"slow.txt"}))),
+        (2, model("read_file", json!({"path":"fast.txt"}))),
+        (3, model("read_file", json!({"path":"slow.txt"}))),
+    ];
+    let graph = dependency_graph(&workloads, 4);
+    assert_eq!(
+        graph.ready(&BTreeSet::from([0, 1, 2, 3]), &BTreeSet::new()),
+        vec![0, 1]
+    );
+    assert_eq!(
+        graph.ready(&BTreeSet::from([2, 3]), &BTreeSet::from([0])),
+        vec![2]
+    );
+    assert_eq!(
+        graph.ready(&BTreeSet::from([3]), &BTreeSet::from([0, 2])),
+        Vec::<usize>::new()
+    );
+    assert_eq!(
+        graph.ready(&BTreeSet::from([3]), &BTreeSet::from([0, 1, 2])),
+        vec![3]
+    );
+}
+
+#[test]
+fn parent_and_subspace_aliases_share_resource_dependencies() {
+    let parent =
+        model("write_file", json!({"path":"project/src/lib.rs"})).in_root(Path::new("root"));
+    let child = resource_model("child", "read_file", &json!({"path":"src/lib.rs"}))
+        .unwrap()
+        .in_root(Path::new("root/project"));
+    assert_eq!(layers(vec![parent.clone(), child]), vec![vec![0], vec![1]]);
+    let unrelated = model("read_file", json!({"path":"src/lib.rs"})).in_root(Path::new("other"));
+    assert_eq!(layers(vec![parent, unrelated]), vec![vec![0, 1]]);
+}
+
+#[test]
+fn coalescing_preserves_intervening_reads_and_independent_work() {
+    let edit = |text: &str| {
+        json!({"tool":"apply_edits","arguments":{
+            "path":"shared.txt","expected_sha256":"same",
+            "edits":[{"old_text":text,"new_text":"updated"}]
+        }})
+    };
+    let items = vec![
+        edit("first"),
+        json!({"tool":"read_file","arguments":{"path":"shared.txt"}}),
+        edit("last"),
+    ];
+    assert!(coalesce_apply_edits("demo", &items)
+        .unwrap_err()
+        .contains("intervening dependent"));
+    let items = vec![
+        edit("first"),
+        json!({"tool":"read_file","arguments":{"path":"other.txt"}}),
+        edit("last"),
+    ];
+    let (_, aliases, skipped) = coalesce_apply_edits("demo", &items).unwrap();
+    assert_eq!(aliases[&0], vec![(2, "task-3".to_owned())]);
+    assert_eq!(skipped, HashSet::from([2]));
+}
+
+#[test]
+fn coalesced_transaction_limit_is_checked_before_execution() {
+    let edits = (0..128)
+        .map(|index| json!({"old_text":format!("line-{index}"),"new_text":"changed"}))
+        .collect::<Vec<_>>();
+    let items = vec![
+        json!({"tool":"apply_edits","arguments":{"path":"shared.txt","expected_sha256":"same","edits":edits}}),
+        json!({"tool":"apply_edits","arguments":{"path":"shared.txt","expected_sha256":"same","edits":[{"old_text":"extra","new_text":"changed"}]}}),
+    ];
+    assert!(coalesce_apply_edits("demo", &items)
+        .unwrap_err()
+        .contains("128-edit"));
+}
+
+#[test]
 fn independent_reads_and_writes_fan_out() {
     assert_eq!(
         layers(vec![

@@ -43,6 +43,8 @@ The portable wcode Agent Skill is instructions-only. It contains no hooks, crede
 
 Subagents, worktrees, equivalent isolated contexts, and concurrent top-level MCP calls are useful for independent repository research, alternative implementation analysis, test generation, security review, and maintainability review. Split the task into dependency lanes before execution. Independent lanes should fan out when it reduces latency or context interference; only true data/path dependencies should serialize. When the inputs are already known, prefer bulk primitives such as `read_files`, `search_many`, `apply_file_edits`, and `create_files`. Use nested `parallel_tools` only for compact fan-out so Host call displays do not become large recursive JSON payloads.
 
+`parallel_tools` uses completion-driven dispatch: each successor starts as soon as its own predecessors finish. Failed dependencies skip their successors, independent branches continue, and cancelling the parent cancels queued children rather than detaching them. Already-running blocking filesystem operations are not rolled back. Scheduling resolves parent/subspace aliases against their actual roots; same-file edits cannot coalesce across an intervening dependent read. Candidate lanes remain hints, bounded by the runtime slot cap, not a saturation target.
+
 Workers must not concurrently mutate shared or dependent state outside wcode's path-resource Scheduler and SHA preconditions. Related state updates should remain atomic when partial application would make the system harder to reason about. Agreement between multiple models is still model evidence, not deterministic proof.
 
 ### 4. Deterministic Gate: mandatory policy lives outside the prompt

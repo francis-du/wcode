@@ -13,23 +13,78 @@ pub(super) fn draw_dashboard(
         area,
     );
 
+    render_dashboard_body(frame, area, snapshot, config, tick, ui);
+
+    if ui.commands_open {
+        if let Some(workspace_id) = focused_workspace_id(config, ui.workspace_focus) {
+            render_commands_overlay(
+                frame,
+                area,
+                &config.workspaces,
+                &workspace_id,
+                ui.command_offset,
+                ui.language,
+            );
+        }
+    } else if ui.intelligence_open {
+        render_intelligence_overlay(
+            frame,
+            area,
+            snapshot,
+            config,
+            ui.workspace_focus,
+            ui.language,
+        );
+    } else if ui.help_open {
+        render_help_overlay(frame, area, config, ui.language);
+    }
+    // Status messages must not cover a pending request or its approval controls.
+    if let Some(message) = ui.workspace_message.as_deref() {
+        render_status_message(frame, area, message, ui.language);
+    }
+    if ui.full_access_confirm {
+        render_full_access_overlay(frame, area, ui.language);
+    } else if ui.authorization_visible(area) {
+        render_authorization_overlay(
+            frame,
+            area,
+            &ui.pending_authorizations,
+            ui.authorization_focus,
+            ui.language,
+        );
+    }
+    if let Some(input) = ui.workspace_input.as_deref() {
+        render_workspace_input_overlay(frame, area, input, ui.language);
+    }
+}
+
+fn render_dashboard_body(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    snapshot: &MonitorSnapshot,
+    config: &MonitorConfig,
+    tick: usize,
+    ui: &DashboardState,
+) {
     let compact = area.width < 92;
     let dense = area.height < 28;
-    let header_height = 8;
+    let header_height = if dense { 6 } else { 8 };
     // The base heights fit one tunnel link row; every additional live tunnel
     // needs its own row or the last provider gets clipped.
     let extra_tunnel_rows =
         u16::try_from(snapshot.tunnels.len().saturating_sub(1)).unwrap_or(u16::MAX - 32);
     let setup_height = if snapshot.chatgpt_connected {
         0
-    } else if compact || dense {
+    } else if dense {
+        4 + extra_tunnel_rows
+    } else if compact {
         7 + extra_tunnel_rows
     } else {
         8 + extra_tunnel_rows
     };
-    let overview_height = 4;
-    let minimum_activity_height = 4;
-    let fixed_height = header_height + setup_height + overview_height + minimum_activity_height + 2;
+    // Outer and inner card borders consume four rows; reserve actual task rows too.
+    let minimum_activity_height = 6;
+    let fixed_height = header_height + setup_height + minimum_activity_height + 2;
 
     if area.width < 40 || area.height < fixed_height {
         render_too_small(frame, area, config, ui.language);
@@ -37,17 +92,16 @@ pub(super) fn draw_dashboard(
     }
 
     let recent_requests = window_totals(snapshot, Duration::from_secs(30)).0;
-    let throughput_height = if recent_requests > 0 && area.height >= fixed_height.saturating_add(4)
-    {
-        4
-    } else {
-        0
-    };
+    let throughput_height =
+        if !dense && recent_requests > 0 && area.height >= fixed_height.saturating_add(8) {
+            4
+        } else {
+            0
+        };
     let mut constraints = vec![Constraint::Length(header_height)];
     if setup_height > 0 {
         constraints.push(Constraint::Length(setup_height));
     }
-    constraints.push(Constraint::Length(overview_height));
     constraints.push(Constraint::Min(minimum_activity_height));
     if throughput_height > 0 {
         constraints.push(Constraint::Length(throughput_height));
@@ -73,8 +127,6 @@ pub(super) fn draw_dashboard(
         render_setup(frame, rows[row], snapshot, config, compact, ui.language);
         row += 1;
     }
-    render_overview(frame, rows[row], snapshot, config, compact, ui.language);
-    row += 1;
     render_workspace_activity(frame, rows[row], snapshot, config, tick, ui);
     row += 1;
     if throughput_height > 0 {
@@ -82,54 +134,6 @@ pub(super) fn draw_dashboard(
         row += 1;
     }
     render_footer(frame, rows[row], config, ui.language);
-
-    if ui.commands_open {
-        if let Some(workspace_id) = focused_workspace_id(config, ui.workspace_focus) {
-            render_commands_overlay(
-                frame,
-                area,
-                &config.workspaces,
-                &workspace_id,
-                ui.command_offset,
-                ui.language,
-            );
-        }
-    } else if ui.intelligence_open {
-        render_intelligence_overlay(
-            frame,
-            area,
-            snapshot,
-            config,
-            ui.workspace_focus,
-            ui.language,
-        );
-    } else if ui.help_open {
-        render_help_overlay(frame, area, config, ui.language);
-    }
-    if ui.full_access_confirm {
-        render_full_access_overlay(frame, area, ui.language);
-    } else if !ui.help_open
-        && !ui.intelligence_open
-        && !ui.commands_open
-        && ui.workspace_input.is_none()
-    {
-        let pending = pending_authorizations(config);
-        if !pending.is_empty() {
-            render_authorization_overlay(
-                frame,
-                area,
-                &pending,
-                ui.authorization_focus,
-                ui.language,
-            );
-        }
-    }
-    if let Some(input) = ui.workspace_input.as_deref() {
-        render_workspace_input_overlay(frame, area, input, ui.language);
-    }
-    if let Some(message) = ui.workspace_message.as_deref() {
-        render_status_message(frame, area, message, ui.language);
-    }
 }
 
 fn render_too_small(
@@ -328,6 +332,53 @@ fn render_header(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let local_home = config.local_health_url.trim_end_matches("/healthz");
+    if inner.height < 6 {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(format!("{icon} "), Style::default().fg(color)),
+                    Span::styled(
+                        state,
+                        Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("MCP  ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(
+                        truncate_middle(&config.mcp_url(), inner.width.saturating_sub(5) as usize),
+                        Style::default().fg(LINK),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("SLOTS {} / {}", totals.active, config.max_parallel),
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  WAIT {}", totals.queued),
+                        Style::default().fg(WARNING),
+                    ),
+                    Span::styled(
+                        format!("  FAIL {}", totals.failed),
+                        Style::default().fg(if totals.failed > 0 { DANGER } else { TEXT_DIM }),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("VERIFY CODE ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(
+                        config.pairing_code.clone(),
+                        Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  MEM {memory_text}"),
+                        Style::default().fg(memory_color),
+                    ),
+                ]),
+            ]),
+            inner,
+        );
+        return;
+    }
     if compact || inner.width < 76 {
         let lines = vec![
             Line::from(vec![
@@ -448,7 +499,14 @@ fn render_header(
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
-                Span::styled(spinner_frame(tick), Style::default().fg(ACCENT)),
+                Span::styled(
+                    if snapshot.observed_active > 0 || snapshot.observed_queued > 0 {
+                        spinner_frame(tick)
+                    } else {
+                        "●"
+                    },
+                    Style::default().fg(ACCENT),
+                ),
                 Span::styled(
                     " LIVE",
                     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
@@ -504,7 +562,7 @@ fn render_header(
                 if snapshot.public_url_healthy == Some(false)
                     || snapshot.tunnel_running == Some(false)
                 {
-                    "Restart wcode, then update the Connector URL"
+                    "Endpoint unavailable · local MCP still available"
                 } else {
                     "PUBLIC URL MONITORING ACTIVE"
                 },
@@ -526,7 +584,7 @@ fn render_header(
 
 fn auth_session_text(snapshot: &MonitorSnapshot) -> &'static str {
     if snapshot.oauth_authorized {
-        "● SESSION LASTS FOR THIS RUN"
+        "● AUTHORIZED"
     } else {
         "○ WAITING FOR OAUTH"
     }

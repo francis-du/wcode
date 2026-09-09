@@ -32,7 +32,7 @@ permalink: /docs/
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
-- [v0.6 release notes](releases/v0.6/) — parallel-first Agent execution, stronger repository context, LSP-backed understanding, and exact authorization for safe project commands.
+- [v0.6.1 release notes](releases/v0.6.1/) — completion-driven parallel scheduling, fewer redundant context calls, and a task-first TUI.
 - [Releases](releases/) — latest version plus the complete archive grouped by series. Historical versions stay out of the global sidebar so documentation navigation remains bounded.
 
 ## Recommended workflow

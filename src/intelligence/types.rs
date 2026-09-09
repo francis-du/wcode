@@ -420,7 +420,17 @@ pub struct ProjectGraphDeltaView {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProjectAcceptanceProofSummary {
+    pub total: usize,
+    pub mapped: usize,
+    pub executed: usize,
+    pub passed: usize,
+    pub fresh: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ProjectProofSummary {
+    pub acceptance: ProjectAcceptanceProofSummary,
     pub revision_code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revision_design: Option<String>,

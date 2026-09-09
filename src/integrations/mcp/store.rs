@@ -88,8 +88,9 @@ impl TaskRecord {
     }
 
     pub(crate) fn fail(&mut self, code: i64, message: String) {
+        let message = bounded_message(&message);
         self.status = TaskStatus::Failed;
-        self.status_message = bounded_message(&message);
+        self.status_message = message.clone();
         self.updated_at_ms = next_update_ms(self.updated_at_ms);
         self.result = None;
         self.error = Some(json!({"code": code, "message": message}));
@@ -148,6 +149,11 @@ impl TaskRecord {
 
 pub(crate) fn persist(workspace: &Workspace, record: &TaskRecord) -> Result<()> {
     validate_record(record)?;
+    // Reject oversized results before creating directories or pruning history.
+    let bytes = serde_json::to_vec(record).context("cannot encode MCP task state")?;
+    if bytes.len() as u64 > MAX_TASK_RECORD_BYTES {
+        bail!("MCP task record exceeds persistent store size bound");
+    }
     let root = task_root(workspace)?;
     fs::create_dir_all(&root)
         .with_context(|| format!("cannot create MCP task store {}", root.display()))?;
@@ -159,32 +165,53 @@ pub(crate) fn persist(workspace: &Workspace, record: &TaskRecord) -> Result<()> 
             .with_context(|| format!("cannot create MCP task directory {}", directory.display()))?;
     }
     ensure_regular_directory(&directory)?;
-    let bytes = serde_json::to_vec(record).context("cannot encode MCP task state")?;
-    if bytes.len() as u64 > MAX_TASK_RECORD_BYTES {
-        bail!("MCP task record exceeds persistent store size bound");
-    }
     let digest = digest_bytes(&bytes);
     let path = directory.join(format!(
         "{:020}-{}.json",
         record.updated_at_ms,
         &digest[..24]
     ));
-    if !path.exists() {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if !metadata.is_file()
+                || metadata.file_type().is_symlink()
+                || metadata.len() != bytes.len() as u64
+                || fs::read(&path)? != bytes
+            {
+                bail!("existing MCP task snapshot is not the expected regular file");
+            }
         }
-        let mut file = options
-            .open(&path)
-            .with_context(|| format!("cannot create MCP task record {}", path.display()))?;
-        file.write_all(&bytes)
-            .with_context(|| format!("cannot write MCP task record {}", path.display()))?;
-        file.sync_all()
-            .with_context(|| format!("cannot sync MCP task record {}", path.display()))?;
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Runtime state locking serializes writers. Publish a complete,
+            // synced snapshot, never a partly written final JSON filename.
+            let temporary = directory.join(format!(".task-{}.tmp", Uuid::new_v4().simple()));
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let saved = (|| -> Result<()> {
+                let mut file = options
+                    .open(&temporary)
+                    .context("cannot stage MCP task record")?;
+                file.write_all(&bytes)
+                    .context("cannot write MCP task record")?;
+                file.sync_all().context("cannot sync MCP task record")?;
+                drop(file);
+                fs::rename(&temporary, &path).context("cannot publish MCP task record")?;
+                Ok(())
+            })();
+            if saved.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            saved?;
+        }
+        Err(error) => return Err(error).context("cannot inspect MCP task snapshot"),
     }
+    #[cfg(unix)]
+    fs::File::open(&directory)?.sync_all()?;
     prune_snapshots(&directory)?;
     Ok(())
 }
@@ -394,7 +421,11 @@ fn next_update_ms(previous: u64) -> u64 {
 }
 
 fn bounded_message(message: &str) -> String {
-    message.chars().take(2_000).collect()
+    let mut end = message.len().min(2_000);
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    message[..end].to_owned()
 }
 
 fn rfc3339_millis(timestamp_ms: u64) -> String {

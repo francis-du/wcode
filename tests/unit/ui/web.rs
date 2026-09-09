@@ -13,6 +13,11 @@ fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
     assert!(INTELLIGENCE_JS.contains("observed_drift_percent"));
     assert!(INTELLIGENCE_JS.contains("evidence_coverage_percent"));
     assert!(INTELLIGENCE_JS.contains("implementation_coverage_percent"));
+    assert!(INTELLIGENCE_JS.contains("acceptance.mapped"));
+    assert!(INTELLIGENCE_JS.contains("acceptance.executed"));
+    assert!(INTELLIGENCE_JS.contains("acceptance.passed"));
+    assert!(INTELLIGENCE_JS.contains("acceptance.fresh"));
+    assert!(INTELLIGENCE_JS.contains("\"Mapped\": \"已映射\""));
     assert!(INTELLIGENCE_JS.contains("renderArchitectureGraph"));
     assert!(INTELLIGENCE_JS.contains("renderComponentInspector"));
     assert!(INTELLIGENCE_JS.contains("architectureEdgeTone"));

@@ -6,8 +6,8 @@ pub(super) fn render_workspace_input_overlay(
     input: &str,
     language: UiLanguage,
 ) {
-    let width = area.width.saturating_sub(8).clamp(36, 88);
-    let height = area.height.saturating_sub(2).clamp(3, 7);
+    let width = area.width.saturating_sub(8).clamp(36, 88).min(area.width);
+    let height = area.height.saturating_sub(2).clamp(3, 7).min(area.height);
     let popup = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -434,10 +434,10 @@ pub(super) fn help_link_at(
             point,
             inner,
             &[
-                (9, config.project_url.as_str()),
-                (10, config.author_url.as_str()),
-                (11, setup_url.as_str()),
-                (12, config.local_health_url.as_str()),
+                (10, config.project_url.as_str()),
+                (11, config.author_url.as_str()),
+                (12, setup_url.as_str()),
+                (13, config.local_health_url.as_str()),
             ],
         );
     }
@@ -469,6 +469,9 @@ fn help_popup(area: Rect) -> Rect {
 }
 
 fn link_at_rows(point: (u16, u16), area: Rect, links: &[(u16, &str)]) -> Option<String> {
+    if !point_in_rect(point, area) {
+        return None;
+    }
     links.iter().find_map(|(row, url)| {
         let link = Rect::new(area.x, area.y.saturating_add(*row), area.width, 1);
         (point.0 >= link.x

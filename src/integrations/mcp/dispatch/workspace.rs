@@ -1,5 +1,42 @@
 use super::*;
 
+pub(super) fn batch_succeeded(name: &str, value: &mut Value) -> bool {
+    let key = match name {
+        "read_files" => "files",
+        "create_files" | "apply_file_edits" | "move_paths" => "results",
+        _ => return true,
+    };
+    let Some(items) = value.get(key).and_then(Value::as_array) else {
+        value["error"] = json!("batch did not return per-item outcomes");
+        return false;
+    };
+    let succeeded = items.iter().filter(|item| item["ok"] == true).count();
+    let failed = items.len().saturating_sub(succeeded);
+    value["succeeded"] = json!(succeeded);
+    value["failed"] = json!(failed);
+    value["status"] = json!(if failed == 0 {
+        "complete"
+    } else if succeeded == 0 {
+        "failed"
+    } else {
+        "partial"
+    });
+    if failed > 0 {
+        value["retry_guidance"] = json!(
+            "Successful items remain applied. Inspect outcomes and retry only failed items; refresh SHA preconditions before editing."
+        );
+    }
+    failed == 0
+}
+
+pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {
+    match args.get("args") {
+        None => Ok(Vec::new()),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|_| "args must be an array of strings when provided".to_owned()),
+    }
+}
+
 pub(super) async fn call(
     state: &AppState,
     name: &str,
@@ -312,24 +349,23 @@ pub(super) async fn call(
         "run_command" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let program = required_string(args, "program")?.to_owned();
-            let command_args = args
-                .get("args")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let cwd = string_arg(args, "cwd").unwrap_or(".").to_owned();
-            let timeout_seconds = args
-                .get("timeout_seconds")
-                .and_then(Value::as_u64)
-                .unwrap_or(120);
+            let command_args = command_arguments(args)?;
+            let cwd = match args.get("cwd") {
+                None => ".",
+                Some(value) => value
+                    .as_str()
+                    .filter(|cwd| !cwd.is_empty())
+                    .ok_or("cwd must be a non-empty string when provided")?,
+            };
+            let timeout_seconds = match args.get("timeout_seconds") {
+                None => 120,
+                Some(value) => value
+                    .as_u64()
+                    .filter(|seconds| (1..=300).contains(seconds))
+                    .ok_or("timeout_seconds must be an integer between 1 and 300")?,
+            };
             workspace
-                .run_command(&program, &command_args, &cwd, timeout_seconds)
+                .run_command(&program, &command_args, cwd, timeout_seconds)
                 .await
                 .and_then(|result| {
                     let mut value = serde_json::to_value(result)?;
