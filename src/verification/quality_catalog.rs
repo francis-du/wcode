@@ -97,7 +97,7 @@ pub(crate) fn candidates_for(
                 Lint,
                 LanguageNative,
                 "cargo",
-                ["clippy", "--", "-D", "warnings"],
+                ["clippy", "--all-targets", "--", "-D", "warnings"],
                 declared,
                 "Cargo.toml",
                 None,

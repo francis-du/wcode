@@ -135,7 +135,7 @@ git diff --check
 cargo check --locked
 cargo fmt --check
 cargo test --locked
-cargo clippy --locked -- -D warnings
+cargo clippy --locked --all-targets -- -D warnings
 cargo build --release --locked
 ```
 

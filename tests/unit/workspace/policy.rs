@@ -40,6 +40,41 @@ async fn repository_commands_request_exact_authorization_instead_of_staying_hard
 }
 
 #[test]
+fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
+    let safe = WorkspaceSecurity::default();
+    for values in [
+        vec!["clippy", "--all-targets", "--", "-D", "warnings"],
+        vec![
+            "clippy",
+            "--locked",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape("cargo", &command).is_ok());
+        assert!(validate_command_policy("cargo", &command, safe).is_ok());
+    }
+    for values in [
+        vec!["clippy", "--all-targets", "--fix", "--", "-D", "warnings"],
+        vec!["clippy", "--all-targets", "--", "-A", "warnings"],
+        vec!["clippy", "--all-targets", "--config", "other.toml"],
+        vec![
+            "clippy",
+            "--all-targets",
+            "--manifest-path",
+            "other/Cargo.toml",
+        ],
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape("cargo", &command).is_err());
+        assert!(validate_command_policy("cargo", &command, safe).is_err());
+    }
+}
+
+#[test]
 fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(
         validate_gh_command(&args(&["pr", "view", "42", "--json", "title,url"]), false).is_ok()

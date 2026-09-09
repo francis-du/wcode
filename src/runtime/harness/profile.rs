@@ -121,14 +121,19 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
         if locked {
             clippy_args.push("--locked".to_owned());
         }
-        clippy_args.extend(["--".to_owned(), "-D".to_owned(), "warnings".to_owned()]);
+        clippy_args.extend([
+            "--all-targets".to_owned(),
+            "--".to_owned(),
+            "-D".to_owned(),
+            "warnings".to_owned(),
+        ]);
         push_check_owned(
             &mut checks,
             "rust-clippy",
             "full",
             "cargo",
             clippy_args,
-            "Run Clippy and treat warnings as quality-gate failures.",
+            "Run Clippy on all targets, including tests, and treat warnings as quality-gate failures.",
         );
         let mut release_args = vec!["build".to_owned(), "--release".to_owned()];
         if locked {

@@ -440,6 +440,18 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
             | ("cargo", ["nextest", "run", "--locked"])
             | ("cargo", ["clippy", "--", "-D", "warnings"])
             | ("cargo", ["clippy", "--locked", "--", "-D", "warnings"])
+            | ("cargo", ["clippy", "--all-targets", "--", "-D", "warnings"])
+            | (
+                "cargo",
+                [
+                    "clippy",
+                    "--locked",
+                    "--all-targets",
+                    "--",
+                    "-D",
+                    "warnings"
+                ],
+            )
             | ("cargo", ["build", "--release"])
             | ("cargo", ["build", "--release", "--locked"])
             | ("go", ["test", "./..."])
@@ -482,6 +494,15 @@ fn is_default_safe_cargo_command(args: &[String]) -> bool {
             | ["metadata", "--format-version", "1", "--no-deps"]
             | ["clippy", "--", "-D", "warnings"]
             | ["clippy", "--locked", "--", "-D", "warnings"]
+            | ["clippy", "--all-targets", "--", "-D", "warnings"]
+            | [
+                "clippy",
+                "--locked",
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings"
+            ]
     )
 }
 

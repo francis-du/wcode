@@ -276,8 +276,7 @@ fn scoped_context_does_not_hide_symlinks_or_a_missing_workspace() {
     };
     let error = runtime
         .software_context("demo", &workspace, &index, &HashSet::new(), &request)
-        .err()
-        .expect("symlinked scope roots must fail closed");
+        .expect_err("symlinked scope roots must fail closed");
     assert!(error.to_string().contains("symlink"));
     dir.close().unwrap();
     assert!(runtime

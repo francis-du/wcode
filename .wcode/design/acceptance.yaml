@@ -67,11 +67,17 @@
 - schema_version: 1
   id: AC-HARNESS-001
   title: Verification passes through the bounded Harness lane
-  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes.
+  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes. Rust full verification and the language-quality Clippy provider cover all targets including tests; locked and unlocked profiles retain this coverage on cache hits, the locked command matches CI, and fixed check-only policy shapes continue to reject automatic fixes and configuration redirects.
   verification:
     - kind: test
       path: tests/unit/workspace/mod.rs
       symbol: bounded_direct_and_harness_checks_run_without_risky_exec
+    - kind: test
+      path: tests/unit/runtime/harness.rs
+      symbol: rust_clippy_gate_matches_ci_for_locked_and_unlocked_projects
+    - kind: test
+      path: tests/unit/workspace/policy.rs
+      symbol: all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries
     - kind: check
       id: rust-test
 

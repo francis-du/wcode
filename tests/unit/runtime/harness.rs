@@ -66,6 +66,43 @@ fn design_init_bootstraps_minimal_valid_state_without_overwrite() {
 }
 
 #[test]
+fn rust_clippy_gate_matches_ci_for_locked_and_unlocked_projects() {
+    let workflow = include_str!("../../../.github/workflows/release.yml");
+    for locked in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"clippy-gate\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        if locked {
+            fs::write(root.path().join("Cargo.lock"), "# fixture\n").unwrap();
+        }
+        let workspace = Workspace::new(root.path(), false, false).unwrap();
+        let harness = ToolHarness::new(2).unwrap();
+        for _ in 0..2 {
+            let context = harness.project_context("demo", &workspace).unwrap();
+            let check = context
+                .recommended_checks
+                .iter()
+                .find(|check| check.id == "rust-clippy")
+                .unwrap();
+            let command = format!("{} {}", check.program, check.args.join(" "));
+            let expected = format!(
+                "cargo clippy{} --all-targets -- -D warnings",
+                if locked { " --locked" } else { "" }
+            );
+            assert_eq!(command, expected);
+            assert_eq!(check.level, "full");
+            assert_eq!(check.phase, 2);
+            if locked {
+                assert!(workflow.contains(&format!("run: {command}")));
+            }
+        }
+    }
+}
+
+#[test]
 fn project_context_detects_guidance_and_quality_checks() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir(root.path().join(".git")).unwrap();
@@ -139,6 +176,11 @@ fn project_context_detects_guidance_and_quality_checks() {
         .providers
         .iter()
         .any(|provider| provider.id == "rustfmt" && provider.declared));
+    assert!(rust_quality.providers.iter().any(|provider| {
+        provider.id == "rust-clippy"
+            && provider.command == "cargo clippy --all-targets -- -D warnings"
+            && provider.check_only
+    }));
     assert!(first
         .product_scopes
         .iter()
