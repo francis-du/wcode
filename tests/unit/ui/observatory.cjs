@@ -12,6 +12,13 @@ class Element {
   querySelectorAll(){return [];}
   focus(){} scrollIntoView(){} closest(){return null;}
 }
+function stripRuntimeBootstrap(source){
+  const normalized=source.replace(/\r\n?/g,'\n');
+  const bootstrap='\napplyTheme();\napplyLanguage();\nstartObservatory();';
+  const index=normalized.indexOf(bootstrap);
+  assert.notEqual(index,-1,'runtime bootstrap marker must stay discoverable in the behavior fixture');
+  return normalized.slice(0,index);
+}
 function sandbox(storageBlocked=false,authenticated=true,options={}){
   const nodes=new Map();
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
@@ -26,7 +33,7 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
   vm.createContext(context);
   for(const file of ['core','access','overview','architecture','features','quality','structure','runtime']){
     let source=fs.readFileSync(path.join(root,'src/ui/intelligence_web/app',file+'.js'),'utf8');
-    if(file==='runtime')source=source.split('\napplyTheme();\napplyLanguage();')[0];
+    source=file==='runtime'?stripRuntimeBootstrap(source):source.replace(/\r\n?/g,'\n');
     vm.runInContext(source,context,{filename:file+'.js'});
   }
   return {context,nodes,requests,timers,events,run:code=>vm.runInContext(code,context),node};
@@ -37,6 +44,7 @@ const project=(workspace='A')=>({workspace,project:workspace,root:'/fixture/'+wo
 async function run(){
   const results=[];
   async function test(name,fn){try{await fn();results.push({name,passed:true});}catch(error){results.push({name,passed:false,error:error.stack});}}
+  await test('runtime fixture strips bootstrap after CRLF checkout',async()=>{const source='function ready(){}\r\napplyTheme();\r\napplyLanguage();\r\nstartObservatory();';assert.equal(stripRuntimeBootstrap(source),'function ready(){}');});
   await test('storage denial cannot blank the dashboard',async()=>{const s=sandbox(true);assert.ok(s.run('state.language'));});
   await test('missing proof and unavailable Git are not green success',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;renderStats();renderAttention();renderArchitectureMetrics();');assert.ok(!s.node('#attention').innerHTML.includes('attention-item good'),'no evidence must not produce all-clear');assert.ok(!s.node('#stats').innerHTML.includes('>clean<'),'unavailable review must not look clean');assert.ok(!s.node('#architectureMetrics').innerHTML.includes('>100%<'),'empty denominators must not show full coverage');});
   await test('failed refresh does not acknowledge the new revision',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;state.revisionKey="old|graph|proof";renderProject=()=>{};renderAttention=()=>{};');const first=s.run('pollRevision()');await flush();respond(s.requests[0],{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof',pending_authorizations:0});await flush();const req=s.requests.find(r=>r.url==='/intelligence/project');assert.ok(req);respond(req,{error:'offline'},false);await first;assert.equal(s.run('state.revisionKey'),'old|graph|proof');const second=s.run('pollRevision()');await flush();respond(s.requests.at(-1),{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof'});await flush();assert.equal(s.requests.at(-1).url,'/intelligence/project');respond(s.requests.at(-1),project());await second;});
@@ -80,4 +88,4 @@ async function run(){
   assert.ok(results.every(r=>r.passed),results.filter(r=>!r.passed).map(r=>r.name).join('\n'));
 }
 if(require.main===module)run().catch(error=>{console.error(error);process.exitCode=1;});
-module.exports={sandbox,project,respond,flush};
+module.exports={sandbox,project,respond,flush,stripRuntimeBootstrap};
