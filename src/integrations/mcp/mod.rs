@@ -19,10 +19,7 @@ use crate::verification::{ReviewSubmission, ReviewerRole, StageSubmission};
 use crate::workspace::{
     CreateFileRequest, FileEditRequest, MovePathRequest, TextEdit, Workspace, Workspaces,
 };
-use crate::{
-    AUTHOR_HANDLE, AUTHOR_URL, CHATGPT_CONNECTOR_SETUP_URL, CLAUDE_CONNECTOR_SETUP_URL, DOCS_URL,
-    GROK_CONNECTOR_SETUP_URL, MISTRAL_CONNECTOR_SETUP_URL, PROJECT_URL,
-};
+use crate::{AUTHOR_URL, PROJECT_URL};
 use anyhow::{anyhow, Result as AnyResult};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
@@ -130,11 +127,13 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(setup_page))
         .route("/healthz", get(health))
+        .route("/setup/status", get(setup_status))
         .route("/intelligence", get(intelligence_page))
         .route("/intelligence/app.css", get(intelligence_styles))
         .route("/intelligence/app.js", get(intelligence_script))
         .route("/intelligence/project", get(intelligence_web_project))
         .route("/intelligence/revision", get(intelligence_web_revision))
+        .route("/intelligence/activity", get(intelligence_web_activity))
         .route(
             "/intelligence/semantic-refresh",
             post(intelligence_web_refresh_semantics),
@@ -818,7 +817,7 @@ fn modern_cacheable_result(value: Value) -> Value {
 mod mcp_dispatch;
 #[path = "tools.rs"]
 mod mcp_tools;
-pub(crate) use mcp_dispatch::call_tool;
+pub(crate) use mcp_dispatch::{call_tool, verification_options};
 #[cfg(test)]
 use mcp_dispatch::{estimated_context_bytes_avoided, parallel_item_from_response};
 #[cfg(test)]
@@ -829,18 +828,11 @@ pub(crate) fn selected_workspace(
     state: &AppState,
     args: &Value,
 ) -> Result<(String, Workspace), String> {
-    state
-        .workspaces
-        .select(string_arg(args, "workspace"))
-        .map_err(|error| error.to_string())
+    mcp_tools::selected_workspace(state, args)
 }
 
 pub(crate) fn jsonrpc_error(id: Value, code: i64, message: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
-}
-
-fn string_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(Value::as_str)
 }
 
 #[cfg(test)]

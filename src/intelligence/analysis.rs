@@ -594,7 +594,14 @@ pub(super) fn design_changes_from_review(review: &ChangeReviewReport) -> Vec<Des
         .collect()
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static REVISION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(super) fn workspace_revision(workspace: &Workspace) -> Result<Revision> {
+    #[cfg(test)]
+    REVISION_CALLS.with(|count| count.set(count.get() + 1));
     let load = design::load_design(workspace)?;
     let design_revision = if load.initialized {
         Some(workspace_tree_revision(workspace, true)?)
@@ -665,6 +672,45 @@ pub(super) fn evidence_kind_for_check(check_id: &str) -> EvidenceKind {
     }
 }
 
+// One producer's narrower or unrelated gate cannot clear another failure.
+// Equal timestamps are ambiguous, so retain the less favorable result.
+pub(super) fn aggregate_verification_results<'a>(
+    records: impl Iterator<Item = &'a Evidence>,
+) -> Option<EvidenceResult> {
+    let severity = |result| match result {
+        EvidenceResult::Pass => 0,
+        EvidenceResult::Inconclusive => 1,
+        EvidenceResult::Disagree => 2,
+        EvidenceResult::Fail => 3,
+    };
+    let mut latest = BTreeMap::new();
+    for record in records {
+        if record.policy.as_deref() == Some("deterministic/language-quality/v1") {
+            continue;
+        }
+        let key = (record.producer.as_str(), record.policy.as_deref());
+        let entry = latest.entry(key).or_insert(record);
+        if record.timestamp_ms > entry.timestamp_ms
+            || (record.timestamp_ms == entry.timestamp_ms
+                && severity(record.result) > severity(entry.result))
+        {
+            *entry = record;
+        }
+    }
+    latest
+        .values()
+        .filter(|record| {
+            // A later full run repeats quick checks and can replace that
+            // producer's older quick result, never the other way around.
+            record.policy.as_deref() != Some("deterministic/quick/v1")
+                || !latest
+                    .get(&(record.producer.as_str(), Some("deterministic/full/v1")))
+                    .is_some_and(|full| full.timestamp_ms > record.timestamp_ms)
+        })
+        .map(|record| record.result)
+        .max_by_key(|result| severity(*result))
+}
+
 pub(super) fn verification_reference_outcome(
     reference: &VerificationRef,
     report: &VerificationReport,
@@ -675,6 +721,7 @@ pub(super) fn verification_reference_outcome(
             .iter()
             .find(|check| check.id == *id)
             .map(|check| check.success),
+        VerificationRef::Test { .. } if report.level == "language-quality" => None,
         VerificationRef::Test { .. } => {
             let tests = report
                 .checks

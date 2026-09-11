@@ -1,5 +1,44 @@
 use super::*;
 
+pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
+    let bytes = serde_json::to_vec(value)?.len();
+    Ok(bytes.div_ceil(4))
+}
+
+fn shrink_hot_source_body(value: &mut Value, budget: usize) -> Result<bool> {
+    let excess_bytes = estimated_json_tokens(value)?
+        .saturating_sub(budget)
+        .saturating_mul(4);
+    let Some(body) = value
+        .get_mut("hot_source")
+        .and_then(Value::as_array_mut)
+        .and_then(|items| items.first_mut())
+        .and_then(|item| item.get_mut("body"))
+    else {
+        return Ok(false);
+    };
+    let Some(content) = body
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return Ok(false);
+    };
+    let chars = content.chars().count();
+    if chars <= 64 {
+        return Ok(false);
+    }
+    let target = chars
+        .saturating_sub(excess_bytes.saturating_add(16))
+        .max(64);
+    if target >= chars {
+        return Ok(false);
+    }
+    body["content"] = json!(short_text(&content, target));
+    body["truncated"] = json!(true);
+    Ok(true)
+}
+
 fn pop_array(value: &mut Value, key: &str, minimum: usize) -> bool {
     let Some(items) = value.get_mut(key).and_then(Value::as_array_mut) else {
         return false;
@@ -43,6 +82,7 @@ pub(super) fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()>
             || pop_array(value, "checks", 1)
             || pop_array(value, "semantic_provider_hints", 1)
             || pop_array(value, "tests", 1)
+            || pop_nested_array(value, "retrieval", "anchors", 1)
             || pop_array(value, "targets", 1)
             || pop_array(value, "files", 1)
             || shrink_hot_source_body(value, budget)?

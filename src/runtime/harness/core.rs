@@ -7,6 +7,7 @@ impl ToolHarness {
         }
         Ok(Self {
             slots: Arc::new(Semaphore::new(max_parallel)),
+            execution_slots: Arc::new(Semaphore::new(Self::execution_limit(max_parallel))),
             max_parallel,
             project_cache: Default::default(),
             repo_map_cache: Default::default(),
@@ -18,10 +19,6 @@ impl ToolHarness {
 
     pub fn max_parallel(&self) -> usize {
         self.max_parallel
-    }
-
-    pub fn intelligence_capability_count(&self) -> usize {
-        SOFTWARE_INTELLIGENCE_CAPABILITIES.len()
     }
 
     pub fn capabilities(&self) -> Value {
@@ -38,6 +35,11 @@ impl ToolHarness {
             "max_verification_checks": MAX_VERIFICATION_CHECKS,
             "max_review_files": MAX_REVIEW_FILES,
             "max_parallel_tools": self.max_parallel,
+            "execution_admission": {
+                "limit": Self::execution_limit(self.max_parallel),
+                "read_headroom": self.max_parallel - Self::execution_limit(self.max_parallel),
+                "total_limit": self.max_parallel,
+            },
             "resource_governor": crate::resource::capabilities(),
             "software_intelligence": {
                 "design_state": true,
@@ -722,6 +724,7 @@ impl ToolHarness {
             passed: run.success,
             checks_run: 1,
             checks_failed: usize::from(!run.success),
+            skipped_checks: Vec::new(),
             elapsed_ms,
             summary: run.summary.clone(),
             checks: vec![check],
@@ -924,7 +927,7 @@ impl ToolHarness {
             .verification_history(workspace_id, workspace, limit)
     }
 
-    fn known_checks(&self, workspace: &Workspace) -> Result<HashSet<String>> {
+    pub(super) fn known_checks(&self, workspace: &Workspace) -> Result<HashSet<String>> {
         let (profile, _) = self.load_project_profile(workspace)?;
         Ok(profile
             .recommended_checks
@@ -982,18 +985,5 @@ impl ToolHarness {
         if let Ok(mut cache) = self.repo_map_cache.lock() {
             cache.retain(|(cached_root, _), _| cached_root != root);
         }
-    }
-
-    pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
-        let permit = self
-            .slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| "tool harness is shutting down".to_owned())?;
-        // Re-evaluate pressure at the point work can actually start. A request
-        // may have waited in the semaphore queue while memory climbed.
-        crate::resource::global().admit_tool().await?;
-        Ok(permit)
     }
 }

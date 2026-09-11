@@ -1,6 +1,13 @@
 use super::*;
 use std::fs;
 
+#[path = "consistency.rs"]
+mod consistency;
+#[path = "flights.rs"]
+mod flights;
+#[path = "search_perf.rs"]
+mod search_perf;
+
 #[test]
 fn rust_outline_keeps_ast_and_qualifies_impl_methods() {
     let dir = tempfile::tempdir().unwrap();

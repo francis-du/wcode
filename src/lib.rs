@@ -74,6 +74,8 @@ mod semantic_provider;
 mod semantic_runtime;
 #[path = "semantics/store.rs"]
 mod semantic_store;
+#[path = "ui/setup_web.rs"]
+mod setup_web;
 #[path = "verification/stage_executor.rs"]
 mod stage_executor;
 #[path = "integrations/mcp/store.rs"]

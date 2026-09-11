@@ -1,6 +1,6 @@
 [package]
 name = "wcode"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 authors = ["francis-du"]
 description = "Local software intelligence runtime for coding agents"
@@ -9,7 +9,7 @@ repository = "https://github.com/francis-du/wcode"
 homepage = "https://wcode.francis.run/"
 documentation = "https://wcode.francis.run/"
 readme = "README.md"
-keywords = ["mcp", "coding", "software-intelligence", "developer-tools", "oauth"]
+keywords = ["mcp", "coding", "vibe", "intelligence", "developer-tools"]
 categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]

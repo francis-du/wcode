@@ -61,6 +61,7 @@ pub(crate) struct AgentInstallSummary {
     pub dry_run: bool,
     pub scope: String,
     pub workspace: String,
+    pub launch: serde_json::Value,
     pub detected: Vec<String>,
     pub planned: Vec<String>,
     pub installed: Vec<String>,
@@ -93,6 +94,7 @@ pub(crate) fn summarize(
     dry_run: bool,
     scope: String,
     workspace: String,
+    launch_args: Vec<String>,
     results: Vec<AgentInstallResult>,
 ) -> AgentInstallSummary {
     let collect = |status| {
@@ -106,6 +108,7 @@ pub(crate) fn summarize(
         dry_run,
         scope,
         workspace,
+        launch: serde_json::json!({"command": "wcode", "args": launch_args}),
         detected: results
             .iter()
             .filter(|result| result.detected)
@@ -126,6 +129,15 @@ pub(crate) fn summarize(
 
 pub(crate) fn print_human(summary: &AgentInstallSummary) {
     println!("\n  Scope: {} · Root: {}", summary.scope, summary.workspace);
+    let launch = summary.launch["args"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("  Agent launch: wcode {launch}");
+    println!("  Reconnect your agent after applying; existing processes do not change.");
     println!(
         "  ┌──────────┬──────────────────────────────┬──────────────────────────────────────┐"
     );

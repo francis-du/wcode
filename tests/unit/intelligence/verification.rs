@@ -157,6 +157,7 @@ fn low_risk_verification_becomes_ready_after_deterministic_and_blind_review_pass
                 passed: true,
                 checks_run: 1,
                 checks_failed: 0,
+                skipped_checks: Vec::new(),
                 elapsed_ms: 1,
                 summary: "fixture passed".into(),
                 checks: vec![crate::harness::VerificationCheck {
@@ -236,6 +237,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
                 passed: true,
                 checks_run: 1,
                 checks_failed: 0,
+                skipped_checks: Vec::new(),
                 elapsed_ms: 1,
                 summary: "fixture passed".into(),
                 checks: vec![crate::harness::VerificationCheck {
@@ -293,6 +295,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
                 passed: false,
                 checks_run: 1,
                 checks_failed: 1,
+                skipped_checks: Vec::new(),
                 elapsed_ms: 1,
                 summary: "revised contract fixture failed".into(),
                 checks: vec![crate::harness::VerificationCheck {

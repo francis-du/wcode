@@ -516,21 +516,28 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
     ) -> Result<VerificationStatus> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
-        let (mut status, memory_evidence) = {
+        let status = {
             let state = self
                 .state
                 .lock()
                 .map_err(|_| anyhow!("software intelligence state poisoned"))?;
-            let status = state.verification.status(plan_id)?;
-            let memory_evidence = state
-                .evidence
-                .iter()
-                .filter(|stored| stored.workspace == status.plan.workspace)
-                .map(|stored| stored.evidence.clone())
-                .collect::<Vec<_>>();
-            (status, memory_evidence)
+            state.verification.status(plan_id)?
         };
-        let current_revision = workspace_revision(workspace)?;
+        if status.plan.workspace != workspace_id {
+            return Err(anyhow!(
+                "verification plan does not belong to the selected workspace"
+            ));
+        }
+        let revision = workspace_revision(workspace)?;
+        let evidence = self.evidence_records(workspace_id, workspace)?;
+        Self::verification_status_from_snapshot(status, &revision, &evidence)
+    }
+
+    fn verification_status_from_snapshot(
+        mut status: VerificationStatus,
+        current_revision: &Revision,
+        evidence: &[Evidence],
+    ) -> Result<VerificationStatus> {
         if let Some(plan_revision) = status.plan.revision.as_ref() {
             if current_revision.code != plan_revision.code {
                 status
@@ -550,16 +557,11 @@ impl SoftwareIntelligenceRuntime {
                     .push("workspace-revision-changed-since-plan".into());
             }
         }
-        let mut evidence = evidence_store::load(workspace)?;
-        evidence.extend(memory_evidence);
-        status.deterministic_result = evidence
-            .iter()
-            .filter(|record| {
+        status.deterministic_result =
+            aggregate_verification_results(evidence.iter().filter(|record| {
                 evidence_matches_plan_revision(record, &status.plan)
                     && record.kind == EvidenceKind::Verification
-            })
-            .max_by_key(|record| record.timestamp_ms)
-            .map(|record| record.result);
+            }));
         match status.deterministic_result {
             Some(EvidenceResult::Pass) => {}
             Some(EvidenceResult::Fail) => status
@@ -577,21 +579,21 @@ impl SoftwareIntelligenceRuntime {
         let require_fuzz = status.plan.require_fuzz;
         apply_stage_status(
             &mut status,
-            &evidence,
+            evidence,
             VerificationStage::Property,
             EvidenceKind::Property,
             require_property,
         );
         apply_stage_status(
             &mut status,
-            &evidence,
+            evidence,
             VerificationStage::Mutation,
             EvidenceKind::Mutation,
             require_mutation,
         );
         apply_stage_status(
             &mut status,
-            &evidence,
+            evidence,
             VerificationStage::Fuzz,
             EvidenceKind::Fuzz,
             require_fuzz,
@@ -603,7 +605,7 @@ impl SoftwareIntelligenceRuntime {
             .any(|check| check == "runtime-gate");
         apply_stage_status(
             &mut status,
-            &evidence,
+            evidence,
             VerificationStage::RuntimeCanary,
             EvidenceKind::Runtime,
             runtime_required,
@@ -627,26 +629,58 @@ impl SoftwareIntelligenceRuntime {
         Ok(status)
     }
 
-    pub(crate) fn verification_history(
+    fn verification_base_history(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
         limit: usize,
     ) -> Result<Vec<VerificationStatus>> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
-        let mut plans = {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| anyhow!("software intelligence state poisoned"))?;
-            state.verification.plans_for_workspace(workspace_id)
-        };
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+        let mut plans = state.verification.plans_for_workspace(workspace_id);
         plans.reverse();
-        let mut history = Vec::new();
-        for plan in plans.into_iter().take(limit.clamp(1, 100)) {
-            history.push(self.verification_status(workspace_id, workspace, &plan.id)?);
+        plans
+            .into_iter()
+            .take(limit.clamp(1, 100))
+            .map(|plan| state.verification.status(&plan.id).map_err(Into::into))
+            .collect()
+    }
+
+    pub(crate) fn verification_history(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<Vec<VerificationStatus>> {
+        let history = self.verification_base_history(workspace_id, workspace, limit)?;
+        if history.is_empty() {
+            return Ok(history);
         }
-        Ok(history)
+        // Capture once per request, not once per plan. Do not cache these inputs
+        // across requests: edits and freshly persisted evidence must be visible.
+        let revision = workspace_revision(workspace)?;
+        let evidence = self.evidence_records(workspace_id, workspace)?;
+        history
+            .into_iter()
+            .map(|status| Self::verification_status_from_snapshot(status, &revision, &evidence))
+            .collect()
+    }
+
+    pub(crate) fn verification_history_from_snapshot(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        limit: usize,
+        revision: &Revision,
+        evidence: &[Evidence],
+    ) -> Result<Vec<VerificationStatus>> {
+        self.verification_base_history(workspace_id, workspace, limit)?
+            .into_iter()
+            .map(|status| Self::verification_status_from_snapshot(status, revision, evidence))
+            .collect()
     }
 
     pub(crate) fn record_verification_report(
@@ -697,28 +731,32 @@ impl SoftwareIntelligenceRuntime {
             ));
             produced.push(evidence);
         }
-        let mut aggregate = Evidence::new(
-            self.next_id("EV"),
-            format!("change:{}", revision.code),
-            EvidenceKind::Verification,
-            "verify_project".into(),
-            revision.clone(),
-            if report.passed {
-                EvidenceResult::Pass
-            } else {
-                EvidenceResult::Fail
-            },
-            Confidence::Deterministic,
-        )?;
-        aggregate.policy = Some(format!("deterministic/{}/v1", report.level));
-        aggregate.artifact_digest = Some(format!(
-            "sha256:{}",
-            digest_text(&format!(
-                "{}\n{}\n{}\n{}",
-                report.level, report.checks_run, report.checks_failed, report.summary
-            ))
-        ));
-        produced.push(aggregate);
+        // A single language provider proves only its own check, never the
+        // complete project gate. Keep quick/full policies distinct as well.
+        if matches!(report.level.as_str(), "quick" | "full") {
+            let mut aggregate = Evidence::new(
+                self.next_id("EV"),
+                format!("change:{}", revision.code),
+                EvidenceKind::Verification,
+                "verify_project".into(),
+                revision.clone(),
+                if report.passed {
+                    EvidenceResult::Pass
+                } else {
+                    EvidenceResult::Fail
+                },
+                Confidence::Deterministic,
+            )?;
+            aggregate.policy = Some(format!("deterministic/{}/v1", report.level));
+            aggregate.artifact_digest = Some(format!(
+                "sha256:{}",
+                digest_text(&format!(
+                    "{}\n{}\n{}\n{}",
+                    report.level, report.checks_run, report.checks_failed, report.summary
+                ))
+            ));
+            produced.push(aggregate);
+        }
         for criterion in design.state.acceptance.values() {
             let outcomes = criterion
                 .verification
@@ -728,18 +766,20 @@ impl SoftwareIntelligenceRuntime {
             if outcomes.is_empty() {
                 continue;
             }
-            let passed = outcomes.iter().all(|outcome| *outcome);
+            let result = if outcomes.iter().any(|outcome| !outcome) {
+                EvidenceResult::Fail
+            } else if outcomes.len() < criterion.verification.len() {
+                EvidenceResult::Inconclusive
+            } else {
+                EvidenceResult::Pass
+            };
             let mut evidence = Evidence::new(
                 self.next_id("EV"),
                 criterion.id.clone(),
                 EvidenceKind::IntegrationTest,
                 "deterministic-verification-mesh".into(),
                 revision.clone(),
-                if passed {
-                    EvidenceResult::Pass
-                } else {
-                    EvidenceResult::Fail
-                },
+                result,
                 Confidence::Deterministic,
             )?;
             evidence.policy = Some(format!("acceptance/{}/v1", report.level));

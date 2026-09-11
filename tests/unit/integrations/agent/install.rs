@@ -133,6 +133,38 @@ fn global_setup_uses_user_config_paths_without_embedding_a_workspace() {
 }
 
 #[test]
+fn configured_global_setup_uses_reviewed_launch_options_and_file_versions() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".codex")).unwrap();
+    let path = root.path().join(".codex/config.toml");
+    fs::write(&path, "# keep this comment\nmodel = \"test\"\n").unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let args = ["mcp-stdio", "--performance", "light", "--read-only"].map(str::to_owned);
+    let plan = plan_configured_install(&workspace, true, &args);
+    let preview = apply_install(&workspace, plan.clone(), true);
+    assert_eq!(preview.launch["args"], json!(args));
+    let applied = apply_install(&workspace, plan, false);
+    assert!(applied.failed.is_empty(), "{:?}", applied.failed);
+    let config = fs::read_to_string(&path).unwrap();
+    assert!(config.contains("# keep this comment"));
+    let doc = config.parse::<toml_edit::DocumentMut>().unwrap();
+    let saved = doc["mcp_servers"]["wcode"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(saved, args);
+    let next_args = ["mcp-stdio", "--performance", "fast"].map(str::to_owned);
+    let reviewed = plan_configured_install(&workspace, true, &next_args);
+    let changed = format!("{config}\n# edited after preview\n");
+    fs::write(&path, &changed).unwrap();
+    let outcome = apply_install(&workspace, reviewed, false);
+    assert!(outcome.failed.iter().any(|name| name == "OpenAI Codex"));
+    assert_eq!(fs::read_to_string(path).unwrap(), changed);
+}
+
+#[test]
 fn manual_only_detection_does_not_create_a_portable_skill_plan() {
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), true, false).unwrap();

@@ -16,10 +16,11 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct AgentInstallPlan {
     pub scope: String,
     pub workspace: String,
+    pub launch_args: Vec<String>,
     pub actions: Vec<AgentInstallAction>,
     #[serde(skip)]
     writes: BTreeMap<String, PlannedFile>,
@@ -57,19 +58,25 @@ pub(crate) fn user_home_workspace() -> anyhow::Result<Workspace> {
 }
 
 pub(crate) fn plan_install(workspace: &Workspace) -> AgentInstallPlan {
-    plan_install_for_scope(workspace, false)
+    plan_configured_install(workspace, false, &["mcp-stdio".to_owned()])
 }
 
 pub(crate) fn plan_global_install(workspace: &Workspace) -> AgentInstallPlan {
-    plan_install_for_scope(workspace, true)
+    plan_configured_install(workspace, true, &["mcp-stdio".to_owned()])
 }
 
-fn plan_install_for_scope(workspace: &Workspace, global: bool) -> AgentInstallPlan {
+// Launch arguments come from validated CLI settings, never a shell command.
+pub(crate) fn plan_configured_install(
+    workspace: &Workspace,
+    global: bool,
+    launch_args: &[String],
+) -> AgentInstallPlan {
     let detections = detect_hosts(workspace)
         .into_iter()
         .map(|host| (host.id.clone(), host))
         .collect::<BTreeMap<_, _>>();
-    let server = agent_plugin::local_stdio_server();
+    let mut server = agent_plugin::local_stdio_server();
+    server["args"] = serde_json::json!(launch_args);
     let mut writes = BTreeMap::<String, PlannedFile>::new();
     let mut actions = Vec::new();
 
@@ -99,7 +106,7 @@ fn plan_install_for_scope(workspace: &Workspace, global: bool) -> AgentInstallPl
             continue;
         }
         let plan = if global {
-            match global_plan(workspace, host, &server) {
+            match global_plan(workspace, host, &server, launch_args) {
                 Some(plan) => plan,
                 None => {
                     actions.push(AgentInstallAction {
@@ -119,8 +126,12 @@ fn plan_install_for_scope(workspace: &Workspace, global: bool) -> AgentInstallPl
                 AdapterKind::JsonServers { path } => {
                     merge::plan_json(workspace, path, "servers", &server)
                 }
-                AdapterKind::CodexToml => merge::plan_codex_toml(workspace, ".codex/config.toml"),
-                AdapterKind::OpenCode => merge::plan_opencode(workspace, "opencode.json"),
+                AdapterKind::CodexToml => {
+                    merge::plan_codex_toml(workspace, ".codex/config.toml", launch_args)
+                }
+                AdapterKind::OpenCode => {
+                    merge::plan_opencode(workspace, "opencode.json", launch_args)
+                }
                 AdapterKind::Manual => unreachable!(),
             }
         };
@@ -154,6 +165,7 @@ fn plan_install_for_scope(workspace: &Workspace, global: bool) -> AgentInstallPl
     AgentInstallPlan {
         scope: if global { "global" } else { "project" }.to_owned(),
         workspace: workspace.root().to_string_lossy().into_owned(),
+        launch_args: launch_args.to_vec(),
         actions,
         writes,
     }
@@ -198,22 +210,31 @@ pub(crate) fn apply_install(
             }
         })
         .collect::<Vec<_>>();
-    report::summarize(dry_run, plan.scope, plan.workspace, results)
+    report::summarize(
+        dry_run,
+        plan.scope,
+        plan.workspace,
+        plan.launch_args,
+        results,
+    )
 }
 
 fn global_plan(
     workspace: &Workspace,
     host: &AgentHost,
     server: &serde_json::Value,
+    launch_args: &[String],
 ) -> Option<anyhow::Result<PlannedFile>> {
     let plan = match host.id {
         "claude-code" => merge::plan_json(workspace, ".claude.json", "mcpServers", server),
-        "openai-codex" => merge::plan_codex_toml(workspace, ".codex/config.toml"),
+        "openai-codex" => merge::plan_codex_toml(workspace, ".codex/config.toml", launch_args),
         "cursor" => merge::plan_json(workspace, ".cursor/mcp.json", "mcpServers", server),
         "gemini-cli" => merge::plan_json(workspace, ".gemini/settings.json", "mcpServers", server),
         "qwen-code" => merge::plan_json(workspace, ".qwen/settings.json", "mcpServers", server),
         "kiro" => merge::plan_json(workspace, ".kiro/settings/mcp.json", "mcpServers", server),
-        "opencode" => merge::plan_opencode(workspace, ".config/opencode/opencode.json"),
+        "opencode" => {
+            merge::plan_opencode(workspace, ".config/opencode/opencode.json", launch_args)
+        }
         _ => return None,
     };
     Some(plan)

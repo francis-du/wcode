@@ -36,13 +36,101 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
     if subcommand == "lfs" {
         return validate_git_lfs(tail, allow_risky_exec);
     }
+    if git_inspection_only(subcommand, tail) {
+        return Ok(());
+    }
     match subcommand {
         "add" => validate_git_add(tail)?,
         "commit" => validate_git_commit(tail)?,
         "push" => validate_git_push(tail)?,
+        "branch" | "switch" | "tag" => validate_git_named_operation(subcommand, tail)?,
+        "restore" if tail.first().is_some_and(|arg| arg == "--staged") => {
+            validate_git_add(&tail[1..])?;
+        }
         _ => bail!("git mutation subcommand is permanently blocked: {subcommand}"),
     }
     require_risky_exec("git repository mutation", allow_risky_exec)
+}
+
+// Only message values in a fully validated Git form are text, not paths.
+// Argument control characters and the exact operation approval still apply.
+pub(super) fn literal_message_indices(args: &[String]) -> Vec<usize> {
+    if validate_git_command(args, true).is_err() {
+        return Vec::new();
+    }
+    let Some(command) = args.iter().position(|arg| !arg.starts_with('-')) else {
+        return Vec::new();
+    };
+    match args[command].as_str() {
+        "commit" => {
+            let mut indices = Vec::new();
+            let mut index = command + 1;
+            while index < args.len() {
+                if matches!(args[index].as_str(), "-m" | "--message") {
+                    indices.push(index + 1);
+                    index += 2;
+                } else {
+                    indices.push(index);
+                    index += 1;
+                }
+            }
+            indices
+        }
+        "tag" if args.get(command + 1).is_some_and(|arg| arg == "-a") => {
+            vec![command + 4]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn git_inspection_only(command: &str, args: &[String]) -> bool {
+    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+    match (command, args.as_slice()) {
+        ("branch" | "tag", [])
+        | ("branch", ["--show-current"])
+        | ("branch" | "tag", ["--list" | "-l"])
+        | ("remote", [] | ["-v" | "--verbose"]) => true,
+        ("branch" | "tag", ["--list" | "-l", pattern]) => !pattern.starts_with('-'),
+        ("remote", ["get-url", remote]) => !remote.is_empty() && !remote.starts_with('-'),
+        _ => false,
+    }
+}
+
+fn validate_git_named_operation(command: &str, args: &[String]) -> Result<()> {
+    let positional = |values: &[String]| {
+        !values.is_empty()
+            && values.len() <= 2
+            && values
+                .iter()
+                .all(|arg| !arg.is_empty() && !arg.starts_with('-'))
+    };
+    let valid = match command {
+        "branch" | "tag" => positional(args),
+        "switch" => {
+            (args.len() == 1 && positional(args))
+                || (args
+                    .first()
+                    .is_some_and(|arg| arg == "-c" || arg == "--create")
+                    && positional(&args[1..]))
+        }
+        _ => false,
+    };
+    let annotated_tag = command == "tag"
+        && args.len() >= 4
+        && args.len() <= 5
+        && args[0] == "-a"
+        && !args[1].is_empty()
+        && !args[1].starts_with('-')
+        && args[2] == "-m"
+        && !args[3].is_empty()
+        && args
+            .get(4)
+            .is_none_or(|arg| !arg.is_empty() && !arg.starts_with('-'));
+    if valid || annotated_tag {
+        Ok(())
+    } else {
+        bail!("git {command} requires explicit names; force/delete/editor/helper modes remain unavailable")
+    }
 }
 
 fn validate_git_add(args: &[String]) -> Result<()> {

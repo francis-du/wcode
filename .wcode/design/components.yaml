@@ -25,6 +25,7 @@
   responsibilities:
     - execute commands without a shell
     - preserve bounded and policy-checked execution
+    - isolate fixed Git inspection capacity from heavy commands and expose cancellation-safe queue occupancy without widening authority
     - classify known development CLIs into direct read/check shapes, exact authorized mutations, and permanently blocked credential/destructive shapes
   constraints:
     - CONSTRAINT-NO-SHELL
@@ -36,6 +37,8 @@
     - kind: symbol
       path: src/workspace/command_policy.rs
       symbol: validate_command_policy
+    - kind: file
+      path: src/runtime/resource/queue.rs
 
 - schema_version: 1
   id: component:mcp-runtime
@@ -285,6 +288,7 @@
   name: Software Intelligence UI
   responsibilities:
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
+    - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
     - expose a protected architecture-first Project Observatory with a full Design-vs-Actual dependency graph, observed drift and evidence-coverage metrics, component drill-down, then Requirement → Desired State → Actual State → Change → Proof → Convergence detail
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
@@ -306,6 +310,8 @@
     - kind: symbol
       path: src/ui/monitor/intelligence.rs
       symbol: render_intelligence_overlay
+    - kind: file
+      path: src/ui/setup_web.rs
     - kind: symbol
       path: src/ui/monitor/i18n.rs
       symbol: UiLanguage::tr
@@ -646,6 +652,7 @@
   name: Agent Context Compiler
   responsibilities:
     - compile one task-specific edit-ready context pack instead of requiring a broad startup sequence
+    - prioritize bounded explicit diagnostic file and line anchors with original source, matching SHA and missing-location states without treating locations as proven root causes or permissions
     - persist and restore a revision-guarded per-Workspace Worklist so reconnects model switches and user-added tasks do not drop unfinished work
     - prioritize relevant Design State, symbol signatures, exact file SHA preconditions, verification references, graph evidence, risks and quality gates
     - rank a compact repository map from task relevance plus dependency centrality so direct matches include likely callers, callees and canonical helpers, with explicit caller/callee/dependency reasons and provider precision
@@ -675,6 +682,10 @@
     - kind: symbol
       path: src/runtime/harness/context_budget.rs
       symbol: trim_agent_context
+    - kind: file
+      path: src/runtime/harness/context_anchors.rs
+    - kind: file
+      path: src/runtime/harness/context_operations.rs
     - kind: symbol
       path: src/runtime/harness/repo_map.rs
       symbol: ToolHarness::ranked_repo_map
@@ -758,6 +769,7 @@
   name: Governed CLI Lifecycle
   responsibilities:
     - keep the default command catalog compact stable and directly understandable by humans and coding agents
+    - resolve balanced fast and light resource presets with explicit single-field overrides and pure JSON previews before startup, and reject contradictory safety or connection settings
     - remove restart and stop plus the separate runtime-control route/state so process lifecycle belongs to OS signals or the MCP Host rather than another wcode control plane
     - disable the redundant generated help subcommand while retaining command-specific --help
     - update the current installation through embedded verified platform installers and never replace the installed binary before checksum plus version/help smoke checks pass
@@ -771,6 +783,8 @@
     - kind: symbol
       path: src/app/commands.rs
       symbol: ControlCommand
+    - kind: file
+      path: src/app/resources.rs
     - kind: symbol
       path: src/app/update.rs
       symbol: run

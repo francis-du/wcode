@@ -27,11 +27,36 @@ wcode update
 wcode mcp-stdio
 wcode intelligence --help
 wcode verification --help
+wcode help-all
 ```
 
 重复的 `help` 子命令已经取消，统一使用 `--help` 或
 `<command> --help`。`agent-plugin` 只保留给高级插件包导出和旧自动化；进程
 生命周期交给终端 / OS 或 MCP Host 管理，`restart` / `stop` 不再是公开命令。
+
+### 完整命令与参数查询
+
+```bash
+wcode help-all                         # 所有命令，包括默认隐藏的 CLI 参数
+wcode help-all setup                   # 一个子命令及其继承的全局参数
+wcode help-all agent-plugin            # 高级导出与兼容选项
+wcode help-all verification --json     # 单个命令的机器可读目录
+wcode help-all --json                  # 完整的 CLI 定义树
+```
+
+普通 `-h` / `--help` 保持简洁，但现在会指向 `help-all`。完整帮助直接从解析器
+使用的同一份 Clap 定义生成，不另维护一份容易漏项的列表。展示说明、长短参数、
+别名（包括 `--plan`）、声明默认值、枚举可选值与全局作用域。
+隐藏参数会标注；`--no-install-chatgpt` 明确标为已弃用且忽略。
+只有全局参数才能放在子命令后；其他根参数必须放在子命令前，不会在子命令页虚报为可用。
+
+此命令只展示定义，在加载工作区、应用资源预算、授权、启动服务、安装或更新之前返回。
+错误命令路径会直接失败，不执行被查询命令。文本为可重定向的纯文本；下游管道提前关闭
+不会触发崩溃。JSON 包含 `schema_version: 1`、`scope: "cli"`、
+`runtime_started: false`；它是导航目录，不是完整参数校验 Schema、MCP 工具 Schema、
+外部程序授权名单或当前运行配置，也不枚举第三方程序自身的任意子命令。
+受预设或硬件影响的实际数值仍用 `wcode --show-config` 获取，不能在目录中伪造固定默认值。
+需要构建／安装新的 0.6.2 可执行文件才能使用该命令。
 
 `wcode update` 默认更新当前正在运行的二进制所在目录，也可以通过
 `WCODE_INSTALL_DIR` 显式覆盖。更新继续复用 Release Installer 的安全合同：
@@ -103,6 +128,57 @@ Binary 中。
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
 | `--open` | 启动后在浏览器打开 Setup Hub。 |
+
+### 简单的性能配置
+
+日常使用不必调 CPU、内存和并发数字。只需按需要选择一个性能预设：
+
+| 预设 | 请求的工具容量 | 进程软内存预算 | 后台 CPU 目标 |
+| --- | --- | --- | --- |
+| `balanced`（默认，均衡） | 32 | 512 MiB | 单核的 10% |
+| `fast`（快速） | 64 | 1024 MiB | 单核的 10% |
+| `light`（轻量） | 16 | 256 MiB | 单核的 5% |
+
+```bash
+wcode --performance fast
+wcode mcp-stdio --performance light
+wcode --performance fast --show-config
+```
+
+`--show-config` 输出只读 JSON 预览，在启动服务、加载授权状态、安装智能体或
+执行更新之前退出。它展示请求值与实际资源上限、覆盖来源、接入方式及权限。
+这描述的是将要启动的进程，不是已经运行的实例；工作区存在性与公网可达性仍
+在真正启动时检查。预览本身不创建配置文件，也不自动加载仓库中的配置文件。
+
+显式 `-j` / `--max-parallel-tools`、`--max-memory-mb`、`--max-cpu-percent`
+只覆盖预设中的对应项，与参数先后顺序无关。预设不授予权限，也不承诺等比例
+提速；硬件、内存、进程和总工具额度仍然生效。常用工作区、安全、预设与预览
+参数也能放在子命令后，例如 `wcode setup --project -w /path/to/project --dry-run`。
+
+`--full-access` 与 `--read-only`、`--no-exec` 或 `--no-semantic` 同时出现时，
+直接指出参数冲突，不再悄悄覆盖限制。`--no-tunnel` 也不能与 `--public-url`
+同时使用。Setup 只接受一个项目根目录，不再静默忽略多余目录；交互选项输错
+可以重选，输入结束则取消，不会被当成默认选择。
+
+用 `wcode setup --performance fast --dry-run` 预览所选启动参数，再运行
+`wcode setup --project --performance fast`，即可为已检测到的本地智能体保存设置。
+Setup 在任何写入前校验数字参数，并把性能选项、`--read-only`、`--no-exec`、
+`--no-semantic` 一致地传给 JSON、Codex TOML 和受支持的 OpenCode 配置。
+JSON 安装报告中的 `launch` 分别展示 `command` 与 `args`；
+`setup --show-config` 则通过 `setup_launch` 展示相同内容。
+全局安装仍需交互确认，并执行刚预览的那份计划；文件在确认期间改变会触发
+SHA 校验失败，不会覆盖新内容。Setup 不持久化宽泛权限授予。已有进程需要重新连接。
+
+文件只读不代表所有命令都没有副作用；仅查看模式应组合使用
+`--read-only --no-exec --no-semantic`。
+
+浏览器 Setup Hub 区分本地智能体与远程连接器，提供复制按钮和手动中英文切换，
+把可选的命令生成与运行信息折叠起来。页面性能选项只生成命令，不保存配置，
+不修改当前进程。性能和权限选项会同步更新安装命令与可复制的本地 stdio 服务条目；
+执行该安装命令才会保存选项，仅复制不会保存。本地面板模式生成 `--no-tunnel`，
+不开放公网服务。只有连接状态支持的公网地址才可复制；本机地址与失效地址
+不会被展示成可用的云端入口。轮询使用精简的 `/setup/status`，不附带工作区路径
+和完整工具目录；原来的 `/healthz` 保持兼容。轮询不重叠，有超时限制，页面隐藏时暂停。
 
 ### 高级 Operator 参数
 

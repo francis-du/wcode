@@ -6,7 +6,7 @@ async fn cancelled_blocking_worker_retains_its_real_permit_until_finished() {
     use std::sync::Arc;
     use std::time::Duration;
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap().into());
     let (started_tx, started_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let parent = tokio::spawn(BLOCKING_PERMIT.scope(
@@ -58,7 +58,7 @@ fn cancelled_queued_blocking_worker_never_starts() {
         });
         started_rx.await.unwrap();
         let slots = Arc::new(tokio::sync::Semaphore::new(1));
-        let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+        let permit = Arc::new(slots.clone().acquire_owned().await.unwrap().into());
         let executed = Arc::new(AtomicBool::new(false));
         let worker_executed = executed.clone();
         let (queued_tx, queued_rx) = tokio::sync::oneshot::channel();
@@ -93,7 +93,7 @@ fn cancelled_queued_blocking_worker_never_starts() {
 async fn panicking_blocking_worker_releases_its_permit() {
     use std::sync::Arc;
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap());
+    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap().into());
     let result: AnyResult<Value> = BLOCKING_PERMIT
         .scope(permit, run_blocking(|| panic!("synthetic blocking panic")))
         .await;
@@ -102,6 +102,46 @@ async fn panicking_blocking_worker_releases_its_permit() {
         .to_string()
         .contains("blocking task failed"));
     assert_eq!(slots.available_permits(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_execution_worker_retains_both_admission_permits() {
+    use std::sync::Arc;
+    use std::time::Duration;
+    let harness = crate::harness::ToolHarness::new(2).unwrap();
+    let permit = Arc::new(harness.acquire_tool(true).await.unwrap());
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let parent = tokio::spawn(BLOCKING_PERMIT.scope(
+        permit,
+        run_blocking(move || {
+            let _ = started_tx.send(());
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        }),
+    ));
+    tokio::time::timeout(Duration::from_secs(3), started_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    parent.abort();
+    assert!(parent.await.unwrap_err().is_cancelled());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), harness.acquire_tool(true))
+            .await
+            .is_err()
+    );
+    let read = harness.acquire_tool(false).await.unwrap();
+    drop(read);
+    release_tx.send(()).unwrap();
+    let next = tokio::time::timeout(Duration::from_secs(3), harness.acquire_tool(true))
+        .await
+        .unwrap()
+        .unwrap();
+    drop(next);
+    let first = harness.acquire().await.unwrap();
+    let second = harness.acquire().await.unwrap();
+    drop((first, second));
 }
 
 fn assert_required_fields_exist(value: &Value, tool_name: &str) {

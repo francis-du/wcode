@@ -54,31 +54,12 @@ const MAX_GUIDANCE_CHARS_PER_FILE: usize = 12_000;
 const MAX_GUIDANCE_CHARS_TOTAL: usize = 32_000;
 const MAX_PROFILE_SOURCE_BYTES: u64 = 1024 * 1024;
 const MAX_CHECK_OUTPUT_CHARS: usize = 12_000;
-const MAX_VERIFICATION_CHECKS: usize = 8;
+// A mixed Rust/Node/Python/Go/Make project can infer more than eight checks.
+// This is a total-plan bound, not a silent truncation or a concurrency target.
+const MAX_VERIFICATION_CHECKS: usize = 32;
 const MAX_REVIEW_FILES: usize = 500;
 const MAX_REVIEW_FINDINGS: usize = 64;
 const QUALITY_HARNESS_TOOLS: &[&str] = &["project_context", "review_changes", "verify_project"];
-const SOFTWARE_INTELLIGENCE_CAPABILITIES: &[&str] = &[
-    "design_state",
-    "software_graph",
-    "graph_history",
-    "semantic_registry",
-    "semantic_providers",
-    "traceability",
-    "software_context",
-    "drift",
-    "impact_analysis",
-    "risk",
-    "reconciliation",
-    "reconciliation_execution",
-    "verification_mesh",
-    "stage_executors",
-    "persistent_evidence",
-    "cli_intelligence",
-    "tui_intelligence",
-    "web_intelligence",
-];
-
 const GUIDANCE_FILES: &[&str] = &[
     "AGENTS.md",
     ".github/copilot-instructions.md",
@@ -135,12 +116,69 @@ pub(crate) struct SemanticNavigationRequest {
 #[derive(Clone)]
 pub struct ToolHarness {
     slots: Arc<Semaphore>,
+    execution_slots: Arc<Semaphore>,
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
     repo_map_cache: Arc<Mutex<HashMap<(PathBuf, String), CachedRepoMapGraph>>>,
     code_index: CodeIndex,
     semantic_sessions: SemanticSessionPool,
     intelligence: SoftwareIntelligenceRuntime,
+}
+
+// Both permits follow the real work, including a blocking worker that outlives
+// its cancelled async caller. Neither changes authorization or the total cap.
+pub(crate) struct ToolPermit {
+    _slot: OwnedSemaphorePermit,
+    _execution: Option<OwnedSemaphorePermit>,
+}
+
+impl From<OwnedSemaphorePermit> for ToolPermit {
+    fn from(slot: OwnedSemaphorePermit) -> Self {
+        Self {
+            _slot: slot,
+            _execution: None,
+        }
+    }
+}
+
+impl ToolHarness {
+    fn execution_limit(max_parallel: usize) -> usize {
+        max_parallel
+            .saturating_sub(max_parallel.div_ceil(8).min(4))
+            .max(1)
+    }
+
+    pub(crate) async fn acquire_tool(&self, executes_process: bool) -> Result<ToolPermit, String> {
+        // Queue command traffic before it can consume every global slot. All
+        // acquisitions use this order; no parent holds a slot waiting for it.
+        let execution = if executes_process {
+            Some(
+                self.execution_slots
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| "execution admission is shutting down".to_owned())?,
+            )
+        } else {
+            None
+        };
+        let slot = self.acquire().await?;
+        Ok(ToolPermit {
+            _slot: slot,
+            _execution: execution,
+        })
+    }
+
+    pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
+        let permit = self
+            .slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| "tool harness is shutting down".to_owned())?;
+        crate::resource::global().admit_tool().await?;
+        Ok(permit)
+    }
 }
 
 #[derive(Clone)]
@@ -213,6 +251,7 @@ pub struct VerificationReport {
     pub passed: bool,
     pub checks_run: usize,
     pub checks_failed: usize,
+    pub skipped_checks: Vec<String>,
     pub elapsed_ms: u128,
     pub summary: String,
     pub checks: Vec<VerificationCheck>,
@@ -389,8 +428,10 @@ fn verification_check(
     result: CommandResult,
     elapsed_ms: u128,
 ) -> VerificationCheck {
-    let (stdout_tail, stdout_cut) = tail_chars(&result.stdout, MAX_CHECK_OUTPUT_CHARS);
-    let (stderr_tail, stderr_cut) = tail_chars(&result.stderr, MAX_CHECK_OUTPUT_CHARS);
+    let (stdout_tail, stdout_cut) =
+        harness_verification::verification_output(&result.stdout, result.success);
+    let (stderr_tail, stderr_cut) =
+        harness_verification::verification_output(&result.stderr, result.success);
     VerificationCheck {
         id: check.id,
         phase: check.phase,

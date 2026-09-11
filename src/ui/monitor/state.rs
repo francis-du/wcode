@@ -110,6 +110,59 @@ impl TaskMonitor {
         }
     }
 
+    /// Read-only projection for the protected WebUI. Never expose raw arguments
+    /// or reset the TUI's short-lived peak/traffic observation window.
+    pub(crate) fn observatory_activity(&self, workspace: &str) -> Value {
+        let now = Instant::now();
+        let state = self.state.lock().expect("task monitor lock poisoned");
+        let stats = state.workspaces.get(workspace).cloned().unwrap_or_default();
+        let mut tasks = state
+            .tasks
+            .iter()
+            .filter(|task| task.workspace == workspace)
+            .collect::<Vec<_>>();
+        tasks.sort_by_key(|task| {
+            (
+                match task.status {
+                    TaskStatus::Running => 0,
+                    TaskStatus::Queued => 1,
+                    TaskStatus::Failed => 2,
+                    TaskStatus::Completed => 3,
+                },
+                std::cmp::Reverse(task.id),
+            )
+        });
+        let retained = tasks.len();
+        let orchestration = tasks
+            .iter()
+            .filter(|task| !task.slot_counted && task.status == TaskStatus::Running)
+            .count();
+        let recent = tasks.into_iter().take(12).map(|task| {
+            let end = task.finished_at.unwrap_or(now);
+            serde_json::json!({
+                "id": task.id,
+                "tool": task.tool.chars().take(80).collect::<String>(),
+                "status": match task.status {
+                    TaskStatus::Queued => "queued", TaskStatus::Running => "running",
+                    TaskStatus::Completed => "completed", TaskStatus::Failed => "failed",
+                },
+                "slot_counted": task.slot_counted,
+                "wait_ms": task.started_at.unwrap_or(end).saturating_duration_since(task.queued_at).as_millis(),
+                "run_ms": task.started_at.map(|start| end.saturating_duration_since(start).as_millis()),
+                "finished_ago_ms": task.finished_at.map(|finished| now.saturating_duration_since(finished).as_millis()),
+            })
+        }).collect::<Vec<_>>();
+        serde_json::json!({
+            "workspace": workspace, "available": true,
+            "active": stats.active, "queued": stats.queued,
+            "orchestration": orchestration, "calls": stats.calls,
+            "completed": stats.completed, "failed": stats.failed,
+            "counter_scope": "workspace_since_process_start",
+            "recent": recent, "recent_truncated": retained > 12,
+            "history_scope": "bounded_process_memory",
+        })
+    }
+
     pub fn register_workspace(&self, workspace: impl Into<String>) {
         let workspace = workspace.into();
         let mut state = self.state.lock().expect("task monitor lock poisoned");

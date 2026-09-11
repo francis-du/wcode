@@ -22,8 +22,8 @@ function renderRequirements() {
   const all = state.project?.requirements || [],
     items = all.filter(requirementMatches);
   els.reqCount.textContent = `${items.length} / ${all.length}`;
-  if (!state.selected || !all.some((r) => r.id === state.selected)) {
-    state.selected = (all.find((r) => r.changed) || all[0] || {}).id || "";
+  if (!state.selected || !items.some((r) => r.id === state.selected)) {
+    state.selected = (items.find((r) => r.changed) || items[0] || {}).id || "";
   }
   const html = items.map((r) => {
     const dependencies = r.dependency_alignment || [],
@@ -470,7 +470,7 @@ function renderChanges() {
     html = items.length
       ? changeTable(items, false)
       : `<div class="section empty">${
-        esc(t("Working tree is clean or Git review is unavailable."))
+        esc(state.project.git_review?.available === true ? localized("Working tree is clean.", "工作树没有未提交变更。") : localized("Git review is unavailable. This is not proof of a clean working tree.", "Git 检查不可用，不能据此判断工作树没有变更。"))
       }</div>`;
   setHtml(
     "changes",
@@ -479,7 +479,10 @@ function renderChanges() {
     () =>
       els.changes.querySelectorAll("[data-req]").forEach((link) =>
         link.addEventListener("click", () => {
+          state.filter = "all"; els.search.value = "";
+          document.querySelectorAll(".filter").forEach(button => { button.classList.toggle("active", button.dataset.filter === "all"); button.setAttribute("aria-pressed", String(button.dataset.filter === "all")); });
           state.selected = link.dataset.req;
+          revealSection("requirementsSection");
           invalidate("requirements", "detail");
           renderRequirements();
           renderDetail();

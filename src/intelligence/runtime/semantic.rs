@@ -1,13 +1,11 @@
 use super::*;
 
 impl SoftwareIntelligenceRuntime {
-    pub fn evidence_status(
+    pub(crate) fn evidence_records(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
-        subject: Option<&str>,
-        limit: usize,
-    ) -> Result<EvidenceStatus> {
+    ) -> Result<Vec<Evidence>> {
         let mut records = evidence_store::load(workspace)?
             .into_iter()
             .map(|evidence| (evidence.id.clone(), evidence))
@@ -23,11 +21,49 @@ impl SoftwareIntelligenceRuntime {
         {
             records.insert(stored.evidence.id.clone(), stored.evidence.clone());
         }
-        let mut matching = records
-            .into_values()
+        drop(state);
+        Ok(records.into_values().collect())
+    }
+
+    pub(crate) fn evidence_change_signal(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+    ) -> Result<String> {
+        let disk = evidence_store::change_fingerprint(workspace)?;
+        let mut hasher = Sha256::new();
+        hasher.update(disk.as_bytes());
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+        for item in state
+            .evidence
+            .iter()
+            .filter(|item| item.workspace == workspace_id)
+        {
+            hasher.update([0]);
+            hasher.update(item.evidence.id.as_bytes());
+            hasher.update(item.evidence.timestamp_ms.to_le_bytes());
+        }
+        Ok(format!("signal:{:x}", hasher.finalize()))
+    }
+
+    pub fn evidence_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        subject: Option<&str>,
+        limit: usize,
+    ) -> Result<EvidenceStatus> {
+        let mut matching = self
+            .evidence_records(workspace_id, workspace)?
+            .into_iter()
             .filter(|evidence| subject.is_none_or(|subject| evidence.subject == subject))
             .collect::<Vec<_>>();
-        matching.sort_by_key(|evidence| evidence.timestamp_ms);
+        matching.sort_by(|left, right| {
+            (left.timestamp_ms, &left.id).cmp(&(right.timestamp_ms, &right.id))
+        });
         let total = matching.len();
         let passed = matching
             .iter()

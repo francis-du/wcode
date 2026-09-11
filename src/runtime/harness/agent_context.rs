@@ -1,8 +1,12 @@
 use super::*;
 
+#[path = "context_anchors.rs"]
+mod context_anchors;
 #[path = "context_budget.rs"]
 mod context_budget;
-use context_budget::trim_agent_context;
+#[path = "context_operations.rs"]
+mod context_operations;
+use context_budget::{estimated_json_tokens, trim_agent_context};
 
 const MIN_AGENT_CONTEXT_BUDGET: usize = 1_000;
 const MAX_AGENT_CONTEXT_BUDGET: usize = 12_000;
@@ -35,18 +39,33 @@ impl ToolHarness {
             (budget != 0).then(|| budget.clamp(MIN_AGENT_CONTEXT_BUDGET, MAX_AGENT_CONTEXT_BUDGET));
         let profile_started = Instant::now();
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
+        if requested_scopes.is_empty() {
+            if let Some(pack) = context_operations::build(
+                &profile,
+                &workspace_id,
+                query,
+                requested_budget,
+                self.max_parallel,
+                cache_hit,
+            )? {
+                return Ok(pack);
+            }
+        }
         let profile_ms = profile_started.elapsed().as_millis();
         let internal_budget = requested_budget
             .map(|budget| budget.saturating_mul(2).clamp(2_000, 12_000))
             .unwrap_or(4_000);
         let software_context_started = Instant::now();
-        let context = self.software_context(
-            workspace_id.clone(),
+        let (context, anchors) = context_anchors::build_context(
+            self,
+            &workspace_id,
             workspace,
-            query,
-            "implement",
-            internal_budget,
-            requested_scopes,
+            &SoftwareContextRequest {
+                query: query.to_owned(),
+                intent: "implement".to_owned(),
+                budget: internal_budget,
+                scopes: requested_scopes.to_vec(),
+            },
         )?;
         let software_context_ms = software_context_started.elapsed().as_millis();
         let budget = requested_budget
@@ -88,12 +107,13 @@ impl ToolHarness {
             .take(MAX_AGENT_TARGETS)
             .map(compact_symbol)
             .collect::<Vec<_>>();
-        let repo_map = self.ranked_repo_map(
+        let repo_map = context_anchors::repo_map(
+            self,
             &workspace_id,
             workspace,
             query,
             &context,
-            MAX_AGENT_REPO_MAP,
+            anchors.is_empty(),
         )?;
         let hot_source_items = if budget >= 3_000 { 2 } else { 1 };
         let hot_source_chars = budget.saturating_mul(4).saturating_div(3).clamp(900, 3_200);
@@ -101,7 +121,11 @@ impl ToolHarness {
             .symbols
             .iter()
             .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
-            .take(hot_source_items)
+            .take(if anchors.is_empty() {
+                hot_source_items
+            } else {
+                0
+            })
             .filter_map(|symbol_id| {
                 self.symbol_context(
                     workspace_id.clone(),
@@ -322,6 +346,7 @@ impl ToolHarness {
                 "After edits run review_changes, then verify_project at the recommended level."
             ],
         });
+        context_anchors::merge(&mut pack, anchors);
         update_agent_readiness(&mut pack);
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
         finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
@@ -366,6 +391,8 @@ fn compact_symbol(symbol: &Value) -> Value {
         "start_line": symbol.pointer("/range/start_line").cloned().unwrap_or(Value::Null),
         "end_line": symbol.pointer("/range/end_line").cloned().unwrap_or(Value::Null),
         "language": symbol.get("language").cloned().unwrap_or(Value::Null),
+        "provider": symbol.get("provider").cloned().unwrap_or(json!("tree-sitter")),
+        "precision": symbol.get("precision").cloned().unwrap_or(json!("syntax")),
     })
 }
 
@@ -629,7 +656,11 @@ fn update_agent_readiness(value: &mut Value) {
             if recommend_semantic_navigation {
                 next_actions.push("semantic_navigation");
             }
-            next_actions.push("symbol_context");
+            next_actions.push(if value.get("retrieval").is_some() {
+                "read_file"
+            } else {
+                "symbol_context"
+            });
             next_actions.push(edit_tool);
         }
         "needs_target" => {
@@ -866,45 +897,6 @@ fn precision_rank(value: &str) -> u8 {
         "heuristic" => 1,
         _ => 0,
     }
-}
-
-fn estimated_json_tokens(value: &Value) -> Result<usize> {
-    let bytes = serde_json::to_vec(value)?.len();
-    Ok(bytes.div_ceil(4))
-}
-
-fn shrink_hot_source_body(value: &mut Value, budget: usize) -> Result<bool> {
-    let excess_bytes = estimated_json_tokens(value)?
-        .saturating_sub(budget)
-        .saturating_mul(4);
-    let Some(body) = value
-        .get_mut("hot_source")
-        .and_then(Value::as_array_mut)
-        .and_then(|items| items.first_mut())
-        .and_then(|item| item.get_mut("body"))
-    else {
-        return Ok(false);
-    };
-    let Some(content) = body
-        .get("content")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-    else {
-        return Ok(false);
-    };
-    let chars = content.chars().count();
-    if chars <= 64 {
-        return Ok(false);
-    }
-    let target = chars
-        .saturating_sub(excess_bytes.saturating_add(16))
-        .max(64);
-    if target >= chars {
-        return Ok(false);
-    }
-    body["content"] = json!(short_text(&content, target));
-    body["truncated"] = json!(true);
-    Ok(true)
 }
 
 fn finalize_agent_context(

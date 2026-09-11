@@ -40,7 +40,7 @@ A Tool call has one real lifecycle:
 request → queued → semaphore acquired → running → completed | failed
 ```
 
-The global semaphore remains the only concurrency gate. Composite operations must not retain a parent permit while children wait for permits. `parallel_tools`, `review_changes`, `verify_project`, and other internally fanned-out operations therefore schedule real child work through the same global accounting path.
+The global semaphore remains the total tool-concurrency cap. Process-executing MCP tools and project checks first acquire a separate execution-admission permit, leaving up to four slots of headroom for non-command tools; at one total slot there is no reservation. Both permits follow real work, including a started blocking worker after caller cancellation. Inner CPU, I/O and process queues retain their own bounded capacities. Composite operations must not retain a parent permit while children wait for permits. `parallel_tools`, `review_changes`, `verify_project`, and other internally fanned-out operations therefore schedule real child work through the same global accounting path.
 
 `parallel_tools` is resource-aware, not a generic race-everything helper. Its scheduler models `reads`, `writes`, `creates`, `moves_from`, `moves_to`, and `deletes`. Independent resources may fan out; overlapping resources are dependency ordered. Same-file `apply_edits` may coalesce only when callers pin the same observed SHA and edits are non-overlapping and unambiguous. Invalid overlap is rejected before execution. Dispatch is completion-driven, not layer-barrier-driven; failed dependencies skip successors, physical parent/subspace aliases share scheduling identity, and cancelling a parent must not detach queued children. Already-running blocking filesystem operations are not rolled back. Coalescing cannot cross intervening dependent operations or exceed the 128-edit transaction limit.
 
@@ -127,6 +127,11 @@ Known development CLIs are not automatically installed. Harness/quality/provider
 Language servers and stage executors similarly expose registered-vs-available state. Hardened automatic LSP workers run only for the most-specific discovered Workspace so a broad parent root and its project subspaces do not index the same files twice; every real automatic refresh acquires the same global Harness semaphore as model-facing work. Never turn “known candidate” into “installed/runnable” merely because wcode recognizes its ecosystem.
 
 ## Required verification
+
+The Setup Hub behavior tests require Node.js on PATH. They execute the embedded
+JavaScript with Node built-ins and a simulated DOM; no npm packages are needed.
+Node is a development/test prerequisite, not a dependency of the shipped wcode
+binary. These tests do not replace real-browser visual and accessibility checks.
 
 Before release, the repository must pass the full gate:
 

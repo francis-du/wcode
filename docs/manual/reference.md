@@ -13,7 +13,7 @@ This page is the canonical compact reference for day-to-day wcode operation. Con
 
 ## Stable CLI command surface
 
-No subcommand starts the normal runtime:
+Running without a subcommand starts the normal runtime:
 
 ```bash
 wcode
@@ -27,12 +27,42 @@ wcode update
 wcode mcp-stdio
 wcode intelligence --help
 wcode verification --help
+wcode help-all
 ```
 
 The generated `help` subcommand is disabled; use `--help` and
 `<command> --help`. `agent-plugin` remains available only for advanced package
 export and older automation. Process lifecycle belongs to the terminal/OS or
 the MCP Host; `restart` and `stop` are no longer public wcode commands.
+
+### Complete command and parameter discovery
+
+```bash
+wcode help-all                         # All commands, including hidden CLI options
+wcode help-all setup                   # One command with its inherited global options
+wcode help-all agent-plugin            # Advanced export and compatibility options
+wcode help-all verification --json     # A machine-readable command catalog
+wcode help-all --json                  # The entire declarative CLI tree
+```
+
+Standard `-h` / `--help` stays compact, but now links to `help-all`. Complete
+help is generated from the same Clap definitions as the parser: no second
+hand-maintained command list. It includes descriptions, short and long flags,
+aliases (including `--plan`), declared defaults, enum choices and global scope.
+Hidden options are labeled; `--no-install-chatgpt` is explicitly deprecated
+and ignored. Only global options are valid after a subcommand; other root
+options precede it and are not falsely listed as child options.
+
+This command displays definitions only and returns before loading workspaces,
+applying resource limits, granting permissions, starting services, setup or
+update. Unknown command paths fail without executing anything. Text is plain
+and can be redirected; a closed output pipe exits without a panic. JSON has
+`schema_version: 1`, `scope: "cli"` and `runtime_started: false`; it is a
+navigation catalog, not a complete parser-validation schema, MCP tool schema,
+external-program allowlist or live configuration. It does not enumerate
+arbitrary commands accepted by third-party executables. Preset/hardware-dependent
+effective values still come from `wcode --show-config`, not hard-coded defaults
+in this catalog. Build/install the new 0.6.2 executable to use the new command.
 
 `wcode update` targets the directory containing the running executable unless
 `WCODE_INSTALL_DIR` explicitly overrides it. It reuses the release installer
@@ -108,6 +138,69 @@ embedded in the binary.
 | `--no-tunnel` | Keep the runtime local-only. |
 | `--no-monitor` | Disable the live terminal dashboard. |
 | `--open` | Open Setup Hub in the browser after startup. |
+
+### Simple performance configuration
+
+Normal use needs no resource flags. One optional preset replaces manual CPU,
+memory and parallelism tuning:
+
+| Preset | Requested tool capacity | Soft process memory budget | Background CPU target |
+| --- | --- | --- | --- |
+| `balanced` (default) | 32 | 512 MiB | 10% of one core |
+| `fast` | 64 | 1024 MiB | 10% of one core |
+| `light` | 16 | 256 MiB | 5% of one core |
+
+```bash
+wcode --performance fast
+wcode mcp-stdio --performance light
+wcode --performance fast --show-config
+```
+
+`--show-config` prints a read-only JSON preview and exits before starting the
+service, loading authorization state, installing agents or running updates.
+It shows requested and effective resource limits, override sources, connection
+mode and permissions. It describes a prospective process, not the already
+running instance; workspace existence and endpoint reachability are checked
+on real startup. The preview creates no configuration file and does not auto-load one.
+
+Explicit `-j` / `--max-parallel-tools`, `--max-memory-mb` and
+`--max-cpu-percent` override only their matching preset field, regardless of
+argument order. Presets do not grant permissions and do not promise proportional
+speedups. Existing hardware, memory, process and total-tool limits remain.
+Common project, safety, preset and preview options also work after a subcommand:
+`wcode setup --project -w /path/to/project --dry-run`.
+
+Contradictory `--full-access` plus `--read-only`, `--no-exec` or `--no-semantic`
+is an argument error instead of silently overriding the restriction. Likewise,
+`--no-tunnel` cannot be combined with `--public-url`. Setup accepts exactly one
+project root rather than silently ignoring additional roots. An invalid interactive
+scope choice can be retried; EOF cancels instead of choosing the default.
+
+Use `wcode setup --performance fast --dry-run` to preview a selected launch, then
+`wcode setup --project --performance fast` to save it for detected local agents.
+Setup validates numeric overrides before any write and propagates performance,
+`--read-only`, `--no-exec` and `--no-semantic` consistently to JSON, Codex TOML
+and supported OpenCode configurations. Its JSON report includes `launch` with
+separate `command` and `args`; `setup --show-config` exposes the same `setup_launch`.
+Global setup still needs an interactive confirmation and applies that exact
+reviewed plan; concurrent file edits fail their SHA check rather than being overwritten.
+Setup does not persist broad permission grants. Existing processes must be reconnected.
+
+Read-only restricts file tools, not all possible command side effects. For an
+inspection-only session, combine `--read-only --no-exec --no-semantic`.
+
+The browser Setup Hub separates local-agent setup from remote connectors, adds
+copy controls and manual English/Chinese switching, and keeps optional command
+construction and runtime details collapsed. The performance chooser generates a
+command only: it does not save settings or change a live process. Performance
+and access choices also update the setup command and copyable local stdio server
+entry. Running that setup command saves the options; copying alone does not.
+The local-dashboard mode emits `--no-tunnel` without opening a public service.
+Public addresses
+are copyable only after connection status supports them; localhost and stale
+endpoints are not presented as working cloud URLs. Its compact `/setup/status`
+poll omits workspace paths and the full tool catalog; `/healthz` remains unchanged.
+Polling is single-flight, bounded and paused while the page is hidden.
 
 ### Advanced operator options
 

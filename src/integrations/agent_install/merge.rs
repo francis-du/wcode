@@ -65,7 +65,11 @@ pub(crate) fn plan_json(
     ))
 }
 
-pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<PlannedFile> {
+pub(crate) fn plan_codex_toml(
+    workspace: &Workspace,
+    target: &str,
+    launch_args: &[String],
+) -> Result<PlannedFile> {
     let existing = read_existing(workspace, target)?;
     let mut document = existing
         .as_ref()
@@ -85,7 +89,7 @@ pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<Pla
     let wcode = servers["wcode"]
         .as_table_mut()
         .ok_or_else(|| anyhow!("{target} field mcp_servers.wcode must be a TOML table"))?;
-    let desired_args = ["mcp-stdio"];
+    let desired_args = launch_args;
     let already = wcode.get("command").and_then(Item::as_str) == Some("wcode")
         && wcode
             .get("args")
@@ -93,7 +97,7 @@ pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<Pla
             .is_some_and(|args| {
                 args.iter()
                     .filter_map(|item| item.as_str())
-                    .eq(desired_args)
+                    .eq(desired_args.iter().map(String::as_str))
                     && args.len() == desired_args.len()
             });
     if already {
@@ -102,7 +106,7 @@ pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<Pla
     wcode["command"] = value("wcode");
     let mut args = Array::new();
     for argument in desired_args {
-        args.push(argument);
+        args.push(argument.as_str());
     }
     wcode["args"] = value(args);
     Ok(changed(
@@ -113,7 +117,11 @@ pub(crate) fn plan_codex_toml(workspace: &Workspace, target: &str) -> Result<Pla
     ))
 }
 
-pub(crate) fn plan_opencode(workspace: &Workspace, target: &str) -> Result<PlannedFile> {
+pub(crate) fn plan_opencode(
+    workspace: &Workspace,
+    target: &str,
+    launch_args: &[String],
+) -> Result<PlannedFile> {
     let existing = read_existing(workspace, target)?;
     let mut root = match existing.as_ref() {
         Some((content, _)) => serde_json::from_str::<Value>(content).with_context(|| {
@@ -145,7 +153,7 @@ pub(crate) fn plan_opencode(workspace: &Workspace, target: &str) -> Result<Plann
     };
     let server = serde_json::json!({
         "type": "local",
-        "command": ["wcode", "mcp-stdio"]
+        "command": std::iter::once("wcode").chain(launch_args.iter().map(String::as_str)).collect::<Vec<_>>()
     });
     if servers.get("wcode") == Some(&server) {
         return Ok(unchanged(

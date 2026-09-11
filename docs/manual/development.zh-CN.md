@@ -40,7 +40,7 @@ Tool Call 只有一条真实生命周期：
 request → queued → semaphore acquired → running → completed | failed
 ```
 
-Global Semaphore 是唯一并发 Gate。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
+Global Semaphore 仍是工具总并发上限。执行进程的 MCP 工具和项目检查先取得独立执行准入名额，为非命令工具留下最多四个槽位的余量；总槽位只有一个时不预留。两种名额都跟随真实工作，包括调用方取消后仍在执行的阻塞工作者。内层 CPU、I/O 和进程队列继续保持各自容量限制。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
 
 `parallel_tools` 不是“全部一起跑”的通用 Helper，而是 Resource-aware Scheduler。它显式建模 `reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`；独立资源可以 Fan-out，重叠资源按依赖排序。同文件 `apply_edits` 只有在调用方 Pin 同一份 Observed SHA、Edit 不重叠且定位无歧义时才允许 Coalesce；无效 Overlap 在执行前就拒绝。调度由完成事件驱动，不等待整层结束；失败依赖跳过后续任务，父子空间物理别名共享调度身份，取消父任务不能留下脱离管理的排队子任务。已经运行的阻塞文件操作不会回滚。Coalesce 不能跨过中间的依赖操作，也不能超过 128 项编辑的事务上限。
 
@@ -127,6 +127,10 @@ Known Development CLI 不由 wcode 自动安装。Harness / Quality / Provider D
 LSP Server 与 Stage Executor 同样区分 Registered 与 Available。自动 LSP Worker 只在最具体的 Discovered Workspace 上运行，避免 Broad Parent Root 与项目 Subspace 对同一批文件重复索引；每次真实 Auto Refresh 都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。wcode 知道某个 Ecosystem Tool 的名字，不代表它已经安装或可运行。
 
 ## 必需验证
+
+Setup Hub 行为测试需要 PATH 中存在 Node.js，使用 Node 内置模块和模拟 DOM
+执行页面内嵌 JavaScript，不依赖 npm 包。Node 仅是开发 / 测试前置条件，不是
+最终 wcode 二进制的运行依赖；这些测试不能替代真实浏览器的视觉和无障碍验收。
 
 Release 前必须通过 Full Gate：
 

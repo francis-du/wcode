@@ -355,6 +355,7 @@ struct DashboardState {
     workspace_message: Option<String>,
     full_access_confirm: bool,
     authorization_focus: usize,
+    authorization_scroll: usize,
     pending_authorizations: Vec<AuthorizationRequest>,
     language: UiLanguage,
 }

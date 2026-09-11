@@ -44,23 +44,23 @@ function renderArchitectureMetrics() {
   const html = [
     architectureMetric(
       t("Observed drift"),
-      `${drift}%`,
-      t("strong drift denominator"),
-      100 - drift,
-      drift > 0 ? "drift" : "good",
+      a.observed_edges ? `${drift}%` : "—",
+      `${num(a.blocking_drift_edges)} / ${num(a.observed_edges)} · ${t("strong drift denominator")}`,
+      a.observed_edges ? 100 - drift : 0,
+      drift > 0 ? "drift" : "info",
     ),
     architectureMetric(
       t("Evidence coverage"),
-      `${evidence}%`,
-      t("coverage denominator"),
-      evidence,
+      a.desired_edges ? `${evidence}%` : "—",
+      `${num(a.aligned_edges)} / ${num(a.desired_edges)} · ${t("coverage denominator")}`,
+      a.desired_edges ? evidence : 0,
       "info",
     ),
     architectureMetric(
       t("Implementation coverage"),
-      `${implementation}%`,
-      t("implementation denominator"),
-      implementation,
+      a.components.length ? `${implementation}%` : "—",
+      `${num(a.components_with_implementation)} / ${num(a.components.length)} · ${t("implementation denominator")}`,
+      a.components.length ? implementation : 0,
       "info",
     ),
     architectureMetric(
@@ -143,7 +143,7 @@ function architectureNodeTone(component, dependencies) {
   );
   if (incident.some((edge) => edge.blocking)) return "drift";
   if (component.changed) return "changed";
-  if (incident.some((edge) => edge.status !== "aligned")) return "uncertain";
+  if (!incident.some(edge => edge.actual) || incident.some(edge => edge.status !== "aligned")) return "uncertain";
   return "aligned";
 }
 function renderArchitectureGraph() {
@@ -295,8 +295,8 @@ function renderComponentInspector() {
       ? t("Architecture drift")
       : uncertain
       ? t("Needs stronger evidence")
-      : t("Architecture aligned"),
-    tone = blocking ? "bad" : uncertain ? "info" : "good";
+      : deps.some(edge => edge.actual) ? t("Architecture aligned") : t("Needs stronger evidence"),
+    tone = blocking ? "bad" : uncertain || !deps.some(edge => edge.actual) ? "info" : "good";
   const dependencyHtml = deps.length
     ? deps.map((edge) => {
       const outgoing = edge.from === component.id,
@@ -381,7 +381,13 @@ function renderComponentInspector() {
       els.componentInspector.querySelectorAll("[data-inspector-req]").forEach(
         (button) =>
           button.addEventListener("click", () => {
+            state.filter = "all"; els.search.value = "";
+            document.querySelectorAll(".filter").forEach(item => {
+              item.classList.toggle("active", item.dataset.filter === "all");
+              item.setAttribute("aria-pressed", String(item.dataset.filter === "all"));
+            });
             state.selected = button.dataset.inspectorReq;
+            revealSection("requirementsSection");
             invalidate("requirements", "detail");
             renderRequirements();
             renderDetail();
@@ -390,8 +396,38 @@ function renderComponentInspector() {
       ),
   );
 }
+function renderComponentCards() {
+  const a = architectureData(), query = els.componentSearch.value.trim().toLowerCase();
+  const components = (a.components || []).filter(item => [item.name, item.id, ...(item.responsibilities || []), ...(item.product_scopes || [])].join(" ").toLowerCase().includes(query));
+  if (!components.some(item => item.id === state.selectedComponent)) {
+    const priority = components.find(item => architectureNodeTone(item, a.dependencies || []) === "drift") || components.find(item => item.changed) || components[0];
+    state.selectedComponent = priority?.id || "";
+  }
+  els.componentCount.textContent = localized(`${components.length} / ${(a.components || []).length} components`, `${components.length} / ${(a.components || []).length} 个组件`);
+  const groups = new Map();
+  for (const component of components) {
+    const scope = (component.product_scopes || [])[0] || localized("Unscoped", "未归类");
+    if (!groups.has(scope)) groups.set(scope, []);
+    groups.get(scope).push(component);
+  }
+  const html = [...groups].map(([scope, items]) => `<section class="component-group"><h3>${esc(scope)} <span>${items.length}</span></h3><div class="component-grid">${items.map(component => {
+    const tone = architectureNodeTone(component, a.dependencies || []);
+    const label = tone === "drift" ? localized("Strong drift", "强证据偏离") : tone === "changed" ? localized("Changed", "有变更") : tone === "uncertain" ? localized("Needs evidence", "待补证据") : localized("Dependencies observed", "依赖已观测");
+    return `<button type="button" class="component-tile ${tone}" data-card-component="${esc(component.id)}" aria-pressed="${component.id === state.selectedComponent}"><span class="component-tile-top"><strong>${esc(component.name)}</strong><span class="pill ${tone === "drift" ? "bad" : tone === "changed" ? "warn" : "info"}">${esc(label)}</span></span><span class="component-purpose">${esc((component.responsibilities || [])[0] || localized("No responsibility declared", "未声明职责"))}</span><span class="component-tile-meta">${esc(localized(`${num(component.implementation_files)} mapped files · ${(component.depends_on || []).length} declared dependencies`, `${num(component.implementation_files)} 个映射文件 · ${(component.depends_on || []).length} 条声明依赖`))}</span></button>`;
+  }).join("")}</div></section>`).join("") || `<div class="empty">${esc(localized("No matching components. Clear the search or add architecture mappings.", "没有匹配组件。请清除搜索，或补充架构映射。"))}</div>`;
+  setHtml("componentCards", els.componentCards, html, () => els.componentCards.querySelectorAll("[data-card-component]").forEach(button => button.addEventListener("click", () => {
+    state.selectedComponent = button.dataset.cardComponent;
+    renderComponentCards(); renderComponentInspector();
+    if (window.matchMedia("(max-width: 900px)").matches) els.componentInspector.scrollIntoView({ behavior: "smooth", block: "start" });
+  })));
+  renderComponentInspector();
+}
 function renderArchitecture() {
   renderArchitectureMetrics();
-  renderArchitectureGraph();
+  const graph = state.architectureView === "graph";
+  els.componentSearch.disabled = graph;
+  els.componentCards.classList.toggle("hidden", graph);
+  els.architectureGraph.closest(".architecture-graph-shell")?.classList.toggle("hidden", !graph);
+  if (graph) renderArchitectureGraph(); else renderComponentCards();
   renderComponentInspector();
 }

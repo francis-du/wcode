@@ -65,13 +65,22 @@ pub(super) fn matching_symbols_many(
     queries: &[String],
     kind: Option<&str>,
 ) -> Vec<(usize, u8, CodeSymbol)> {
-    queries
+    // Rank every keyword before materializing a candidate. An early broad
+    // term must not duplicate or outrank a later exact definition.
+    record
+        .symbols
         .iter()
-        .enumerate()
-        .flat_map(|(query_index, query)| {
-            matching_symbols(record, query, kind)
-                .into_iter()
-                .map(move |(score, symbol)| (query_index, score, symbol))
+        .filter(|symbol| symbol.is_definition)
+        .filter(|symbol| kind.is_none_or(|kind| symbol.kind.eq_ignore_ascii_case(kind)))
+        .filter_map(|symbol| {
+            queries
+                .iter()
+                .enumerate()
+                .filter_map(|(index, query)| {
+                    symbol_score(symbol, query).map(|score| (score.saturating_sub(1), index, score))
+                })
+                .min()
+                .map(|(_, index, score)| (index, score, symbol.clone()))
         })
         .collect()
 }

@@ -1,6 +1,11 @@
 use super::*;
 use serde_json::json;
 
+#[path = "admission.rs"]
+mod admission;
+#[path = "preview.rs"]
+mod preview;
+
 fn batch_test_state(root: &std::path::Path) -> AppState {
     let workspaces = Workspaces::new([root], true, false).unwrap();
     let workspace_id = workspaces.default_id().to_owned();

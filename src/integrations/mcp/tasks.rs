@@ -4,15 +4,22 @@ use crate::workspace::Workspace;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tokio::task::{AbortHandle, JoinSet};
+use tokio::time::{timeout_at, Instant};
 
 pub(crate) const TASK_EXTENSION_ID: &str = "io.modelcontextprotocol/tasks";
-const TASK_AUGMENTED_TOOLS: &[&str] = &["semantic_provider_refresh", "verification_execute_stages"];
+const TASK_AUGMENTED_TOOLS: &[&str] = &[
+    "semantic_provider_refresh",
+    "verification_execute_stages",
+    "verify_project",
+];
 
 pub(super) fn capabilities() -> Value {
-    task_store::capabilities()
+    let mut capabilities = task_store::capabilities();
+    capabilities["task_augmented_tools"] = json!(TASK_AUGMENTED_TOOLS);
+    capabilities
 }
 
 #[derive(Clone, Default)]
@@ -151,12 +158,16 @@ pub(super) async fn create_tool_task(
         .unwrap_or_else(|| json!({}));
     let (workspace_id, workspace) =
         selected_workspace(&state, &args).map_err(TaskRpcError::invalid)?;
+    if tool_name == "verify_project" {
+        crate::mcp::verification_options(&args).map_err(TaskRpcError::invalid)?;
+    }
     let record = TaskRecord::working(
         owner,
         workspace_id,
         tool_name,
         state.auth.instance_id().to_owned(),
     );
+    let deadline = Instant::now() + Duration::from_millis(record.ttl_ms);
     // Creation and registration are one transition: a concurrent poll must
     // never observe a working record before its worker has been registered.
     let _guard = state
@@ -177,46 +188,66 @@ pub(super) async fn create_tool_task(
             worker_state.tasks.remove(&worker_task_id);
             return;
         }
-        let tool_state = worker_state.clone();
-        // The durable worker deliberately outlives its creation request, but
-        // cancel/TTL aborts must also stop the tool future that it owns.
-        let mut tools = JoinSet::new();
-        tools.spawn(async move { call_tool(&tool_state, params).await });
-        let outcome = match tools.join_next().await {
-            Some(Ok(outcome)) => outcome,
-            Some(Err(error)) => Err(if error.is_cancelled() {
-                "task tool worker was cancelled".to_owned()
-            } else if error.is_panic() {
-                "task tool worker panicked".to_owned()
-            } else {
-                format!("task tool worker failed to join: {error}")
-            }),
-            None => Err("task tool worker did not start".to_owned()),
-        };
-        let Ok(_guard) = worker_state.tasks.state_lock.lock() else {
-            worker_state.tasks.remove(&worker_task_id);
-            return;
-        };
-        let Ok(Some(mut current)) = task_store::load(&worker_workspace, &worker_task_id) else {
-            worker_state.tasks.remove(&worker_task_id);
-            return;
-        };
-        if current.status != TaskStatus::Working {
-            worker_state.tasks.remove(&worker_task_id);
-            return;
-        }
-        match outcome {
-            Ok(value) => current.complete(modern_result(value)),
-            Err(error) => current.fail(-32602, error),
-        }
-        if let Err(error) = persist_task_result(&worker_workspace, &mut current) {
-            tracing::warn!(task_id = %worker_task_id, %error, "MCP task final state was not persisted");
-        }
-        worker_state.tasks.remove(&worker_task_id);
+        run_task_worker(
+            worker_state,
+            worker_workspace,
+            worker_task_id,
+            params,
+            deadline,
+        )
+        .await;
     });
     state.tasks.register(task_id, join.abort_handle());
     let _ = start_tx.send(());
     Ok(modern_result(record.create_result()))
+}
+
+async fn run_task_worker(
+    state: Arc<AppState>,
+    workspace: Workspace,
+    task_id: String,
+    params: Value,
+    deadline: Instant,
+) {
+    // Disconnection does not own this worker. Its deadline and tasks/cancel do.
+    // Drop the child set before persistence so queued work is cancelled even
+    // when nobody polls or the terminal snapshot cannot be written.
+    let outcome = if Instant::now() >= deadline {
+        Err(TaskRpcError::internal("task exceeded its durable TTL"))
+    } else {
+        let tool_state = state.clone();
+        let mut tools = JoinSet::new();
+        tools.spawn(async move { call_tool(&tool_state, params).await });
+        match timeout_at(deadline, tools.join_next()).await {
+            Ok(Some(Ok(outcome))) => outcome.map_err(TaskRpcError::invalid),
+            Ok(Some(Err(error))) => Err(TaskRpcError::internal(format!(
+                "task tool worker failed to join: {error}"
+            ))),
+            Ok(None) => Err(TaskRpcError::internal("task tool worker did not start")),
+            Err(_) => Err(TaskRpcError::internal("task exceeded its durable TTL")),
+        }
+    };
+    let Ok(_guard) = state.tasks.state_lock.lock() else {
+        state.tasks.remove(&task_id);
+        return;
+    };
+    let Ok(Some(mut current)) = task_store::load(&workspace, &task_id) else {
+        state.tasks.remove(&task_id);
+        return;
+    };
+    if current.status != TaskStatus::Working {
+        state.tasks.remove(&task_id);
+        return;
+    }
+    match outcome {
+        // Completed describes delivery, not a successful tool/check outcome.
+        Ok(value) => current.complete(modern_result(value)),
+        Err(error) => current.fail(error.code, error.message),
+    }
+    if let Err(error) = persist_task_result(&workspace, &mut current) {
+        tracing::warn!(%task_id, %error, "MCP task final state was not persisted");
+    }
+    state.tasks.remove(&task_id);
 }
 
 fn persist_task_result(workspace: &Workspace, record: &mut TaskRecord) -> anyhow::Result<()> {

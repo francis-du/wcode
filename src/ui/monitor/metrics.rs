@@ -120,6 +120,20 @@ pub(super) fn render_throughput(
     );
 }
 
+pub(super) fn process_queue_text(resources: &crate::resource::ResourceSnapshot) -> String {
+    format!(
+        "PROC {}/{} · GIT {}/{} · Q {}",
+        resources.child_queue.active,
+        resources.child_queue.limit,
+        resources.probe_queue.active,
+        resources.probe_queue.limit,
+        resources
+            .child_queue
+            .waiting
+            .saturating_add(resources.probe_queue.waiting),
+    )
+}
+
 pub(super) fn sparkline(values: &[u64]) -> String {
     const LEVELS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     let maximum = values.iter().copied().max().unwrap_or(0);

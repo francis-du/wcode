@@ -36,7 +36,7 @@ Project Observatory + durable workspace state
 
 The Project Observatory makes the same model human-readable: Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains the provenance-bearing substrate, not a graph visualization users have to decipher.
 
-Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` reflects the latest such Evidence result, and `Fresh` means that latest Evidence matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
+Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` requires all effective verification scopes in the latest observed revision to pass; timestamp ties retain failures rather than choosing a favorable record ID. `Fresh` means that unambiguous revision matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
 
 Local `mcp-stdio`, remote Streamable HTTP + OAuth, and legacy SSE share one MCP
 core. `agent_context` is the compact coding entry point; deeper Design, Graph,
@@ -45,6 +45,40 @@ reuse the canonical embedded `plugin/` package, include standard `mcp.json`,
 and never contain credentials or an implicit Workspace. Persistent state is
 scoped by Workspace. A fact is called semantic only after a real, fresh LSP
 provider returns it; otherwise precision remains Tree-sitter syntax.
+
+## Observatory responsiveness and trustworthy status
+
+Task activity and the project snapshot refresh independently. Activity schedules another request after 2 seconds when tasks or approvals are pending, or 8 seconds when idle/unavailable; project revision checks use a separate 8-second schedule. These are polling delays, not latency guarantees. Initial activity does not wait for architecture reconstruction. Each lane is single-flight, hidden pages stop read polling, and permission-changing requests are never automatically replayed after a timeout.
+
+All access mutations bind both the selected workspace and its selection generation, including an A → B → A round trip. A common in-flight owner prevents duplicate Enter/click submissions. Older reads cannot overwrite a completed approval or the new workspace's access panel. An unavailable authorization list or unsampled memory is unknown, not zero.
+
+`proof.current_*` retains current-revision historical record counts. `proof.effective` separately selects the latest result for each subject, evidence kind, producer, model, confidence, target set and policy. A later known full run can supersede an older matching quick run, never the reverse; different producers and scopes remain independent. Human approval is not test proof. Details prioritize failures, return at most 24 rows with redacted bounded summaries, and explicitly mark truncation. The view is not a release gate and does not erase audit history.
+
+Verification history shares one request-local code/Design revision and one evidence load across its plans. Empty histories do neither. The Observatory reuses its inputs for plan evaluation; the next request re-reads inputs so edits and new evidence remain visible. The lightweight proof change signal hashes bounded record identities and metadata, including late arrivals/removals; it does not parse all record bodies and is never treated as verification evidence. Persistent retention limits still apply.
+
+### Thirty-round audit map
+
+The round numbers identify different scenarios, not thirty identical full-test runs or thirty separate features. Rounds 1–20 are independently reported by `tests/unit/ui/audit.cjs`, exercised from the Rust unit suite. The corresponding report is `target/wcode-audit.json`; history read-count measurements are in `target/wcode-history-perf.json`.
+
+| Rounds | Scope and assertions |
+| --- | --- |
+| 1–4 | Cross-workspace executable grant/revoke replies; duplicate grant/revoke submission. |
+| 5–8 | Late project creation, repeated project submission, read-after-write ordering, A → B → A responses. |
+| 9–12 | Approval-count ordering, failed access reads, missing memory samples, unavailable activity. |
+| 13–16 | Severity ordering, HTML HTTP errors, activity during a blocked project refresh, hidden/paused scheduling. |
+| 17–20 | Concurrent initial activity, single poll-loop ownership, recovered evidence, escaped/truncated detail rows. |
+| 21 | Compare individual versus shared verification-history input reads and exact output equivalence. |
+| 22 | Reject foreign verification plans before reading their workspace; empty histories avoid scans; edits/new evidence invalidate the next request. |
+| 23 | Retry scope, timestamp ties, target normalization, one-way full/quick supersession and approval/proof separation. |
+| 24 | Acceptance conflicts, code-plus-Design plan freshness, bounded/redacted effective detail rows and retained history. |
+| 25 | Metadata-only evidence signals detect late records/removals and reject symlink records. |
+| 26 | Existing UI behavior, syntax, responsive layout contracts, endpoint protection and bilingual documentation compatibility. |
+| 27 | Worktree diff, Rust formatting and type-check gates. |
+| 28 | All-target Clippy, including test sources, with warnings denied. |
+| 29 | Full Rust suite, including JavaScript behavioral and integration/contract tests. |
+| 30 | Optimized release build and verification-record/revision consistency review. |
+
+This automated audit does not replace real-browser visual/accessibility testing, remote-connection testing or cross-platform CI. Installing/reconnecting the running process remains a separate operator action.
 
 ## What changes for the user
 
@@ -84,8 +118,14 @@ snapshot. It shows the project tree, depth, largest files, and files above the
 1,000-line repository limit. If indexing reached its safety bound, the view is
 marked as truncated; the browser does not start a second filesystem scan.
 
-Proof counts only Evidence whose code and Design revisions match the current
-repository. Local agents use `wcode mcp-stdio` from the Host's project working directory; remote
+The summary-first Observatory separates four immediately actionable signals: executing tools, pending approvals, working-tree changes, and current-version evidence. Unknown Git status is not a clean tree; missing evidence is not a passing run. A headline and prioritized actions lead to the exact detail section. Component cards group the architecture by responsibility and Product Scope; full dependency graphs remain available on demand rather than dominating the first screen. Requirements, file structure, diagnostics and provider matrices use expandable sections.
+
+The protected `/intelligence/activity` endpoint reads the existing monitor without executing Git, rebuilding the graph or resetting TUI observation windows. It returns at most 12 task rows for the selected workspace, with queue time separate from execution time. Completed/failed totals are process-lifetime history, not current blockers; process queues and resident memory are explicitly shared by all workspaces. Raw task arguments and other workspaces' task records are not returned.
+
+The eight-second refresh loop is single-flight and pauses new polls while hidden. A revision is acknowledged only after its project fetch succeeds; late responses cannot replace another selected workspace. Evidence identity participates in the revision signal, so completed checks can refresh proof without a source edit. Failed refreshes retain a visibly stale snapshot instead of silently presenting old numbers as live. Optional browser-storage failures do not prevent loading the UI. Access reads retain their workspace and request generation; double-clicking a pending decision sends one mutation. Exact-operation arguments accept a JSON string array, preserving spaces and empty arguments instead of attempting shell parsing.
+
+The `current_*` proof counters include only Evidence whose code and Design revisions match the current
+repository; acceptance mapping, execution, pass and freshness remain separate. Local agents use `wcode mcp-stdio` from the Host's project working directory; remote
 clients prefer `/mcp`; older clients can use `/sse`. Plugin and one-command
 Host setup are documented in
 [Code Agent Integrations](../code-agent-integrations/).

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "resume.rs"]
+mod resume;
+
 #[test]
 fn oversized_task_result_becomes_a_durable_failure() {
     let root = tempfile::tempdir().unwrap();

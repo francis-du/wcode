@@ -11,7 +11,7 @@ permalink: /zh/docs/getting-started/
 
 wcode 不是另一个 Coding Agent，而是现有 Agent 调用的本地仓库层：需要理解代码、确认跨文件关系、受控修改或证明当前 Revision 时，由 wcode 提供稳定的工程上下文与边界。
 
-第一次跑通其实只有三步：**安装 → `wcode setup` → 在仓库里运行 `wcode`**。下面的内容只是把这三步背后的行为讲清楚。
+本地智能体只需三步：**安装 → `wcode setup` → 重新连接智能体**。智能体会启动自己的 stdio 进程，不必额外启动 HTTP 服务或公网隧道。云端 / 网页连接器才需要运行 `wcode` 服务并使用已验证的公网 MCP 地址。
 
 ## 1. 安装
 
@@ -36,12 +36,18 @@ wcode setup
 
 交互式 `wcode setup` 第一项是**全局（推荐）**，第二项是**当前项目**。
 全局模式只修改已验证的用户级 Host 配置，一次配置即可跨仓库使用；项目模式
-把配置留在当前仓库。两种模式都只安装 `wcode mcp-stdio`，保留其他 Server，
+把配置留在当前仓库。两种模式都为 `wcode mcp-stdio` 保存所选性能及限制性权限参数，保留其他 Server，
 未知 Schema 直接 Fail Closed。Binary 已内嵌 Canonical Skill 与 Plugin
 Metadata，所以用户项目里不需要存在 `plugin/` 目录。需要预览时用
 `wcode setup --dry-run`。
+要为已检测到的智能体保存快速预设，先用 `wcode setup --performance fast --dry-run`
+预览，再运行 `wcode setup --performance fast`，最后重新连接智能体。
+加上 `--project` 可把配置限制在当前仓库。
 
 ## 3. 启动并连接
+
+云端 / 网页连接器，或需要独立 TUI / WebUI 时，运行下面的服务。
+第 2 步配置好的本地智能体会自行启动 stdio，不必为了接入再开第二个服务。
 
 ```bash
 wcode
@@ -144,6 +150,15 @@ TUI 主屏优先展示连接状态和 Subspace 活动，移除了重复的 OVERV
 分开显示；批准一层不会自动放开另一层。
 
 ## 7. 常用运行模式
+
+用 `wcode help-all` 查看所有支持的 CLI 命令和参数，包括普通帮助隐藏的高级选项。
+`wcode help-all setup` 聚焦单个命令；`wcode help-all --json` 输出机器可读目录。
+查看帮助不会启动服务或执行被查询命令。
+
+默认保持均衡预算。需要更多容量时用 `wcode --performance fast`，需要较小
+预算时用 `wcode --performance light`；`wcode --show-config` 只展示最终配置，
+不启动服务。智能体配置也可以使用 `wcode mcp-stdio --performance fast`。
+预算、单项覆盖和生效方式见 [CLI 与 MCP 参考手册](../reference/)。
 
 ```bash
 wcode --read-only

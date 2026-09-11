@@ -244,6 +244,7 @@ mod tests {
                 passed: true,
                 checks_run: 1,
                 checks_failed: 0,
+                skipped_checks: Vec::new(),
                 elapsed_ms: 1,
                 summary: "fixture passed".into(),
                 checks: vec![crate::harness::VerificationCheck {

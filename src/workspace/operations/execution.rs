@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "../../../tests/unit/workspace/execution.rs"]
+mod tests;
+
 impl Workspace {
     pub async fn run_command(
         &self,
@@ -12,6 +16,18 @@ impl Workspace {
             bail!("command execution is disabled; restart without --no-exec");
         }
         validate_authorizable_program(program)?;
+        // Reject malformed/unavailable operations before creating an approval
+        // request, so the operator never approves something that cannot run.
+        let mut admissible = self.security;
+        admissible.allow_risky_exec = true;
+        validate_command_policy(program, args, admissible)?;
+        let cwd_path = self.existing_path(cwd)?;
+        if !cwd_path.is_dir() {
+            bail!("cwd is not a directory");
+        }
+        if program == "cargo" && args == ["fmt"] && !self.allow_write {
+            bail!("cargo fmt modifies source files and is blocked in a read-only workspace");
+        }
         if !self
             .commands
             .read()
@@ -25,9 +41,6 @@ impl Workspace {
                 fingerprint,
             );
             return Err(AuthorizationRequired::new(request).into());
-        }
-        if program == "cargo" && args == ["fmt"] && !self.allow_write {
-            bail!("cargo fmt modifies source files and is blocked in a read-only workspace");
         }
         let mut effective_security = self.security;
         if !effective_security.allow_risky_exec
@@ -53,10 +66,13 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("cwd is not a directory");
         }
-        let _child_permit = crate::resource::global()
-            .acquire_child()
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let governor = crate::resource::global();
+        let _child_permit = if is_git_probe(program, args) {
+            governor.acquire_git_probe().await
+        } else {
+            governor.acquire_child().await
+        }
+        .map_err(anyhow::Error::msg)?;
         let effective_args = hardened_command_args(program, args);
         let mut command = Command::new(program);
         command
@@ -79,52 +95,8 @@ impl Workspace {
                 .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "0");
         }
 
-        let mut child = command.spawn().context("failed to start command")?;
-        let mut child_group = crate::resource::supervise_child(&child);
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("command stdout is unavailable"))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("command stderr is unavailable"))?;
-        let stdout_task = tokio::spawn(read_bounded_stream(stdout));
-        let stderr_task = tokio::spawn(read_bounded_stream(stderr));
-        let status = match timeout(
-            Duration::from_secs(timeout_seconds.clamp(1, 300)),
-            child.wait(),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => {
-                crate::resource::terminate_child(&mut child);
-                let _ = child.wait().await;
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
-                bail!("command timed out and was terminated");
-            }
-        };
-        child_group.terminate();
-        let (stdout, stdout_cut) = stdout_task
-            .await
-            .map_err(|error| anyhow!("stdout reader failed: {error}"))??;
-        let (stderr, stderr_cut) = stderr_task
-            .await
-            .map_err(|error| anyhow!("stderr reader failed: {error}"))??;
-        let (stdout, stdout_redacted) = redact_sensitive_text(&stdout);
-        let (stderr, stderr_redacted) = redact_sensitive_text(&stderr);
-        Ok(CommandResult {
-            program: program.to_owned(),
-            args: args.to_vec(),
-            exit_code: status.code(),
-            success: status.success(),
-            stdout,
-            stderr,
-            truncated: stdout_cut || stderr_cut,
-            redacted: stdout_redacted || stderr_redacted,
-        })
+        let child = command.spawn().context("failed to start command")?;
+        collect_command_result(child, program, args, timeout_seconds).await
     }
 
     pub(crate) async fn run_verification_command(
@@ -206,55 +178,103 @@ impl Workspace {
             .kill_on_drop(true);
         scrub_sensitive_environment(&mut command, program, args, false);
         crate::resource::apply_child_limits(&mut command);
-        let mut child = command
+        let child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
-        let mut child_group = crate::resource::supervise_child(&child);
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("runtime executor stdout is unavailable"))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("runtime executor stderr is unavailable"))?;
-        let stdout_task = tokio::spawn(read_bounded_stream(stdout));
-        let stderr_task = tokio::spawn(read_bounded_stream(stderr));
-        let status = match timeout(
-            Duration::from_secs(timeout_seconds.clamp(1, 300)),
-            child.wait(),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => {
-                crate::resource::terminate_child(&mut child);
-                let _ = child.wait().await;
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
-                bail!("runtime executor timed out and was terminated");
-            }
-        };
-        child_group.terminate();
-        let (stdout, stdout_cut) = stdout_task
-            .await
-            .map_err(|error| anyhow!("runtime executor stdout reader failed: {error}"))??;
-        let (stderr, stderr_cut) = stderr_task
-            .await
-            .map_err(|error| anyhow!("runtime executor stderr reader failed: {error}"))??;
-        let (stdout, stdout_redacted) = redact_sensitive_text(&stdout);
-        let (stderr, stderr_redacted) = redact_sensitive_text(&stderr);
-        Ok(CommandResult {
-            program: program.to_owned(),
-            args: args.to_vec(),
-            exit_code: status.code(),
-            success: status.success(),
-            stdout,
-            stderr,
-            truncated: stdout_cut || stderr_cut,
-            redacted: stdout_redacted || stderr_redacted,
-        })
+        collect_command_result(child, program, args, timeout_seconds).await
     }
+}
+
+// Both execution lanes share cancellation ownership, bounded cleanup and the
+// same failed-result contract. A timeout does not undo already-applied effects.
+async fn collect_command_result(
+    mut child: tokio::process::Child,
+    program: &str,
+    args: &[String],
+    timeout_seconds: u64,
+) -> Result<CommandResult> {
+    let mut group = crate::resource::supervise_child(&child);
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("command stdout is unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("command stderr is unavailable"))?;
+    // Dropping the request must also cancel its pipe readers, not detach them.
+    let mut readers = tokio::task::JoinSet::new();
+    readers.spawn(async move { (true, read_bounded_stream(stdout).await) });
+    readers.spawn(async move { (false, read_bounded_stream(stderr).await) });
+    let seconds = timeout_seconds.clamp(1, 300);
+    let waited = timeout(Duration::from_secs(seconds), child.wait()).await;
+    let timed_out = waited.is_err();
+    let wait_failed = matches!(&waited, Ok(Err(_)));
+    let mut status = waited.ok().and_then(std::result::Result::ok);
+    if status.is_none() {
+        crate::resource::terminate_child(&mut child);
+    }
+    group.terminate();
+    if status.is_none() {
+        status = timeout(Duration::from_secs(2), child.wait())
+            .await
+            .ok()
+            .and_then(std::result::Result::ok);
+    }
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut truncated = false;
+    let mut output_incomplete = false;
+    let drained = timeout(Duration::from_secs(2), async {
+        while let Some(joined) = readers.join_next().await {
+            match joined {
+                Ok((is_stdout, Ok((text, cut)))) => {
+                    truncated |= cut;
+                    if is_stdout {
+                        stdout = text;
+                    } else {
+                        stderr = text;
+                    }
+                }
+                _ => output_incomplete = true,
+            }
+        }
+    })
+    .await;
+    if drained.is_err() {
+        output_incomplete = true;
+        readers.abort_all();
+    }
+    if timed_out {
+        stderr.push_str("\n[wcode: command timed out; termination requested. Inspect actual effects before retrying; no rollback or automatic retry was performed.]\n");
+    }
+    if wait_failed || status.is_none() {
+        stderr.push_str("\n[wcode: process completion could not be confirmed.]\n");
+    }
+    if output_incomplete {
+        stderr.push_str("\n[wcode: output capture incomplete; unavailable output is not proof that nothing happened.]\n");
+    }
+    let success = !timed_out
+        && !wait_failed
+        && !output_incomplete
+        && status.is_some_and(|status| status.success());
+    let (stdout, stdout_redacted) = redact_sensitive_text(&stdout);
+    let (stderr, stderr_redacted) = redact_sensitive_text(&stderr);
+    Ok(CommandResult {
+        program: program.to_owned(),
+        args: args.to_vec(),
+        exit_code: status.and_then(|status| status.code()),
+        success,
+        stdout,
+        stderr,
+        truncated: truncated || output_incomplete,
+        redacted: stdout_redacted || stderr_redacted,
+        timed_out,
+        output_incomplete,
+        retry_guidance: (!success).then_some(
+            "Inspect actual effects and diagnostics before retrying. No rollback or automatic retry was performed.",
+        ),
+    })
 }
 
 pub(crate) fn redact_sensitive_text(text: &str) -> (String, bool) {

@@ -231,7 +231,7 @@
 - schema_version: 1
   id: CONSTRAINT-CLI-SURFACE
   title: Default CLI surface stays task-level and model-readable
-  statement: Default help must explain the no-subcommand runtime behavior and expose only stable task-level commands. One-command setup belongs in that default surface; package-export, compatibility, low-frequency transport/resource tuning and broad trust-boundary controls must not expand the normal model-facing catalog and may remain accepted but hidden when removing them would break existing workflows.
+  statement: Default help must explain the no-subcommand runtime behavior and expose stable task-level commands plus the discoverable help-all reference entry. One-command setup belongs in that default surface; package-export, compatibility, low-frequency transport/resource tuning and broad trust-boundary controls may remain accepted but hidden from standard help. Explicit help-all must derive every supported CLI command and argument from the canonical parser, preserve defaults, value choices, aliases and global scope, label hidden and deprecated behavior, and offer command-scoped text or JSON without initializing workspaces, services, updates or permissions. It is CLI documentation, not an external-program allowlist or MCP tool schema.
   applies_to:
     - component:cli-lifecycle
 

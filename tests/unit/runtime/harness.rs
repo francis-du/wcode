@@ -1,8 +1,16 @@
 use super::*;
 use std::fs;
 
+#[path = "harness/admission.rs"]
+mod admission;
+#[path = "harness/anchors.rs"]
+mod anchors;
 #[path = "harness/context_rank.rs"]
 mod context_rank;
+#[path = "harness/experience.rs"]
+mod experience;
+#[path = "harness/selective.rs"]
+mod selective;
 
 #[tokio::test]
 async fn enforces_parallel_limit() {

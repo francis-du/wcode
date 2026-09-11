@@ -34,7 +34,7 @@ impl ToolHarness {
         &self,
         workspace: &Workspace,
     ) -> Result<ObservatoryRevisionSignal> {
-        if !workspace.exec_enabled() || !workspace.root().join(".git").is_dir() {
+        if !workspace.exec_enabled() || !workspace.root().join(".git").exists() {
             return Ok(ObservatoryRevisionSignal {
                 fingerprint: None,
                 changed_files: 0,
@@ -424,6 +424,25 @@ impl ToolHarness {
         timeout_seconds: u64,
         monitor: &TaskMonitor,
     ) -> Result<VerificationReport> {
+        self.verify_project_mode(
+            workspace_id,
+            workspace,
+            (level, true),
+            timeout_seconds,
+            monitor,
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_project_mode(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        mode: (&str, bool),
+        timeout_seconds: u64,
+        monitor: &TaskMonitor,
+    ) -> Result<VerificationReport> {
+        let (level, fail_fast) = mode;
         if !workspace.exec_enabled() {
             bail!("project verification requires command execution; restart without --no-exec");
         }
@@ -438,16 +457,18 @@ impl ToolHarness {
             .recommended_checks
             .iter()
             .filter(|check| level == "full" || check.level == "quick")
-            .take(MAX_VERIFICATION_CHECKS)
             .cloned()
             .collect::<Vec<_>>();
         sort_checks(&mut plan);
+        if plan.len() > MAX_VERIFICATION_CHECKS {
+            bail!(
+                "verification plan contains {} checks, exceeding the {MAX_VERIFICATION_CHECKS}-check bound; no checks executed; select a narrower workspace",
+                plan.len()
+            );
+        }
 
-        let phases_run = plan
-            .iter()
-            .map(|check| check.phase)
-            .collect::<HashSet<_>>()
-            .len();
+        let mut phases_run = 0usize;
+        let mut skipped_checks = Vec::new();
         let started = Instant::now();
         let mut checks = Vec::with_capacity(plan.len());
         let mut start = 0usize;
@@ -495,7 +516,14 @@ impl ToolHarness {
                     },
                 });
             }
+            phases_run += 1;
             start = end;
+            // Finish the current independent phase, but do not pay for later
+            // compilation/test/build phases after a known failed gate.
+            if fail_fast && checks.iter().any(|check| !check.success) {
+                skipped_checks.extend(plan[end..].iter().map(|check| check.id.clone()));
+                break;
+            }
         }
 
         checks.sort_by(|left, right| {
@@ -505,7 +533,7 @@ impl ToolHarness {
         });
         let checks_failed = checks.iter().filter(|check| !check.success).count();
         let checks_run = checks.len();
-        let passed = checks_run > 0 && checks_failed == 0;
+        let passed = checks_run > 0 && checks_failed == 0 && skipped_checks.is_empty();
         let summary = if checks_run == 0 {
             "No verification commands could be inferred for this project; inspect its guidance and manifests manually."
                 .to_owned()
@@ -515,7 +543,8 @@ impl ToolHarness {
             )
         } else {
             format!(
-                "{checks_failed} of {checks_run} inferred {level} checks failed across {phases_run} execution phase(s)."
+                "{checks_failed} of {checks_run} executed {level} checks failed across {phases_run} phase(s); {} later checks skipped. Fix failures before retrying; use fail_fast=false for exhaustive diagnostics.",
+                skipped_checks.len()
             )
         };
 
@@ -527,6 +556,7 @@ impl ToolHarness {
             passed,
             checks_run,
             checks_failed,
+            skipped_checks,
             elapsed_ms: started.elapsed().as_millis(),
             summary,
             checks,

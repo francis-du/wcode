@@ -11,7 +11,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Point, Query, QueryCursor, Tree};
 
@@ -23,6 +24,7 @@ const MAX_CONTEXT_BODY_LINES: usize = 1_000;
 const MAX_REPORTED_SCAN_ERRORS: usize = 8;
 const MAX_GRAPH_FILES: usize = 5_000;
 const MAX_GRAPH_SYMBOLS: usize = 5_000;
+const MAX_PARSE_FLIGHTS: usize = 256;
 
 const BASH_TAGS_QUERY: &str = r#"
 (function_definition
@@ -246,7 +248,14 @@ impl FileKey {
 }
 
 #[derive(Default)]
+struct ParseFlight {
+    gate: Mutex<()>,
+    generation: AtomicU64,
+}
+
+#[derive(Default)]
 struct IndexState {
+    parsing: HashMap<FileKey, Weak<ParseFlight>>,
     files: HashMap<FileKey, Arc<FileRecord>>,
     file_access: HashMap<FileKey, u64>,
     symbol_files: HashMap<String, FileKey>,

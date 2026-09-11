@@ -3,54 +3,60 @@ use crate::authorization::AuthorizationStatus;
 
 pub(super) async fn setup_page(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+    _headers: HeaderMap,
+) -> Response {
     let capabilities = state.workspaces.capabilities();
-    let workspace_count = capabilities["workspaces"]
-        .as_array()
-        .map(Vec::len)
-        .unwrap_or_default();
-    let default_workspace = capabilities["default_workspace"]
+    let roots = capabilities["workspaces"].as_array().map_or(0, Vec::len);
+    let workspace = capabilities["default_workspace"]
         .as_str()
         .unwrap_or("unknown");
-    let base = state
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let page = crate::setup_web::render(workspace, roots, state.harness.max_parallel(), &nonce);
+    let mut response = (
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        axum::response::Html(page),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+            .parse().expect("UUID nonce produces a valid CSP header"),
+    );
+    response
+}
+
+// The public connection guide needs no command catalog, paths, credentials or
+// full Harness serialization on every poll. Keep /healthz unchanged for clients.
+pub(super) async fn setup_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let connection = state.monitor.connection_status();
+    let public_url = state
         .auth
         .request_public_url(&headers)
         .unwrap_or_else(|| state.auth.public_url());
-    let mcp_url = format!("{base}/mcp");
-    let endpoints_html = {
-        let tunnels = state.monitor.tunnel_links();
-        let rows = if tunnels.is_empty() {
-            format!(r#"<div class="endpoint">{mcp_url}</div>"#)
-        } else {
-            tunnels
-                .iter()
-                .map(|(provider, url)| {
-                    format!(
-                        r#"<div class="endpoint"><span class="p">{provider}</span><span>{url}/mcp</span></div>"#
-                    )
-                })
-                .collect::<String>()
-        };
-        // The page is served once; tunnels keep joining afterwards, so the
-        // client script below refreshes this container from /healthz.
-        format!(r#"<div id="endpoints" aria-live="polite">{rows}</div>"#)
-    };
-    axum::response::Html(format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#09090b"><title>wcode · Software Intelligence Runtime</title>
-<style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;min-height:100svh;min-height:100dvh;display:grid;place-items:center;background:radial-gradient(800px 450px at 50% -10%,#24242b,#09090b 65%);color:#f4f4f5;font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}}main{{width:min(100%,720px)}}.brand{{display:flex;align-items:center;gap:11px;margin:0 0 18px 4px}}.logo{{width:34px;height:34px;border:1px solid #3a3a42;border-radius:10px;display:grid;place-items:center;background:#151518;font:700 14px ui-monospace,monospace}}.muted{{color:#8d8d98}}.card{{border:1px solid #29292f;border-radius:18px;background:linear-gradient(180deg,#151519,#101013);padding:26px;box-shadow:0 28px 80px #0008}}h1{{margin:0 0 6px;font-size:23px}}.status{{display:inline-flex;align-items:center;gap:7px;color:#a7f3bd;font-size:12px;margin-bottom:22px}}.dot{{width:7px;height:7px;background:#5ee28a;border-radius:50%;box-shadow:0 0 12px #5ee28a88}}.endpoint{{display:flex;align-items:center;justify-content:space-between;gap:15px;min-width:0;margin-bottom:8px;padding:13px 15px;border:1px solid #29292f;border-radius:12px;background:#09090b;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}}.endpoint span:last-child{{min-width:0;overflow-wrap:anywhere;word-break:break-word;user-select:all;-webkit-user-select:all}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.stat{{padding:13px;border:1px solid #28282e;border-radius:12px;background:#111114}}.stat b{{display:block;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}.stat span{{font-size:11px;color:#84848f}}.clients{{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:18px}}.client{{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 10px;border:1px solid #323239;border-radius:11px;background:#0c0c0f;color:#f4f4f5;font-weight:650;font-size:12px;text-decoration:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent}}.client:hover{{border-color:#696973;background:#17171b}}.endpoint .p{{color:#8d8d98;font-size:11px;text-transform:uppercase;letter-spacing:.04em}}.spacer{{height:20px}}.hint{{margin-top:12px;color:#73737d;font-size:11px}}footer{{display:flex;justify-content:space-between;gap:8px 14px;flex-wrap:wrap;margin-top:15px;padding:0 4px;color:#72727d;font-size:12px}}footer a{{display:inline-flex;align-items:center;min-height:36px}}a{{color:#b8b8c0;text-decoration:none}}a:hover{{color:#fff}}@media(max-width:720px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.clients{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}@media(max-width:520px){{body{{place-items:start center;padding-top:max(12px,env(safe-area-inset-top))}}main{{width:100%}}.brand{{margin:0 0 12px 2px}}.card{{padding:18px;border-radius:14px}}h1{{font-size:21px;line-height:1.2}}.status{{margin-bottom:16px}}.endpoint{{display:grid;justify-content:stretch;gap:5px;padding:11px 12px}}.endpoint .p{{font-size:10px}}.grid,.clients{{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}}.stat{{padding:10px}}.stat b{{font-size:16px;white-space:normal;overflow-wrap:anywhere}}footer{{justify-content:flex-start}}}}@media(max-width:340px){{.grid,.clients{{grid-template-columns:1fr}}}}@media(prefers-reduced-motion:reduce){{*{{scroll-behavior:auto!important;transition-duration:.01ms!important}}}}</style></head>
-<body><main><div class="brand"><div class="logo">WC</div><div><strong>wcode</strong><div class="muted">Software Intelligence Runtime</div></div></div><section class="card"><div class="status"><i class="dot"></i>Runtime ready</div><h1>Connect a model executor</h1><p class="muted">wcode owns the local Design State, software context, risk, verification, and evidence layer. Connect any supported MCP model or agent below as a replaceable executor.</p><div class="spacer"></div>{endpoints_html}<div class="clients"><a class="client" href="{grok_url}" target="_blank" rel="noreferrer">Grok ↗</a><a class="client" href="{claude_url}" target="_blank" rel="noreferrer">Claude ↗</a><a class="client" href="{chatgpt_url}" target="_blank" rel="noreferrer">ChatGPT ↗</a><a class="client" href="{mistral_url}" target="_blank" rel="noreferrer">Mistral ↗</a><a class="client" href="{docs_url}#clients" target="_blank" rel="noreferrer">Other MCP ↗</a></div><div class="hint">MCP is the model access layer. Runtime state and software intelligence remain provider-neutral inside wcode.</div><div class="grid"><div class="stat"><b>{workspace_count}</b><span>workspace roots</span></div><div class="stat"><b>{}</b><span>parallel slots</span></div><div class="stat"><b>{intelligence_capability_count}</b><span>intelligence capabilities</span></div><div class="stat"><b>{default_workspace}</b><span>default workspace</span></div></div></section><footer><a href="{docs_url}" target="_blank" rel="noreferrer">Docs ↗</a><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a><a href="{author_url}" target="_blank" rel="noreferrer">{author_handle} ↗</a></footer></main><script>(function(){{var el=document.getElementById('endpoints'),timer=null;function esc(v){{return String(v==null?'':v).replace(/[&<>"']/g,function(c){{return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]}})}}function render(){{fetch('/healthz').then(function(r){{return r.ok?r.json():null}}).then(function(d){{if(!d)return;var t=d.tunnels||[];el.innerHTML=t.length?t.map(function(x){{return '<div class="endpoint"><span class="p">'+esc(x.provider)+'</span><span>'+esc(x.url)+'/mcp</span></div>'}}).join(''):'<div class="endpoint">'+esc(d.mcp_url)+'</div>'}}).catch(function(){{}})}}function schedule(){{clearTimeout(timer);timer=document.hidden?null:setTimeout(tick,6000)}}function tick(){{timer=null;render();schedule()}}document.addEventListener('visibilitychange',function(){{if(document.hidden){{clearTimeout(timer);timer=null}}else{{render();schedule()}}}});render();schedule()}})();</script></body></html>"##,
-        state.harness.max_parallel(),
-        intelligence_capability_count = state.harness.intelligence_capability_count(),
-        chatgpt_url = CHATGPT_CONNECTOR_SETUP_URL,
-        grok_url = GROK_CONNECTOR_SETUP_URL,
-        claude_url = CLAUDE_CONNECTOR_SETUP_URL,
-        mistral_url = MISTRAL_CONNECTOR_SETUP_URL,
-        docs_url = DOCS_URL,
-        project_url = PROJECT_URL,
-        author_url = AUTHOR_URL,
-        author_handle = AUTHOR_HANDLE,
-    ))
+    let tunnels = state
+        .monitor
+        .tunnel_links()
+        .into_iter()
+        .map(|(provider, url)| json!({"provider": provider, "mcp_url": format!("{url}/mcp")}))
+        .collect::<Vec<_>>();
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "ok": true,
+            "mcp_url": format!("{public_url}/mcp"),
+            "public_endpoint": connection.public_endpoint,
+            "public_url_healthy": connection.public_url_healthy,
+            "tunnels": tunnels,
+        })),
+    )
+        .into_response()
 }
 
 pub(super) async fn intelligence_page() -> Response {
@@ -435,6 +441,26 @@ pub(super) async fn intelligence_web_deny_authorization(
         .into_response()
 }
 
+pub(super) async fn intelligence_web_activity(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let (workspace_id, _) = match intelligence_ui_workspace(&state, &headers) {
+        Ok(selected) => selected,
+        Err(response) => return *response,
+    };
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "workspace": workspace_id,
+            "activity": state.monitor.observatory_activity(&workspace_id),
+            "resources": crate::resource::capabilities(),
+            "resource_scope": "whole_process",
+            "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
+        })),
+    ).into_response()
+}
+
 pub(super) async fn intelligence_web_project(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -443,15 +469,28 @@ pub(super) async fn intelligence_web_project(
         Ok(selected) => selected,
         Err(response) => return *response,
     };
-    let review = if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
-        state
+    let (review, review_reason) = if !workspace.exec_enabled() {
+        (None, "execution_disabled")
+    } else if !workspace.root().join(".git").exists() {
+        (None, "not_a_repository")
+    } else {
+        match state
             .harness
             .review_changes(workspace_id.clone(), &workspace, 30, &state.monitor)
             .await
-            .ok()
-    } else {
-        None
+        {
+            Ok(report) => {
+                let reason = if report.probes.iter().all(|probe| probe.success) {
+                    "available"
+                } else {
+                    "partial_review"
+                };
+                (Some(report), reason)
+            }
+            Err(_) => (None, "review_failed"),
+        }
     };
+    let git_review = json!({"available": review_reason == "available", "reason": review_reason});
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
     let workspace_id_for_read = workspace_id.clone();
@@ -467,6 +506,8 @@ pub(super) async fn intelligence_web_project(
     match project {
         Ok(mut value) => {
             value["workspace_options"] = intelligence_workspace_options(&state);
+            value["git_review"] = git_review;
+            value["activity"] = state.monitor.observatory_activity(&workspace_id);
             value["pending_authorizations"] = json!(state
                 .workspaces
                 .authorization_requests(256)
@@ -476,7 +517,7 @@ pub(super) async fn intelligence_web_project(
                         && request.workspace == workspace_id
                 })
                 .count());
-            (StatusCode::OK, Json(value)).into_response()
+            ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response()
         }
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -504,19 +545,35 @@ pub(super) async fn intelligence_web_revision(
                 .into_response()
         }
     };
-    let graph_revision = state
-        .harness
-        .graph_history(&workspace, 1)
-        .ok()
-        .and_then(|history| history.into_iter().next())
-        .map(|entry| entry.id);
+    let harness = state.harness.clone();
+    let workspace_for_read = workspace.clone();
+    let id_for_read = workspace_id.clone();
+    // File I/O stays off the async worker. The proof signal reads record
+    // metadata only; it is invalidation information, never verification proof.
+    let signals = mcp_tools::run_blocking(move || -> AnyResult<_> {
+        let graph = harness
+            .graph_history(&workspace_for_read, 1)?
+            .into_iter()
+            .next()
+            .map(|entry| entry.id);
+        let proof = harness.observatory_proof_signal(&id_for_read, &workspace_for_read)?;
+        Ok((graph, proof))
+    })
+    .await;
+    let signal_failed = signals.is_err();
+    let (graph_revision, proof_revision) = match signals {
+        Ok((graph, proof)) => (graph, Some(proof)),
+        Err(_) => (None, None),
+    };
     (
-        StatusCode::OK,
+        [(header::CACHE_CONTROL, "no-store")],
         Json(json!({
+            "workspace": workspace_id,
+            "proof_revision": proof_revision,
             "fingerprint": revision.fingerprint,
             "changed_files": revision.changed_files,
             "truncated": revision.truncated,
-            "full_refresh_required": revision.full_refresh_required,
+            "full_refresh_required": revision.full_refresh_required || signal_failed,
             "graph_revision": graph_revision,
             "pending_authorizations": state
                 .workspaces

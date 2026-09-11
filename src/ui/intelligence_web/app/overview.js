@@ -1,279 +1,144 @@
 function graphPrecision() {
-  return state.project?.graph_precision ||
-    {
-      primary: "syntax",
-      providers: ["tree-sitter"],
-      semantic_edges: 0,
-      runtime_edges: 0,
-      syntax_edges: 0,
-    };
+  return state.project?.graph_precision || { primary: "unknown", providers: [], semantic_edges: 0, runtime_edges: 0, syntax_edges: 0 };
 }
 function semanticAvailable() {
-  return (state.project?.language_quality?.languages || []).some((language) =>
-    Number(language.detected_files || 0) > 0 && language.semantic_available
-  );
+  return (state.project?.language_quality?.languages || []).some(language => Number(language.detected_files || 0) > 0 && language.semantic_available);
 }
 function renderLive() {
   const p = state.project;
   if (!p) return;
-  const precision = graphPrecision(),
-    primary = precision.primary || "syntax",
-    providers = (precision.providers || []).filter((provider) =>
-      provider !== "design-state"
-    ).slice(0, 3),
-    primaryLabel = statusLabel(primary),
-    providerLabel = localized("provider", "数据源");
-  els.projectIdentity.textContent = `${
-    p.project || p.product || p.workspace
-  } · ${p.root}`;
-  els.precisionBadge.className = `precision-badge ${primary}`;
-  els.precisionBadge.textContent =
-    primary === "semantic" || primary === "runtime"
-      ? `${primaryLabel} · ${providers.join(", ") || providerLabel}`
-      : `${primaryLabel} ${localized("fallback", "回退")} · ${
-        providers.join(", ") || "tree-sitter"
-      }`;
-  els.lastUpdated.textContent = `${t("last updated")} ${
-    new Date(state.lastUpdated).toLocaleTimeString(
-      state.language === "zh-CN" ? "zh-CN" : "en",
-    )
-  }`;
+  const precision = graphPrecision(), primary = precision.primary || "unknown";
+  els.projectIdentity.textContent = `${p.project || p.product || p.workspace} · ${p.root}`;
+  els.projectIdentity.title = p.root || "";
+  els.precisionBadge.className = `precision-badge ${["semantic", "runtime", "syntax"].includes(primary) ? primary : ""}`;
+  els.precisionBadge.textContent = `${statusLabel(primary)} · ${(precision.providers || []).filter(item => item !== "design-state").slice(0, 3).join(", ") || localized("no provider", "暂无数据源")}`;
+  const age = state.lastUpdated ? Math.max(0, Math.floor((Date.now() - state.lastUpdated) / 1000)) : null;
+  const mode = state.syncError ? localized("STALE", "已过期") : !els.auto.checked || document.hidden ? localized("PAUSED", "已暂停") : localized("Activity 2–8s · project 8s", "活动 2–8 秒 · 项目 8 秒");
+  els.lastUpdated.textContent = `${mode} · ${age === null ? "—" : localized(`snapshot ${age}s ago`, `快照 ${age} 秒前`)}`;
+  els.lastUpdated.title = `${t("last updated")} ${time(state.lastUpdated)}`;
 }
-function stat(k, v, s, cls = "") {
-  return `<div class="stat"><div class="k">${
-    esc(k)
-  }</div><div class="v ${cls}">${esc(v)}</div><div class="s">${
-    esc(s)
-  }</div></div>`;
+function stat(label, value, detail, tone = "", target = "") {
+  return `<button type="button" class="stat ${tone}" data-summary-action="${esc(target)}"><span class="k">${esc(label)}</span><strong class="v">${esc(value)}</strong><span class="s">${esc(detail)}</span><span class="stat-arrow" aria-hidden="true">↗</span></button>`;
+}
+function pendingCount() {
+  return state.pendingValue ?? state.project?.pending_authorizations ?? state.activitySnapshot?.pending_authorizations ?? null;
+}
+function effectiveProof() {
+  const proof = state.project?.proof || {}, effective = proof.effective;
+  return effective ? { ...proof, current_evidence: effective.total,
+    current_failed: effective.failed, current_passed: effective.passed,
+    current_inconclusive: effective.inconclusive, current_disagreed: effective.disagreed } : proof;
+}
+function bindSummaryActions(node) {
+  node.querySelectorAll("[data-summary-action]").forEach(button => button.addEventListener("click", async () => {
+    const target = button.dataset.summaryAction;
+    if (target === "access") { setAccessPanel(true); await loadAccess(); }
+    else if (target) revealSection(target);
+  }));
 }
 function renderStats() {
-  const p = state.project,
-    c = p.code || {},
-    proof = p.proof || {},
-    conv = p.convergence || {},
-    coverage = p.coverage || {},
-    risk = p.risk?.level || "none",
-    drift = (p.risk?.drift?.implementation_drift || 0) +
-      (p.risk?.drift?.design_drift || 0),
-    needs = (conv.needs_convergence_requirements || 0) +
-      (conv.incomplete_requirements || 0),
-    precision = graphPrecision(),
-    complete = coverage.complete_requirements || 0,
-    total = coverage.requirements_total || 0,
-    acceptance = proof.acceptance || {},
-    acceptanceTotal = Number(acceptance.total || 0),
-    acceptanceMapped = Number(acceptance.mapped || 0),
-    acceptanceExecuted = Number(acceptance.executed || 0),
-    acceptancePassed = Number(acceptance.passed || 0),
-    acceptanceFresh = Number(acceptance.fresh || 0);
-  const proofState = acceptanceTotal
-      ? `${t("Fresh")} ${acceptanceFresh}/${acceptanceTotal}`
-      : localized("no acceptance criteria", "暂无验收条件"),
-    proofDetail = `${t("Mapped")} ${acceptanceMapped}/${acceptanceTotal} · ${t("Executed")} ${acceptanceExecuted} · ${t("Passed")} ${acceptancePassed}`,
-    proofTone = proof.current_failed
-      ? "bad"
-      : proof.current_disagreed || acceptanceMapped < acceptanceTotal
-      ? "warn"
-      : acceptanceTotal &&
-        acceptanceFresh === acceptanceTotal &&
-        acceptancePassed === acceptanceTotal
-      ? "good"
-      : "info";
-  const actualDetail = localized(
-    `${num(c.source_lines)} lines · ${num(c.symbols)} symbols · ${
-      num(precision.semantic_edges || 0)
-    } semantic / ${num(precision.syntax_edges || 0)} syntax edges`,
-    `${num(c.source_lines)} 行 · ${num(c.symbols)} 个符号 · ${
-      num(precision.semantic_edges || 0)
-    } 条语义边 / ${num(precision.syntax_edges || 0)} 条语法边`,
-  );
-  setHtml(
-    "stats",
-    els.stats,
-    [
-      stat(
-        t("Desired State"),
-        statusLabel(p.design_valid ? "valid" : "invalid"),
-        localized(
-          `${complete}/${total} requirements complete`,
-          `${complete}/${total} 个需求完整`,
-        ),
-        p.design_valid ? "good" : "bad",
-      ),
-      stat(
-        t("Actual State"),
-        unit(c.source_files, "file", "files", "个文件"),
-        actualDetail,
-        precision.semantic_edges || precision.runtime_edges ? "good" : "info",
-      ),
-      stat(
-        t("Change"),
-        c.changed_files
-          ? unit(c.changed_files, "file", "files", "个文件")
-          : statusLabel("clean"),
-        localized(
-          `${
-            conv.changing_requirements || 0
-          } changing · ${drift} drift · risk ${statusLabel(risk)}`,
-          `${
-            conv.changing_requirements || 0
-          } 个需求变更中 · ${drift} 个漂移 · 风险 ${statusLabel(risk)}`,
-        ),
-        c.changed_files ? "warn" : "good",
-      ),
-      stat(
-        t("Proof"),
-        proofState,
-        proofDetail,
-        proofTone,
-      ),
-      stat(
-        t("Convergence"),
-        needs
-          ? localized(`${needs} need work`, `${needs} 个需要处理`)
-          : conv.changing_requirements
-          ? localized(
-            `${conv.changing_requirements} changing`,
-            `${conv.changing_requirements} 个变更中`,
-          )
-          : localized(
-            `${conv.stable_requirements || 0} stable`,
-            `${conv.stable_requirements || 0} 个稳定`,
-          ),
-        localized(
-          `${conv.stable_requirements || 0} stable · ${
-            conv.reconciliation_plans || 0
-          } reconciliation plans`,
-          `${conv.stable_requirements || 0} 个稳定 · ${
-            conv.reconciliation_plans || 0
-          } 个收敛计划`,
-        ),
-        needs || conv.changing_requirements ? "warn" : "good",
-      ),
-    ].join(""),
-  );
+  const p = state.project;
+  if (!p) return;
+  const activity = state.activitySnapshot?.activity || p.activity, proof = effectiveProof(), pending = pendingCount();
+  const knownActivity = activity?.available === true && !state.activityError;
+  const reviewKnown = p.git_review?.available === true;
+  const items = [
+    stat(localized("Executing now", "正在执行"), knownActivity ? num(activity.active) : "—", knownActivity ? localized(`${num(activity.queued)} queued · ${num(activity.orchestration)} coordinators`, `${num(activity.queued)} 项排队 · ${num(activity.orchestration)} 项编排`) : localized("Activity unavailable, not idle", "活动数据不可用，不代表空闲"), "", "activitySection"),
+    stat(localized("Needs your approval", "等待你批准"), pending === null ? "—" : num(pending), localized("Exact requests for this project", "仅当前项目的精确授权请求"), pending ? "warn" : "", "access"),
+    stat(localized("Working-tree changes", "工作区变更"), reviewKnown ? num(p.code?.changed_files) : localized("Unknown", "未知"), reviewKnown ? localized("Files changed, not completed features", "文件变更数量，不代表已完成功能") : localized("Git review did not complete", "Git 检查未完成"), reviewKnown ? "" : "warn", "changesSection"),
+    stat(localized("Current-version evidence", "当前版本证据"), proof.current_evidence ? num(proof.current_evidence) : localized("Not verified", "尚未验证"), proof.current_evidence ? localized(`${num(proof.current_failed)} effective failures · ${num(proof.current_inconclusive)} inconclusive`, `${num(proof.current_failed)} 项有效失败 · ${num(proof.current_inconclusive)} 项未定结论`) : localized("Mapping is not a passing test", "已映射 ≠ 测试通过"), proof.current_failed ? "bad" : "", "proofSection"),
+  ];
+  setHtml("stats", els.stats, items.join(""), () => bindSummaryActions(els.stats));
 }
-function attentionItem(tone, title, detail) {
-  return `<div class="attention-item ${tone}"><strong>${
-    esc(title)
-  }</strong><span>${esc(detail)}</span></div>`;
+function attentionSignals() {
+  const p = state.project, items = [];
+  if (!p) return items;
+  const proof = effectiveProof(), conv = p.convergence || {}, pending = pendingCount();
+  const add = (tone, title, detail, target) => items.push({ tone, title, detail, target });
+  if (state.syncError) add("bad", localized("Snapshot is stale", "快照已过期"), localized("The last refresh failed. Do not judge current state from these numbers.", "最近刷新失败，请勿把下方旧数据当作当前状态。"), "");
+  if (p.design_valid === false) add("bad", localized("Design needs attention", "设计状态需要处理"), localized("Missing or invalid design; inspect requirements and diagnostics.", "设计未初始化或校验失败，请查看需求与诊断。"), "requirementsSection");
+  if (proof.current_failed) add("bad", localized("Failure evidence recorded", "存在失败证据"), localized(`${num(proof.current_failed)} records for this version. Inspect the latest verification, not the count alone.`, `当前版本有 ${num(proof.current_failed)} 条失败记录，请核对最新验证结果。`), "proofSection");
+  if (p.architecture?.blocking_drift_edges) add("bad", localized("Confirmed architecture drift", "已确认架构偏离"), localized(`${num(p.architecture.blocking_drift_edges)} dependencies have strong drift evidence.`, `${num(p.architecture.blocking_drift_edges)} 条依赖具有强证据偏离。`), "architectureSection");
+  if (pending) add("warn", localized(`${num(pending)} requests need approval`, `${num(pending)} 项请求等待批准`), localized("Review the exact operation before allowing it.", "检查具体操作后再决定批准或拒绝。"), "access");
+  if (proof.current_verification_blocked) add("warn", localized("Verification plans are blocked", "验证计划尚未就绪"), localized(`${num(proof.current_verification_blocked)} current plans still have gates to satisfy.`, `${num(proof.current_verification_blocked)} 个当前计划仍有门禁未满足。`), "proofSection");
+  if (!proof.current_evidence) add("info", localized("This version is not verified yet", "当前版本尚未验证"), localized("No current-version evidence was returned. Historical passes and mapped tests are not proof.", "没有返回当前版本证据。历史通过和测试映射都不能代替本次验证。"), "proofSection");
+  else if (proof.current_disagreed || proof.current_inconclusive) add("warn", localized("Evidence has unresolved conclusions", "证据仍有未定结论"), localized("Resolve disagreement or incomplete checks before claiming completion.", "先处理分歧与不完整检查，再判断是否完成。"), "proofSection");
+  if (p.git_review?.available !== true) add("info", localized("Working-tree status is unknown", "工作树状态未知"), gitReviewReason(p.git_review?.reason), "changesSection");
+  const risks = (p.risk?.risks || []).filter(item => ["critical", "high"].includes(item.level));
+  if (risks.length) add(risks.some(item => item.level === "critical") ? "bad" : "warn", localized(`${risks.length} high-priority risk signals`, `${risks.length} 项高优先级风险信号`), risks[0].summary || localized("Inspect the recorded risk reasons.", "查看已记录的风险原因。"), "diagnosticsSection");
+  const needs = Number(conv.needs_convergence_requirements || 0) + Number(conv.incomplete_requirements || 0);
+  if (needs) add("warn", localized(`${needs} requirements need work`, `${needs} 项需求需要处理`), localized("Inspect incomplete implementation and dependency evidence.", "查看不完整实现和依赖证据。"), "requirementsSection");
+  if (p.code?.graph_truncated || proof.evidence_scan_truncated) add("info", localized("Partial snapshot", "快照不完整"), localized("A bounded scan omitted data; an absent item is not proof of absence.", "有界扫描省略了部分数据；未展示不代表不存在。"), "diagnosticsSection");
+  if (!items.length) add("info", localized("No known blockers in this snapshot", "此快照中未发现已知阻塞"), localized("This is an observation, not a release approval. Review evidence and changes below.", "这是观测结果，不是发布批准。请结合证据和变更判断。"), "proofSection");
+  if (state.activityError) add("warn", localized("Activity telemetry is stale", "活动遥测已过期"), localized("Task status could not be refreshed; it is not an idle signal.", "任务状态刷新失败，不代表系统空闲。"), "activitySection");
+  const priority = { bad: 0, warn: 1, info: 2, good: 3 };
+  return items.sort((left, right) => priority[left.tone] - priority[right.tone]);
+}
+function gitReviewReason(reason) {
+  return ({ execution_disabled: localized("Command execution is disabled.", "命令执行已禁用。"), not_a_repository: localized("No Git repository was found at this root.", "当前根目录不是 Git 仓库。"), partial_review: localized("Some Git probes failed; the review is partial.", "部分 Git 检查失败，结果不完整。"), review_failed: localized("Git review failed; retry or inspect permissions.", "Git 检查失败，请重试或检查权限。") })[reason] || localized("Review data was not returned.", "没有返回检查数据。");
+}
+function attentionItem(item) {
+  return `<button type="button" class="attention-item ${item.tone}" data-summary-action="${esc(item.target)}"><span class="signal-mark" aria-hidden="true">${item.tone === "bad" ? "!" : item.tone === "warn" ? "△" : "i"}</span><span><strong>${esc(item.title)}</strong><span>${esc(item.detail)}</span></span><span aria-hidden="true">${item.target ? "→" : ""}</span></button>`;
 }
 function renderAttention() {
   if (!state.project) return;
-  const p = state.project,
-    proof = p.proof || {},
-    conv = p.convergence || {},
-    risks = p.risk?.risks || [],
-    items = [],
-    critical = risks.filter((r) => r.level === "critical"),
-    high = risks.filter((r) => r.level === "high"),
-    needs = (conv.needs_convergence_requirements || 0) +
-      (conv.incomplete_requirements || 0),
-    precision = graphPrecision(),
-    pending = state.accessLoaded
-      ? state.authorizations.length
-      : Number(p.pending_authorizations || 0);
-  if (!p.design_valid) {
-    items.push(
-      attentionItem(
-        "bad",
-        t("Design invalid"),
-        t("Design diagnostics require attention"),
-      ),
-    );
+  const items = attentionSignals(), first = items[0];
+  const urgent = items.filter(item => ["bad", "warn"].includes(item.tone)).length;
+  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p></div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`);
+  const html = items.slice(0, 3).map(attentionItem).join("") + (items.length > 3 ? `<details class="more-signals"><summary>${esc(localized(`${items.length - 3} more signals`, `另有 ${items.length - 3} 项信号`))}</summary>${items.slice(3).map(attentionItem).join("")}</details>` : "");
+  setHtml("attention", els.attention, html, () => bindSummaryActions(els.attention));
+}
+function renderEffectiveEvidence(rows) {
+  const heading = `<h3>${esc(localized("Effective checks · this revision", "当前版本 · 有效检查"))}</h3>`;
+  const explanation = `<p class="panel-meta">${esc(localized(
+    "Latest result per target, producer and policy. Earlier attempts remain in historical counts above.",
+    "按目标、来源与策略分别取最新结果；先前执行仍保留在上方历史计数中。",
+  ))}</p>`;
+  if (!rows.length) return heading + explanation + `<div class="empty">${esc(localized(
+    "No effective verification evidence for this revision.", "此版本没有有效验证证据。",
+  ))}</div>`;
+  const body = rows.map(item => {
+    const diagnostic = item.summary
+      ? `<details><summary>${esc(localized("Diagnostic summary", "诊断摘要"))}</summary><pre class="evidence-diagnostic">${esc(item.summary)}</pre></details>`
+      : "";
+    return `<tr><td>${pill(statusLabel(item.result), statusClass(item.result))}</td>` +
+      `<td><code>${esc(item.subject)}</code><div>${esc(item.producer)}</div>${diagnostic}</td>` +
+      `<td>${esc(item.policy || "—")}<div>${esc(time(item.timestamp_ms))}</div></td></tr>`;
+  }).join("");
+  const headers = [t("Status"), localized("Check / producer", "检查 / 来源"), localized("Policy / time", "策略 / 时间")]
+    .map(label => `<th scope="col">${esc(label)}</th>`).join("");
+  return heading + explanation + `<div class="table-wrap"><table class="table proof-table"><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function renderProofSummary() {
+  if (!state.project) return;
+  const proof = state.project.proof || {}, acceptance = proof.acceptance || {};
+  const counters = [[t("Mapped"), acceptance.mapped], [t("Executed"), acceptance.executed], [t("Passed"), acceptance.passed], [t("Fresh"), acceptance.fresh]];
+  const html = `<p class="proof-explainer">${esc(localized("These are evidence records, not a release verdict. Mapped tests, historical passes and current-version evidence are different.", "这里是证据记录，不是发布结论。测试已映射、历史通过、当前版本证据是三回事。"))}</p><div class="proof-counts">${counters.map(([label, value]) => `<div><strong>${num(value)} / ${num(acceptance.total)}</strong><span>${esc(label)}</span></div>`).join("")}</div><div class="proof-counts"><div><strong>${num(proof.current_passed)}</strong><span>${esc(localized("Passing records · current version", "当前版本 · 通过记录"))}</span></div><div><strong class="${proof.current_failed ? "bad" : ""}">${num(proof.current_failed)}</strong><span>${esc(localized("Failure records · current version", "当前版本 · 失败记录"))}</span></div><div><strong>${num(proof.current_verification_ready)} / ${num(proof.current_verification_plans)}</strong><span>${esc(localized("Ready verification plans", "已就绪验证计划"))}</span></div></div><p class="panel-meta">${esc(localized("Latest current evidence: ", "最近当前版本证据："))}${esc(time(proof.latest_current_evidence_at_ms))}</p><details><summary>${esc(localized("Exact revisions", "精确版本"))}</summary><code class="revision-full">${esc(proof.revision_code || "—")}<br>${esc(proof.revision_design || "—")}</code></details>`;
+  const effective = proof.effective;
+  const rows = Array.isArray(effective?.items) ? effective.items.slice(0, 24) : [];
+  const details = effective ? renderEffectiveEvidence(rows) : "";
+  const truncated = effective?.truncated ? `<p class="warn">${esc(localized("Details truncated; counts include all retained effective records.", "详情已截断；计数包含全部已保留的有效记录。"))}</p>` : "";
+  setHtml("proofSummary", els.proofSummary, html + details + truncated);
+}
+function renderActivity() {
+  const snapshot = state.activitySnapshot, activity = snapshot?.activity || state.project?.activity;
+  if (activity?.available !== true || state.activityError) {
+    setHtml("activity", els.activity, `<div class="empty">${esc(localized("Activity unavailable. This does not mean no tasks are running.", "活动数据暂不可用，不代表没有任务在运行。"))}</div>`);
+    setHtml("resourceStatus", els.resourceStatus, `<p class="panel-meta">${esc(localized("Resource telemetry unavailable", "资源遥测不可用"))}</p>`);
+    return;
   }
-  if (proof.current_failed) {
-    items.push(
-      attentionItem(
-        "bad",
-        t("Verification failed"),
-        localized(
-          `${proof.current_failed} current evidence failure(s)`,
-          `${proof.current_failed} 条当前证据失败`,
-        ),
-      ),
-    );
-  } else if (proof.current_disagreed) {
-    items.push(
-      attentionItem(
-        "warn",
-        t("Verification disagreement"),
-        localized(
-          `${proof.current_disagreed} disagreement record(s)`,
-          `${proof.current_disagreed} 条分歧记录`,
-        ),
-      ),
-    );
-  }
-  if (critical.length) {
-    items.push(
-      attentionItem(
-        "bad",
-        t("Critical risk"),
-        localized(
-          `${critical.length} current risk(s)`,
-          `${critical.length} 个当前风险`,
-        ),
-      ),
-    );
-  }
-  if (high.length) {
-    items.push(
-      attentionItem(
-        "warn",
-        t("High risk"),
-        localized(
-          `${high.length} current risk(s)`,
-          `${high.length} 个当前风险`,
-        ),
-      ),
-    );
-  }
-  if (needs) {
-    items.push(
-      attentionItem(
-        "warn",
-        `${needs} ${t("Requirements need convergence")}`,
-        localized(
-          `${conv.needs_convergence_requirements || 0} convergence · ${
-            conv.incomplete_requirements || 0
-          } incomplete`,
-          `${conv.needs_convergence_requirements || 0} 个需收敛 · ${
-            conv.incomplete_requirements || 0
-          } 个不完整`,
-        ),
-      ),
-    );
-  }
-  if (pending) {
-    items.push(
-      attentionItem(
-        "info",
-        `${pending} ${t("Pending approval")}`,
-        t("Open Manage access to review exact requests"),
-      ),
-    );
-  }
-  if (
-    !(precision.semantic_edges || precision.runtime_edges) &&
-    semanticAvailable()
-  ) {
-    items.push(
-      attentionItem(
-        "info",
-        t("Tree-sitter only"),
-        t("Refresh semantics for stronger dependency evidence"),
-      ),
-    );
-  }
-  if (!items.length) {
-    items.push(
-      attentionItem(
-        "good",
-        t("No critical attention items"),
-        t("Design, proof and convergence have no active blockers"),
-      ),
-    );
-  }
-  setHtml("attention", els.attention, items.join(""));
+  const rows = activity.recent || [];
+  const duration = ms => ms == null ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
+  const label = status => ({queued: localized("Queued", "排队中"), running: localized("Running", "执行中"), completed: localized("Completed", "已完成"), failed: localized("Failed / interrupted", "失败 / 中断")})[status] || status;
+  const html = `<p class="panel-meta">${esc(localized("Current project · counters since this process started · recent rows are bounded", "当前项目 · 计数从本进程启动起累计 · 最近记录有数量上限"))}</p><div class="activity-list">${rows.length ? rows.map(task => `<div class="activity-row"><span class="pill ${task.status === "failed" ? "bad" : task.status === "running" ? "info" : ""}">${esc(label(task.status))}</span><div><strong>${esc(task.tool)}</strong><small>#${num(task.id)} · ${esc(task.slot_counted ? localized("tool slot", "工具槽位") : localized("coordination only", "仅编排，不占槽位"))}</small></div><div class="activity-duration"><span>${esc(localized("wait ", "等待 "))}${duration(task.wait_ms)}</span><span>${esc(localized("run ", "执行 "))}${duration(task.run_ms)}</span></div></div>`).join("") : `<div class="empty">${esc(localized("No retained task records for this project.", "此项目暂无保留的任务记录。"))}</div>`}</div><p class="panel-meta">${esc(localized(`${num(activity.completed)} completed · ${num(activity.failed)} failed/interrupted (historical totals, not current blockers)`, `累计 ${num(activity.completed)} 项完成 · ${num(activity.failed)} 项失败/中断（历史总数，不等于当前阻塞）`))}${activity.recent_truncated ? ` · ${esc(t("truncated"))}` : ""}</p>`;
+  setHtml("activity", els.activity, html);
+  const limits = snapshot?.resources?.limits;
+  const queue = (value, name) => value ? `<div><strong>${num(value.active)} / ${num(value.limit)}</strong><span>${esc(name)} · ${num(value.waiting)} ${esc(localized("waiting", "排队"))}</span></div>` : "";
+  const resources = limits ? `<p class="panel-meta">${esc(localized("Whole process, shared by all workspaces · reserved permits, not CPU-running tasks", "整个进程，由全部项目共享 · 显示占用额度，不代表正在使用 CPU"))}</p><div class="proof-counts">${queue(limits.child_queue, localized("Heavy processes", "重型进程"))}${queue(limits.probe_queue, localized("Git probes", "Git 检查"))}<div><strong>${typeof limits.resident_memory_bytes === "number" && Number.isFinite(limits.resident_memory_bytes) && limits.resident_memory_bytes >= 0 ? `${Math.round(limits.resident_memory_bytes / 1048576)} MiB` : "—"}</strong><span>${esc(localized("Resident memory", "进程驻留内存"))}</span></div></div>` : `<p class="panel-meta">${esc(localized("Resource telemetry requires the updated runtime.", "资源遥测需要更新后的运行时。"))}</p>`;
+  let bottleneck = "";
+  if (limits?.memory_pressure === "critical" || limits?.memory_pressure === "over_limit") bottleneck = localized("Memory pressure is delaying new work.", "内存压力正在延迟新任务进入。");
+  else if (limits?.child_queue?.waiting) bottleneck = localized("Commands are waiting for heavy-process capacity.", "命令正在等待重型进程名额。");
+  else if (limits?.probe_queue?.waiting) bottleneck = localized("Git inspections are waiting for probe capacity.", "Git 查询正在等待检查名额。");
+  else if (activity.queued) bottleneck = localized("Tasks are queued; the exact waiting reason is not tracked here.", "有任务排队；此处尚未追踪每项任务的具体等待原因。");
+  setHtml("resourceStatus", els.resourceStatus, resources + (bottleneck ? `<p class="risk medium">${esc(bottleneck)}</p>` : ""));
 }

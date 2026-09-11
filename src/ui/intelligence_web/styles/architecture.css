@@ -1,6 +1,22 @@
-.architecture-panel {
-  margin-bottom: 10px;
-}
+.architecture-panel { margin-bottom: 18px; }
+.architecture-views { display: flex; gap: 6px; }
+.architecture-views [aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.component-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 20px 0; }
+.component-toolbar label { color: var(--soft); font-size: 13px; }
+.component-toolbar input { flex: 1; min-width: 160px; max-width: 420px; padding: 9px 12px; }
+.component-cards { min-width: 0; max-height: 570px; overflow: auto; padding: 2px 8px 2px 0; scrollbar-gutter: stable; }
+.component-group h3 { display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; font-size: 13px; text-transform: none; letter-spacing: .02em; color: var(--soft); }
+.component-group:first-child h3 { margin-top: 0; }
+.component-group h3 span { color: var(--muted); font-weight: 400; }
+.component-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.component-tile { display: block; text-align: left; min-width: 0; padding: 15px; background: var(--surface); border-color: var(--line); }
+.component-tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); background: var(--accent-bg); }
+.component-tile-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.component-tile-top strong { font-size: 14px; color: var(--text); }
+.component-purpose { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--soft); font-size: 13px; margin: 10px 0; }
+.component-tile-meta { display: block; color: var(--muted); font-size: 12px; }
+.component-tile.drift { border-left: 3px solid var(--bad); }
+.architecture-graph-shell .architecture-modes { padding: 10px; border-bottom: 1px solid var(--line); }
 .architecture-head {
   align-items: flex-start;
 }
@@ -34,9 +50,9 @@
   min-width: 0;
 }
 .architecture-metric .metric-label {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: .09em;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: .02em;
   color: var(--muted);
 }
 .architecture-metric .metric-value {
@@ -45,9 +61,9 @@
   margin-top: 3px;
 }
 .architecture-metric .metric-detail {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 5px;
 }
 .metric-meter {
   height: 4px;
@@ -251,7 +267,7 @@
   background: var(--surface);
   padding: 11px;
   min-width: 0;
-  max-height: 610px;
+  max-height: 570px;
   overflow: auto;
 }
 .component-inspector h3 {
@@ -285,7 +301,7 @@
   border-radius: 7px;
   background: var(--panel);
   padding: 6px 7px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--soft);
   overflow-wrap: anywhere;
 }
@@ -300,7 +316,7 @@
   background: transparent;
   color: var(--info);
   padding: 0;
-  font-size: 9px;
+  font-size: 12px;
   text-align: left;
 }
 .inspector-link:hover {

@@ -1,8 +1,14 @@
 const fragment = new URLSearchParams(location.hash.slice(1));
 const token = fragment.get("token") || "";
 const initialWorkspace = fragment.get("workspace") || "";
-const savedLanguage = localStorage.getItem("wcode.ui.language");
-const savedTheme = localStorage.getItem("wcode.ui.theme");
+function readPreference(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function savePreference(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* Optional preferences never block the UI. */ }
+}
+const savedLanguage = readPreference("wcode.ui.language");
+const savedTheme = readPreference("wcode.ui.theme");
 const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
 const translations = {
   "zh-CN": {
@@ -292,6 +298,17 @@ Object.assign(translations["zh-CN"], {
   "Snapshot truncated": "快照已截断",
 });
 
+Object.assign(translations["zh-CN"], {
+  "observatory subtitle": "看清正在执行的工作、需要处理的问题，以及真正完成的验证。",
+  "Task activity": "任务活动", "Verification evidence": "验证证据",
+  "Task activity meta": "正在执行的任务优先。等待时间与执行时间分别展示。",
+  "Proof meta": "当前版本、历史结果与尚未验证的工作，分别展示。",
+  "Component map": "组件地图", "Dependency graph": "依赖连线图",
+  "Find a component": "查找组件", "Name, responsibility or scope": "搜索名称、职责或所属范围",
+  "Explore requirement details": "查看实现、验收条件与依赖证据",
+  "Diagnostics & history": "诊断与历史", "Diagnostics meta": "代码分布、图谱版本与已记录风险",
+});
+
 const q = (id) => document.querySelector(id);
 const els = {
   workspace: q("#workspace"),
@@ -316,6 +333,13 @@ const els = {
   authorizationList: q("#authorizationList"),
   authorizationMessage: q("#authorizationMessage"),
   stats: q("#stats"),
+  statusSummary: q("#statusSummary"),
+  activity: q("#activity"),
+  resourceStatus: q("#resourceStatus"),
+  proofSummary: q("#proofSummary"),
+  componentCards: q("#componentCards"),
+  componentSearch: q("#componentSearch"),
+  componentCount: q("#componentCount"),
   attention: q("#attention"),
   architectureMetrics: q("#architectureMetrics"),
   architectureGraph: q("#architectureGraph"),
@@ -345,11 +369,32 @@ const els = {
 
 const state = {
   current: initialWorkspace,
+  workspaceEpoch: 0,
+  accessMutationEpoch: 0,
+  accessRead: null,
+  accessOperation: null,
+  pendingSequence: 0,
+  pendingApplied: 0,
+  pendingValue: null,
+  activityTimer: null,
+  activityTickActive: false,
+  projectTickActive: false,
+  started: false,
   project: null,
   access: null,
   workspaceAccess: null,
   authorizations: [],
   accessLoaded: false,
+  accessEpoch: 0,
+  accessBusy: false,
+  activitySnapshot: null,
+  activityError: false,
+  activityUpdated: 0,
+  activityController: null,
+  pollController: null,
+  syncError: false,
+  lastChecked: 0,
+  architectureView: "components",
   selected: "",
   selectedComponent: "",
   filter: "all",
@@ -417,7 +462,7 @@ const statusClass = (value) => {
       v,
     )
   ) return "good";
-  if (["critical", "failed", "invalid", "error"].includes(v)) return "bad";
+  if (["critical", "fail", "failed", "invalid", "error"].includes(v)) return "bad";
   if (
     [
       "medium",
@@ -435,11 +480,27 @@ const changeNums = (item) =>
   `<span class="change-num add">+${
     num(item.additions || 0)
   }</span> <span class="change-num remove">-${num(item.deletions || 0)}</span>`;
-const requestHeaders = () => {
+const requestHeaders = (workspace = state.current) => {
   const headers = { "X-Wcode-UI-Token": token };
-  if (state.current) headers["X-Wcode-Workspace"] = state.current;
+  if (workspace) headers["X-Wcode-Workspace"] = workspace;
   return headers;
 };
+
+function observationStamp() {
+  return { workspace: state.current, view: state.workspaceEpoch,
+    mutation: state.accessMutationEpoch, sequence: ++state.pendingSequence };
+}
+function observationCurrent(stamp) {
+  return stamp.workspace === state.current && stamp.view === state.workspaceEpoch;
+}
+function observePending(value, stamp) {
+  if (!observationCurrent(stamp) || stamp.mutation !== state.accessMutationEpoch ||
+      stamp.sequence < state.pendingApplied || !Number.isSafeInteger(value) || value < 0) return false;
+  state.pendingApplied = stamp.sequence;
+  state.pendingValue = value;
+  if (state.project) state.project.pending_authorizations = value;
+  return true;
+}
 
 function setHtml(key, node, html, bind) {
   if (state.rendered.get(key) === html) return false;
@@ -504,7 +565,7 @@ function applyTheme() {
   const light = state.theme === "light" ||
     (state.theme === "system" && systemThemeQuery.matches);
   const themeColor = document.querySelector('meta[name="theme-color"]');
-  if (themeColor) themeColor.content = light ? "#f4f6f9" : "#080a0e";
+  if (themeColor) themeColor.content = light ? "#f7f5ef" : "#171714";
 }
 function applyLanguage() {
   document.documentElement.lang = state.language;
@@ -529,8 +590,8 @@ function applyLanguage() {
     ? "可执行程序名，例如 make"
     : "Executable name, e.g. make";
   els.operationArgs.placeholder = state.language === "zh-CN"
-    ? "参数，以空格分隔"
-    : "Arguments, whitespace separated";
+    ? 'JSON 参数数组，例如 ["commit","-m","两词说明"]'
+    : 'JSON arguments, e.g. ["commit","-m","two words"]';
   state.rendered.clear();
   if (state.project) renderProject(true);
   if (state.access || state.workspaceAccess || state.authorizations.length) {
@@ -538,20 +599,44 @@ function applyLanguage() {
   }
 }
 
-async function uiJson(path, method = "GET", body) {
-  const headers = requestHeaders();
+async function uiJson(path, method = "GET", body, options = {}) {
+  const headers = requestHeaders(options.workspace ?? state.current);
+  if (!token) throw new Error(localized("Open this page from the wcode TUI to authorize access.", "请从 wcode 终端面板打开此页面以授权访问。"));
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let data = {};
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
+  const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, options.timeout || 30000);
   try {
-    data = await response.json();
-  } catch {}
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return data;
+    const response = await fetch(path, {
+      method, headers, cache: "no-store", signal: controller.signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let data;
+    try { data = await response.json(); } catch {
+      if (response.ok) throw new Error(localized("Invalid JSON response", "响应不是有效 JSON"));
+    }
+    if (!response.ok) {
+      const detail = typeof data?.error === "string" ? data.error : data?.error?.message;
+      const error = new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ""}`);
+      error.status = response.status;
+      throw error;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid response");
+    return data;
+  } catch (error) {
+    if (timedOut) error = new Error(localized("Request timed out; displayed data may be stale.", "请求超时，显示的数据可能已过期。"));
+    if (method !== "GET" && (!error.status || error.status >= 500)) {
+      error.uncertain = true;
+      error.message += localized(" The operation may have completed. Refresh its state before retrying.", " 操作可能已经完成，请先刷新实际状态，再决定是否重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(deadline);
+    options.signal?.removeEventListener("abort", abort);
+  }
 }
 function authorizationKind(kind) {
   return {

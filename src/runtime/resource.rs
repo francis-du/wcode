@@ -8,6 +8,7 @@
 use crate::harness::{ToolHarness, REPO_MAP_MAX_FILES};
 use crate::monitor::{OperatorMessageKind, TaskMonitor};
 use anyhow::{anyhow, bail, Result};
+use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::marker::PhantomData;
@@ -15,7 +16,12 @@ use std::rc::Rc;
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::process::{Child, Command};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::OwnedSemaphorePermit;
+
+#[path = "resource/queue.rs"]
+mod process_queue;
+use process_queue::ProcessQueue;
+pub use process_queue::ProcessQueueSnapshot;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
@@ -23,7 +29,7 @@ pub const DEFAULT_MAX_CPU_PERCENT: f64 = 10.0;
 pub const DEFAULT_MAX_MEMORY_MB: u64 = 512;
 pub const DEFAULT_MAX_PARALLEL_TOOLS: usize = 32;
 pub const TOKIO_WORKER_THREADS: usize = 4;
-pub const TOKIO_MAX_BLOCKING_THREADS: usize = 16;
+pub const TOKIO_MAX_BLOCKING_THREADS: usize = 64;
 
 const MIN_MEMORY_MB: u64 = 128;
 const MAX_MEMORY_MB: u64 = 32 * 1024;
@@ -83,14 +89,12 @@ impl ResourceLimits {
         } else {
             256
         };
+        // Background maintenance's CPU target must not serialize foreground
+        // indexing. Bound foreground work by hardware, memory and tool demand.
         let cpu_burst_threads = host_threads
-            .min(if max_cpu_percent <= 10.0 {
-                4
-            } else if max_cpu_percent <= 25.0 {
-                6
-            } else {
-                8
-            })
+            .min(8)
+            .min(usize::try_from(max_memory_mb / 64).unwrap_or(8))
+            .min(requested_parallel_tools)
             .max(1);
         let rayon_threads = cpu_burst_threads;
         let child_threads = host_threads
@@ -109,9 +113,7 @@ impl ResourceLimits {
         } else {
             4
         };
-        let interactive_cpu_percent = (max_cpu_percent * 8.0)
-            .clamp(100.0, 200.0)
-            .min(cpu_burst_threads as f64 * 100.0);
+        let interactive_cpu_percent = cpu_burst_threads as f64 * 100.0;
 
         Ok(Self {
             max_cpu_percent,
@@ -139,6 +141,26 @@ impl ResourceLimits {
             child_processes: 2,
             child_threads: 2,
         }
+    }
+
+    pub(crate) fn io_parallelism(self) -> usize {
+        // Each active file operation may hold original, replacement and output
+        // buffers. Share one bounded I/O pool instead of multiplying per batch.
+        usize::try_from(self.max_memory_bytes / (32 * 1024 * 1024))
+            .unwrap_or(16)
+            .clamp(1, 32)
+            .min(self.effective_parallel_tools)
+            .max(1)
+    }
+
+    fn probe_process_limit(self) -> usize {
+        // Small, fixed-form Git inspections get separate capacity; compilers
+        // and arbitrary commands keep the existing heavy-process bound.
+        usize::try_from(self.max_memory_bytes / (128 * 1024 * 1024))
+            .unwrap_or(4)
+            .clamp(1, 4)
+            .min(self.cpu_burst_threads)
+            .min(self.effective_parallel_tools)
     }
 
     pub fn indexed_file_limit(self) -> usize {
@@ -236,6 +258,8 @@ pub struct ResourceSnapshot {
     pub rayon_threads: usize,
     pub child_processes: usize,
     pub child_threads: usize,
+    pub child_queue: ProcessQueueSnapshot,
+    pub probe_queue: ProcessQueueSnapshot,
     pub governed_cpu_ms: u64,
     pub throttle_sleep_ms: u64,
     pub admission_delays: u64,
@@ -309,7 +333,8 @@ pub struct ResourceGovernor {
     cpu_activity: Mutex<CpuActivity>,
     cpu_activity_changed: Condvar,
     cpu_budget: Mutex<CpuBudget>,
-    child_slot: std::sync::Arc<Semaphore>,
+    child_slot: ProcessQueue,
+    probe_slot: ProcessQueue,
     telemetry: Mutex<Telemetry>,
 }
 
@@ -354,6 +379,31 @@ pub fn limits() -> ResourceLimits {
     global().limits
 }
 
+/// Bounded file I/O must not occupy the CPU-indexing Rayon pool. The caller
+/// retains its tool permit until this complete ordered batch returns.
+pub(crate) fn parallel_io<T, R, F>(items: &[T], work: F) -> Result<Vec<R>>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Send + Sync,
+{
+    if items.len() <= 1 {
+        return Ok(items.iter().map(work).collect());
+    }
+    static POOL: OnceLock<std::result::Result<rayon::ThreadPool, String>> = OnceLock::new();
+    let pool = POOL
+        .get_or_init(|| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(limits().io_parallelism())
+                .thread_name(|index| format!("wcode-io-{index}"))
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| anyhow!("cannot initialize bounded file I/O pool: {error}"))?;
+    Ok(pool.install(|| items.par_iter().map(work).collect()))
+}
+
 pub fn cpu_work(class: WorkClass) -> CpuWorkGuard {
     global().begin_cpu_work(class)
 }
@@ -368,6 +418,8 @@ pub fn capabilities() -> Value {
         "cpu_scope": "high short bursts are allowed; repeated internal CPU work is paced and unattended background work uses the configured sustained target",
         "memory_scope": "resident-memory soft budget with burst headroom, cache/session shedding, and delayed fail-closed admission only under sustained over-limit pressure",
         "limits": snapshot(),
+        "file_io_parallelism": limits().io_parallelism(),
+        "blocking_threads_limit": TOKIO_MAX_BLOCKING_THREADS,
     })
 }
 
@@ -382,7 +434,8 @@ impl ResourceGovernor {
                 background_credit_seconds: limits.background_burst_seconds(),
                 tokens: limits.interactive_burst_seconds(),
             }),
-            child_slot: std::sync::Arc::new(Semaphore::new(limits.child_processes)),
+            child_slot: ProcessQueue::new(limits.child_processes),
+            probe_slot: ProcessQueue::new(limits.probe_process_limit()),
             telemetry: Mutex::new(Telemetry::default()),
         }
     }
@@ -557,11 +610,14 @@ impl ResourceGovernor {
 
     pub async fn acquire_child(&self) -> Result<OwnedSemaphorePermit, String> {
         self.admit_tool().await?;
-        self.child_slot
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| "resource governor is shutting down".to_owned())
+        self.child_slot.acquire().await
+    }
+
+    pub(crate) async fn acquire_git_probe(&self) -> Result<OwnedSemaphorePermit, String> {
+        // Scheduling class is not authorization. The caller validates the
+        // command and obtains normal workspace grants before reaching here.
+        self.admit_tool().await?;
+        self.probe_slot.acquire().await
     }
 
     pub fn background_ready(&self) -> bool {
@@ -632,12 +688,22 @@ impl ResourceGovernor {
             telemetry.sample_count = telemetry.sample_count.saturating_add(1);
             telemetry.last_sample_at = Some(now);
         }
-        snapshot_from(self.limits, &telemetry, now)
+        self.with_process_queues(snapshot_from(self.limits, &telemetry, now))
     }
 
     fn snapshot(&self) -> ResourceSnapshot {
         let now = Instant::now();
-        snapshot_from(self.limits, &lock_recover(&self.telemetry), now)
+        self.with_process_queues(snapshot_from(
+            self.limits,
+            &lock_recover(&self.telemetry),
+            now,
+        ))
+    }
+
+    fn with_process_queues(&self, mut snapshot: ResourceSnapshot) -> ResourceSnapshot {
+        snapshot.child_queue = self.child_slot.snapshot();
+        snapshot.probe_queue = self.probe_slot.snapshot();
+        snapshot
     }
 
     pub fn record_cache_trim(&self) {
@@ -837,6 +903,14 @@ fn snapshot_from(limits: ResourceLimits, telemetry: &Telemetry, now: Instant) ->
         rayon_threads: limits.rayon_threads,
         child_processes: limits.child_processes,
         child_threads: limits.child_threads,
+        child_queue: ProcessQueueSnapshot {
+            limit: limits.child_processes,
+            ..ProcessQueueSnapshot::default()
+        },
+        probe_queue: ProcessQueueSnapshot {
+            limit: limits.probe_process_limit(),
+            ..ProcessQueueSnapshot::default()
+        },
         governed_cpu_ms: duration_ms(telemetry.governed_cpu),
         throttle_sleep_ms: duration_ms(telemetry.throttle_sleep),
         admission_delays: telemetry.admission_delays,

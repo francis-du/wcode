@@ -108,19 +108,20 @@ pub(super) fn render_authorization_overlay(
     area: Rect,
     requests: &[AuthorizationRequest],
     focus: usize,
+    detail_scroll: usize,
     language: UiLanguage,
 ) {
     if requests.is_empty() || area.width < 40 || area.height < 10 {
         return;
     }
     let focus = focus.min(requests.len() - 1);
-    let visible = requests.len().min(5);
+    let visible = requests.len().min(3);
     let start = focus
         .saturating_sub(visible / 2)
         .min(requests.len().saturating_sub(visible));
     let end = (start + visible).min(requests.len());
     let width = area.width.saturating_sub(8).clamp(38, 104);
-    let height = (visible as u16 + 4).clamp(6, 10);
+    let height = (visible as u16 + 14).min(area.height.saturating_sub(4));
     let popup = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height + 3),
@@ -198,7 +199,31 @@ pub(super) fn render_authorization_overlay(
             ),
         ]));
     }
-    lines.push(Line::from(vec![
+    let detail_rows = usize::from(inner.height).saturating_sub(visible + 2);
+    if detail_rows > 0 {
+        lines.push(Line::styled(
+            if language == UiLanguage::ZhCn {
+                "请求详情 · PgUp/PgDn 翻页"
+            } else {
+                "Request details · PgUp/PgDn to scroll"
+            },
+            Style::default().fg(ACCENT),
+        ));
+        let request = &requests[focus];
+        let details = authorization_detail_lines(
+            &format!(
+                "{} · {}\n{}",
+                request.id, request.workspace, request.summary
+            ),
+            usize::from(inner.width),
+        );
+        let offset = detail_scroll.min(details.len().saturating_sub(detail_rows));
+        lines.extend(details.into_iter().skip(offset).take(detail_rows));
+        while lines.len() < usize::from(inner.height).saturating_sub(1) {
+            lines.push(Line::raw(""));
+        }
+    }
+    let controls = Line::from(vec![
         keycap("↑/↓"),
         Span::styled(
             format!(" {}   ", language.tr("select request")),
@@ -214,8 +239,46 @@ pub(super) fn render_authorization_overlay(
             format!(" {}", language.tr("deny selected")),
             Style::default().fg(DANGER),
         ),
-    ]));
+    ]);
+    if controls.width() <= usize::from(inner.width) {
+        lines.push(controls);
+    } else {
+        lines.push(Line::from(vec![
+            keycap("Y"),
+            Span::styled(
+                format!(" {}  ", language.tr("approve")),
+                Style::default().fg(SUCCESS),
+            ),
+            keycap("N"),
+            Span::styled(
+                format!(" {}", language.tr("deny")),
+                Style::default().fg(DANGER),
+            ),
+        ]));
+    }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn authorization_detail_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    for character in text.chars() {
+        let cell_width = Span::raw(character.to_string()).width();
+        if character == '\n' || (used + cell_width > width && !current.is_empty()) {
+            lines.push(Line::raw(std::mem::take(&mut current)));
+            used = 0;
+        }
+        if character != '\n' {
+            current.push(character);
+            used += cell_width;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(Line::raw(current));
+    }
+    lines
 }
 
 pub(super) fn render_status_message(

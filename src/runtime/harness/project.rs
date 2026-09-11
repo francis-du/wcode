@@ -40,7 +40,7 @@ fn acceptance_proof_summary(
         })
         .count();
 
-    let mut latest = BTreeMap::<&str, &Evidence>::new();
+    let mut groups = BTreeMap::<&str, Vec<&Evidence>>::new();
     for item in evidence {
         if !acceptance_ids.contains(item.subject.as_str())
             || matches!(
@@ -52,34 +52,53 @@ fn acceptance_proof_summary(
         {
             continue;
         }
-        latest
-            .entry(item.subject.as_str())
-            .and_modify(|current| {
-                if (item.timestamp_ms, item.id.as_str())
-                    > (current.timestamp_ms, current.id.as_str())
-                {
-                    *current = item;
-                }
-            })
-            .or_insert(item);
+        groups.entry(item.subject.as_str()).or_default().push(item);
     }
 
+    let outcomes = groups
+        .values()
+        .map(|items| {
+            let newest = items
+                .iter()
+                .max_by_key(|item| item.timestamp_ms)
+                .expect("nonempty evidence group");
+            let ambiguous = items.iter().any(|item| {
+                item.timestamp_ms == newest.timestamp_ms && item.revision != newest.revision
+            });
+            let effective =
+                crate::evidence::latest_current(items.iter().copied(), &newest.revision);
+            let passed = !ambiguous
+                && !effective.is_empty()
+                && effective
+                    .iter()
+                    .all(|item| item.result == EvidenceResult::Pass);
+            let fresh = !ambiguous && newest.revision == *revision;
+            (passed, fresh)
+        })
+        .collect::<Vec<_>>();
     ProjectAcceptanceProofSummary {
         total: acceptance_ids.len(),
         mapped,
-        executed: latest.len(),
-        passed: latest
-            .values()
-            .filter(|item| item.result == EvidenceResult::Pass)
-            .count(),
-        fresh: latest
-            .values()
-            .filter(|item| item.revision == *revision)
-            .count(),
+        executed: outcomes.len(),
+        passed: outcomes.iter().filter(|(passed, _)| *passed).count(),
+        fresh: outcomes.iter().filter(|(_, fresh)| *fresh).count(),
     }
 }
 
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/proof.rs"]
+mod tests;
+
 impl ToolHarness {
+    pub(crate) fn observatory_proof_signal(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+    ) -> Result<String> {
+        self.intelligence
+            .evidence_change_signal(workspace_id, workspace)
+    }
+
     pub fn project_observatory(
         &self,
         workspace_id: impl Into<String>,
@@ -108,22 +127,77 @@ impl ToolHarness {
             .transpose()?;
         let language_quality = self.language_quality_status(workspace)?;
         let revision = self.intelligence.current_revision(workspace)?;
-        let evidence = self.evidence_status(&workspace_id, workspace, None, 500)?;
-        let acceptance =
-            acceptance_proof_summary(&design, &traceability, &evidence.evidence, &revision);
+        let evidence = self
+            .intelligence
+            .evidence_records(&workspace_id, workspace)?;
+        let acceptance = acceptance_proof_summary(&design, &traceability, &evidence, &revision);
         let current_evidence = evidence
-            .evidence
             .iter()
             .filter(|item| item.revision == revision)
             .collect::<Vec<_>>();
         let current_subject = format!("change:{}", revision.code);
-        let verification = self.verification_history(&workspace_id, workspace, 100)?;
+        let verification = self.intelligence.verification_history_from_snapshot(
+            &workspace_id,
+            workspace,
+            100,
+            &revision,
+            &evidence,
+        )?;
         let current_verification = verification
             .iter()
-            .filter(|status| status.plan.subject == current_subject)
+            .filter(|status| {
+                status.plan.subject == current_subject
+                    && status.plan.revision.as_ref() == Some(&revision)
+            })
             .collect::<Vec<_>>();
+        let mut effective = crate::evidence::latest_current(&evidence, &revision);
+        effective.sort_by_key(|item| {
+            (
+                std::cmp::Reverse(crate::evidence::result_severity(item.result)),
+                std::cmp::Reverse(item.timestamp_ms),
+            )
+        });
+        let sanitize = |text: &str| crate::workspace::redact_sensitive_text(text).0;
+        let effective = crate::intelligence_types::ProjectEffectiveProofSummary {
+            total: effective.len(),
+            passed: effective
+                .iter()
+                .filter(|item| item.result == EvidenceResult::Pass)
+                .count(),
+            failed: effective
+                .iter()
+                .filter(|item| item.result == EvidenceResult::Fail)
+                .count(),
+            inconclusive: effective
+                .iter()
+                .filter(|item| item.result == EvidenceResult::Inconclusive)
+                .count(),
+            disagreed: effective
+                .iter()
+                .filter(|item| item.result == EvidenceResult::Disagree)
+                .count(),
+            items: effective
+                .iter()
+                .take(24)
+                .map(|item| crate::intelligence_types::ProjectEvidenceView {
+                    subject: sanitize(&item.subject),
+                    producer: sanitize(&item.producer),
+                    policy: item.policy.as_deref().map(sanitize),
+                    kind: item.kind,
+                    confidence: item.confidence,
+                    result: item.result,
+                    timestamp_ms: item.timestamp_ms,
+                    summary: item
+                        .summary
+                        .as_deref()
+                        .map(|text| sanitize(text).chars().take(500).collect()),
+                })
+                .collect(),
+            truncated: effective.len() > 24,
+        };
         let proof = ProjectProofSummary {
             acceptance,
+            effective,
             revision_code: revision.code.clone(),
             revision_design: revision.design.clone(),
             current_evidence: current_evidence.len(),
@@ -156,7 +230,7 @@ impl ToolHarness {
                 .iter()
                 .map(|item| item.timestamp_ms)
                 .max(),
-            evidence_scan_truncated: evidence.truncated,
+            evidence_scan_truncated: evidence.len() >= 4_096,
         };
         let reconciliation = self.reconciliation_history(workspace, 100)?;
         let latest_reconciliation_plan = reconciliation.first().map(|plan| plan.id.clone());

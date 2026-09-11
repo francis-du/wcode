@@ -11,7 +11,7 @@ permalink: /docs/getting-started/
 
 wcode is not another coding agent. It is the local repository layer your existing agent calls when it needs to understand code, follow real cross-file relationships, make guarded changes, or prove the current revision works.
 
-The first successful setup is only three steps: **install → `wcode setup` → run `wcode` from the repository**. Everything else on this page explains what those three steps give you.
+For a local coding agent, setup is **install → `wcode setup` → reconnect the agent**. The agent starts its own stdio process; a separate HTTP server or public tunnel is not required. Cloud/web connectors instead use a running `wcode` service and its verified public MCP address.
 
 ## 1. Install
 
@@ -37,12 +37,19 @@ wcode setup
 Interactive `wcode setup` offers **Global (recommended)** first and **Current
 project** second. Global mode configures verified user-level Host files so one
 setup works across repositories; project mode keeps configuration in this
-repository. Both install only `wcode mcp-stdio`, preserve unrelated servers,
-and fail closed on unknown schemas. The binary embeds the canonical Skill and
+repository. Both configure `wcode mcp-stdio` with the selected performance and
+restrictive safety options, preserve unrelated servers, and fail closed on unknown schemas. The binary embeds the canonical Skill and
 plugin metadata, so setup does not depend on a `plugin/` directory in the
 current repository. Use `wcode setup --dry-run` for a no-write preview.
+To save the faster preset for detected agents, preview with
+`wcode setup --performance fast --dry-run`, then run `wcode setup --performance fast`
+and reconnect the agent. Add `--project` to keep the configuration in this repository.
 
 ## 3. Start and connect
+
+For a cloud/web connector or the standalone TUI/WebUI, start the service below.
+Local agents configured in step 2 launch stdio themselves; do not start a second
+service unless you need those additional surfaces.
 
 ```bash
 wcode
@@ -153,6 +160,18 @@ exact repository operations separately; approving one does not imply the
 other.
 
 ## 7. Common modes
+
+Use `wcode help-all` to see every supported CLI command and parameter, including
+advanced options hidden from standard help. `wcode help-all setup` focuses on
+one command; `wcode help-all --json` returns the catalog for automation.
+Help never starts services or runs the selected command.
+
+Keep the default balanced budget, or choose `wcode --performance fast` for more
+capacity and `wcode --performance light` for a smaller budget. Check the resolved
+settings without starting anything using `wcode --show-config`. The same preset
+works in a Host command: `wcode mcp-stdio --performance fast`. See the
+[configuration reference](../reference/#simple-performance-configuration) for
+budgets, explicit overrides and what needs a new process.
 
 ```bash
 wcode --read-only

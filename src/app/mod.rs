@@ -60,6 +60,10 @@ const HELP_FOOTER: &str = r#"
 QUICK START
   wcode                         Start WCode for the current project.
   wcode setup                   Set up WCode for detected coding agents.
+  wcode --performance fast       Use a larger resource budget for parallel work.
+  wcode --show-config            Preview resolved settings without starting the runtime.
+  wcode help-all                 Show every supported CLI command and parameter.
+  wcode help-all setup           Inspect one command, including advanced options.
   wcode mcp-stdio               Connect an MCP Host; its current directory becomes the project.
   wcode intelligence            Inspect project intelligence and LSP readiness.
   wcode intelligence --refresh-semantic
@@ -100,7 +104,8 @@ struct Args {
         long,
         value_name = "PATH",
         default_value = ".",
-        help_heading = "Project"
+        help_heading = "Project",
+        global = true
     )]
     workspace: Vec<PathBuf>,
 
@@ -125,7 +130,13 @@ struct Args {
     port: u16,
 
     /// Use an existing public base URL instead of starting a managed tunnel.
-    #[arg(long, help_heading = "Connection", hide = true)]
+    #[arg(
+        long,
+        global = true,
+        conflicts_with = "no_tunnel",
+        help_heading = "Connection",
+        hide = true
+    )]
     public_url: Option<String>,
 
     /// Managed tunnel provider. auto falls back across free providers when startup or health checks fail.
@@ -137,23 +148,23 @@ struct Args {
     imessage_to: Option<String>,
 
     /// Keep WCode local and disable the managed public tunnel.
-    #[arg(long, help_heading = "Connection")]
+    #[arg(long, global = true, help_heading = "Connection")]
     no_tunnel: bool,
 
     /// Read-only mode: disable file modification tools.
-    #[arg(long = "read-only", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
+    #[arg(long = "read-only", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_write: bool,
 
     /// Do not let WCode run build, test, or repository commands.
-    #[arg(long = "no-exec", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
+    #[arg(long = "no-exec", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_exec: bool,
 
     /// Do not discover or run language servers.
-    #[arg(long = "no-semantic", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
+    #[arg(long = "no-semantic", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_semantic: bool,
 
     /// Allow approved tools to work across your Home directory. Filesystem root, credentials, symlinks/hard-links, and shell execution remain blocked.
-    #[arg(long, help_heading = "Safety")]
+    #[arg(long, global = true, conflicts_with_all = ["allow_write", "allow_exec", "allow_semantic"], help_heading = "Safety")]
     full_access: bool,
 
     /// Allow arbitrary model-facing repository-aware commands beyond the Harness verification allowlist.
@@ -175,12 +186,16 @@ struct Args {
     #[command(flatten)]
     resources: ResourceArgs,
 
+    /// Print resolved configuration as JSON and exit without starting or changing anything.
+    #[arg(long, global = true, help_heading = "Experience")]
+    show_config: bool,
+
     /// Estimated USD cost per million input tokens used for the TUI savings estimate.
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
     /// Hide the live terminal activity view.
-    #[arg(long = "no-monitor", action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
+    #[arg(long = "no-monitor", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
     monitor: bool,
 
     /// Do not offer to install a missing managed-tunnel dependency.
@@ -207,6 +222,16 @@ struct Args {
 
 pub async fn run() -> Result<()> {
     let args = Args::parse();
+    if let Some(ControlCommand::HelpAll { command_path, json }) = args.command.as_ref() {
+        return commands::print_complete_help(command_path, *json);
+    }
+    if args.show_config {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&args.configuration_preview()?)?
+        );
+        return Ok(());
+    }
     if let Some(command) = args.command.as_ref() {
         match command {
             ControlCommand::Update => {
@@ -219,15 +244,20 @@ pub async fn run() -> Result<()> {
                 project,
                 json,
             } => {
+                if args.workspace.len() != 1 {
+                    bail!("setup accepts one project workspace; configure each project separately");
+                }
                 let root = args
                     .workspace
                     .first()
                     .map(PathBuf::as_path)
                     .unwrap_or_else(|| std::path::Path::new("."));
-                setup::run(root, *dry_run, *json, *global, *project)?;
+                let launch_args = args.setup_launch_args()?;
+                setup::run(root, *dry_run, *json, *global, *project, &launch_args)?;
                 return Ok(());
             }
-            ControlCommand::AgentPlugin { .. }
+            ControlCommand::HelpAll { .. }
+            | ControlCommand::AgentPlugin { .. }
             | ControlCommand::McpStdio
             | ControlCommand::Intelligence { .. }
             | ControlCommand::Verification { .. } => {}
@@ -322,8 +352,8 @@ pub async fn run() -> Result<()> {
         .map(|task| AbortTaskOnDrop(task.abort_handle()));
     if let Some(command) = args.command.as_ref() {
         match command {
-            ControlCommand::Setup { .. } => {
-                unreachable!("setup returns before runtime initialization")
+            ControlCommand::Setup { .. } | ControlCommand::HelpAll { .. } => {
+                unreachable!("setup and help-all return before runtime initialization")
             }
             ControlCommand::AgentPlugin {
                 output,

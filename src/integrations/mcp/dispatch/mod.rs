@@ -55,7 +55,7 @@ async fn read_media_tool(state: &AppState, params: &Value) -> Result<Value, Stri
         task_detail("read_media", &args),
         request_bytes,
     );
-    let permit = Arc::new(state.harness.acquire().await?);
+    let permit = Arc::new(state.harness.acquire_tool(false).await?);
     task.start();
 
     let (workspace_id, workspace) = match selected_workspace(state, &args) {
@@ -228,7 +228,12 @@ pub(super) async fn call_leaf_tool(
     let mut task = state
         .monitor
         .queue(workspace_label.clone(), name, detail, request_bytes);
-    let permit = Arc::new(state.harness.acquire().await?);
+    let permit = Arc::new(
+        state
+            .harness
+            .acquire_tool(matches!(name, "run_command" | "language_quality_run"))
+            .await?,
+    );
     task.start();
 
     let mut outcome: AnyResult<Value> = super::mcp_tools::BLOCKING_PERMIT
@@ -432,24 +437,55 @@ async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, St
     }
 }
 
+pub(crate) fn verification_options(args: &Value) -> Result<(String, bool, u64), String> {
+    workspace_arg(args)?;
+    let level = match args.get("level") {
+        None => "quick".to_owned(),
+        Some(Value::String(level)) if matches!(level.as_str(), "quick" | "full") => level.clone(),
+        Some(_) => return Err("level must be quick or full when provided".to_owned()),
+    };
+    let fail_fast = match args.get("fail_fast") {
+        None => true,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err("fail_fast must be a boolean when provided".to_owned()),
+    };
+    let timeout_seconds = match args.get("timeout_seconds") {
+        None => 120,
+        Some(value) => value
+            .as_u64()
+            .filter(|value| (1..=300).contains(value))
+            .ok_or("timeout_seconds must be an integer between 1 and 300")?,
+    };
+    Ok((level, fail_fast, timeout_seconds))
+}
+
 async fn verify_project_tool(state: &AppState, args: &Value) -> Result<Value, String> {
     let (workspace_id, workspace) = selected_workspace(state, args)?;
-    let level = string_arg(args, "level").unwrap_or("quick").to_owned();
-    let timeout_seconds = args
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(120);
-    match state
-        .harness
-        .verify_project(
-            workspace_id,
-            &workspace,
-            &level,
-            timeout_seconds,
-            &state.monitor,
-        )
-        .await
-    {
+    let (level, fail_fast, timeout_seconds) = verification_options(args)?;
+    let outcome = if fail_fast {
+        state
+            .harness
+            .verify_project(
+                workspace_id,
+                &workspace,
+                &level,
+                timeout_seconds,
+                &state.monitor,
+            )
+            .await
+    } else {
+        state
+            .harness
+            .verify_project_mode(
+                workspace_id,
+                &workspace,
+                (&level, false),
+                timeout_seconds,
+                &state.monitor,
+            )
+            .await
+    };
+    match outcome {
         Ok(report) => {
             let is_error = !report.passed;
             serde_json::to_value(report)
@@ -534,6 +570,11 @@ fn inherit_parallel_workspace(arguments: &mut Value, workspace: &str) {
 }
 
 async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String> {
+    let dry_run = match args.get("dry_run") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err("dry_run must be a boolean; no tasks executed".to_owned()),
+    };
     let items = args
         .get("tasks")
         .and_then(Value::as_array)
@@ -624,6 +665,16 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
     let graph = scheduler::dependency_graph(&workloads, items.len());
     let layers = graph.layers(&active)?;
     let dependency_edges = graph.predecessors.iter().map(BTreeSet::len).sum::<usize>();
+    if dry_run {
+        let plan = scheduler::preview(
+            &graph,
+            &layers,
+            &workloads,
+            &aliases,
+            state.harness.max_parallel(),
+        );
+        return Ok(tool_result(plan, false));
+    }
     let mut fanout_response_bytes = 0usize;
 
     let mut pending = active;

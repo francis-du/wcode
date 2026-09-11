@@ -108,6 +108,15 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Install JavaScript test runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Check JavaScript test runtime
+        run: node --version
+
       - name: Test
         run: cargo test --locked
 
@@ -290,6 +299,9 @@ jobs:
           foreach ($opt in @("z", "s")) {
             $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = $opt
             cargo build --release --locked
+            if ($LASTEXITCODE -ne 0) {
+              throw "release: Windows cargo build failed for opt-level $opt"
+            }
             $candidate = "dist/candidates/wcode-$opt.exe"
             Copy-Item target/release/wcode.exe $candidate
             $candidateBytes[$opt] = (Get-Item $candidate).Length
@@ -301,7 +313,18 @@ jobs:
           }
           Copy-Item "dist/candidates/wcode-$selectedOpt.exe" dist/package/wcode.exe
           Copy-Item README.md dist/package/README.md
-          & dist/package/wcode.exe --version
+          $versionOutput = & dist/package/wcode.exe --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "release: Windows binary failed the version smoke test"
+          }
+          $expectedVersion = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"$' | Select-Object -First 1).Matches.Groups[1].Value
+          if (($versionOutput -join "`n").Trim() -ne "wcode $expectedVersion") {
+            throw "release: Windows binary version does not match Cargo.toml"
+          }
+          & dist/package/wcode.exe --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "release: Windows binary failed the help smoke test"
+          }
           Compress-Archive -Path dist/package/* -DestinationPath "dist/${{ matrix.archive }}" -CompressionLevel Optimal -Force
           $binaryBytes = (Get-Item dist/package/wcode.exe).Length
           $archiveBytes = (Get-Item "dist/${{ matrix.archive }}").Length

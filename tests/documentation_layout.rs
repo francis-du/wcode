@@ -11,6 +11,96 @@ struct DocPage {
 }
 
 #[test]
+fn complete_help_documentation_exposes_discovery_and_execution_boundaries() {
+    let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        for page in ["reference", "getting-started", "releases/v0.6.2"] {
+            let content = fs::read_to_string(docs.join(format!("{page}{suffix}.md"))).unwrap();
+            for command in [
+                "wcode help-all",
+                "wcode help-all setup",
+                "wcode help-all --json",
+            ] {
+                assert!(
+                    content.contains(command),
+                    "{page}{suffix}: missing {command}"
+                );
+            }
+        }
+        let reference = fs::read_to_string(docs.join(format!("reference{suffix}.md"))).unwrap();
+        for term in [
+            "--plan",
+            "--no-install-chatgpt",
+            "schema_version: 1",
+            "runtime_started: false",
+        ] {
+            assert!(reference.contains(term), "{suffix}: missing {term}");
+        }
+    }
+}
+
+#[test]
+fn current_release_metadata_and_bilingual_notes_match_the_package() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let version = env!("CARGO_PKG_VERSION");
+    let lock = fs::read_to_string(root.join("Cargo.lock"))
+        .unwrap()
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
+    let package = lock["package"]
+        .as_array_of_tables()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"].as_str() == Some("wcode"))
+        .unwrap();
+    assert_eq!(package["version"].as_str(), Some(version));
+    for path in [
+        "marketplace.json",
+        "plugin/marketplace.json",
+        "plugin/plugin.json",
+        "plugin/.claude-plugin/plugin.json",
+        "plugin/.codex-plugin/plugin.json",
+        "plugin/.zcode-plugin/plugin.json",
+    ] {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join(path)).unwrap()).unwrap();
+        let actual = if path.ends_with("marketplace.json") {
+            &manifest["plugins"][0]["version"]
+        } else {
+            &manifest["version"]
+        };
+        assert_eq!(actual.as_str(), Some(version), "version mismatch in {path}");
+    }
+    let docs = root.join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        let index = fs::read_to_string(docs.join(format!("README{suffix}.md"))).unwrap();
+        let releases = fs::read_to_string(docs.join(format!("releases{suffix}.md"))).unwrap();
+        assert!(index.contains(&format!("releases/v{version}/")));
+        assert!(releases.contains(&format!("(v{version}/)")));
+        let notes =
+            fs::read_to_string(docs.join(format!("releases/v{version}{suffix}.md"))).unwrap();
+        for required in [
+            version,
+            "agent_context",
+            "timed_out",
+            "output_incomplete",
+            "balanced",
+            "fast",
+            "light",
+            "Node 24",
+            "--read-only --no-exec --no-semantic",
+            "cargo test --locked",
+            "cargo clippy --locked --all-targets -- -D warnings",
+        ] {
+            assert!(
+                notes.contains(required),
+                "{suffix}: release notes missing {required}"
+            );
+        }
+    }
+}
+
+#[test]
 fn release_061_workflow_docs_keep_parallel_and_context_contracts() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
     for suffix in ["", ".zh-CN"] {
@@ -39,6 +129,100 @@ fn release_061_workflow_docs_keep_parallel_and_context_contracts() {
             "cargo test --locked",
         ] {
             assert!(notes.contains(term));
+        }
+    }
+}
+
+#[test]
+fn research_workflow_docs_keep_boundaries_and_sources() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        let index = fs::read_to_string(root.join(format!("README{suffix}.md"))).unwrap();
+        assert!(index.contains("research-upgrades/"));
+        let page = fs::read_to_string(root.join(format!("research-upgrades{suffix}.md"))).unwrap();
+        for required in [
+            "agent_context",
+            "dry_run",
+            "tasks_executed: 0",
+            "authorization_checked: false",
+            "file_preconditions_checked: false",
+            "cargo clippy --locked --all-targets -- -D warnings",
+            "2607.24882",
+            "2609.08371",
+            "2508.21433",
+            "2607.27250",
+            "2312.04511",
+        ] {
+            assert!(page.contains(required), "{suffix}: missing {required}");
+        }
+    }
+}
+
+#[test]
+fn frontier_research_docs_distinguish_implementation_from_roadmap() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        let index = fs::read_to_string(root.join(format!("README{suffix}.md"))).unwrap();
+        assert!(index.contains("frontier-engineering/"));
+        let page =
+            fs::read_to_string(root.join(format!("frontier-engineering{suffix}.md"))).unwrap();
+        for required in [
+            "repo_map.deferred",
+            "no checks executed",
+            "32",
+            "2601.16746",
+            "2603.17829",
+            "2603.20432",
+            "2609.00006",
+            "2512.08296",
+            "2609.08149",
+            "cargo clippy --locked --all-targets -- -D warnings",
+        ] {
+            assert!(page.contains(required), "{suffix}: missing {required}");
+        }
+        assert!(page.contains(if suffix.is_empty() {
+            "proposed roadmap, not an implemented feature list"
+        } else {
+            "建议路线图，不是已经实现的功能列表"
+        }));
+    }
+}
+
+#[test]
+fn configuration_docs_keep_presets_preview_and_local_setup_in_sync() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    for suffix in ["", ".zh-CN"] {
+        let reference = fs::read_to_string(root.join(format!("reference{suffix}.md"))).unwrap();
+        for term in [
+            "balanced",
+            "fast",
+            "light",
+            "512 MiB",
+            "1024 MiB",
+            "256 MiB",
+            "--show-config",
+            "--max-memory-mb",
+            "/setup/status",
+            "--read-only",
+            "wcode setup --performance fast --dry-run",
+            "setup_launch",
+            "--read-only --no-exec --no-semantic",
+        ] {
+            assert!(
+                reference.contains(term),
+                "{suffix}: missing configuration contract {term}"
+            );
+        }
+        let started = fs::read_to_string(root.join(format!("getting-started{suffix}.md"))).unwrap();
+        for term in [
+            "wcode setup",
+            "wcode mcp-stdio --performance fast",
+            "wcode --show-config",
+        ] {
+            assert!(
+                started.contains(term),
+                "{suffix}: missing setup example {term}"
+            );
         }
     }
 }

@@ -666,6 +666,52 @@
   }
 }
 
+/* Readable summary-first observatory; keep layout adaptations after legacy detail styles. */
+.panel-meta, .summary-side, .stat .s, .req-meta, .revision-meta,
+.architecture-metric .metric-label, .architecture-metric .metric-detail,
+.component-inspector h4, .architecture-legend, .table, .table code,
+.impl-meta, .component-id, .verification-meta, .pill { font-size: 12px; }
+.arch-mode { font-size: 12px; }
+.panel-title { font-size: 17px; }
+.component-inspector { padding: 16px; }
+#activity, #componentCards { scrollbar-gutter: stable; }
+#activity .activity-list { max-height: 350px; overflow: auto; }
+#changesSection > .panel-head, #filesSection > .panel-head { display: none; }
+@media (max-width:1100px) {
+  .execution-layout { grid-template-columns: 1fr; }
+  .component-grid { grid-template-columns: 1fr; }
+  .attention { grid-template-columns: 1fr; }
+  .attention-item { display: grid; min-width: 0; max-width: none; }
+}
+@media (max-width:900px) {
+  .component-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .component-cards { max-height: 500px; }
+  .status-summary { align-items: flex-start; }
+  .summary-count { font-size: 12px; }
+}
+@media (max-width:600px) {
+  .section-nav { flex-wrap: nowrap; overflow-x: auto; gap: 0; }
+  .section-nav button { flex-shrink: 0; font-size: 12px; }
+  .status-summary { display: block; padding: 20px 6px; }
+  .status-summary h2 { font-size: 25px; }
+  .summary-count { display: inline-block; margin-top: 14px; }
+  .stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .stat .v { font-size: 24px; white-space: normal; }
+  .stat-arrow { display: none; }
+  .attention-item { display: grid; grid-template-columns: 18px minmax(0,1fr) 12px; width: 100%; min-width: 0; max-width: none; }
+  .component-grid { grid-template-columns: 1fr; }
+  .component-toolbar { padding: 12px; }
+  .component-toolbar label { flex-basis: 100%; }
+  .component-cards { max-height: 500px; }
+  .architecture-views { width: 100%; }
+  .architecture-views button { flex: 1; }
+  .activity-row { grid-template-columns: 100px minmax(0,1fr); gap: 8px; }
+  .activity-row .pill { font-size: 11px; }
+  .activity-duration { grid-column: 2; display: flex; gap: 8px; text-align: left; font-size: 12px; }
+  .disclosure > summary { padding: 14px; }
+  .disclosure > summary span { flex-basis: 100%; }
+  .proof-counts { gap: 12px; }
+}
 @media (prefers-reduced-motion:reduce) {
   *,
   *::before,

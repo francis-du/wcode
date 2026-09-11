@@ -28,6 +28,21 @@ impl CodeIndex {
             });
         }
 
+        let flight = self.parse_flight(&key)?;
+        let _flight = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let generation = flight.generation.load(Ordering::Acquire);
+        // Another entry point may have filled the cache while we waited.
+        let stamp = workspace.source_stamp(path)?;
+        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+            return Ok(FileSearchOutcome {
+                matches: matching_symbols(&record, query, kind),
+                cache_hit: true,
+                parsed: false,
+            });
+        }
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let prefilter = symbol_query_leaf(query);
@@ -41,7 +56,7 @@ impl CodeIndex {
         }
 
         let parsed = self.parse_source(workspace.root(), &config, source)?;
-        let record = self.store_parsed_file(key, parsed)?;
+        let record = self.store_parsed_file(workspace, key, parsed, &flight, generation)?;
         Ok(FileSearchOutcome {
             matches: matching_symbols(&record, query, kind),
             cache_hit: false,
@@ -56,42 +71,52 @@ impl CodeIndex {
         retain_ast: bool,
     ) -> Result<EnsureResult> {
         let config = self.config_for_path(path).ok_or_else(|| {
-            anyhow!(
-                "unsupported source file; supported languages are Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java, JavaScript, Lua, OCaml/OCaml Interface, PHP, Python, R, Ruby, Rust, Swift, and TypeScript/TSX"
-            )
+            anyhow!("unsupported source file; use file reads for unsupported languages")
         })?;
         let stamp = workspace.source_stamp(path)?;
         let key = FileKey::new(workspace.root(), path.to_owned());
-        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
-            let ast_cache_hit = self.touch_ast(&key, &record.sha256)?;
-            if !retain_ast || ast_cache_hit {
-                return Ok(EnsureResult {
-                    record,
-                    symbol_cache_hit: true,
-                    ast_cache_hit,
-                });
-            }
-
-            let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-            let source = workspace.load_source(path)?;
-            let parsed = self.parse_source(workspace.root(), &config, source)?;
-            let record = self.store_parsed_file(key, parsed)?;
-            return Ok(EnsureResult {
-                record,
-                symbol_cache_hit: true,
-                ast_cache_hit: false,
-            });
+        if let Some(result) = self.cached_index(&key, &stamp, retain_ast)? {
+            return Ok(result);
         }
-
+        // Wait without holding an index-state lock or a CPU permit. Different
+        // files keep separate flights, including during AST reconstruction.
+        let flight = self.parse_flight(&key)?;
+        let _flight = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let generation = flight.generation.load(Ordering::Acquire);
+        let stamp = workspace.source_stamp(path)?;
+        if let Some(result) = self.cached_index(&key, &stamp, retain_ast)? {
+            return Ok(result);
+        }
+        let symbol_cache_hit = self.cached_record_if_fresh(&key, &stamp)?.is_some();
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let parsed = self.parse_source(workspace.root(), &config, source)?;
-        let record = self.store_parsed_file(key, parsed)?;
+        let record = self.store_parsed_file(workspace, key, parsed, &flight, generation)?;
         Ok(EnsureResult {
             record,
-            symbol_cache_hit: false,
+            symbol_cache_hit,
             ast_cache_hit: false,
         })
+    }
+
+    fn cached_index(
+        &self,
+        key: &FileKey,
+        stamp: &SourceStamp,
+        retain_ast: bool,
+    ) -> Result<Option<EnsureResult>> {
+        let Some(record) = self.cached_record_if_fresh(key, stamp)? else {
+            return Ok(None);
+        };
+        let ast_cache_hit = self.touch_ast(key, &record.sha256)?;
+        Ok((!retain_ast || ast_cache_hit).then_some(EnsureResult {
+            record,
+            symbol_cache_hit: true,
+            ast_cache_hit,
+        }))
     }
 
     pub(super) fn search_file_many(
@@ -114,6 +139,20 @@ impl CodeIndex {
             });
         }
 
+        let flight = self.parse_flight(&key)?;
+        let _flight = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let generation = flight.generation.load(Ordering::Acquire);
+        let stamp = workspace.source_stamp(path)?;
+        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+            return Ok(FileMultiSearchOutcome {
+                matches: matching_symbols_many(&record, queries, kind),
+                cache_hit: true,
+                parsed: false,
+            });
+        }
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source(path)?;
         let could_match = queries
@@ -129,12 +168,29 @@ impl CodeIndex {
         }
 
         let parsed = self.parse_source(workspace.root(), &config, source)?;
-        let record = self.store_parsed_file(key, parsed)?;
+        let record = self.store_parsed_file(workspace, key, parsed, &flight, generation)?;
         Ok(FileMultiSearchOutcome {
             matches: matching_symbols_many(&record, queries, kind),
             cache_hit: false,
             parsed: true,
         })
+    }
+
+    pub(super) fn parse_flight(&self, key: &FileKey) -> Result<Arc<ParseFlight>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("code index state poisoned"))?;
+        if let Some(flight) = state.parsing.get(key).and_then(Weak::upgrade) {
+            return Ok(flight);
+        }
+        state.parsing.retain(|_, flight| flight.strong_count() > 0);
+        if state.parsing.len() >= MAX_PARSE_FLIGHTS {
+            bail!("too many independent index builds; retry after current builds complete");
+        }
+        let flight = Arc::new(ParseFlight::default());
+        state.parsing.insert(key.clone(), Arc::downgrade(&flight));
+        Ok(flight)
     }
 
     pub(super) fn parse_source(
@@ -349,13 +405,24 @@ impl CodeIndex {
 
     pub(super) fn store_parsed_file(
         &self,
+        workspace: &Workspace,
         key: FileKey,
         parsed: ParsedFile,
+        flight: &ParseFlight,
+        generation: u64,
     ) -> Result<Arc<FileRecord>> {
+        if workspace.source_stamp(&key.path)? != parsed.record.stamp {
+            bail!("source changed during indexing; retry the request");
+        }
         let mut state = self
             .state
             .lock()
             .map_err(|_| anyhow!("code index state poisoned"))?;
+        // Invalidation and publication share the state lock: a late old build
+        // cannot repopulate a record explicitly invalidated by a completed edit.
+        if flight.generation.load(Ordering::Acquire) != generation {
+            bail!("source invalidated during indexing; retry the request");
+        }
         remove_file_record(&mut state, &key);
         let record = Arc::new(parsed.record);
         for symbol in &record.symbols {
@@ -420,7 +487,11 @@ impl CodeIndex {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        state.parsing.retain(|_, flight| flight.strong_count() > 0);
         if aggressive {
+            for flight in state.parsing.values().filter_map(Weak::upgrade) {
+                flight.generation.fetch_add(1, Ordering::AcqRel);
+            }
             state.ast_cache.clear();
             state.files.clear();
             state.file_access.clear();

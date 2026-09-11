@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "observatory.rs"]
+mod observatory;
+
 #[test]
 fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
     assert!(INTELLIGENCE_APP_PAGE.contains("Architecture overview"));

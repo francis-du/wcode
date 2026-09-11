@@ -246,21 +246,9 @@ pub struct BatchMoveItem {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct CommandResult {
-    pub program: String,
-    pub args: Vec<String>,
-    pub exit_code: Option<i32>,
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub truncated: bool,
-    pub redacted: bool,
-}
-
 #[path = "models.rs"]
 mod models;
-pub use models::FileView;
+pub use models::{CommandResult, FileView};
 
 #[path = "media.rs"]
 mod media;
@@ -433,6 +421,8 @@ impl Workspace {
         if paths.is_empty() || paths.len() > 32 {
             bail!("paths must contain between 1 and 32 files");
         }
+        // Reads hash and transform text; keep them on the CPU pool. A wider
+        // I/O fanout regressed the paired warm-read benchmark.
         Ok(paths
             .par_iter()
             .map(|path| match self.read_file(path, start_line, end_line) {
@@ -740,9 +730,8 @@ impl Workspace {
 
     pub fn create_files(&self, files: &[CreateFileRequest]) -> Result<Vec<BatchEditItem>> {
         validate_batch_paths(files.iter().map(|file| file.path.as_str()))?;
-        Ok(files
-            .par_iter()
-            .map(|file| match self.create_file(&file.path, &file.content) {
+        crate::resource::parallel_io(files, |file| {
+            match self.create_file(&file.path, &file.content) {
                 Ok(result) => BatchEditItem {
                     path: file.path.clone(),
                     ok: true,
@@ -755,31 +744,28 @@ impl Workspace {
                     result: None,
                     error: Some(error.to_string()),
                 },
-            })
-            .collect())
+            }
+        })
     }
 
     pub fn apply_file_edits(&self, files: &[FileEditRequest]) -> Result<Vec<BatchEditItem>> {
         validate_batch_paths(files.iter().map(|file| file.path.as_str()))?;
-        Ok(files
-            .par_iter()
-            .map(
-                |file| match self.apply_edits(&file.path, &file.edits, &file.expected_sha256) {
-                    Ok(result) => BatchEditItem {
-                        path: file.path.clone(),
-                        ok: true,
-                        result: Some(result),
-                        error: None,
-                    },
-                    Err(error) => BatchEditItem {
-                        path: file.path.clone(),
-                        ok: false,
-                        result: None,
-                        error: Some(error.to_string()),
-                    },
+        crate::resource::parallel_io(files, |file| {
+            match self.apply_edits(&file.path, &file.edits, &file.expected_sha256) {
+                Ok(result) => BatchEditItem {
+                    path: file.path.clone(),
+                    ok: true,
+                    result: Some(result),
+                    error: None,
                 },
-            )
-            .collect())
+                Err(error) => BatchEditItem {
+                    path: file.path.clone(),
+                    ok: false,
+                    result: None,
+                    error: Some(error.to_string()),
+                },
+            }
+        })
     }
 
     pub fn move_path(&self, source: &str, destination: &str) -> Result<MoveResult> {
@@ -866,31 +852,28 @@ impl Workspace {
 
     pub fn move_paths(&self, moves: &[MovePathRequest]) -> Result<Vec<BatchMoveItem>> {
         validate_independent_moves(moves)?;
-        Ok(moves
-            .par_iter()
-            .map(|request| {
-                match self.move_path_checked(
-                    &request.source,
-                    &request.destination,
-                    request.expected_source_sha256.as_deref(),
-                ) {
-                    Ok(result) => BatchMoveItem {
-                        source: request.source.clone(),
-                        destination: request.destination.clone(),
-                        ok: true,
-                        result: Some(result),
-                        error: None,
-                    },
-                    Err(error) => BatchMoveItem {
-                        source: request.source.clone(),
-                        destination: request.destination.clone(),
-                        ok: false,
-                        result: None,
-                        error: Some(error.to_string()),
-                    },
-                }
-            })
-            .collect())
+        crate::resource::parallel_io(moves, |request| {
+            match self.move_path_checked(
+                &request.source,
+                &request.destination,
+                request.expected_source_sha256.as_deref(),
+            ) {
+                Ok(result) => BatchMoveItem {
+                    source: request.source.clone(),
+                    destination: request.destination.clone(),
+                    ok: true,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(error) => BatchMoveItem {
+                    source: request.source.clone(),
+                    destination: request.destination.clone(),
+                    ok: false,
+                    result: None,
+                    error: Some(error.to_string()),
+                },
+            }
+        })
     }
 
     pub fn delete_path(&self, path: &str, expected_sha256: Option<&str>) -> Result<DeleteResult> {
@@ -994,3 +977,6 @@ pub(crate) use execution::redact_sensitive_text;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/mod.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "../../tests/unit/workspace/throughput.rs"]
+mod throughput_tests;

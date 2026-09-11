@@ -16,7 +16,7 @@ pub(super) async fn run_verification_check(
         format!("phase {} · {command}", check.phase),
         request_bytes,
     );
-    let _permit = match harness.acquire().await {
+    let _permit = match harness.acquire_tool(true).await {
         Ok(permit) => permit,
         Err(error) => return verification_error(check, error, 0),
     };
@@ -46,6 +46,30 @@ pub(super) async fn run_verification_check(
             report
         }
     }
+}
+
+/// Deterministic observation reduction: retain test totals and the log tail on
+/// success. Failed diagnostics retain the existing, larger output allowance.
+pub(super) fn verification_output(text: &str, success: bool) -> (String, bool) {
+    if !success || text.chars().count() <= 2_048 {
+        return tail_chars(text, MAX_CHECK_OUTPUT_CHARS);
+    }
+    let mut summaries = String::new();
+    for line in text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("test result:"))
+    {
+        if summaries.chars().count() + line.chars().count() + 1 > 1_024 {
+            break;
+        }
+        summaries.push_str(line);
+        summaries.push('\n');
+    }
+    let (tail, _) = tail_chars(text, 1_000);
+    (
+        format!("{summaries}[successful log compacted]\n{tail}"),
+        true,
+    )
 }
 
 fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> VerificationCheck {

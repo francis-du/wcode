@@ -32,6 +32,9 @@ permalink: /docs/
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
+- [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
+- [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
+- [v0.6.2 release preparation](releases/v0.6.2/) — resource-aware parallelism, simpler setup, a clearer Observatory, and effective revision-bound evidence.
 - [v0.6.1 release notes](releases/v0.6.1/) — completion-driven parallel scheduling, fewer redundant context calls, and a task-first TUI.
 - [Releases](releases/) — latest version plus the complete archive grouped by series. Historical versions stay out of the global sidebar so documentation navigation remains bounded.
 

@@ -67,14 +67,39 @@
 - schema_version: 1
   id: AC-HARNESS-001
   title: Verification passes through the bounded Harness lane
-  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes. Rust full verification and the language-quality Clippy provider cover all targets including tests; locked and unlocked profiles retain this coverage on cache hits, the locked command matches CI, and fixed check-only policy shapes continue to reject automatic fixes and configuration redirects.
+  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes. Rust full verification and the language-quality Clippy provider cover all targets including tests; locked and unlocked profiles retain this coverage on cache hits, the locked command matches CI, and fixed check-only policy shapes continue to reject automatic fixes and configuration redirects. Verification accounts for the complete mixed-language plan up to 32 checks and rejects larger plans before dispatch instead of silently accepting a truncated prefix.
   verification:
+    - {kind: test, path: tests/unit/workspace/mod.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
+    - {kind: test, path: tests/unit/workspace/execution.rs, symbol: git_probe_finishes_while_repository_process_capacity_is_occupied}
+    - {kind: test, path: tests/unit/runtime/parallelism.rs, symbol: perf_blocking_pool_can_start_all_32_independent_requests}
     - kind: test
-      path: tests/unit/workspace/mod.rs
-      symbol: bounded_direct_and_harness_checks_run_without_risky_exec
+      path: tests/unit/runtime/harness/experience.rs
+      symbol: failed_phase_skips_expensive_checks_but_diagnostic_mode_runs_them
+    - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: mixed_language_verification_accounts_for_every_inferred_check}
+    - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: independent_process_queues_keep_compiler_and_probe_limits}
+    - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: inspection_queue_still_obeys_resource_pressure_admission}
+    - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: oversized_verification_plan_fails_before_dispatch}
+    - {kind: test, path: tests/unit/runtime/process_queue.rs, symbol: cancelled_process_waiter_does_not_leak_metrics_or_permits}
+    - {kind: test, path: tests/unit/workspace/policy.rs, symbol: git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: malformed_task_routing_is_rejected_before_durable_creation}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: malformed_verification_options_never_create_tasks}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: task_deadlines_cancel_without_polling_or_starting_expired_work}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: verification_task_reconnects_without_rerunning_checks_and_preserves_failures}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: verification_task_cancellation_releases_queued_checks_without_evidence}
+    - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: verification_keeps_synchronous_fallback_without_modern_tasks}
+    - {kind: test, path: tests/unit/integrations/mcp/admission.rs, symbol: queued_commands_leave_capacity_for_real_file_reads}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_headroom_keeps_total_cap_and_single_slot_compatibility}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_waiters_keep_fifo_order_and_cancel_without_leaks}
+    - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: cancelled_execution_worker_retains_both_admission_permits}
     - kind: test
-      path: tests/unit/runtime/harness.rs
-      symbol: rust_clippy_gate_matches_ci_for_locked_and_unlocked_projects
+      path: tests/unit/runtime/harness/experience.rs
+      symbol: compact_success_logs_preserve_test_totals_and_reduce_noise
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: audit_verification_options_reject_invalid_explicit_values_before_execution
+    - {kind: test, path: tests/unit/runtime/harness.rs, symbol: rust_clippy_gate_matches_ci_for_locked_and_unlocked_projects}
+    - {kind: test, path: tests/unit/ui/process_metrics.rs, symbol: wide_dashboard_exposes_inner_process_queues_in_both_languages}
+    - {kind: test, path: tests/unit/runtime/process_queue.rs, symbol: closed_process_queue_cleans_up_existing_waiters}
     - kind: test
       path: tests/unit/workspace/policy.rs
       symbol: all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries
@@ -84,11 +109,16 @@
 - schema_version: 1
   id: AC-INDEX-001
   title: Software graph exposes syntax precision and revision provenance
-  statement: Tree-sitter graph nodes and edges are marked syntax precision and retain revision provenance.
+  statement: Tree-sitter graph nodes and edges retain syntax precision and revision provenance. Symbol bodies, ranges, signatures and relations must share a SHA or fail explicitly. Concurrent same-file cache misses share a bounded build flight across search and outline entry points; other files remain independent, invalidation rejects late publication, and failed builds do not permanently block later queries.
   verification:
-    - kind: test
-      path: tests/unit/graph/code_index.rs
-      symbol: software_graph_reuses_indexed_symbols_and_marks_syntax_precision
+    - {kind: test, path: tests/unit/graph/code_index.rs, symbol: software_graph_reuses_indexed_symbols_and_marks_syntax_precision}
+    - {kind: test, path: tests/unit/graph/consistency.rs, symbol: concurrent_cold_queries_share_one_parse_across_entrypoints}
+    - {kind: test, path: tests/unit/graph/consistency.rs, symbol: symbol_context_never_mixes_cached_relations_with_new_body}
+    - {kind: test, path: tests/unit/graph/consistency.rs, symbol: changed_symbol_identity_is_not_reused_for_a_different_definition}
+    - {kind: test, path: tests/unit/graph/flights.rs, symbol: independent_file_build_is_not_blocked_by_another_flight}
+    - {kind: test, path: tests/unit/graph/flights.rs, symbol: parse_flights_are_bounded_reclaimed_and_workspace_scoped}
+    - {kind: test, path: tests/unit/graph/flights.rs, symbol: failed_or_panicking_build_does_not_poison_future_file_queries}
+    - {kind: test, path: tests/unit/graph/flights.rs, symbol: invalidation_and_memory_trim_reject_late_parse_publication}
 
 - schema_version: 1
   id: AC-SCOPE-001
@@ -132,6 +162,36 @@
       path: tests/unit/workspace/policy.rs
       symbol: git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries
     - kind: test
+      path: tests/unit/workspace/policy.rs
+      symbol: ordinary_git_lifecycle_uses_approval_instead_of_permanent_denial
+    - kind: test
+      path: tests/unit/workspace/policy.rs
+      symbol: audit_git_literal_messages_request_approval_without_path_misclassification
+    - kind: test
+      path: tests/unit/workspace/policy.rs
+      symbol: invalid_commands_do_not_create_useless_approval_requests
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: timed_out_command_returns_partial_diagnostics_without_replaying_effects
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: normal_command_output_and_exit_status_remain_compatible
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: large_command_streams_stay_bounded_and_do_not_deadlock
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: cancelling_command_owns_the_process_and_pipe_readers
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: timeout_diagnostics_preserve_existing_redaction
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: direct_commands_use_the_same_completion_contract
+    - kind: test
+      path: tests/unit/workspace/policy.rs
+      symbol: git_branch_approval_is_effective_and_does_not_grant_other_operations
+    - kind: test
       path: tests/unit/workspace/media.rs
       symbol: detects_png_dimensions_without_decoder_dependency
     - kind: test
@@ -156,7 +216,7 @@
 - schema_version: 1
   id: AC-SCHEDULER-001
   title: Scheduler orders conflicts and coalesces only safe edits
-  statement: Resource dependencies order move delete and directory creation conflicts while same-file same-SHA edits coalesce only when safe. Successors become ready on their own predecessor completion, physical parent/subspace aliases conflict, failed dependencies skip successors, queued children remain owned by the parent, and coalescing preserves intervening dependent operations and the 128-edit limit. Partial bulk failures preserve per-item results, fail the batch and block dependent successors without stopping independent work. Started blocking workers retain their real semaphore permit until completion or panic even when their async caller is cancelled.
+  statement: Resource dependencies order move delete and directory creation conflicts while same-file same-SHA edits coalesce only when safe. Successors become ready on their own predecessor completion, physical parent/subspace aliases conflict, failed dependencies skip successors, queued children remain owned by the parent, and coalescing preserves intervening dependent operations and the 128-edit limit. Partial bulk failures preserve per-item results, fail the batch and block dependent successors without stopping independent work. Started blocking workers retain their real semaphore permit until completion or panic even when their async caller is cancelled. Optional strict-boolean dry_run returns the same bounded dependency and coalescing graph without dispatching child tasks, acquiring execution slots, echoing payloads or creating authorization requests; numeric task indices and explicit unchecked authorization/file-precondition flags prevent the preview from masquerading as an execution or permission grant.
   verification:
     - kind: test
       path: tests/unit/workspace/scheduler.rs
@@ -206,6 +266,21 @@
     - kind: test
       path: tests/unit/integrations/mcp/definitions.rs
       symbol: cancelled_queued_blocking_worker_never_starts
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: dependency_preview_never_executes_or_waits_for_tool_slots
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: dependency_preview_reports_coalescing_without_applying_edits
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: dependency_preview_rejects_invalid_flags_and_resource_models
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: dependency_preview_is_not_an_authorization_grant
+    - kind: test
+      path: tests/unit/integrations/mcp/preview.rs
+      symbol: explicit_false_preserves_normal_parallel_execution
 
 - schema_version: 1
   id: AC-AUTH-001
@@ -517,6 +592,15 @@
       symbol: verification_rejects_source_changes_before_recording_any_evidence
     - kind: test
       path: tests/unit/intelligence/revision.rs
+      symbol: audit_incomplete_acceptance_is_not_a_pass_and_known_failure_is_preserved
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: audit_language_quality_does_not_replace_project_verification
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
+      symbol: audit_verification_aggregation_is_policy_scoped_and_fail_closed
+    - kind: test
+      path: tests/unit/intelligence/revision.rs
       symbol: verification_rejects_design_only_changes_before_recording_evidence
     - kind: test
       path: tests/unit/intelligence/revision.rs
@@ -557,14 +641,19 @@
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
-  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output for the lifetime of the alternate-screen renderer so background operator diagnostics are retained as structured state without bypassing ratatui. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible.
+  statement: The TUI stays readable in narrow layouts, uses the documentation palette and a compact connection/status hierarchy, actively loads Intelligence for the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output for the lifetime of the alternate-screen renderer so background operator diagnostics are retained as structured state without bypassing ratatui. The TUI and WebUI label Executable access separately from Exact repository operation while preserving per-request approve/deny behavior. The WebUI renders a bounded project file tree and largest-file list with the repository line limit visible. The public Setup Hub separates local setup from verified remote endpoints, supports manual bilingual controls and command-only performance previews, and uses compact single-flight polling without operator credentials or configuration writes.
   verification:
-    - kind: test
-      path: tests/unit/ui/monitor.rs
-      symbol: narrow_and_tiny_layouts_do_not_panic
-    - kind: test
-      path: tests/unit/ui/monitor.rs
-      symbol: help_and_footer_render_project_and_author_links
+    - {kind: test, path: tests/unit/ui/monitor.rs, symbol: narrow_and_tiny_layouts_do_not_panic}
+    - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_distinguishes_unavailable_review_from_clean}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_revision_exposes_proof_freshness_without_starting_commands}
+    - {kind: test, path: tests/unit/ui/setup.rs, symbol: setup_page_escapes_labels_and_keeps_optional_configuration_progressive}
+    - {kind: test, path: tests/unit/ui/setup.rs, symbol: setup_commands_and_endpoint_selection_run_in_javascript}
+    - {kind: test, path: tests/unit/ui/setup.rs, symbol: setup_interactions_handle_copy_language_visibility_and_failed_refresh}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: setup_page_has_nonce_bound_assets_and_no_operator_credential}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: setup_status_is_compact_and_preserves_connection_truth}
+    - {kind: test, path: tests/unit/ui/monitor.rs, symbol: help_and_footer_render_project_and_author_links}
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: scope_status_updates_operator_intelligence_state
@@ -589,6 +678,12 @@
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: authorization_overlay_shows_selectable_requests_and_actions
+    - kind: test
+      path: tests/unit/ui/monitor.rs
+      symbol: authorization_details_are_scrollable_without_losing_the_controls
+    - kind: test
+      path: tests/unit/ui/authorization_layout.rs
+      symbol: audit_narrow_authorization_keeps_approve_and_deny_visible
     - kind: test
       path: tests/unit/ui/monitor/i18n.rs
       symbol: manual_toggle_defaults_to_english_and_covers_chinese
@@ -644,23 +739,24 @@
 - schema_version: 1
   id: AC-OBSERVABILITY-001
   title: Project observatory is architecture-first and code-derived
-  statement: The WebUI first exposes the complete component architecture with Design / Implementation / Overlay graph modes, clickable component drill-down, visible graph provider/precision, an observed-drift percentage based only on strong positive undeclared Actual dependencies, evidence coverage for declared dependencies, and implementation coverage for components. Requirement detail then exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with real blockers, verification, mapped Git changes, code statistics and graph revision history. Project Proof exposes Acceptance Mapped, Executed, Passed, and Fresh as distinct values; 100% mapping alone never renders as an executed or current passing result. The same bounded graph snapshot also supplies a project file tree and largest-file list with 1000-line violations and truncation visible. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory; the generic undifferentiated ball graph is absent from the primary page.
+  statement: The WebUI first exposes the complete component architecture with Design / Implementation / Overlay graph modes, clickable component drill-down, visible graph provider/precision, an observed-drift percentage based only on strong positive undeclared Actual dependencies, evidence coverage for declared dependencies, and implementation coverage for components. Requirement detail then exposes Desired State, current Actual State, active Change, revision-exact Proof and Convergence with real blockers, verification, mapped Git changes, code statistics and graph revision history. Project Proof exposes Acceptance Mapped, Executed, Passed, and Fresh as distinct values; 100% mapping alone never renders as an executed or current passing result. The same bounded graph snapshot also supplies a project file tree and largest-file list with 1000-line violations and truncation visible. A declared dependency not observed in bounded syntax evidence remains non-blocking advisory; the generic undifferentiated ball graph is absent from the primary page. Task polling is independent of project refreshes; effective checks are distinct from historical records, unknown observations are not zero, every access mutation is workspace-generation-bound, and verification history shares request-local revision and evidence inputs without caching across edits.
   verification:
-    - kind: test
-      path: tests/unit/runtime/harness/observatory.rs
-      symbol: project_observatory_builds_requirement_architecture_from_current_code
-    - kind: test
-      path: tests/unit/ui/web.rs
-      symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph
-    - kind: test
-      path: tests/unit/ui/web.rs
-      symbol: observatory_assets_support_incremental_refresh_precision_and_light_mode
-    - kind: test
-      path: tests/unit/runtime/harness/observatory.rs
-      symbol: project_observatory_exposes_bounded_file_structure_and_oversized_files
-    - kind: test
-      path: tests/unit/ui/web.rs
-      symbol: observatory_exposes_file_structure_and_largest_files
+    - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_builds_requirement_architecture_from_current_code}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_assets_support_incremental_refresh_precision_and_light_mode}
+    - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_exposes_bounded_file_structure_and_oversized_files}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_file_structure_and_largest_files}
+    - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_audit_covers_refresh_access_and_truthful_telemetry}
+    - {kind: test, path: tests/unit/ui/observatory.rs, symbol: release_062_webui_keeps_semantic_and_authorization_responses_scoped}
+    - {kind: test, path: tests/unit/intelligence/history.rs, symbol: history_snapshot_reuses_reads_and_matches_individual_statuses}
+    - {kind: test, path: tests/unit/intelligence/history.rs, symbol: history_rejects_foreign_plan_before_reading_workspace_inputs}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_retry_replaces_only_its_exact_scope}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_ties_keep_failure_and_revisions_stay_isolated}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_full_can_supersede_quick_but_never_in_reverse}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: evidence_signal_detects_late_records_and_removal_without_loading_json}
+    - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: observatory_effective_details_are_bounded_redacted_and_keep_history}
+    - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: acceptance_summary_does_not_choose_a_favorable_uuid_or_cross_scope_pass}
+    - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: current_observatory_plans_require_both_code_and_design_revision}
 
 - schema_version: 1
   id: AC-DESIGN-SPARSE-001
@@ -694,14 +790,17 @@
   title: Documentation is organized and published as site HTML
   statement: Root, website and bilingual manual entry points share one maintained documentation tree, the English and Chinese structures stay paired, and layout tests reject stale integration or transport wording.
   verification:
-    - kind: test
-      path: tests/documentation_layout.rs
-      symbol: documentation_is_unified_bilingual_and_hosted_as_html
+    - {kind: test, path: tests/documentation_layout.rs, symbol: documentation_is_unified_bilingual_and_hosted_as_html}
+    - {kind: test, path: tests/documentation_layout.rs, symbol: frontier_research_docs_distinguish_implementation_from_roadmap}
+    - {kind: test, path: tests/documentation_layout.rs, symbol: current_release_metadata_and_bilingual_notes_match_the_package}
+    - {kind: test, path: tests/cli.rs, symbol: release_binary_version_matches_the_package_without_starting_services}
+    - {kind: test, path: tests/release_contract.rs, symbol: release_062_windows_packaging_stops_after_each_native_failure}
+    - {kind: test, path: tests/release_contract.rs, symbol: release_062_ci_installs_the_javascript_behavior_runtime}
 
 - schema_version: 1
   id: AC-AGENT-CONTEXT-001
   title: Coding agents receive a bounded edit-ready context pack
-  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Readiness classifies ordinary single-target work as minimal_patch and exposes a zero-growth complexity budget for new production files, abstractions, config knobs and public API changes, while broader localized or architecture work requires correspondingly stronger current-task evidence. A revision-guarded per-Workspace Worklist persists unfinished multi-step work across reconnects/model switches, is surfaced by Agent Context, rejects stale concurrent updates, preserves blocked items as unfinished, and prevents a new list from silently replacing unfinished user tasks. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and literal and qualified symbol names outrank partial helper matches after merging bounded scope candidates, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path.
+  statement: agent_context is exposed through MCP and compiles repository guidance, relevant Design State, ranked syntax-level symbol signatures, exact file SHA preconditions, related verification references, graph evidence, risks and Harness checks into a serialized result that stays within an explicit requested token budget or a bounded adaptive budget when the caller omits one; adaptive sizing uses task ambiguity, symbol/Requirement/Design breadth, graph truncation, risks and requested scopes instead of one fixed default. Readiness classifies ordinary single-target work as minimal_patch and exposes a zero-growth complexity budget for new production files, abstractions, config knobs and public API changes, while broader localized or architecture work requires correspondingly stronger current-task evidence. A revision-guarded per-Workspace Worklist persists unfinished multi-step work across reconnects/model switches, is surfaced by Agent Context, rejects stale concurrent updates, preserves blocked items as unfinished, and prevents a new list from silently replacing unfinished user tasks. Its repository map uses task relevance plus bounded dependency centrality, derives the smallest common source directory from direct symbols and related implementation mappings for scope-aware cold indexing before widening on cross-module tasks, keeps Tree-sitter as the cacheable syntax backbone, and bridges fresh source-revision-matching semantic/runtime/deterministic provider nodes onto canonical `(path, qualified_name/name)` symbol identities so stronger caller/callee/implementation evidence outranks syntax-only relationships without duplicating symbols; it enriches only the ranked symbols through a targeted CodeIndex metadata lookup instead of materializing whole-file outlines, and surfaces direct matches and likely callers/callees/helpers with explicit relationship reasons and precision, and literal and qualified symbol names outrank partial helper matches after merging bounded scope candidates, and the strongest direct match may include a bounded hot-source body so common edits can begin without another context round trip while additional bodies remain progressively disclosed; the pack exposes explicit edit/verification readiness that respects Workspace/file writeability, strongest relationship precision, truncation and advisory signals plus deterministic next tool actions rather than an opaque quality score; MCP enrichment concurrently performs one bounded read-only Git status probe when repository execution is available, includes working-tree state only for direct targets, warns when those targets already have staged/unstaged/untracked changes, and changes edit readiness to `worktree_conflict` for unmerged targets without making Git availability a context-build prerequisite, and reports pack/profile/software-context timing separately from serialized token and context-savings telemetry; MCP responses move those performance-only fields into namespaced Tool Result `_meta` so clients can observe them without spending model-visible context tokens; the existing operator Monitor aggregates Agent Context calls, average model-visible tokens, context bytes avoided and repo-map cache-hit rate; software_context filters unrelated traceability before truncation, batches its bounded symbol query terms into one source-root traversal/per-file index pass, and reuses the same DesignLoad for traceability rather than reparsing Design State in one request; the deterministic MCP tool catalog bounds descriptions and total serialized size, and the always-on MCP/agent guidance points coding work to this compact path. Explicit supported file and line anchors prioritize the smallest containing syntax definition and diagnostic-line-first original excerpts with matching SHA; non-code files use deterministic file targets, invalid/missing/protected/escaping anchors cannot promote unrelated symbols, and normal symbol queries retain their existing path. Bounded provenance and negative-location tests are distinct from end-to-end bug-fix success. Exact anchors seed the canonical context builder before lexical discovery; simple unscoped locations defer repository-map expansion explicitly, while scoped, relationship and architecture requests retain graph expansion. Guidance, Design, verification mappings, SHA and ordinary symbol search remain intact.
   verification:
     - kind: test
       path: tests/unit/runtime/harness.rs
@@ -718,6 +817,54 @@
     - kind: test
       path: tests/unit/runtime/harness/context_rank.rs
       symbol: qualified_symbol_in_prose_is_kept_whole
+    - kind: test
+      path: tests/unit/runtime/harness/experience.rs
+      symbol: operator_context_skips_irrelevant_source_and_preserves_coding_route
+    - kind: test
+      path: tests/unit/runtime/harness/experience.rs
+      symbol: audit_operator_context_respects_disabled_execution
+    - kind: test
+      path: tests/unit/runtime/harness/selective.rs
+      symbol: selective_context_avoids_unrelated_indexing
+    - kind: test
+      path: tests/unit/runtime/harness/selective.rs
+      symbol: selective_context_retains_relationship_and_scope_discovery
+    - kind: test
+      path: tests/unit/runtime/harness/selective.rs
+      symbol: selective_context_keeps_guidance_and_design_verification
+    - kind: test
+      path: tests/unit/runtime/harness/selective.rs
+      symbol: selective_missing_location_does_not_trigger_global_search
+    - kind: test
+      path: tests/unit/runtime/harness/selective.rs
+      symbol: selective_context_preserves_multilanguage_originals_and_budgets
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: diagnostic_anchor_selects_containing_symbol_and_exact_source_line
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: explicit_file_context_supports_non_code_files
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: missing_anchors_do_not_promote_unrelated_symbols
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: unsafe_and_invalid_anchors_never_return_source
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: portable_and_markdown_anchor_forms_deduplicate
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: anchored_source_uses_fresh_sha_after_file_changes
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: prose_and_version_numbers_do_not_trigger_anchor_mode
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: absolute_anchors_must_stay_inside_the_selected_workspace
+    - kind: test
+      path: tests/unit/runtime/harness/anchors.rs
+      symbol: anchor_symlinks_remain_blocked
     - kind: test
       path: tests/unit/intelligence/mod.rs
       symbol: scoped_context_skips_absent_roots_without_losing_present_sources
@@ -805,24 +952,12 @@
   title: Source and tests stay in bounded domain trees
   statement: A repository-level gate rejects Rust files over 1000 lines and inline source test bodies, while design initialization writes the matching fixed constraints.
   verification:
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: rust_files_remain_bounded
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: maintained_text_files_remain_bounded
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: repository_file_names_remain_concise
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: rust_file_names_remain_concise
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: source_modules_attach_tests_from_the_root_test_tree
-    - kind: test
-      path: tests/source_layout.rs
-      symbol: rust_sources_parse_without_errors
+    - {kind: test, path: tests/source_layout.rs, symbol: rust_files_remain_bounded}
+    - {kind: test, path: tests/source_layout.rs, symbol: maintained_text_files_remain_bounded}
+    - {kind: test, path: tests/source_layout.rs, symbol: repository_file_names_remain_concise}
+    - {kind: test, path: tests/source_layout.rs, symbol: rust_file_names_remain_concise}
+    - {kind: test, path: tests/source_layout.rs, symbol: source_modules_attach_tests_from_the_root_test_tree}
+    - {kind: test, path: tests/source_layout.rs, symbol: rust_sources_parse_without_errors}
     - kind: test
       path: tests/unit/runtime/harness.rs
       symbol: design_init_bootstraps_minimal_valid_state_without_overwrite
@@ -830,25 +965,33 @@
 - schema_version: 1
   id: AC-CLI-001
   title: CLI exposes a compact stable catalog one-command setup and verified self-update
-  statement: Default help presents the explicit runtime command contract and only setup/update/mcp-stdio/intelligence/verification as stable task-level commands, omits the redundant generated help command and low-frequency advanced flags, keeps only agent-plugin as a hidden advanced export control, rejects removed restart/stop commands, and exposes update without requiring Workspace initialization. Foreground lifecycle is Ctrl-C/SIGTERM owned and stdio lifecycle is MCP-Host owned with no separate runtime-control route/state file. Setup provides the safe Global-first / Current-project Agent host installer while local MCP configuration remains path-free and current-directory scoped. Self-update targets the running installation unless explicitly overridden and preserves checksum, staged smoke-test and replace-after-success behavior on Unix and Windows.
+  statement: Default help presents the explicit runtime command contract with setup/update/mcp-stdio/intelligence/verification and the discoverable help-all reference entry, omits the redundant generated help command and low-frequency advanced flags, keeps only agent-plugin as a hidden advanced export control, rejects removed restart/stop commands, and exposes update without requiring Workspace initialization. Foreground lifecycle is Ctrl-C/SIGTERM owned and stdio lifecycle is MCP-Host owned with no separate runtime-control route/state file. Setup provides the safe Global-first / Current-project Agent host installer while local MCP configuration remains path-free and current-directory scoped. Self-update targets the running installation unless explicitly overridden and preserves checksum, staged smoke-test and replace-after-success behavior on Unix and Windows. Performance presets preserve default budgets and explicit override precedence; configuration previews have no startup or authorization side effects, common flags work after subcommands, contradictory restrictions fail before startup and setup never silently ignores extra roots. Setup validates overrides before writes, saves the selected performance and restrictive runtime arguments consistently across supported Host formats, reports the planned launch, and applies the reviewed global plan with its original SHA preconditions.
   verification:
-    - kind: test
-      path: tests/cli.rs
-      symbol: help_exposes_the_stable_agent_and_transport_commands
-    - kind: test
-      path: tests/cli.rs
-      symbol: update_help_is_stable_and_hidden_agent_plugin_remains_compatible
-    - kind: test
-      path: tests/cli.rs
-      symbol: setup_dry_run_is_structured_and_does_not_write
-    - kind: test
-      path: tests/unit/app/update.rs
-      symbol: update_targets_the_running_binary_directory_unless_explicitly_overridden
-    - kind: test
-      path: tests/unit/app/update.rs
-      symbol: embedded_unix_installer_keeps_checksum_smoke_and_atomic_replace_contract
-    - kind: test
-      path: tests/release_contract.rs
-      symbol: windows_installer_stages_and_smoke_tests_before_replacement
+    - {kind: test, path: tests/cli.rs, symbol: help_exposes_the_stable_agent_and_transport_commands}
+    - {kind: test, path: tests/cli.rs, symbol: complete_help_exposes_hidden_options_without_starting_the_runtime}
+    - {kind: test, path: tests/cli.rs, symbol: complete_help_targets_a_command_without_executing_it}
+    - {kind: test, path: tests/cli.rs, symbol: complete_help_json_is_declarative_and_scoped}
+    - {kind: test, path: tests/cli.rs, symbol: complete_help_rejects_invalid_paths_without_running_commands}
+    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_covers_every_declared_command_and_argument}
+    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_preserves_the_original_parser_and_compact_help}
+    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_inherits_globals_and_retains_value_and_alias_metadata}
+    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_recurses_into_hidden_nested_commands}
+    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_output_handles_closed_pipes_but_not_other_io_failures}
+    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_presets_keep_defaults_and_explicit_overrides}
+    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_preview_reports_effective_limits_and_origins_without_activation}
+    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_rejects_invalid_overrides_and_contradictory_modes}
+    - {kind: test, path: tests/unit/app/setup.rs, symbol: setup_scope_retries_invalid_choices_and_eof_never_means_consent}
+    - {kind: test, path: tests/cli.rs, symbol: configuration_preview_is_pure_and_global_options_work_after_subcommands}
+    - {kind: test, path: tests/cli.rs, symbol: setup_rejects_multiple_roots_instead_of_silently_selecting_the_first}
+    - {kind: test, path: tests/cli.rs, symbol: contradictory_safety_and_connection_flags_fail_before_startup}
+    - {kind: test, path: tests/cli.rs, symbol: setup_saves_selected_runtime_options_across_host_formats}
+    - {kind: test, path: tests/cli.rs, symbol: setup_validates_resource_overrides_before_writing_configuration}
+    - {kind: test, path: tests/unit/app/resources.rs, symbol: setup_launch_options_round_trip_without_persisting_authority}
+    - {kind: test, path: tests/unit/integrations/agent/install.rs, symbol: configured_global_setup_uses_reviewed_launch_options_and_file_versions}
+    - {kind: test, path: tests/cli.rs, symbol: update_help_is_stable_and_hidden_agent_plugin_remains_compatible}
+    - {kind: test, path: tests/cli.rs, symbol: setup_dry_run_is_structured_and_does_not_write}
+    - {kind: test, path: tests/unit/app/update.rs, symbol: update_targets_the_running_binary_directory_unless_explicitly_overridden}
+    - {kind: test, path: tests/unit/app/update.rs, symbol: embedded_unix_installer_keeps_checksum_smoke_and_atomic_replace_contract}
+    - {kind: test, path: tests/release_contract.rs, symbol: windows_installer_stages_and_smoke_tests_before_replacement}
     - kind: check
       id: rust-test

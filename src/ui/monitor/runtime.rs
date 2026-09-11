@@ -56,8 +56,20 @@ pub(super) fn run_dashboard(
         ui.clamp(workspace_count, visible);
         // Render and decide against the same request IDs, even if the queue changes
         // while waiting for keyboard input.
+        let previous_request = ui
+            .pending_authorizations
+            .get(ui.authorization_focus)
+            .map(|request| request.id.clone());
         ui.pending_authorizations = pending_authorizations(&config);
         ui.clamp_authorizations(ui.pending_authorizations.len());
+        if ui
+            .pending_authorizations
+            .get(ui.authorization_focus)
+            .map(|request| &request.id)
+            != previous_request.as_ref()
+        {
+            ui.authorization_scroll = 0;
+        }
         if ui.commands_open {
             if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
                 let total = command_count(&config.workspaces, &workspace_id);
@@ -367,6 +379,18 @@ pub(super) fn run_dashboard(
                                     .min(total.saturating_sub(page));
                             }
                         }
+                        KeyCode::PageUp
+                            if key.kind == KeyEventKind::Press
+                                && ui.authorization_visible(area) =>
+                        {
+                            ui.authorization_scroll = ui.authorization_scroll.saturating_sub(5);
+                        }
+                        KeyCode::PageDown
+                            if key.kind == KeyEventKind::Press
+                                && ui.authorization_visible(area) =>
+                        {
+                            ui.authorization_scroll = ui.authorization_scroll.saturating_add(5);
+                        }
                         KeyCode::Up
                             if key.kind == KeyEventKind::Press
                                 && !ui.help_open
@@ -376,6 +400,7 @@ pub(super) fn run_dashboard(
                             let total = pending_authorizations(&config).len();
                             if total > 0 {
                                 ui.authorization_focus = ui.authorization_focus.saturating_sub(1);
+                                ui.authorization_scroll = 0;
                             }
                         }
                         KeyCode::Down
@@ -388,6 +413,7 @@ pub(super) fn run_dashboard(
                             if total > 0 {
                                 ui.authorization_focus =
                                     ui.authorization_focus.saturating_add(1).min(total - 1);
+                                ui.authorization_scroll = 0;
                             }
                         }
                         KeyCode::Left => {

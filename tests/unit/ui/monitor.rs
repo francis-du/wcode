@@ -1,6 +1,36 @@
 use super::*;
 use ratatui::backend::TestBackend;
 
+#[path = "authorization_layout.rs"]
+mod authorization_layout;
+#[path = "process_metrics.rs"]
+mod process_metrics;
+
+#[test]
+fn authorization_details_are_scrollable_without_losing_the_controls() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    let mut request = monitor_test_request();
+    request.summary = format!(
+        "START_OF_OPERATION {}\nEND_OF_OPERATION",
+        "详细参数 abcdef ".repeat(100)
+    );
+    let mut ui = DashboardState {
+        pending_authorizations: vec![request],
+        ..Default::default()
+    };
+    let first = monitor_test_text(&monitor, &config, 100, 24, &ui);
+    assert!(first.contains("START_OF_OPERATION"));
+    assert!(first.contains("PgUp/PgDn"));
+    assert!(first.contains("approve selected"));
+    ui.authorization_scroll = usize::MAX;
+    let last = monitor_test_text(&monitor, &config, 100, 24, &ui);
+    assert!(last.contains("END_OF_OPERATION"));
+    assert!(last.contains("approve selected"));
+    assert!(last.contains("deny selected"));
+}
+
 fn monitor_test_workspaces(names: &[&str]) -> (tempfile::TempDir, Workspaces) {
     let root = tempfile::tempdir().unwrap();
     let paths = names
@@ -769,7 +799,7 @@ fn authorization_overlay_shows_selectable_requests_and_actions() {
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
         .draw(|frame| {
-            render_authorization_overlay(frame, frame.area(), &requests, 1, UiLanguage::En)
+            render_authorization_overlay(frame, frame.area(), &requests, 1, 0, UiLanguage::En)
         })
         .expect("authorization overlay renders");
     let text = terminal

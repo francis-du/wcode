@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type EvidenceId = String;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceKind {
     Compiler,
@@ -149,6 +149,84 @@ impl Evidence {
         }
         Ok(())
     }
+}
+
+pub(crate) fn result_severity(result: EvidenceResult) -> u8 {
+    match result {
+        EvidenceResult::Pass => 0,
+        EvidenceResult::Inconclusive => 1,
+        EvidenceResult::Disagree => 2,
+        EvidenceResult::Fail => 3,
+    }
+}
+
+// A later retry replaces only the identical verification scope. Ordering a
+// UUID must never turn a simultaneous failure into success. This is a view of
+// retained evidence, not a release gate or a mutation of the evidence store.
+pub(crate) fn latest_current<'a>(
+    records: impl IntoIterator<Item = &'a Evidence>,
+    revision: &Revision,
+) -> Vec<&'a Evidence> {
+    let mut latest = std::collections::BTreeMap::new();
+    for record in records {
+        if record.revision != *revision
+            || matches!(
+                record.kind,
+                EvidenceKind::HumanApproval | EvidenceKind::Reconciliation
+            )
+        {
+            continue;
+        }
+        let mut targets = record
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        targets.sort_unstable();
+        targets.dedup();
+        let key = (
+            record.subject.as_str(),
+            record.kind,
+            record.producer.as_str(),
+            record.model.as_deref(),
+            record.confidence,
+            targets,
+            record.policy.as_deref(),
+        );
+        let current = latest.entry(key).or_insert(record);
+        if (
+            record.timestamp_ms,
+            result_severity(record.result),
+            &record.id,
+        ) > (
+            current.timestamp_ms,
+            result_severity(current.result),
+            &current.id,
+        ) {
+            *current = record;
+        }
+    }
+    latest
+        .iter()
+        .filter_map(|(key, record)| {
+            let full = match record.policy.as_deref() {
+                Some("deterministic/quick/v1") => Some("deterministic/full/v1"),
+                Some("acceptance/quick/v1") => Some("acceptance/full/v1"),
+                _ => None,
+            };
+            if let Some(full) = full {
+                let mut full_key = key.clone();
+                full_key.6 = Some(full);
+                if latest
+                    .get(&full_key)
+                    .is_some_and(|full| full.timestamp_ms > record.timestamp_ms)
+                {
+                    return None;
+                }
+            }
+            Some(*record)
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

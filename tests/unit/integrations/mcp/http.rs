@@ -5,6 +5,104 @@ use axum::body::to_bytes;
 use axum::extract::State;
 use std::fs;
 
+#[tokio::test]
+async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments() {
+    let (state, root) = origin_test_state();
+    let workspace = state.workspaces.default_id().to_owned();
+    let mut missing_token = ui_headers(&state, &workspace);
+    missing_token.remove("x-wcode-ui-token");
+    assert_eq!(
+        intelligence_web_activity(State(state.clone()), missing_token)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for (key, value) in [
+        ("host", "untrusted.example"),
+        ("origin", "https://untrusted.example"),
+    ] {
+        let mut headers = ui_headers(&state, &workspace);
+        headers.insert(key, value.parse().unwrap());
+        assert_eq!(
+            intelligence_web_activity(State(state.clone()), headers)
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    for _ in 0..16 {
+        state
+            .monitor
+            .queue(&workspace, "old_read", "PRIVATE-ARGUMENT", 1)
+            .finish(true, 1);
+    }
+    let mut running = state
+        .monitor
+        .queue(&workspace, "read_file", "PRIVATE-ARGUMENT", 1);
+    running.start();
+    let queued = state
+        .monitor
+        .queue(&workspace, "find_symbol", "PRIVATE-ARGUMENT", 1);
+    let mut foreign =
+        state
+            .monitor
+            .queue("unrelated-project", "FOREIGN-TOOL", "PRIVATE-ARGUMENT", 1);
+    foreign.start();
+    let before = state.monitor.connection_status();
+    let response =
+        intelligence_web_activity(State(state.clone()), ui_headers(&state, &workspace)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = response_json(response).await;
+    assert_eq!(body["workspace"], workspace);
+    assert_eq!(body["resource_scope"], "whole_process");
+    assert_eq!(body["activity"]["active"], 1);
+    assert_eq!(body["activity"]["queued"], 1);
+    assert_eq!(body["activity"]["recent"].as_array().unwrap().len(), 12);
+    assert_eq!(body["activity"]["recent_truncated"], true);
+    assert_eq!(body["activity"]["recent"][0]["status"], "running");
+    assert_eq!(body["activity"]["recent"][1]["status"], "queued");
+    assert!(!body.to_string().contains("PRIVATE-ARGUMENT"));
+    assert!(!body.to_string().contains("FOREIGN-TOOL"));
+    assert!(!body.to_string().contains(state.auth.ui_token()));
+    assert_eq!(
+        before.active_tasks,
+        state.monitor.connection_status().active_tasks
+    );
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    drop((running, queued, foreign));
+}
+
+#[tokio::test]
+async fn observatory_project_distinguishes_unavailable_review_from_clean() {
+    let (state, _root) = origin_test_state();
+    let workspace = state.workspaces.default_id().to_owned();
+    let response =
+        intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let value = response_json(response).await;
+    assert_eq!(value["git_review"]["available"], false);
+    assert_eq!(value["git_review"]["reason"], "execution_disabled");
+    assert_eq!(value["activity"]["workspace"], workspace);
+    assert_eq!(value["proof"]["current_evidence"], 0);
+}
+
+#[tokio::test]
+async fn observatory_revision_exposes_proof_freshness_without_starting_commands() {
+    let (state, _root) = origin_test_state();
+    let workspace = state.workspaces.default_id().to_owned();
+    let response =
+        intelligence_web_revision(State(state.clone()), ui_headers(&state, &workspace)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let value = response_json(response).await;
+    assert_eq!(value["workspace"], workspace);
+    assert!(value.get("proof_revision").is_some());
+    assert_eq!(value["full_refresh_required"], true);
+    assert_eq!(state.monitor.connection_status().active_tasks, 0);
+}
+
 fn ui_headers(state: &AppState, workspace: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("host", "127.0.0.1:8765".parse().unwrap());
@@ -184,6 +282,75 @@ async fn setup_hub_is_mobile_safe_and_stops_polling_while_hidden() {
     }
     assert!(!html.contains("setInterval("));
     assert!(!html.contains("style=\"height:20px\""));
+}
+
+#[tokio::test]
+async fn setup_page_has_nonce_bound_assets_and_no_operator_credential() {
+    let (state, _root) = origin_test_state();
+    let mut nonces = std::collections::HashSet::new();
+    for _ in 0..2 {
+        let response = setup_page(State(state.clone()), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let nonce = policy
+            .split("'nonce-")
+            .nth(1)
+            .unwrap()
+            .split('\'')
+            .next()
+            .unwrap()
+            .to_owned();
+        assert!(
+            nonces.insert(nonce.clone()),
+            "each response needs a fresh nonce"
+        );
+        assert!(policy.contains("frame-ancestors 'none'"));
+        let body = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
+        assert!(html.contains(&format!("<style nonce=\"{nonce}\">")));
+        assert!(!html.contains(state.auth.ui_token()));
+    }
+}
+
+#[tokio::test]
+async fn setup_status_is_compact_and_preserves_connection_truth() {
+    let (state, _root) = origin_test_state();
+    state
+        .monitor
+        .register_tunnel("test", "https://secondary.example");
+    state.monitor.mark_public_url_check(true, None);
+    let full = health(State(state.clone()), HeaderMap::new()).await.0;
+    let response = setup_status(State(state.clone()), HeaderMap::new()).await;
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let compact = response_json(response).await;
+    for key in ["ok", "mcp_url", "public_endpoint", "public_url_healthy"] {
+        assert_eq!(compact[key], full[key], "connection field {key}");
+    }
+    assert_eq!(
+        compact["tunnels"][0]["mcp_url"],
+        full["tunnels"][0]["mcp_url"]
+    );
+    for key in ["workspaces", "resources", "harness", "allowed_commands"] {
+        assert!(compact.get(key).is_none());
+    }
+    let full_bytes = serde_json::to_vec(&full).unwrap().len();
+    let compact_bytes = serde_json::to_vec(&compact).unwrap().len();
+    assert!(
+        compact_bytes * 5 < full_bytes,
+        "setup poll must avoid full runtime discovery"
+    );
+    assert!(!compact.to_string().contains(state.auth.ui_token()));
+    let report = json!({"full_status_bytes":full_bytes,"setup_status_bytes":compact_bytes,
+        "scope":"same in-process fixture; serialized payload, not end-to-end latency"});
+    let target =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/wcode-setup-status.json");
+    fs::write(target, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }
 
 fn cargo_project(root: &std::path::Path, name: &str) {

@@ -50,6 +50,7 @@ pub(super) fn draw_dashboard(
             area,
             &ui.pending_authorizations,
             ui.authorization_focus,
+            ui.authorization_scroll,
             ui.language,
         );
     }
@@ -200,6 +201,7 @@ fn render_header(
 ) {
     let totals = totals(snapshot);
     let resources = crate::resource::snapshot();
+    let process_text = process_queue_text(&resources);
     let cpu_text = match (resources.cpu_percent, resources.sustained_cpu_percent) {
         (Some(cpu), Some(sustained)) => format!(
             "{cpu:.0}% · AVG {sustained:.0}/{:.0}%",
@@ -564,7 +566,7 @@ fn render_header(
                 {
                     "Endpoint unavailable · local MCP still available"
                 } else {
-                    "PUBLIC URL MONITORING ACTIVE"
+                    &process_text
                 },
                 Style::default().fg(
                     if snapshot.public_url_healthy == Some(false)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#080a0e">
+<meta name="theme-color" content="#171714">
 <title>wcode · Project Observatory</title>
 <link rel="stylesheet" href="/intelligence/app.css">
 <script defer src="/intelligence/app.js"></script>
@@ -15,7 +15,7 @@
     <div class="title-block">
       <div class="brand">WC · wcode</div>
       <h1 data-i18n="Project Observatory">Project Observatory</h1>
-      <div class="subtitle" data-i18n="observatory subtitle">Live desired state, implementation, change, proof and convergence — with provider precision kept visible.</div>
+      <div class="subtitle" data-i18n="observatory subtitle">What is running, what needs attention, and what has actually been verified.</div>
     </div>
     <div class="controls">
       <select id="workspace" aria-label="Workspace"></select>
@@ -28,7 +28,7 @@
     </div>
   </header>
 
-  <section class="livebar" aria-live="polite">
+  <section class="livebar" role="status" aria-live="polite" aria-atomic="true">
     <div class="live-left"><span id="syncDot" class="sync-dot"></span><strong id="syncState" data-i18n="Connecting">Connecting</strong><span id="projectIdentity" class="live-project">—</span></div>
     <div class="live-right"><span id="tunnels" class="tunnel-links"></span><span id="precisionBadge" class="precision-badge">—</span><span id="lastUpdated" class="muted">—</span></div>
   </section>
@@ -38,38 +38,45 @@
     <div class="access-grid">
       <div class="access-card"><h4 data-i18n="Authorized projects">Authorized projects</h4><div id="workspaceList" class="workspace-list"></div><div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addWorkspace" type="button" data-i18n="Authorize project">Authorize project</button></div><div id="workspaceMessage" class="access-message" aria-live="polite" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div></div>
       <div class="access-card"><h4 data-i18n="Executable access">Executable access</h4><div id="commandList" class="command-list"></div><div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div><div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div></div>
-      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="Arguments, whitespace separated" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div></div>
+      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="JSON arguments, e.g. [&quot;test&quot;,&quot;--locked&quot;]" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div></div>
       <div class="access-card"><h4 data-i18n="Pending authorizations">Pending authorizations</h4><div id="authorizationList" class="authorization-list"></div><div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div></div>
     </div>
   </section>
 
-  <section id="stats" class="stats"></section>
-  <section id="attention" class="attention" aria-live="polite"></section>
+  <nav class="section-nav" aria-label="Observatory sections"><button type="button" data-jump="architectureSection" data-i18n="Architecture overview">Architecture overview</button><button type="button" data-jump="activitySection" data-i18n="Task activity">Task activity</button><button type="button" data-jump="proofSection" data-i18n="Verification evidence">Verification evidence</button><button type="button" data-jump="changesSection" data-i18n="Current changes">Current changes</button><button type="button" data-jump="requirementsSection" data-i18n="Requirements">Requirements</button><button type="button" data-jump="filesSection" data-i18n="Project files">Project files</button></nav>
+  <section id="statusSummary" class="status-summary" aria-label="Project summary"><div><span class="eyebrow">PROJECT PULSE</span><h2 data-i18n="Loading project state…">Loading project state…</h2></div></section>
+  <section id="stats" class="stats" aria-label="Current project metrics"></section>
+  <section id="attention" class="attention" aria-label="Actionable signals"></section>
 
-  <section class="panel architecture-panel">
+  <section id="architectureSection" class="panel architecture-panel" tabindex="-1">
     <div class="panel-head architecture-head">
       <div><div class="panel-title" data-i18n="Architecture overview">Architecture overview</div><div class="panel-meta" data-i18n="architecture overview meta">Compare the full declared component architecture with dependencies observed from the current implementation.</div></div>
-      <div class="architecture-modes" aria-label="Architecture graph mode">
-        <button class="arch-mode active" type="button" data-arch-mode="overlay" data-i18n="Overlay">Overlay</button>
-        <button class="arch-mode" type="button" data-arch-mode="design" data-i18n="Design">Design</button>
-        <button class="arch-mode" type="button" data-arch-mode="actual" data-i18n="Implementation">Implementation</button>
-      </div>
+      <div class="architecture-views" aria-label="Architecture view"><button type="button" data-arch-view="components" aria-pressed="true" data-i18n="Component map">Component map</button><button type="button" data-arch-view="graph" aria-pressed="false" data-i18n="Dependency graph">Dependency graph</button></div>
     </div>
     <div id="architectureMetrics" class="architecture-metrics"></div>
+    <div class="component-toolbar"><label for="componentSearch" data-i18n="Find a component">Find a component</label><input id="componentSearch" type="search" placeholder="Name, responsibility or scope" data-i18n-placeholder="Name, responsibility or scope" enterkeyhint="search"><span id="componentCount" class="panel-meta" role="status">—</span></div>
     <div class="architecture-layout">
-      <div class="architecture-graph-shell">
+      <div id="componentCards" class="component-cards"></div>
+      <div class="architecture-graph-shell hidden">
+        <div class="architecture-modes" aria-label="Architecture graph mode"><button class="arch-mode active" type="button" data-arch-mode="overlay" aria-pressed="true" data-i18n="Overlay">Overlay</button><button class="arch-mode" type="button" data-arch-mode="design" aria-pressed="false" data-i18n="Design">Design</button><button class="arch-mode" type="button" data-arch-mode="actual" aria-pressed="false" data-i18n="Implementation">Implementation</button></div>
         <div class="architecture-legend" aria-label="Architecture graph legend">
           <span><i class="legend-line aligned"></i><span data-i18n="Aligned dependency">Aligned dependency</span></span>
           <span><i class="legend-line unverified"></i><span data-i18n="Declared, not yet observed">Declared, not yet observed</span></span>
           <span><i class="legend-line observed"></i><span data-i18n="Observed implementation edge">Observed implementation edge</span></span>
           <span><i class="legend-line drift"></i><span data-i18n="Strong observed drift">Strong observed drift</span></span>
         </div>
-        <div id="architectureGraph" class="architecture-graph" role="img" aria-label="Architecture drift graph"></div>
+        <div id="architectureGraph" class="architecture-graph" role="group" aria-label="Architecture drift graph"></div>
       </div>
       <aside id="componentInspector" class="component-inspector"></aside>
     </div>
   </section>
 
+  <section class="execution-layout">
+    <section id="activitySection" class="panel activity-panel" tabindex="-1"><div class="panel-head"><div><h2 class="panel-title" data-i18n="Task activity">Task activity</h2><div class="panel-meta" data-i18n="Task activity meta">Running first. Waiting time and execution time are separate.</div></div></div><div id="activity" class="section"></div><div id="resourceStatus" class="section"></div></section>
+    <section id="proofSection" class="panel proof-panel" tabindex="-1"><div class="panel-head"><div><h2 class="panel-title" data-i18n="Verification evidence">Verification evidence</h2><div class="panel-meta" data-i18n="Proof meta">Current revision, historical results, and unverified work — kept separate.</div></div></div><div id="proofSummary" class="section"></div></section>
+  </section>
+
+  <details id="requirementsSection" class="disclosure" tabindex="-1"><summary><strong data-i18n="Requirements">Requirements</strong><span data-i18n="Explore requirement details">Inspect implementation, acceptance criteria and dependency evidence</span></summary>
   <section class="workspace drilldown">
     <aside class="panel sidebar">
       <div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div>
@@ -84,21 +91,22 @@
       </div>
       <div id="requirements" class="req-list"></div>
     </aside>
-    <main id="featureDetail" class="panel detail"><div class="section empty" data-i18n="Loading project state…">Loading project state…</div></main>
+    <div id="featureDetail" class="panel detail"><div class="section empty" data-i18n="Loading project state…">Loading project state…</div></div>
   </section>
 
-  <section class="panel changes-panel">
+  </details>
+
+  <details id="changesSection" class="panel changes-panel disclosure" tabindex="-1"><summary><strong data-i18n="Current changes">Current changes</strong><span data-i18n="current changes meta">Working tree changes mapped back to requirements and Product Scopes.</span></summary>
     <div class="panel-head"><div><div class="panel-title" data-i18n="Current changes">Current changes</div><div class="panel-meta" data-i18n="current changes meta">Working tree changes mapped back to requirements and Product Scopes.</div></div></div>
     <div id="changes" class="table-wrap"></div>
-  </section>
+  </details>
 
-  <section class="panel structure-panel">
+  <details id="filesSection" class="panel structure-panel disclosure" tabindex="-1"><summary><strong data-i18n="Project files">Project files</strong><span data-i18n="project files meta">Browse source structure and large files</span><span id="structureSummary" class="summary-side">—</span></summary>
     <div class="panel-head">
       <div>
         <div class="panel-title" data-i18n="Project files">Project files</div>
         <div class="panel-meta" data-i18n="project files meta">Browse the bounded source snapshot and find files that exceed the project line limit.</div>
       </div>
-      <div id="structureSummary" class="summary-side">—</div>
     </div>
     <div class="structure-layout">
       <section class="structure-pane">
@@ -110,8 +118,9 @@
         <div id="largeFiles" class="large-files"></div>
       </section>
     </div>
-  </section>
+  </details>
 
+  <details id="diagnosticsSection" class="disclosure" tabindex="-1"><summary><strong data-i18n="Diagnostics & history">Diagnostics & history</strong><span data-i18n="Diagnostics meta">Code distribution, graph revisions and recorded risks</span></summary>
   <section class="lower">
     <div class="panel">
       <div class="panel-head"><div><div class="panel-title" data-i18n="Code statistics">Code statistics</div><div class="panel-meta" data-i18n="current repository snapshot">Current bounded repository snapshot.</div></div></div>
@@ -123,7 +132,9 @@
     </div>
   </section>
 
-  <details class="panel quality-panel">
+  </details>
+
+  <details id="qualitySection" class="panel quality-panel" tabindex="-1">
     <summary><span><strong data-i18n="Language quality matrix">Language quality matrix</strong><small data-i18n="language quality meta">Capability coverage and gaps. Expand when you need provider detail.</small></span><span id="qualitySummary" class="summary-side">—</span></summary>
     <div id="languageQuality" class="table-wrap"></div>
   </details>

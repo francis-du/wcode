@@ -302,6 +302,57 @@ pub fn dependency_graph(
     DependencyGraph { predecessors }
 }
 
+/// Describe the exact scheduling graph without executing, reserving slots,
+/// checking authorization grants or claiming that file/SHA preconditions hold.
+/// Numeric indices avoid echoing arbitrary payloads, credentials or long IDs.
+pub fn preview(
+    graph: &DependencyGraph,
+    layers: &[Vec<usize>],
+    workloads: &[(usize, WorkloadResources)],
+    aliases: &HashMap<usize, Vec<(usize, String)>>,
+    max_parallel: usize,
+) -> Value {
+    let coalesced = aliases
+        .iter()
+        .flat_map(|(primary, items)| items.iter().map(move |(alias, _)| (*alias, *primary)))
+        .collect::<HashMap<_, _>>();
+    let tasks = graph
+        .predecessors
+        .iter()
+        .enumerate()
+        .map(|(index, dependencies)| {
+            let resources = workloads
+                .iter()
+                .find(|(task, _)| *task == index)
+                .map(|(_, resources)| resources);
+            serde_json::json!({
+                "index": index,
+                "depends_on": dependencies,
+                "coalesced_into": coalesced.get(&index),
+                "read_paths": resources.map_or(0, |resources| resources.reads.len()),
+                "mutation_paths": resources.map_or(0, |resources| resources.mutations().count()),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "execution": "dependency-preview",
+        "dry_run": true,
+        "tasks_executed": 0,
+        "tasks": tasks,
+        "index_base": 0,
+        "dependency_edges": graph.predecessors.iter().map(BTreeSet::len).sum::<usize>(),
+        "dependency_layers": layers.len(),
+        "waves": layers,
+        "initial_ready": layers.first().cloned().unwrap_or_default(),
+        "max_parallel": max_parallel,
+        "initial_concurrency": layers.first().map_or(0, Vec::len).min(max_parallel),
+        "coalesced_same_file_edits": coalesced.len(),
+        "authorization_checked": false,
+        "file_preconditions_checked": false,
+        "guidance": "Indices refer to the input tasks. Waves describe dependencies, not execution barriers. Execution remains completion-driven under the shared concurrency cap. This preview neither grants permission nor validates content, SHA, filesystem state or tool-specific arguments; real execution must recheck them."
+    })
+}
+
 fn resources_conflict(left: &WorkloadResources, right: &WorkloadResources) -> bool {
     let left_mutations = left.mutations().collect::<Vec<_>>();
     let right_mutations = right.mutations().collect::<Vec<_>>();

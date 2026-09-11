@@ -431,6 +431,7 @@ pub struct ProjectAcceptanceProofSummary {
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectProofSummary {
     pub acceptance: ProjectAcceptanceProofSummary,
+    pub effective: ProjectEffectiveProofSummary,
     pub revision_code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revision_design: Option<String>,
@@ -445,6 +446,29 @@ pub struct ProjectProofSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_current_evidence_at_ms: Option<u64>,
     pub evidence_scan_truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectEvidenceView {
+    pub subject: String,
+    pub producer: String,
+    pub policy: Option<String>,
+    pub kind: crate::evidence::EvidenceKind,
+    pub confidence: crate::evidence::Confidence,
+    pub result: crate::evidence::EvidenceResult,
+    pub timestamp_ms: u64,
+    pub summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectEffectiveProofSummary {
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub inconclusive: usize,
+    pub disagreed: usize,
+    pub items: Vec<ProjectEvidenceView>,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]

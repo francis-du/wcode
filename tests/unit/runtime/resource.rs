@@ -1,11 +1,17 @@
 use super::*;
 
+#[path = "parallelism.rs"]
+mod parallelism;
+
 #[test]
 fn burst_friendly_limits_keep_tool_concurrency_and_bound_cpu_workers() {
     let limits = ResourceLimits::new(10.0, 512, DEFAULT_MAX_PARALLEL_TOOLS).unwrap();
     assert_eq!(limits.effective_parallel_tools, 32);
-    assert_eq!(limits.interactive_cpu_percent, 100.0);
-    assert!((1..=4).contains(&limits.cpu_burst_threads));
+    assert_eq!(
+        limits.interactive_cpu_percent,
+        limits.cpu_burst_threads as f64 * 100.0
+    );
+    assert!((1..=8).contains(&limits.cpu_burst_threads));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
     assert_eq!(limits.child_processes, 2);
     assert!((1..=2).contains(&limits.child_threads));
@@ -112,7 +118,7 @@ async fn sustained_cpu_pressure_adds_bounded_backpressure_instead_of_freezing_to
     let governor = ResourceGovernor::new(ResourceLimits::new(10.0, 512, 32).unwrap());
     {
         let mut telemetry = lock_recover(&governor.telemetry);
-        telemetry.sustained_cpu_percent = Some(200.0);
+        telemetry.sustained_cpu_percent = Some(governor.limits.interactive_cpu_percent * 2.0);
         telemetry.cpu_pressure_since = Some(Instant::now() - SUSTAINED_CPU_GRACE * 2);
         telemetry.last_sample_at = Some(Instant::now());
     }

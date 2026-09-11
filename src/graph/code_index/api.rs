@@ -277,6 +277,9 @@ impl CodeIndex {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if let Some(flight) = state.parsing.get(&key).and_then(Weak::upgrade) {
+            flight.generation.fetch_add(1, Ordering::AcqRel);
+        }
         remove_file_record(&mut state, &key);
         state.ast_cache.remove(&key);
     }
@@ -287,6 +290,14 @@ impl CodeIndex {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        for (key, flight) in &state.parsing {
+            if key.root == root && (key.path == normalized || key.path.starts_with(prefix.as_str()))
+            {
+                if let Some(flight) = flight.upgrade() {
+                    flight.generation.fetch_add(1, Ordering::AcqRel);
+                }
+            }
+        }
         let keys = state
             .files
             .keys()
@@ -490,8 +501,10 @@ impl CodeIndex {
         }
         matches.sort_by(
             |(left_query, left_score, left), (right_query, right_score, right)| {
-                left_query
-                    .cmp(right_query)
+                left_score
+                    .saturating_sub(1)
+                    .cmp(&right_score.saturating_sub(1))
+                    .then_with(|| left_query.cmp(right_query))
                     .then_with(|| left_score.cmp(right_score))
                     .then_with(|| left.qualified_name.cmp(&right.qualified_name))
                     .then_with(|| left.path.cmp(&right.path))
@@ -589,6 +602,28 @@ impl CodeIndex {
         }
         .ok_or_else(|| anyhow!("unknown symbol_id; call find_symbol or file_outline first"))?;
 
+        for _ in 0..2 {
+            if let Some(context) = self.symbol_context_snapshot(
+                &workspace_id,
+                workspace,
+                &key,
+                symbol_id,
+                max_body_lines,
+            )? {
+                return Ok(context);
+            }
+        }
+        bail!("source changed repeatedly while reading symbol context; retry after edits settle")
+    }
+
+    fn symbol_context_snapshot(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        key: &FileKey,
+        symbol_id: &str,
+        max_body_lines: usize,
+    ) -> Result<Option<Value>> {
         let ensured = self.ensure_indexed(workspace, &key.path, true)?;
         let symbol = ensured
             .record
@@ -604,6 +639,12 @@ impl CodeIndex {
             .saturating_add(max_body_lines.saturating_sub(1))
             .min(symbol.body_end_line.max(start_line));
         let body = workspace.read_file(&symbol.path, start_line, Some(requested_end))?;
+        if body.sha256 != ensured.record.sha256 {
+            // Metadata is a cache hint, not proof of content identity. Never
+            // attach old ranges, signatures or call relations to a new body.
+            self.invalidate(workspace.root(), &key.path);
+            return Ok(None);
+        }
         let body_truncated = requested_end < symbol.body_end_line;
 
         let mut calls = ensured
@@ -659,8 +700,8 @@ impl CodeIndex {
         local_definitions.dedup_by(|left, right| left.id == right.id);
         local_definitions.truncate(50);
 
-        let ast = self.ast_info(&key, &ensured.record.sha256);
-        Ok(json!({
+        let ast = self.ast_info(key, &ensured.record.sha256);
+        Ok(Some(json!({
             "workspace": workspace_id,
             "symbol": symbol,
             "provider": "tree-sitter",
@@ -682,6 +723,6 @@ impl CodeIndex {
             "same_file_call_targets": local_definitions,
             "nested_symbols": nested_symbols,
             "ast": ast,
-        }))
+        })))
     }
 }

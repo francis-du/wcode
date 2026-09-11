@@ -95,12 +95,20 @@ pub(super) fn validate_command_policy(
 }
 
 pub(super) fn validate_command_arguments(program: &str, args: &[String]) -> Result<()> {
+    let literal_messages = if program == "git" {
+        git::literal_message_indices(args)
+    } else {
+        Vec::new()
+    };
     let rg_pattern_index = (program == "rg")
         .then(|| args.iter().position(|arg| !arg.starts_with('-')))
         .flatten();
     for (index, arg) in args.iter().enumerate() {
         if arg.contains('\0') || arg.contains(['\n', '\r']) {
             bail!("command arguments contain forbidden control characters");
+        }
+        if literal_messages.contains(&index) {
+            continue;
         }
         if program == "rustc" && arg.contains('@') {
             bail!(
@@ -645,6 +653,30 @@ fn require_risky_exec(label: &str, enabled: bool) -> Result<()> {
             "{label} requires exact risky-operation authorization; approve the specific operation in the TUI/Web UI, or restart with --allow-risky-exec only for a trusted repository"
         )
     }
+}
+
+/// Only exact, bounded inspection shapes use the separate process queue.
+/// This is consulted after policy checks, never as a grant or validation bypass.
+pub(super) fn is_git_probe(program: &str, args: &[String]) -> bool {
+    if program != "git" {
+        return false;
+    }
+    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+    matches!(
+        args.as_slice(),
+        ["--version"]
+            | ["status"]
+            | ["status", "--short"]
+            | ["status", "--short", "--branch"]
+            | ["status", "--short", "--untracked-files=all"]
+            | ["diff", "--check" | "--numstat"]
+            | ["diff", "--cached", "--check" | "--numstat"]
+            | ["branch", "--show-current"]
+            | [
+                "rev-parse",
+                "--show-toplevel" | "--show-prefix" | "--is-inside-work-tree"
+            ]
+    )
 }
 
 pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<String> {

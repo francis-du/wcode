@@ -54,6 +54,25 @@ impl SoftwareIntelligenceRuntime {
         known_checks: &HashSet<String>,
         request: &SoftwareContextRequest,
     ) -> Result<SoftwareContext> {
+        self.software_context_with_symbols(
+            workspace_id,
+            workspace,
+            code_index,
+            known_checks,
+            request,
+            None,
+        )
+    }
+
+    pub(crate) fn software_context_with_symbols(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        code_index: &CodeIndex,
+        known_checks: &HashSet<String>,
+        request: &SoftwareContextRequest,
+        seeded_symbols: Option<&[serde_json::Value]>,
+    ) -> Result<SoftwareContext> {
         let workspace_id = workspace_id.into();
         let query = request.query.trim();
         if query.is_empty() {
@@ -170,7 +189,7 @@ impl SoftwareIntelligenceRuntime {
         );
 
         let symbol_cap = item_cap.min(24);
-        let mut symbols = Vec::new();
+        let mut symbols = seeded_symbols.unwrap_or_default().to_vec();
         let mut symbol_ids = HashSet::new();
         let mut symbol_queries = tokens
             .iter()
@@ -186,7 +205,11 @@ impl SoftwareIntelligenceRuntime {
         if symbol_queries.is_empty() {
             symbol_queries.push(query.to_owned());
         }
-        let source_roots = scopes::source_roots_for(&requested_scopes);
+        let source_roots = if seeded_symbols.is_some() {
+            Vec::new()
+        } else {
+            scopes::source_roots_for(&requested_scopes)
+        };
         for source_root in &source_roots {
             let search = match code_index.find_symbols_many(
                 workspace_id.clone(),
@@ -228,7 +251,9 @@ impl SoftwareIntelligenceRuntime {
         }
         // Merge bounded candidates from every scope before truncating: an
         // earlier directory's helpers must not evict a later exact definition.
-        symbols.sort_by_key(|symbol| context_symbol_rank(symbol, &literals, &symbol_queries));
+        if seeded_symbols.is_none() {
+            symbols.sort_by_key(|symbol| context_symbol_rank(symbol, &literals, &symbol_queries));
+        }
         symbols.truncate(symbol_cap);
         let graph_context = provider_graph_context(
             workspace,

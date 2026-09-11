@@ -4,6 +4,68 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
+fn release_062_windows_packaging_stops_after_each_native_failure() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow: serde_yaml::Value = serde_yaml::from_str(
+        &fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap(),
+    )
+    .unwrap();
+    let steps = workflow["jobs"]["build"]["steps"].as_sequence().unwrap();
+    let script = steps
+        .iter()
+        .find(|step| step["name"].as_str() == Some("Build Windows"))
+        .unwrap()["run"]
+        .as_str()
+        .unwrap();
+    for command in [
+        "cargo build --release --locked",
+        "& dist/package/wcode.exe --version",
+        "& dist/package/wcode.exe --help",
+    ] {
+        let after = script
+            .split_once(command)
+            .unwrap_or_else(|| panic!("missing {command}"))
+            .1;
+        let guard = after.lines().find(|line| !line.trim().is_empty()).unwrap();
+        assert!(
+            guard.trim().starts_with("if ($LASTEXITCODE -ne 0)"),
+            "{command} must check its native exit code before using or packaging the binary"
+        );
+    }
+}
+
+#[test]
+fn release_062_ci_installs_the_javascript_behavior_runtime() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow: serde_yaml::Value = serde_yaml::from_str(
+        &fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap(),
+    )
+    .unwrap();
+    let steps = workflow["jobs"]["test"]["steps"].as_sequence().unwrap();
+    let node_index = steps
+        .iter()
+        .position(|step| {
+            step["uses"]
+                .as_str()
+                .is_some_and(|uses| uses.starts_with("actions/setup-node@"))
+        })
+        .expect("install Node explicitly");
+    let test_index = steps
+        .iter()
+        .position(|step| step["run"].as_str() == Some("cargo test --locked"))
+        .unwrap();
+    assert!(node_index < test_index);
+    assert_eq!(
+        steps[node_index]["with"]["node-version"].as_str(),
+        Some("24")
+    );
+    assert_eq!(
+        steps[node_index]["with"]["package-manager-cache"].as_bool(),
+        Some(false)
+    );
+}
+
+#[test]
 fn release_workflow_has_one_publish_trigger_and_smokes_distributed_binaries() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();

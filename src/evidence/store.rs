@@ -46,7 +46,14 @@ pub(crate) fn persist(workspace: &Workspace, evidence: &Evidence) -> Result<()> 
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOAD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn load(workspace: &Workspace) -> Result<Vec<Evidence>> {
+    #[cfg(test)]
+    LOAD_CALLS.with(|count| count.set(count.get() + 1));
     let directory = evidence_directory(workspace)?;
     if !directory.exists() {
         return Ok(Vec::new());
@@ -83,6 +90,57 @@ pub(crate) fn load(workspace: &Workspace) -> Result<Vec<Evidence>> {
     }
     evidence.sort_by_key(|record| record.timestamp_ms);
     Ok(evidence)
+}
+
+// Change detection only, never verification evidence. Read immutable record
+// identities and metadata rather than parsing every JSON body on every UI poll.
+// Include all identities, not just the newest timestamp: late/backdated records
+// and removals must also invalidate the observation.
+pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
+    let directory = evidence_directory(workspace)?;
+    let metadata = match fs::symlink_metadata(&directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("empty".into()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!("evidence store path is not a regular directory");
+    }
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(&directory)? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".json"))
+        {
+            paths.push(entry.path());
+        }
+        if paths.len() > MAX_STORED_EVIDENCE {
+            bail!("evidence change signal exceeds its record bound");
+        }
+    }
+    paths.sort();
+    let mut hasher = Sha256::new();
+    for path in paths {
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            bail!("evidence change signal requires regular records");
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        hasher.update(name.as_bytes());
+        hasher.update([0]);
+        hasher.update(metadata.len().to_le_bytes());
+        let modified = metadata
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        hasher.update(modified.to_le_bytes());
+    }
+    Ok(format!("metadata:{:x}", hasher.finalize()))
 }
 
 pub(crate) fn capabilities() -> serde_json::Value {

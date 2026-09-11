@@ -11,12 +11,13 @@ permalink: /docs/releases/
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
 
-## Latest
+## Next release
 
-- [v0.6.1](v0.6.1/) — completion-driven parallel scheduling, focused context, compact tool routing, and a task-first TUI. Release preparation; publication is a separate action.
+- [v0.6.2](v0.6.2/) — resource-aware parallel work, simpler setup, clearer observability, and effective verification evidence. Release preparation; publication and cross-platform CI are separate gates.
 
 ## 0.6.x
 
+- [v0.6.2](v0.6.2/) — bounded concurrency, fresh source context, exact approval, and independent activity updates.
 - [v0.6.1](v0.6.1/) — ready successors no longer wait for unrelated tasks; safer dependencies and fewer redundant model tool calls.
 - [v0.6](v0.6/) — parallel execution contracts, stronger repository understanding, and less command friction without weakening hard safety boundaries.
 

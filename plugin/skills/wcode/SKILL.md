@@ -66,6 +66,15 @@ Before editing:
    inspection. Do not call `project_context` as a second mandatory startup
    step or search again for targets already present in the pack. A truncated
    pack means some context is omitted, not that all supplied context is stale.
+   For a pure operator task, use an explicit short query such as `git commit`
+   or `git status`; an `intent` operation pack needs no symbol/body discovery.
+   A mixed request to debug commit code still needs source-aware context.
+   For diagnostic tasks, include a known `file:line` or `file#Lline` in the query.
+   Inspect returned `retrieval` states: an unavailable explicit location is not
+   evidence for editing unrelated symbols, and a stack frame is not a proven root cause.
+   `repo_map.deferred=true` means optional graph expansion was deferred for a
+   direct location, not that relationships are absent. Request callers, impact,
+   architecture or explicit scopes when cross-file reasoning is necessary.
 2. Prefer `file_outline`, `find_symbol`, and `search_code` for structure-first
    localization before loading source bodies. Use `symbol_context` when the
    implementation body is actually needed; it may return up to 1,000 original
@@ -106,6 +115,11 @@ While editing:
   unrelated work continues. Do not coalesce edits across an intervening dependent
   read. Candidate lane counts are hints, not proof of independence or a target
   for saturation; respect the runtime cap and actual resource dependencies.
+  When the schema advertises it and dependencies are uncertain, optional
+  `parallel_tools(dry_run=true)` previews the same dependency graph without
+  executing children. It does not validate SHAs, grant permission or replace
+  execution-time checks. Never rely on this flag with an older schema; never
+  add preview as another mandatory call when dependencies are already clear.
 - Reuse the canonical owner/model/helper before adding another wrapper, mode,
   config option, extension point, compatibility layer, or subsystem. Do not add
   architecture for hypothetical future use. Exceed the reported complexity
@@ -132,8 +146,15 @@ After editing:
    signals.
 2. Use `drift_status`, `impact_analysis`, and `risk_status` when the change
    needs them.
-3. Run the recommended `verify_project` level. Use `language_quality_run` only
-   for a declared, available, check-only provider.
+3. Run the recommended `verify_project` level. Its default stops after a failed
+   phase; `skipped_checks` are unexecuted, never passes. Fix the failure before
+   retrying, or request `fail_fast=false` for deliberate exhaustive diagnostics.
+   Modern Tasks-capable hosts may receive a durable `taskId`. Retain it and poll
+   `tasks/get` as the same owner; do not repeat tools/call to poll. A completed
+   task still requires inspecting its inner isError and verification passed fields.
+   Interrupted workers are not automatically replayed. Legacy/non-Tasks hosts
+   keep synchronous results; do not invent an async flag or assume host support.
+   Use `language_quality_run` only for a declared, available, check-only provider.
 4. Continue `reconciliation_plan` when traceability or drift gaps remain.
 5. Finish with `evidence_status`; report failures, disagreement, stale
    revisions, and remaining blockers. Never invent a Stage Pass or

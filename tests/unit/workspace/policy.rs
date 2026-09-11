@@ -40,6 +40,32 @@ async fn repository_commands_request_exact_authorization_instead_of_staying_hard
 }
 
 #[test]
+fn git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
+    for command in [
+        vec!["status", "--short", "--untracked-files=all"],
+        vec!["status", "--short", "--branch"],
+        vec!["diff", "--check"],
+        vec!["diff", "--cached", "--numstat"],
+        vec!["branch", "--show-current"],
+    ] {
+        assert!(is_git_probe("git", &args(&command)));
+    }
+    for command in [
+        vec!["commit", "-m", "status"],
+        vec!["status", "--ignored"],
+        vec!["diff", "--numstat", "--ext-diff"],
+        vec!["diff", "--check", "--output=result.txt"],
+        vec!["log", "--all"],
+        vec!["-c", "core.fsmonitor=helper", "status"],
+        vec!["push", "origin", "main"],
+    ] {
+        assert!(!is_git_probe("git", &args(&command)), "{command:?}");
+    }
+    assert!(!is_git_probe("cargo", &args(&["check"])));
+    assert!(!is_git_probe("python3", &args(&["--version"])));
+}
+
+#[test]
 fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
     let safe = WorkspaceSecurity::default();
     for values in [
@@ -215,6 +241,175 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_err());
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), true).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "--all", "origin"]), true).is_err());
+}
+
+#[tokio::test]
+async fn audit_git_literal_messages_request_approval_without_path_misclassification() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    for command in [
+        vec!["commit", "-m", "../migration note"],
+        vec!["commit", "--message=.env"],
+        vec!["commit", "-m", "/healthz endpoint"],
+        vec!["tag", "-a", "v-test", "-m", ".env"],
+    ] {
+        let error = workspace
+            .run_command("git", &args(&command), ".", 1)
+            .await
+            .unwrap_err();
+        let required = error
+            .downcast_ref::<crate::authorization::AuthorizationRequired>()
+            .unwrap_or_else(|| {
+                panic!("literal message must request approval: {command:?}: {error}")
+            });
+        assert_eq!(required.request.kind, AuthorizationKind::RiskyExecution);
+        assert!(workspace.authorization.deny(&required.request.id));
+    }
+    for command in [
+        vec!["add", "--", "../outside"],
+        vec!["add", "--", ".env"],
+        vec!["commit", "--file", "../message"],
+        vec!["tag", "-a", "v-test", "-m", "note", "../outside"],
+    ] {
+        assert!(validate_command_policy(
+            "git",
+            &args(&command),
+            WorkspaceSecurity {
+                allow_risky_exec: true,
+                ..WorkspaceSecurity::default()
+            }
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn ordinary_git_lifecycle_uses_approval_instead_of_permanent_denial() {
+    for command in [
+        vec!["branch", "feature/example"],
+        vec!["branch", "feature/example", "HEAD"],
+        vec!["switch", "feature/example"],
+        vec!["switch", "-c", "feature/example"],
+        vec!["tag", "v0.6.2"],
+        vec!["tag", "-a", "v0.6.2", "-m", "release candidate"],
+        vec!["restore", "--staged", "--", "src/lib.rs"],
+    ] {
+        assert!(
+            validate_git_command(&args(&command), false).is_err(),
+            "{command:?}"
+        );
+        assert!(
+            validate_git_command(&args(&command), true).is_ok(),
+            "{command:?}"
+        );
+    }
+    for command in [
+        vec!["branch"],
+        vec!["branch", "--show-current"],
+        vec!["tag", "--list"],
+        vec!["branch", "--list", "feature/*"],
+        vec!["remote", "-v"],
+        vec!["remote", "get-url", "origin"],
+    ] {
+        assert!(
+            validate_git_command(&args(&command), false).is_ok(),
+            "{command:?}"
+        );
+    }
+    for command in [
+        vec!["tag", "-f", "v0.6.2"],
+        vec!["branch", "-D", "main"],
+        vec!["switch", "--discard-changes", "main"],
+        vec!["tag", "-a", "v0.6.2"],
+        vec!["restore", "src/lib.rs"],
+        vec!["restore", "--staged", "--worktree", "src/lib.rs"],
+    ] {
+        assert!(
+            validate_git_command(&args(&command), true).is_err(),
+            "{command:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn invalid_commands_do_not_create_useless_approval_requests() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    for (program, arguments, cwd) in [
+        ("unlisted-example", vec!["../outside"], "."),
+        ("unlisted-example", vec!["--version"], "missing"),
+        ("git", vec!["branch", "feature"], "missing"),
+        ("git", vec!["branch", "-D", "main"], "."),
+    ] {
+        assert!(workspace
+            .run_command(program, &args(&arguments), cwd, 1)
+            .await
+            .is_err());
+        assert!(workspace.authorization.requests(10).is_empty());
+    }
+}
+
+#[tokio::test]
+async fn git_branch_approval_is_effective_and_does_not_grant_other_operations() {
+    let root = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| {
+        std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+            .status
+            .success()
+    };
+    assert!(git(&["init", "-q"]));
+    assert!(git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "initial"
+    ]));
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let command = args(&["branch", "approved-feature"]);
+    assert!(workspace
+        .run_command("git", &command, ".", 10)
+        .await
+        .is_err());
+    let denied = workspace.authorization.latest_pending().unwrap();
+    assert_eq!(denied.kind, AuthorizationKind::RiskyExecution);
+    assert!(workspace.authorization.deny(&denied.id));
+    assert!(!git(&[
+        "rev-parse",
+        "--verify",
+        "refs/heads/approved-feature"
+    ]));
+    assert!(workspace
+        .run_command("git", &command, ".", 10)
+        .await
+        .is_err());
+    let approved = workspace.authorization.latest_pending().unwrap();
+    assert!(workspace.authorization.approve_session(&approved.id));
+    let result = workspace
+        .run_command("git", &command, ".", 10)
+        .await
+        .unwrap();
+    assert!(result.success);
+    assert!(git(&[
+        "rev-parse",
+        "--verify",
+        "refs/heads/approved-feature"
+    ]));
+    assert!(!workspace.security.allow_risky_exec);
+    assert!(workspace
+        .run_command("git", &args(&["tag", "not-approved"]), ".", 10)
+        .await
+        .is_err());
+    assert!(!git(&["rev-parse", "--verify", "refs/tags/not-approved"]));
 }
 
 #[test]
