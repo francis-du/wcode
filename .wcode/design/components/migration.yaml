@@ -22,5 +22,5 @@ implementation:
     path: src/verification/migration.rs
     symbol: context_summary
   - kind: symbol
-    path: src/runtime/harness/quality.rs
+    path: src/runtime/harness/quality/verification_run.rs
     symbol: ToolHarness::verify_project

@@ -4,7 +4,7 @@
   statement: Workspace path resolution rejects traversal outside the selected root and stale writes do not silently overwrite changed files.
   verification:
     - kind: test
-      path: tests/unit/workspace/mod.rs
+      path: tests/unit/workspace/files.rs
       symbol: blocks_path_traversal_and_stale_writes
 
 - schema_version: 1
@@ -43,7 +43,7 @@
   statement: A replacement made with a stale SHA-256 precondition fails instead of overwriting the newer file.
   verification:
     - kind: test
-      path: tests/unit/workspace/mod.rs
+      path: tests/unit/workspace/files.rs
       symbol: blocks_path_traversal_and_stale_writes
 
 - schema_version: 1
@@ -86,7 +86,7 @@
     - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: inspection_queue_still_obeys_resource_pressure_admission}
     - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: oversized_verification_plan_fails_before_dispatch}
     - {kind: test, path: tests/unit/runtime/process_queue.rs, symbol: cancelled_process_waiter_does_not_leak_metrics_or_permits}
-    - {kind: test, path: tests/unit/workspace/policy.rs, symbol: git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers}
+    - {kind: test, path: tests/unit/workspace/policy.rs, symbol: inspection_probe_routing_is_exact_and_never_promotes_mutations_or_helpers}
     - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: malformed_task_routing_is_rejected_before_durable_creation}
     - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: malformed_verification_options_never_create_tasks}
     - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: task_deadlines_cancel_without_polling_or_starting_expired_work}
@@ -798,8 +798,8 @@
     - {kind: test, path: tests/documentation_layout.rs, symbol: frontier_research_docs_distinguish_implementation_from_roadmap}
     - {kind: test, path: tests/documentation_layout.rs, symbol: current_release_metadata_and_bilingual_notes_match_the_package}
     - {kind: test, path: tests/cli.rs, symbol: release_binary_version_matches_the_package_without_starting_services}
-    - {kind: test, path: tests/release_contract.rs, symbol: release_062_windows_packaging_stops_after_each_native_failure}
-    - {kind: test, path: tests/release_contract.rs, symbol: release_062_ci_installs_the_javascript_behavior_runtime}
+    - {kind: test, path: tests/release_contract.rs, symbol: release_windows_packaging_stops_after_each_native_failure}
+    - {kind: test, path: tests/release_contract.rs, symbol: release_ci_installs_the_javascript_behavior_runtime}
 
 - schema_version: 1
   id: AC-AGENT-CONTEXT-001
@@ -811,10 +811,10 @@
       path: tests/unit/runtime/harness.rs
       symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
     - kind: test
-      path: tests/unit/runtime/harness.rs
+      path: tests/unit/runtime/harness/context_discovery.rs
       symbol: agent_context_keeps_direct_sha_ahead_of_alphabetical_design_paths
     - kind: test
-      path: tests/unit/runtime/harness.rs
+      path: tests/unit/runtime/harness/context_discovery.rs
       symbol: agent_context_parallel_discovery_respects_the_runtime_slot_cap
     - kind: test
       path: tests/unit/runtime/harness/context_rank.rs

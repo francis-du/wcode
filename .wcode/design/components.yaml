@@ -16,7 +16,7 @@
       path: src/workspace/roots.rs
       symbol: Workspace::ensure_no_symlink_components
     - kind: symbol
-      path: src/workspace/mod.rs
+      path: src/workspace/edits.rs
       symbol: Workspace::replace_text
 
 - schema_version: 1
@@ -76,7 +76,7 @@
     - CONSTRAINT-BOUNDED-VERIFICATION
   implementation:
     - kind: symbol
-      path: src/runtime/harness/quality.rs
+      path: src/runtime/harness/quality/verification_run.rs
       symbol: ToolHarness::verify_project
     - kind: symbol
       path: src/runtime/harness/cost.rs
@@ -181,7 +181,7 @@
       path: src/runtime/harness/core.rs
       symbol: ToolHarness::semantic_navigation
     - kind: symbol
-      path: src/runtime/harness/agent_context.rs
+      path: src/runtime/harness/agent_readiness.rs
       symbol: query_needs_semantic_relationships
 
 - schema_version: 1
@@ -339,7 +339,7 @@
       path: src/ui/monitor/i18n.rs
       symbol: UiLanguage::tr
     - kind: symbol
-      path: src/runtime/harness/project.rs
+      path: src/runtime/harness/project/observatory.rs
       symbol: ToolHarness::project_observatory
     - kind: symbol
       path: src/intelligence/observatory.rs
@@ -430,10 +430,10 @@
     - component:authorization
   implementation:
     - kind: symbol
-      path: src/workspace/mod.rs
+      path: src/workspace/edits.rs
       symbol: Workspace::apply_edits
     - kind: symbol
-      path: src/workspace/mod.rs
+      path: src/workspace/edits.rs
       symbol: Workspace::create_files
     - kind: symbol
       path: src/workspace/mod.rs
@@ -713,7 +713,7 @@
       path: src/runtime/harness/agent_context.rs
       symbol: ToolHarness::agent_context
     - kind: symbol
-      path: src/runtime/harness/agent_context.rs
+      path: src/runtime/harness/agent_readiness.rs
       symbol: covered_repo_map_precision
     - kind: symbol
       path: src/runtime/harness/context_budget.rs
@@ -870,5 +870,5 @@
       path: src/runtime/harness/repo_map.rs
       symbol: ToolHarness::ranked_repo_map
     - kind: symbol
-      path: src/runtime/harness/quality.rs
+      path: src/runtime/harness/quality/verification_run.rs
       symbol: ToolHarness::verify_project

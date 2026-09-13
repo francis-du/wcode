@@ -217,25 +217,16 @@
   id: CONSTRAINT-SOURCE-DECOMPOSITION
   title: Source modules stay bounded
   statement: Maintained text files must stay at or below 1000 physical lines; generated lockfiles and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.
-  applies_to:
-    - component:convention-engine
-    - component:documentation-governance
 
 - schema_version: 1
   id: CONSTRAINT-TEST-ROOT
   title: Tests live in the repository test root
-  statement: Standalone automated tests belong under tests/, grouped by source domain. Source modules may attach those files for private unit coverage instead of accumulating large inline test modules.
-  applies_to:
-    - component:verification-harness
-    - component:convention-engine
+  statement: Standalone automated tests belong under the repository tests directory, grouped by the source domain. Source modules may attach those files for private unit coverage instead of accumulating large inline test modules.
 
 - schema_version: 1
   id: CONSTRAINT-DESIGN-SYNC
   title: Design references move with the code
   statement: Changes to responsibilities, source paths, test paths, trust boundaries or transport behavior must update the matching .wcode Design State in the same change.
-  applies_to:
-    - component:design-state
-    - component:traceability-drift
 
 - schema_version: 1
   id: CONSTRAINT-CLI-SURFACE

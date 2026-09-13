@@ -52,7 +52,7 @@ implementation:
     path: src/runtime/harness/quality.rs
     symbol: compact_verification_impact
   - kind: symbol
-    path: src/runtime/harness/project.rs
+    path: src/runtime/harness/project/observatory.rs
     symbol: ToolHarness::project_observatory
   - kind: symbol
     path: src/ui/intelligence_web/app/features.js
