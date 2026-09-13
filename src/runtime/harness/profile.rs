@@ -2,6 +2,27 @@ use super::*;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+#[path = "contracts.rs"]
+mod contracts;
+#[path = "islands.rs"]
+mod islands;
+pub(super) use contracts::contract_freshness_advisories;
+use contracts::{contract_config_paths, discover_contract_topology};
+use islands::{
+    attach_manifest_dependencies, discover_nested_project_islands, languages_for_project_types,
+    manifest_candidate_dirs, manifest_project_types,
+};
+pub(super) use islands::{
+    verification_checks_for_impact, verification_gaps_for_impact, verification_impact_for_snapshot,
+    ProjectIslandVerificationGap,
+};
+#[cfg(test)]
+pub(super) use islands::{verification_checks_for_snapshot, verification_gaps_for_snapshot};
+
+const MAX_PROFILE_ISLANDS: usize = 32;
+const MAX_PROFILE_SCAN_DEPTH: usize = 8;
+const MAX_PROFILE_SCAN_ENTRIES: usize = 10_000;
+
 impl ToolHarness {
     pub(super) fn load_project_profile(
         &self,
@@ -9,15 +30,18 @@ impl ToolHarness {
     ) -> Result<(Arc<ProjectProfile>, bool)> {
         let root = workspace.root().to_path_buf();
         let fingerprint = project_fingerprint(workspace);
-        if let Some(profile) = self
-            .project_cache
-            .lock()
-            .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?
-            .get(&root)
-            .filter(|cached| cached.fingerprint == fingerprint)
-            .map(|cached| cached.profile.clone())
         {
-            return Ok((profile, true));
+            let mut cache = self
+                .project_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
+            if let Some(cached) = cache
+                .get_mut(&root)
+                .filter(|cached| cached.fingerprint == fingerprint)
+            {
+                cached.last_used = Instant::now();
+                return Ok((cached.profile.clone(), true));
+            }
         }
 
         // Build outside the cache lock so context discovery for one workspace does not
@@ -27,16 +51,20 @@ impl ToolHarness {
             .project_cache
             .lock()
             .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
-        if let Some(profile) = cache
-            .get(&root)
+        if let Some(cached) = cache
+            .get_mut(&root)
             .filter(|cached| cached.fingerprint == fingerprint)
-            .map(|cached| cached.profile.clone())
         {
-            return Ok((profile, true));
+            cached.last_used = Instant::now();
+            return Ok((cached.profile.clone(), true));
         }
         let limit = crate::resource::limits().project_cache_limit();
         if cache.len() >= limit {
-            if let Some(oldest) = cache.keys().next().cloned() {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
+                .map(|(key, _)| key.clone())
+            {
                 cache.remove(&oldest);
             }
         }
@@ -44,6 +72,7 @@ impl ToolHarness {
             root,
             CachedProjectProfile {
                 fingerprint,
+                last_used: Instant::now(),
                 profile: built.clone(),
             },
         );
@@ -53,12 +82,12 @@ impl ToolHarness {
 
 fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
     let root = workspace.root();
-    let manifests = MANIFEST_FILES
+    let mut manifests = MANIFEST_FILES
         .iter()
         .filter(|path| root.join(path).is_file())
         .map(|path| (*path).to_owned())
         .collect::<Vec<_>>();
-    let mut project_types = BTreeSet::new();
+    let mut project_types = manifest_project_types(root);
     let mut checks = Vec::new();
 
     if root.join(".git").exists() {
@@ -72,11 +101,125 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
         );
     }
 
-    if root.join("Cargo.toml").is_file() {
-        project_types.insert("rust".to_owned());
+    let root_types = project_types.iter().cloned().collect::<Vec<_>>();
+    add_island_checks(root, &root_types, &mut checks);
+    let root_languages = languages_for_project_types(&root_types);
+    for check in checks
+        .iter_mut()
+        .filter(|check| check.id != "git-diff-check")
+    {
+        check.island = ".".to_owned();
+        check.languages = root_languages.clone();
+    }
+    let mut islands = Vec::new();
+    if !root_types.is_empty() {
+        islands.push(ProjectIsland {
+            id: ".".to_owned(),
+            root: ".".to_owned(),
+            project_types: root_types.clone(),
+            languages: root_languages,
+            manifests: manifests.clone(),
+            check_ids: checks
+                .iter()
+                .filter(|check| check.id != "git-diff-check")
+                .map(|check| check.id.clone())
+                .collect(),
+            dependencies: Vec::new(),
+            verification_status: "pending",
+            verification_gaps: Vec::new(),
+            provider: "manifest-discovery",
+            precision: "structural",
+        });
+    }
+
+    for mut island in discover_nested_project_islands(root, &root_types) {
+        let start = checks.len();
+        add_island_checks(
+            &island.absolute_root,
+            &island.descriptor.project_types,
+            &mut checks,
+        );
+        for check in &mut checks[start..] {
+            check.cwd = island.descriptor.root.clone();
+            check.island = island.descriptor.id.clone();
+            check.languages = island.descriptor.languages.clone();
+            check.id = format!("{}:{}", island.descriptor.id, check.id);
+        }
+        island.descriptor.check_ids = checks[start..]
+            .iter()
+            .map(|check| check.id.clone())
+            .collect();
+        project_types.extend(island.descriptor.project_types.iter().cloned());
+        manifests.extend(island.descriptor.manifests.iter().cloned());
+        islands.push(island.descriptor);
+    }
+
+    if project_types.is_empty() {
+        project_types.insert("generic".to_owned());
+        islands.push(ProjectIsland {
+            id: ".".to_owned(),
+            root: ".".to_owned(),
+            project_types: vec!["generic".to_owned()],
+            languages: Vec::new(),
+            manifests: Vec::new(),
+            check_ids: Vec::new(),
+            dependencies: Vec::new(),
+            verification_status: "unknown",
+            verification_gaps: Vec::new(),
+            provider: "manifest-discovery",
+            precision: "structural",
+        });
+    }
+
+    attach_manifest_dependencies(root, &mut islands);
+    let contracts = discover_contract_topology(root, &islands);
+    manifests.sort();
+    manifests.dedup();
+    deduplicate_checks(&mut checks);
+    let guidance = collect_guidance(workspace)?;
+    Ok(ProjectProfile {
+        root: root.display().to_string(),
+        project_types: project_types.into_iter().collect(),
+        manifests,
+        islands,
+        contracts,
+        guidance,
+        recommended_checks: checks,
+        workflow: vec![
+            "Start coding from agent_context(goal, scopes=...) and follow readiness/next_actions; retrieve broader Design State, Product Scope, and language-quality context only when the task needs it.".to_owned(),
+            "Read the returned repository guidance before substantial edits.".to_owned(),
+            "Use find_symbol/search_code for cheap localization; when readiness identifies syntax-only cross-file references, callers, implementations, rename impact, or equivalent relationships, use semantic_navigation and its warm provider session.".to_owned(),
+            "For broad architecture or ownership work, call scope_status and treat relevant unmapped supported source as architecture debt before adding production modules.".to_owned(),
+            "Use search_many and read_files to collect relevant implementation and tests in few round trips."
+                .to_owned(),
+            "Batch writes when targets are already known: use one apply_edits for multiple changes in a file, apply_file_edits for independent existing files, and create_files for independent new files instead of serial single-file tool calls."
+                .to_owned(),
+            "Decompose work into dependency lanes before execution. Run independent discovery, reads, reviews, and file-local edits concurrently through separate top-level tool calls when the host supports them; serialize only true dependencies. Use parallel_tools only for compact fan-out, not to wrap large nested argument payloads. Never treat worker consensus as deterministic proof.".to_owned(),
+            "In polyglot repositories, use manifest-owned project islands and their cwd-bound checks. Treat cross-language ownership as structural unless semantic/runtime evidence explicitly strengthens it.".to_owned(),
+            "Keep mandatory policy in deterministic Harness gates and Evidence rather than relying on an agent instruction to remember it.".to_owned(),
+            "Prefer the smallest coherent change that preserves existing architecture and public behavior."
+                .to_owned(),
+            "Read every edited file first and keep SHA-256 preconditions on writes.".to_owned(),
+            "Run verify_project with level=quick after edits; run level=full before release-sized changes."
+                .to_owned(),
+            "Report checks actually run, failures that remain, and any assumptions that were not verified."
+                .to_owned(),
+        ],
+        write_enabled: workspace.write_enabled(),
+        exec_enabled: workspace.exec_enabled(),
+    })
+}
+
+fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<CheckSpec>) {
+    let has_type = |name: &str| {
+        project_types
+            .iter()
+            .any(|project_type| project_type == name)
+    };
+    if has_type("rust") {
         let locked = root.join("Cargo.lock").is_file();
         push_check(
-            &mut checks,
+            checks,
             "rust-format",
             "quick",
             "cargo",
@@ -84,7 +227,7 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             "Verify Rust formatting without modifying files.",
         );
         push_cargo_check(
-            &mut checks,
+            checks,
             "rust-check",
             "quick",
             "check",
@@ -95,21 +238,21 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             root.join(".config/nextest.toml").is_file() || root.join("nextest.toml").is_file();
         let nextest_available = stage_executor::find_executable("cargo-nextest").is_some();
         if nextest_declared && nextest_available {
-            let mut nextest_args = vec!["nextest".to_owned(), "run".to_owned()];
+            let mut args = vec!["nextest".to_owned(), "run".to_owned()];
             if locked {
-                nextest_args.push("--locked".to_owned());
+                args.push("--locked".to_owned());
             }
             push_check_owned(
-                &mut checks,
+                checks,
                 "rust-nextest",
                 "full",
                 "cargo",
-                nextest_args,
+                args,
                 "Run the Rust test suite with cargo-nextest's parallel test runner.",
             );
         } else {
             push_cargo_check(
-                &mut checks,
+                checks,
                 "rust-test",
                 "full",
                 "test",
@@ -128,7 +271,7 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             "warnings".to_owned(),
         ]);
         push_check_owned(
-            &mut checks,
+            checks,
             "rust-clippy",
             "full",
             "cargo",
@@ -140,7 +283,7 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             release_args.push("--locked".to_owned());
         }
         push_check_owned(
-            &mut checks,
+            checks,
             "rust-release-build",
             "full",
             "cargo",
@@ -148,16 +291,12 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             "Build the optimized release binary with the locked dependency graph.",
         );
     }
-
-    if root.join("package.json").is_file() {
-        project_types.insert("node".to_owned());
-        add_node_checks(root, &mut checks);
+    if has_type("node") {
+        add_node_checks(root, checks);
     }
-
-    if root.join("pyproject.toml").is_file() || root.join("requirements.txt").is_file() {
-        project_types.insert("python".to_owned());
+    if has_type("python") {
         push_check(
-            &mut checks,
+            checks,
             "python-tests",
             "full",
             "pytest",
@@ -165,11 +304,17 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             "Run the Python test suite with concise output.",
         );
     }
-
-    if root.join("go.mod").is_file() {
-        project_types.insert("go".to_owned());
+    if has_type("go") {
         push_check(
-            &mut checks,
+            checks,
+            "go-vet",
+            "quick",
+            "go",
+            &["vet", "./..."],
+            "Run Go's static analysis across all packages.",
+        );
+        push_check(
+            checks,
             "go-tests",
             "full",
             "go",
@@ -177,46 +322,216 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
             "Compile and test all Go packages.",
         );
     }
-
-    if root.join("Makefile").is_file() {
-        project_types.insert("make".to_owned());
-        add_make_checks(root, &mut checks);
+    if has_type("java") {
+        if root.join("pom.xml").is_file() {
+            push_check(
+                checks,
+                "java-maven-compile",
+                "quick",
+                "mvn",
+                &["-q", "-DskipTests", "compile"],
+                "Compile the owning Maven island without running its test suite.",
+            );
+            push_check(
+                checks,
+                "java-maven-test",
+                "full",
+                "mvn",
+                &["test"],
+                "Run the Maven test lifecycle for the owning Java island.",
+            );
+        } else if root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file() {
+            push_check(
+                checks,
+                "java-gradle-classes",
+                "quick",
+                "gradle",
+                &["classes"],
+                "Compile the owning Gradle island without running its full verification lifecycle.",
+            );
+            push_check(
+                checks,
+                "java-gradle-check",
+                "full",
+                "gradle",
+                &["check"],
+                "Run the Gradle verification lifecycle for the owning Java island.",
+            );
+        }
     }
-
-    if project_types.is_empty() {
-        project_types.insert("generic".to_owned());
+    if has_type("swift") {
+        push_check(
+            checks,
+            "swift-build",
+            "quick",
+            "swift",
+            &["build"],
+            "Compile the owning Swift package.",
+        );
+        push_check(
+            checks,
+            "swift-test",
+            "full",
+            "swift",
+            &["test"],
+            "Build and test the owning Swift package.",
+        );
     }
-
-    deduplicate_checks(&mut checks);
-    let guidance = collect_guidance(workspace)?;
-    Ok(ProjectProfile {
-        root: root.display().to_string(),
-        project_types: project_types.into_iter().collect(),
-        manifests,
-        guidance,
-        recommended_checks: checks,
-        workflow: vec![
-            "Start coding from agent_context(goal, scopes=...) and follow readiness/next_actions; retrieve broader Design State, Product Scope, and language-quality context only when the task needs it.".to_owned(),
-            "Read the returned repository guidance before substantial edits.".to_owned(),
-            "Use find_symbol/search_code for cheap localization; when readiness identifies syntax-only cross-file references, callers, implementations, rename impact, or equivalent relationships, use semantic_navigation and its warm provider session.".to_owned(),
-            "For broad architecture or ownership work, call scope_status and treat relevant unmapped supported source as architecture debt before adding production modules.".to_owned(),
-            "Use search_many and read_files to collect relevant implementation and tests in few round trips."
-                .to_owned(),
-            "Batch writes when targets are already known: use one apply_edits for multiple changes in a file, apply_file_edits for independent existing files, and create_files for independent new files instead of serial single-file tool calls."
-                .to_owned(),
-            "Decompose work into dependency lanes before execution. Run independent discovery, reads, reviews, and file-local edits concurrently through separate top-level tool calls when the host supports it; serialize only true dependencies. Use parallel_tools only for compact fan-out, not to wrap large nested argument payloads. Never treat worker consensus as deterministic proof.".to_owned(),
-            "Keep mandatory policy in deterministic Harness gates and Evidence rather than relying on an agent instruction to remember it.".to_owned(),
-            "Prefer the smallest coherent change that preserves existing architecture and public behavior."
-                .to_owned(),
-            "Read every edited file first and keep SHA-256 preconditions on writes.".to_owned(),
-            "Run verify_project with level=quick after edits; run level=full before release-sized changes."
-                .to_owned(),
-            "Report checks actually run, failures that remain, and any assumptions that were not verified."
-                .to_owned(),
-        ],
-        write_enabled: workspace.write_enabled(),
-        exec_enabled: workspace.exec_enabled(),
-    })
+    if has_type("dart") {
+        push_check(
+            checks,
+            "dart-format",
+            "quick",
+            "dart",
+            &["format", "-o", "none", "--set-exit-if-changed", "."],
+            "Verify Dart formatting without modifying source.",
+        );
+        push_check(
+            checks,
+            "dart-analyze",
+            "quick",
+            "dart",
+            &["analyze"],
+            "Run Dart static analysis for the owning package.",
+        );
+        push_check(
+            checks,
+            "dart-test",
+            "full",
+            "dart",
+            &["test"],
+            "Run the Dart test suite for the owning package.",
+        );
+    }
+    if has_type("elixir") {
+        push_check(
+            checks,
+            "elixir-format",
+            "quick",
+            "mix",
+            &["format", "--check-formatted"],
+            "Verify Elixir formatting without modifying source.",
+        );
+        push_check(
+            checks,
+            "elixir-compile",
+            "quick",
+            "mix",
+            &["compile", "--warnings-as-errors"],
+            "Compile the owning Mix project and treat warnings as failures.",
+        );
+        push_check(
+            checks,
+            "elixir-test",
+            "full",
+            "mix",
+            &["test"],
+            "Run the Elixir test suite for the owning Mix project.",
+        );
+    }
+    if has_type("ocaml") {
+        push_check(
+            checks,
+            "ocaml-build",
+            "quick",
+            "dune",
+            &["build"],
+            "Build and type-check the owning Dune project.",
+        );
+        push_check(
+            checks,
+            "ocaml-test",
+            "full",
+            "dune",
+            &["runtest"],
+            "Run the Dune test aliases for the owning OCaml project.",
+        );
+    }
+    if has_type("php") {
+        let composer = read_small_text(&root.join("composer.json"))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if composer.contains("phpstan")
+            || root.join("phpstan.neon").is_file()
+            || root.join("phpstan.neon.dist").is_file()
+        {
+            push_check_owned(
+                checks,
+                "php-phpstan",
+                "quick",
+                &php_quality_program(root, "phpstan"),
+                vec!["analyse".into(), "--error-format=json".into()],
+                "Run the repository-declared PHPStan static-analysis gate.",
+            );
+        }
+        if composer.contains("psalm") || root.join("psalm.xml").is_file() {
+            push_check_owned(
+                checks,
+                "php-psalm",
+                "quick",
+                &php_quality_program(root, "psalm"),
+                vec!["--output-format=json".into()],
+                "Run the repository-declared Psalm static-analysis gate.",
+            );
+        }
+        if composer.contains("php-cs-fixer")
+            || root.join(".php-cs-fixer.php").is_file()
+            || root.join(".php-cs-fixer.dist.php").is_file()
+        {
+            push_check_owned(
+                checks,
+                "php-format",
+                "quick",
+                &php_quality_program(root, "php-cs-fixer"),
+                vec!["fix".into(), "--dry-run".into(), "--diff".into()],
+                "Verify PHP CS Fixer output without modifying source.",
+            );
+        }
+        if composer.contains("phpunit")
+            || root.join("phpunit.xml").is_file()
+            || root.join("phpunit.xml.dist").is_file()
+        {
+            push_check_owned(
+                checks,
+                "php-phpunit",
+                "full",
+                &php_quality_program(root, "phpunit"),
+                Vec::new(),
+                "Run the repository-declared PHPUnit suite.",
+            );
+        }
+    }
+    if has_type("ruby") {
+        let gemfile = read_small_text(&root.join("Gemfile"))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if gemfile.contains("rubocop")
+            || root.join(".rubocop.yml").is_file()
+            || root.join(".rubocop.yaml").is_file()
+        {
+            push_check(
+                checks,
+                "ruby-rubocop",
+                "quick",
+                "bundle",
+                &["exec", "rubocop", "--format", "json"],
+                "Run the repository-declared RuboCop lint gate without source mutation.",
+            );
+        }
+        if gemfile.contains("rspec") || root.join("spec").is_dir() {
+            push_check(
+                checks,
+                "ruby-rspec",
+                "full",
+                "bundle",
+                &["exec", "rspec"],
+                "Run the repository-declared RSpec test suite.",
+            );
+        }
+    }
+    if has_type("make") {
+        add_make_checks(root, checks);
+    }
 }
 
 fn collect_guidance(workspace: &Workspace) -> Result<Vec<GuidanceDocument>> {
@@ -346,6 +661,15 @@ fn add_make_checks(root: &Path, checks: &mut Vec<CheckSpec>) {
     }
 }
 
+fn php_quality_program(root: &Path, name: &str) -> String {
+    let relative = format!("vendor/bin/{name}");
+    if root.join(&relative).is_file() {
+        relative
+    } else {
+        name.to_owned()
+    }
+}
+
 fn read_small_text(path: &Path) -> Option<String> {
     let metadata = fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > MAX_PROFILE_SOURCE_BYTES {
@@ -414,13 +738,18 @@ fn push_check_owned(
         phase: verification_phase(id),
         program: program.to_owned(),
         args,
+        cwd: ".".to_owned(),
+        island: "workspace".to_owned(),
+        languages: Vec::new(),
         reason: reason.to_owned(),
     });
 }
 
 fn deduplicate_checks(checks: &mut Vec<CheckSpec>) {
     let mut seen = HashSet::new();
-    checks.retain(|check| seen.insert((check.program.clone(), check.args.clone())));
+    checks.retain(|check| {
+        seen.insert((check.cwd.clone(), check.program.clone(), check.args.clone()))
+    });
     sort_checks(checks);
 }
 
@@ -430,18 +759,46 @@ fn project_fingerprint(workspace: &Workspace) -> u64 {
     root.hash(&mut hasher);
     workspace.write_enabled().hash(&mut hasher);
     workspace.exec_enabled().hash(&mut hasher);
-    for relative in PROFILE_FILES {
-        relative.hash(&mut hasher);
-        let path = root.join(relative);
+    hash_profile_directory(root, root, &mut hasher);
+    for directory in manifest_candidate_dirs(root) {
+        hash_profile_directory(root, &directory, &mut hasher);
+    }
+    for path in contract_config_paths(root) {
+        hash_profile_path(root, &path, &mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_profile_path(root: &Path, path: &Path, hasher: &mut DefaultHasher) {
+    path.strip_prefix(root).unwrap_or(path).hash(hasher);
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        metadata.len().hash(hasher);
+        metadata.is_file().hash(hasher);
+        metadata.file_type().is_symlink().hash(hasher);
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                duration.as_nanos().hash(hasher);
+            }
+        }
+    }
+}
+
+fn hash_profile_directory(root: &Path, directory: &Path, hasher: &mut DefaultHasher) {
+    directory
+        .strip_prefix(root)
+        .unwrap_or(directory)
+        .hash(hasher);
+    for relative in PROFILE_FILES.iter().chain(MANIFEST_FILES.iter()).copied() {
+        relative.hash(hasher);
+        let path = directory.join(relative);
         if let Ok(metadata) = fs::metadata(path) {
-            metadata.len().hash(&mut hasher);
-            metadata.is_file().hash(&mut hasher);
+            metadata.len().hash(hasher);
+            metadata.is_file().hash(hasher);
             if let Ok(modified) = metadata.modified() {
                 if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                    duration.as_nanos().hash(&mut hasher);
+                    duration.as_nanos().hash(hasher);
                 }
             }
         }
     }
-    hasher.finish()
 }

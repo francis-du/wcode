@@ -1,5 +1,42 @@
 use super::*;
 
+impl ToolHarness {
+    pub(super) fn software_graph_from_design(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+        load: &design::DesignLoad,
+    ) -> Result<SoftwareGraphSnapshot> {
+        let mut snapshot = self.code_index.software_graph(
+            workspace_id,
+            workspace,
+            path,
+            max_files,
+            max_symbols,
+        )?;
+        let mut composite = false;
+        if load.initialized {
+            overlay_design_graph(&mut snapshot, &load.state, &self.code_index, workspace)?;
+            composite = true;
+        }
+        if graph_provider_store::overlay_latest(workspace, &mut snapshot)? > 0 {
+            composite = true;
+        }
+        if composite {
+            snapshot.provider = "wcode-composite".to_owned();
+            snapshot.precision = GraphPrecision::Mixed;
+        }
+        snapshot.node_count = snapshot.graph.nodes.len();
+        snapshot.edge_count = snapshot.graph.edges.len();
+        snapshot.graph.validate()?;
+        graph_store::persist(workspace, &snapshot)?;
+        Ok(snapshot)
+    }
+}
+
 pub(super) fn design_product_id(name: &str) -> String {
     let mut slug = name
         .chars()

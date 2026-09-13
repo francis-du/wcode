@@ -53,6 +53,7 @@ pub(super) struct SemanticSession {
 
 struct SyncedDocument {
     sha256: String,
+    uri: String,
     version: i64,
     // Full source text already lives in the provider. A full-document
     // incremental replacement only needs the previous encoded end position.
@@ -204,25 +205,25 @@ impl SemanticSessionPool {
             .lock()
             .expect("semantic session pool lock poisoned");
         prune_slots(&mut state, now);
-        let slots = state
+        let mut sessions = 0usize;
+        let mut documents = 0usize;
+        let mut starts = 0u64;
+        let mut requests = 0u64;
+        for slot in state
             .slots
             .values()
             .filter(|slot| root.is_none_or(|root| slot.workspace == root))
-            .collect::<Vec<_>>();
+        {
+            sessions = sessions.saturating_add(1);
+            documents = documents.saturating_add(slot.metrics.documents.load(Ordering::Relaxed));
+            starts = starts.saturating_add(slot.metrics.starts.load(Ordering::Relaxed));
+            requests = requests.saturating_add(slot.metrics.requests.load(Ordering::Relaxed));
+        }
         SemanticSessionPoolStatus {
-            sessions: slots.len(),
-            documents: slots
-                .iter()
-                .map(|slot| slot.metrics.documents.load(Ordering::Relaxed))
-                .sum(),
-            starts: slots
-                .iter()
-                .map(|slot| slot.metrics.starts.load(Ordering::Relaxed))
-                .sum(),
-            requests: slots
-                .iter()
-                .map(|slot| slot.metrics.requests.load(Ordering::Relaxed))
-                .sum(),
+            sessions,
+            documents,
+            starts,
+            requests,
             max_sessions: session_limit(),
             idle_timeout_seconds: SESSION_IDLE_MS / 1_000,
         }
@@ -329,94 +330,90 @@ impl SemanticSession {
         source: &SourceDocument,
         language: SemanticLanguage,
     ) -> Result<(String, DocumentSyncState)> {
-        let uri = Url::from_file_path(workspace.root().join(&source.path))
-            .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
-            .to_string();
-        let state = match self.documents.get(&source.path) {
-            Some(document) if document.sha256 == source.sha256 => DocumentSyncState::Current,
-            Some(document) => {
-                let version = document.version.saturating_add(1);
-                let sync_state = match self.document_sync.change {
-                    TextDocumentSyncMode::None => DocumentSyncState::ServerReadsDisk,
-                    TextDocumentSyncMode::Full => {
-                        self.notify(
-                            "textDocument/didChange",
-                            json!({
-                                "textDocument": {"uri": uri, "version": version},
-                                "contentChanges": [{"text": source.content}]
-                            }),
-                        )
-                        .await?;
-                        DocumentSyncState::Changed
-                    }
-                    TextDocumentSyncMode::Incremental => {
-                        let end = document.end_position.clone();
-                        self.notify(
-                            "textDocument/didChange",
-                            json!({
-                                "textDocument": {"uri": uri, "version": version},
-                                "contentChanges": [{
-                                    "range": {"start":{"line":0,"character":0},"end":end},
-                                    "text": source.content
-                                }]
-                            }),
-                        )
-                        .await?;
-                        DocumentSyncState::Changed
-                    }
-                };
-                if let Some(document) = self.documents.get_mut(&source.path) {
-                    document.version = version;
-                    document.sha256 = source.sha256.clone();
-                    document.end_position =
-                        document_end_position(&source.content, &self.position_encoding);
-                }
-                sync_state
+        if let Some(document) = self.documents.get(&source.path) {
+            if document.sha256 == source.sha256 {
+                let uri = document.uri.clone();
+                self.metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
+                return Ok((uri, DocumentSyncState::Current));
             }
-            None => {
-                let sync_state = if self.document_sync.open_close {
+            let uri = document.uri.clone();
+            let version = document.version.saturating_add(1);
+            let end = document.end_position.clone();
+            let sync_state = match self.document_sync.change {
+                TextDocumentSyncMode::None => DocumentSyncState::ServerReadsDisk,
+                TextDocumentSyncMode::Full => {
                     self.notify(
-                        "textDocument/didOpen",
+                        "textDocument/didChange",
                         json!({
-                            "textDocument": {
-                                "uri": uri,
-                                "languageId": language.lsp_language_id(),
-                                "version": 1,
-                                "text": source.content,
-                            }
+                            "textDocument": {"uri": uri, "version": version},
+                            "contentChanges": [{"text": source.content}]
                         }),
                     )
                     .await?;
-                    DocumentSyncState::Opened
-                } else {
-                    DocumentSyncState::ServerReadsDisk
-                };
-                self.documents.insert(
-                    source.path.clone(),
-                    SyncedDocument {
-                        sha256: source.sha256.clone(),
-                        version: 1,
-                        end_position: document_end_position(
-                            &source.content,
-                            &self.position_encoding,
-                        ),
-                    },
-                );
-                self.metrics
-                    .documents
-                    .store(self.documents.len(), Ordering::Relaxed);
-                sync_state
+                    DocumentSyncState::Changed
+                }
+                TextDocumentSyncMode::Incremental => {
+                    self.notify(
+                        "textDocument/didChange",
+                        json!({
+                            "textDocument": {"uri": uri, "version": version},
+                            "contentChanges": [{
+                                "range": {"start":{"line":0,"character":0},"end":end},
+                                "text": source.content
+                            }]
+                        }),
+                    )
+                    .await?;
+                    DocumentSyncState::Changed
+                }
+            };
+            if let Some(document) = self.documents.get_mut(&source.path) {
+                document.version = version;
+                document.sha256 = source.sha256.clone();
+                document.end_position =
+                    document_end_position(&source.content, &self.position_encoding);
             }
+            self.metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
+            return Ok((uri, sync_state));
+        }
+
+        let uri = Url::from_file_path(workspace.root().join(&source.path))
+            .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
+            .to_string();
+        let sync_state = if self.document_sync.open_close {
+            self.notify(
+                "textDocument/didOpen",
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": language.lsp_language_id(),
+                        "version": 1,
+                        "text": source.content,
+                    }
+                }),
+            )
+            .await?;
+            DocumentSyncState::Opened
+        } else {
+            DocumentSyncState::ServerReadsDisk
         };
+        self.documents.insert(
+            source.path.clone(),
+            SyncedDocument {
+                sha256: source.sha256.clone(),
+                uri: uri.clone(),
+                version: 1,
+                end_position: document_end_position(&source.content, &self.position_encoding),
+            },
+        );
+        self.metrics
+            .documents
+            .store(self.documents.len(), Ordering::Relaxed);
         self.metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
-        Ok((uri, state))
+        Ok((uri, sync_state))
     }
 
-    pub(super) async fn retain_documents(
-        &mut self,
-        workspace: &Workspace,
-        keep: &BTreeSet<String>,
-    ) -> Result<()> {
+    pub(super) async fn retain_documents(&mut self, keep: &BTreeSet<String>) -> Result<()> {
         let stale = self
             .documents
             .keys()
@@ -425,9 +422,11 @@ impl SemanticSession {
             .collect::<Vec<_>>();
         for path in stale {
             if self.document_sync.open_close {
-                let uri = Url::from_file_path(workspace.root().join(&path))
-                    .map_err(|_| anyhow!("source path could not be converted to a file URI"))?
-                    .to_string();
+                let uri = self
+                    .documents
+                    .get(&path)
+                    .map(|document| document.uri.clone())
+                    .ok_or_else(|| anyhow!("tracked LSP document disappeared before close"))?;
                 self.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))
                     .await?;
             }

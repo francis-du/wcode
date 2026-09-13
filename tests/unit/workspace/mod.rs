@@ -2,42 +2,8 @@ use super::*;
 
 #[path = "access.rs"]
 mod access;
-#[test]
-fn blocks_path_traversal_and_stale_writes() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("demo.txt"), "hello world\n").unwrap();
-    let workspace = Workspace::new(dir.path(), true, false).unwrap();
-    assert!(workspace.read_file("../secret", 1, None).is_err());
-    assert!(workspace
-        .replace_text("demo.txt", "hello", "hi", "bad-hash")
-        .is_err());
-    let view = workspace.read_file("demo.txt", 1, None).unwrap();
-    workspace
-        .replace_text("demo.txt", "hello", "hi", &view.sha256)
-        .unwrap();
-    assert_eq!(
-        fs::read_to_string(dir.path().join("demo.txt")).unwrap(),
-        "hi world\n"
-    );
-}
-#[test]
-fn write_lock_registry_prunes_inactive_paths() {
-    let dir = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(dir.path(), true, false).unwrap();
-    let first_path = dir.path().join("first.txt");
-    let second_path = dir.path().join("second.txt");
-
-    let first = workspace.write_lock_for(&first_path).unwrap();
-    assert_eq!(workspace.write_locks.lock().unwrap().len(), 1);
-    drop(first);
-
-    let second = workspace.write_lock_for(&second_path).unwrap();
-    let locks = workspace.write_locks.lock().unwrap();
-    assert_eq!(locks.len(), 1);
-    assert!(locks.contains_key(&second_path));
-    drop(locks);
-    drop(second);
-}
+#[path = "files.rs"]
+mod files;
 #[test]
 fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
     let dir = tempfile::tempdir().unwrap();
@@ -500,7 +466,7 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
         safe,
     )
     .is_err());
-    assert!(validate_command_policy("cargo", &["fmt".to_owned()], safe).is_err());
+    assert!(validate_command_policy("cargo", &["fmt".to_owned()], safe).is_ok());
     assert!(
         validate_command_policy("cargo", &["fmt".to_owned(), "--check".to_owned()], safe,).is_ok()
     );
@@ -509,10 +475,10 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
         validate_command_policy("cargo", &["check".to_owned(), "--locked".to_owned()], safe,)
             .is_ok()
     );
-    assert!(validate_command_policy("cargo", &["test".to_owned()], safe).is_err());
+    assert!(validate_command_policy("cargo", &["test".to_owned()], safe).is_ok());
     assert!(
         validate_command_policy("cargo", &["test".to_owned(), "--locked".to_owned()], safe,)
-            .is_err()
+            .is_ok()
     );
     assert!(validate_command_policy(
         "cargo",
@@ -535,14 +501,14 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
         ],
         safe,
     )
-    .is_err());
+    .is_ok());
     assert!(validate_command_policy(
         "cargo",
         &["check".to_owned(), "--workspace".to_owned()],
         safe,
     )
-    .is_err());
-    assert!(validate_command_policy("cargo", &["metadata".to_owned()], safe).is_err());
+    .is_ok());
+    assert!(validate_command_policy("cargo", &["metadata".to_owned()], safe).is_ok());
     assert!(validate_command_policy(
         "cargo",
         &[
@@ -603,7 +569,7 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
     assert!(validate_command_policy("npm", &["list".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("cargo", &["run".to_owned()], safe).is_err());
     assert!(validate_command_policy("cargo", &["run".to_owned()], trusted).is_ok());
-    assert!(validate_command_policy("npm", &["install".to_owned()], safe).is_err());
+    assert!(validate_command_policy("npm", &["install".to_owned()], safe).is_ok());
     assert!(validate_command_policy("npm", &["install".to_owned()], trusted).is_ok());
     for (program, arguments) in [
         ("cargo", vec!["publish".to_owned()]),

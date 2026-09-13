@@ -57,6 +57,47 @@ async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_fil
     assert_ne!(first.fingerprint, second.fingerprint);
 }
 
+#[tokio::test]
+async fn observatory_revision_signal_uses_metadata_without_git_or_execution() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+
+    let first = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert!(first.fingerprint.is_some());
+    assert!(!first.truncated);
+    assert!(!first.full_refresh_required);
+
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u16 { 1000 }\n",
+    )
+    .unwrap();
+    let second = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert_ne!(first.fingerprint, second.fingerprint);
+    assert!(!second.full_refresh_required);
+
+    fs::write(root.path().join("src/new.rs"), "pub fn added() {}\n").unwrap();
+    let third = harness
+        .observatory_revision_signal(&workspace)
+        .await
+        .unwrap();
+    assert_ne!(second.fingerprint, third.fingerprint);
+    assert!(!third.full_refresh_required);
+}
+
 #[test]
 fn product_scope_status_maps_source_domains_and_surfaces_unmapped_files() {
     let root = tempfile::tempdir().unwrap();
@@ -203,12 +244,44 @@ mod tests {
     assert_eq!(project.convergence.stable_requirements, 1);
     assert_eq!(project.convergence.needs_convergence_requirements, 0);
     assert_eq!(project.proof.current_evidence, 0);
+    assert_eq!(project.adaptive_verification.mode, "static");
+    assert_eq!(
+        project.adaptive_verification.fallback_reason.as_deref(),
+        Some("review_unavailable")
+    );
+    assert!(project.adaptive_verification.full_coverage_unchanged);
+    assert!(project.verified_learning.available);
+    assert_eq!(project.verified_learning.records, 0);
+    assert_eq!(
+        project.verified_learning.evaluation_method,
+        "global-temporal-ab-v2"
+    );
+    assert_eq!(
+        project.verified_learning.retrieval_model,
+        "verified-context-cochange-v3"
+    );
+    assert_eq!(project.verified_learning.baseline_model, "raw-count-v1");
+    assert_eq!(project.verified_learning.retrieval_precision, "heuristic");
+    assert!(!project.verified_learning.stores_prompts_or_chain_of_thought);
     assert_eq!(project.proof.acceptance.total, 1);
     assert_eq!(project.proof.acceptance.mapped, 1);
     assert_eq!(project.proof.acceptance.executed, 0);
     assert_eq!(project.proof.acceptance.passed, 0);
     assert_eq!(project.proof.acceptance.fresh, 0);
     assert_eq!(project.architecture.components.len(), 2);
+    assert_eq!(project.architecture.subsystems.len(), 1);
+    let subsystem = &project.architecture.subsystems[0];
+    assert_eq!(subsystem.id, "runtime");
+    assert_eq!(subsystem.components, 2);
+    assert_eq!(subsystem.requirements, 1);
+    assert_eq!(subsystem.implementation_files, 1);
+    assert_eq!(subsystem.changed_components, 0);
+    assert!(subsystem.depends_on.is_empty());
+    assert!(subsystem.depended_on_by.is_empty());
+    assert!(subsystem.designed_depends_on.is_empty());
+    assert!(subsystem.observed_depends_on.is_empty());
+    assert!(subsystem.unobserved_designed_depends_on.is_empty());
+    assert!(subsystem.undeclared_observed_depends_on.is_empty());
     assert_eq!(project.architecture.desired_edges, 1);
     assert_eq!(project.architecture.aligned_edges, 1);
     assert_eq!(project.architecture.blocking_drift_edges, 0);
@@ -230,6 +303,94 @@ mod tests {
             && dependency.status == "aligned"
     }));
 
+    let review = ChangeReviewReport {
+        workspace: "demo".into(),
+        execution: "fixture".into(),
+        clean: false,
+        files_changed: 1,
+        staged_files: 0,
+        unstaged_files: 1,
+        untracked_files: 0,
+        additions: 1,
+        deletions: 0,
+        binary_files: 0,
+        source_changed: true,
+        tests_changed: false,
+        docs_only: false,
+        risk_level: "moderate".into(),
+        recommended_verification: "full".into(),
+        recommended_checks: Vec::new(),
+        summary: "fixture review".into(),
+        files: vec![ChangedFileReview {
+            path: "src/lib.rs".into(),
+            status: "modified".into(),
+            staged: false,
+            unstaged: true,
+            untracked: false,
+            category: "source".into(),
+            additions: Some(1),
+            deletions: Some(0),
+            binary: false,
+            risk_reasons: Vec::new(),
+        }],
+        findings: Vec::new(),
+        probes: vec![ReviewProbeSummary {
+            id: "status".into(),
+            success: true,
+            elapsed_ms: 1,
+            queue_wait_ms: 0,
+            execution_ms: 1,
+            error: None,
+        }],
+        truncated: false,
+    };
+    crate::design::LOAD_DESIGN_CALLS.with(|count| count.set(0));
+    crate::stage_executor::REGISTRY_CALLS.with(|count| count.set(0));
+    let reviewed = harness
+        .project_observatory("demo", &workspace, Some(&review))
+        .unwrap();
+    assert_eq!(
+        crate::design::LOAD_DESIGN_CALLS.with(|count| count.get()),
+        0,
+        "a warm Observatory snapshot should reuse the already-loaded Design State"
+    );
+    assert_eq!(
+        crate::stage_executor::REGISTRY_CALLS.with(|count| count.get()),
+        0,
+        "a warm Observatory snapshot should reuse the already-discovered advanced executor registry"
+    );
+    harness.design_status("demo", &workspace).unwrap();
+    assert_eq!(
+        crate::design::LOAD_DESIGN_CALLS.with(|count| count.get()),
+        0,
+        "unchanged Design State should continue to reuse the warm runtime cache"
+    );
+    let project_path = workspace.root().join(crate::design::PROJECT_FILE);
+    let mut project = std::fs::read_to_string(&project_path).unwrap();
+    project.push('\n');
+    std::fs::write(&project_path, project).unwrap();
+    harness.design_status("demo", &workspace).unwrap();
+    assert_eq!(
+        crate::design::LOAD_DESIGN_CALLS.with(|count| count.get()),
+        1,
+        "Design cache must invalidate exactly once when external file metadata changes"
+    );
+    assert_eq!(
+        reviewed.impact.as_ref().unwrap().risk_level,
+        reviewed.risk.as_ref().unwrap().level,
+        "impact must reuse the risk level from the same Observatory snapshot"
+    );
+    let verification_impact = reviewed.verification_impact.as_ref().unwrap();
+    assert!(verification_impact.selective);
+    assert_eq!(verification_impact.affected_islands, vec!["."]);
+    assert!(verification_impact.reasons.iter().any(|reason| {
+        reason.kind == "direct_change"
+            && reason.source == "src/lib.rs"
+            && reason.relationship == "manifest_ownership"
+            && reason.provider == "manifest-discovery"
+            && reason.precision == "structural"
+    }));
+
     harness
         .intelligence
         .record_verification_report(
@@ -243,18 +404,24 @@ mod tests {
                 phases_run: 1,
                 passed: true,
                 checks_run: 1,
+                checks_reused: 0,
                 checks_failed: 0,
                 skipped_checks: Vec::new(),
                 elapsed_ms: 1,
                 summary: "fixture passed".into(),
+                impact: None,
+                cost_model: None,
                 checks: vec![crate::harness::VerificationCheck {
                     id: "rust-test".into(),
                     phase: 0,
                     command: "cargo test --locked".into(),
                     reason: "fixture".into(),
                     success: true,
+                    reused: false,
                     exit_code: Some(0),
                     elapsed_ms: 1,
+                    queue_wait_ms: 0,
+                    execution_ms: 1,
                     stdout_tail: String::new(),
                     stderr_tail: String::new(),
                     output_truncated: false,

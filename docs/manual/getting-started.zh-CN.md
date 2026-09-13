@@ -135,8 +135,8 @@ TUI 主屏优先展示连接状态和 Subspace 活动，移除了重复的 OVERV
 较矮终端使用紧凑顶栏；仅在有近期流量且空间充足时显示 30 秒吞吐。
 常用快捷键：
 
-- `I`：打开 Intelligence 视图。
-- `W`：打开当前 Workspace 的受保护 Project Observatory。
+- `I`：打开仓库理解视图。
+- `W`：打开当前 Workspace 的受保护 Engineering Observatory。
 - `O`：重新打开 Setup Hub。
 - `L`：手动切换界面语言。
 - `+`：添加 Workspace。

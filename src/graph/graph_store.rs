@@ -15,6 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_GRAPH_SNAPSHOTS: usize = 64;
 const MAX_GRAPH_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
 
+#[cfg(test)]
+thread_local! {
+    static READ_SNAPSHOT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StoredGraphSnapshot {
     pub id: String,
@@ -138,7 +143,15 @@ pub(crate) fn persist(
     let directory = graph_directory(workspace)?;
     fs::create_dir_all(&directory)
         .with_context(|| format!("cannot create graph history store {}", directory.display()))?;
+    let existing_suffix = format!("-{}.json", stored.id);
     for existing_path in graph_paths(&directory)?.into_iter().rev() {
+        let matches_id = existing_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(&existing_suffix));
+        if !matches_id {
+            continue;
+        }
         if let Some(existing) = read_snapshot(&existing_path)? {
             if existing.id == stored.id {
                 return Ok(existing);
@@ -579,6 +592,8 @@ fn graph_paths(directory: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
+    #[cfg(test)]
+    READ_SNAPSHOT_CALLS.with(|count| count.set(count.get() + 1));
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(None),

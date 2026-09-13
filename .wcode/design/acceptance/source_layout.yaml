@@ -1,0 +1,14 @@
+schema_version: 1
+id: AC-SOURCE-LAYOUT-001
+title: Source and tests stay in bounded domain trees
+statement: A repository-level gate rejects Rust files over 1000 lines and inline source test bodies, while design initialization writes the matching fixed constraints.
+verification:
+  - {kind: test, path: tests/source_layout.rs, symbol: rust_files_remain_bounded}
+  - {kind: test, path: tests/source_layout.rs, symbol: maintained_text_files_remain_bounded}
+  - {kind: test, path: tests/source_layout.rs, symbol: repository_file_names_remain_concise}
+  - {kind: test, path: tests/source_layout.rs, symbol: rust_file_names_remain_concise}
+  - {kind: test, path: tests/source_layout.rs, symbol: source_modules_attach_tests_from_the_root_test_tree}
+  - {kind: test, path: tests/source_layout.rs, symbol: rust_sources_parse_without_errors}
+  - kind: test
+    path: tests/unit/runtime/harness.rs
+    symbol: design_init_bootstraps_minimal_valid_state_without_overwrite

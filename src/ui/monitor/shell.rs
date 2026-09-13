@@ -85,7 +85,14 @@ fn render_dashboard_body(
     };
     // Outer and inner card borders consume four rows; reserve actual task rows too.
     let minimum_activity_height = 6;
-    let fixed_height = header_height + setup_height + minimum_activity_height + 2;
+    let base_fixed_height = header_height + setup_height + minimum_activity_height + 2;
+    let engineering_pulse_height =
+        if !compact && !dense && area.height >= base_fixed_height.saturating_add(6) {
+            5
+        } else {
+            0
+        };
+    let fixed_height = base_fixed_height.saturating_add(engineering_pulse_height);
 
     if area.width < 40 || area.height < fixed_height {
         render_too_small(frame, area, config, ui.language);
@@ -102,6 +109,9 @@ fn render_dashboard_body(
     let mut constraints = vec![Constraint::Length(header_height)];
     if setup_height > 0 {
         constraints.push(Constraint::Length(setup_height));
+    }
+    if engineering_pulse_height > 0 {
+        constraints.push(Constraint::Length(engineering_pulse_height));
     }
     constraints.push(Constraint::Min(minimum_activity_height));
     if throughput_height > 0 {
@@ -128,6 +138,17 @@ fn render_dashboard_body(
         render_setup(frame, rows[row], snapshot, config, compact, ui.language);
         row += 1;
     }
+    if engineering_pulse_height > 0 {
+        render_engineering_pulse(
+            frame,
+            rows[row],
+            snapshot,
+            config,
+            ui.workspace_focus,
+            ui.language,
+        );
+        row += 1;
+    }
     render_workspace_activity(frame, rows[row], snapshot, config, tick, ui);
     row += 1;
     if throughput_height > 0 {
@@ -135,6 +156,150 @@ fn render_dashboard_body(
         row += 1;
     }
     render_footer(frame, rows[row], config, ui.language);
+}
+
+fn render_engineering_pulse(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    snapshot: &MonitorSnapshot,
+    config: &MonitorConfig,
+    focus: usize,
+    language: UiLanguage,
+) {
+    let workspace_id =
+        focused_workspace_id(config, focus).unwrap_or_else(|| "workspace".to_owned());
+    let stats = snapshot.intelligence.get(&workspace_id);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(OUTLINE))
+        .style(Style::default().bg(SURFACE))
+        .padding(Padding::horizontal(1))
+        .title(Line::from(vec![
+            Span::styled(
+                format!(" {} ", language.tr("ENGINEERING PULSE")),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" {workspace_id} "), Style::default().fg(TEXT)),
+        ]))
+        .title(
+            Line::from(Span::styled(
+                format!(" {} ", language.tr("engineering console")),
+                Style::default().fg(TEXT_DIM),
+            ))
+            .right_aligned(),
+        );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let Some(stats) = stats.filter(|stats| stats.updated_at.is_some()) else {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(Span::styled(
+                    language.tr("Loading project engineering model…"),
+                    Style::default().fg(TEXT_MUTED),
+                )),
+                Line::from(Span::styled(
+                    language.tr("Runtime activity stays live while architecture evidence loads."),
+                    Style::default().fg(TEXT_DIM),
+                )),
+            ]),
+            inner,
+        );
+        return;
+    };
+
+    let design_ok = stats.design_state.as_deref() == Some("valid");
+    let architecture = format!(
+        "{} · impl {} · refs {}",
+        stats.design_state.as_deref().unwrap_or("unknown"),
+        stats
+            .implementation_coverage
+            .map(|value| format!("{value}%"))
+            .unwrap_or_else(|| "—".to_owned()),
+        stats
+            .verification_coverage
+            .map(|value| format!("{value}%"))
+            .unwrap_or_else(|| "—".to_owned())
+    );
+    let drift = format!(
+        "{} · {} drift",
+        stats.risk_level.as_deref().unwrap_or("unassessed"),
+        stats.drift_findings
+    );
+    let proof = format!(
+        "{} · {} failed · {} disagreed",
+        stats
+            .verification_ready
+            .map(|ready| if ready { "ready" } else { "blocked" })
+            .unwrap_or("unplanned"),
+        stats.evidence_failed,
+        stats.evidence_disagreed
+    );
+    let model = format!(
+        "{} · {} nodes / {} edges",
+        stats.graph_precision.as_deref().unwrap_or("syntax"),
+        stats.graph_nodes,
+        stats.graph_edges
+    );
+    let line_width = inner.width.saturating_sub(1) as usize;
+    let first = format!(
+        "{}  {}    {}  {}",
+        language.tr("ARCH"),
+        architecture,
+        language.tr("DRIFT"),
+        drift
+    );
+    let second = format!(
+        "{}  {}    {}  {}",
+        language.tr("PROOF"),
+        proof,
+        language.tr("MODEL"),
+        model
+    );
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                truncate_end(&first, line_width),
+                Style::default().fg(if design_ok { TEXT_MUTED } else { WARNING }),
+            )),
+            Line::from(Span::styled(
+                truncate_end(&second, line_width),
+                Style::default().fg(if stats.evidence_failed > 0 {
+                    DANGER
+                } else {
+                    TEXT_MUTED
+                }),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    format!("{}  ", language.tr("POLICY")),
+                    Style::default().fg(TEXT_DIM),
+                ),
+                Span::styled(
+                    format!(
+                        "{} errors · {} warnings",
+                        stats.policy_errors, stats.policy_warnings
+                    ),
+                    Style::default().fg(if stats.policy_errors > 0 {
+                        DANGER
+                    } else if stats.policy_warnings > 0 {
+                        WARNING
+                    } else {
+                        SUCCESS
+                    }),
+                ),
+                Span::styled(
+                    format!(
+                        "    {} · {}",
+                        language.tr("updated"),
+                        last_seen_text(stats.updated_at)
+                    ),
+                    Style::default().fg(TEXT_DIM),
+                ),
+            ]),
+        ]),
+        inner,
+    );
 }
 
 fn render_too_small(
@@ -151,16 +316,10 @@ fn render_too_small(
         .padding(Padding::uniform(1))
         .title(Line::from(vec![
             Span::styled(
-                " WC ",
-                Style::default()
-                    .fg(BACKGROUND)
-                    .bg(SECONDARY)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
                 " wcode ",
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             ),
+            Span::styled(" engineering control plane ", Style::default().fg(ACCENT)),
         ]))
         .title(
             Line::from(Span::styled(
@@ -242,7 +401,7 @@ fn render_header(
         .is_some_and(|seen| seen.elapsed() >= Duration::from_secs(300));
     let (icon, state, detail, color) = if snapshot.tunnel_running == Some(false) {
         (
-            "×",
+            "ERR",
             language.tr("TUNNEL PROCESS EXITED"),
             snapshot
                 .tunnel_error
@@ -257,7 +416,7 @@ fn render_header(
         )
     } else if snapshot.public_url_healthy == Some(false) {
         (
-            "×",
+            "ERR",
             language.tr("PUBLIC URL UNAVAILABLE"),
             format!(
                 "{} consecutive health checks failed",
@@ -267,7 +426,7 @@ fn render_header(
         )
     } else if snapshot.chatgpt_connected && idle {
         (
-            "◐",
+            "IDLE",
             language.tr("MCP client idle"),
             format!(
                 "last seen {} · HTTP/SSE",
@@ -277,7 +436,7 @@ fn render_header(
         )
     } else if snapshot.chatgpt_connected {
         (
-            "●",
+            "LIVE",
             language.tr("MCP client connected"),
             format!(
                 "last seen {} · HTTP/SSE",
@@ -287,14 +446,14 @@ fn render_header(
         )
     } else if snapshot.oauth_authorized {
         (
-            "◐",
+            "AUTH",
             language.tr("OAuth authorized"),
             language.tr("waiting for MCP handshake").to_owned(),
             WARNING,
         )
     } else {
         (
-            "○",
+            "SETUP",
             language.tr("Setup required"),
             language.tr("press O to open Connector setup").to_owned(),
             TEXT_MUTED,
@@ -313,16 +472,10 @@ fn render_header(
         .padding(Padding::horizontal(1))
         .title(Line::from(vec![
             Span::styled(
-                " WC ",
-                Style::default()
-                    .fg(BACKGROUND)
-                    .bg(SECONDARY)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" wcode {} ", config.version),
+                " wcode ",
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             ),
+            Span::styled(format!(" {} ", config.version), Style::default().fg(ACCENT)),
         ]))
         .title(
             Line::from(Span::styled(

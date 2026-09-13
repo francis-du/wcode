@@ -1,0 +1,16 @@
+schema_version: 1
+id: REQ-MIGRATION-001
+title: Migration completeness is verified before behavior
+intent: Repository migrations and large refactors may declare a bounded deterministic audit policy that proves legacy patterns are removed, replacement patterns reach required coverage, required paths exist, and mixed old/new states are rejected before behavioral checks can count as successful verification.
+priority: critical
+implemented_by:
+  - component:migration-audit
+acceptance:
+  - AC-MIGRATION-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  reliability: critical
+  compatibility: high

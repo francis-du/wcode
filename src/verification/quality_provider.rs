@@ -1,12 +1,12 @@
 use crate::quality_catalog::candidates_for;
 use crate::semantic_provider::{self, language_for_path, SemanticLanguage};
-use crate::stage_executor;
+use crate::stage_executor::{self, StageExecutorRegistry};
 use crate::verification::VerificationStage;
 use crate::workspace::{CommandResult, Workspace};
 use anyhow::{bail, Result};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -54,9 +54,19 @@ pub enum QualityProviderSource {
     Ecosystem,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityExecutionLane {
+    Unavailable,
+    AutonomousVerification,
+    RuntimeAuthorizationRequired,
+    TrustedRuntime,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct QualityProviderStatus {
     pub id: String,
+    pub root: String,
     pub capability: QualityCapability,
     pub source: QualityProviderSource,
     pub program: String,
@@ -65,6 +75,7 @@ pub struct QualityProviderStatus {
     pub available: bool,
     pub runnable: bool,
     pub authorization_required: bool,
+    pub execution_lane: QualityExecutionLane,
     pub check_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_format: Option<String>,
@@ -106,6 +117,7 @@ pub struct LanguageQualityRun {
     pub provider_id: String,
     pub language: SemanticLanguage,
     pub capability: QualityCapability,
+    pub execution_lane: QualityExecutionLane,
     pub success: bool,
     pub summary: String,
     pub command: CommandResult,
@@ -230,6 +242,89 @@ pub fn registry(
     workspace: &Workspace,
     semantic_sessions: Option<&semantic_provider::SemanticSessionPool>,
 ) -> Result<LanguageQualityRegistry> {
+    let advanced = stage_executor::registry(workspace)?;
+    registry_from_advanced(workspace, semantic_sessions, &advanced)
+}
+
+pub(crate) fn registry_for_project_roots(
+    workspace: &Workspace,
+    semantic_sessions: Option<&semantic_provider::SemanticSessionPool>,
+    project_roots: &[(String, Vec<String>)],
+) -> Result<LanguageQualityRegistry> {
+    let mut aggregate = registry(workspace, semantic_sessions)?;
+    let covered_languages = project_roots
+        .iter()
+        .flat_map(|(_, project_types)| semantic_languages_for_project_types(project_types))
+        .collect::<BTreeSet<_>>();
+    for status in &mut aggregate.languages {
+        if covered_languages.contains(&status.language) {
+            status.providers.clear();
+            status.gaps.clear();
+        }
+    }
+
+    for (root, project_types) in project_roots {
+        let languages = semantic_languages_for_project_types(project_types);
+        if languages.is_empty() {
+            continue;
+        }
+        let scoped_workspace = if root == "." {
+            workspace.clone()
+        } else {
+            workspace.readonly_subspace(root)?
+        };
+        let scoped = registry(&scoped_workspace, None)?;
+        aggregate.truncated |= scoped.truncated;
+        for scoped_status in scoped
+            .languages
+            .into_iter()
+            .filter(|status| status.detected_files > 0 && languages.contains(&status.language))
+        {
+            let Some(target) = aggregate
+                .languages
+                .iter_mut()
+                .find(|target| target.language == scoped_status.language)
+            else {
+                continue;
+            };
+            for mut provider in scoped_status.providers {
+                provider.root = root.clone();
+                if root != "." {
+                    provider.id = format!("{root}::{}", provider.id);
+                }
+                target.providers.push(provider);
+            }
+        }
+    }
+
+    for status in &mut aggregate.languages {
+        status.providers.sort_by(|left, right| {
+            (&left.root, &left.id, left.capability).cmp(&(&right.root, &right.id, right.capability))
+        });
+        status.providers.dedup_by(|left, right| {
+            left.root == right.root && left.id == right.id && left.capability == right.capability
+        });
+        status.gaps = quality_gaps(
+            status.language,
+            status.detected_files > 0,
+            &status.providers,
+        );
+    }
+    aggregate.detected_languages = aggregate
+        .languages
+        .iter()
+        .filter(|language| language.detected_files > 0)
+        .count();
+    aggregate.dimensions = dimension_coverage(&aggregate.languages);
+    aggregate.provider = "wcode-language-quality-islands";
+    Ok(aggregate)
+}
+
+pub(crate) fn registry_from_advanced(
+    workspace: &Workspace,
+    semantic_sessions: Option<&semantic_provider::SemanticSessionPool>,
+    advanced: &StageExecutorRegistry,
+) -> Result<LanguageQualityRegistry> {
     let (files, scan_truncated) = workspace.source_files(".", MAX_QUALITY_FILES)?;
     let mut files_by_language = BTreeMap::<SemanticLanguage, Vec<String>>::new();
     for path in files {
@@ -242,7 +337,6 @@ pub fn registry(
         .into_iter()
         .map(|status| (status.language, status))
         .collect::<BTreeMap<_, _>>();
-    let advanced = stage_executor::registry(workspace)?;
     let mut languages = Vec::with_capacity(SemanticLanguage::ALL.len());
 
     for language in SemanticLanguage::ALL {
@@ -293,7 +387,13 @@ pub async fn execute(
     provider_id: &str,
     timeout_seconds: u64,
 ) -> Result<LanguageQualityRun> {
-    let registry = registry(workspace, None)?;
+    let (provider_root, local_provider_id) = scoped_provider_id(provider_id);
+    let scoped_workspace = if provider_root == "." {
+        workspace.clone()
+    } else {
+        workspace.readonly_subspace(provider_root)?
+    };
+    let registry = registry(&scoped_workspace, None)?;
     let language_status = registry
         .languages
         .iter()
@@ -302,7 +402,7 @@ pub async fn execute(
     let status = language_status
         .providers
         .iter()
-        .find(|provider| provider.id == provider_id)
+        .find(|provider| provider.id == local_provider_id)
         .ok_or_else(|| anyhow::anyhow!("quality provider is not registered for this language"))?;
     if language_status.detected_files == 0 {
         bail!("quality provider cannot run because no matching source files were detected");
@@ -317,25 +417,34 @@ pub async fn execute(
         bail!("quality provider program is unavailable");
     }
 
-    let signals = RepoSignals::load(workspace);
-    let language_files = workspace
+    let signals = RepoSignals::load(&scoped_workspace);
+    let language_files = scoped_workspace
         .source_files(".", MAX_QUALITY_FILES)?
         .0
         .into_iter()
         .filter(|path| language_for_path(path) == Some(language))
         .collect::<Vec<_>>();
-    let candidate = candidates_for(workspace, &signals, language, &language_files)
+    let candidate = candidates_for(&scoped_workspace, &signals, language, &language_files)
         .into_iter()
-        .find(|candidate| candidate.id == provider_id)
+        .find(|candidate| candidate.id == local_provider_id)
         .ok_or_else(|| anyhow::anyhow!("quality provider changed while preparing execution"))?;
-    let command = workspace
-        .run_trusted_runtime_command(
-            &candidate.program,
-            &candidate.args,
-            ".",
-            timeout_seconds.clamp(1, 300),
-        )
-        .await?;
+    let timeout_seconds = timeout_seconds.clamp(1, 300);
+    let autonomous_verification =
+        scoped_workspace.verification_command_shape_allowed(&candidate.program, &candidate.args);
+    let execution_lane = if autonomous_verification {
+        QualityExecutionLane::AutonomousVerification
+    } else {
+        QualityExecutionLane::TrustedRuntime
+    };
+    let command = if autonomous_verification {
+        scoped_workspace
+            .run_verification_command(&candidate.program, &candidate.args, ".", timeout_seconds)
+            .await?
+    } else {
+        scoped_workspace
+            .run_trusted_runtime_command(&candidate.program, &candidate.args, ".", timeout_seconds)
+            .await?
+    };
     let success =
         command.success && (!candidate.fail_on_stdout || command.stdout.trim().is_empty());
     let summary = if !command.success {
@@ -356,9 +465,10 @@ pub async fn execute(
         )
     };
     Ok(LanguageQualityRun {
-        provider_id: candidate.id,
+        provider_id: provider_id.to_owned(),
         language,
         capability: candidate.capability,
+        execution_lane,
         success,
         summary,
         command,
@@ -377,7 +487,19 @@ fn provider_status(
         && candidate.check_only
         && available
         && workspace.exec_enabled();
-    let authorization_required = runnable && !workspace.risky_exec_enabled();
+    let autonomous_verification = runnable
+        && workspace.verification_command_shape_allowed(&candidate.program, &candidate.args);
+    let execution_lane = if !runnable {
+        QualityExecutionLane::Unavailable
+    } else if autonomous_verification {
+        QualityExecutionLane::AutonomousVerification
+    } else if workspace.risky_exec_enabled() {
+        QualityExecutionLane::TrustedRuntime
+    } else {
+        QualityExecutionLane::RuntimeAuthorizationRequired
+    };
+    let authorization_required =
+        execution_lane == QualityExecutionLane::RuntimeAuthorizationRequired;
     let reason = if !language_present {
         "no matching source files detected".to_owned()
     } else if !candidate.declared {
@@ -394,6 +516,9 @@ fn provider_status(
         )
     } else if !workspace.exec_enabled() {
         "command execution is disabled".to_owned()
+    } else if autonomous_verification {
+        "provider is declared, available, and approved for autonomous exact-shape verification"
+            .to_owned()
     } else if authorization_required {
         "provider is ready but execution requires explicit repository-aware authorization"
             .to_owned()
@@ -402,6 +527,7 @@ fn provider_status(
     };
     QualityProviderStatus {
         id: candidate.id.clone(),
+        root: ".".to_owned(),
         capability: candidate.capability,
         source: candidate.source,
         program: candidate.program.clone(),
@@ -410,10 +536,72 @@ fn provider_status(
         available,
         runnable,
         authorization_required,
+        execution_lane,
         check_only: candidate.check_only,
         machine_format: candidate.machine_format.map(str::to_owned),
         reason,
     }
+}
+
+fn scoped_provider_id(provider_id: &str) -> (&str, &str) {
+    provider_id
+        .split_once("::")
+        .map_or((".", provider_id), |(root, local)| (root, local))
+}
+
+fn semantic_languages_for_project_types(project_types: &[String]) -> BTreeSet<SemanticLanguage> {
+    let mut languages = BTreeSet::new();
+    for project_type in project_types {
+        match project_type.as_str() {
+            "rust" => {
+                languages.insert(SemanticLanguage::Rust);
+            }
+            "node" => {
+                languages.extend([
+                    SemanticLanguage::JavaScript,
+                    SemanticLanguage::TypeScript,
+                    SemanticLanguage::Tsx,
+                    SemanticLanguage::Css,
+                    SemanticLanguage::Html,
+                ]);
+            }
+            "python" => {
+                languages.insert(SemanticLanguage::Python);
+            }
+            "go" => {
+                languages.insert(SemanticLanguage::Go);
+            }
+            "java" => {
+                languages.insert(SemanticLanguage::Java);
+            }
+            "swift" => {
+                languages.insert(SemanticLanguage::Swift);
+            }
+            "dart" => {
+                languages.insert(SemanticLanguage::Dart);
+            }
+            "elixir" => {
+                languages.insert(SemanticLanguage::Elixir);
+            }
+            "ruby" => {
+                languages.insert(SemanticLanguage::Ruby);
+            }
+            "php" => {
+                languages.insert(SemanticLanguage::Php);
+            }
+            "ocaml" => {
+                languages.extend([SemanticLanguage::Ocaml, SemanticLanguage::OcamlInterface]);
+            }
+            "r" => {
+                languages.insert(SemanticLanguage::R);
+            }
+            "cmake" => {
+                languages.extend([SemanticLanguage::C, SemanticLanguage::Cpp]);
+            }
+            _ => {}
+        }
+    }
+    languages
 }
 
 fn quality_gaps(

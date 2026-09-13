@@ -31,7 +31,7 @@ function renderTreeContents(node, depth) {
     .sort((left, right) => left.name.localeCompare(right.name));
   const directoryHtml = directories.map(([name, child]) =>
     `<details class="tree-directory" ${depth < 1 ? "open" : ""}>
-      <summary><span class="tree-marker">▸</span><span>${
+      <summary><span class="tree-marker" aria-hidden="true"></span><span>${
       esc(name)
     }</span><small>${
       num(
@@ -66,7 +66,7 @@ function renderLargestFiles(structure) {
       esc(
         file.language,
       )
-    } · ${formatBytes(file.bytes)}</small></span>
+    } · ${formatBytes(file.bytes)}${file.over_limit ? ` · ${esc(localized("over line limit", "超过行数限制"))}` : ""}</small></span>
       <strong>${num(file.lines)}L</strong>
     </div>`
   ).join("");
@@ -99,7 +99,7 @@ function renderProjectStructure() {
           `${num(oversized)} over ${num(lineLimit)} lines`,
           `${num(oversized)} 个超过 ${num(lineLimit)} 行`,
         ),
-        "warn",
+        "bad",
       )
       : pill(t("Within line limit"), "good"),
     structure.truncated ? pill(t("Snapshot truncated"), "warn") : "",

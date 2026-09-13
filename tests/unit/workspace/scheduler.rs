@@ -37,6 +37,51 @@ fn ready_successors_do_not_wait_for_an_unrelated_slow_branch() {
         graph.ready(&BTreeSet::from([3]), &BTreeSet::from([0, 1, 2])),
         vec![3]
     );
+
+    let mut schedule = graph
+        .completion_schedule(&BTreeSet::from([0, 1, 2, 3]))
+        .unwrap();
+    assert_eq!(schedule.take_ready(), vec![0, 1]);
+    schedule.complete(0);
+    assert_eq!(schedule.take_ready(), vec![2]);
+    schedule.complete(2);
+    assert!(schedule.take_ready().is_empty());
+    schedule.complete(1);
+    assert_eq!(schedule.take_ready(), vec![3]);
+}
+
+#[test]
+fn completion_schedule_matches_naive_readiness_across_200_graphs() {
+    for round in 0..200usize {
+        let task_count = 8 + (round % 17);
+        let mut predecessors = vec![BTreeSet::new(); task_count];
+        for (index, dependencies) in predecessors.iter_mut().enumerate().skip(1) {
+            if (index + round) % 3 != 0 {
+                dependencies.insert(index - 1);
+            }
+            if index >= 2 && (index * 7 + round) % 5 == 0 {
+                dependencies.insert(index - 2);
+            }
+            if index >= 4 && (index + round * 3) % 7 == 0 {
+                dependencies.insert(index - 4);
+            }
+        }
+        let graph = DependencyGraph { predecessors };
+        let mut pending = (0..task_count).collect::<BTreeSet<_>>();
+        let mut completed = BTreeSet::new();
+        let mut schedule = graph.completion_schedule(&pending).unwrap();
+        while !pending.is_empty() {
+            let expected = graph.ready(&pending, &completed);
+            let actual = schedule.take_ready();
+            assert_eq!(actual, expected, "round {round}");
+            assert!(!actual.is_empty(), "round {round} stalled");
+            for index in actual {
+                pending.remove(&index);
+                completed.insert(index);
+                schedule.complete(index);
+            }
+        }
+    }
 }
 
 #[test]

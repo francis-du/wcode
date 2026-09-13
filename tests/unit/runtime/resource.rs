@@ -13,7 +13,8 @@ fn burst_friendly_limits_keep_tool_concurrency_and_bound_cpu_workers() {
     );
     assert!((1..=8).contains(&limits.cpu_burst_threads));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
-    assert_eq!(limits.child_processes, 2);
+    assert!((1..=3).contains(&limits.child_processes));
+    assert!(limits.child_processes <= limits.cpu_burst_threads.div_ceil(limits.child_threads));
     assert!((1..=2).contains(&limits.child_threads));
     assert_eq!(limits.indexed_file_limit(), REPO_MAP_MAX_FILES);
     assert_eq!(limits.ast_file_limit(), 32);

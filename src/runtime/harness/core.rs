@@ -10,7 +10,9 @@ impl ToolHarness {
             execution_slots: Arc::new(Semaphore::new(Self::execution_limit(max_parallel))),
             max_parallel,
             project_cache: Default::default(),
+            convention_cache: Default::default(),
             repo_map_cache: Default::default(),
+            verification_cache: Default::default(),
             code_index: CodeIndex::new()?,
             semantic_sessions: SemanticSessionPool::default(),
             intelligence: SoftwareIntelligenceRuntime::default(),
@@ -67,6 +69,7 @@ impl ToolHarness {
                 "risk": true,
                 "reconciliation_plan": true,
                 "verification_mesh": verification_store::capabilities(),
+                "migration_audit": crate::migration_audit::capabilities(),
                 "stage_executors": {
                     "builtin_discovery": true,
                     "config": ".wcode/executors.yaml",
@@ -76,10 +79,11 @@ impl ToolHarness {
                     "requires_risky_exec": true
                 },
                 "evidence": evidence_store::capabilities(),
+                "experience": crate::experience_store::capabilities(),
                 "semantics": semantic_store::capabilities(),
                 "reconciliation": reconciliation_store::capabilities(),
                 "reconciliation_execution": reconciliation_execution_store::capabilities(),
-                "persistent_store": ["verification-state", "evidence", "semantics", "graph-providers", "graph-history", "reconciliation-plans", "reconciliation-execution"],
+                "persistent_store": ["verification-state", "evidence", "experience", "semantics", "graph-providers", "graph-history", "reconciliation-plans", "reconciliation-execution"],
                 "automatic_reconciliation": "orchestrated-safe-task-execution"
             },
             "code_index": self.code_index.capabilities(),
@@ -87,7 +91,57 @@ impl ToolHarness {
     }
 
     pub fn convention_status(&self, workspace: &Workspace) -> Result<ConventionReport> {
-        conventions::status(workspace)
+        Ok(self.convention_status_cached(workspace)?.as_ref().clone())
+    }
+
+    pub(super) fn convention_status_cached(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Arc<ConventionReport>> {
+        let (fingerprint, files, scan_truncated) = conventions::fingerprint_and_paths(workspace)?;
+        let root = workspace.root().to_path_buf();
+        {
+            let mut cache = self
+                .convention_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("convention cache poisoned"))?;
+            if let Some(cached) = cache
+                .get_mut(&root)
+                .filter(|cached| cached.fingerprint == fingerprint)
+            {
+                cached.last_used = Instant::now();
+                return Ok(cached.report.clone());
+            }
+        }
+
+        let report = Arc::new(conventions::status_from_paths(
+            workspace,
+            files,
+            scan_truncated,
+        )?);
+        let mut cache = self
+            .convention_cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("convention cache poisoned"))?;
+        let limit = crate::resource::limits().project_cache_limit();
+        if cache.len() >= limit && !cache.contains_key(&root) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            root,
+            CachedConventionReport {
+                fingerprint,
+                last_used: Instant::now(),
+                report: report.clone(),
+            },
+        );
+        Ok(report)
     }
 
     pub fn design_status(
@@ -109,7 +163,7 @@ impl ToolHarness {
         if name.is_empty() || name.chars().count() > 200 {
             bail!("design project name must contain between 1 and 200 characters");
         }
-        let existing = design::load_design(workspace)?;
+        let existing = self.intelligence.design_load(workspace)?;
         if existing.initialized {
             bail!("Design State is already initialized for this workspace");
         }
@@ -138,10 +192,9 @@ impl ToolHarness {
         let product = design::ProductDesign {
             schema_version: 1,
             id: design_product_id(name),
-            name: format!("{name} Software Intelligence"),
-            vision:
-                "Software continuously converges toward intended design with verifiable evidence."
-                    .into(),
+            name: format!("{name} Engineering Control Plane"),
+            vision: "Coding agents operate through an observable engineering control plane where software continuously converges toward intended design with verifiable evidence."
+                .into(),
             principles: vec![
                 "Design State is the desired software state.".into(),
                 "Models are replaceable executors, not the source of truth.".into(),
@@ -163,6 +216,7 @@ impl ToolHarness {
         )?;
         // Other collection documents remain sparse and appear only when the project has
         // meaningful desired state to declare in that domain.
+        self.intelligence.invalidate_design_cache(workspace.root());
         self.design_status(workspace_id, workspace)
     }
 
@@ -174,31 +228,15 @@ impl ToolHarness {
         max_files: usize,
         max_symbols: usize,
     ) -> Result<SoftwareGraphSnapshot> {
-        let mut snapshot = self.code_index.software_graph(
+        let load = self.intelligence.design_load(workspace)?;
+        self.software_graph_from_design(
             workspace_id,
             workspace,
             path,
             max_files,
             max_symbols,
-        )?;
-        let load = design::load_design(workspace)?;
-        let mut composite = false;
-        if load.initialized {
-            overlay_design_graph(&mut snapshot, &load.state, &self.code_index, workspace)?;
-            composite = true;
-        }
-        if graph_provider_store::overlay_latest(workspace, &mut snapshot)? > 0 {
-            composite = true;
-        }
-        if composite {
-            snapshot.provider = "wcode-composite".to_owned();
-            snapshot.precision = GraphPrecision::Mixed;
-        }
-        snapshot.node_count = snapshot.graph.nodes.len();
-        snapshot.edge_count = snapshot.graph.edges.len();
-        snapshot.graph.validate()?;
-        graph_store::persist(workspace, &snapshot)?;
-        Ok(snapshot)
+            load.as_ref(),
+        )
     }
 
     pub fn graph_provider_import(
@@ -214,82 +252,6 @@ impl ToolHarness {
         workspace: &Workspace,
     ) -> Result<Vec<GraphProviderSummary>> {
         graph_provider_store::summaries(workspace)
-    }
-
-    pub fn semantic_provider_status(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Vec<SemanticProviderStatus>> {
-        semantic_provider::status(workspace, Some(&self.semantic_sessions))
-    }
-
-    pub fn semantic_session_status(&self, workspace: &Workspace) -> SemanticSessionPoolStatus {
-        self.semantic_sessions.status_for(workspace)
-    }
-
-    pub(crate) fn prune_semantic_sessions(&self) {
-        self.semantic_sessions.prune_idle();
-    }
-
-    pub async fn semantic_provider_refresh(
-        &self,
-        workspace: &Workspace,
-        path: &str,
-        max_files: usize,
-        max_symbols: usize,
-    ) -> Result<SemanticProviderRefresh> {
-        self.semantic_provider_refresh_mode(workspace, path, max_files, max_symbols, false)
-            .await
-    }
-
-    pub(crate) async fn semantic_provider_refresh_automatic(
-        &self,
-        workspace: &Workspace,
-        path: &str,
-        max_files: usize,
-        max_symbols: usize,
-    ) -> Result<SemanticProviderRefresh> {
-        self.semantic_provider_refresh_mode(workspace, path, max_files, max_symbols, true)
-            .await
-    }
-
-    async fn semantic_provider_refresh_mode(
-        &self,
-        workspace: &Workspace,
-        path: &str,
-        max_files: usize,
-        max_symbols: usize,
-        automatic_only: bool,
-    ) -> Result<SemanticProviderRefresh> {
-        let existing = graph_provider_store::load_latest(workspace)?
-            .into_iter()
-            .map(|stored| (stored.import.provider.clone(), stored.import))
-            .collect::<BTreeMap<_, _>>();
-        let refresh = if automatic_only {
-            semantic_provider::refresh_automatic(
-                &self.semantic_sessions,
-                workspace,
-                path,
-                max_files,
-                max_symbols,
-                &existing,
-            )
-            .await?
-        } else {
-            semantic_provider::refresh(
-                &self.semantic_sessions,
-                workspace,
-                path,
-                max_files,
-                max_symbols,
-                &existing,
-            )
-            .await?
-        };
-        for import in &refresh.imports {
-            graph_provider_store::persist(workspace, import)?;
-        }
-        Ok(refresh)
     }
 
     pub fn graph_history(
@@ -684,7 +646,17 @@ impl ToolHarness {
         &self,
         workspace: &Workspace,
     ) -> Result<LanguageQualityRegistry> {
-        quality_provider::registry(workspace, Some(&self.semantic_sessions))
+        let (profile, _) = self.load_project_profile(workspace)?;
+        let project_roots = profile
+            .islands
+            .iter()
+            .map(|island| (island.root.clone(), island.project_types.clone()))
+            .collect::<Vec<_>>();
+        quality_provider::registry_for_project_roots(
+            workspace,
+            Some(&self.semantic_sessions),
+            &project_roots,
+        )
     }
 
     pub async fn language_quality_run(
@@ -710,8 +682,11 @@ impl ToolHarness {
                 language.as_str()
             ),
             success: run.success,
+            reused: false,
             exit_code: run.command.exit_code,
             elapsed_ms,
+            queue_wait_ms: run.command.process_queue_wait_ms,
+            execution_ms: elapsed_ms.saturating_sub(u128::from(run.command.process_queue_wait_ms)),
             stdout_tail: tail_chars(&run.command.stdout, MAX_CHECK_OUTPUT_CHARS).0,
             stderr_tail: tail_chars(&run.command.stderr, MAX_CHECK_OUTPUT_CHARS).0,
             output_truncated: run.command.truncated,
@@ -723,10 +698,13 @@ impl ToolHarness {
             phases_run: 1,
             passed: run.success,
             checks_run: 1,
+            checks_reused: 0,
             checks_failed: usize::from(!run.success),
             skipped_checks: Vec::new(),
             elapsed_ms,
             summary: run.summary.clone(),
+            impact: None,
+            cost_model: None,
             checks: vec![check],
         };
         run.evidence_records = self
@@ -974,11 +952,21 @@ impl ToolHarness {
     pub fn invalidate_code_file(&self, workspace: &Workspace, path: &str) {
         self.code_index.invalidate(workspace.root(), path);
         self.invalidate_repo_map_cache(workspace.root());
+        self.invalidate_convention_cache(workspace.root());
+        self.intelligence.invalidate_design_cache(workspace.root());
     }
 
     pub fn invalidate_code_prefix(&self, workspace: &Workspace, path: &str) {
         self.code_index.invalidate_prefix(workspace.root(), path);
         self.invalidate_repo_map_cache(workspace.root());
+        self.invalidate_convention_cache(workspace.root());
+        self.intelligence.invalidate_design_cache(workspace.root());
+    }
+
+    fn invalidate_convention_cache(&self, root: &Path) {
+        if let Ok(mut cache) = self.convention_cache.lock() {
+            cache.remove(root);
+        }
     }
 
     fn invalidate_repo_map_cache(&self, root: &Path) {

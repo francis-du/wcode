@@ -1,0 +1,26 @@
+schema_version: 1
+id: component:migration-audit
+name: Deterministic Migration Audit
+responsibilities:
+  - load one bounded declarative migration policy without executing project code or a shell
+  - scan only declared repository scopes through Workspace-safe reads and fail closed when completeness cannot be proven
+  - reject remaining legacy patterns, missing replacement coverage, missing required paths and mixed old/new migration state
+  - bind the migration policy to the active software revision and gate behavioral verification before commands run
+  - expose deterministic provenance and compact migration-policy metadata to Agent Context
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+depends_on:
+  - component:verification-harness
+  - component:evidence-runtime
+implementation:
+  - kind: symbol
+    path: src/verification/migration.rs
+    symbol: audit
+  - kind: symbol
+    path: src/verification/migration.rs
+    symbol: context_summary
+  - kind: symbol
+    path: src/runtime/harness/quality.rs
+    symbol: ToolHarness::verify_project

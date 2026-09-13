@@ -1,0 +1,59 @@
+schema_version: 1
+id: component:contract-bridges
+name: Cross-language Contract and Schema Bridges
+responsibilities:
+  - discover a bounded set of static OpenAPI Generator, GraphQL Code Generator and Buf configuration files without following repository noise or symlinks
+  - resolve only workspace-contained local contract sources and stable local glob prefixes, rejecting remote pointers and workspace escapes
+  - map explicit generated output paths to their nearest owning Language Island with structural precision and source-config provenance
+  - add proven contract consumers to affected verification islands before existing manifest-dependent propagation
+  - allow shared contract paths outside all language islands to drive selective verification when an explicit bridge exists
+  - never reverse-propagate a consumer edit back to contract producers or unrelated consumers
+  - produce a bounded verification-impact provenance chain that distinguishes direct ownership, contract bridges, manifest-dependent propagation and broad fallback without model inference
+  - persist the complete current selection chain in VerificationReport and expose only a budget-safe compact impact summary through Agent Context
+  - expose complete bounded static topology and diagnostics through Project Context while keeping Agent Context summaries compact
+  - reuse the reviewed changed-path snapshot to expose current verification impact in Engineering Observatory without a second Git probe or topology implementation
+  - render affected islands and direct, contract, manifest and fallback reasons with provider and precision in the protected Web Observatory
+  - derive a bounded non-blocking generated-artifact freshness advisory only when a proven bridge has existing local output, its upstream source/config changed, and no worktree change is observed under that output
+  - keep freshness advisory precision structural and explicitly non-authoritative; missing outputs, changed outputs and unproven bridges remain silent, and only deterministic native check providers may become gates
+  - report dynamic GraphQL codegen configuration as unsupported rather than executing JavaScript or TypeScript to discover topology
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+depends_on:
+  - component:polyglot-workspace
+  - component:agent-context
+implementation:
+  - kind: symbol
+    path: src/runtime/harness/contracts.rs
+    symbol: discover_contract_topology
+  - kind: symbol
+    path: src/runtime/harness/contracts.rs
+    symbol: matching_contract_bridges
+  - kind: symbol
+    path: src/runtime/harness/contracts.rs
+    symbol: contract_freshness_advisories
+  - kind: symbol
+    path: src/runtime/harness/quality.rs
+    symbol: ToolHarness::review_changes
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: verification_impact_for_snapshot
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: verification_checks_for_impact
+  - kind: symbol
+    path: src/runtime/harness/profile.rs
+    symbol: build_project_profile
+  - kind: symbol
+    path: src/runtime/harness/context_project.rs
+    symbol: compact_contracts
+  - kind: symbol
+    path: src/runtime/harness/quality.rs
+    symbol: compact_verification_impact
+  - kind: symbol
+    path: src/runtime/harness/project.rs
+    symbol: ToolHarness::project_observatory
+  - kind: symbol
+    path: src/ui/intelligence_web/app/features.js
+    symbol: renderVerificationImpact

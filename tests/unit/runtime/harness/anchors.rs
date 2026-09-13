@@ -2,12 +2,25 @@ use super::*;
 
 fn anchor_fixture(root: &std::path::Path) -> (Workspace, ToolHarness) {
     fs::create_dir_all(root.join("src/runtime")).unwrap();
-    let mut lines = vec!["pub fn anchor_worker() {".to_owned()];
-    lines.extend((2..120).map(|_| "    let _ = 0;".to_owned()));
+    let mut lines = vec![
+        "pub fn anchor_worker() {".to_owned(),
+        "    shared_policy(); root_cause();".to_owned(),
+    ];
+    lines.extend((3..120).map(|_| "    let _ = 0;".to_owned()));
     lines.push("    let diagnostic_marker = 42;".to_owned());
     lines.push("    let _ = diagnostic_marker;".to_owned());
     lines.push("}".to_owned());
     fs::write(root.join("src/runtime/worker.rs"), lines.join("\n")).unwrap();
+    fs::write(
+        root.join("src/runtime/policy.rs"),
+        "pub fn shared_policy() -> usize { 7 }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/runtime/root_cause.rs"),
+        "pub fn root_cause() -> usize { 9 }\n",
+    )
+    .unwrap();
     (
         Workspace::new(root, true, false).unwrap(),
         ToolHarness::new(4).unwrap(),
@@ -45,6 +58,89 @@ fn diagnostic_anchor_selects_containing_symbol_and_exact_source_line() {
         assert_eq!(pack["retrieval"]["resolved"], 1);
         assert!(serde_json::to_vec(&pack).unwrap().len().div_ceil(4) <= budget);
     }
+}
+
+#[test]
+fn review_comment_anchor_retrieves_additional_context_without_readding_given_file() {
+    let root = tempfile::tempdir().unwrap();
+    let (workspace, harness) = anchor_fixture(root.path());
+
+    let ordinary = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "inspect src/runtime/worker.rs:120",
+            4_000,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(ordinary["repo_map"]["deferred"], true);
+
+    let review = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "review comment on src/runtime/worker.rs:120 should this stay consistent with shared_policy elsewhere?",
+            4_000,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(review["retrieval"]["resolved"], 1);
+    assert_eq!(
+        review["repo_map"]["routing"]["intent"],
+        "comment_to_context"
+    );
+    assert_eq!(review["repo_map"]["routing"]["specialized"], true);
+    assert_eq!(review["hot_source"][0]["path"], "src/runtime/worker.rs");
+    let items = review["repo_map"]["items"].as_array().unwrap();
+    assert!(
+        items
+            .iter()
+            .all(|item| item["path"] != "src/runtime/worker.rs"),
+        "the reviewed file is already given context and must not consume additional-context rank"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item["path"] == "src/runtime/policy.rs"),
+        "review comment retrieval should surface the related policy implementation"
+    );
+}
+
+#[test]
+fn failure_trace_anchor_retrieves_root_cause_without_reranking_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let (workspace, harness) = anchor_fixture(root.path());
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "thread 'worker' panicked at src/runtime/worker.rs:120: assertion failed in root_cause",
+            4_000,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(pack["retrieval"]["resolved"], 1);
+    assert_eq!(
+        pack["repo_map"]["routing"]["intent"],
+        "failure_trace_to_code"
+    );
+    assert_eq!(pack["repo_map"]["routing"]["specialized"], true);
+    assert_eq!(pack["hot_source"][0]["path"], "src/runtime/worker.rs");
+    let items = pack["repo_map"]["items"].as_array().unwrap();
+    assert!(
+        items
+            .iter()
+            .all(|item| item["path"] != "src/runtime/worker.rs"),
+        "stack-frame files are already-given evidence and must not consume root-cause rank"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item["path"] == "src/runtime/root_cause.rs"),
+        "failure-trace retrieval should surface the likely cross-file root cause"
+    );
 }
 
 #[test]

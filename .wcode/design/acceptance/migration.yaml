@@ -1,0 +1,10 @@
+schema_version: 1
+id: AC-MIGRATION-001
+title: Green tests cannot hide an incomplete migration
+statement: An optional .wcode/migration.yaml policy is revision-bound, literal and language-neutral, bounded by files and bytes, and runs before behavioral verification. Remaining legacy uses, insufficient replacement coverage, missing required paths, inaccessible scopes, invalid policy or a truncated scan fail closed with deterministic findings and sample locations; a behavioral test suite may be green while verify_project still rejects an incomplete migration. Agent Context exposes the active migration gate without adding a separate model-facing execution tool.
+verification:
+  - {kind: test, path: tests/unit/verification/migration.rs, symbol: migration_audit_detects_legacy_mixed_state_and_missing_replacement}
+  - {kind: test, path: tests/unit/verification/migration.rs, symbol: invalid_migration_policy_fails_closed_and_context_surfaces_it}
+  - {kind: test, path: tests/unit/verification/migration.rs, symbol: migration_policy_symlink_cannot_disable_the_gate}
+  - {kind: test, path: tests/unit/runtime/harness/experience.rs, symbol: migration_audit_blocks_a_green_behavioral_suite_until_migration_is_complete}
+  - {kind: check, id: rust-test}

@@ -171,6 +171,7 @@ pub(crate) fn persist(workspace: &Workspace, record: &TaskRecord) -> Result<()> 
         record.updated_at_ms,
         &digest[..24]
     ));
+    let mut published = false;
     match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             if !metadata.is_file()
@@ -207,12 +208,15 @@ pub(crate) fn persist(workspace: &Workspace, record: &TaskRecord) -> Result<()> 
                 let _ = fs::remove_file(&temporary);
             }
             saved?;
+            published = true;
         }
         Err(error) => return Err(error).context("cannot inspect MCP task snapshot"),
     }
-    #[cfg(unix)]
-    fs::File::open(&directory)?.sync_all()?;
-    prune_snapshots(&directory)?;
+    if published {
+        #[cfg(unix)]
+        fs::File::open(&directory)?.sync_all()?;
+        prune_snapshots(&directory)?;
+    }
     Ok(())
 }
 

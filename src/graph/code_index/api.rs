@@ -2,133 +2,144 @@ use super::graph_build::{append_cross_file_call_edges, append_file_graph, defini
 use super::symbols::remove_file_record;
 use super::*;
 
+static LANGUAGE_CONFIGS: OnceLock<Result<Arc<LanguageConfigs>, String>> = OnceLock::new();
+
+fn build_language_configs() -> Result<Arc<LanguageConfigs>> {
+    // The TypeScript grammar intentionally ships a narrow tags query focused on
+    // declarations unique to TypeScript. Merge the JavaScript query so ordinary
+    // classes, methods, functions, arrow functions, and calls remain discoverable.
+    let typescript_tags = format!(
+        "{}\n{}",
+        tree_sitter_javascript::TAGS_QUERY,
+        tree_sitter_typescript::TAGS_QUERY
+    );
+    let c_tags = format!("{}\n{}", tree_sitter_c::TAGS_QUERY, C_CALLS_QUERY);
+    let cpp_tags = format!("{}\n{}", tree_sitter_cpp::TAGS_QUERY, C_CALLS_QUERY);
+    let ocaml_interface_tags = format!(
+        "{}\n{}",
+        tree_sitter_ocaml::TAGS_QUERY,
+        OCAML_INTERFACE_TAGS_QUERY
+    );
+    let configs = [
+        LanguageConfig::new(
+            LanguageId::Bash,
+            tree_sitter_bash::LANGUAGE.into(),
+            BASH_TAGS_QUERY,
+        )?,
+        LanguageConfig::new(LanguageId::C, tree_sitter_c::LANGUAGE.into(), &c_tags)?,
+        LanguageConfig::new(LanguageId::Cpp, tree_sitter_cpp::LANGUAGE.into(), &cpp_tags)?,
+        LanguageConfig::new(
+            LanguageId::CSharp,
+            tree_sitter_c_sharp::LANGUAGE.into(),
+            tree_sitter_c_sharp::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Css,
+            tree_sitter_css::LANGUAGE.into(),
+            CSS_TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Dart,
+            tree_sitter_dart::LANGUAGE.into(),
+            tree_sitter_dart::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Elixir,
+            tree_sitter_elixir::LANGUAGE.into(),
+            tree_sitter_elixir::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Go,
+            tree_sitter_go::LANGUAGE.into(),
+            tree_sitter_go::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Html,
+            tree_sitter_html::LANGUAGE.into(),
+            HTML_TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Java,
+            tree_sitter_java::LANGUAGE.into(),
+            tree_sitter_java::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::JavaScript,
+            tree_sitter_javascript::LANGUAGE.into(),
+            tree_sitter_javascript::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Lua,
+            tree_sitter_lua::LANGUAGE.into(),
+            tree_sitter_lua::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Ocaml,
+            tree_sitter_ocaml::LANGUAGE_OCAML.into(),
+            tree_sitter_ocaml::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::OcamlInterface,
+            tree_sitter_ocaml::LANGUAGE_OCAML_INTERFACE.into(),
+            &ocaml_interface_tags,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Php,
+            tree_sitter_php::LANGUAGE_PHP.into(),
+            tree_sitter_php::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Python,
+            tree_sitter_python::LANGUAGE.into(),
+            tree_sitter_python::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::R,
+            tree_sitter_r::LANGUAGE.into(),
+            tree_sitter_r::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Ruby,
+            tree_sitter_ruby::LANGUAGE.into(),
+            tree_sitter_ruby::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Rust,
+            tree_sitter_rust::LANGUAGE.into(),
+            tree_sitter_rust::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Swift,
+            tree_sitter_swift::LANGUAGE.into(),
+            tree_sitter_swift::TAGS_QUERY,
+        )?,
+        LanguageConfig::new(
+            LanguageId::TypeScript,
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            &typescript_tags,
+        )?,
+        LanguageConfig::new(
+            LanguageId::Tsx,
+            tree_sitter_typescript::LANGUAGE_TSX.into(),
+            &typescript_tags,
+        )?,
+    ]
+    .into_iter()
+    .map(|config| (config.id, Arc::new(config)))
+    .collect();
+    Ok(Arc::new(configs))
+}
+
 impl CodeIndex {
     pub fn new() -> Result<Self> {
-        // The TypeScript grammar intentionally ships a narrow tags query focused on
-        // declarations unique to TypeScript. Merge the JavaScript query so ordinary
-        // classes, methods, functions, arrow functions, and calls remain discoverable.
-        let typescript_tags = format!(
-            "{}\n{}",
-            tree_sitter_javascript::TAGS_QUERY,
-            tree_sitter_typescript::TAGS_QUERY
-        );
-        let c_tags = format!("{}\n{}", tree_sitter_c::TAGS_QUERY, C_CALLS_QUERY);
-        let cpp_tags = format!("{}\n{}", tree_sitter_cpp::TAGS_QUERY, C_CALLS_QUERY);
-        let ocaml_interface_tags = format!(
-            "{}\n{}",
-            tree_sitter_ocaml::TAGS_QUERY,
-            OCAML_INTERFACE_TAGS_QUERY
-        );
-        let configs = [
-            LanguageConfig::new(
-                LanguageId::Bash,
-                tree_sitter_bash::LANGUAGE.into(),
-                BASH_TAGS_QUERY,
-            )?,
-            LanguageConfig::new(LanguageId::C, tree_sitter_c::LANGUAGE.into(), &c_tags)?,
-            LanguageConfig::new(LanguageId::Cpp, tree_sitter_cpp::LANGUAGE.into(), &cpp_tags)?,
-            LanguageConfig::new(
-                LanguageId::CSharp,
-                tree_sitter_c_sharp::LANGUAGE.into(),
-                tree_sitter_c_sharp::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Css,
-                tree_sitter_css::LANGUAGE.into(),
-                CSS_TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Dart,
-                tree_sitter_dart::LANGUAGE.into(),
-                tree_sitter_dart::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Elixir,
-                tree_sitter_elixir::LANGUAGE.into(),
-                tree_sitter_elixir::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Go,
-                tree_sitter_go::LANGUAGE.into(),
-                tree_sitter_go::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Html,
-                tree_sitter_html::LANGUAGE.into(),
-                HTML_TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Java,
-                tree_sitter_java::LANGUAGE.into(),
-                tree_sitter_java::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::JavaScript,
-                tree_sitter_javascript::LANGUAGE.into(),
-                tree_sitter_javascript::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Lua,
-                tree_sitter_lua::LANGUAGE.into(),
-                tree_sitter_lua::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Ocaml,
-                tree_sitter_ocaml::LANGUAGE_OCAML.into(),
-                tree_sitter_ocaml::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::OcamlInterface,
-                tree_sitter_ocaml::LANGUAGE_OCAML_INTERFACE.into(),
-                &ocaml_interface_tags,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Php,
-                tree_sitter_php::LANGUAGE_PHP.into(),
-                tree_sitter_php::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Python,
-                tree_sitter_python::LANGUAGE.into(),
-                tree_sitter_python::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::R,
-                tree_sitter_r::LANGUAGE.into(),
-                tree_sitter_r::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Ruby,
-                tree_sitter_ruby::LANGUAGE.into(),
-                tree_sitter_ruby::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Rust,
-                tree_sitter_rust::LANGUAGE.into(),
-                tree_sitter_rust::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Swift,
-                tree_sitter_swift::LANGUAGE.into(),
-                tree_sitter_swift::TAGS_QUERY,
-            )?,
-            LanguageConfig::new(
-                LanguageId::TypeScript,
-                tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-                &typescript_tags,
-            )?,
-            LanguageConfig::new(
-                LanguageId::Tsx,
-                tree_sitter_typescript::LANGUAGE_TSX.into(),
-                &typescript_tags,
-            )?,
-        ]
-        .into_iter()
-        .map(|config| (config.id, Arc::new(config)))
-        .collect();
-
+        let configs = LANGUAGE_CONFIGS
+            .get_or_init(|| build_language_configs().map_err(|error| format!("{error:#}")));
+        let configs = match configs {
+            Ok(configs) => configs.clone(),
+            Err(error) => bail!("cannot initialize Tree-sitter language configs: {error}"),
+        };
         Ok(Self {
-            configs: Arc::new(configs),
+            configs,
             state: Arc::new(Mutex::new(IndexState::default())),
         })
     }
@@ -163,10 +174,28 @@ impl CodeIndex {
         max_files: usize,
         max_symbols: usize,
     ) -> Result<SoftwareGraphSnapshot> {
-        let workspace_id = workspace_id.into();
         let max_files = max_files.clamp(1, MAX_GRAPH_FILES);
-        let max_symbols = max_symbols.clamp(1, MAX_GRAPH_SYMBOLS);
         let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
+        self.software_graph_from_paths(
+            workspace_id.into(),
+            workspace,
+            path,
+            paths,
+            scan_truncated,
+            max_symbols,
+        )
+    }
+
+    pub(crate) fn software_graph_from_paths(
+        &self,
+        workspace_id: String,
+        workspace: &Workspace,
+        path: &str,
+        paths: Vec<String>,
+        scan_truncated: bool,
+        max_symbols: usize,
+    ) -> Result<SoftwareGraphSnapshot> {
+        let max_symbols = max_symbols.clamp(1, MAX_GRAPH_SYMBOLS);
         let supported = paths
             .into_iter()
             .filter(|path| self.config_for_path(path).is_some())
@@ -515,11 +544,34 @@ impl CodeIndex {
         matches.retain(|(_, _, symbol)| seen.insert(symbol.id.clone()));
         let total_matches = matches.len();
         let truncated = total_matches > max_results;
-        let results = matches
-            .into_iter()
-            .take(max_results)
-            .map(|(_, _, symbol)| symbol)
-            .collect::<Vec<_>>();
+
+        // A broad early query can have enough equally strong matches to consume
+        // the global result limit before a later exact query is represented.
+        // When the caller gives us enough slots, reserve the best candidate for
+        // every matched query first, then fill the remaining capacity by the
+        // ordinary global ranking. This preserves multi-query recall without
+        // increasing scan work or the model-visible result bound.
+        let mut results = Vec::with_capacity(max_results.min(total_matches));
+        let mut selected_ids = HashSet::new();
+        if truncated && max_results >= queries.len() {
+            let mut covered_queries = HashSet::new();
+            for (query_index, _, symbol) in &matches {
+                if covered_queries.insert(*query_index) && selected_ids.insert(symbol.id.clone()) {
+                    results.push(symbol.clone());
+                    if results.len() == max_results {
+                        break;
+                    }
+                }
+            }
+        }
+        for (_, _, symbol) in matches {
+            if results.len() == max_results {
+                break;
+            }
+            if selected_ids.insert(symbol.id.clone()) {
+                results.push(symbol);
+            }
+        }
         let stats = self.stats_for_root(workspace.root());
         Ok(json!({
             "workspace": workspace_id,

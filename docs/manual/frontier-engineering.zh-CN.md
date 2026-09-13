@@ -11,7 +11,7 @@ permalink: /zh/docs/frontier-engineering/
 
 ## 状态
 
-本轮核查日期为 2026-09-10，研究内容与[此前的改进](../research-upgrades/)分开记录，不把旧论文重新包装成新发现。下文已实现改动已纳入 [v0.6.2 发布准备](../releases/v0.6.2/)，后面的路线图内容仍未实现。源码测试通过，不会自动更新正在运行的 MCP 进程或其工具声明。
+本轮核查日期为 2026-09-12，研究内容与[此前的改进](../research-upgrades/)分开记录，不把旧论文重新包装成新发现。下文已实现改动已纳入 [v0.6.2 发布准备](../releases/v0.6.2/)，后面的路线图内容仍未实现。源码测试通过，不会自动更新正在运行的 MCP 进程或其工具声明。
 
 实现范围现已增加下文的持久任务式项目验证。选择性上下文执行与完整、有界的验证计划继续保留；后面的独立智能体与通用写操作恢复仍属于路线图，不是已完成功能。本轮没有引入外部模型、嵌入服务、神经裁剪器、生产依赖、自动权限授予或新的 MCP 输入参数。
 
@@ -25,6 +25,9 @@ permalink: /zh/docs/frontier-engineering/
 | [Harness Engineering：十一套系统源码研究](https://arxiv.org/abs/2609.00006) | 对比生产智能体的执行循环、上下文、工具、控制、编排和扩展结构。 | 复用现有模块的职责，不因架构潮流叠加另一套编排框架或强制向量数据库。这是抽样源码研究，不是受控性能对比，也不能证明嵌入检索永远无用。 |
 | [Towards a Science of Scaling Agent Systems](https://arxiv.org/abs/2512.08296)，2025-12-09 首次提交，当前 v3 修订于 2026-04-08 | 受控实验显示协调开销与任务结构高度相关，修订版扩展了实验范围。 | 保留真实依赖驱动的并行，不固定启动一群智能体，也不奖励最大工具调用数；集中验证与工作者意见一致分开。论文中的性能阈值不直接变成生产规则。 |
 | [SWE-Bench Pro Verified](https://arxiv.org/abs/2609.08149)，2026-09-08 | 检查标准答案泄漏、隐藏评测信息以及任务与测试定义不一致。 | 要求检查项完整记账，并设计隔离的独立评测；不从能接触标准补丁的榜单或单元测试数量推导产品领先。本轮没有运行该外部基准。 |
+| [Agent Retrieval Bench](https://arxiv.org/abs/2607.24882)，2026-07-27 | 把仓库 Context Retrieval 从最终 Patch Success 中单独拆出，覆盖 `code2test`、`comment2context`、`trace2code`、`edit2ripple` 和自然 No-gold 场景。没有任何 Retrieval Family 在所有任务上都最好；RepoMap 在 8K Token Budget 下 Context Yield 最强，而 Selective Threshold 在自然 No-gold 场景仍有 Calibration Gap。 | 不再用一套全局 Ranking 处理所有任务；明确意图使用不同的有界 Prior，混合请求回退 Balanced Context，并明确标记 Heuristic。Embedding / Model Router 只有在受保护的成本与质量评测真正获胜后才考虑引入。 |
+| [Engineering Reliable Coding Agents](https://arxiv.org/abs/2608.13867)，2026-08-14 | 把 Coding Agent Reliability 看成 Harness、Execution State、Retrieval、Memory、Permission、Verification、Observability 和 Resource 组成的依赖链，而不是单纯的模型能力。 | 继续保持 wcode 各可靠性层独立可观测、Fail Closed：Retrieval Routing 不能覆盖 Provenance，学习出来的 Verification Strategy 必须能自熔断，异步 Tunnel / Verification Completion 必须拒绝过期结果。 |
+| [SWE-bench-Live](https://github.com/microsoft/SWE-bench-Live)，2026-09-12 核查 | 持续更新 Multi-language 与 Windows Agentic SWE Task。2026-08-21 更新报告 MultiLang 已有 1,077 个任务、431 个仓库、8 种语言；Windows 有 66 个任务、48 个仓库、9 种语言。 | 后续外部评测必须纳入更抗污染的 Multi-language / Multi-OS Suite。本轮没有运行，也不会宣称任何 SWE-bench-Live 分数。 |
 
 论文提供假设和设计依据，不是本仓库的性能证书。最新论文的提交日期，也不意味着成熟且证据更充分的机制已经过时。
 
@@ -41,6 +44,16 @@ permalink: /zh/docs/frontier-engineering/
 本地回归样例在一个目标旁放置 128 个无关文件。修改前，目标冷查询在观察时保留了 30 个索引文件记录；缺失位置样例在随后读取对照大纲后保留了 129 个。这是索引缓存占用，不是累计解析次数。新验收目标是两种样例都只保留一个目标记录，且目标的冷、热查询保留准确行号、SHA 和原文。测试打印的单次耗时仅用于诊断，不是统计受控的延迟基准。
 
 另外验证普通符号与调用关系仍可发现，指引与设计测试引用保留，以及 Python、TypeScript、Go 和 JSON 在 1,000、4,000 Token 估算预算下的原文与 SHA。Rust 定位、路径和 SHA 保护沿用已有回归。Token 数仍以序列化字节数除以四估算，不是模型提供商的真实分词结果。
+
+## 已实现：按任务类型路由检索
+
+Agent Retrieval Bench 给出了一个很直接的工程信号：`trace2code`、`code2test`、`edit2ripple` 和一般 Context Acquisition 奖励的证据并不相同，而自然 No-gold 场景的 Selective Calibration 仍不成熟。因此 wcode 增加的是一个很小、确定性的 Routing Layer，而不是 Embedding Service 或 Model Classifier。
+
+`query-intent-rules-v1` 只在 `trace_to_code`、`code_to_test`、`edit_to_ripple` 中有且只有一个明确意图时才调整有界弱 Prior：Trace 任务更偏 Design Implementation / Dependency Evidence；Test 任务更偏 Test Path / Symbol；Ripple 任务给 Direct Relationship 与 Verified Experience Graph 更多空间。如果同一句请求同时出现多个竞争意图，不猜：返回 `balanced_context`、`specialized=false`、`abstained_from_specialization=true` 和 `reason=ambiguous_retrieval_signals`。
+
+Router 本身不是新的 Precision Claim。精确 Literal / Qualified Target 强于 Broad Software Context Seed；Fresh Semantic / Deterministic / Runtime Graph Evidence 强于 Heuristic Prior；Verified Historical Co-change 仍被限制在 Direct Lexical Evidence 之下。1,000 Token Floor 下，Routing Explanation 可以先被裁掉，不能挤掉 Direct SHA Target、Test、最强 Repo-map Item 或 Diagnostic Hot Source。策略放在独立 `src/runtime/harness/retrieval.rs`，Graph Construction / Ranking Execution 继续留在 `repo_map.rs`，方便后续做 Routing A/B，而不把 Graph Engine 重新长成 Policy Monolith。
+
+本地回归覆盖 Intent Classification、Ambiguous Abstention、Root-level Test Path、Exact-target Precedence、Code-to-test Ordering，以及原有 Tight-budget / Diagnostic-anchor Contract。它们验证的是 Routing Invariant，不是 Agent Retrieval Bench 的复现，也不能冒充外部 Retrieval Score。
 
 ## 已实现：完整、有界的验证计划
 

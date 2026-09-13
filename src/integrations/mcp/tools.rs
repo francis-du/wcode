@@ -1,7 +1,13 @@
 use super::*;
 use crate::scopes;
+use std::sync::OnceLock;
 
-pub(super) fn tools() -> Vec<Value> {
+pub(super) fn tools() -> &'static [Value] {
+    static CATALOG: OnceLock<Vec<Value>> = OnceLock::new();
+    CATALOG.get_or_init(build_tools).as_slice()
+}
+
+fn build_tools() -> Vec<Value> {
     vec![
         tool("workspace_info", "Show configured workspaces and automatically discovered nested project subspaces. Prefer the most specific subspace ID for project-scoped coding, review, verification, and repository commands.", json!({"type":"object","properties":{},"additionalProperties":false}), true, false),
         tool("design_status", "Load and validate the structured Desired Software State under .wcode/. Returns project identity, requirement/component/constraint/decision/acceptance counts, and bounded diagnostics without reading implementation source into the model context.", schema(json!({}), &[]), true, false),
@@ -19,11 +25,11 @@ pub(super) fn tools() -> Vec<Value> {
         tool("graph_history", "List bounded persisted composite Software Graph snapshots. Identical graph content is deduplicated, so history represents meaningful graph revisions rather than read frequency.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":64,"default":20}}), &[]), true, false),
         tool("graph_query", "Query a persisted Software Graph snapshot by node id/kind/label or by incoming/outgoing relationship. Omit snapshot_id to query the latest snapshot; results remain bounded and include the snapshot/provider precision metadata.", schema(json!({"query":{"type":"object","properties":{"snapshot_id":{"type":"string","minLength":1,"maxLength":160},"node_id":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["product","requirement","acceptance_criterion","constraint","decision","component","package","module","file","symbol","function","struct","trait","class","interface","api","database","queue","config","test","verification","risk","evidence"]},"label_contains":{"type":"string","minLength":1,"maxLength":500},"related_to":{"type":"string","minLength":1,"maxLength":512},"edge_kind":{"type":"string","enum":["contains","defines","references","calls","imports","depends_on","implements","extends","implements_requirement","constrained_by","tested_by","verified_by","guards_against","produces_evidence","runtime_calls","conflicts_with"]},"direction":{"type":"string","enum":["incoming","outgoing","both"]},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}},"additionalProperties":false}}), &["query"]), true, false),
         tool("graph_diff", "Compare two persisted Software Graph revisions without treating provenance revision churn as delete/add noise. Node IDs and stable edge identities are aligned first; true additions/removals and changed attributes/provenance are returned separately with bounded counts. Omit IDs to compare the latest two meaningful graph snapshots.", schema(json!({"diff":{"type":"object","properties":{"from_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"to_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"limit":{"type":"integer","minimum":1,"maximum":200,"default":50}},"additionalProperties":false}}), &[]), true, false),
-        tool("traceability_status", "Resolve Requirement → Component → implementation and Acceptance Criterion → verification mapping chains from structured Design State. This reports mapping coverage, not execution or pass status: Project Observatory Proof reports acceptance Mapped, Executed, Passed, and Fresh separately. File existence is deterministic; symbol/test resolution uses Tree-sitter syntax precision; Harness check references resolve only when present in the inferred project verification profile.", schema(json!({}), &[]), true, false),
+        tool("traceability_status", "Resolve Requirement → Component → implementation and Acceptance Criterion → verification mapping chains from structured Design State. This reports mapping coverage, not execution or pass status: Engineering Observatory Proof reports acceptance Mapped, Executed, Passed, and Fresh separately. File existence is deterministic; symbol/test resolution uses Tree-sitter syntax precision; Harness check references resolve only when present in the inferred project verification profile.", schema(json!({}), &[]), true, false),
         tool("drift_status", "Compare the current Git change set with Design State traceability and report bounded implementation drift and design drift findings. The result distinguishes desired-state changes that are not reflected in Actual State from design-mapped implementation changes that have no corresponding Design State change.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("risk_status", "Assess the current change set, traceability gaps, and drift findings into structured Risk records and a risk-adaptive verification profile. Risk is multi-dimensional evidence for verification depth, not a single quality score.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
-        tool("software_context", "Retrieve bounded task-oriented software intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
+        tool("software_context", "Retrieve bounded task-oriented repository intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
         tool("agent_context", "Start coding here: targets, source, SHA, checks and worklist. Include file:line or file#Lline for diagnostic context. Omit budget for adaptive sizing; read only missing context, then edit and verify.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
         tool("worklist_status", "Read the persistent active model worklist for this Workspace, including revision, incomplete items and runnable dependency lanes.", schema(json!({}), &[]), true, false),
         tool("worklist_update", "Create or patch the persistent model worklist with optimistic revision control. Unfinished items cannot be silently deleted; restart requires a completed list.", schema(json!({"expected_revision":{"type":"integer","minimum":0},"goal":{"type":"string","minLength":1,"maxLength":1000},"restart":{"type":"boolean"},"items":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64},"title":{"type":"string","minLength":1,"maxLength":300},"status":{"type":"string","enum":["pending","in_progress","done","blocked"]},"depends_on":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":64}},"note":{"type":"string","maxLength":1000}},"required":["id"],"additionalProperties":false}}}), &["expected_revision"]), false, false),
@@ -131,7 +137,7 @@ pub(super) fn tools() -> Vec<Value> {
         tool("move_path", "Move or rename one file or directory inside the workspace without overwriting the destination. File moves may include expected_source_sha256 to pin the exact source revision; directories reject that file-only precondition. Source trees containing symlinks, hard-linked files, protected paths, or workspace escapes are rejected.", schema(json!({"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}}), &["source","destination"]), false, true),
         tool("move_paths", "Move up to 64 independent, non-overlapping files/directories concurrently without destination overwrite. Each file move may pin expected_source_sha256; overlapping or dependent paths are rejected before execution.", schema(json!({"moves":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}},"required":["source","destination"],"additionalProperties":false}}}), &["moves"]), false, true),
         tool("delete_path", "Delete one regular file or empty directory only after an exact one-shot human authorization in the TUI or protected local Web UI. File deletion requires expected_sha256. Recursive deletion, workspace-root deletion, protected paths, symlinks, and hard-linked files are permanently blocked.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"}}), &["path"]), false, true),
-        tool("run_command", "Run a policy-checked program without a shell. Timeouts return failed results with captured output; inspect effects before retrying. Gated commands still need explicit human authorization.", schema(json!({"program":{"type":"string","minLength":1,"maxLength":256,"description":"Bare executable name. Non-default programs require explicit per-workspace human authorization before execution."},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300}}), &["program"]), false, true),
+        tool("run_command", "Run a policy-checked program without a shell. Bounded repository-local verification commands (test/check/lint/analyze/build/format-check) run autonomously; only commands with broader side effects require human authorization. Timeouts return failed results with captured output; inspect effects before retrying.", schema(json!({"program":{"type":"string","minLength":1,"maxLength":256,"description":"Bare executable name. Bounded verification tools are pre-authorized; non-default or side-effectful programs require explicit per-workspace human authorization."},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":300}}), &["program"]), false, true),
     ]
 }
 
@@ -290,26 +296,65 @@ fn tool(
 }
 
 pub(super) fn tool_result(value: Value, is_error: bool) -> Value {
+    let text = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
+    tool_result_with_text(value, is_error, text)
+}
+
+pub(super) fn tool_result_with_text(value: Value, is_error: bool, text: String) -> Value {
     json!({
-        "content": [{"type": "text", "text": serde_json::to_string(&value).unwrap_or_else(|_| "{}".into())}],
+        "content": [{"type": "text", "text": text}],
         "structuredContent": value,
         "isError": is_error,
     })
 }
 
-pub(super) fn agent_context_model_bytes(value: &Value) -> u64 {
-    let mut model_value = value.clone();
-    take_agent_context_telemetry(&mut model_value);
-    serde_json::to_vec(&model_value)
-        .map(|bytes| bytes.len() as u64)
-        .unwrap_or_default()
+pub(super) fn structured_tool_result(value: Value, is_error: bool) -> Value {
+    // Internal fan-out children never cross the MCP protocol boundary. Avoid
+    // serializing the same potentially large structured payload into a second
+    // text copy that the parent immediately discards.
+    json!({
+        "structuredContent": value,
+        "isError": is_error,
+    })
 }
 
-pub(super) fn agent_context_tool_result(mut value: Value, is_error: bool) -> Value {
+fn serialized_json_bytes(value: &Value) -> u64 {
+    struct ByteCounter(u64);
+
+    impl std::io::Write for ByteCounter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len() as u64);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut counter = ByteCounter(0);
+    if serde_json::to_writer(&mut counter, value).is_ok() {
+        counter.0
+    } else {
+        0
+    }
+}
+
+pub(super) fn agent_context_tool_result(value: Value, is_error: bool) -> Value {
+    agent_context_result(value, is_error, true)
+}
+
+pub(super) fn agent_context_structured_result(value: Value, is_error: bool) -> Value {
+    agent_context_result(value, is_error, false)
+}
+
+fn agent_context_result(mut value: Value, is_error: bool, include_text: bool) -> Value {
     let mut telemetry = take_agent_context_telemetry(&mut value);
-    let model_bytes = serde_json::to_vec(&value)
-        .map(|bytes| bytes.len() as u64)
-        .unwrap_or_default();
+    let serialized_text =
+        include_text.then(|| serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_owned()));
+    let model_bytes = serialized_text
+        .as_ref()
+        .map_or_else(|| serialized_json_bytes(&value), |text| text.len() as u64);
     let model_tokens = model_bytes.div_ceil(4);
     telemetry.insert("model_serialized_bytes".to_owned(), json!(model_bytes));
     telemetry.insert("model_estimated_tokens".to_owned(), json!(model_tokens));
@@ -330,7 +375,11 @@ pub(super) fn agent_context_tool_result(mut value: Value, is_error: bool) -> Val
         );
     }
 
-    let mut result = tool_result(value, is_error);
+    let mut result = if let Some(text) = serialized_text {
+        tool_result_with_text(value, is_error, text)
+    } else {
+        structured_tool_result(value, is_error)
+    };
     if let Some(result) = result.as_object_mut() {
         result.insert(
             "_meta".to_owned(),

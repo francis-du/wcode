@@ -2,11 +2,17 @@ use crate::workspace::Workspace;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path};
 
 pub const DESIGN_ROOT: &str = ".wcode/design";
 pub const PROJECT_FILE: &str = ".wcode/project.yaml";
 const MAX_DESIGN_FILES: usize = 512;
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOAD_DESIGN_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -196,7 +202,7 @@ impl CodeRef {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConstraintDesign {
     #[serde(default = "schema_version")]
@@ -232,6 +238,26 @@ pub fn baseline_constraints() -> Vec<ConstraintDesign> {
             applies_to: Vec::new(),
         },
     ]
+}
+
+fn apply_core_constraints(load: &mut DesignLoad) {
+    for core in baseline_constraints() {
+        match load.state.constraints.get(&core.id).cloned() {
+            Some(existing) if existing == core => {}
+            Some(_) => {
+                push_error(
+                    load,
+                    "core-constraint-override",
+                    &core.id,
+                    "project Design State cannot override or weaken a wcode core constraint; the canonical runtime constraint remains in force",
+                );
+                load.state.constraints.insert(core.id.clone(), core);
+            }
+            None => {
+                load.state.constraints.insert(core.id.clone(), core);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -277,7 +303,40 @@ pub enum VerificationRef {
     Check { id: String },
 }
 
+pub(crate) fn fingerprint(workspace: &Workspace) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    workspace.root().hash(&mut hasher);
+    let project_path = workspace.root().join(PROJECT_FILE);
+    project_path.is_file().hash(&mut hasher);
+    if project_path.is_file() {
+        PROJECT_FILE.hash(&mut hasher);
+        match workspace.source_metadata_stamp(PROJECT_FILE) {
+            Ok(stamp) => stamp.hash(&mut hasher),
+            Err(error) => error.to_string().hash(&mut hasher),
+        }
+    }
+
+    let design_dir = workspace.root().join(DESIGN_ROOT);
+    design_dir.is_dir().hash(&mut hasher);
+    if design_dir.is_dir() {
+        match workspace.source_files_with_stamps(DESIGN_ROOT, MAX_DESIGN_FILES) {
+            Ok((files, truncated)) => {
+                truncated.hash(&mut hasher);
+                files.len().hash(&mut hasher);
+                for (path, stamp) in files {
+                    path.hash(&mut hasher);
+                    stamp.hash(&mut hasher);
+                }
+            }
+            Err(error) => error.to_string().hash(&mut hasher),
+        }
+    }
+    hasher.finish()
+}
+
 pub fn load_design(workspace: &Workspace) -> Result<DesignLoad> {
+    #[cfg(test)]
+    LOAD_DESIGN_CALLS.with(|count| count.set(count.get() + 1));
     let design_dir = workspace.root().join(DESIGN_ROOT);
     let project_path = workspace.root().join(PROJECT_FILE);
     let initialized = design_dir.is_dir() || project_path.is_file();
@@ -317,6 +376,7 @@ pub fn load_design(workspace: &Workspace) -> Result<DesignLoad> {
                 "project metadata exists but .wcode/design is missing",
             );
         }
+        apply_core_constraints(&mut load);
         validate_design_state(&mut load);
         return Ok(load);
     }
@@ -330,6 +390,7 @@ pub fn load_design(workspace: &Workspace) -> Result<DesignLoad> {
                 DESIGN_ROOT,
                 error.to_string(),
             );
+            apply_core_constraints(&mut load);
             validate_design_state(&mut load);
             return Ok(load);
         }
@@ -397,6 +458,7 @@ pub fn load_design(workspace: &Workspace) -> Result<DesignLoad> {
         load.files_loaded += usize::from(loaded);
     }
 
+    apply_core_constraints(&mut load);
     validate_design_state(&mut load);
     Ok(load)
 }

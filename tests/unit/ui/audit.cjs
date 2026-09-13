@@ -103,7 +103,7 @@ async function main() {
     const s=sandbox(false,true,{fakeTimers:true});s.run('schedule();');
     assert.ok(s.timers.size>=2);s.context.document.hidden=true;s.events.visibilitychange();
     assert.equal(s.timers.size,0);assert.equal(s.requests.length,0);
-    s.context.document.hidden=false;s.node('#autoRefresh').checked=false;s.events.visibilitychange();
+    s.context.document.hidden=false;s.run('state.autoRefresh=false;');s.events.visibilitychange();
     assert.equal(s.timers.size,0);assert.equal(s.requests.length,0);
   });
   await test(17,'the first screen requests live activity without waiting for the project',async()=>{
@@ -131,10 +131,21 @@ async function main() {
     assert.ok(!s.node('#proofSummary').innerHTML.includes('<script>'));
     assert.ok(s.node('#proofSummary').innerHTML.includes('truncated'));
   });
+  await test(21,'architecture system map keeps one readable subsystem inspector visible',async()=>{
+    const s=sandbox();seed(s);
+    s.run('globalThis.inspectorRenders=0;renderSubsystemInspector=()=>{inspectorRenders++;};state.architectureView="blueprint";renderArchitecture();');
+    assert.ok(s.run('inspectorRenders')>=1);
+  });
+  await test(22,'revision outages keep the last snapshot without rebuilding the project every poll',async()=>{
+    const s=sandbox();seed(s);s.run('globalThis.projectRefreshes=0;refreshProject=async()=>{projectRefreshes++;return true;};');
+    const poll=s.run('pollRevision()');await flush();
+    s.requests[0].reject(new Error('revision unavailable'));await poll;
+    assert.equal(s.run('projectRefreshes'),0);assert.equal(s.run('state.syncError'),true);
+  });
   const report={suite:'observatory-audit',results};
   fs.mkdirSync(path.join(process.argv[2],'target'),{recursive:true});
   fs.writeFileSync(path.join(process.argv[2],'target/wcode-audit.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
-  assert.equal(results.length,20);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
+  assert.equal(results.length,22);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

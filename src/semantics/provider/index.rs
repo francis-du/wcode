@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::{HashMap, HashSet};
 
 pub(super) async fn build_provider_import(
     sessions: &SemanticSessionPool,
@@ -27,10 +28,22 @@ pub(super) async fn build_provider_import(
         .iter()
         .map(|source| source.source.path.clone())
         .collect::<BTreeSet<_>>();
-    session.retain_documents(workspace, &open_paths).await?;
+    session.retain_documents(&open_paths).await?;
 
     let mut nodes = BTreeMap::<String, GraphImportNode>::new();
     let mut edges = Vec::<GraphImportEdge>::new();
+    let mut edge_keys = HashSet::<(String, String, EdgeKind)>::new();
+    let mut node_by_location = HashMap::<(String, u64, u64), String>::new();
+    let mut source_sha_by_path = files
+        .iter()
+        .map(|prepared| {
+            (
+                prepared.source.path.clone(),
+                Some(prepared.source.sha256.clone()),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut document_uris = Vec::<String>::with_capacity(files.len());
     let mut symbol_positions = Vec::new();
     let mut truncated = false;
 
@@ -42,6 +55,7 @@ pub(super) async fn build_provider_import(
         let source = &prepared.source;
         let language = prepared.language;
         let (uri, _) = session.sync_document(workspace, source, language).await?;
+        let uri_index = document_uris.len();
         let result = match session
             .request(
                 "textDocument/documentSymbol",
@@ -66,6 +80,9 @@ pub(super) async fn build_provider_import(
                 symbol.character,
                 &symbol.name,
             );
+            node_by_location
+                .entry((symbol.path.clone(), symbol.line, symbol.character))
+                .or_insert_with(|| id.clone());
             let mut attributes = BTreeMap::new();
             attributes.insert("path".into(), json!(symbol.path));
             attributes.insert("source_sha256".into(), json!(source.sha256.as_str()));
@@ -80,12 +97,13 @@ pub(super) async fn build_provider_import(
                 label: symbol.qualified_name.clone(),
                 attributes,
             });
-            symbol_positions.push((id, uri.clone(), symbol.line, symbol.character, symbol.kind));
+            symbol_positions.push((id, uri_index, symbol.line, symbol.character, symbol.kind));
         }
+        document_uris.push(uri);
     }
 
     if call_hierarchy {
-        for (from_id, uri, line, character, _) in symbol_positions
+        for (from_id, uri_index, line, character, _) in symbol_positions
             .iter()
             .filter(|(_, _, _, _, kind)| call_hierarchy_candidate(*kind))
             .take(MAX_PROVIDER_RELATION_SYMBOLS.min(max_symbols))
@@ -94,6 +112,7 @@ pub(super) async fn build_provider_import(
                 truncated = true;
                 break;
             }
+            let uri = &document_uris[*uri_index];
             let prepared = match session
                 .request(
                     "textDocument/prepareCallHierarchy",
@@ -125,15 +144,20 @@ pub(super) async fn build_provider_import(
                 let Some(target) = call.get("to") else {
                     continue;
                 };
-                let Some(target_node) = call_hierarchy_node(workspace, provider.id, target) else {
+                let Some(target_node) =
+                    call_hierarchy_node(workspace, provider.id, target, &mut source_sha_by_path)
+                else {
                     continue;
                 };
                 let to_id = target_node.id.clone();
+                if let Some(location) = graph_import_node_location(&target_node) {
+                    node_by_location
+                        .entry(location)
+                        .or_insert_with(|| to_id.clone());
+                }
                 nodes.entry(to_id.clone()).or_insert(target_node);
                 if from_id != &to_id
-                    && !edges.iter().any(|edge| {
-                        edge.from == *from_id && edge.to == to_id && edge.kind == EdgeKind::Calls
-                    })
+                    && edge_keys.insert((from_id.clone(), to_id.clone(), EdgeKind::Calls))
                 {
                     edges.push(GraphImportEdge {
                         from: from_id.clone(),
@@ -146,7 +170,7 @@ pub(super) async fn build_provider_import(
     }
 
     if implementation_resolution {
-        for (interface_id, uri, line, character, _) in symbol_positions
+        for (interface_id, uri_index, line, character, _) in symbol_positions
             .iter()
             .filter(|(_, _, _, _, kind)| implementation_candidate(*kind))
             .take(MAX_PROVIDER_RELATION_SYMBOLS.min(max_symbols))
@@ -158,6 +182,7 @@ pub(super) async fn build_provider_import(
             let Some(interface) = nodes.get(interface_id).cloned() else {
                 continue;
             };
+            let uri = &document_uris[*uri_index];
             let implementations = match session
                 .request(
                     "textDocument/implementation",
@@ -178,10 +203,9 @@ pub(super) async fn build_provider_import(
                     truncated = true;
                     break;
                 }
-                let existing_target = nodes
-                    .values()
-                    .find(|node| node_at_location(node, &path, target_line, target_character))
-                    .map(|node| node.id.clone());
+                let existing_target = node_by_location
+                    .get(&(path.clone(), target_line, target_character))
+                    .cloned();
                 let target_id = existing_target.unwrap_or_else(|| {
                     semantic_node_id(
                         provider.id,
@@ -192,10 +216,15 @@ pub(super) async fn build_provider_import(
                     )
                 });
                 if !nodes.contains_key(&target_id) {
-                    let source_sha256 = workspace
-                        .load_source(&path)
-                        .ok()
-                        .map(|source| source.sha256);
+                    let source_sha256 = source_sha_by_path
+                        .entry(path.clone())
+                        .or_insert_with(|| {
+                            workspace
+                                .load_source(&path)
+                                .ok()
+                                .map(|source| source.sha256)
+                        })
+                        .clone();
                     let mut attributes = BTreeMap::new();
                     attributes.insert("path".into(), json!(path));
                     if let Some(source_sha256) = source_sha256 {
@@ -214,13 +243,17 @@ pub(super) async fn build_provider_import(
                             attributes,
                         },
                     );
+                    node_by_location.insert(
+                        (path.clone(), target_line, target_character),
+                        target_id.clone(),
+                    );
                 }
                 if target_id != *interface_id
-                    && !edges.iter().any(|edge| {
-                        edge.from == target_id
-                            && edge.to == *interface_id
-                            && edge.kind == EdgeKind::Implements
-                    })
+                    && edge_keys.insert((
+                        target_id.clone(),
+                        interface_id.clone(),
+                        EdgeKind::Implements,
+                    ))
                 {
                     edges.push(GraphImportEdge {
                         from: target_id,
@@ -261,4 +294,12 @@ pub(super) async fn build_provider_import(
         revision,
     };
     Ok((import, run, truncated))
+}
+
+fn graph_import_node_location(node: &GraphImportNode) -> Option<(String, u64, u64)> {
+    Some((
+        node.attributes.get("path")?.as_str()?.to_owned(),
+        node.attributes.get("line")?.as_u64()?.checked_sub(1)?,
+        node.attributes.get("character")?.as_u64()?.checked_sub(1)?,
+    ))
 }

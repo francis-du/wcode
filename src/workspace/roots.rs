@@ -1,5 +1,14 @@
 use super::*;
 
+struct SourceScan {
+    paths: Vec<String>,
+    stamps: Option<Vec<SourceMetadataStamp>>,
+    truncated: bool,
+}
+
+const WRITE_LOCK_PRUNE_INTERVAL: usize = 128;
+const MAX_WRITE_LOCKS: usize = 4_096;
+
 impl Workspace {
     #[cfg(test)]
     pub fn new(root: impl AsRef<Path>, allow_write: bool, allow_exec: bool) -> Result<Self> {
@@ -72,6 +81,24 @@ impl Workspace {
 
     pub(crate) fn semantic_exec_enabled(&self) -> bool {
         self.allow_exec && self.security.allow_semantic_exec
+    }
+
+    pub(crate) fn readonly_subspace(&self, relative: &str) -> Result<Self> {
+        let root = self.existing_path(relative)?;
+        if !root.is_dir() {
+            bail!("quality subspace is not a directory: {relative}");
+        }
+        Ok(Self {
+            root_identity: root_identity(&root)?,
+            root,
+            allow_write: false,
+            allow_exec: self.allow_exec,
+            security: self.security,
+            authorization: self.authorization.clone(),
+            authorization_workspace: self.authorization_workspace.clone(),
+            commands: self.commands.clone(),
+            write_locks: Arc::new(Mutex::new(HashMap::new())),
+        })
     }
 
     pub(super) fn set_authorization_workspace_id(&self, id: &str) {
@@ -181,7 +208,7 @@ impl Workspace {
         Ok(source_stamp(&metadata))
     }
 
-    pub(crate) fn source_metadata_stamp(&self, path: &str) -> Result<(u64, u128)> {
+    pub(crate) fn source_metadata_stamp(&self, path: &str) -> Result<SourceMetadataStamp> {
         let file = self.existing_path(path)?;
         let metadata = fs::metadata(&file)?;
         if !metadata.is_file() {
@@ -196,16 +223,34 @@ impl Workspace {
         let metadata_before = fs::metadata(&file)?;
         validate_source_metadata(&metadata_before)?;
         let stamp_before = source_stamp(&metadata_before);
+        self.load_source_after_stamp(file, &stamp_before)
+    }
+
+    pub(crate) fn load_source_at_stamp(
+        &self,
+        path: &str,
+        expected: &SourceStamp,
+    ) -> Result<SourceDocument> {
+        let file = self.existing_path(path)?;
+        self.load_source_after_stamp(file, expected)
+    }
+
+    fn load_source_after_stamp(
+        &self,
+        file: PathBuf,
+        expected: &SourceStamp,
+    ) -> Result<SourceDocument> {
         let content = fs::read_to_string(&file).context("file is not valid UTF-8 text")?;
         let metadata_after = fs::metadata(&file)?;
         validate_source_metadata(&metadata_after)?;
         let stamp_after = source_stamp(&metadata_after);
-        if stamp_before != stamp_after {
+        if expected != &stamp_after {
             bail!("source file changed while it was being read; retry the request");
         }
         Ok(SourceDocument {
             path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256: sha256(content.as_bytes()),
+            readonly: metadata_after.permissions().readonly(),
             content,
             stamp: stamp_after,
         })
@@ -216,7 +261,42 @@ impl Workspace {
         path: &str,
         max_entries: usize,
     ) -> Result<(Vec<String>, bool)> {
-        self.source_files_with_class(path, max_entries, crate::resource::WorkClass::Interactive)
+        self.source_files_with_class(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Interactive,
+            true,
+        )
+    }
+
+    pub(crate) fn source_files_with_stamps(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<StampedSourcePath>, bool)> {
+        self.source_files_with_stamps_and_class(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Interactive,
+        )
+    }
+
+    pub(crate) fn source_paths_with_stamps(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<StampedSourcePath>, bool)> {
+        let scan = self.scan_source_files(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Interactive,
+            false,
+            true,
+        )?;
+        let stamps = scan
+            .stamps
+            .expect("source path scan requested metadata stamps");
+        Ok((scan.paths.into_iter().zip(stamps).collect(), scan.truncated))
     }
 
     pub(crate) fn source_files_background(
@@ -224,7 +304,24 @@ impl Workspace {
         path: &str,
         max_entries: usize,
     ) -> Result<(Vec<String>, bool)> {
-        self.source_files_with_class(path, max_entries, crate::resource::WorkClass::Background)
+        self.source_files_with_class(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Background,
+            true,
+        )
+    }
+
+    pub(crate) fn source_files_background_with_stamps(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<StampedSourcePath>, bool)> {
+        self.source_files_with_stamps_and_class(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Background,
+        )
     }
 
     fn source_files_with_class(
@@ -232,18 +329,54 @@ impl Workspace {
         path: &str,
         max_entries: usize,
         work_class: crate::resource::WorkClass,
+        readable_only: bool,
     ) -> Result<(Vec<String>, bool)> {
+        let scan = self.scan_source_files(path, max_entries, work_class, readable_only, false)?;
+        Ok((scan.paths, scan.truncated))
+    }
+
+    fn source_files_with_stamps_and_class(
+        &self,
+        path: &str,
+        max_entries: usize,
+        work_class: crate::resource::WorkClass,
+    ) -> Result<(Vec<StampedSourcePath>, bool)> {
+        let scan = self.scan_source_files(path, max_entries, work_class, true, true)?;
+        let stamps = scan.stamps.expect("source scan requested metadata stamps");
+        Ok((scan.paths.into_iter().zip(stamps).collect(), scan.truncated))
+    }
+
+    fn scan_source_files(
+        &self,
+        path: &str,
+        max_entries: usize,
+        work_class: crate::resource::WorkClass,
+        readable_only: bool,
+        capture_stamps: bool,
+    ) -> Result<SourceScan> {
         let start = self.existing_path(path)?;
         if start.is_file() {
             let relative = portable_relative_path(start.strip_prefix(&self.root)?);
-            return Ok((vec![relative], false));
+            let stamps = if capture_stamps {
+                let metadata = fs::metadata(&start)?;
+                let stamp = source_stamp(&metadata);
+                Some(vec![(stamp.len, stamp.modified_nanos)])
+            } else {
+                None
+            };
+            return Ok(SourceScan {
+                paths: vec![relative],
+                stamps,
+                truncated: false,
+            });
         }
         if !start.is_dir() {
             bail!("path is not a file or directory");
         }
 
         let limit = max_entries.clamp(1, 50_000);
-        let mut files = Vec::new();
+        let mut paths = Vec::new();
+        let mut stamps = capture_stamps.then(Vec::new);
         let mut truncated = false;
         let mut visited = 0usize;
         let mut cpu_slice = Some(crate::resource::cpu_work(work_class));
@@ -261,23 +394,57 @@ impl Workspace {
             if !entry.file_type().is_file() {
                 continue;
             }
-            if entry
-                .metadata()
-                .map(|metadata| metadata.len() > MAX_READ_BYTES)
-                .unwrap_or(true)
+            let metadata = if readable_only || capture_stamps {
+                match entry.metadata() {
+                    Ok(metadata) => Some(metadata),
+                    Err(_) => {
+                        if capture_stamps {
+                            truncated = true;
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            if readable_only
+                && metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.len() > MAX_READ_BYTES)
             {
                 continue;
             }
-            if files.len() == limit {
+            if paths.len() == limit {
                 truncated = true;
                 break;
             }
-            files.push(portable_relative_path(
+            paths.push(portable_relative_path(
                 entry.path().strip_prefix(&self.root)?,
             ));
+            if let (Some(stamps), Some(metadata)) = (stamps.as_mut(), metadata.as_ref()) {
+                let stamp = source_stamp(metadata);
+                stamps.push((stamp.len, stamp.modified_nanos));
+            }
         }
-        files.sort();
-        Ok((files, truncated))
+        if let Some(stamps) = stamps.as_mut() {
+            let mut combined = paths
+                .into_iter()
+                .zip(std::mem::take(stamps))
+                .collect::<Vec<_>>();
+            combined.sort_by(|left, right| left.0.cmp(&right.0));
+            let (sorted_paths, sorted_stamps): (Vec<_>, Vec<_>) = combined.into_iter().unzip();
+            return Ok(SourceScan {
+                paths: sorted_paths,
+                stamps: Some(sorted_stamps),
+                truncated,
+            });
+        }
+        paths.sort();
+        Ok(SourceScan {
+            paths,
+            stamps: None,
+            truncated,
+        })
     }
 
     pub(super) fn validate_relative(path: &str) -> Result<PathBuf> {
@@ -394,9 +561,17 @@ impl Workspace {
             .write_locks
             .lock()
             .map_err(|_| anyhow!("workspace write lock registry poisoned"))?;
-        locks.retain(|_, lock| lock.strong_count() > 0);
         if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
             return Ok(lock);
+        }
+        if locks.len() >= MAX_WRITE_LOCKS
+            || (locks.len() >= WRITE_LOCK_PRUNE_INTERVAL
+                && locks.len().is_multiple_of(WRITE_LOCK_PRUNE_INTERVAL))
+        {
+            locks.retain(|_, lock| lock.strong_count() > 0);
+        }
+        if locks.len() >= MAX_WRITE_LOCKS {
+            bail!("too many concurrently active workspace file locks; retry after current writes finish");
         }
         let lock = Arc::new(Mutex::new(()));
         locks.insert(path.to_path_buf(), Arc::downgrade(&lock));

@@ -81,6 +81,26 @@ fn replace_preserving_stamp(path: &Path, content: &str) {
 }
 
 #[test]
+fn observed_source_stamp_rejects_a_changed_read() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("job.rs");
+    fs::write(&path, "pub fn job() {}\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let stamp = workspace.source_stamp("job.rs").unwrap();
+    fs::write(&path, "pub fn job() { changed(); }\n").unwrap();
+
+    let error = workspace
+        .load_source_at_stamp("job.rs", &stamp)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("changed while it was being read"), "{error}");
+
+    let current = workspace.source_stamp("job.rs").unwrap();
+    let source = workspace.load_source_at_stamp("job.rs", &current).unwrap();
+    assert!(source.content.contains("changed()"));
+}
+
+#[test]
 fn symbol_context_never_mixes_cached_relations_with_new_body() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("job.rs");

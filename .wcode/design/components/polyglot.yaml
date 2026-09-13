@@ -1,0 +1,63 @@
+schema_version: 1
+id: component:polyglot-workspace
+name: Polyglot Workspace and Language Islands
+responsibilities:
+  - discover bounded nested project islands in one manifest-file scan without following repository noise or symlinks
+  - expose structural project-type and language metadata with explicit manifest-derived precision
+  - infer explicit local dependency bridges from Cargo path, package file/link, TypeScript project-reference and Go replace declarations
+  - propagate verification from changed dependency islands to their manifest-declared dependents while avoiding reverse or proximity-based guesses
+  - bind inferred deterministic checks to their owning island cwd and preserve unique check identity across islands, including bounded native Rust, Node, Python, Go, Java, Swift, Dart, Elixir, OCaml, Ruby and declared PHP quality gates
+  - provide low-cost Go vet, Java compile, Swift build, Dart analyze/format, Elixir compile/format, OCaml build, RuboCop and PHP static-analysis checks in the quick matrix before full test lifecycles
+  - promote one bounded full check as a quick fallback when an affected ecosystem has no dedicated quick gate, while requiring true full-level coverage for full verification
+  - map changed paths to the nearest owning island and select only affected island checks when ownership is unambiguous
+  - surface requested-level verification coverage as an explicit fail-closed gap only when the uncovered island is affected
+  - admit exact workspace-local PHP vendor verification executables only after root, symlink and hardlink safety checks
+  - scope nested Language Quality providers by owning root, route their execution through read-only derived subspaces, and keep root provider IDs backward compatible
+  - compile one Design-declared same-island Rust, Python or Go Acceptance test into an exact syntax-resolved quick check while preserving the complete full verification plan
+  - keep focused Cargo filters, pytest node IDs and Go package/-run filters inside a dedicated workspace-bounded verification-shape policy that rejects broad, escaping or extra-argument variants
+  - fall back to the complete verification plan when change ownership cannot be proven safely
+  - keep same-language nested package trees collapsed when an ancestor already owns that toolchain to avoid duplicate verification storms
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+depends_on:
+  - component:verification-harness
+  - component:agent-context
+  - component:language-quality
+implementation:
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: manifest_candidate_dirs
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: discover_nested_project_islands
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: attach_manifest_dependencies
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: verification_checks_for_snapshot
+  - kind: symbol
+    path: src/runtime/harness/islands.rs
+    symbol: verification_gaps_for_snapshot
+  - kind: symbol
+    path: src/verification/quality_provider.rs
+    symbol: registry_for_project_roots
+  - kind: symbol
+    path: src/workspace/roots.rs
+    symbol: Workspace::readonly_subspace
+  - kind: symbol
+    path: src/workspace/operations/execution.rs
+    symbol: Workspace::run_verification_command
+  - kind: symbol
+    path: src/runtime/harness/verification.rs
+    symbol: run_verification_check
+  - kind: symbol
+    path: src/runtime/harness/agent_context.rs
+    symbol: ToolHarness::agent_context
+  - kind: symbol
+    path: src/runtime/harness/test_focus.rs
+    symbol: focused_quick_test
+  - kind: file
+    path: src/workspace/command_policy/focused.rs

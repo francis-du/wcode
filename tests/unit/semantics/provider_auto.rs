@@ -11,15 +11,18 @@ fn automatic_discovery_scans_beyond_the_index_output_limit() {
 #[test]
 fn automatic_sources_are_grouped_before_provider_resolution() {
     let groups = automatic_source_groups(vec![
-        "src/one.rs".to_owned(),
-        "src/two.rs".to_owned(),
-        "web/app.ts".to_owned(),
-        "README.md".to_owned(),
+        ("src/one.rs".to_owned(), (10, 100)),
+        ("src/two.rs".to_owned(), (20, 200)),
+        ("web/app.ts".to_owned(), (30, 300)),
+        ("README.md".to_owned(), (40, 400)),
     ]);
 
     assert_eq!(groups.len(), 1);
     assert_eq!(
         groups.get(&SemanticLanguage::Rust),
-        Some(&vec!["src/one.rs".to_owned(), "src/two.rs".to_owned()])
+        Some(&vec![
+            ("src/one.rs".to_owned(), (10, 100)),
+            ("src/two.rs".to_owned(), (20, 200)),
+        ])
     );
 }

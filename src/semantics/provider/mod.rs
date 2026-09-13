@@ -3,7 +3,7 @@ use crate::evidence_store::workspace_state_directory;
 use crate::graph::{
     EdgeKind, GraphImportEdge, GraphImportNode, GraphPrecision, GraphProviderImport, NodeKind,
 };
-use crate::workspace::{redact_sensitive_text, SourceDocument, Workspace};
+use crate::workspace::{redact_sensitive_text, SourceDocument, StampedSourcePath, Workspace};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -54,6 +54,9 @@ pub use navigation::SemanticNavigationIntent;
 #[path = "index.rs"]
 mod index;
 use index::build_provider_import;
+#[path = "language.rs"]
+mod language;
+pub use language::language_for_path;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -213,11 +216,23 @@ pub fn status(
         .iter()
         .filter_map(|path| language_for_path(path))
         .collect::<BTreeSet<_>>();
+    status_for_languages(workspace, sessions, &languages)
+}
+
+pub(crate) fn status_for_languages(
+    workspace: &Workspace,
+    sessions: Option<&SemanticSessionPool>,
+    languages: &BTreeSet<SemanticLanguage>,
+) -> Result<Vec<SemanticProviderStatus>> {
     Ok(SemanticLanguage::ALL
         .into_iter()
         .map(|language| {
             let present = languages.contains(&language);
-            let candidates = provider_candidates(workspace, language);
+            let candidates = if present {
+                provider_candidates(workspace, language)
+            } else {
+                Vec::new()
+            };
             let selected = sessions
                 .and_then(|sessions| {
                     candidates.iter().find(|(provider, executable)| {
@@ -255,7 +270,7 @@ pub fn status(
             let runnable = launch_ready && session_validated;
             let discovery = selected
                 .as_ref()
-                .map(|(_, executable)| executable_discovery_source(workspace, executable))
+                .map(|(_, executable)| executable_discovery_source(executable))
                 .unwrap_or("missing");
             let action = if !present {
                 None
@@ -664,16 +679,17 @@ fn prepare_sources_with_class(
     files: &[(String, SemanticLanguage)],
     work_class: crate::resource::WorkClass,
 ) -> Result<Vec<PreparedSemanticSource>> {
-    files
-        .iter()
-        .map(|(path, language)| {
-            let _cpu = crate::resource::cpu_work(work_class);
-            Ok(PreparedSemanticSource {
+    crate::resource::parallel_io(files, |(path, language)| {
+        let _cpu = crate::resource::cpu_work(work_class);
+        workspace
+            .load_source(path)
+            .map(|source| PreparedSemanticSource {
                 language: *language,
-                source: workspace.load_source(path)?,
+                source,
             })
-        })
-        .collect()
+    })?
+    .into_iter()
+    .collect()
 }
 
 fn provider_revision(
@@ -694,19 +710,25 @@ fn provider_revision(
             format!("{}:{modified}", metadata.len())
         })
         .unwrap_or_else(|| "unknown".to_owned());
-    let mut fingerprints = files
-        .iter()
-        .map(|source| format!("{}:{}", source.source.path, source.source.sha256))
-        .collect::<Vec<_>>();
-    fingerprints.sort();
-    let input = format!(
-        "semantic-provider-v2\n{}\n{}\n{}\n{}",
-        provider.id,
-        executable_fingerprint,
-        max_symbols,
-        fingerprints.join("\n")
-    );
-    format!("sha256:{:x}", Sha256::digest(input.as_bytes()))
+    let mut fingerprints = files.iter().collect::<Vec<_>>();
+    fingerprints.sort_by(|left, right| left.source.path.cmp(&right.source.path));
+    let mut hasher = Sha256::new();
+    hasher.update(b"semantic-provider-v2\n");
+    hasher.update(provider.id.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(executable_fingerprint.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(max_symbols.to_string().as_bytes());
+    hasher.update(b"\n");
+    for (index, source) in fingerprints.into_iter().enumerate() {
+        if index > 0 {
+            hasher.update(b"\n");
+        }
+        hasher.update(source.source.path.as_bytes());
+        hasher.update(b":");
+        hasher.update(source.source.sha256.as_bytes());
+    }
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 #[derive(Clone)]
@@ -766,6 +788,7 @@ fn call_hierarchy_node(
     workspace: &Workspace,
     provider: &str,
     item: &Value,
+    source_sha_by_path: &mut std::collections::HashMap<String, Option<String>>,
 ) -> Option<GraphImportNode> {
     let uri = item.get("uri")?.as_str()?;
     let url = Url::parse(uri).ok()?;
@@ -793,10 +816,15 @@ fn call_hierarchy_node(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     let id = semantic_node_id(provider, &relative, line, character, name);
-    let source_sha256 = workspace
-        .load_source(&relative)
-        .ok()
-        .map(|source| source.sha256);
+    let source_sha256 = source_sha_by_path
+        .entry(relative.clone())
+        .or_insert_with(|| {
+            workspace
+                .load_source(&relative)
+                .ok()
+                .map(|source| source.sha256)
+        })
+        .clone();
     let mut attributes = BTreeMap::new();
     attributes.insert("path".into(), json!(relative));
     if let Some(source_sha256) = source_sha256 {
@@ -859,12 +887,6 @@ fn call_hierarchy_candidate(kind: u64) -> bool {
 
 fn implementation_candidate(kind: u64) -> bool {
     matches!(kind, 5 | 6 | 11 | 12 | 23)
-}
-
-fn node_at_location(node: &GraphImportNode, path: &str, line: u64, character: u64) -> bool {
-    node.attributes.get("path").and_then(Value::as_str) == Some(path)
-        && node.attributes.get("line").and_then(Value::as_u64) == Some(line + 1)
-        && node.attributes.get("character").and_then(Value::as_u64) == Some(character + 1)
 }
 
 fn semantic_node_id(provider: &str, path: &str, line: u64, character: u64, name: &str) -> String {
@@ -942,48 +964,6 @@ fn provider_launch_args(workspace: &Workspace, provider: ProviderCandidate) -> R
         _ => {}
     }
     Ok(args)
-}
-
-pub fn language_for_path(path: &str) -> Option<SemanticLanguage> {
-    let path = Path::new(path);
-    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
-    let extension = path
-        .extension()
-        .map(|value| value.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    match name.as_str() {
-        ".bashrc" | ".bash_profile" | ".bash_login" | ".profile" | ".zshrc" | ".zprofile"
-        | ".zshenv" | ".zlogin" => Some(SemanticLanguage::Bash),
-        "gemfile" | "rakefile" | "guardfile" | "podfile" | "fastfile" | "appfile"
-        | "deliverfile" | "brewfile" | "vagrantfile" => Some(SemanticLanguage::Ruby),
-        _ => match extension.as_str() {
-            "sh" | "bash" | "zsh" | "ksh" | "command" => Some(SemanticLanguage::Bash),
-            "c" | "h" => Some(SemanticLanguage::C),
-            "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "h++" | "ipp" | "tpp" | "inl" => {
-                Some(SemanticLanguage::Cpp)
-            }
-            "cs" | "cake" => Some(SemanticLanguage::CSharp),
-            "css" => Some(SemanticLanguage::Css),
-            "dart" => Some(SemanticLanguage::Dart),
-            "ex" | "exs" => Some(SemanticLanguage::Elixir),
-            "go" => Some(SemanticLanguage::Go),
-            "html" | "htm" | "xhtml" => Some(SemanticLanguage::Html),
-            "java" => Some(SemanticLanguage::Java),
-            "js" | "jsx" | "mjs" | "cjs" => Some(SemanticLanguage::JavaScript),
-            "lua" => Some(SemanticLanguage::Lua),
-            "ml" => Some(SemanticLanguage::Ocaml),
-            "mli" => Some(SemanticLanguage::OcamlInterface),
-            "php" | "php3" | "php4" | "php5" | "phtml" => Some(SemanticLanguage::Php),
-            "py" | "pyi" => Some(SemanticLanguage::Python),
-            "r" => Some(SemanticLanguage::R),
-            "rb" | "rake" | "gemspec" | "ru" | "jbuilder" => Some(SemanticLanguage::Ruby),
-            "rs" => Some(SemanticLanguage::Rust),
-            "swift" => Some(SemanticLanguage::Swift),
-            "ts" | "mts" | "cts" => Some(SemanticLanguage::TypeScript),
-            "tsx" => Some(SemanticLanguage::Tsx),
-            _ => None,
-        },
-    }
 }
 
 #[cfg(test)]

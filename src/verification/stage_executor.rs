@@ -10,6 +10,11 @@ use std::path::PathBuf;
 
 const CONFIG_PATH: &str = ".wcode/executors.yaml";
 const MAX_EXECUTORS: usize = 128;
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static REGISTRY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 const MAX_ARGS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -87,6 +92,8 @@ pub struct StageExecutionResult {
 }
 
 pub fn registry(workspace: &Workspace) -> Result<StageExecutorRegistry> {
+    #[cfg(test)]
+    REGISTRY_CALLS.with(|count| count.set(count.get() + 1));
     let configured = workspace.root().join(CONFIG_PATH).is_file();
     let mut executors = if configured {
         let file = workspace.load_source(CONFIG_PATH)?;

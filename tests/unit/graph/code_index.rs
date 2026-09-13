@@ -110,6 +110,45 @@ fn multi_query_symbol_search_scans_and_parses_each_file_once() {
 }
 
 #[test]
+fn multi_query_symbol_search_preserves_later_exact_queries_under_global_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["first", "second", "third"] {
+        fs::write(dir.path().join(format!("{name}.rs")), "pub fn run() {}\n").unwrap();
+    }
+    fs::write(
+        dir.path().join("target.rs"),
+        "pub fn critical_target() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let queries = vec!["run".to_owned(), "critical_target".to_owned()];
+
+    let search = index
+        .find_symbols_many("demo", &workspace, &queries, ".", None, 2)
+        .unwrap();
+    let names = search["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|symbol| symbol["name"].as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(search["result_count"], 2);
+    assert!(search["truncated"].as_bool().unwrap());
+    assert!(names.contains(&"run"));
+    assert!(names.contains(&"critical_target"));
+}
+
+#[test]
+fn code_indexes_share_language_configs_but_keep_independent_state() {
+    let first = CodeIndex::new().unwrap();
+    let second = CodeIndex::new().unwrap();
+    assert!(Arc::ptr_eq(&first.configs, &second.configs));
+    assert!(!Arc::ptr_eq(&first.state, &second.state));
+}
+
+#[test]
 fn common_language_grammars_produce_real_symbols() {
     let dir = tempfile::tempdir().unwrap();
     let fixtures = [
@@ -624,4 +663,13 @@ fn non_aggressive_memory_trim_keeps_a_warm_ast_working_set() {
         .as_u64()
         .unwrap();
     assert!((1..20).contains(&remaining));
+
+    let newest = index
+        .file_outline("demo", &workspace, "module_19.rs", 20)
+        .unwrap();
+    assert_eq!(newest["ast_cache_hit"], true);
+    let oldest = index
+        .file_outline("demo", &workspace, "module_0.rs", 20)
+        .unwrap();
+    assert_eq!(oldest["ast_cache_hit"], false);
 }

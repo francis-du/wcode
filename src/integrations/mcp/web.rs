@@ -23,7 +23,7 @@ pub(super) async fn setup_page(
         .into_response();
     response.headers_mut().insert(
         header::CONTENT_SECURITY_POLICY,
-        format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
             .parse().expect("UUID nonce produces a valid CSP header"),
     );
     response
@@ -40,11 +40,19 @@ pub(super) async fn setup_status(
         .auth
         .request_public_url(&headers)
         .unwrap_or_else(|| state.auth.public_url());
-    let tunnels = state
-        .monitor
-        .tunnel_links()
-        .into_iter()
-        .map(|(provider, url)| json!({"provider": provider, "mcp_url": format!("{url}/mcp")}))
+    let tunnels = connection
+        .tunnels
+        .iter()
+        .filter_map(|tunnel| {
+            let url = tunnel.url.as_ref()?;
+            Some(json!({
+                "provider": tunnel.provider,
+                "mcp_url": format!("{url}/mcp"),
+                "role": tunnel.role,
+                "state": tunnel.state,
+                "lease_age_seconds": tunnel.lease_age_seconds,
+            }))
+        })
         .collect::<Vec<_>>();
     (
         [(header::CACHE_CONTROL, "no-store")],
@@ -95,6 +103,18 @@ pub(super) async fn intelligence_script() -> Response {
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         crate::intelligence_web::INTELLIGENCE_JS,
+    )
+        .into_response()
+}
+
+pub(super) async fn intelligence_logo() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        crate::intelligence_web::INTELLIGENCE_LOGO_SVG,
     )
         .into_response()
 }
@@ -469,6 +489,7 @@ pub(super) async fn intelligence_web_project(
         Ok(selected) => selected,
         Err(response) => return *response,
     };
+    let review_started = std::time::Instant::now();
     let (review, review_reason) = if !workspace.exec_enabled() {
         (None, "execution_disabled")
     } else if !workspace.root().join(".git").exists() {
@@ -490,10 +511,12 @@ pub(super) async fn intelligence_web_project(
             Err(_) => (None, "review_failed"),
         }
     };
+    let review_ms = review_started.elapsed().as_secs_f64() * 1_000.0;
     let git_review = json!({"available": review_reason == "available", "reason": review_reason});
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
     let workspace_id_for_read = workspace_id.clone();
+    let project_started = std::time::Instant::now();
     let project = mcp_tools::run_blocking(move || {
         let project = harness.project_observatory(
             workspace_id_for_read,
@@ -503,7 +526,8 @@ pub(super) async fn intelligence_web_project(
         serde_json::to_value(project).map_err(Into::into)
     })
     .await;
-    match project {
+    let project_ms = project_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut response = match project {
         Ok(mut value) => {
             value["workspace_options"] = intelligence_workspace_options(&state);
             value["git_review"] = git_review;
@@ -524,7 +548,14 @@ pub(super) async fn intelligence_web_project(
             Json(json!({"error": error.to_string()})),
         )
             .into_response(),
-    }
+    };
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static("server-timing"),
+        format!("git-review;dur={review_ms:.1}, project-snapshot;dur={project_ms:.1}")
+            .parse()
+            .expect("bounded server timing values form a valid header"),
+    );
+    response
 }
 
 pub(super) async fn intelligence_web_revision(
@@ -557,19 +588,21 @@ pub(super) async fn intelligence_web_revision(
             .next()
             .map(|entry| entry.id);
         let proof = harness.observatory_proof_signal(&id_for_read, &workspace_for_read)?;
-        Ok((graph, proof))
+        let engineering = harness.observatory_engineering_signal(&workspace_for_read)?;
+        Ok((graph, proof, engineering))
     })
     .await;
     let signal_failed = signals.is_err();
-    let (graph_revision, proof_revision) = match signals {
-        Ok((graph, proof)) => (graph, Some(proof)),
-        Err(_) => (None, None),
+    let (graph_revision, proof_revision, engineering_revision) = match signals {
+        Ok((graph, proof, engineering)) => (graph, Some(proof), Some(engineering)),
+        Err(_) => (None, None, None),
     };
     (
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({
             "workspace": workspace_id,
             "proof_revision": proof_revision,
+            "engineering_revision": engineering_revision,
             "fingerprint": revision.fingerprint,
             "changed_files": revision.changed_files,
             "truncated": revision.truncated,

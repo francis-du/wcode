@@ -49,6 +49,7 @@ use tokio::task::JoinSet;
 
 const MAX_PARALLEL_TOOLS: usize = 256;
 pub(crate) const REPO_MAP_MAX_FILES: usize = 600;
+const MAX_OBSERVATORY_FILES: usize = 1_500;
 const MAX_GUIDANCE_LINES_PER_FILE: usize = 160;
 const MAX_GUIDANCE_CHARS_PER_FILE: usize = 12_000;
 const MAX_GUIDANCE_CHARS_TOTAL: usize = 32_000;
@@ -72,9 +73,21 @@ const GUIDANCE_FILES: &[&str] = &[
 const MANIFEST_FILES: &[&str] = &[
     "Cargo.toml",
     "package.json",
+    "tsconfig.json",
     "pyproject.toml",
     "requirements.txt",
     "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "Package.swift",
+    "pubspec.yaml",
+    "mix.exs",
+    "Gemfile",
+    "composer.json",
+    "dune-project",
+    "DESCRIPTION",
+    "CMakeLists.txt",
     "Makefile",
 ];
 
@@ -119,7 +132,9 @@ pub struct ToolHarness {
     execution_slots: Arc<Semaphore>,
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
+    convention_cache: Arc<Mutex<HashMap<PathBuf, CachedConventionReport>>>,
     repo_map_cache: Arc<Mutex<HashMap<(PathBuf, String), CachedRepoMapGraph>>>,
+    verification_cache: Arc<Mutex<harness_verification_cache::VerificationCache>>,
     code_index: CodeIndex,
     semantic_sessions: SemanticSessionPool,
     intelligence: SoftwareIntelligenceRuntime,
@@ -184,12 +199,21 @@ impl ToolHarness {
 #[derive(Clone)]
 struct CachedProjectProfile {
     fingerprint: u64,
+    last_used: Instant,
     profile: Arc<ProjectProfile>,
+}
+
+#[derive(Clone)]
+struct CachedConventionReport {
+    fingerprint: u64,
+    last_used: Instant,
+    report: Arc<ConventionReport>,
 }
 
 #[derive(Clone)]
 struct CachedRepoMapGraph {
     fingerprint: u64,
+    last_used: Instant,
     snapshot: Arc<SoftwareGraphSnapshot>,
 }
 
@@ -198,6 +222,8 @@ struct ProjectProfile {
     root: String,
     project_types: Vec<String>,
     manifests: Vec<String>,
+    islands: Vec<ProjectIsland>,
+    contracts: ProjectContractTopology,
     guidance: Vec<GuidanceDocument>,
     recommended_checks: Vec<CheckSpec>,
     workflow: Vec<String>,
@@ -212,6 +238,8 @@ pub struct ProjectContext {
     pub root: String,
     pub project_types: Vec<String>,
     pub manifests: Vec<String>,
+    pub islands: Vec<ProjectIsland>,
+    pub contracts: ProjectContractTopology,
     pub guidance: Vec<GuidanceDocument>,
     pub recommended_checks: Vec<CheckSpec>,
     pub workflow: Vec<String>,
@@ -220,6 +248,57 @@ pub struct ProjectContext {
     pub product_scopes: Vec<ProductScopeDescriptor>,
     pub conventions: ConventionReport,
     pub language_quality: LanguageQualityRegistry,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectIsland {
+    pub id: String,
+    pub root: String,
+    pub project_types: Vec<String>,
+    pub languages: Vec<String>,
+    pub manifests: Vec<String>,
+    pub check_ids: Vec<String>,
+    pub dependencies: Vec<ProjectIslandDependency>,
+    pub verification_status: &'static str,
+    pub verification_gaps: Vec<String>,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectIslandDependency {
+    pub island: String,
+    pub kind: String,
+    pub evidence: String,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectContractTopology {
+    pub bridges: Vec<ProjectContractBridge>,
+    pub diagnostics: Vec<ProjectContractDiagnostic>,
+    pub truncated: bool,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectContractBridge {
+    pub source: String,
+    pub source_kind: &'static str,
+    pub output: String,
+    pub consumer_island: String,
+    pub kind: &'static str,
+    pub evidence: String,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectContractDiagnostic {
+    pub path: String,
+    pub reason: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -239,10 +318,13 @@ pub struct CheckSpec {
     pub phase: u8,
     pub program: String,
     pub args: Vec<String>,
+    pub cwd: String,
+    pub island: String,
+    pub languages: Vec<String>,
     pub reason: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct VerificationReport {
     pub workspace: String,
     pub level: String,
@@ -250,22 +332,85 @@ pub struct VerificationReport {
     pub phases_run: usize,
     pub passed: bool,
     pub checks_run: usize,
+    pub checks_reused: usize,
     pub checks_failed: usize,
     pub skipped_checks: Vec<String>,
     pub elapsed_ms: u128,
     pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact: Option<ProjectVerificationImpact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_model: Option<VerificationCostDecision>,
     pub checks: Vec<VerificationCheck>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
+pub struct VerificationCostDecision {
+    pub model: &'static str,
+    pub provider: &'static str,
+    pub precision: &'static str,
+    pub sentinel_check: String,
+    pub sentinel_command: String,
+    pub sentinel_island: String,
+    pub samples: usize,
+    pub failures: usize,
+    pub failure_rate_percent: f64,
+    pub median_elapsed_ms: u128,
+    pub estimated_savings_ms: u128,
+    pub estimated_total_savings_ms: u128,
+    pub evidence_records_scanned: usize,
+    pub frontier: Vec<VerificationCostFrontierEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct VerificationCostFrontierEntry {
+    pub order: usize,
+    pub check_id: String,
+    pub command: String,
+    pub island: String,
+    pub samples: usize,
+    pub failures: usize,
+    pub failure_rate_percent: f64,
+    pub median_elapsed_ms: u128,
+    pub marginal_samples: usize,
+    pub marginal_failures: usize,
+    pub marginal_failure_rate_percent: f64,
+    pub estimated_incremental_savings_ms: u128,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectVerificationImpact {
+    pub selective: bool,
+    pub affected_islands: Vec<String>,
+    pub reasons: Vec<ProjectVerificationImpactReason>,
+    pub truncated: bool,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ProjectVerificationImpactReason {
+    pub island: String,
+    pub kind: &'static str,
+    pub source: String,
+    pub relationship: String,
+    pub evidence: String,
+    pub provider: &'static str,
+    pub precision: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct VerificationCheck {
     pub id: String,
     pub phase: u8,
     pub command: String,
     pub reason: String,
     pub success: bool,
+    pub reused: bool,
     pub exit_code: Option<i32>,
     pub elapsed_ms: u128,
+    pub queue_wait_ms: u64,
+    pub execution_ms: u128,
     pub stdout_tail: String,
     pub stderr_tail: String,
     pub output_truncated: bool,
@@ -323,6 +468,8 @@ pub struct ReviewProbeSummary {
     pub id: String,
     pub success: bool,
     pub elapsed_ms: u128,
+    pub queue_wait_ms: u64,
+    pub execution_ms: u128,
     pub error: Option<String>,
 }
 
@@ -361,13 +508,15 @@ struct ChangedFileBuilder {
 
 #[path = "core.rs"]
 mod harness_core;
+#[path = "semantic_provider.rs"]
+mod harness_semantic_provider;
 
 #[path = "quality.rs"]
 mod harness_quality;
 
 #[path = "graph.rs"]
 mod harness_graph;
-use harness_graph::{design_product_id, overlay_design_graph};
+use harness_graph::design_product_id;
 
 #[path = "scope.rs"]
 mod harness_scope;
@@ -384,6 +533,9 @@ mod harness_memory;
 #[path = "agent_context.rs"]
 mod harness_agent_context;
 
+#[path = "retrieval.rs"]
+mod harness_retrieval;
+
 #[path = "repo_map.rs"]
 mod harness_repo_map;
 
@@ -394,6 +546,18 @@ use harness_review::*;
 #[path = "verification.rs"]
 mod harness_verification;
 use harness_verification::run_verification_check;
+#[path = "verification_cache.rs"]
+mod harness_verification_cache;
+
+#[path = "cost.rs"]
+mod harness_cost;
+#[path = "test_focus.rs"]
+mod harness_test_focus;
+
+pub(crate) fn verification_metrics_summary(elapsed_ms: u128, phase: u8) -> String {
+    harness_cost::metrics_summary(elapsed_ms, phase)
+}
+
 fn sort_checks(checks: &mut [CheckSpec]) {
     checks.sort_by(|left, right| {
         left.phase
@@ -428,21 +592,36 @@ fn verification_check(
     result: CommandResult,
     elapsed_ms: u128,
 ) -> VerificationCheck {
+    let command = verification_command_text(&check);
     let (stdout_tail, stdout_cut) =
         harness_verification::verification_output(&result.stdout, result.success);
     let (stderr_tail, stderr_cut) =
         harness_verification::verification_output(&result.stderr, result.success);
+    let queue_wait_ms = result.process_queue_wait_ms;
+    let execution_ms = elapsed_ms.saturating_sub(u128::from(queue_wait_ms));
     VerificationCheck {
         id: check.id,
         phase: check.phase,
-        command: command_text(&result.program, &result.args),
+        command,
         reason: check.reason,
         success: result.success,
+        reused: false,
         exit_code: result.exit_code,
         elapsed_ms,
+        queue_wait_ms,
+        execution_ms,
         stdout_tail,
         stderr_tail,
         output_truncated: result.truncated || stdout_cut || stderr_cut,
+    }
+}
+
+fn verification_command_text(check: &CheckSpec) -> String {
+    let command = command_text(&check.program, &check.args);
+    if check.cwd == "." {
+        command
+    } else {
+        format!("(cd {} && {command})", check.cwd)
     }
 }
 

@@ -1,7 +1,7 @@
 ---
 layout: docs
-title: Software Intelligence 中文指南
-description: wcode Software Intelligence Runtime 已实现能力与使用流程
+title: 仓库理解与工程状态
+description: wcode Engineering Control Plane 如何理解仓库设计、实现、影响、偏离与证据
 lang: zh-CN
 alternate: /docs/software-intelligence/
 permalink: /zh/docs/software-intelligence/
@@ -16,9 +16,9 @@ Coding Agent 写代码可以很快，但仍可能看错代码周围的系统。w
 3. **这次修改会碰到什么？**（What will this change touch?）—— Git-aware Impact、Product Scope、Drift、Public API / Security Signal 和 Maintainability Risk。
 4. **凭什么相信改对了？** —— 确定性检查、语言原生验证、独立 Review，以及绑定当前 Revision 的 Evidence。
 
-这就是“AI 能搜索仓库”和“**Agent 能据以推理的软件智能**（software intelligence an agent can reason from）”之间的区别。同一份状态通过 MCP、本地 CLI、TUI 和受保护 Project Observatory 提供，并且不会随着一次聊天结束而消失。
+这套“仓库理解”只是更大的 **wcode Engineering Control Plane（Coding Agent 工程控制平面）**中的一个子系统，而不是 wcode 的全部定义。同一份状态通过 MCP、兼容保留的 `intelligence` CLI/API、TUI 和受保护 Engineering Observatory 提供，并且不会随着一次聊天结束而消失。
 
-## 60 秒理解 wcode 的软件智能
+## 60 秒理解仓库与工程状态
 
 ```text
 你正在使用的 Coding Agent
@@ -31,10 +31,10 @@ Impact / Drift / Risk
       ↓ 受控编辑
 Verification / Reviewer / Evidence
       ↓
-Project Observatory + 持久 Workspace State
+Engineering Observatory + 持久 Workspace State
 ```
 
-Project Observatory 把同一份模型变成人能直接读懂的视图：Desired State → Actual State → Change → Proof → Convergence，并把持久 Workspace State（durable workspace state）留在会话之外。Software Graph 是保留 Provenance 的底层能力，不要求用户先看懂一张“球图”才能理解项目。
+Engineering Observatory 把同一份模型变成项目数字孪生：先显示分层工程架构蓝图，再显示 Design vs Actual、实时工程活动、Vibe Coding 变更链、Desired State → Actual State → Change → Proof → Convergence 和明确的架构偏离。Software Graph 只是保留 Provenance 的底层能力与二级下钻，不要求用户先看懂一张“球图”才能理解项目。
 
 验证映射与实际证据明确分开：`Mapped` 表示某个 Acceptance Criterion 声明的验证引用都能解析，并不代表已经运行；`Executed` 表示存在合格的验证 Evidence；`Passed` 要求最新观测版本内各有效验证范围均通过；同时间戳冲突保留失败，不按记录 ID 选择有利结果。`Fresh` 表示这个无歧义的版本与当前代码及 Design State Revision 完全一致。这些计数分别暴露在 `ProjectObservatory.proof.acceptance`，因此 100% Traceability Mapping 不会被误读为当前版本已经验证通过。
 
@@ -107,7 +107,7 @@ wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 在 TUI 中，按 `I` 会读取当前选中项目的智能分析，按 `C` 查看完整命令
-清单，按 `W` 打开受保护的项目观测页。客户端连上以后，配对码仍会留在
+清单，按 `W` 打开受保护的 Engineering Observatory。客户端连上以后，配对码仍会留在
 页头，重连时不必再猜它藏在哪里。TUI 和 WebUI 处理同一批待授权请求，
 并把“可执行程序访问”和“精确仓库操作”分开。
 
@@ -115,7 +115,7 @@ wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 以及超过仓库 1,000 行上限的文件。索引达到安全上限时，页面会明确标记
 “已截断”，浏览器不会另外再扫一遍磁盘。
 
-新的观测页优先展示四个可行动信号：正在执行的工具、待批准请求、工作树变更和当前版本证据。Git 状态未知不等于工作树干净，没有证据不等于验证通过。页首结论与按优先级排列的处理事项可以直接跳到相应详情。架构默认按职责和 Product Scope 展示组件卡片，完整依赖连线图按需切换；需求、文件结构、诊断和分析器矩阵采用可展开区域，不再挤在第一屏。
+Engineering Observatory 优先展示四个可行动信号：正在执行的工具、待批准请求、工作树变更和当前版本证据。Git 状态未知不等于工作树干净，没有证据不等于验证通过。工程架构默认从 System → Subsystem 分层蓝图开始，直接显示职责、归属、规模、依赖方向、当前变更与偏离；Component 是第二层下钻，原始依赖图只保留为辅助诊断视图。实时工程流与有界时间线复用真实 Harness Activity、版本绑定 Proof 和架构 Revision，不创建第二份控制状态。需求、文件结构、诊断和分析器矩阵继续渐进展开。
 
 受保护的 `/intelligence/activity` 直接读取现有监控状态，不执行 Git、不重建图谱，也不重置 TUI 的观测窗口。它只返回所选项目最多 12 条任务记录，分别显示排队和执行时间。累计完成/失败是本进程启动以来的历史，不代表当前阻塞；进程队列与驻留内存明确标为所有项目共享。原始命令参数和其他项目的任务记录不会返回。
 
@@ -277,6 +277,21 @@ precision = syntax
 
 日常编码优先调用 `agent_context`。它把过去多次启动发现合成一个有界、可直接编辑的上下文包：仓库地图排序同时使用任务相关性与 Software Graph 关系；新鲜的语义/运行时/确定性证据可以增强关系，过期的 Provider 事实自动回退语法精度。当任务明确涉及 Caller、Reference、Implementation、Rename Impact 或其他跨文件关系，而且当前图只有语法精度时，就绪度信息才会推荐 `semantic_navigation`；普通 Symbol 定位不承担这笔 LSP 成本。性能遥测放在 Tool Result 的 `_meta` 里，模型可见上下文只保留做决策真正需要的信息。
 
+#### 按任务类型路由仓库检索
+
+仓库定位不再假设“一套 Ranking 适合所有问题”。`repo_map.routing` 会返回版本化、有界、显式标记为 Heuristic 的路由策略：
+
+| Retrieval intent | 常见问题 | 额外优先的弱信号 |
+| --- | --- | --- |
+| `trace_to_code` | “`REQ-AUTH-001` 实现在哪里？” | Design 声明的实现路径，以及直接 Implementation / Dependency Relationship |
+| `code_to_test` | “哪些回归测试验证这个 Symbol？” | 与代码目标相关的 Test File / Test Symbol |
+| `edit_to_ripple` | “这个 Rename 会影响哪些 Caller / File？” | Direct Graph Relationship 与已验证 Co-change History |
+| `balanced_context` | 一般请求或混合请求 | 保持默认 Relevance + Graph Mix，不强行特化 |
+
+Router 标识为 `provider=query-intent-rules-v1`、`precision=heuristic`，只有一个意图明确时才特化。如果同一句请求同时出现 Test、Traceability、Impact 等多个互相竞争的信号，它会主动 Abstain，回退 `balanced_context`，并通过 `ambiguous_retrieval_signals` 说明原因；Readiness 只给 Advisory，不伪造高置信度。
+
+Task-aware Routing 只调整弱 Prior。精确 Literal / Qualified Symbol Target 仍强于为了 Recall 放进来的 Retrieval Seed；Fresh Semantic / Deterministic / Runtime Relationship 继续保留更强 Provenance。Token Budget 很紧时，Routing 的解释 Metadata 会先被裁掉，不能挤掉 Direct SHA Edit Target、Verification Reference、最强 Repo-map Item 或 Diagnostic Hot Source。
+
 ### Product Scope
 
 wcode 现在有一份统一的产品能力 Scope Registry：`runtime`、`integrations`、`workspace`、`design`、`graph`、`semantics`、`traceability`、`risk`、`verification`、`evidence`、`reconciliation`、`experience`。`workspace_info` 和 `project_context` 会返回这份 Registry；`scope_status` 会把 Registry 应用到当前 Workspace，返回每个 Scope 的源码数量以及有界的未映射源码路径；`tools/list` 会给每个 Tool 的 `_meta.dev.wcode/productScopes` 附上所属 Scope；支持 MCP Resource 的客户端还可以读取 `wcode://runtime/product-scopes`。同一份实时 Scope Audit 也会进入本地 Intelligence Operator View。
@@ -381,7 +396,7 @@ wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_st
 
 ### Graph History / Query / Diff
 
-`software_graph` 会持久化并去重真正有变化的 Graph Snapshot。`graph_history` 查看历史，`graph_query` 查询某个 Snapshot / 邻域，`graph_diff` 可以显式比较两个 Revision，也可以默认比较最近两个 meaningful Snapshot。Node 用稳定 `node.id` 对齐；Edge 用 `from + to + kind + provider + precision` 对齐，Revision / Attributes 改动归为 `changed`，不会噪声式地报成“整条边删除后重建”。同一稳定 Edge Identity 下出现多条 Revision 时按 multiset 对齐，避免未来更复杂 SCIP / Runtime Provider 丢关系。Project Observatory 用这些 Snapshot 展示架构 Revision 时间线和最新 Node/Edge `+ / - / ~`；每个功能的 Actual Architecture 则在刷新时基于当前仓库重新生成。
+`software_graph` 会持久化并去重真正有变化的 Graph Snapshot。`graph_history` 查看历史，`graph_query` 查询某个 Snapshot / 邻域，`graph_diff` 可以显式比较两个 Revision，也可以默认比较最近两个 meaningful Snapshot。Node 用稳定 `node.id` 对齐；Edge 用 `from + to + kind + provider + precision` 对齐，Revision / Attributes 改动归为 `changed`，不会噪声式地报成“整条边删除后重建”。同一稳定 Edge Identity 下出现多条 Revision 时按 multiset 对齐，避免未来更复杂 SCIP / Runtime Provider 丢关系。Engineering Observatory 用这些 Snapshot 展示架构 Revision 时间线和最新 Node/Edge `+ / - / ~`；每个功能的 Actual Architecture 则在刷新时基于当前仓库重新生成。
 
 ### Change Intelligence
 
@@ -401,7 +416,7 @@ Plan 生成后会进入**持久化 Reconciliation Execution 状态机**：执行
 
 这组工具内部使用有界的 Git 变更审查路径，因此需要命令执行，`--no-exec` 下不可用。
 
-`review_changes` 会报告三类可复查的结构信号：`maintainability-file-crossed-1k` 表示本次修改让一个未删除源码文件越过 1,000 行；`maintainability-concentrated-growth` 表示单个源码文件净增至少 400 行；`maintainability-cross-scope-churn` 表示源码变更覆盖至少 3 个 Product Scope，且总改动不少于 1,000 行。这些信号用于提醒审查，不直接替代设计判断。Convention Engine 也用 1,000 行边界检查整个仓库。详见 [maintainability-review.md](../maintainability-review/)。
+`review_changes` 会报告可复查的结构信号：`maintainability-file-crossed-1k` 解释一次即将越过 1,000 行维护源码边界的修改；`maintainability-oversized-source-growth` 标记已经超限还继续增长的文件；`maintainability-concentrated-growth` 表示单个源码文件净增至少 400 行；`maintainability-cross-scope-churn` 表示源码变更覆盖至少 3 个 Product Scope，且总改动不少于 1,000 行。Review Signal 仍然不替代设计判断，但 1,000 行维护源码边界本身已经是 wcode Core Policy：Workspace 写入工具会阻止新建/越界/继续增长，`verify_project` 会在项目原生命令之前执行 fail-fast `core-policy` Convention 检查。历史超限文件在语义拆分期间只能保持同等大小或缩小；Generated / vendor / build output 豁免。详见 [maintainability-review.md](../maintainability-review/)。
 
 ## 4. Verification Mesh
 
@@ -585,7 +600,7 @@ Reviewer Submit 也会形成 Model Review Evidence，并记录：
 
 这些存储都不会修改 Git 仓库，也不要求 Workspace 可写。
 
-因此进程重启、断开 MCP、切换 Model Executor 后，Software Intelligence 的持久状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
+因此进程重启、断开 MCP、切换 Model Executor 后，仓库理解与工程状态仍可恢复。正在执行的 MCP `working` Task 不会伪装成跨进程继续运行：Runtime 被替换后下一次读取会标为 Failed。`Risk` 会基于最新 Design / Git / Code 重新计算；第一方 LSP Provider 会额外检查 Source Hash Freshness，stale Revision 不会进入新构建的 `software_graph`。
 
 ## 6. 当前 MCP Tool Surface
 
@@ -687,7 +702,7 @@ run_command
 - MCP 2026 Tasks：对 `semantic_provider_refresh` / `verification_execute_stages` 提供 per-request opt-in 的 Durable Task、Owner Scope、Get/Cancel 和同步兼容路径
 - 持久化 Reconciliation Plan + dependency-aware Claim / Submit / Retry 执行状态机 + Reconciliation Evidence
 - `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI
-- TUI 项目分析、完整命令清单和持续显示的配对码；受保护的项目观测页包含架构总览、设计与实现依赖对照、组件与需求详情、验收和验证、约束与决策、受限文件树、大文件与 1,000 行越界提示、代码统计、Git 改动映射和架构版本历史
+- TUI 仓库理解、完整命令清单和持续显示的配对码；受保护 Engineering Observatory 包含 System → Subsystem → Component 架构蓝图、实时 Understand → Change → Prove → Learn → Observe 工程流、Files → Components → Requirements → Verification → Drift 的 Vibe Coding 变更链、二级 Design-vs-Actual 依赖图、组件与需求详情、验收和验证、约束与决策、受限文件树、代码统计、Git 改动映射和架构版本历史
 - `read_media` 的 Capability-aware 多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；只有当前请求显式声明匹配的 `run.francis.wcode/media-content` Client Capability 时才返回 Image/Audio Content，能力未知或不支持时 Fail Closed，视频始终 Metadata-only
 - 完整高阶 MCP Surface
 
@@ -713,4 +728,4 @@ run_command
 
 > 针对要修改的 wcode 行为先调用 `agent_context`，按 Readiness / Next Actions 通过受保护 Workspace Tool 编辑，执行 `review_changes` 与 `verify_project`；只有还需要更深 Convergence 分析时，再进入 Drift / Risk / Reconciliation / Evidence Tool。
 
-这就是现在已经能跑通的 Software Intelligence Runtime Dogfood 路径。
+这就是现在已经能跑通的 Repository Intelligence + Engineering Control Plane Dogfood 路径。

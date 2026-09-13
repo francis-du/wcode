@@ -166,7 +166,7 @@ async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
             "verify_project".into(),
             state.auth.instance_id().into(),
         );
-        record.ttl_ms = 3_000;
+        record.ttl_ms = 1_000;
         task_store::persist(&workspace, &record).unwrap();
         let deadline = if already_expired {
             Instant::now()
@@ -181,7 +181,9 @@ async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
             json!({"name": "verify_project"}),
             deadline,
         ));
-        state.tasks.register(record.task_id.clone(), handle);
+        state
+            .tasks
+            .register(record.task_id.clone(), record.workspace.clone(), handle);
         if !already_expired {
             queued(&state, 1).await;
         }

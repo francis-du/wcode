@@ -11,6 +11,13 @@ const SUBSPACE_FILE_MARKERS: &[(&str, &str)] = &[
     ("build.gradle", "gradle"),
     ("build.gradle.kts", "gradle"),
     ("Package.swift", "swift"),
+    ("pubspec.yaml", "dart"),
+    ("mix.exs", "elixir"),
+    ("Gemfile", "ruby"),
+    ("composer.json", "php"),
+    ("dune-project", "ocaml"),
+    ("DESCRIPTION", "r"),
+    ("CMakeLists.txt", "cmake"),
 ];
 
 struct DiscoveredSubspace {

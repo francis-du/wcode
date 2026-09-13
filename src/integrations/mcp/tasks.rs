@@ -24,16 +24,21 @@ pub(super) fn capabilities() -> Value {
 
 #[derive(Clone, Default)]
 pub(crate) struct TaskRuntime {
-    workers: Arc<Mutex<HashMap<String, AbortHandle>>>,
+    workers: Arc<Mutex<HashMap<String, TaskWorker>>>,
     state_lock: Arc<Mutex<()>>,
 }
 
+struct TaskWorker {
+    workspace: String,
+    handle: AbortHandle,
+}
+
 impl TaskRuntime {
-    fn register(&self, task_id: String, handle: AbortHandle) {
+    fn register(&self, task_id: String, workspace: String, handle: AbortHandle) {
         self.workers
             .lock()
             .expect("MCP task worker lock poisoned")
-            .insert(task_id, handle);
+            .insert(task_id, TaskWorker { workspace, handle });
     }
 
     fn running(&self, task_id: &str) -> bool {
@@ -41,7 +46,15 @@ impl TaskRuntime {
             .lock()
             .expect("MCP task worker lock poisoned")
             .get(task_id)
-            .is_some_and(|handle| !handle.is_finished())
+            .is_some_and(|worker| !worker.handle.is_finished())
+    }
+
+    fn workspace_for(&self, task_id: &str) -> Option<String> {
+        self.workers
+            .lock()
+            .expect("MCP task worker lock poisoned")
+            .get(task_id)
+            .map(|worker| worker.workspace.clone())
     }
 
     fn remove(&self, task_id: &str) {
@@ -56,8 +69,8 @@ impl TaskRuntime {
             .lock()
             .expect("MCP task worker lock poisoned")
             .remove(task_id)
-            .is_some_and(|handle| {
-                handle.abort();
+            .is_some_and(|worker| {
+                worker.handle.abort();
                 true
             })
     }
@@ -197,7 +210,9 @@ pub(super) async fn create_tool_task(
         )
         .await;
     });
-    state.tasks.register(task_id, join.abort_handle());
+    state
+        .tasks
+        .register(task_id, record.workspace.clone(), join.abort_handle());
     let _ = start_tx.send(());
     Ok(modern_result(record.create_result()))
 }
@@ -268,6 +283,20 @@ fn load_owned_task(
     task_id: &str,
     owner: &str,
 ) -> Result<(String, Workspace, TaskRecord), TaskRpcError> {
+    if let Some(workspace_id) = state.tasks.workspace_for(task_id) {
+        let (_, workspace) = state
+            .workspaces
+            .select(Some(&workspace_id))
+            .map_err(|error| TaskRpcError::internal(error.to_string()))?;
+        if let Some(record) = task_store::load(&workspace, task_id)
+            .map_err(|error| TaskRpcError::internal(error.to_string()))?
+        {
+            if record.owner != owner {
+                return Err(TaskRpcError::invalid("unknown taskId"));
+            }
+            return Ok((workspace_id, workspace, record));
+        }
+    }
     let found = task_store::find(&state.workspaces, task_id)
         .map_err(|error| TaskRpcError::internal(error.to_string()))?;
     let Some((workspace_id, workspace, record)) = found else {

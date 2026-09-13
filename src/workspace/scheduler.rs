@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
@@ -51,7 +52,39 @@ pub struct DependencyGraph {
     pub predecessors: Vec<BTreeSet<usize>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CompletionSchedule {
+    remaining_dependencies: Vec<usize>,
+    successors: Vec<Vec<usize>>,
+    ready: BTreeSet<usize>,
+}
+
+impl CompletionSchedule {
+    pub fn take_ready(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.ready).into_iter().collect()
+    }
+
+    pub fn complete(&mut self, index: usize) {
+        let Some(successors) = self.successors.get(index) else {
+            return;
+        };
+        for successor in successors {
+            let Some(remaining) = self.remaining_dependencies.get_mut(*successor) else {
+                continue;
+            };
+            if *remaining == 0 {
+                continue;
+            }
+            *remaining -= 1;
+            if *remaining == 0 {
+                self.ready.insert(*successor);
+            }
+        }
+    }
+}
+
 impl DependencyGraph {
+    #[cfg(test)]
     pub fn ready(&self, pending: &BTreeSet<usize>, completed: &BTreeSet<usize>) -> Vec<usize> {
         pending
             .iter()
@@ -64,18 +97,54 @@ impl DependencyGraph {
             .collect()
     }
 
+    pub fn completion_schedule(
+        &self,
+        active: &BTreeSet<usize>,
+    ) -> Result<CompletionSchedule, String> {
+        let mut remaining_dependencies = vec![0usize; self.predecessors.len()];
+        let mut successors = vec![Vec::new(); self.predecessors.len()];
+        let mut ready = BTreeSet::new();
+        for index in active {
+            let dependencies = self
+                .predecessors
+                .get(*index)
+                .ok_or_else(|| "scheduler task index is outside the dependency graph".to_owned())?;
+            if dependencies
+                .iter()
+                .any(|dependency| !active.contains(dependency))
+            {
+                return Err("scheduler dependency references an inactive task".to_owned());
+            }
+            remaining_dependencies[*index] = dependencies.len();
+            if dependencies.is_empty() {
+                ready.insert(*index);
+            }
+            for dependency in dependencies {
+                let dependents = successors
+                    .get_mut(*dependency)
+                    .ok_or_else(|| "scheduler dependency index is outside the graph".to_owned())?;
+                dependents.push(*index);
+            }
+        }
+        Ok(CompletionSchedule {
+            remaining_dependencies,
+            successors,
+            ready,
+        })
+    }
+
     pub fn layers(&self, active: &BTreeSet<usize>) -> Result<Vec<Vec<usize>>, String> {
-        let mut remaining = active.clone();
-        let mut completed = BTreeSet::new();
+        let mut schedule = self.completion_schedule(active)?;
+        let mut remaining = active.len();
         let mut layers = Vec::new();
-        while !remaining.is_empty() {
-            let ready = self.ready(&remaining, &completed);
+        while remaining > 0 {
+            let ready = schedule.take_ready();
             if ready.is_empty() {
                 return Err("scheduler dependency graph contains a cycle".to_owned());
             }
+            remaining = remaining.saturating_sub(ready.len());
             for index in &ready {
-                remaining.remove(index);
-                completed.insert(*index);
+                schedule.complete(*index);
             }
             layers.push(ready);
         }
@@ -83,17 +152,20 @@ impl DependencyGraph {
     }
 }
 
-pub type CoalesceResult = (
-    Vec<Value>,
+pub type CoalesceResult<'a> = (
+    Cow<'a, [Value]>,
     HashMap<usize, Vec<(usize, String)>>,
     HashSet<usize>,
 );
 
-pub fn coalesce_apply_edits(
+pub fn coalesce_apply_edits<'a>(
     default_workspace: &str,
-    items: &[Value],
-) -> Result<CoalesceResult, String> {
-    let mut prepared = items.to_vec();
+    items: &'a [Value],
+) -> Result<CoalesceResult<'a>, String> {
+    // Most fan-outs contain no same-file edits. Borrow the original task array
+    // until coalescing actually needs a mutation instead of deep-cloning every
+    // JSON argument up front.
+    let mut prepared = Cow::Borrowed(items);
     let mut first_by_path = HashMap::<String, (String, usize)>::new();
     let mut aliases = HashMap::<usize, Vec<(usize, String)>>::new();
     let mut skipped = HashSet::new();
@@ -126,38 +198,41 @@ pub fn coalesce_apply_edits(
             .map(str::to_owned)
             .unwrap_or_else(|| format!("task-{}", index + 1));
 
-        if let Some((first_expected, first)) = first_by_path.get(&path_key).cloned() {
+        if let Some((first_expected, first)) = first_by_path.get(&path_key) {
             if first_expected != expected {
                 return Err(format!(
                     "parallel apply_edits for the same file require the same expected_sha256; tasks {} and {} use different revisions",
-                    first + 1,
+                    *first + 1,
                     index + 1
                 ));
             }
             // Moving a later write before an intervening read/move changes its
             // meaning. Reject the batch before any child runs rather than silently
             // reading a future revision. Different workspace aliases are conservative.
+            let first = *first;
             let current = resource_model(default_workspace, "apply_edits", &item["arguments"])?;
             for (offset, between) in items[first + 1..index].iter().enumerate() {
                 if skipped.contains(&(first + 1 + offset)) {
                     continue;
                 }
                 let tool = between.get("tool").and_then(Value::as_str).unwrap_or("");
-                let arguments = between
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or(Value::Object(Default::default()));
-                let other = resource_model(default_workspace, tool, &arguments)?;
+                let other = if let Some(arguments) = between.get("arguments") {
+                    resource_model(default_workspace, tool, arguments)?
+                } else {
+                    resource_model(default_workspace, tool, &Value::Object(Default::default()))?
+                };
                 if current.workspace != other.workspace || resources_conflict(&current, &other) {
                     return Err("cannot coalesce same-file edits across an intervening dependent operation; combine edits before dependent reads or use separate calls".to_owned());
                 }
             }
-            let extra = item
-                .pointer("/arguments/edits")
-                .and_then(Value::as_array)
-                .ok_or("parallel apply_edits requires edits")?
-                .clone();
-            let target = prepared[first]
+            let prepared = prepared.to_mut();
+            let (before, current_and_after) = prepared.split_at_mut(index);
+            let extra = current_and_after[0]
+                .pointer_mut("/arguments/edits")
+                .and_then(Value::as_array_mut)
+                .map(std::mem::take)
+                .ok_or("parallel apply_edits requires edits")?;
+            let target = before[first]
                 .pointer_mut("/arguments/edits")
                 .and_then(Value::as_array_mut)
                 .ok_or("coalesced apply_edits target is missing edits")?;
@@ -354,16 +429,14 @@ pub fn preview(
 }
 
 fn resources_conflict(left: &WorkloadResources, right: &WorkloadResources) -> bool {
-    let left_mutations = left.mutations().collect::<Vec<_>>();
-    let right_mutations = right.mutations().collect::<Vec<_>>();
-    if left_mutations.is_empty() && right_mutations.is_empty() {
+    if left.mutations().next().is_none() && right.mutations().next().is_none() {
         return false;
     }
-    left_mutations.iter().any(|left_path| {
+    left.mutations().any(|left_path| {
         right
             .all_paths()
             .any(|right_path| paths_overlap(left_path, right_path))
-    }) || right_mutations.iter().any(|right_path| {
+    }) || right.mutations().any(|right_path| {
         left.reads
             .iter()
             .any(|left_path| paths_overlap(left_path, right_path))

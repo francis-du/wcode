@@ -5,10 +5,10 @@
     {
       "name": "wcode",
       "source": ".",
-      "description": "wcode Software Intelligence skill with current-directory MCP defaults.",
-      "version": "0.6.2",
+      "description": "wcode engineering control-plane skill with current-directory MCP defaults.",
+      "version": "0.7.0",
       "category": "developer-tools",
-      "tags": ["mcp", "software-intelligence", "verification"],
+      "tags": ["mcp", "engineering-control-plane", "software-intelligence", "verification"],
       "strict": true
     }
   ]

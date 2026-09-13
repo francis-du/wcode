@@ -15,8 +15,12 @@ fn perf_foreground_capacity_uses_hardware_without_raising_background_budget() {
     );
     assert_eq!(limits.max_cpu_percent, 10.0);
     assert_eq!(
-        limits.child_processes, 2,
-        "do not launch 32 competing compilers"
+        limits.child_processes,
+        (512usize / 160)
+            .clamp(1, 8)
+            .min(limits.cpu_burst_threads.div_ceil(limits.child_threads))
+            .min(limits.effective_parallel_tools),
+        "heavy process capacity must scale with real CPU/memory headroom instead of tool slots"
     );
     let small = ResourceLimits::new(10.0, 128, 1).unwrap();
     assert_eq!(small.cpu_burst_threads, 1);

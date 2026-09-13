@@ -3,6 +3,10 @@ use ratatui::backend::TestBackend;
 
 #[path = "authorization_layout.rs"]
 mod authorization_layout;
+#[path = "monitor/console.rs"]
+mod console;
+#[path = "monitor_health.rs"]
+mod monitor_health;
 #[path = "process_metrics.rs"]
 mod process_metrics;
 
@@ -745,6 +749,7 @@ fn help_and_footer_render_project_and_author_links() {
     assert!(text.contains("SLOT UTILIZATION"));
     assert!(text.contains("SAVED ~1.0K"));
     assert!(text.contains('╭'));
+    assert!(text.contains('╰'));
 
     let backend = TestBackend::new(70, 18);
     let mut terminal = Terminal::new(backend).expect("test terminal");
@@ -947,33 +952,4 @@ fn connection_stages_and_setup_collapse_render() {
         text.contains("VERIFY CODE 123456"),
         "the pairing code must remain visible after OAuth and MCP connect"
     );
-}
-
-#[test]
-fn public_url_health_requires_three_failures_and_recovers_on_success() {
-    let monitor = TaskMonitor::new(["backend".to_owned()]);
-    monitor.mark_public_url_check(false, Some("first".to_owned()));
-    let status = monitor.connection_status();
-    assert_eq!(status.public_url_healthy, None);
-    assert_eq!(status.public_url_consecutive_failures, 1);
-
-    monitor.mark_public_url_check(false, Some("second".to_owned()));
-    assert_eq!(
-        monitor.connection_status().public_url_consecutive_failures,
-        2
-    );
-    assert_eq!(monitor.connection_status().public_url_healthy, None);
-
-    monitor.mark_public_url_check(false, Some("third".to_owned()));
-    let status = monitor.connection_status();
-    assert_eq!(status.public_url_healthy, Some(false));
-    assert_eq!(status.public_url_consecutive_failures, 3);
-    assert_eq!(status.public_url_error.as_deref(), Some("third"));
-    assert!(status.public_url_last_checked_seconds_ago.is_some());
-
-    monitor.mark_public_url_check(true, None);
-    let status = monitor.connection_status();
-    assert_eq!(status.public_url_healthy, Some(true));
-    assert_eq!(status.public_url_consecutive_failures, 0);
-    assert!(status.public_url_error.is_none());
 }

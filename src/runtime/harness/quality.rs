@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "quality/verification_run.rs"]
+mod verification_run;
+
 impl ToolHarness {
     pub fn project_context(
         &self,
@@ -19,6 +22,8 @@ impl ToolHarness {
             root: profile.root.clone(),
             project_types: profile.project_types.clone(),
             manifests: profile.manifests.clone(),
+            islands: profile.islands.clone(),
+            contracts: profile.contracts.clone(),
             guidance: profile.guidance.clone(),
             recommended_checks: profile.recommended_checks.clone(),
             workflow: profile.workflow.clone(),
@@ -30,17 +35,44 @@ impl ToolHarness {
         })
     }
 
+    pub(crate) fn verification_impact_summary(
+        &self,
+        workspace: &Workspace,
+        snapshot: &Value,
+    ) -> Result<Value> {
+        let (profile, _) = self.load_project_profile(workspace)?;
+        let impact = harness_profile::verification_impact_for_snapshot(&profile, Some(snapshot));
+        Ok(compact_verification_impact(&impact))
+    }
+
     pub async fn observatory_revision_signal(
         &self,
         workspace: &Workspace,
     ) -> Result<ObservatoryRevisionSignal> {
         if !workspace.exec_enabled() || !workspace.root().join(".git").exists() {
-            return Ok(ObservatoryRevisionSignal {
-                fingerprint: None,
-                changed_files: 0,
-                truncated: false,
-                full_refresh_required: true,
-            });
+            let workspace = workspace.clone();
+            return tokio::task::spawn_blocking(move || {
+                let (files, truncated) =
+                    workspace.source_files_background_with_stamps(".", MAX_OBSERVATORY_FILES)?;
+                let mut hasher = Sha256::new();
+                hasher.update(b"workspace-metadata-v1");
+                for (path, (len, modified_nanos)) in files {
+                    hasher.update([0]);
+                    hasher.update(path.as_bytes());
+                    hasher.update(len.to_le_bytes());
+                    hasher.update(modified_nanos.to_le_bytes());
+                }
+                Ok(ObservatoryRevisionSignal {
+                    fingerprint: Some(format!("{:x}", hasher.finalize())),
+                    changed_files: 0,
+                    truncated,
+                    full_refresh_required: truncated,
+                })
+            })
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("observatory metadata signal worker failed: {error}")
+            })?;
         }
 
         let status_args = ["status", "--short", "--untracked-files=all"]
@@ -51,8 +83,12 @@ impl ToolHarness {
             .into_iter()
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        let status = workspace.run_command("git", &status_args, ".", 10).await?;
-        let head = workspace.run_command("git", &head_args, ".", 10).await?;
+        let (status, head) = tokio::join!(
+            workspace.run_command("git", &status_args, ".", 10),
+            workspace.run_command("git", &head_args, ".", 10),
+        );
+        let status = status?;
+        let head = head?;
         if !status.success {
             bail!(
                 "git status failed while building observatory revision signal: {}",
@@ -257,6 +293,32 @@ impl ToolHarness {
         let files_changed = files.len();
         let total_lines = additions.saturating_add(deletions);
         append_maintainability_findings(workspace, &files, &mut findings);
+        let changed_paths = files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<BTreeSet<_>>();
+        for advisory in harness_profile::contract_freshness_advisories(
+            workspace.root(),
+            &profile.contracts,
+            &changed_paths,
+        ) {
+            let mut paths = vec![
+                advisory.source.clone(),
+                advisory.config.clone(),
+                advisory.output.clone(),
+            ];
+            paths.sort();
+            paths.dedup();
+            findings.push(ReviewFinding {
+                severity: "info".to_owned(),
+                code: "generated-artifact-freshness".to_owned(),
+                message: format!(
+                    "A {} contract/config changed for `{}` while existing generated output `{}` has no working-tree change. Regenerate or run the generator's native freshness check when generated artifacts are tracked. This structural advisory is not proof that the output is stale ({}).",
+                    advisory.kind, advisory.consumer_island, advisory.output, advisory.evidence
+                ),
+                paths,
+            });
+        }
 
         if source_changed && !tests_changed {
             findings.push(ReviewFinding {
@@ -415,158 +477,163 @@ impl ToolHarness {
             truncated,
         })
     }
+}
 
-    pub async fn verify_project(
-        &self,
-        workspace_id: impl Into<String>,
-        workspace: &Workspace,
-        level: &str,
-        timeout_seconds: u64,
-        monitor: &TaskMonitor,
-    ) -> Result<VerificationReport> {
-        self.verify_project_mode(
-            workspace_id,
-            workspace,
-            (level, true),
-            timeout_seconds,
-            monitor,
-        )
-        .await
+pub(super) fn compact_verification_impact(impact: &ProjectVerificationImpact) -> Value {
+    const MAX_COMPACT_IMPACT_REASONS: usize = 6;
+    const MAX_COMPACT_IMPACT_TEXT: usize = 160;
+    json!({
+        "selective": impact.selective,
+        "affected_islands": impact.affected_islands,
+        "reasons": impact.reasons.iter().take(MAX_COMPACT_IMPACT_REASONS).map(|reason| json!({
+            "island": reason.island,
+            "kind": reason.kind,
+            "source": truncate_chars(&reason.source, MAX_COMPACT_IMPACT_TEXT).0,
+            "relationship": reason.relationship,
+            "evidence": truncate_chars(&reason.evidence, MAX_COMPACT_IMPACT_TEXT).0,
+            "provider": reason.provider,
+            "precision": reason.precision,
+        })).collect::<Vec<_>>(),
+        "truncated": impact.truncated || impact.reasons.len() > MAX_COMPACT_IMPACT_REASONS,
+        "provider": impact.provider,
+        "precision": impact.precision,
+    })
+}
+
+pub(super) fn core_policy_check(report: &ConventionReport) -> Option<VerificationCheck> {
+    if report.errors == 0 && !report.truncated {
+        return None;
     }
-
-    pub(crate) async fn verify_project_mode(
-        &self,
-        workspace_id: impl Into<String>,
-        workspace: &Workspace,
-        mode: (&str, bool),
-        timeout_seconds: u64,
-        monitor: &TaskMonitor,
-    ) -> Result<VerificationReport> {
-        let (level, fail_fast) = mode;
-        if !workspace.exec_enabled() {
-            bail!("project verification requires command execution; restart without --no-exec");
-        }
-        if !matches!(level, "quick" | "full") {
-            bail!("verification level must be quick or full");
-        }
-
-        let workspace_id = workspace_id.into();
-        let revision = self.intelligence.current_revision(workspace)?;
-        let (profile, _) = self.load_project_profile(workspace)?;
-        let mut plan = profile
-            .recommended_checks
-            .iter()
-            .filter(|check| level == "full" || check.level == "quick")
-            .cloned()
-            .collect::<Vec<_>>();
-        sort_checks(&mut plan);
-        if plan.len() > MAX_VERIFICATION_CHECKS {
-            bail!(
-                "verification plan contains {} checks, exceeding the {MAX_VERIFICATION_CHECKS}-check bound; no checks executed; select a narrower workspace",
-                plan.len()
-            );
-        }
-
-        let mut phases_run = 0usize;
-        let mut skipped_checks = Vec::new();
-        let started = Instant::now();
-        let mut checks = Vec::with_capacity(plan.len());
-        let mut start = 0usize;
-
-        while start < plan.len() {
-            let phase = plan[start].phase;
-            let end = plan[start..]
-                .iter()
-                .position(|check| check.phase != phase)
-                .map(|offset| start + offset)
-                .unwrap_or(plan.len());
-            let mut tasks = JoinSet::new();
-            for check in plan[start..end].iter().cloned() {
-                let harness = self.clone();
-                let monitor = monitor.clone();
-                let workspace = workspace.clone();
-                let workspace_id = workspace_id.clone();
-                tasks.spawn(async move {
-                    run_verification_check(
-                        harness,
-                        monitor,
-                        workspace_id,
-                        workspace,
-                        check,
-                        timeout_seconds,
-                    )
-                    .await
-                });
-            }
-            while let Some(joined) = tasks.join_next().await {
-                checks.push(match joined {
-                    Ok(check) => check,
-                    Err(error) => VerificationCheck {
-                        id: "internal-join-error".to_owned(),
-                        phase,
-                        command: "verification task".to_owned(),
-                        reason: "A verification worker failed before returning its result."
-                            .to_owned(),
-                        success: false,
-                        exit_code: None,
-                        elapsed_ms: 0,
-                        stdout_tail: String::new(),
-                        stderr_tail: error.to_string(),
-                        output_truncated: false,
-                    },
-                });
-            }
-            phases_run += 1;
-            start = end;
-            // Finish the current independent phase, but do not pay for later
-            // compilation/test/build phases after a known failed gate.
-            if fail_fast && checks.iter().any(|check| !check.success) {
-                skipped_checks.extend(plan[end..].iter().map(|check| check.id.clone()));
-                break;
-            }
-        }
-
-        checks.sort_by(|left, right| {
-            left.phase
-                .cmp(&right.phase)
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        let checks_failed = checks.iter().filter(|check| !check.success).count();
-        let checks_run = checks.len();
-        let passed = checks_run > 0 && checks_failed == 0 && skipped_checks.is_empty();
-        let summary = if checks_run == 0 {
-            "No verification commands could be inferred for this project; inspect its guidance and manifests manually."
-                .to_owned()
-        } else if passed {
-            format!(
-                "All {checks_run} inferred {level} checks passed across {phases_run} execution phase(s)."
-            )
+    let errors = report
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == crate::conventions::ConventionSeverity::Error)
+        .take(32)
+        .map(|finding| {
+            json!({
+                "code": finding.code,
+                "path": finding.path,
+                "language": finding.language,
+                "message": finding.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    let encoded = json!({
+        "provider": report.provider,
+        "errors": report.errors,
+        "warnings": report.warnings,
+        "truncated": report.truncated,
+        "findings": errors,
+    })
+    .to_string();
+    let (stdout_tail, cut) = truncate_chars(&encoded, MAX_CHECK_OUTPUT_CHARS);
+    Some(VerificationCheck {
+        id: "core-policy".to_owned(),
+        phase: 0,
+        command: "wcode internal core policy".to_owned(),
+        reason: "Enforce deterministic wcode core constraints before repository-specific verification commands.".to_owned(),
+        success: false,
+        reused: false,
+        exit_code: None,
+        elapsed_ms: 0,
+        queue_wait_ms: 0,
+        execution_ms: 0,
+        stdout_tail,
+        stderr_tail: if report.truncated {
+            "core policy scan was truncated; verification fails closed".to_owned()
         } else {
-            format!(
-                "{checks_failed} of {checks_run} executed {level} checks failed across {phases_run} phase(s); {} later checks skipped. Fix failures before retrying; use fail_fast=false for exhaustive diagnostics.",
-                skipped_checks.len()
-            )
-        };
+            "deterministic wcode core constraints are violated".to_owned()
+        },
+        output_truncated: cut || report.truncated || report.errors > 32,
+    })
+}
 
-        let report = VerificationReport {
-            workspace: workspace_id.clone(),
-            level: level.to_owned(),
-            execution: "phased-parallel".to_owned(),
-            phases_run,
-            passed,
-            checks_run,
-            checks_failed,
-            skipped_checks,
-            elapsed_ms: started.elapsed().as_millis(),
-            summary,
-            checks,
-        };
-        self.intelligence.record_verification_report(
-            &workspace_id,
-            workspace,
-            &revision,
-            &report,
-        )?;
-        Ok(report)
+fn polyglot_verification_gap_check(
+    gap: &harness_profile::ProjectIslandVerificationGap,
+) -> VerificationCheck {
+    VerificationCheck {
+        id: format!("polyglot-gap:{}", gap.island),
+        phase: 0,
+        command: "wcode internal polyglot verification coverage".to_owned(),
+        reason: format!(
+            "Project island {} has manifest ownership but no {} deterministic gate for {}.",
+            gap.root,
+            gap.level,
+            gap.project_types.join(", ")
+        ),
+        success: false,
+        reused: false,
+        exit_code: None,
+        elapsed_ms: 0,
+        queue_wait_ms: 0,
+        execution_ms: 0,
+        stdout_tail: json!({
+            "provider":"manifest-discovery",
+            "precision":"structural",
+            "island":gap.island,
+            "root":gap.root,
+            "requested_level":gap.level,
+            "verification_gaps":gap.project_types,
+        })
+        .to_string(),
+        stderr_tail: "polyglot verification coverage is incomplete".to_owned(),
+        output_truncated: false,
     }
+}
+
+fn migration_audit_check(
+    audit: &crate::migration_audit::MigrationAuditReport,
+) -> VerificationCheck {
+    let encoded = serde_json::to_string(audit).unwrap_or_else(|error| {
+        json!({
+            "provider": "wcode-migration-audit",
+            "serialization_error": error.to_string(),
+        })
+        .to_string()
+    });
+    let (stdout_tail, cut) = truncate_chars(&encoded, MAX_CHECK_OUTPUT_CHARS);
+    VerificationCheck {
+        id: "migration-audit".into(),
+        phase: 0,
+        command: "wcode internal migration audit".into(),
+        reason: "Verify declarative migration completeness before behavioral checks.".into(),
+        success: audit.passed,
+        reused: false,
+        exit_code: None,
+        elapsed_ms: audit.elapsed_ms,
+        queue_wait_ms: 0,
+        execution_ms: audit.elapsed_ms,
+        stdout_tail,
+        stderr_tail: if audit.passed {
+            String::new()
+        } else {
+            audit.summary.clone()
+        },
+        output_truncated: cut || audit.findings_truncated,
+    }
+}
+
+pub(super) fn verified_experience_paths(
+    report: &VerificationReport,
+    snapshot: Option<&Value>,
+) -> Option<Vec<String>> {
+    if !report.passed {
+        return None;
+    }
+    let snapshot = snapshot?;
+    if snapshot.get("available").and_then(Value::as_bool) != Some(true)
+        || snapshot.get("truncated").and_then(Value::as_bool) == Some(true)
+    {
+        return None;
+    }
+    let mut paths = snapshot
+        .get("files")?
+        .as_array()?
+        .iter()
+        .filter_map(|file| file.get("path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    (paths.len() >= 2).then_some(paths)
 }

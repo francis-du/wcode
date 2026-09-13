@@ -81,6 +81,9 @@ async fn observatory_project_distinguishes_unavailable_review_from_clean() {
         intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace)).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let timing = response.headers()["server-timing"].to_str().unwrap();
+    assert!(timing.contains("git-review;dur="));
+    assert!(timing.contains("project-snapshot;dur="));
     let value = response_json(response).await;
     assert_eq!(value["git_review"]["available"], false);
     assert_eq!(value["git_review"]["reason"], "execution_disabled");
@@ -99,7 +102,9 @@ async fn observatory_revision_exposes_proof_freshness_without_starting_commands(
     let value = response_json(response).await;
     assert_eq!(value["workspace"], workspace);
     assert!(value.get("proof_revision").is_some());
-    assert_eq!(value["full_refresh_required"], true);
+    assert!(value.get("engineering_revision").is_some());
+    assert!(value["fingerprint"].as_str().is_some());
+    assert_eq!(value["full_refresh_required"], false);
     assert_eq!(state.monitor.connection_status().active_tasks, 0);
 }
 
@@ -310,6 +315,7 @@ async fn setup_page_has_nonce_bound_assets_and_no_operator_credential() {
             "each response needs a fresh nonce"
         );
         assert!(policy.contains("frame-ancestors 'none'"));
+        assert!(policy.contains("img-src 'self'"));
         let body = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
@@ -324,6 +330,12 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
     state
         .monitor
         .register_tunnel("test", "https://secondary.example");
+    state.monitor.mark_tunnel_retry(
+        "retrying-provider",
+        4,
+        true,
+        std::time::Duration::from_secs(60),
+    );
     state.monitor.mark_public_url_check(true, None);
     let full = health(State(state.clone()), HeaderMap::new()).await.0;
     let response = setup_status(State(state.clone()), HeaderMap::new()).await;
@@ -332,10 +344,28 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
     for key in ["ok", "mcp_url", "public_endpoint", "public_url_healthy"] {
         assert_eq!(compact[key], full[key], "connection field {key}");
     }
-    assert_eq!(
-        compact["tunnels"][0]["mcp_url"],
-        full["tunnels"][0]["mcp_url"]
-    );
+    assert_eq!(compact["tunnels"].as_array().unwrap().len(), 1);
+    assert_eq!(full["tunnels"].as_array().unwrap().len(), 2);
+    let compact_live = &compact["tunnels"][0];
+    let full_live = full["tunnels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tunnel| tunnel["provider"] == "test")
+        .unwrap();
+    assert_eq!(compact_live["mcp_url"], full_live["mcp_url"]);
+    assert_eq!(compact_live["role"], "standby");
+    assert_eq!(compact_live["state"], "verified");
+    let retrying = full["tunnels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tunnel| tunnel["provider"] == "retrying-provider")
+        .unwrap();
+    assert!(retrying["url"].is_null());
+    assert_eq!(retrying["state"], "circuit-open");
+    assert_eq!(retrying["death_count"], 4);
+    assert_eq!(retrying["circuit_open"], true);
     for key in ["workspaces", "resources", "harness", "allowed_commands"] {
         assert!(compact.get(key).is_none());
     }
@@ -364,7 +394,7 @@ fn cargo_project(root: &std::path::Path, name: &str) {
 }
 
 #[tokio::test]
-async fn webui_command_approval_keeps_executable_and_exact_operation_separate() {
+async fn webui_command_approval_gates_executable_access_without_re_gating_safe_toolchains() {
     let root = tempfile::tempdir().unwrap();
     cargo_project(root.path(), "parent_project");
     let child_root = root.path().join("child");
@@ -406,55 +436,32 @@ async fn webui_command_approval_keeps_executable_and_exact_operation_separate() 
     .await;
     assert_eq!(approved.status(), StatusCode::OK);
 
-    let second = parent
-        .run_command("cargo", &test_args, ".", 30)
-        .await
-        .unwrap_err();
-    assert!(second.to_string().contains("authorization required"));
-    let exact_request = state.workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(exact_request.kind, AuthorizationKind::RiskyExecution);
-    let approved = intelligence_web_approve_authorization(
-        State(state.clone()),
-        ui_headers(&state, &parent_id),
-        Json(json!({"id": exact_request.id})),
-    )
-    .await;
-    assert_eq!(approved.status(), StatusCode::OK);
-
     let executed = parent
         .run_command("cargo", &test_args, ".", 30)
         .await
-        .expect("exact approved retry should execute");
+        .expect("approved executable should run a bounded test without a second authorization");
     assert!(executed.success, "cargo test failed: {}", executed.stderr);
 
     let different_args = vec!["test".to_owned(), "--lib".to_owned()];
     let different = parent
         .run_command("cargo", &different_args, ".", 30)
         .await
-        .unwrap_err();
-    assert!(different.to_string().contains("authorization required"));
-    let denied_request = state.workspaces.latest_pending_authorization().unwrap();
-    let denied = intelligence_web_deny_authorization(
-        State(state.clone()),
-        ui_headers(&state, &parent_id),
-        Json(json!({"id": denied_request.id})),
-    )
-    .await;
-    assert_eq!(denied.status(), StatusCode::OK);
-    assert!(parent
-        .run_command("cargo", &different_args, ".", 30)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("authorization required"));
+        .expect("another bounded test shape should not need exact-operation approval");
+    assert!(
+        different.success,
+        "cargo test --lib failed: {}",
+        different.stderr
+    );
+    assert!(state.workspaces.latest_pending_authorization().is_none());
 
     let child_error = child
-        .run_command("cargo", &test_args, ".", 30)
+        .run_command("cargo", &["run".to_owned()], ".", 30)
         .await
         .unwrap_err();
     assert!(child_error.to_string().contains("authorization required"));
     let child_request = state.workspaces.latest_pending_authorization().unwrap();
     assert_eq!(child_request.workspace, child_id);
+    assert_eq!(child_request.kind, AuthorizationKind::RiskyExecution);
     let cross_workspace = intelligence_web_approve_authorization(
         State(state.clone()),
         ui_headers(&state, &parent_id),

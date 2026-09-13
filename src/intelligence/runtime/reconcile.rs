@@ -78,7 +78,7 @@ impl SoftwareIntelligenceRuntime {
         if query.is_empty() {
             return Err(anyhow!("software context query must not be empty"));
         }
-        let design_load = design::load_design(workspace)?;
+        let design_load = self.design_load(workspace)?;
         let state = &design_load.state;
         let budget = request.budget.clamp(1_000, 64_000);
         let item_cap = (budget / 900).clamp(4, MAX_CONTEXT_ITEMS);
@@ -278,7 +278,7 @@ impl SoftwareIntelligenceRuntime {
             workspace,
             code_index,
             known_checks,
-            &design_load,
+            design_load.as_ref(),
         )?;
         let requirement_rank = requirements
             .iter()
@@ -349,7 +349,8 @@ impl SoftwareIntelligenceRuntime {
             known_checks,
             review,
         )?;
-        let design_state = design::load_design(workspace)?.state;
+        let design_load = self.design_load(workspace)?;
+        let design_state = &design_load.state;
         let mut graph = code_index.software_graph(
             workspace_id.clone(),
             workspace,
@@ -360,12 +361,13 @@ impl SoftwareIntelligenceRuntime {
         graph_provider_store::overlay_latest(workspace, &mut graph)?;
         let impact = build_impact_analysis(
             workspace_id.clone(),
-            &design_state,
+            design_state,
             review,
             risk.level,
             Some(&graph),
         );
         let verification_plan = self.create_plan_for_risk(&workspace_id, workspace, risk.level)?;
+        let conventions = crate::conventions::status(workspace)?;
         let mut tasks = Vec::new();
         let mut intents = Vec::new();
         for finding in &risk.drift.findings {
@@ -395,6 +397,35 @@ impl SoftwareIntelligenceRuntime {
                 depends_on: Vec::new(),
             });
             intents.push(intent);
+        }
+        for finding in conventions
+            .findings
+            .iter()
+            .filter(|finding| finding.severity == crate::conventions::ConventionSeverity::Error)
+        {
+            let constraints = if finding.code == "oversized-source-module" {
+                vec!["CONSTRAINT-SOURCE-DECOMPOSITION".to_owned()]
+            } else {
+                Vec::new()
+            };
+            tasks.push(ReconciliationTask {
+                id: self.next_id("RT"),
+                kind: ReconciliationTaskKind::Implementation,
+                subject: finding.path.clone(),
+                description: format!(
+                    "Resolve hard repository convention `{}`: {}. Preserve behavior and public contracts; for oversized modules, split cohesive responsibilities before adding more behavior.",
+                    finding.code, finding.message
+                ),
+                depends_on: Vec::new(),
+            });
+            intents.push(ChangeIntent::ChangeBehavior {
+                target: finding.path.clone(),
+                desired: serde_json::json!({
+                    "state": "conform_to_core_policy",
+                    "policy": finding.code,
+                }),
+                constraints,
+            });
         }
         let prior_tasks = tasks.iter().map(|task| task.id.clone()).collect::<Vec<_>>();
         tasks.push(ReconciliationTask {
@@ -563,7 +594,7 @@ impl SoftwareIntelligenceRuntime {
             format!("reconciliation-task:{}", run.task.id),
             EvidenceKind::Reconciliation,
             format!("executor:{executor}"),
-            workspace_revision(workspace)?,
+            self.current_revision(workspace)?,
             if run.status == ReconciliationRunStatus::Completed {
                 EvidenceResult::Pass
             } else {

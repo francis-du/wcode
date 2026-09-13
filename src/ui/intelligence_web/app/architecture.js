@@ -1,5 +1,6 @@
 function architectureData() {
-  return state.project?.architecture || {
+  const defaults = {
+    subsystems: [],
     components: [],
     dependencies: [],
     desired_edges: 0,
@@ -13,6 +14,7 @@ function architectureData() {
     evidence_coverage_percent: 0,
     implementation_coverage_percent: 0,
   };
+  return { ...defaults, ...(state.project?.architecture || {}) };
 }
 function architectureEdgeTone(edge) {
   if (edge.blocking) return "drift";
@@ -25,118 +27,6 @@ function architectureEdgeVisible(edge) {
     (state.architectureMode === "design" && edge.desired) ||
     (state.architectureMode === "actual" && edge.actual);
 }
-function architectureMetric(label, value, detail, progress, tone = "") {
-  const bounded = Math.max(0, Math.min(100, Number(progress || 0)));
-  return `<div class="architecture-metric ${tone}"><div class="metric-label">${
-    esc(label)
-  }</div><div class="metric-value">${
-    esc(value)
-  }</div><div class="metric-detail">${
-    esc(detail)
-  }</div><progress class="metric-progress" max="100" value="${bounded}"></progress></div>`;
-}
-function renderArchitectureMetrics() {
-  const a = architectureData(),
-    drift = Math.round(Number(a.observed_drift_percent || 0) * 10) / 10,
-    evidence = Math.round(Number(a.evidence_coverage_percent || 0) * 10) / 10,
-    implementation =
-      Math.round(Number(a.implementation_coverage_percent || 0) * 10) / 10;
-  const html = [
-    architectureMetric(
-      t("Observed drift"),
-      a.observed_edges ? `${drift}%` : "—",
-      `${num(a.blocking_drift_edges)} / ${num(a.observed_edges)} · ${t("strong drift denominator")}`,
-      a.observed_edges ? 100 - drift : 0,
-      drift > 0 ? "drift" : "info",
-    ),
-    architectureMetric(
-      t("Evidence coverage"),
-      a.desired_edges ? `${evidence}%` : "—",
-      `${num(a.aligned_edges)} / ${num(a.desired_edges)} · ${t("coverage denominator")}`,
-      a.desired_edges ? evidence : 0,
-      "info",
-    ),
-    architectureMetric(
-      t("Implementation coverage"),
-      a.components.length ? `${implementation}%` : "—",
-      `${num(a.components_with_implementation)} / ${num(a.components.length)} · ${t("implementation denominator")}`,
-      a.components.length ? implementation : 0,
-      "info",
-    ),
-    architectureMetric(
-      t("Architecture size"),
-      unit(a.components.length, "component", "components", "个组件"),
-      localized(
-        `${a.desired_edges} design / ${a.observed_edges} observed dependencies`,
-        `${a.desired_edges} 条设计依赖 / ${a.observed_edges} 条实际依赖`,
-      ),
-      100,
-      "",
-    ),
-  ].join("");
-  setHtml("architectureMetrics", els.architectureMetrics, html);
-}
-function architecturePositions(components) {
-  const ids = new Set(components.map((component) => component.id)),
-    dependencies = new Map(
-      components.map(
-        (component) => [
-          component.id,
-          (component.depends_on || []).filter((id) => ids.has(id)),
-        ],
-      ),
-    ),
-    memo = new Map();
-  const depth = (id, stack = new Set()) => {
-    if (memo.has(id)) return memo.get(id);
-    if (stack.has(id)) return 0;
-    const next = new Set(stack);
-    next.add(id);
-    let value = 0;
-    for (const dependency of dependencies.get(id) || []) {
-      value = Math.max(value, 1 + depth(dependency, next));
-    }
-    value = Math.min(value, 7);
-    memo.set(id, value);
-    return value;
-  };
-  const grouped = new Map();
-  for (const component of components) {
-    const d = depth(component.id);
-    if (!grouped.has(d)) grouped.set(d, []);
-    grouped.get(d).push(component);
-  }
-  const columns = [];
-  for (const d of [...grouped.keys()].sort((a, b) => b - a)) {
-    const group = grouped.get(d).sort((a, b) => a.name.localeCompare(b.name));
-    for (let i = 0; i < group.length; i += 7) {
-      columns.push(group.slice(i, i + 7));
-    }
-  }
-  const positions = new Map(),
-    nodeWidth = 190,
-    nodeHeight = 58,
-    columnGap = 235,
-    rowGap = 88;
-  columns.forEach((column, columnIndex) =>
-    column.forEach((component, rowIndex) =>
-      positions.set(component.id, {
-        x: 55 + columnIndex * columnGap + nodeWidth / 2,
-        y: 58 + rowIndex * rowGap + nodeHeight / 2,
-        w: nodeWidth,
-        h: nodeHeight,
-      })
-    )
-  );
-  return {
-    positions,
-    width: Math.max(760, 110 + Math.max(columns.length, 1) * columnGap),
-    height: Math.max(
-      410,
-      100 + Math.max(...columns.map((column) => column.length), 1) * rowGap,
-    ),
-  };
-}
 function architectureNodeTone(component, dependencies) {
   const incident = dependencies.filter((edge) =>
     edge.from === component.id || edge.to === component.id
@@ -146,255 +36,110 @@ function architectureNodeTone(component, dependencies) {
   if (!incident.some(edge => edge.actual) || incident.some(edge => edge.status !== "aligned")) return "uncertain";
   return "aligned";
 }
-function renderArchitectureGraph() {
-  const a = architectureData(),
-    components = a.components || [],
-    allEdges = a.dependencies || [];
-  if (!components.length) {
-    setHtml(
-      "architectureGraph",
-      els.architectureGraph,
-      `<div class="section empty">${
-        esc(
-          localized(
-            "No architecture components are declared.",
-            "没有声明架构组件。",
-          ),
-        )
-      }</div>`,
-    );
-    return;
-  }
-  if (
-    !state.selectedComponent ||
-    !components.some((component) => component.id === state.selectedComponent)
-  ) {
-    const driftEdge = allEdges.find((edge) => edge.blocking),
-      preferred = components.find((component) =>
-        driftEdge &&
-        (component.id === driftEdge.from || component.id === driftEdge.to)
-      ) || components.find((component) => component.changed) || components[0];
-    state.selectedComponent = preferred.id;
-  }
-  const edges = allEdges.filter(architectureEdgeVisible),
-    layout = architecturePositions(components),
-    positions = layout.positions;
-  const edgeSvg = edges.map((edge) => {
-    const from = positions.get(edge.from), to = positions.get(edge.to);
-    if (!from || !to) return "";
-    const direction = to.x >= from.x ? 1 : -1,
-      sx = from.x + direction * from.w / 2,
-      tx = to.x - direction * to.w / 2,
-      curve = Math.max(35, Math.abs(tx - sx) * .45),
-      c1 = sx + direction * curve,
-      c2 = tx - direction * curve,
-      tone = architectureEdgeTone(edge),
-      label = edge.blocking
-        ? localized("drift", "偏离")
-        : edge.status === "unverified_actual"
-        ? "?"
-        : "";
-    return `<g><path class="arch-edge ${tone}" d="M ${sx} ${from.y} C ${c1} ${from.y}, ${c2} ${to.y}, ${tx} ${to.y}" marker-end="url(#arrow-${tone})"><title>${
-      esc(
-        `${edge.from_name} → ${edge.to_name} · ${statusLabel(edge.status)} · ${
-          statusLabel(edge.precision)
-        }`,
-      )
-    }</title></path>${
-      label
-        ? `<text class="arch-edge-label" x="${(sx + tx) / 2}" y="${
-          (from.y + to.y) / 2 - 4
-        }">${esc(label)}</text>`
-        : ""
-    }</g>`;
-  }).join("");
-  const nodeSvg = components.map((component) => {
-    const pos = positions.get(component.id),
-      tone = architectureNodeTone(component, allEdges),
-      selected = component.id === state.selectedComponent ? " selected" : "",
-      name = component.name.length > 24
-        ? `${component.name.slice(0, 22)}…`
-        : component.name,
-      meta = localized(
-        `${component.implementation_files} files · ${component.requirements.length} req`,
-        `${component.implementation_files} 个文件 · ${component.requirements.length} 个需求`,
-      );
-    return `<g class="arch-node ${tone}${selected}" data-component="${
-      esc(component.id)
-    }" role="button" tabindex="0" aria-label="${esc(component.name)}" transform="translate(${pos.x - pos.w / 2} ${
-      pos.y - pos.h / 2
-    })"><rect width="${pos.w}" height="${pos.h}" rx="9"></rect><text class="arch-node-title" x="10" y="20">${
-      esc(name)
-    }</text><text class="arch-node-id" x="10" y="34">${
-      esc(component.id)
-    }</text><text class="arch-node-meta" x="10" y="49">${
-      esc(meta)
-    }</text><title>${esc(component.name)}</title></g>`;
-  }).join("");
-  const html =
-    `<svg class="architecture-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" aria-label="${
-      esc(localized("Architecture drift graph", "架构偏离图"))
-    }"><defs><marker id="arrow-aligned" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker aligned" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-unverified" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker unverified" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-observed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker observed" d="M0,0 L7,3.5 L0,7 z"></path></marker><marker id="arrow-drift" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arch-marker drift" d="M0,0 L7,3.5 L0,7 z"></path></marker></defs>${edgeSvg}${nodeSvg}</svg>`;
-  const changed = setHtml(
-    "architectureGraph",
-    els.architectureGraph,
-    html,
-    () =>
-      els.architectureGraph.querySelectorAll("[data-component]").forEach(
-        (node) => {
-          const activate = () => {
-            state.selectedComponent = node.dataset.component;
-            invalidate("architectureGraph", "componentInspector");
-            renderArchitectureGraph();
-            renderComponentInspector();
-          };
-          node.addEventListener("click", activate);
-          node.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              activate();
-            }
-          });
-        },
-      ),
-  );
-  if (changed && window.matchMedia("(max-width: 700px)").matches) {
-    const selected = positions.get(state.selectedComponent);
-    requestAnimationFrame(() => {
-      if (!selected || els.architectureGraph.scrollLeft > 0) return;
-      els.architectureGraph.scrollLeft = Math.max(
-        0,
-        selected.x - els.architectureGraph.clientWidth / 2,
-      );
-      els.architectureGraph.scrollTop = Math.max(
-        0,
-        selected.y - els.architectureGraph.clientHeight / 2,
-      );
-    });
-  }
-}
 function renderComponentInspector() {
   const a = architectureData(),
     components = a.components || [],
     component = components.find((item) => item.id === state.selectedComponent);
   if (!component) {
-    setHtml(
-      "componentInspector",
-      els.componentInspector,
-      `<div class="empty">${esc(t("No component selected."))}</div>`,
-    );
+    els.componentInspector.classList.remove("open");
+    setHtml("componentInspector", els.componentInspector, "");
     return;
   }
-  const deps = (a.dependencies || []).filter((edge) =>
-      edge.from === component.id || edge.to === component.id
+  els.componentInspector.classList.add("open");
+  const deps = (a.dependencies || []).filter(edge => edge.from === component.id || edge.to === component.id),
+    outgoing = deps.filter(edge => edge.from === component.id),
+    incoming = deps.filter(edge => edge.to === component.id),
+    designed = outgoing.filter(edge => edge.desired),
+    observed = outgoing.filter(edge => edge.actual),
+    designOnly = outgoing.filter(edge => edge.desired && !edge.actual),
+    actualOnly = outgoing.filter(edge => edge.actual && !edge.desired),
+    blockingEdges = deps.filter(edge => edge.blocking),
+    uncertain = deps.filter(edge => !edge.blocking && edge.status !== "aligned"),
+    subsystem = (a.subsystems || []).find(item => item.id === component.subsystem),
+    linkedRequirements = (state.project?.requirements || []).filter(requirement =>
+      (requirement.components || []).some(item => item.id === component.id)
     ),
-    blocking = deps.filter((edge) => edge.blocking).length,
-    uncertain =
-      deps.filter((edge) => !edge.blocking && edge.status !== "aligned").length,
+    acceptance = linkedRequirements.flatMap(requirement => requirement.acceptance || []),
+    verificationRefs = acceptance.flatMap(item => item.verification || []),
+    resolvedVerificationRefs = verificationRefs.filter(item => item.resolved).length,
+    stableRequirements = linkedRequirements.filter(item => item.convergence === "stable").length,
+    convergenceNeeds = linkedRequirements.filter(item => ["needs_convergence", "incomplete"].includes(item.convergence)).length,
+    blockers = [...new Set(linkedRequirements.flatMap(item => [
+      ...(item.convergence_blockers || []),
+      ...(item.drift || []),
+    ]))].slice(0, 8),
+    blocking = blockingEdges.length,
     status = blocking
       ? t("Architecture drift")
-      : uncertain
+      : uncertain.length
       ? t("Needs stronger evidence")
       : deps.some(edge => edge.actual) ? t("Architecture aligned") : t("Needs stronger evidence"),
-    tone = blocking ? "bad" : uncertain || !deps.some(edge => edge.actual) ? "info" : "good";
+    tone = blocking ? "bad" : uncertain.length || !deps.some(edge => edge.actual) ? "info" : "good";
+  const depNames = (edges, actual = false) => edges.length
+    ? `<div class="inspector-list">${edges.map(edge => `<div class="inspector-item"><strong>${esc(edge.to_name)}</strong><small>${esc(actual ? `${statusLabel(edge.precision)} · ${statusLabel(edge.status)}` : statusLabel(edge.status))}</small></div>`).join("")}</div>`
+    : `<div class="empty">${esc(localized("None", "无"))}</div>`;
+  const deltaItems = [
+    ...designOnly.map(edge => localized(`Declared, not observed: ${edge.to_name}`, `设计已声明、尚未观测：${edge.to_name}`)),
+    ...actualOnly.map(edge => localized(`Observed, not declared: ${edge.to_name}`, `实际已观测、设计未声明：${edge.to_name}`)),
+    ...blockingEdges.map(edge => localized(`Confirmed drift: ${edge.from_name} → ${edge.to_name}`, `已确认偏离：${edge.from_name} → ${edge.to_name}`)),
+  ];
+  const comparison = `<div class="inspector-compare"><section><h5>${esc(localized("DESIGN", "设计"))}</h5>${depNames(designed)}</section><section><h5>${esc(localized("ACTUAL", "实际"))}</h5>${depNames(observed, true)}</section><section class="${blocking ? "bad" : deltaItems.length ? "warn" : ""}"><h5>${esc(localized("DELTA", "差异"))}</h5>${deltaItems.length ? `<div class="inspector-list">${deltaItems.map(item => `<div class="inspector-item">${esc(item)}</div>`).join("")}</div>` : `<div class="empty">${esc(localized("No dependency delta is currently confirmed.", "当前未确认依赖差异。"))}</div>`}</section></div>`;
   const dependencyHtml = deps.length
-    ? deps.map((edge) => {
-      const outgoing = edge.from === component.id,
-        other = outgoing ? edge.to_name : edge.from_name;
-      return `<div class="inspector-item inspector-dep"><div><b>${
-        esc(outgoing ? t("outgoing") : t("incoming"))
-      }</b> · ${esc(other)}<div class="panel-meta">${
-        esc(statusLabel(edge.status))
-      } · ${esc(statusLabel(edge.precision))}</div></div>${
-        pill(
-          edge.desired && edge.actual
-            ? localized("design + actual", "设计 + 实际")
-            : edge.desired
-            ? t("design edge")
-            : t("actual edge"),
-          architectureEdgeTone(edge),
-        )
-      }</div>`;
+    ? deps.map(edge => {
+      const isOutgoing = edge.from === component.id,
+        other = isOutgoing ? edge.to_name : edge.from_name;
+      return `<div class="inspector-item inspector-dep"><div><b>${esc(isOutgoing ? t("outgoing") : t("incoming"))}</b> · ${esc(other)}<div class="panel-meta">${esc(statusLabel(edge.status))} · ${esc(statusLabel(edge.precision))}</div></div>${pill(edge.desired && edge.actual ? localized("design + actual", "设计 + 实际") : edge.desired ? t("design edge") : t("actual edge"), architectureEdgeTone(edge))}</div>`;
     }).join("")
     : `<div class="empty">${esc(t("No dependency edges."))}</div>`;
+  const changedPaths = new Set(component.changed_paths || []);
   const implementations = (component.implementation_targets || []).length
-    ? `<div class="inspector-list">${
-      component.implementation_targets.map((target) =>
-        `<div class="inspector-item"><code>${esc(target)}</code></div>`
-      ).join("")
-    }</div>`
+    ? `<div class="inspector-list">${component.implementation_targets.map(target => {
+      const path = target.split("::")[0], changed = changedPaths.has(path);
+      return `<div class="inspector-item inspector-implementation"><code>${esc(target)}</code>${changed ? pill(statusLabel("changed"), "warn") : ""}</div>`;
+    }).join("")}</div>`
     : `<div class="empty">${esc(t("No implementation mapping."))}</div>`;
-  const requirements = (component.requirements || []).length
-    ? `<div class="pills">${
-      component.requirements.map((id) =>
-        `<button class="inspector-link" type="button" data-inspector-req="${
-          esc(id)
-        }">${esc(id)}</button>`
-      ).join("")
-    }</div>`
+  const requirements = linkedRequirements.length
+    ? `<div class="inspector-requirements">${linkedRequirements.map(requirement => {
+      const reqTone = requirement.convergence === "stable" ? "good" : requirement.convergence === "changing" ? "warn" : "bad";
+      return `<button class="inspector-requirement" type="button" data-inspector-req="${esc(requirement.id)}"><span><strong>${esc(requirement.id)}</strong><small>${esc(requirement.title || requirement.intent || "")}</small></span>${pill(statusLabel(requirement.convergence), reqTone)}</button>`;
+    }).join("")}</div>`
     : `<div class="empty">${esc(t("No related requirements."))}</div>`;
-  const changes = (component.changed_paths || []).length
-    ? `<div class="inspector-list">${
-      component.changed_paths.map((path) =>
-        `<div class="inspector-item"><code>${esc(path)}</code></div>`
-      ).join("")
-    }</div>`
+  const changes = changedPaths.size
+    ? `<div class="inspector-list">${[...changedPaths].map(path => `<div class="inspector-item"><code>${esc(path)}</code></div>`).join("")}</div>`
     : `<div class="empty">${esc(t("No current component changes."))}</div>`;
   const scopes = (component.product_scopes || []).length
-    ? `<div class="pills">${
-      component.product_scopes.map((scope) => pill(scope, "accent")).join("")
-    }</div>`
+    ? `<div class="pills">${component.product_scopes.map(scope => pill(scope, "accent")).join("")}</div>`
     : `<div class="empty">${esc(t("No product scope mapping."))}</div>`;
   const responsibilities = (component.responsibilities || []).length
-    ? `<ul class="responsibilities">${
-      component.responsibilities.map((item) => `<li>${esc(item)}</li>`).join("")
-    }</ul>`
+    ? `<ul class="responsibilities">${component.responsibilities.map(item => `<li>${esc(item)}</li>`).join("")}</ul>`
     : `<div class="empty">${esc(t("No responsibilities declared."))}</div>`;
-  const html = `<div class="req-top"><div><h3>${
-    esc(component.name)
-  }</h3><div class="component-id">${esc(component.id)}</div></div>${
-    pill(status, tone)
-  }</div><div class="pills">${
-    pill(unit(component.implementation_files, "file", "files", "个文件"))
-  }${pill(unit(component.implementation_lines, "line", "lines", "行"))}${
-    component.changed
-      ? pill(statusLabel("changed"), "warn")
-      : pill(statusLabel("stable"), "good")
-  }</div><div class="inspector-section"><h4>${
-    esc(t("Responsibilities"))
-  }</h4>${responsibilities}</div><div class="inspector-section"><h4>${
-    esc(t("Implementation mapping"))
-  }</h4>${implementations}</div><div class="inspector-section"><h4>${
-    esc(t("Dependencies"))
-  }</h4>${dependencyHtml}</div><div class="inspector-section"><h4>${
-    esc(t("Related requirements"))
-  }</h4>${requirements}</div><div class="inspector-section"><h4>${
-    esc(t("Changed paths"))
-  }</h4>${changes}</div><div class="inspector-section"><h4>${
-    esc(t("Product scopes"))
-  }</h4>${scopes}</div>`;
-  setHtml(
-    "componentInspector",
-    els.componentInspector,
-    html,
-    () =>
-      els.componentInspector.querySelectorAll("[data-inspector-req]").forEach(
-        (button) =>
-          button.addEventListener("click", () => {
-            state.filter = "all"; els.search.value = "";
-            document.querySelectorAll(".filter").forEach(item => {
-              item.classList.toggle("active", item.dataset.filter === "all");
-              item.setAttribute("aria-pressed", String(item.dataset.filter === "all"));
-            });
-            state.selected = button.dataset.inspectorReq;
-            revealSection("requirementsSection");
-            invalidate("requirements", "detail");
-            renderRequirements();
-            renderDetail();
-            els.detail.scrollIntoView({ behavior: "smooth", block: "start" });
-          }),
-      ),
-  );
+  const convergence = blockers.length
+    ? `<div class="inspector-list">${blockers.map(item => `<div class="inspector-item">${esc(item)}</div>`).join("")}</div>`
+    : `<div class="empty">${esc(localized("No requirement convergence blocker is recorded for this component.", "该组件当前没有记录的需求收敛阻塞项。"))}</div>`;
+  const health = `<div class="inspector-health"><div><strong>${num(blocking)}</strong><span>${esc(localized("confirmed drift", "已确认偏离"))}</span></div><div><strong>${num(stableRequirements)} / ${num(linkedRequirements.length)}</strong><span>${esc(localized("stable requirements", "稳定需求"))}</span></div><div><strong>${num(resolvedVerificationRefs)} / ${num(verificationRefs.length)}</strong><span>${esc(localized("verification refs mapped", "验证引用已映射"))}</span></div><div><strong>${num(changedPaths.size)}</strong><span>${esc(localized("changed paths", "变更路径"))}</span></div></div>`;
+  const verification = `<div class="inspector-proof-note"><strong>${esc(localized("Verification mapping, not execution proof", "验证映射，不代表已执行证明"))}</strong><span>${esc(localized(`${acceptance.length} acceptance criteria · ${resolvedVerificationRefs}/${verificationRefs.length} verification references resolve. Current execution evidence is revision-bound and shown in Verification evidence.`, `${acceptance.length} 个验收条件 · ${resolvedVerificationRefs}/${verificationRefs.length} 个验证引用已解析。当前执行证据绑定版本，统一在“验证证据”中查看。`))}</span><button type="button" class="inspector-link" data-inspector-proof>${esc(localized("Open verification evidence", "打开验证证据"))}</button></div>`;
+  const inspectorSection = (title, body, open = false) => `<details class="inspector-section inspector-disclosure"${open ? " open" : ""}><summary><span>${esc(title)}</span><span class="disclosure-mark" aria-hidden="true"></span></summary><div class="inspector-section-body">${body}</div></details>`;
+  const html = `<button type="button" class="inspector-close" data-inspector-close aria-label="${esc(localized("Close inspector", "关闭检查器"))}">${uiIcon("close")}</button><div class="req-top inspector-title"><div><h3>${esc(component.name)}</h3><div class="component-id">${esc(component.id)}</div><div class="component-subsystem">${esc(localized("Subsystem", "子系统"))}: ${esc(subsystem?.title || component.subsystem || localized("Unscoped", "未归类"))}</div></div>${pill(status, tone)}</div><div class="pills">${pill(unit(component.implementation_files, "file", "files", "个文件"))}${pill(unit(component.implementation_lines, "line", "lines", "行"))}${component.changed ? pill(statusLabel("changed"), "warn") : pill(statusLabel("stable"), "good")}${convergenceNeeds ? pill(localized(`${convergenceNeeds} need convergence`, `${convergenceNeeds} 项需收敛`), "warn") : ""}</div>${health}${inspectorSection(localized("Design vs actual", "设计 vs 实际"), comparison, true)}${inspectorSection(t("Responsibilities"), responsibilities)}${inspectorSection(t("Implementation mapping"), implementations)}${inspectorSection(localized("Upstream / downstream dependencies", "上下游依赖"), dependencyHtml)}${inspectorSection(t("Related requirements"), requirements)}${inspectorSection(localized("Verification & proof", "验证与证明"), verification)}${inspectorSection(localized("Convergence & drift", "收敛与偏离"), convergence)}${inspectorSection(t("Changed paths"), changes)}${inspectorSection(t("Product scopes"), scopes)}`;
+  setHtml("componentInspector", els.componentInspector, html, () => {
+    els.componentInspector.querySelector("[data-inspector-close]")?.addEventListener("click", () => {
+      state.selectedComponent = "";
+      els.componentInspector.classList.remove("open");
+    });
+    els.componentInspector.querySelectorAll("[data-inspector-req]").forEach(button => button.addEventListener("click", () => {
+      state.filter = "all"; els.search.value = "";
+      document.querySelectorAll(".filter").forEach(item => {
+        item.classList.toggle("active", item.dataset.filter === "all");
+        item.setAttribute("aria-pressed", String(item.dataset.filter === "all"));
+      });
+      state.selected = button.dataset.inspectorReq;
+      revealSection("requirementsSection");
+      invalidate("requirements", "detail");
+      renderRequirements();
+      renderDetail();
+      els.detail.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+    els.componentInspector.querySelector("[data-inspector-proof]")?.addEventListener("click", () => revealSection("proofSection"));
+  });
 }
 function renderComponentCards() {
   const a = architectureData(), query = els.componentSearch.value.trim().toLowerCase();
@@ -415,19 +160,28 @@ function renderComponentCards() {
     const label = tone === "drift" ? localized("Strong drift", "强证据偏离") : tone === "changed" ? localized("Changed", "有变更") : tone === "uncertain" ? localized("Needs evidence", "待补证据") : localized("Dependencies observed", "依赖已观测");
     return `<button type="button" class="component-tile ${tone}" data-card-component="${esc(component.id)}" aria-pressed="${component.id === state.selectedComponent}"><span class="component-tile-top"><strong>${esc(component.name)}</strong><span class="pill ${tone === "drift" ? "bad" : tone === "changed" ? "warn" : "info"}">${esc(label)}</span></span><span class="component-purpose">${esc((component.responsibilities || [])[0] || localized("No responsibility declared", "未声明职责"))}</span><span class="component-tile-meta">${esc(localized(`${num(component.implementation_files)} mapped files · ${(component.depends_on || []).length} declared dependencies`, `${num(component.implementation_files)} 个映射文件 · ${(component.depends_on || []).length} 条声明依赖`))}</span></button>`;
   }).join("")}</div></section>`).join("") || `<div class="empty">${esc(localized("No matching components. Clear the search or add architecture mappings.", "没有匹配组件。请清除搜索，或补充架构映射。"))}</div>`;
-  setHtml("componentCards", els.componentCards, html, () => els.componentCards.querySelectorAll("[data-card-component]").forEach(button => button.addEventListener("click", () => {
-    state.selectedComponent = button.dataset.cardComponent;
-    renderComponentCards(); renderComponentInspector();
-    if (window.matchMedia("(max-width: 900px)").matches) els.componentInspector.scrollIntoView({ behavior: "smooth", block: "start" });
-  })));
-  renderComponentInspector();
-}
-function renderArchitecture() {
-  renderArchitectureMetrics();
-  const graph = state.architectureView === "graph";
-  els.componentSearch.disabled = graph;
-  els.componentCards.classList.toggle("hidden", graph);
-  els.architectureGraph.closest(".architecture-graph-shell")?.classList.toggle("hidden", !graph);
-  if (graph) renderArchitectureGraph(); else renderComponentCards();
-  renderComponentInspector();
+  setHtml("componentCards", els.componentCards, html, () => {
+    const buttons = [...els.componentCards.querySelectorAll("[data-card-component]")];
+    const activate = (button, { focus = true } = {}) => {
+      if (!button) return;
+      state.selectedComponent = button.dataset.cardComponent;
+      renderComponentCards();
+      renderComponentInspector();
+      requestAnimationFrame(() => {
+        const selected = [...els.componentCards.querySelectorAll("[data-card-component]")].find(item => item.dataset.cardComponent === state.selectedComponent);
+        selected?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        if (focus) selected?.focus({ preventScroll: true });
+        if (window.matchMedia("(max-width: 900px)").matches) els.componentInspector.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    buttons.forEach((button, index) => {
+      button.addEventListener("click", () => activate(button));
+      button.addEventListener("keydown", event => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowDown" ? Math.min(buttons.length - 1, index + 1) : Math.max(0, index - 1);
+        activate(buttons[nextIndex]);
+      });
+    });
+  });
 }

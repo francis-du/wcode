@@ -11,11 +11,31 @@
 
 # Make any coding agent understand your repo before it changes it.
 
-**wcode is not another coding agent. It is the missing repository layer for Claude Code, Codex, Cursor, Copilot, and other agents: task-ready context, real code relationships, guarded actions, and proof tied to the current revision.**
+**wcode is the engineering control plane for coding agents.** Claude Code, Codex, Cursor, Copilot, and other agents stay replaceable while wcode owns the repository context, engineering boundaries, guarded actions, verification evidence, learning, and observability around them.
 
 Coding agents are already good at writing code. The expensive failures happen around the code: they miss a caller, guess an architecture boundary, edit too much, run with too much access, or declare success without enough proof. **wcode fixes that layer without asking you to replace the agent you already use.**
 
-> **Understand first. Change less. Prove it works.**
+> **Understand first. Change less. Prove it works. Learn only from proof.**
+
+## The five-layer mental model
+
+wcode does not replace the model. It makes the repository around the model more reliable:
+
+```text
+goal
+  ↓
+UNDERSTAND  task-aware context + Design + code graph + verified history
+  ↓
+CHANGE      bounded Workspace edits + SHA guards + explicit authority
+  ↓
+PROVE       focused quick checks → adaptive fail-fast ordering → full gate
+  ↓
+LEARN       only stable verified changes may update repository experience
+  ↓
+OBSERVE     Engineering Observatory explains architecture, Vibe changes, drift, runtime activity, and proof
+```
+
+Repository retrieval is task-aware rather than one global ranking rule. Clear `trace→code`, `code→test`, and `edit→ripple` requests receive different bounded priors; mixed signals deliberately fall back to balanced context. The routing itself is labeled `precision=heuristic`, exact symbol targets stay stronger than broad retrieval seeds, and fresh semantic/deterministic/runtime relationships keep their stronger provenance.
 
 ### What wcode fixes
 
@@ -31,7 +51,7 @@ Coding agents are already good at writing code. The expensive failures happen ar
 Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and other MCP clients can all use the same local runtime.
 
 <p align="center">
-  <a href="docs/assets/wcode-architecture.png"><img src="docs/assets/wcode-architecture.png" alt="wcode Project Observatory architecture view" width="49%"></a>
+  <a href="docs/assets/wcode-architecture.png"><img src="docs/assets/wcode-architecture.png" alt="wcode Engineering Observatory architecture view" width="49%"></a>
   <a href="docs/assets/wcode-verification-detail.png"><img src="docs/assets/wcode-verification-detail.png" alt="wcode requirement verification and evidence view" width="49%"></a>
 </p>
 
@@ -40,8 +60,8 @@ Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and 
 - [Documentation](https://wcode.francis.run/docs/)
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
-- [Software Intelligence](https://wcode.francis.run/docs/software-intelligence/)
-- [v0.6 — Parallel-first agents, authorizable project commands, and stronger repository context](https://wcode.francis.run/docs/releases/v0.6/)
+- [Repository Intelligence & Engineering State](https://wcode.francis.run/docs/software-intelligence/)
+- [v0.7.0 — Architecture-first observability, faster project loading, and stronger agent engineering](https://wcode.francis.run/docs/releases/v0.7.0/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 
 ## Install
@@ -118,7 +138,7 @@ authorization system. SSE is a compatibility layer, not a second tool runtime.
 For local stdio the Host working directory selects the Workspace; setup does not
 bake an absolute repository path into the MCP entry.
 
-MCP calls are intentionally compact in v0.5.2: model-visible schemas omit server
+MCP calls are intentionally compact: model-visible schemas omit server
 defaults and low-frequency tuning fields, and agents are instructed not to send
 the default Workspace or inferable path/limit/timeout/budget values. For speed,
 independent dependency lanes should use concurrent top-level MCP calls when the
@@ -223,15 +243,14 @@ hard-link deletion remains blocked.
 
 ## TUI and WebUI
 
-The terminal view uses the same dark violet/pink palette as the documentation
-site and keeps the main screen to four layers:
+The terminal view uses the same low-saturation warm-neutral palette as the Engineering Observatory and keeps the main screen to four layers:
 
 1. current MCP endpoint, tunnel, OAuth session, and runtime status;
 2. active, queued, completed, and failed counters;
 3. per-subspace work;
 4. 30-second throughput and slot use.
 
-Press `I` to load Software Intelligence for the selected project, `C` to see
+Press `I` to load repository intelligence for the selected project, `C` to see
 the complete command catalog, `W` for the protected WebUI, `O` for setup, and
 `?` for keys and links. The pairing code stays in the header after a client
 connects, so reconnecting does not hide it. Authorization requests state

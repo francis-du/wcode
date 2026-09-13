@@ -1,18 +1,18 @@
 {
   "name": "wcode",
-  "version": "0.6.2",
-  "description": "Workspace-scoped wcode Software Intelligence skill and MCP connection profiles.",
+  "version": "0.7.0",
+  "description": "Workspace-scoped wcode engineering control-plane skill and MCP connection profiles.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",
   "repository": "https://github.com/francis-du/wcode",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "software-intelligence", "verification", "agent-skills"],
+  "keywords": ["mcp", "engineering-control-plane", "software-intelligence", "verification", "agent-skills"],
   "skills": "./skills/",
   "mcpServers": {},
   "interface": {
     "displayName": "wcode",
-    "shortDescription": "Repository intelligence and guarded MCP operations",
-    "longDescription": "Use wcode for bounded repository context, guarded edits, exact command authorization, and evidence-driven verification.",
+    "shortDescription": "Engineering control plane for coding agents",
+    "longDescription": "Use wcode to understand repository architecture, supervise Vibe Coding changes, apply guarded edits, authorize exact operations, and verify results with revision-bound evidence.",
     "developerName": "francis-du",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write", "MCP"],
@@ -22,6 +22,6 @@
       "Review the current changes and run the right verification.",
       "Map this task to the relevant product scope."
     ],
-    "brandColor": "#111114"
+    "brandColor": "#0b0812"
   }
 }

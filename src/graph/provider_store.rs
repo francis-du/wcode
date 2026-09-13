@@ -138,7 +138,7 @@ pub(crate) fn freshness(
     workspace: &Workspace,
     import: &GraphProviderImport,
 ) -> GraphProviderFreshness {
-    let mut tracked = BTreeMap::<String, String>::new();
+    let mut tracked = BTreeMap::<&str, &str>::new();
     for node in &import.nodes {
         let Some(path) = node
             .attributes
@@ -155,7 +155,7 @@ pub(crate) fn freshness(
             continue;
         };
         if tracked
-            .insert(path.to_owned(), source_sha256.to_owned())
+            .insert(path, source_sha256)
             .is_some_and(|existing| existing != source_sha256)
         {
             return GraphProviderFreshness::Stale;
@@ -168,13 +168,20 @@ pub(crate) fn freshness(
             GraphProviderFreshness::Unknown
         };
     }
-    for (path, expected_sha256) in tracked {
-        match workspace.load_source(&path) {
-            Ok(source) if source.sha256 == expected_sha256 => {}
-            _ => return GraphProviderFreshness::Stale,
-        }
+    let tracked = tracked.into_iter().collect::<Vec<_>>();
+    let checks = match crate::resource::parallel_io(&tracked, |(path, expected_sha256)| {
+        workspace
+            .load_source(path)
+            .is_ok_and(|source| source.sha256 == *expected_sha256)
+    }) {
+        Ok(checks) => checks,
+        Err(_) => return GraphProviderFreshness::Stale,
+    };
+    if checks.into_iter().all(|fresh| fresh) {
+        GraphProviderFreshness::Fresh
+    } else {
+        GraphProviderFreshness::Stale
     }
-    GraphProviderFreshness::Fresh
 }
 
 pub(crate) fn overlay_latest(

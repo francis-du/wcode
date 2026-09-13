@@ -14,10 +14,14 @@ mod code_index;
 mod conventions;
 #[path = "design/mod.rs"]
 pub mod design;
+#[path = "evidence/journal.rs"]
+mod engineering_journal;
 #[path = "evidence/mod.rs"]
 pub mod evidence;
 #[path = "evidence/store.rs"]
 mod evidence_store;
+#[path = "evidence/experience.rs"]
+mod experience_store;
 #[path = "graph/mod.rs"]
 pub mod graph;
 #[path = "graph/provider_store.rs"]
@@ -42,6 +46,8 @@ mod mcp_legacy_sse;
 mod mcp_stdio;
 #[path = "integrations/mcp/tasks.rs"]
 mod mcp_tasks;
+#[path = "verification/migration.rs"]
+mod migration_audit;
 #[path = "ui/monitor/mod.rs"]
 mod monitor;
 #[path = "runtime/power.rs"]

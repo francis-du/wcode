@@ -306,6 +306,12 @@ pub(super) async fn call(
             let mut context = context.map_err(|error| error.to_string())?;
             if let Ok(worktree) = worktree {
                 merge_agent_worktree_status(&mut context, &worktree);
+                if let Ok(impact) = state
+                    .harness
+                    .verification_impact_summary(&workspace, &worktree)
+                {
+                    context["verification_impact"] = impact;
+                }
             }
             Ok(context)
         }

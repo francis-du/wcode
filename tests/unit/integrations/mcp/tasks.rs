@@ -53,7 +53,7 @@ async fn finished_task_handle_is_not_a_live_worker() {
     let task = tokio::spawn(async {});
     let handle = task.abort_handle();
     task.await.unwrap();
-    runtime.register("finished".into(), handle);
+    runtime.register("finished".into(), "demo".into(), handle);
     assert!(!runtime.running("finished"));
     runtime.remove("finished");
     assert!(!runtime.running("finished"));

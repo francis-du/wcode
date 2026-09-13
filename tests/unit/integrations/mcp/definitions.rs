@@ -1,6 +1,22 @@
 use super::*;
 use std::collections::HashSet;
 
+#[test]
+fn internal_structured_results_do_not_duplicate_payload_as_text() {
+    let payload = json!({"body": "x".repeat(32 * 1024), "count": 7});
+    let external = tool_result(payload.clone(), false);
+    let internal = structured_tool_result(payload.clone(), false);
+
+    assert_eq!(internal["structuredContent"], payload);
+    assert_eq!(internal["isError"], false);
+    assert!(internal.get("content").is_none());
+    assert!(
+        serde_json::to_vec(&internal).unwrap().len() * 3
+            < serde_json::to_vec(&external).unwrap().len() * 2,
+        "structured-only child results should avoid roughly one full payload copy"
+    );
+}
+
 #[tokio::test]
 async fn cancelled_blocking_worker_retains_its_real_permit_until_finished() {
     use std::sync::Arc;
@@ -229,12 +245,20 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     let first = tools();
     let second = tools();
     assert_eq!(first, second);
+    for round in 0..200 {
+        let current = tools();
+        assert!(
+            std::ptr::eq(first.as_ptr(), current.as_ptr()),
+            "tool catalog storage was rebuilt in round {round}"
+        );
+        assert_eq!(first.len(), current.len());
+    }
 
-    let bytes = serde_json::to_vec(&first).unwrap().len();
+    let bytes = serde_json::to_vec(first).unwrap().len();
     assert!(bytes <= 60_000, "tool catalog is {bytes} bytes");
 
     let mut names = HashSet::new();
-    for tool in &first {
+    for tool in first {
         let name = tool["name"].as_str().unwrap();
         assert!(names.insert(name), "duplicate tool name: {name}");
         let description = tool["description"].as_str().unwrap();

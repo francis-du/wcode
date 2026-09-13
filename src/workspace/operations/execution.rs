@@ -21,12 +21,13 @@ impl Workspace {
         let mut admissible = self.security;
         admissible.allow_risky_exec = true;
         validate_command_policy(program, args, admissible)?;
+        let autonomous_verification = validate_verification_command_shape(program, args).is_ok();
         let cwd_path = self.existing_path(cwd)?;
         if !cwd_path.is_dir() {
             bail!("cwd is not a directory");
         }
-        if program == "cargo" && args == ["fmt"] && !self.allow_write {
-            bail!("cargo fmt modifies source files and is blocked in a read-only workspace");
+        if !self.allow_write && command_requires_workspace_write(program, args) {
+            bail!("command modifies repository state and is blocked in a read-only workspace");
         }
         if !self
             .commands
@@ -44,6 +45,7 @@ impl Workspace {
         }
         let mut effective_security = self.security;
         if !effective_security.allow_risky_exec
+            && !autonomous_verification
             && validate_command_policy(program, args, effective_security).is_err()
         {
             let mut elevated = effective_security;
@@ -67,10 +69,10 @@ impl Workspace {
             bail!("cwd is not a directory");
         }
         let governor = crate::resource::global();
-        let _child_permit = if is_git_probe(program, args) {
-            governor.acquire_git_probe().await
+        let (_child_permit, process_queue_wait_ms) = if is_inspection_probe(program, args) {
+            governor.acquire_probe_with_wait().await
         } else {
-            governor.acquire_child().await
+            governor.acquire_child_with_wait().await
         }
         .map_err(anyhow::Error::msg)?;
         let effective_args = hardened_command_args(program, args);
@@ -86,7 +88,7 @@ impl Workspace {
             &mut command,
             program,
             args,
-            effective_security.allow_risky_exec,
+            effective_security.allow_risky_exec || (program == "git" && is_git_push_command(args)),
         );
         crate::resource::apply_child_limits(&mut command);
         if program == "git" {
@@ -96,7 +98,15 @@ impl Workspace {
         }
 
         let child = command.spawn().context("failed to start command")?;
-        collect_command_result(child, program, args, timeout_seconds).await
+        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
+    }
+
+    pub(crate) fn verification_command_shape_allowed(
+        &self,
+        program: &str,
+        args: &[String],
+    ) -> bool {
+        validate_verification_command_shape(program, args).is_ok()
     }
 
     pub(crate) async fn run_verification_command(
@@ -107,6 +117,11 @@ impl Workspace {
         timeout_seconds: u64,
     ) -> Result<CommandResult> {
         validate_verification_command_shape(program, args)?;
+        if program.contains(['/', '\\']) {
+            return self
+                .run_workspace_verification_executable(program, args, cwd, timeout_seconds)
+                .await;
+        }
         let mut verification_workspace = self.clone();
         verification_workspace.security.allow_risky_exec = true;
         verification_workspace
@@ -116,7 +131,47 @@ impl Workspace {
 
     pub(crate) fn workspace_program_available(&self, program: &str) -> bool {
         program.contains(['/', '\\'])
-            && self.existing_path(program).is_ok_and(|path| path.is_file())
+            && self
+                .existing_path(program)
+                .and_then(|path| ensure_single_link_file(&path))
+                .is_ok()
+    }
+
+    async fn run_workspace_verification_executable(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+    ) -> Result<CommandResult> {
+        if !self.allow_exec {
+            bail!("project verification requires command execution; restart without --no-exec");
+        }
+        let executable = self.existing_path(program)?;
+        ensure_single_link_file(&executable)?;
+        validate_command_arguments(program, args)?;
+        let cwd = self.existing_path(cwd)?;
+        if !cwd.is_dir() {
+            bail!("cwd is not a directory");
+        }
+        let (_child_permit, process_queue_wait_ms) = crate::resource::global()
+            .acquire_child_with_wait()
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let mut command = Command::new(executable);
+        command
+            .args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        scrub_sensitive_environment(&mut command, program, args, false);
+        crate::resource::apply_child_limits(&mut command);
+        let child = command
+            .spawn()
+            .context("failed to start workspace verification executable")?;
+        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
     }
 
     pub(crate) async fn run_trusted_runtime_command(
@@ -164,8 +219,8 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("runtime executor cwd is not a directory");
         }
-        let _child_permit = crate::resource::global()
-            .acquire_child()
+        let (_child_permit, process_queue_wait_ms) = crate::resource::global()
+            .acquire_child_with_wait()
             .await
             .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);
@@ -181,7 +236,7 @@ impl Workspace {
         let child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
-        collect_command_result(child, program, args, timeout_seconds).await
+        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
     }
 }
 
@@ -192,6 +247,7 @@ async fn collect_command_result(
     program: &str,
     args: &[String],
     timeout_seconds: u64,
+    process_queue_wait_ms: u64,
 ) -> Result<CommandResult> {
     let mut group = crate::resource::supervise_child(&child);
     let stdout = child
@@ -258,23 +314,29 @@ async fn collect_command_result(
         && !wait_failed
         && !output_incomplete
         && status.is_some_and(|status| status.success());
-    let (stdout, stdout_redacted) = redact_sensitive_text(&stdout);
-    let (stderr, stderr_redacted) = redact_sensitive_text(&stderr);
+    let (stdout, stderr, redacted) = redact_command_streams(stdout, stderr);
     Ok(CommandResult {
         program: program.to_owned(),
         args: args.to_vec(),
         exit_code: status.and_then(|status| status.code()),
         success,
+        process_queue_wait_ms,
         stdout,
         stderr,
         truncated: truncated || output_incomplete,
-        redacted: stdout_redacted || stderr_redacted,
+        redacted,
         timed_out,
         output_incomplete,
         retry_guidance: (!success).then_some(
             "Inspect actual effects and diagnostics before retrying. No rollback or automatic retry was performed.",
         ),
     })
+}
+
+fn redact_command_streams(stdout: String, stderr: String) -> (String, String, bool) {
+    let (stdout, stdout_redacted) = redact_sensitive_text(&stdout);
+    let (stderr, stderr_redacted) = redact_sensitive_text(&stderr);
+    (stdout, stderr, stdout_redacted || stderr_redacted)
 }
 
 pub(crate) fn redact_sensitive_text(text: &str) -> (String, bool) {

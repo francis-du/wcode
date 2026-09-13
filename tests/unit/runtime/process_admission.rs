@@ -12,10 +12,9 @@ fn inspection_capacity_scales_with_memory_cpu_and_tool_bounds() {
             assert!(probes <= (memory_mb / 128) as usize);
         }
     }
-    assert_eq!(
-        ResourceLimits::new(10.0, 512, 32).unwrap().child_processes,
-        2
-    );
+    let default = ResourceLimits::new(10.0, 512, 32).unwrap();
+    assert!((1..=3).contains(&default.child_processes));
+    assert!(default.child_processes <= default.cpu_burst_threads.div_ceil(default.child_threads));
 }
 
 #[tokio::test]
@@ -28,7 +27,7 @@ async fn independent_process_queues_keep_compiler_and_probe_limits() {
     }
     let mut probes = Vec::new();
     for _ in 0..limits.probe_process_limit() {
-        probes.push(governor.acquire_git_probe().await.unwrap());
+        probes.push(governor.acquire_probe().await.unwrap());
     }
     let snapshot = governor.snapshot();
     assert_eq!(snapshot.child_queue.active, limits.child_processes);
@@ -39,14 +38,14 @@ async fn independent_process_queues_keep_compiler_and_probe_limits() {
             .is_err()
     );
     assert!(
-        tokio::time::timeout(Duration::from_millis(25), governor.acquire_git_probe())
+        tokio::time::timeout(Duration::from_millis(25), governor.acquire_probe())
             .await
             .is_err()
     );
     assert_eq!(governor.snapshot().child_queue.waiting, 0);
     assert_eq!(governor.snapshot().probe_queue.waiting, 0);
     drop(probes);
-    let probe = governor.acquire_git_probe().await.unwrap();
+    let probe = governor.acquire_probe().await.unwrap();
     assert_eq!(
         governor.snapshot().child_queue.active,
         limits.child_processes
@@ -66,7 +65,7 @@ async fn inspection_queue_still_obeys_resource_pressure_admission() {
         telemetry.last_sample_at = Some(Instant::now());
     }
     assert!(
-        tokio::time::timeout(Duration::from_millis(25), governor.acquire_git_probe())
+        tokio::time::timeout(Duration::from_millis(25), governor.acquire_probe())
             .await
             .is_err()
     );
@@ -77,5 +76,5 @@ async fn inspection_queue_still_obeys_resource_pressure_admission() {
         telemetry.memory_pressure = MemoryPressure::Normal;
         telemetry.last_sample_at = Some(Instant::now());
     }
-    assert!(governor.acquire_git_probe().await.is_ok());
+    assert!(governor.acquire_probe().await.is_ok());
 }

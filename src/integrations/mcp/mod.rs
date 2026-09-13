@@ -131,6 +131,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence", get(intelligence_page))
         .route("/intelligence/app.css", get(intelligence_styles))
         .route("/intelligence/app.js", get(intelligence_script))
+        .route("/intelligence/logo.svg", get(intelligence_logo))
         .route("/intelligence/project", get(intelligence_web_project))
         .route("/intelligence/revision", get(intelligence_web_revision))
         .route("/intelligence/activity", get(intelligence_web_activity))
@@ -225,12 +226,23 @@ async fn health(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<
         "public_url_error": connection.public_url_error,
         "tunnel_running": connection.tunnel_running,
         "tunnel_error": connection.tunnel_error,
-        "tunnels": state
-            .monitor
-            .tunnel_links()
-            .into_iter()
-            .map(|(provider, url)| {
-                json!({"provider": provider, "url": url, "mcp_url": format!("{url}/mcp")})
+        "tunnels": connection
+            .tunnels
+            .iter()
+            .map(|tunnel| {
+                json!({
+                    "provider": tunnel.provider,
+                    "url": tunnel.url,
+                    "mcp_url": tunnel.url.as_ref().map(|url| format!("{url}/mcp")),
+                    "role": tunnel.role,
+                    "state": tunnel.state,
+                    "lease_age_seconds": tunnel.lease_age_seconds,
+                    "consecutive_failures": tunnel.consecutive_failures,
+                    "death_count": tunnel.death_count,
+                    "circuit_open": tunnel.circuit_open,
+                    "retry_in_seconds": tunnel.retry_in_seconds,
+                    "connected_seconds": tunnel.connected_seconds,
+                })
             })
             .collect::<Vec<_>>(),
         "active_tasks": connection.active_tasks,
@@ -562,7 +574,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or path protections. Send only required arguments; omit the default Workspace and server-default path/limit/timeout/budget values. For coding call agent_context first and follow readiness/next_actions/parallelism; resume its active Worklist and update status without dropping unfinished items. Run independent dependency lanes as concurrent top-level calls when supported; use bulk tools for known inputs and parallel_tools only for compact fanout. Use find_symbol/search_code for localization, semantic_navigation only for needed cross-file relations, and symbol_context/read_file only for missing source while preserving original formatting. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax precision unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
+const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or protected paths. Omit default Workspace/path/limit/timeout/budget arguments. For coding call agent_context first; obey core_constraints and readiness/next_actions/parallelism, and resume active Worklist items without dropping unfinished work. Run independent lanes concurrently; use bulk tools for known inputs and parallel_tools only for compact fanout. Use find_symbol/search_code to localize, semantic_navigation for needed cross-file relations, and symbol_context/read_file only for missing source. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
 
 fn join_error_message(scope: &str, error: &JoinError) -> String {
     let kind = if error.is_cancelled() {

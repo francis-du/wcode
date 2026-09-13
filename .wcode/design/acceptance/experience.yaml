@@ -1,0 +1,20 @@
+schema_version: 1
+id: AC-EXPERIENCE-001
+title: Only verified bounded history can influence retrieval
+statement: >-
+  Successful stable deterministic verification can persist bounded prompt-free co-change experience and a weak recent selected-context → verified-change trajectory; failed or truncated work cannot teach, context trajectories require a recent successful Agent Context with path overlap, removed paths are ignored, and no prompt/query/reasoning text is stored. Historical relevance stays heuristic and weaker than exact direct targets. Retrieval normalizes pair affinity against path popularity, shrinks low-support edges, discounts broad change sets, decays stale evidence, keeps full verification stronger than quick, gives trajectory edges lower directional weight than verified co-change, and conditions those edges by retrieval intent so cross-intent reuse remains weaker than same-intent reuse. A temporal regression gate never amplifies learned history: cold-start and non-regressing models retain factor 1, at least six evaluable holdout records are required before degradation, repeated multi-metric regression against raw-count-v1 downweights learned history to 0.25, and unavailable evaluation disables the heuristic instead of guessing. Verified learning quality is evaluated by global temporal A/B replay with same-timestamp batch isolation; stale paths are excluded, verified-context-cochange-v3 is compared against raw-count-v1 on identical cases, and Engineering Observatory exposes both model identities, raw denominators, baseline values and percentage-point deltas for coverage, hit-rate, precision@K and recall@K without an opaque self-score.
+verification:
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: verified_experience_is_deduped_workspace_scoped_and_ignores_missing_paths}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: verified_context_trajectory_promotes_context_to_verified_change_without_storing_prompt}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: legacy_v1_experience_records_remain_readable}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: context_trajectory_reuse_is_conditioned_by_retrieval_intent}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: activation_gate_degrades_only_after_repeated_temporal_regression}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: temporal_holdout_evaluation_avoids_same_batch_leakage_and_ignores_stale_paths}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: normalized_retrieval_downranks_broad_and_stale_evidence}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: normalized_temporal_ab_replay_beats_raw_popularity_bias}
+  - {kind: test, path: tests/unit/evidence/experience.rs, symbol: experience_rejects_partial_or_non_relational_learning_inputs}
+  - {kind: test, path: tests/unit/runtime/harness/context_rank.rs, symbol: verified_experience_boosts_edit_ripple_without_outranking_exact_target}
+  - {kind: test, path: tests/unit/runtime/harness/experience.rs, symbol: failed_verification_is_not_eligible_for_retrieval_experience}
+  - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_builds_requirement_architecture_from_current_code}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_prompt_free_temporal_verified_learning_metrics}
+  - {kind: check, id: rust-test}

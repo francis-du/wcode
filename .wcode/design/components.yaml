@@ -67,12 +67,26 @@
   responsibilities:
     - infer bounded verification checks
     - run deterministic verification through the approved command lane
+    - persist versioned deterministic check timing facts, normalize exact-command history to the latest observation per revision so retries cannot inflate sample confidence, and select a bounded fail-fast frontier of at most two sentinels without removing any required checks
+    - admit a second cost sentinel only from shared revision evidence where the first sentinel did not fail but the second did, with sufficient marginal samples, marginal failures and positive incremental time savings after charging its own runtime; correlated failures remain in the parallel remainder
+    - temporally replay the learned cost frontier against the canonical phased baseline and fail back to the static plan after four evaluable holdout revisions unless net time savings are positive with zero outcome mismatches; cold-start exploration remains explicit
+    - prioritize at most one direct Design-owned and syntax-resolved Rust, Python or Go Acceptance test during quick verification through an exact same-island runner shape, after static checks and without removing or narrowing the full verification plan
+    - reuse only short-lived allowlisted static verification passes when code revision, Design revision, exact check shape, execution policy, environment and executable identity all match; behavioral tests, failures, stale/partial revisions and changed inputs always execute again, reuse stays explicit in reports, and reused checks never mint duplicate Evidence
   constraints:
     - CONSTRAINT-BOUNDED-VERIFICATION
   implementation:
     - kind: symbol
       path: src/runtime/harness/quality.rs
       symbol: ToolHarness::verify_project
+    - kind: symbol
+      path: src/runtime/harness/cost.rs
+      symbol: apply_historical_cost_model
+    - kind: symbol
+      path: src/runtime/harness/test_focus.rs
+      symbol: focused_quick_test
+    - kind: symbol
+      path: src/runtime/harness/verification_cache.rs
+      symbol: ToolHarness::cached_verification_check
 
 - schema_version: 1
   id: component:software-graph
@@ -285,18 +299,22 @@
 
 - schema_version: 1
   id: component:intelligence-ui
-  name: Software Intelligence UI
+  name: Engineering Observatory
   responsibilities:
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
     - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
-    - expose a protected architecture-first Project Observatory with a full Design-vs-Actual dependency graph, observed drift and evidence-coverage metrics, component drill-down, then Requirement → Desired State → Actual State → Change → Proof → Convergence detail
+    - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
+    - project existing bounded task activity into a realtime Understand → Change → Prove → Learn → Observe engineering flow and explain each Vibe Coding change through Files → Components → Requirements → Verification → confirmed Drift without creating a second mutable control-state source
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
-    - keep the TUI visually compact with the documentation palette, actively load the focused Workspace when Intelligence opens, retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry rather than a decorative LSP state, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard
-    - expose W as the discoverable TUI shortcut for the protected Project Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
+    - keep Observatory, Setup Hub, OAuth and TUI on the canonical Logo/homepage brand palette; use rounded frosted/liquid-glass primary workbenches, 20–28px outer curvature, softer nested radii, compact controls, touch-safe narrow layouts and progressive disclosure, while keeping the architecture canvas continuous and preventing square card/panel stacks from becoming the primary visual structure
+    - keep the TUI visually compact, automatically load the focused Workspace engineering model, show an Engineering Pulse on roomy terminals without displacing real task rows on constrained terminals, expose a grouped Engineering Console for Architecture and Proof/Runtime drill-down, retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard
+    - expose W as the discoverable TUI shortcut for the protected Engineering Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
+    - expose prompt-free Verified Experience evaluation with explicit temporal-holdout method, heuristic precision, raw denominators, cold-start/unavailable distinction and independent coverage, hit-rate, precision@K and recall@K metrics rather than an opaque self-score
   constraints:
+    - CONSTRAINT-BRAND-PALETTE
     - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
     - CONSTRAINT-EXPLICIT-PRECISION
   depends_on:
@@ -305,11 +323,16 @@
     - component:software-graph
     - component:verification-mesh
     - component:evidence-runtime
+    - component:experience-graph
     - component:reconciliation-engine
   implementation:
     - kind: symbol
       path: src/ui/monitor/intelligence.rs
       symbol: render_intelligence_overlay
+    - kind: file
+      path: src/ui/monitor/shell.rs
+    - kind: file
+      path: src/ui/monitor/theme.rs
     - kind: file
       path: src/ui/setup_web.rs
     - kind: symbol
@@ -327,9 +350,14 @@
     - kind: symbol
       path: src/intelligence/observatory/files.rs
       symbol: build_project_structure
+    - kind: file
+      path: src/ui/intelligence_web/app/engineering.js
     - kind: symbol
       path: src/ui/intelligence_web/app/structure.js
       symbol: renderProjectStructure
+    - kind: symbol
+      path: src/ui/intelligence_web/app/features.js
+      symbol: renderVerifiedLearning
     - kind: symbol
       path: src/integrations/mcp/web.rs
       symbol: intelligence_web_project
@@ -566,7 +594,7 @@
     - represent every syntax-indexed language as a multidimensional quality capability surface instead of one support boolean
     - discover repository-declared language-native and ecosystem check-only quality providers without executing them
     - expose unavailable providers and missing quality dimensions as explicit gaps
-    - execute only declared available check-only providers through the trusted authorization boundary and persist current-revision Evidence
+    - execute declared available check-only providers through the exact verification lane when their command shape is Harness-approved, otherwise retain the trusted runtime authorization boundary, expose autonomous/authorization/trusted/unavailable execution lanes explicitly, and persist current-revision Evidence
   constraints:
     - CONSTRAINT-LANGUAGE-CAPABILITY-HONESTY
     - CONSTRAINT-EVIDENCE-PROVENANCE
@@ -581,6 +609,9 @@
     - kind: symbol
       path: src/verification/quality_provider.rs
       symbol: execute
+    - kind: symbol
+      path: src/workspace/operations/execution.rs
+      symbol: Workspace::verification_command_shape_allowed
     - kind: symbol
       path: src/verification/quality_catalog.rs
       symbol: candidates_for
@@ -656,9 +687,10 @@
     - persist and restore a revision-guarded per-Workspace Worklist so reconnects model switches and user-added tasks do not drop unfinished work
     - prioritize relevant Design State, symbol signatures, exact file SHA preconditions, verification references, graph evidence, risks and quality gates
     - rank a compact repository map from task relevance plus dependency centrality so direct matches include likely callers, callees and canonical helpers, with explicit caller/callee/dependency reasons and provider precision
+    - route unambiguous trace-to-code, code-to-test and edit-to-ripple requests through versioned heuristic priors while abstaining to balanced context on mixed signals; exact symbol targets and stronger fresh graph provenance must remain above intent heuristics, and tight token budgets drop routing explanation before edit-critical SHA/source/test context
     - include a bounded hot-source body for the strongest direct match when the pack budget permits, while deferring additional source bodies to progressive disclosure
     - enforce a serialized token budget across structure and hot source
-    - expose explicit edit, verification, graph-precision, truncation and parallelism readiness signals plus deterministic next tool actions instead of hiding context quality behind a score
+    - expose explicit edit, verification, graph-precision, truncation and parallelism readiness signals plus deterministic next tool actions instead of hiding context quality behind a score; task-level graph precision is the strongest level covered by every direct target, never the strongest relationship seen for only one target
     - default ordinary single-target changes to minimal_patch and expose an explicit complexity budget that prevents speculative new files, abstractions, config knobs or public API changes without current-task evidence
     - enrich only direct edit targets with fail-soft working-tree state from a parallel bounded Git status probe, warn on existing staged/unstaged/untracked changes and block direct-edit guidance for unmerged targets
     - expose pack build timing alongside serialized token and context-savings telemetry so retrieval speed, context cost and task quality can be evaluated separately
@@ -675,10 +707,14 @@
     - component:software-graph
     - component:workspace-operations
     - component:verification-harness
+    - component:experience-graph
   implementation:
     - kind: symbol
       path: src/runtime/harness/agent_context.rs
       symbol: ToolHarness::agent_context
+    - kind: symbol
+      path: src/runtime/harness/agent_context.rs
+      symbol: covered_repo_map_precision
     - kind: symbol
       path: src/runtime/harness/context_budget.rs
       symbol: trim_agent_context
@@ -686,6 +722,8 @@
       path: src/runtime/harness/context_anchors.rs
     - kind: file
       path: src/runtime/harness/context_operations.rs
+    - kind: file
+      path: src/runtime/harness/retrieval.rs
     - kind: symbol
       path: src/runtime/harness/repo_map.rs
       symbol: ToolHarness::ranked_repo_map
@@ -707,9 +745,12 @@
   name: Managed Public Tunnel Runtime
   responsibilities:
     - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
-    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers on a fixed interval and keep every instance-health-verified tunnel live
-    - respawn a single dead tunnel with bounded fast-start exponential backoff without restarting the process or disturbing live tunnels, reset death history after a verified reconnect, promote the next live tunnel when the primary dies, and fall back to pending/local state when no public tunnel remains
+    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers with deterministic provider-specific staggering and keep every instance-health-verified tunnel live
+    - keep primary public-health hysteresis in one monitor-owned state so one transient probe cannot kill the endpoint, require three consecutive failures before failover and two consecutive successes before recovery, and accelerate confirmation probes while suspect or recovering
+    - maintain an independent bounded health lease for each standby, refresh it without touching primary health, bind asynchronous probe results to a monotonic lease epoch, revoke it after repeated failures, expire stale leases, and fail over only to a currently verified standby chosen deterministically by freshest lease then longest uptime
+    - bind managed-primary health results to the still-current primary URL so demoted-tunnel completions cannot alter replacement health, cancel in-flight health work on shutdown, respawn a single dead provider with bounded exponential backoff plus deterministic jitter and a repeated-death circuit breaker, use one half-open instance-verified reconnect attempt per due retry, reset death history only after sustained stable uptime, and fall back to pending/local state when no verified public tunnel remains
     - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification, and make it explicit that quick-tunnel hostnames may change across reconnects while Tailscale/custom endpoints can remain stable
+    - expose bounded per-provider runtime observability through TaskMonitor, /healthz and operator UI with primary/standby/retrying role, health/lease state, failure/death counters, circuit state, retry horizon and uptime while keeping those projections read-only with respect to lifecycle control
     - route provider attempts, retries, dependency/install diagnostics, stale-process reclamation and connection events through TaskMonitor operator messages; never write directly to the terminal or inherit installer stdio while the runtime may be rendering the TUI
     - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
   depends_on:
@@ -729,6 +770,14 @@
       symbol: start_tailscale_funnel_once
     - kind: file
       path: src/app/tunnel_lifecycle.rs
+    - kind: file
+      path: src/app/tunnel_policy.rs
+    - kind: symbol
+      path: src/ui/monitor/state.rs
+      symbol: TaskMonitor::mark_tunnel_retry
+    - kind: symbol
+      path: src/integrations/mcp/mod.rs
+      symbol: health
 
 - schema_version: 1
   id: component:agent-host-install
@@ -788,3 +837,38 @@
     - kind: symbol
       path: src/app/update.rs
       symbol: run
+
+- schema_version: 1
+  id: component:experience-graph
+  name: Verified Experience Graph
+  responsibilities:
+    - persist bounded prompt-free per-Workspace co-change facts only after successful stable deterministic verification
+    - turn verified historical co-change into an explicit heuristic retrieval signal without outranking exact, Design, semantic, deterministic or runtime evidence
+    - normalize co-change affinity against per-path popularity, shrink low-support relationships, discount broad change sets, decay stale evidence with a bounded half-life, and keep full verification stronger than quick while capping the final repository-map boost below direct lexical evidence
+    - ignore failed or unverified work, incomplete revisions, truncated snapshots, missing paths and overly broad change sets so experience cannot silently become a new source of truth
+    - never persist user prompts, model reasoning or chain-of-thought as repository experience
+    - evaluate verified co-change memory with global temporal A/B holdout so equal-timestamp records cannot leak into one another, stale paths are ignored, the normalized candidate is compared against raw-count-v1 on identical cases, and coverage/hit-rate/precision@K/recall@K retain raw denominators plus percentage-point deltas
+  constraints:
+    - CONSTRAINT-EVIDENCE-PROVENANCE
+    - CONSTRAINT-CONTEXT-BUDGET
+    - CONSTRAINT-EXPLICIT-PRECISION
+  depends_on:
+    - component:evidence-runtime
+    - component:verification-harness
+    - component:software-graph
+  implementation:
+    - kind: symbol
+      path: src/evidence/experience.rs
+      symbol: persist_verified_change
+    - kind: symbol
+      path: src/evidence/experience.rs
+      symbol: related_paths
+    - kind: symbol
+      path: src/evidence/experience.rs
+      symbol: evaluate_history
+    - kind: symbol
+      path: src/runtime/harness/repo_map.rs
+      symbol: ToolHarness::ranked_repo_map
+    - kind: symbol
+      path: src/runtime/harness/quality.rs
+      symbol: ToolHarness::verify_project

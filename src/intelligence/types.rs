@@ -507,10 +507,34 @@ pub struct ProjectArchitectureComponentView {
     pub changed_paths: Vec<String>,
     pub requirements: Vec<String>,
     pub product_scopes: Vec<String>,
+    pub subsystem: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectArchitectureSubsystemView {
+    pub id: String,
+    pub title: String,
+    pub purpose: String,
+    pub layer: usize,
+    pub component_ids: Vec<String>,
+    pub components: usize,
+    pub implementation_files: usize,
+    pub implementation_lines: usize,
+    pub requirements: usize,
+    pub changed_components: usize,
+    pub depends_on: Vec<String>,
+    pub depended_on_by: Vec<String>,
+    pub designed_depends_on: Vec<String>,
+    pub observed_depends_on: Vec<String>,
+    pub unobserved_designed_depends_on: Vec<String>,
+    pub undeclared_observed_depends_on: Vec<String>,
+    pub blocking_drift_edges: usize,
+    pub advisory_edges: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectArchitectureView {
+    pub subsystems: Vec<ProjectArchitectureSubsystemView>,
     pub components: Vec<ProjectArchitectureComponentView>,
     pub dependencies: Vec<FeatureDependencyAlignment>,
     pub desired_edges: usize,
@@ -523,6 +547,186 @@ pub struct ProjectArchitectureView {
     pub observed_drift_percent: f64,
     pub evidence_coverage_percent: f64,
     pub implementation_coverage_percent: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectVerificationImpactReasonView {
+    pub island: String,
+    pub kind: String,
+    pub source: String,
+    pub relationship: String,
+    pub evidence: String,
+    pub provider: String,
+    pub precision: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectVerificationImpactView {
+    pub selective: bool,
+    pub affected_islands: Vec<String>,
+    pub reasons: Vec<ProjectVerificationImpactReasonView>,
+    pub truncated: bool,
+    pub provider: String,
+    pub precision: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectFocusedVerificationView {
+    pub check_id: String,
+    pub command: String,
+    pub island: String,
+    pub phase: u8,
+    pub reason: String,
+    pub provider: String,
+    pub precision: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectCostFrontierEntryView {
+    pub order: usize,
+    pub check_id: String,
+    pub command: String,
+    pub island: String,
+    pub samples: usize,
+    pub failures: usize,
+    pub failure_rate_percent: f64,
+    pub median_elapsed_ms: u128,
+    pub marginal_samples: usize,
+    pub marginal_failures: usize,
+    pub marginal_failure_rate_percent: f64,
+    pub estimated_incremental_savings_ms: u128,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectCostSentinelView {
+    pub model: String,
+    pub provider: String,
+    pub precision: String,
+    pub check_id: String,
+    pub command: String,
+    pub island: String,
+    pub samples: usize,
+    pub failures: usize,
+    pub failure_rate_percent: f64,
+    pub median_elapsed_ms: u128,
+    pub estimated_savings_ms: u128,
+    pub estimated_total_savings_ms: u128,
+    pub evidence_records_scanned: usize,
+    pub frontier: Vec<ProjectCostFrontierEntryView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectCostEvaluationView {
+    pub available: bool,
+    pub candidate_model: String,
+    pub baseline_model: String,
+    pub evaluation_method: String,
+    pub activation_state: String,
+    pub activation_reason: String,
+    pub minimum_evaluable_revisions: usize,
+    pub revisions: usize,
+    pub eligible_revisions: usize,
+    pub evaluable_revisions: usize,
+    pub incomplete_revisions: usize,
+    pub wins: usize,
+    pub ties: usize,
+    pub losses: usize,
+    pub outcome_mismatches: usize,
+    pub static_elapsed_ms: u128,
+    pub frontier_elapsed_ms: u128,
+    pub gross_savings_ms: u128,
+    pub regret_ms: u128,
+    pub net_savings_ms: i128,
+    pub net_savings_percent: f64,
+    pub latest_revision_at_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectAdaptiveVerificationView {
+    pub mode: String,
+    pub provider: String,
+    pub precision: String,
+    pub base_quick_checks: usize,
+    pub planned_quick_checks: usize,
+    pub full_coverage_unchanged: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focused_test: Option<ProjectFocusedVerificationView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_sentinel: Option<ProjectCostSentinelView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_evaluation: Option<ProjectCostEvaluationView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectEngineeringMilestoneView {
+    pub timestamp_ms: u64,
+    pub tool: String,
+    pub stage: String,
+    pub outcome: String,
+    pub duration_ms: u64,
+    pub paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks_run: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks_failed: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectEngineeringJournalView {
+    pub available: bool,
+    pub provider: String,
+    pub stores_prompts_or_chain_of_thought: bool,
+    pub retained_records: usize,
+    pub truncated: bool,
+    pub records: Vec<ProjectEngineeringMilestoneView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectVerifiedLearningView {
+    pub available: bool,
+    pub provider: String,
+    pub retrieval_precision: String,
+    pub retrieval_model: String,
+    pub baseline_model: String,
+    pub evaluation_method: String,
+    pub stores_prompts_or_chain_of_thought: bool,
+    pub top_k: usize,
+    pub records: usize,
+    pub full_records: usize,
+    pub quick_records: usize,
+    pub unique_paths: usize,
+    pub live_paths: usize,
+    pub stale_path_references: usize,
+    pub evaluable_records: usize,
+    pub records_with_prediction: usize,
+    pub baseline_records_with_prediction: usize,
+    pub evaluation_cases: usize,
+    pub prediction_cases: usize,
+    pub baseline_prediction_cases: usize,
+    pub hit_cases: usize,
+    pub baseline_hit_cases: usize,
+    pub predictions: usize,
+    pub baseline_predictions: usize,
+    pub true_positives: usize,
+    pub baseline_true_positives: usize,
+    pub expected_targets: usize,
+    pub coverage_percent: f64,
+    pub baseline_coverage_percent: f64,
+    pub coverage_delta_percent_points: f64,
+    pub hit_rate_percent: f64,
+    pub baseline_hit_rate_percent: f64,
+    pub hit_rate_delta_percent_points: f64,
+    pub precision_at_k_percent: f64,
+    pub baseline_precision_at_k_percent: f64,
+    pub precision_at_k_delta_percent_points: f64,
+    pub recall_at_k_percent: f64,
+    pub baseline_recall_at_k_percent: f64,
+    pub recall_at_k_delta_percent_points: f64,
+    pub latest_record_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -543,6 +747,9 @@ pub struct ProjectObservatory {
     pub graph_precision: ProjectGraphPrecisionSummary,
     pub language_quality: crate::quality_provider::LanguageQualityRegistry,
     pub proof: ProjectProofSummary,
+    pub adaptive_verification: ProjectAdaptiveVerificationView,
+    pub verified_learning: ProjectVerifiedLearningView,
+    pub engineering_journal: ProjectEngineeringJournalView,
     pub convergence: ProjectConvergenceSummary,
     pub architecture: ProjectArchitectureView,
     pub requirements: Vec<FeatureRequirementView>,
@@ -552,6 +759,8 @@ pub struct ProjectObservatory {
     pub latest_delta: Option<ProjectGraphDeltaView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impact: Option<crate::reconcile::ImpactAnalysis>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_impact: Option<ProjectVerificationImpactView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk: Option<RiskStatus>,
 }

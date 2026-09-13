@@ -36,10 +36,23 @@ fn auth_pages_fit_mobile_viewports_without_disabling_zoom() {
 
     for html in [&simple, &authorize] {
         assert!(html.contains("viewport-fit=cover"));
+        assert!(html.contains("color-scheme\" content=\"dark light"));
+        assert!(html.contains("#0b0812"));
+        assert!(html.contains("#8b7cff"));
+        assert!(html.contains("/intelligence/logo.svg"));
+        assert!(html.contains("Inter"));
+        assert!(html.contains("Noto Sans"));
+        assert!(html.contains("JetBrains Mono"));
+        assert!(!html.contains("#151512"));
+        assert!(!html.contains("#b69761"));
+        assert!(!html.contains("linear-gradient(110deg"));
         assert!(html.contains("min-height:100dvh"));
         assert!(html.contains("safe-area-inset-bottom"));
         assert!(!html.contains("maximum-scale"));
         assert!(!html.contains("user-scalable=no"));
+        assert!(html.contains("font-size:16px"));
+        assert!(!html.contains("font-size:10px"));
+        assert!(!html.contains("font-size:11px"));
     }
 }
 

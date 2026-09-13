@@ -54,6 +54,13 @@ pub(super) fn refresh_intelligence_now(
     record_refresh(
         monitor,
         workspace_id,
+        "convention_status",
+        harness.convention_status(&workspace),
+        &mut errors,
+    );
+    record_refresh(
+        monitor,
+        workspace_id,
         "traceability_status",
         harness.traceability_status(workspace_id, &workspace),
         &mut errors,
@@ -264,13 +271,13 @@ pub(super) fn render_intelligence_overlay(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SECONDARY))
+        .border_style(Style::default().fg(OUTLINE))
         .style(Style::default().bg(SURFACE))
         .padding(Padding::uniform(1))
         .title(Line::from(vec![
             Span::styled(
-                format!(" {} ", language.tr("SOFTWARE INTELLIGENCE")),
-                Style::default().fg(SECONDARY).add_modifier(Modifier::BOLD),
+                format!(" {} ", language.tr("ENGINEERING CONSOLE")),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {workspace_id} "), Style::default().fg(TEXT)),
         ]))
@@ -287,6 +294,203 @@ pub(super) fn render_intelligence_overlay(
         );
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+    if inner.width >= 78 && inner.height >= 16 {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2),
+                Constraint::Min(10),
+                Constraint::Length(2),
+            ])
+            .split(inner);
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:<12}", language.tr("ROOT")),
+                        Style::default().fg(TEXT_DIM),
+                    ),
+                    Span::styled(
+                        truncate_middle(root, rows[0].width.saturating_sub(12) as usize),
+                        Style::default().fg(TEXT_MUTED),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    format!("{} · {}", language.tr("UPDATED"), updated),
+                    Style::default().fg(TEXT_DIM),
+                )),
+            ]),
+            rows[0],
+        );
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+        let architecture_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(OUTLINE))
+            .padding(Padding::horizontal(1))
+            .title(Span::styled(
+                format!(" {} ", language.tr("ARCHITECTURE")),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ));
+        let proof_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(OUTLINE))
+            .padding(Padding::horizontal(1))
+            .title(Span::styled(
+                format!(" {} ", language.tr("PROOF & RUNTIME")),
+                Style::default().fg(SECONDARY).add_modifier(Modifier::BOLD),
+            ));
+        let architecture_inner = architecture_block.inner(columns[0]);
+        let proof_inner = proof_block.inner(columns[1]);
+        frame.render_widget(architecture_block, columns[0]);
+        frame.render_widget(proof_block, columns[1]);
+        frame.render_widget(
+            Paragraph::new(vec![
+                intelligence_line(
+                    language.tr("DESIGN"),
+                    format!(
+                        "{design} · {} req · {} cmp",
+                        stats.requirements, stats.components
+                    ),
+                    if design == "valid" { SUCCESS } else { WARNING },
+                ),
+                intelligence_line(
+                    language.tr("POLICY"),
+                    format!(
+                        "{} errors · {} warnings",
+                        stats.policy_errors, stats.policy_warnings
+                    ),
+                    if stats.policy_errors > 0 {
+                        DANGER
+                    } else if stats.policy_warnings > 0 {
+                        WARNING
+                    } else {
+                        SUCCESS
+                    },
+                ),
+                intelligence_line(
+                    language.tr("TRACE"),
+                    format!("implementation {implementation} · verification refs {verification}"),
+                    if stats.implementation_coverage == Some(100)
+                        && stats.verification_coverage == Some(100)
+                    {
+                        SUCCESS
+                    } else {
+                        WARNING
+                    },
+                ),
+                intelligence_line(
+                    language.tr("SCOPES"),
+                    format!(
+                        "{} mapped / {} source · {} unmapped",
+                        stats.scope_mapped_files,
+                        stats.scope_source_files,
+                        stats.scope_unmapped_files
+                    ),
+                    if stats.scope_unmapped_files == 0 && stats.scope_source_files > 0 {
+                        SUCCESS
+                    } else {
+                        TEXT_MUTED
+                    },
+                ),
+                intelligence_line(
+                    language.tr("GRAPH"),
+                    format!(
+                        "{} nodes · {} edges · {precision}",
+                        stats.graph_nodes, stats.graph_edges
+                    ),
+                    LINK,
+                ),
+                intelligence_line(
+                    language.tr("GRAPH Δ"),
+                    format!(
+                        "N +{}/-{}/~{} · E +{}/-{}/~{}",
+                        stats.graph_added_nodes,
+                        stats.graph_removed_nodes,
+                        stats.graph_changed_nodes,
+                        stats.graph_added_edges,
+                        stats.graph_removed_edges,
+                        stats.graph_changed_edges
+                    ),
+                    SECONDARY,
+                ),
+            ]),
+            architecture_inner,
+        );
+        frame.render_widget(
+            Paragraph::new(vec![
+                intelligence_line(
+                    language.tr("RISK"),
+                    format!("{risk} · {} drift finding(s)", stats.drift_findings),
+                    match risk {
+                        "low" => SUCCESS,
+                        "medium" | "moderate" => WARNING,
+                        "high" | "critical" => DANGER,
+                        _ => TEXT_MUTED,
+                    },
+                ),
+                intelligence_line(
+                    language.tr("EVIDENCE"),
+                    format!(
+                        "{} total · {} failed · {} disagreed",
+                        stats.evidence_total, stats.evidence_failed, stats.evidence_disagreed
+                    ),
+                    if stats.evidence_failed > 0 || stats.evidence_disagreed > 0 {
+                        DANGER
+                    } else {
+                        SUCCESS
+                    },
+                ),
+                intelligence_line(
+                    language.tr("VERIFY"),
+                    format!("{ready} · {} blocker(s)", stats.verification_blockers),
+                    if stats.verification_ready == Some(true) {
+                        SUCCESS
+                    } else {
+                        WARNING
+                    },
+                ),
+                intelligence_line(
+                    language.tr("SEMANTICS"),
+                    format!(
+                        "{} confirmed · {} candidates · LSP {}/{} ready",
+                        stats.semantic_confirmed,
+                        stats.semantic_candidates,
+                        stats.lsp_launch_ready,
+                        stats.lsp_available
+                    ),
+                    if stats.lsp_fresh > 0 {
+                        SUCCESS
+                    } else {
+                        TEXT_MUTED
+                    },
+                ),
+                intelligence_line(
+                    language.tr("RECONCILE"),
+                    format!(
+                        "{reconciliation} · {} pending task(s)",
+                        stats.reconciliation_pending
+                    ),
+                    if stats.reconciliation_converged == Some(true) {
+                        SUCCESS
+                    } else {
+                        SECONDARY
+                    },
+                ),
+            ]),
+            proof_inner,
+        );
+        frame.render_widget(
+            Paragraph::new(intelligence_refresh_line(&stats, rows[2].width, language)),
+            rows[2],
+        );
+        return;
+    }
+
     let lines = vec![
         Line::from(vec![
             Span::styled(
@@ -390,6 +594,20 @@ pub(super) fn render_intelligence_overlay(
                 WARNING
             } else {
                 TEXT_MUTED
+            },
+        ),
+        intelligence_line(
+            language.tr("POLICY"),
+            format!(
+                "{} errors · {} warnings",
+                stats.policy_errors, stats.policy_warnings
+            ),
+            if stats.policy_errors > 0 {
+                DANGER
+            } else if stats.policy_warnings > 0 {
+                WARNING
+            } else {
+                SUCCESS
             },
         ),
         intelligence_line(

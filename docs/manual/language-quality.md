@@ -114,7 +114,7 @@ A language therefore remains fully observable even when advanced-stage coverage 
 - `project_context` includes the matrix so coding agents see repository-native quality expectations before editing;
 - `language_quality_status` exposes the complete registry over MCP;
 - `language_quality_run` runs one declared check-only provider and records Evidence;
-- Project Observatory renders detected languages and the capability/gap matrix;
+- Engineering Observatory renders detected languages and the capability/gap matrix;
 - `verification_executor_status` remains the advanced Property/Mutation/Fuzz/Runtime registry.
 
 The goal is one shared fact model for humans and agents rather than separate IDE-specific quality stories.

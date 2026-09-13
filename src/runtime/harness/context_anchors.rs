@@ -1,4 +1,7 @@
 use super::*;
+use crate::harness::harness_retrieval::{
+    query_contains_failure_trace, query_requests_comment_context,
+};
 use std::path::{Component, Path};
 
 const MAX_ANCHORS: usize = 4;
@@ -138,6 +141,8 @@ pub(super) fn repo_map(
         || !context.scopes.is_empty()
         || query_needs_semantic_relationships(query)
         || query_requests_architecture_change(query)
+        || query_requests_comment_context(query)
+        || query_contains_failure_trace(query)
     {
         return harness.ranked_repo_map(
             workspace_id,

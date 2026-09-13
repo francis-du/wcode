@@ -67,6 +67,7 @@ pub(crate) struct ActiveTunnel {
     child: Child,
     public_url: String,
     provider: TunnelProvider,
+    connected_at: std::time::Instant,
 }
 
 impl ActiveTunnel {
@@ -80,6 +81,14 @@ impl ActiveTunnel {
 
     pub(crate) fn provider(&self) -> TunnelProvider {
         self.provider
+    }
+
+    pub(crate) fn stable_for(&self, duration: Duration) -> bool {
+        self.connected_at.elapsed() >= duration
+    }
+
+    pub(crate) fn connected_for(&self) -> Duration {
+        self.connected_at.elapsed()
     }
 
     pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
@@ -134,21 +143,45 @@ pub(crate) fn normalize_public_url(value: &str) -> Result<String> {
 
 pub(crate) enum TunnelEvent {
     Connected(ActiveTunnel),
+    ReconnectFailed {
+        provider: TunnelProvider,
+        error: String,
+    },
 }
 
 const PROVIDER_RETRY_INTERVAL: Duration = Duration::from_secs(15);
+const PROVIDER_STARTUP_MAX_DELAY: Duration = Duration::from_secs(120);
+
+fn provider_retry_delay(provider: TunnelProvider, attempt: usize) -> Duration {
+    let provider_seed = match provider {
+        TunnelProvider::Auto => 0,
+        TunnelProvider::Cloudflare => 1,
+        TunnelProvider::LocalhostRun => 3,
+        TunnelProvider::Pinggy => 5,
+        TunnelProvider::Tailscale => 7,
+    };
+    let exponent = attempt.saturating_sub(1).min(3) as u32;
+    let base = PROVIDER_RETRY_INTERVAL
+        .checked_mul(1u32 << exponent)
+        .unwrap_or(PROVIDER_STARTUP_MAX_DELAY)
+        .min(PROVIDER_STARTUP_MAX_DELAY);
+    let jitter = (provider_seed + attempt as u64 * 3) % 7;
+    base.saturating_add(Duration::from_secs(jitter))
+        .min(PROVIDER_STARTUP_MAX_DELAY)
+}
 
 /// Starts every candidate provider concurrently in the background. Each
-/// provider retries every `PROVIDER_RETRY_INTERVAL` until it becomes
-/// reachable, so a provider that missed the first round (slow TLS issuance,
-/// flaky DNS, provider hiccup) still joins later. Every verified tunnel is
-/// reported through the returned channel and stays running.
+/// provider retries with bounded exponential backoff plus provider-specific
+/// deterministic jitter until it becomes reachable, so persistent provider
+/// outages do not create a reconnect storm. Every verified tunnel is reported
+/// through the returned channel and stays running.
 pub(crate) fn spawn_tunnel_supervisor(
     selected: TunnelProvider,
     local_url: &str,
     instance_id: &str,
     install_missing: bool,
     monitor: TaskMonitor,
+    retry_forever: bool,
 ) -> mpsc::Receiver<TunnelEvent> {
     let (event_tx, event_rx) = mpsc::channel(4);
     let local_url = local_url.to_owned();
@@ -160,7 +193,8 @@ pub(crate) fn spawn_tunnel_supervisor(
             vec![selected]
         };
         let allow_install = install_missing && selected != TunnelProvider::Auto;
-        let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Result<ActiveTunnel, String>>();
+        let (result_tx, mut result_rx) =
+            mpsc::unbounded_channel::<(TunnelProvider, Result<ActiveTunnel, String>)>();
         for &provider in &candidates {
             monitor.operator_message(
                 OperatorMessageKind::Info,
@@ -186,18 +220,22 @@ pub(crate) fn spawn_tunnel_supervisor(
                     .await
                     {
                         Ok(active) => {
-                            let _ = result_tx.send(Ok(active));
+                            let _ = result_tx.send((provider, Ok(active)));
                             return;
                         }
                         Err(error) => {
                             let detail = format!("{error:#}");
+                            if !retry_forever {
+                                let _ = result_tx.send((provider, Err(detail)));
+                                return;
+                            }
                             provider_monitor.operator_message(
                                 OperatorMessageKind::Warning,
                                 "tunnel",
                                 format!(
-                                    "{} attempt {attempt} failed · retrying every {}s · {}",
+                                    "{} attempt {attempt} failed · retrying in {}s · {}",
                                     provider.label(),
-                                    PROVIDER_RETRY_INTERVAL.as_secs(),
+                                    provider_retry_delay(provider, attempt).as_secs(),
                                     truncate_diagnostic(
                                         detail.lines().next().unwrap_or("unknown error"),
                                         160
@@ -206,19 +244,19 @@ pub(crate) fn spawn_tunnel_supervisor(
                             );
                         }
                     }
-                    sleep(PROVIDER_RETRY_INTERVAL).await;
+                    sleep(provider_retry_delay(provider, attempt)).await;
                 }
             });
         }
         drop(result_tx);
-        while let Some(result) = result_rx.recv().await {
-            let Ok(active) = result else {
-                continue;
+        while let Some((provider, result)) = result_rx.recv().await {
+            let event = match result {
+                Ok(active) => TunnelEvent::Connected(active),
+                Err(error) => TunnelEvent::ReconnectFailed { provider, error },
             };
-            // The app registers the verified endpoint in AuthState before
-            // publishing its link. Advertising here races Host validation.
-            // Primary endpoint health still belongs to the app-level selector.
-            if event_tx.send(TunnelEvent::Connected(active)).await.is_err() {
+            // The app registers verified endpoints in AuthState before
+            // publishing their links. Primary selection stays app-owned.
+            if event_tx.send(event).await.is_err() {
                 return;
             }
         }
@@ -261,6 +299,7 @@ async fn try_start_provider(
         child,
         public_url,
         provider,
+        connected_at: std::time::Instant::now(),
     })
 }
 
@@ -274,11 +313,18 @@ pub(crate) async fn public_endpoint_health_loop(
         if *stop.borrow() {
             return;
         }
-        match check_public_endpoint(&public_url, &instance_id).await {
-            Ok(()) => monitor.mark_public_url_check(true, None),
-            Err(error) => monitor.mark_public_url_check(false, Some(error)),
+        let applied = match check_public_endpoint(&public_url, &instance_id).await {
+            Ok(()) => monitor.mark_managed_public_url_check(&public_url, true, None),
+            Err(error) => monitor.mark_managed_public_url_check(&public_url, false, Some(error)),
+        };
+        if !applied {
+            return;
         }
-        let interval = public_health_interval(monitor.connection_status().public_url_healthy);
+        let status = monitor.connection_status();
+        let interval = public_health_interval(
+            status.public_url_healthy,
+            status.public_url_consecutive_failures,
+        );
         tokio::select! {
             _ = sleep(interval) => {},
             changed = stop.changed() => {
@@ -290,8 +336,8 @@ pub(crate) async fn public_endpoint_health_loop(
     }
 }
 
-fn public_health_interval(healthy: Option<bool>) -> Duration {
-    if healthy == Some(true) {
+fn public_health_interval(healthy: Option<bool>, consecutive_failures: u8) -> Duration {
+    if healthy == Some(true) && consecutive_failures == 0 {
         PUBLIC_HEALTH_INTERVAL
     } else {
         PUBLIC_RECOVERY_HEALTH_INTERVAL
@@ -340,7 +386,10 @@ pub(crate) async fn wait_for_public_endpoint(
     Err(last_error)
 }
 
-async fn check_public_endpoint(public_url: &str, expected_instance_id: &str) -> Result<(), String> {
+pub(crate) async fn check_public_endpoint(
+    public_url: &str,
+    expected_instance_id: &str,
+) -> Result<(), String> {
     let health_url = format!("{public_url}/healthz");
     let mut command = Command::new("curl");
     command
@@ -348,6 +397,8 @@ async fn check_public_endpoint(public_url: &str, expected_instance_id: &str) -> 
             "--fail",
             "--silent",
             "--show-error",
+            "--connect-timeout",
+            "3",
             "--max-time",
             "5",
             &health_url,

@@ -9,7 +9,7 @@ permalink: /zh/docs/development/
 
 # wcode 开发说明
 
-这页面面向 wcode 自身维护者。用户上手从 [快速开始](../getting-started/) 开始；产品行为、Precision 和安全边界分别以 [Software Intelligence](../software-intelligence/) 与 [安全模型](../security/) 为准。
+这页面面向 wcode 自身维护者。用户上手从 [快速开始](../getting-started/) 开始；仓库理解与 Precision 规则以 [仓库理解与工程状态](../software-intelligence/) 为准，安全边界以 [安全模型](../security/) 为准。
 
 ## 模块地图
 
@@ -18,17 +18,17 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 - `src/main.rs`：保持为极薄 Binary Launcher；产品启动逻辑位于 `src/app/`。
 - `src/app/`：CLI 与启动组合。`mod.rs` 负责 Runtime Lifecycle 与 Graceful Shutdown，`commands.rs` 维护稳定命令面，`setup.rs` / `update.rs` 负责安装生命周期，`tunnel_lifecycle.rs` 将 Reconnect / Failover Policy 与 Provider Process 分离。
 - `src/scopes/mod.rs`：唯一 Canonical Product Scope Registry，包含 Alias、Source Root 与 Tool-to-scope Mapping，供 Context、Semantic、Convention、Design State、MCP Metadata 和 Operator View 共用。
-- `src/runtime/`：Harness 与 Runtime 编排。`src/runtime/harness/` 负责公共 Harness Core，以及 Agent Context、Profile/Cache、Repo-map、Graph、Review、Quality 与 Verification 模块；`src/runtime/semantic.rs` 维护有界 Semantic Freshness，`src/runtime/worklist.rs` 保存 Durable Agent Progress，`src/runtime/power.rs` 负责 Sleep Inhibition，`src/runtime/tunnel/` 负责 Managed Public Tunnel Provider 与健康检查。
+- `src/runtime/`：Harness 与 Runtime 编排。`src/runtime/harness/` 负责公共 Harness Core，以及 Agent Context、Profile/Cache、Graph、Review、Quality 与 Verification 模块。Repository Retrieval 明确拆开 Policy 与 Mechanism：`retrieval.rs` 负责有界 Task-intent Routing / Prior，`repo_map.rs` 负责 Graph Construction、Provider Overlay、Ranking Execution 与 Provenance；`src/runtime/semantic.rs` 维护有界 Semantic Freshness，`src/runtime/worklist.rs` 保存 Durable Agent Progress，`src/runtime/power.rs` 负责 Sleep Inhibition，`src/runtime/tunnel/` 负责 Managed Public Tunnel Provider 与健康检查。
 - `src/integrations/`：Model / Client Integration Boundary。`src/integrations/mcp/` 统一负责 Route、stdio/SSE Adapter、Dispatch、Compact Tool Schema、Durable Task、Authorization 与 Web Transport；`src/integrations/auth/` 负责 OAuth/PKCE/DCR 与 Request-origin State；`src/integrations/agent_plugin/` 导出 Canonical Package，`src/integrations/agent_install/` 负责 Host Detection、安全 Merge/Apply 与报告。
 - `src/workspace/`：安全 Local Coding Boundary，包含 Bounded File/Search/Edit/Move/Delete Primitive、Root/Registry Isolation、Command Policy、Local Authorization、Media、Convention 与 Dependency-aware Path Scheduler。
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
 - `src/graph/`：Lazy Tree-sitter Code Index、Provider-neutral Software Graph，以及 Provider / Composite Revision Persistence。
 - `src/semantics/`：Persistent Candidate/Confirmed/Retired Semantic Registry 与第一方 LSP Provider Runtime。
-- `src/intelligence/`：Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Observatory Projection；`src/intelligence/observatory/architecture.rs` 专门负责 Architecture-first Design-vs-Actual Component Projection。
+- `src/intelligence/`：仓库理解契约，包括 Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Engineering Observatory Projection；`src/intelligence/observatory/architecture.rs` 负责 System → Subsystem → Component 分层蓝图与 Design-vs-Actual Architecture Projection。
 - `src/verification/`：Verification Plan、Blind Reviewer/Readiness、Language Quality Provider，以及 Property/Mutation/Fuzz/Runtime Executor。
 - `src/evidence/`：带 Provenance 的 Evidence Contract 与 Bounded Persistence。
 - `src/reconciliation/`：Durable Desired-to-Actual Plan 与 Dependency-aware Execution / Retry State。
-- `src/ui/`：Operator Experience。`src/ui/monitor/` 负责 Ratatui Runtime、State、Metrics、Commands、Detail Panel、Overlay、Shell Action、i18n 与 Theme；`src/ui/intelligence_web.rs` 和 `src/ui/intelligence_web/` 资产共同服务受保护 Project Observatory。
+- `src/ui/`：Operator Experience。`src/ui/monitor/` 负责 Ratatui Runtime、State、Metrics、Commands、Detail Panel、Overlay、Shell Action、i18n 与 Theme；`src/ui/intelligence_web.rs` 和 `src/ui/intelligence_web/` 资产共同服务受保护 Engineering Observatory 与项目数字孪生视图。
 
 职责移动时，同一个 Change 里要同步更新 Product Scope Source Root 与 Design State Implementation Reference。源码物理移动了、Architecture Contract 还指着旧 Owner，不算完成 Refactor。
 
@@ -51,7 +51,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 - `agent_context` 是默认 Coding 入口，使用显式或 Adaptive 的有界 Approximate Token Budget；
 - 明确 Direct-target Task 保持小 Context，模糊 / Cross-module Task 可以在固定上限内自动增加 Context；
 - Scope-aware Cold Repo-map 在 Ownership 已知时避免构建 Full-repository Graph；
-- Repo-map Structure 按 Revision Cache，但每个 Task 的 Query Ranking 都重新计算；
+- Repo-map Structure 按 Revision Cache，但每个 Task 的 Query Ranking 都重新计算；明确的 trace-to-code、code-to-test、edit-to-ripple 可以使用版本化 Heuristic Prior，混合意图必须 Abstain 到 Balanced Context，Exact Symbol Target 始终强于 Recall-oriented Seed，紧 Token Budget 会先丢 Routing Metadata，再考虑 Edit-critical SHA / Source / Test Context；
 - Multi-query Symbol Search 对一个 Source Root 只 Traversal / Index 一次，不为每个 Query Token 重扫；
 - 有界热源可以保留最强的直接源码体，其余源码体继续渐进披露；
 - Fresh Semantic/Runtime/Deterministic Graph Evidence 可以增强 Caller/Callee/Dependency Ranking；Stale Semantic Revision 自动回退 Syntax；普通 Symbol 定位继续走 Tree-sitter/Search，只有显式跨文件关系任务才可路由到 `semantic_navigation` 和对应 Warm Provider Session；
@@ -61,7 +61,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 
 Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurrency、Agent Context Calls、Average Model Tokens、Repo-map Cache Hit、Saved Context 都来自实际 Request Execution。Terminal Raw Mode、Mouse Capture、Cursor 与 Primary Screen 必须通过现有 RAII Boundary 恢复；Ctrl-C 走同一条 Graceful Shutdown。stdout 不是 TTY 或设置 `--no-monitor` 时不启动 Monitor。
 
-Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 在后台并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，面板绝不等待隧道。只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算隧道存活——拿到一个 URL String 本身不是 Readiness。所有存活隧道全部保留，最先落地的担任 Primary Endpoint。单条隧道死亡后独立重拉，指数退避从 5 秒开始、300 秒封顶；一次通过实例健康校验的真实重连会清零该 Provider 的死亡历史，后续故障重新从短等待开始。Primary 死亡时按序提升下一条存活隧道；全部隧道掉光时，Public Health 回到 Pending，本地 Endpoint 保持可用并继续恢复。Quick Tunnel 重连后可能得到新 hostname，因此长期远程 Client 应使用 Tailscale Funnel 或 Operator 管理的稳定 `--public-url`。正常 Shutdown（Ctrl-C 或 SIGTERM）会 Abort Owned Task 并 Kill/Wait 全部 Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
+Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 在后台并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，面板绝不等待隧道。只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算隧道存活——拿到一个 URL String 本身不是 Readiness。所有已验证隧道全部保留，第一条 Verified Tunnel 成为 Primary，但 Primary Health 使用 Hysteresis：前两次连续失败不摘除，第三次才允许 Failover；进入 Unhealthy 后需要连续两次成功才能恢复。Standby 各自维护有界 Health Lease；重复 Probe Failure 会撤销资格，Lease 过期同样不能被提升；Failover 只从 Eligible Lease 中选择，并确定性地按最新验证、最长 Uptime、稳定 Tie 顺序排序。异步 Completion 必须绑定当前身份：Standby Probe 携带 Lease Epoch，Managed-primary Result 只有在 URL 仍是当前 Primary 时才能写 Global Health，旧连接或已降级 Tunnel 的迟到结果不能污染 Replacement。单个死亡 Provider 独立重拉，使用有界 Exponential Backoff + Provider-specific Deterministic Jitter；重复死亡会打开 Cooldown Circuit，每个到期 Retry 只进行一次 Half-open Instance-verified Attempt；Death History 只有 Sustained Stable Uptime 后才清零，而不是一连上就重置。没有 Verified Standby 时 Public Health 回到 Pending / Local，后台继续恢复。Quick Tunnel 重连后可能得到新 hostname，因此长期远程 Client 应使用 Tailscale Funnel 或 Operator 管理的稳定 `--public-url`。正常 Shutdown 会直接 Abort 正在进行的 Health Task，而不是等 Network Timeout，再 Kill/Wait 全部 Owned Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
 
 Streamable HTTP、`mcp-stdio`、旧版 `/sse` + `/message` 共用同一个 JSON-RPC Dispatch、Harness 与 Workspace Implementation。SSE Session 绑定 Owner/Origin，有容量与 Channel 上限，并在 Stream 关闭时删除；Notification 返回 202 且不发送 Response Event，Channel 满时返回 429，不允许阻塞 Server。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
 
@@ -71,11 +71,11 @@ Agent Installer 不执行任何 Host CLI。Detection 只看 Filesystem/PATH Evid
 
 Media 继续 Metadata-first。Image/Audio Binary Content 只有当前 MCP Request 显式声明匹配的 `run.francis.wcode/media-content` Extension 时才发出；Capability Unknown 时只返回 Metadata / Fail-closed，Video 始终 Metadata-only。
 
-## Software Intelligence 不变量
+## Engineering Control Plane 与仓库理解不变量
 
-Software Intelligence 的产品面包括 MCP、本地 `wcode intelligence` / `wcode verification` CLI、实时 TUI 与受保护 Project Observatory。
+Repository Intelligence（仓库理解）只是更大的 Engineering Control Plane 的一个子系统。稳定的 `wcode intelligence` / `wcode verification` CLI 与 `/intelligence/*` HTTP 名称继续作为兼容接口；面向用户的产品语言使用 Engineering Observatory / 仓库理解，不再把“Software Intelligence”当成整个 wcode。
 
-Project Observatory 必须 **Architecture-first**。页面先展示整体 Component Architecture、Declared Design Dependency、当前 Code-derived Actual Relationship、Observed Drift、Evidence Coverage、Implementation Coverage，然后进入 Component Inspector 与 Requirement Drill-down。Requirement Detail 保持：
+Engineering Observatory 必须 **Hierarchy-first + Architecture-first**。页面先展示由 Design State 与实现归属共同生成的 System → Subsystem → Component → Code 蓝图，再展示实时工程流、Vibe Coding 变更影响、Declared Design Dependency、当前 Code-derived Actual Relationship、Observed Drift、Evidence Coverage、Implementation Coverage，然后进入 Component Inspector 与 Requirement Drill-down；Raw Dependency Graph 只能是二级视图。Requirement Detail 保持：
 
 ```text
 Desired State → Actual State → Change → Proof → Convergence

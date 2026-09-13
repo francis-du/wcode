@@ -36,9 +36,14 @@ impl ProcessQueue {
         }
     }
 
+    #[cfg(test)]
     pub(super) async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
+        self.acquire_with_wait().await.map(|(permit, _)| permit)
+    }
+
+    pub(super) async fn acquire_with_wait(&self) -> Result<(OwnedSemaphorePermit, u64), String> {
         match self.slots.clone().try_acquire_owned() {
-            Ok(permit) => return Ok(permit),
+            Ok(permit) => return Ok((permit, 0)),
             Err(TryAcquireError::Closed) => {
                 return Err("resource governor is shutting down".to_owned());
             }
@@ -47,15 +52,18 @@ impl ProcessQueue {
         self.waiting.fetch_add(1, Ordering::Relaxed);
         self.waits.fetch_add(1, Ordering::Relaxed);
         // Cancellation must remove both the semaphore waiter and its telemetry.
-        let _wait = QueueWait {
+        let wait = QueueWait {
             queue: self,
             started: Instant::now(),
         };
-        self.slots
+        let permit = self
+            .slots
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| "resource governor is shutting down".to_owned())
+            .map_err(|_| "resource governor is shutting down".to_owned())?;
+        let wait_ms = u64::try_from(wait.started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Ok((permit, wait_ms))
     }
 
     pub(super) fn snapshot(&self) -> ProcessQueueSnapshot {

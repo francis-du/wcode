@@ -190,11 +190,11 @@ async fn invalid_fanout_preflight_never_executes_any_mutation() {
         }}),
     ];
     for cap in [1, 4] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("exists.txt"), "original").unwrap();
+        let mut state = batch_test_state(root.path());
+        state.harness = ToolHarness::new(cap).unwrap();
         for invalid in &invalid_tasks {
-            let root = tempfile::tempdir().unwrap();
-            std::fs::write(root.path().join("exists.txt"), "original").unwrap();
-            let mut state = batch_test_state(root.path());
-            state.harness = ToolHarness::new(cap).unwrap();
             let result = call_tool(
                 &state,
                 json!({

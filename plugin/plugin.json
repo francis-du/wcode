@@ -1,11 +1,11 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wcode",
-  "version": "0.6.2",
-  "description": "Portable wcode Software Intelligence skill with explicit safe MCP connection profiles.",
+  "version": "0.7.0",
+  "description": "Portable wcode engineering control-plane skill with explicit safe MCP connection profiles.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",
   "repository": "https://github.com/francis-du/wcode",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "software-intelligence", "verification", "agent-skills"]
+  "keywords": ["mcp", "engineering-control-plane", "software-intelligence", "verification", "agent-skills"]
 }

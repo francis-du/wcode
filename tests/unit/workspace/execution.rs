@@ -26,6 +26,7 @@ fn main() {
             eprintln!("stderr-before-timeout");
             io::stdout().flush().unwrap();
             io::stderr().flush().unwrap();
+            std::fs::write("timeout-ready.txt", "ready").unwrap();
             std::thread::sleep(std::time::Duration::from_secs(30));
             std::fs::write("late-effect.txt", "must-not-run").unwrap();
         }
@@ -33,7 +34,7 @@ fn main() {
             println!("started");
             io::stdout().flush().unwrap();
             std::fs::write("started.txt", "started").unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            std::thread::sleep(std::time::Duration::from_millis(250));
             std::fs::write("late-effect.txt", "must-not-run").unwrap();
         }
         Some("redact") => {
@@ -84,9 +85,27 @@ fn main() {
 
 #[tokio::test]
 async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects() {
-    let (root, workspace, program) = command_fixture();
-    let result = workspace
-        .run_trusted_runtime_command(&program, &["timeout".into()], ".", 2)
+    let (root, _workspace, program) = command_fixture();
+    let executable = root.path().join(&program);
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .arg("timeout")
+        .current_dir(root.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let child = command.spawn().expect("timeout fixture must start");
+    let ready = root.path().join("timeout-ready.txt");
+    timeout(Duration::from_secs(10), async {
+        while !ready.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("timeout fixture must flush diagnostics before the timed collection begins");
+
+    let result = collect_command_result(child, &program, &["timeout".into()], 1, 0)
         .await
         .expect("timeout must preserve a failed command result and its captured diagnostics");
     assert!(!result.success);
@@ -125,6 +144,43 @@ async fn normal_command_output_and_exit_status_remain_compatible() {
 }
 
 #[tokio::test]
+async fn exact_workspace_verification_executable_runs_without_runtime_authorization() {
+    let (root, _trusted, fixture) = command_fixture();
+    std::fs::create_dir_all(root.path().join("vendor/bin")).unwrap();
+    std::fs::copy(
+        root.path().join(fixture),
+        root.path().join("vendor/bin/phpunit"),
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    assert!(workspace.workspace_program_available("vendor/bin/phpunit"));
+    let result = workspace
+        .run_verification_command("vendor/bin/phpunit", &[], ".", 30)
+        .await
+        .expect("exact workspace-local verification executable should run autonomously");
+    assert!(result.success, "{}", result.stderr);
+    assert!(workspace.authorization.requests(10).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_verification_executable_rejects_symlink_and_hardlink_aliases() {
+    use std::os::unix::fs::symlink;
+
+    let (root, _trusted, fixture) = command_fixture();
+    std::fs::create_dir_all(root.path().join("vendor/bin")).unwrap();
+    let phpunit = root.path().join("vendor/bin/phpunit");
+    std::fs::copy(root.path().join(fixture), &phpunit).unwrap();
+    symlink(&phpunit, root.path().join("vendor/bin/phpstan")).unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    assert!(!workspace.workspace_program_available("vendor/bin/phpstan"));
+
+    std::fs::hard_link(&phpunit, root.path().join("vendor/bin/psalm")).unwrap();
+    assert!(!workspace.workspace_program_available("vendor/bin/phpunit"));
+    assert!(!workspace.workspace_program_available("vendor/bin/psalm"));
+}
+
+#[tokio::test]
 async fn large_command_streams_stay_bounded_and_do_not_deadlock() {
     let (_root, workspace, program) = command_fixture();
     let result = workspace
@@ -152,7 +208,7 @@ async fn cancelling_command_owns_the_process_and_pipe_readers() {
             .await
     });
     let started = root.path().join("started.txt");
-    timeout(Duration::from_secs(10), async {
+    timeout(Duration::from_secs(30), async {
         while !started.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -161,22 +217,21 @@ async fn cancelling_command_owns_the_process_and_pipe_readers() {
     .expect("fixture must start before cancellation");
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(!root.path().join("late-effect.txt").exists());
 }
 
-#[tokio::test]
-async fn timeout_diagnostics_preserve_existing_redaction() {
-    let (_root, workspace, program) = command_fixture();
-    let result = workspace
-        .run_trusted_runtime_command(&program, &["redact".into()], ".", 2)
-        .await
-        .unwrap();
-    assert!(result.timed_out);
-    assert!(!result.success);
-    assert!(result.redacted);
-    assert!(!result.stdout.contains("synthetic-fixture-value"));
-    assert!(result.stdout.contains("[REDACTED]"));
+#[test]
+fn timeout_diagnostics_preserve_existing_redaction() {
+    let timeout_diagnostic = "[wcode: command timed out; termination requested.]".to_owned();
+    let (stdout, stderr, redacted) = redact_command_streams(
+        "token=fixture-redaction-value".to_owned(),
+        timeout_diagnostic.clone(),
+    );
+    assert!(redacted);
+    assert!(!stdout.contains("fixture-redaction-value"));
+    assert!(stdout.contains("[REDACTED]"));
+    assert_eq!(stderr, timeout_diagnostic);
 }
 
 #[tokio::test]

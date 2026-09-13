@@ -56,6 +56,58 @@ fn graph_history_round_trips_and_queries_nodes() {
 }
 
 #[test]
+fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let mut first = None;
+    for index in 0..8 {
+        let mut graph = SoftwareGraph::default();
+        graph
+            .add_node(GraphNode {
+                id: format!("function:{index}"),
+                kind: NodeKind::Function,
+                label: format!("function-{index}"),
+                attributes: BTreeMap::new(),
+                provenance: crate::graph::GraphProvenance {
+                    provider: "tree-sitter".into(),
+                    precision: GraphPrecision::Syntax,
+                    revision: format!("syntax:{index}"),
+                },
+            })
+            .unwrap();
+        let snapshot = SoftwareGraphSnapshot {
+            workspace: "demo".into(),
+            path: ".".into(),
+            provider: "tree-sitter".into(),
+            precision: GraphPrecision::Syntax,
+            files_considered: 1,
+            files_indexed: 1,
+            files_failed: 0,
+            scan_truncated: false,
+            truncated: false,
+            node_count: 1,
+            edge_count: 0,
+            failures: vec![],
+            graph,
+        };
+        let stored = persist(&workspace, &snapshot).unwrap();
+        if index == 0 {
+            first = Some(snapshot);
+            assert!(!stored.id.is_empty());
+        }
+    }
+
+    READ_SNAPSHOT_CALLS.with(|count| count.set(0));
+    let duplicate = persist(&workspace, first.as_ref().unwrap()).unwrap();
+    assert!(!duplicate.id.is_empty());
+    assert_eq!(
+        READ_SNAPSHOT_CALLS.with(|count| count.get()),
+        1,
+        "deduplication should validate only the filename-matched graph snapshot"
+    );
+}
+
+#[test]
 fn graph_diff_separates_structural_changes_from_revision_churn() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();

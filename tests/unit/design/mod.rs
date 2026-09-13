@@ -49,6 +49,14 @@ fn loads_structured_design_state_and_validates_references() {
     assert_eq!(load.state.requirements.len(), 1);
     assert_eq!(load.state.components.len(), 1);
     assert_eq!(load.state.acceptance.len(), 1);
+    assert_eq!(load.state.constraints.len(), 4);
+    for id in [
+        "CONSTRAINT-SOURCE-DECOMPOSITION",
+        "CONSTRAINT-TEST-ROOT",
+        "CONSTRAINT-DESIGN-SYNC",
+    ] {
+        assert!(load.state.constraints.contains_key(id));
+    }
     assert_eq!(load.error_count(), 0, "{:?}", load.diagnostics);
 }
 
@@ -80,11 +88,40 @@ fn reports_missing_and_unsafe_references_without_panicking() {
 }
 
 #[test]
-fn absent_design_state_is_a_valid_uninitialized_project() {
+fn absent_design_state_still_receives_runtime_core_constraints() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     let load = load_design(&workspace).unwrap();
     assert!(!load.initialized);
-    assert_eq!(load.state.node_count(), 0);
+    assert_eq!(load.state.node_count(), 3);
+    assert!(load
+        .state
+        .constraints
+        .contains_key("CONSTRAINT-SOURCE-DECOMPOSITION"));
     assert_eq!(load.error_count(), 0);
+}
+
+#[test]
+fn project_design_cannot_override_runtime_core_constraints() {
+    let dir = fixture_workspace();
+    fs::write(
+        dir.path()
+            .join(".wcode/design/constraints/source-decomposition.yaml"),
+        "id: CONSTRAINT-SOURCE-DECOMPOSITION\ntitle: Weakened\nstatement: Large files are allowed.\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let load = load_design(&workspace).unwrap();
+
+    assert!(load
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "core-constraint-override"));
+    let canonical = load
+        .state
+        .constraints
+        .get("CONSTRAINT-SOURCE-DECOMPOSITION")
+        .unwrap();
+    assert!(canonical.statement.contains("1000 physical lines"));
+    assert!(!canonical.statement.contains("Large files are allowed"));
 }

@@ -139,10 +139,16 @@ pub(super) fn review_probe_summary(output: &ReviewProbeOutput) -> ReviewProbeSum
             .filter(|result| !result.success)
             .and_then(probe_failure_text)
     });
+    let queue_wait_ms = output
+        .result
+        .as_ref()
+        .map_or(0, |result| result.process_queue_wait_ms);
     ReviewProbeSummary {
         id: output.id.clone(),
         success,
         elapsed_ms: output.elapsed_ms,
+        queue_wait_ms,
+        execution_ms: output.elapsed_ms.saturating_sub(u128::from(queue_wait_ms)),
         error,
     }
 }
@@ -375,16 +381,30 @@ pub(super) fn append_maintainability_findings(
                 .saturating_sub(additions)
                 .saturating_add(deletions)
         };
-        if previous_lines < MAINTAINABILITY_FILE_LINE_THRESHOLD
-            && current_lines > MAINTAINABILITY_FILE_LINE_THRESHOLD
-        {
+        if current_lines > MAINTAINABILITY_FILE_LINE_THRESHOLD {
+            let (code, message) = if previous_lines < MAINTAINABILITY_FILE_LINE_THRESHOLD {
+                (
+                    "maintainability-file-crossed-1k",
+                    format!(
+                        "{} grew from approximately {previous_lines} to {current_lines} lines and crossed the 1k hard boundary; decompose before adding more behavior.",
+                        file.path
+                    ),
+                )
+            } else if current_lines >= previous_lines {
+                (
+                    "maintainability-oversized-source-growth",
+                    format!(
+                        "{} remains oversized at {current_lines} lines and did not shrink from approximately {previous_lines}; wcode core policy requires decomposition rather than continued growth.",
+                        file.path
+                    ),
+                )
+            } else {
+                continue;
+            };
             findings.push(ReviewFinding {
                 severity: "high".to_owned(),
-                code: "maintainability-file-crossed-1k".to_owned(),
-                message: format!(
-                    "{} grew from approximately {previous_lines} to {current_lines} lines and crossed the 1k review boundary; justify the structure or decompose before adding more behavior.",
-                    file.path
-                ),
+                code: code.to_owned(),
+                message,
                 paths: vec![file.path.clone()],
             });
         }

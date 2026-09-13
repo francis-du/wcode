@@ -1,31 +1,44 @@
 use super::mcp_tools::{
-    agent_context_model_bytes, agent_context_tool_result, optional_string_array_arg,
+    agent_context_structured_result, agent_context_tool_result, optional_string_array_arg,
     required_string, reviewer_role_arg, run_blocking, selected_workspace, string_arg,
-    string_array_arg, task_detail, tool_result, usize_arg, workspace_arg,
+    string_array_arg, structured_tool_result, task_detail, tool_result, tool_result_with_text,
+    usize_arg, workspace_arg,
 };
 use super::*;
 use crate::scopes;
 
 #[path = "intelligence.rs"]
 mod leaf_intelligence;
+#[path = "journal.rs"]
+mod leaf_journal;
 #[path = "workspace.rs"]
 mod leaf_workspace;
+#[path = "media.rs"]
+mod media;
+#[path = "parallel_output.rs"]
+mod parallel_output;
+#[cfg(test)]
+use media::client_supports_media_content;
+use media::read_media_tool;
+pub(crate) use parallel_output::parallel_item_from_response;
+use parallel_output::{parallel_item_error, serialized_size};
 
-pub(crate) async fn call_tool(state: &AppState, params: Value) -> Result<Value, String> {
+pub(crate) async fn call_tool(state: &AppState, mut params: Value) -> Result<Value, String> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
-        .ok_or("missing tool name")?;
-    let args = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    workspace_arg(&args)?;
+        .ok_or("missing tool name")?
+        .to_owned();
     if name == "read_media" {
         return read_media_tool(state, &params).await;
     }
+    let args = params
+        .as_object_mut()
+        .and_then(|params| params.remove("arguments"))
+        .unwrap_or_else(|| json!({}));
+    workspace_arg(&args)?;
     if matches!(
-        name,
+        name.as_str(),
         "review_changes"
             | "verify_project"
             | "drift_status"
@@ -35,157 +48,37 @@ pub(crate) async fn call_tool(state: &AppState, params: Value) -> Result<Value, 
             | "reconciliation_plan"
             | "parallel_tools"
     ) {
-        return call_orchestration_tool(state, name, &args).await;
+        return call_orchestration_tool(state, &name, args).await;
     }
-    call_leaf_tool(state, name, args).await
-}
-
-async fn read_media_tool(state: &AppState, params: &Value) -> Result<Value, String> {
-    let args = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let workspace_label = string_arg(&args, "workspace")
-        .unwrap_or(state.workspaces.default_id())
-        .to_owned();
-    let request_bytes = serialized_size(&args) as u64;
-    let mut task = state.monitor.queue(
-        workspace_label,
-        "read_media",
-        task_detail("read_media", &args),
-        request_bytes,
-    );
-    let permit = Arc::new(state.harness.acquire_tool(false).await?);
-    task.start();
-
-    let (workspace_id, workspace) = match selected_workspace(state, &args) {
-        Ok(selected) => selected,
-        Err(error) => {
-            task.finish(false, error.len() as u64);
-            return Ok(tool_result(json!({"error": error}), true));
-        }
-    };
-    let path = match required_string(&args, "path") {
-        Ok(path) => path.to_owned(),
-        Err(error) => {
-            task.finish(false, error.len() as u64);
-            return Ok(tool_result(json!({"error": error}), true));
-        }
-    };
-    let include_content = args
-        .get("include_content")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let read = super::mcp_tools::BLOCKING_PERMIT
-        .scope(permit, run_blocking(move || workspace.read_media(&path)))
-        .await;
-    let view = match read {
-        Ok(view) => view,
-        Err(error) => {
-            let response = tool_result(json!({"error": error.to_string()}), true);
-            task.finish(false, serialized_size(&response) as u64);
-            return Ok(response);
-        }
-    };
-
-    let mut metadata = view.metadata();
-    metadata["workspace"] = json!(workspace_id);
-    metadata["content_available"] = json!(matches!(view.kind, "image" | "audio"));
-    metadata["content_requested"] = json!(include_content);
-    metadata["content_returned"] = json!(false);
-
-    if !include_content {
-        let response = tool_result(metadata, false);
-        task.finish(true, serialized_size(&response) as u64);
-        return Ok(response);
-    }
-    if !matches!(view.kind, "image" | "audio") {
-        metadata["error_code"] = json!("media_content_type_not_supported");
-        metadata["error"] = json!(
-            "MCP tool results do not expose a standard video content block; video is metadata-only"
-        );
-        let response = tool_result(metadata, true);
-        task.finish(false, serialized_size(&response) as u64);
-        return Ok(response);
-    }
-    if !client_supports_media_content(params, view.kind, view.mime_type) {
-        metadata["error_code"] = json!("multimodal_not_supported");
-        metadata["required_client_extension"] = json!(MEDIA_CONTENT_EXTENSION_ID);
-        metadata["error"] = json!(
-            "client/model media capability was not explicitly advertised; wcode did not emit a multimodal payload"
-        );
-        let response = tool_result(metadata, true);
-        task.finish(false, serialized_size(&response) as u64);
-        return Ok(response);
-    }
-
-    metadata["content_returned"] = json!(true);
-    let encoded = STANDARD.encode(&view.data);
-    let text = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_owned());
-    let response = json!({
-        "content": [
-            {"type": "text", "text": text},
-            {"type": view.kind, "data": encoded, "mimeType": view.mime_type}
-        ],
-        "structuredContent": metadata,
-        "isError": false,
-    });
-    task.finish(true, serialized_size(&response) as u64);
-    Ok(response)
-}
-
-fn client_supports_media_content(params: &Value, kind: &str, mime_type: &str) -> bool {
-    let Some(extension) = params
-        .get("_meta")
-        .and_then(Value::as_object)
-        .and_then(|meta| meta.get("io.modelcontextprotocol/clientCapabilities"))
-        .and_then(Value::as_object)
-        .and_then(|capabilities| capabilities.get("extensions"))
-        .and_then(Value::as_object)
-        .and_then(|extensions| extensions.get(MEDIA_CONTENT_EXTENSION_ID))
-        .and_then(Value::as_object)
-    else {
-        return false;
-    };
-
-    let kind_supported = extension
-        .get("contentTypes")
-        .and_then(Value::as_array)
-        .is_some_and(|types| types.iter().any(|value| value.as_str() == Some(kind)));
-    if !kind_supported {
-        return false;
-    }
-    extension
-        .get("mimeTypes")
-        .and_then(Value::as_array)
-        .is_none_or(|types| types.iter().any(|value| value.as_str() == Some(mime_type)))
+    call_leaf_tool(state, &name, args).await
 }
 
 async fn call_orchestration_tool(
     state: &AppState,
     name: &str,
-    args: &Value,
+    mut args: Value,
 ) -> Result<Value, String> {
-    let workspace_label = string_arg(args, "workspace")
+    let journal_started = std::time::Instant::now();
+    let workspace_label = string_arg(&args, "workspace")
         .unwrap_or(state.workspaces.default_id())
         .to_owned();
-    let request_bytes = serialized_size(args) as u64;
+    let request_bytes = serialized_size(&args) as u64;
     let mut task = state.monitor.queue_orchestration(
         workspace_label,
         name,
-        task_detail(name, args),
+        task_detail(name, &args),
         request_bytes,
     );
     task.start();
     let outcome = match name {
-        "review_changes" => review_changes_tool(state, args).await,
-        "verify_project" => verify_project_tool(state, args).await,
+        "review_changes" => review_changes_tool(state, &args).await,
+        "verify_project" => verify_project_tool(state, &args).await,
         "drift_status"
         | "risk_status"
         | "impact_analysis"
         | "verification_plan"
-        | "reconciliation_plan" => change_intelligence_tool(state, name, args).await,
-        "parallel_tools" => parallel_tools(state, args).await,
+        | "reconciliation_plan" => change_intelligence_tool(state, name, &args).await,
+        "parallel_tools" => parallel_tools(state, &mut args).await,
         _ => Err(format!("unknown orchestration tool: {name}")),
     };
     let success = outcome
@@ -197,6 +90,29 @@ async fn call_orchestration_tool(
         .map(|value| serialized_size(value) as u64)
         .unwrap_or_else(|error| error.len() as u64);
     task.finish(success, response_bytes);
+    let journal_outcome = outcome
+        .as_ref()
+        .map(|value| {
+            if value.get("isError").and_then(Value::as_bool) == Some(true) {
+                "failed"
+            } else {
+                "succeeded"
+            }
+        })
+        .unwrap_or("failed");
+    leaf_journal::record(
+        state,
+        name,
+        &args,
+        journal_outcome,
+        journal_started
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+        outcome.as_ref().ok(),
+    )
+    .await;
     outcome
 }
 
@@ -216,6 +132,24 @@ pub(super) async fn call_leaf_tool(
     name: &str,
     args: Value,
 ) -> Result<Value, String> {
+    call_leaf_tool_mode(state, name, args, true).await
+}
+
+async fn call_leaf_tool_structured(
+    state: &AppState,
+    name: &str,
+    args: Value,
+) -> Result<Value, String> {
+    call_leaf_tool_mode(state, name, args, false).await
+}
+
+async fn call_leaf_tool_mode(
+    state: &AppState,
+    name: &str,
+    args: Value,
+    include_text: bool,
+) -> Result<Value, String> {
+    let journal_started = std::time::Instant::now();
     let workspace_label = if name == "workspace_info" {
         "system".to_owned()
     } else {
@@ -279,9 +213,99 @@ pub(super) async fn call_leaf_tool(
             }
         }
     }
+    if name == "agent_context" {
+        match outcome {
+            Ok(value) => {
+                let response = if include_text {
+                    agent_context_tool_result(value, false)
+                } else {
+                    agent_context_structured_result(value, false)
+                };
+                let telemetry = &response["_meta"]["dev.wcode/agentContextTelemetry"];
+                let response_bytes = telemetry["model_serialized_bytes"]
+                    .as_u64()
+                    .unwrap_or_else(|| serialized_size(&response["structuredContent"]) as u64);
+                let context_bytes_avoided = telemetry["context_bytes_avoided"]
+                    .as_u64()
+                    .unwrap_or_default();
+                let repo_map_cache_hit = telemetry["repo_map"]["cache_hit"]
+                    .as_bool()
+                    .unwrap_or(false);
+                state.monitor.record_agent_context_metrics(
+                    &workspace_label,
+                    response_bytes,
+                    context_bytes_avoided,
+                    repo_map_cache_hit,
+                );
+                task.finish_with_context_savings(success, response_bytes, context_bytes_avoided);
+                let journal_outcome = if response
+                    .pointer("/structuredContent/status")
+                    .and_then(Value::as_str)
+                    == Some("partial")
+                {
+                    "partial"
+                } else if success {
+                    "succeeded"
+                } else {
+                    "failed"
+                };
+                leaf_journal::record(
+                    state,
+                    name,
+                    &args,
+                    journal_outcome,
+                    journal_started
+                        .elapsed()
+                        .as_millis()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    Some(&response),
+                )
+                .await;
+                return Ok(response);
+            }
+            Err(error) => {
+                let blocked = error.downcast_ref::<AuthorizationRequired>().is_some();
+                let message = error.to_string();
+                task.finish_with_context_savings(false, message.len() as u64, 0);
+                leaf_journal::record(
+                    state,
+                    name,
+                    &args,
+                    if blocked { "blocked" } else { "failed" },
+                    journal_started
+                        .elapsed()
+                        .as_millis()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    None,
+                )
+                .await;
+                let value = if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
+                    json!({
+                        "error": message,
+                        "authorization_required": required.request,
+                    })
+                } else {
+                    json!({"error": message})
+                };
+                return Ok(if include_text {
+                    tool_result(value, true)
+                } else {
+                    structured_tool_result(value, true)
+                });
+            }
+        }
+    }
+
+    let serialized_response = match &outcome {
+        Ok(value) if include_text => serde_json::to_string(value).ok(),
+        _ => None,
+    };
     let response_bytes = match &outcome {
-        Ok(value) if name == "agent_context" => agent_context_model_bytes(value),
-        Ok(value) => serialized_size(value) as u64,
+        Ok(value) => serialized_response
+            .as_ref()
+            .map_or_else(|| serialized_size(value) as u64, |text| text.len() as u64),
         Err(error) => error.to_string().len() as u64,
     };
     let context_bytes_avoided = outcome
@@ -289,35 +313,50 @@ pub(super) async fn call_leaf_tool(
         .ok()
         .map(|value| estimated_context_bytes_avoided(name, value, response_bytes))
         .unwrap_or(0);
-    if name == "agent_context" {
-        if let Ok(value) = &outcome {
-            let repo_map_cache_hit = value
-                .pointer("/repo_map/cache_hit")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            state.monitor.record_agent_context_metrics(
-                &workspace_label,
-                response_bytes,
-                context_bytes_avoided,
-                repo_map_cache_hit,
-            );
-        }
-    }
     task.finish_with_context_savings(success, response_bytes, context_bytes_avoided);
+    let journal_outcome = match &outcome {
+        Ok(value) if value.get("status").and_then(Value::as_str) == Some("partial") => "partial",
+        Ok(_) if success => "succeeded",
+        Err(error) if error.downcast_ref::<AuthorizationRequired>().is_some() => "blocked",
+        _ => "failed",
+    };
+    leaf_journal::record(
+        state,
+        name,
+        &args,
+        journal_outcome,
+        journal_started
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+        outcome.as_ref().ok(),
+    )
+    .await;
     match outcome {
-        Ok(value) if name == "agent_context" => Ok(agent_context_tool_result(value, false)),
-        Ok(value) => Ok(tool_result(value, !success)),
+        Ok(value) => Ok(if include_text {
+            tool_result_with_text(
+                value,
+                !success,
+                serialized_response.unwrap_or_else(|| "{}".to_owned()),
+            )
+        } else {
+            structured_tool_result(value, !success)
+        }),
         Err(error) => {
-            if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
-                return Ok(tool_result(
-                    json!({
-                        "error": error.to_string(),
-                        "authorization_required": required.request,
-                    }),
-                    true,
-                ));
-            }
-            Ok(tool_result(json!({"error": error.to_string()}), true))
+            let value = if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
+                json!({
+                    "error": error.to_string(),
+                    "authorization_required": required.request,
+                })
+            } else {
+                json!({"error": error.to_string()})
+            };
+            Ok(if include_text {
+                tool_result(value, true)
+            } else {
+                structured_tool_result(value, true)
+            })
         }
     }
 }
@@ -402,7 +441,7 @@ pub(super) fn estimated_context_bytes_avoided(
 ) -> u64 {
     if name == "agent_context" {
         if let Some(baseline) = value.get("baseline_context_bytes").and_then(Value::as_u64) {
-            return baseline.saturating_sub(agent_context_model_bytes(value));
+            return baseline.saturating_sub(response_bytes);
         }
         return value
             .get("context_bytes_avoided")
@@ -569,15 +608,18 @@ fn inherit_parallel_workspace(arguments: &mut Value, workspace: &str) {
         .or_insert_with(|| json!(workspace));
 }
 
-async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String> {
+async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, String> {
     let dry_run = match args.get("dry_run") {
         None => false,
         Some(Value::Bool(value)) => *value,
         Some(_) => return Err("dry_run must be a boolean; no tasks executed".to_owned()),
     };
+    let inherited_workspace = workspace_arg(args)?
+        .unwrap_or(state.workspaces.default_id())
+        .to_owned();
     let items = args
-        .get("tasks")
-        .and_then(Value::as_array)
+        .get_mut("tasks")
+        .and_then(Value::as_array_mut)
         .ok_or("tasks must be an array")?;
     if !(2..=MAX_PARALLEL_FANOUT_ITEMS).contains(&items.len()) {
         return Err(format!(
@@ -585,7 +627,6 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
         ));
     }
 
-    let inherited_workspace = workspace_arg(args)?.unwrap_or(state.workspaces.default_id());
     for (index, item) in items.iter().enumerate() {
         if let Some(arguments) = item.get("arguments") {
             workspace_arg(arguments).map_err(|error| {
@@ -598,14 +639,24 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
     }
     state
         .workspaces
-        .select(Some(inherited_workspace))
+        .select(Some(&inherited_workspace))
         .map_err(|error| error.to_string())?;
-    let (prepared, aliases, skipped) = scheduler::coalesce_apply_edits(inherited_workspace, items)?;
+    let (prepared, aliases, skipped) =
+        scheduler::coalesce_apply_edits(&inherited_workspace, items)?;
+    let mut prepared = match prepared {
+        std::borrow::Cow::Borrowed(_) => std::mem::take(items),
+        std::borrow::Cow::Owned(prepared) => {
+            items.clear();
+            prepared
+        }
+    };
+    let task_count = prepared.len();
     let started = std::time::Instant::now();
-    let mut results = vec![None; items.len()];
+    let mut results = vec![None; task_count];
     let mut workloads = Vec::new();
+    let mut execution_arguments = vec![None; task_count];
 
-    for (index, item) in prepared.iter().enumerate() {
+    for (index, item) in prepared.iter_mut().enumerate() {
         if skipped.contains(&index) {
             continue;
         }
@@ -614,31 +665,41 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
             .and_then(Value::as_str)
             .map(str::to_owned)
             .unwrap_or_else(|| format!("task-{}", index + 1));
-        let Some(name) = item.get("tool").and_then(Value::as_str) else {
+        let Some(name) = item.get("tool").and_then(Value::as_str).map(str::to_owned) else {
             results[index] = Some(parallel_item_error(id, "unknown", "missing tool name"));
             continue;
         };
-        if !parallel_tool_allowed(name) {
+        if !parallel_tool_allowed(&name) {
             results[index] = Some(parallel_item_error(
                 id,
-                name,
+                &name,
                 "parallel_tools only accepts bounded read/discovery tools and workspace file primitives",
             ));
             continue;
         }
-        let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let mut arguments = item
+            .get_mut("arguments")
+            .map(std::mem::take)
+            .unwrap_or_else(|| json!({}));
         if !arguments.is_object() {
-            results[index] = Some(parallel_item_error(id, name, "arguments must be an object"));
+            results[index] = Some(parallel_item_error(
+                id,
+                &name,
+                "arguments must be an object",
+            ));
             continue;
         }
-        inherit_parallel_workspace(&mut arguments, inherited_workspace);
-        match scheduler::resource_model(inherited_workspace, name, &arguments).and_then(
+        inherit_parallel_workspace(&mut arguments, &inherited_workspace);
+        match scheduler::resource_model(&inherited_workspace, &name, &arguments).and_then(
             |resources| {
                 selected_workspace(state, &arguments)
                     .map(|(_, workspace)| resources.in_root(workspace.root()))
             },
         ) {
-            Ok(resources) => workloads.push((index, resources)),
+            Ok(resources) => {
+                execution_arguments[index] = Some(arguments);
+                workloads.push((index, resources));
+            }
             Err(error) => results[index] = Some(parallel_item_error(id, name, error)),
         }
     }
@@ -662,10 +723,10 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
         .iter()
         .map(|(index, _)| *index)
         .collect::<BTreeSet<_>>();
-    let graph = scheduler::dependency_graph(&workloads, items.len());
-    let layers = graph.layers(&active)?;
+    let graph = scheduler::dependency_graph(&workloads, task_count);
     let dependency_edges = graph.predecessors.iter().map(BTreeSet::len).sum::<usize>();
     if dry_run {
+        let layers = graph.layers(&active)?;
         let plan = scheduler::preview(
             &graph,
             &layers,
@@ -677,18 +738,31 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
     }
     let mut fanout_response_bytes = 0usize;
 
-    let mut pending = active;
-    let mut completed = BTreeSet::new();
-    let mut failed_tasks = BTreeSet::new();
+    let mut completion_schedule = graph.completion_schedule(&active)?;
+    let mut pending = active.len();
+    let mut failed_tasks = vec![false; task_count];
+    let mut task_depths = vec![0usize; task_count];
+    let mut dependency_layers = 0usize;
     // JoinSet owns the children: cancellation must not detach queued writes.
     let mut running = tokio::task::JoinSet::new();
     let mut task_indices = std::collections::HashMap::new();
-    while !pending.is_empty() || !running.is_empty() {
-        for index in graph.ready(&pending, &completed) {
-            pending.remove(&index);
+    let mut task_ids = (0..task_count)
+        .map(|_| None)
+        .collect::<Vec<Option<tokio::task::Id>>>();
+    while pending > 0 || !running.is_empty() {
+        for index in completion_schedule.take_ready() {
+            pending = pending.saturating_sub(1);
             let dependency_failed = graph.predecessors[index]
                 .iter()
-                .any(|dependency| failed_tasks.contains(dependency));
+                .any(|dependency| failed_tasks[*dependency]);
+            let depth = graph.predecessors[index]
+                .iter()
+                .map(|dependency| task_depths[*dependency])
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            task_depths[index] = depth;
+            dependency_layers = dependency_layers.max(depth);
             let item = &prepared[index];
             let id = item
                 .get("id")
@@ -699,8 +773,9 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                 .get("tool")
                 .and_then(Value::as_str)
                 .expect("scheduled tasks were validated before graph construction");
-            let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            inherit_parallel_workspace(&mut arguments, inherited_workspace);
+            let arguments = execution_arguments[index]
+                .take()
+                .expect("scheduled task arguments were prepared during preflight");
             let child_state = state.clone();
             let child_name = name.to_owned();
             let id_for_task = id.clone();
@@ -709,7 +784,7 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                 let response = if dependency_failed {
                     Err("dependency failed; task was not executed".to_owned())
                 } else {
-                    call_leaf_tool(&child_state, &name_for_task, arguments).await
+                    call_leaf_tool_structured(&child_state, &name_for_task, arguments).await
                 };
                 let result = match response {
                     Ok(response) => {
@@ -723,22 +798,30 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                 };
                 (index, result)
             });
-            task_indices.insert(handle.id(), index);
+            let task_id = handle.id();
+            task_indices.insert(task_id, index);
+            task_ids[index] = Some(task_id);
         }
 
         // Release a successor as soon as its own predecessors finish, without
         // waiting for an unrelated slow branch in the same topological layer.
         let (index, outcome) = match running.join_next().await {
-            Some(Ok((index, result))) => (index, Ok(result)),
+            Some(Ok((index, result))) => {
+                if let Some(task_id) = task_ids[index].take() {
+                    task_indices.remove(&task_id);
+                }
+                (index, Ok(result))
+            }
             Some(Err(error)) => {
+                let task_id = error.id();
                 let index = task_indices
-                    .remove(&error.id())
+                    .remove(&task_id)
                     .ok_or("parallel task identity was lost")?;
+                task_ids[index] = None;
                 (index, Err(error.to_string()))
             }
             None => return Err("parallel scheduler made no progress".to_owned()),
         };
-        task_indices.retain(|_, task_index| *task_index != index);
         let id = prepared[index]
             .get("id")
             .and_then(Value::as_str)
@@ -771,12 +854,10 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                     format!("task join failed: {error}"),
                 ),
             };
-            completed.insert(index);
             if item["ok"].as_bool() != Some(true) {
-                failed_tasks.insert(index);
+                failed_tasks[index] = true;
             }
-            results[index] = Some(item.clone());
-
+            completion_schedule.complete(index);
             if let Some(alias_items) = aliases.get(&index) {
                 for (alias_index, alias_id) in alias_items {
                     let mut alias_item = item.clone();
@@ -798,6 +879,7 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
                     }
                 }
             }
+            results[index] = Some(item);
         }
     }
 
@@ -825,7 +907,7 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
             "execution": "parallel-fanout",
             "scheduler": "dependency-graph",
             "dispatch": "completion-driven",
-            "dependency_layers": layers.len(),
+            "dependency_layers": dependency_layers,
             "dependency_edges": dependency_edges,
             "max_parallel": state.harness.max_parallel(),
             "tasks": items.len(),
@@ -840,77 +922,6 @@ async fn parallel_tools(state: &AppState, args: &Value) -> Result<Value, String>
         }),
         failed > 0,
     ))
-}
-
-pub(super) fn parallel_item_from_response(
-    id: String,
-    tool: String,
-    response: Value,
-) -> (Value, usize) {
-    let is_error = response
-        .get("isError")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let result = response
-        .get("structuredContent")
-        .cloned()
-        .unwrap_or(Value::Null);
-    let result_bytes = serialized_size(&result);
-    if result_bytes > MAX_PARALLEL_FANOUT_ITEM_BYTES {
-        let item = parallel_item_error(
-            id,
-            tool,
-            format!(
-                "child result is {result_bytes}B, above the {}B fan-out item limit; use line bounds or a smaller result limit",
-                MAX_PARALLEL_FANOUT_ITEM_BYTES
-            ),
-        );
-        let bytes = serialized_size(&item);
-        return (item, bytes);
-    }
-    let item = json!({
-        "id": id,
-        "tool": tool,
-        "ok": !is_error,
-        "result": result,
-    });
-    let bytes = serialized_size(&item);
-    (item, bytes)
-}
-
-fn serialized_size(value: &Value) -> usize {
-    struct ByteCounter(usize);
-
-    impl std::io::Write for ByteCounter {
-        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-            self.0 = self.0.saturating_add(buffer.len());
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    let mut counter = ByteCounter(0);
-    if serde_json::to_writer(&mut counter, value).is_ok() {
-        counter.0
-    } else {
-        0
-    }
-}
-
-fn parallel_item_error(
-    id: impl Into<String>,
-    tool: impl Into<String>,
-    error: impl Into<String>,
-) -> Value {
-    json!({
-        "id": id.into(),
-        "tool": tool.into(),
-        "ok": false,
-        "error": error.into(),
-    })
 }
 
 #[cfg(test)]

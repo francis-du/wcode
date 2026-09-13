@@ -599,11 +599,13 @@ thread_local! {
     pub(crate) static REVISION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-pub(super) fn workspace_revision(workspace: &Workspace) -> Result<Revision> {
+pub(super) fn workspace_revision_from_design_state(
+    workspace: &Workspace,
+    design_initialized: bool,
+) -> Result<Revision> {
     #[cfg(test)]
     REVISION_CALLS.with(|count| count.set(count.get() + 1));
-    let load = design::load_design(workspace)?;
-    let design_revision = if load.initialized {
+    let design_revision = if design_initialized {
         Some(workspace_tree_revision(workspace, true)?)
     } else {
         None
@@ -627,7 +629,8 @@ pub(super) fn workspace_tree_revision(workspace: &Workspace, design_only: bool) 
                 || path == design::DESIGN_ROOT
                 || path.starts_with(&format!("{}/", design::DESIGN_ROOT))
         } else {
-            !path.starts_with(".wcode/") && path != ".wcode"
+            (!path.starts_with(".wcode/") && path != ".wcode")
+                || path == crate::migration_audit::CONFIG_PATH
         };
         if !include {
             continue;
@@ -709,6 +712,23 @@ pub(super) fn aggregate_verification_results<'a>(
         })
         .map(|record| record.result)
         .max_by_key(|result| severity(*result))
+}
+
+pub(super) fn verification_reference_executed(
+    reference: &VerificationRef,
+    report: &VerificationReport,
+) -> bool {
+    match reference {
+        VerificationRef::Check { id } => report
+            .checks
+            .iter()
+            .any(|check| !check.reused && check.id == *id),
+        VerificationRef::Test { .. } if report.level == "language-quality" => false,
+        VerificationRef::Test { .. } => report
+            .checks
+            .iter()
+            .any(|check| !check.reused && check.id.to_ascii_lowercase().contains("test")),
+    }
 }
 
 pub(super) fn verification_reference_outcome(

@@ -4,142 +4,262 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#171714">
-<title>wcode · Project Observatory</title>
+<meta name="theme-color" content="#0b0812">
+<title>wcode · Engineering Observatory</title>
 <link rel="stylesheet" href="/intelligence/app.css">
 <script defer src="/intelligence/app.js"></script>
 </head>
 <body>
-<div class="app">
-  <header class="top">
-    <div class="title-block">
-      <div class="brand">WC · wcode</div>
-      <h1 data-i18n="Project Observatory">Project Observatory</h1>
-      <div class="subtitle" data-i18n="observatory subtitle">What is running, what needs attention, and what has actually been verified.</div>
-    </div>
-    <div class="controls">
-      <select id="workspace" aria-label="Workspace"></select>
-      <select id="language" aria-label="Language"><option value="en">English</option><option value="zh-CN">简体中文</option></select>
-      <select id="theme" aria-label="Theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select>
-      <label class="auto"><input id="autoRefresh" type="checkbox" checked> <span data-i18n="auto refresh">auto refresh</span></label>
-      <button id="refreshSemantic" class="button-secondary" type="button" data-i18n="Refresh semantics">Refresh semantics</button>
-      <button id="manage" type="button" aria-controls="accessPanel" aria-expanded="false" data-i18n="Manage access">Manage access</button>
-      <button id="refresh" type="button" data-i18n="Refresh now">Refresh now</button>
+<div class="app observatory-shell">
+  <header class="global-bar">
+    <a class="brand-lockup" href="#architectureSection" aria-label="wcode Engineering Observatory">
+      <img class="brand-logo" src="/intelligence/logo.svg" alt="wcode">
+      <span class="brand-copy">
+        <strong data-i18n="Engineering Observatory">Engineering Observatory</strong>
+        <span class="brand-kicker">Engineering Control Plane</span>
+      </span>
+    </a>
+
+    <section class="project-navigator" aria-label="Project navigator">
+      <div class="navigator-shell">
+        <span class="navigator-mark" aria-hidden="true"><svg class="control-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg></span>
+        <input id="projectNavigator" type="search" role="combobox" aria-autocomplete="list" autocomplete="off" spellcheck="false" enterkeyhint="search" placeholder="Search systems, components, requirements…" data-i18n-placeholder="Search systems, components, requirements…" aria-controls="navigatorResults" aria-expanded="false">
+        <kbd>⌘ K</kbd>
+      </div>
+      <div id="navigatorResults" class="navigator-results hidden" role="listbox"></div>
+    </section>
+
+    <section class="global-status" role="status" aria-live="polite" aria-atomic="true">
+      <span id="syncDot" class="sync-dot"></span>
+      <strong id="syncState" data-i18n="Connecting">Connecting</strong>
+    </section>
+
+    <div class="global-controls" aria-label="Observatory controls">
+      <label class="workspace-switcher">
+        <span data-i18n="Workspace">Workspace</span>
+        <select id="workspace" aria-label="Workspace"></select>
+      </label>
+      <button id="autoRefresh" class="compact-action live-toggle" type="button" aria-pressed="true"><span data-i18n="Live">Live</span></button>
+      <button id="refresh" class="compact-action button-primary refresh-action" type="button"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></svg><span data-i18n="Refresh now">Refresh</span></button>
+      <button id="language" class="compact-action language-toggle" type="button" aria-label="Language"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><strong>中</strong><span class="control-caret" aria-hidden="true"></span></button>
+      <button id="theme" class="compact-action theme-toggle" type="button" aria-label="Theme" title="Theme"><svg class="control-svg theme-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 1 1 8.5 4 7 7 0 0 0 20 15.5Z"/></svg></button>
+      <button id="refreshSemantic" class="compact-action quiet-action semantics-action" type="button" title="Refresh semantic providers"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"/></svg><span data-i18n="Semantics">Semantics</span></button>
+      <button id="manage" class="compact-action quiet-action access-action" type="button" aria-controls="accessPanel" aria-expanded="false" title="Manage workspace and command access"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2M17 8h4M19 6v4"/></svg><span data-i18n="Access">Access</span></button>
     </div>
   </header>
 
-  <section class="livebar" role="status" aria-live="polite" aria-atomic="true">
-    <div class="live-left"><span id="syncDot" class="sync-dot"></span><strong id="syncState" data-i18n="Connecting">Connecting</strong><span id="projectIdentity" class="live-project">—</span></div>
-    <div class="live-right"><span id="tunnels" class="tunnel-links"></span><span id="precisionBadge" class="precision-badge">—</span><span id="lastUpdated" class="muted">—</span></div>
-  </section>
-
   <section id="accessPanel" class="panel access-panel hidden" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="accessTitle" tabindex="-1">
-    <div class="panel-head"><div><div id="accessTitle" class="panel-title" data-i18n="Workspace &amp; command access">Workspace &amp; command access</div><div class="panel-meta" data-i18n="access safety note">Session-scoped access stays behind workspace, command and risky-operation policy.</div></div><button id="closeAccess" type="button" data-i18n="Close">Close</button></div>
-    <div class="access-grid">
-      <div class="access-card"><h4 data-i18n="Authorized projects">Authorized projects</h4><div id="workspaceList" class="workspace-list"></div><div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addWorkspace" type="button" data-i18n="Authorize project">Authorize project</button></div><div id="workspaceMessage" class="access-message" aria-live="polite" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div></div>
-      <div class="access-card"><h4 data-i18n="Executable access">Executable access</h4><div id="commandList" class="command-list"></div><div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div><div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div></div>
-      <div class="access-card"><h4 data-i18n="Exact repository operation">Exact repository operation</h4><div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div class="access-row access-row-spaced"><input id="operationArgs" type="text" placeholder="JSON arguments, e.g. [&quot;test&quot;,&quot;--locked&quot;]" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div><div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div></div>
-      <div class="access-card"><h4 data-i18n="Pending authorizations">Pending authorizations</h4><div id="authorizationList" class="authorization-list"></div><div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div></div>
-    </div>
-  </section>
-
-  <nav class="section-nav" aria-label="Observatory sections"><button type="button" data-jump="architectureSection" data-i18n="Architecture overview">Architecture overview</button><button type="button" data-jump="activitySection" data-i18n="Task activity">Task activity</button><button type="button" data-jump="proofSection" data-i18n="Verification evidence">Verification evidence</button><button type="button" data-jump="changesSection" data-i18n="Current changes">Current changes</button><button type="button" data-jump="requirementsSection" data-i18n="Requirements">Requirements</button><button type="button" data-jump="filesSection" data-i18n="Project files">Project files</button></nav>
-  <section id="statusSummary" class="status-summary" aria-label="Project summary"><div><span class="eyebrow">PROJECT PULSE</span><h2 data-i18n="Loading project state…">Loading project state…</h2></div></section>
-  <section id="stats" class="stats" aria-label="Current project metrics"></section>
-  <section id="attention" class="attention" aria-label="Actionable signals"></section>
-
-  <section id="architectureSection" class="panel architecture-panel" tabindex="-1">
-    <div class="panel-head architecture-head">
-      <div><div class="panel-title" data-i18n="Architecture overview">Architecture overview</div><div class="panel-meta" data-i18n="architecture overview meta">Compare the full declared component architecture with dependencies observed from the current implementation.</div></div>
-      <div class="architecture-views" aria-label="Architecture view"><button type="button" data-arch-view="components" aria-pressed="true" data-i18n="Component map">Component map</button><button type="button" data-arch-view="graph" aria-pressed="false" data-i18n="Dependency graph">Dependency graph</button></div>
-    </div>
-    <div id="architectureMetrics" class="architecture-metrics"></div>
-    <div class="component-toolbar"><label for="componentSearch" data-i18n="Find a component">Find a component</label><input id="componentSearch" type="search" placeholder="Name, responsibility or scope" data-i18n-placeholder="Name, responsibility or scope" enterkeyhint="search"><span id="componentCount" class="panel-meta" role="status">—</span></div>
-    <div class="architecture-layout">
-      <div id="componentCards" class="component-cards"></div>
-      <div class="architecture-graph-shell hidden">
-        <div class="architecture-modes" aria-label="Architecture graph mode"><button class="arch-mode active" type="button" data-arch-mode="overlay" aria-pressed="true" data-i18n="Overlay">Overlay</button><button class="arch-mode" type="button" data-arch-mode="design" aria-pressed="false" data-i18n="Design">Design</button><button class="arch-mode" type="button" data-arch-mode="actual" aria-pressed="false" data-i18n="Implementation">Implementation</button></div>
-        <div class="architecture-legend" aria-label="Architecture graph legend">
-          <span><i class="legend-line aligned"></i><span data-i18n="Aligned dependency">Aligned dependency</span></span>
-          <span><i class="legend-line unverified"></i><span data-i18n="Declared, not yet observed">Declared, not yet observed</span></span>
-          <span><i class="legend-line observed"></i><span data-i18n="Observed implementation edge">Observed implementation edge</span></span>
-          <span><i class="legend-line drift"></i><span data-i18n="Strong observed drift">Strong observed drift</span></span>
-        </div>
-        <div id="architectureGraph" class="architecture-graph" role="group" aria-label="Architecture drift graph"></div>
-      </div>
-      <aside id="componentInspector" class="component-inspector"></aside>
-    </div>
-  </section>
-
-  <section class="execution-layout">
-    <section id="activitySection" class="panel activity-panel" tabindex="-1"><div class="panel-head"><div><h2 class="panel-title" data-i18n="Task activity">Task activity</h2><div class="panel-meta" data-i18n="Task activity meta">Running first. Waiting time and execution time are separate.</div></div></div><div id="activity" class="section"></div><div id="resourceStatus" class="section"></div></section>
-    <section id="proofSection" class="panel proof-panel" tabindex="-1"><div class="panel-head"><div><h2 class="panel-title" data-i18n="Verification evidence">Verification evidence</h2><div class="panel-meta" data-i18n="Proof meta">Current revision, historical results, and unverified work — kept separate.</div></div></div><div id="proofSummary" class="section"></div></section>
-  </section>
-
-  <details id="requirementsSection" class="disclosure" tabindex="-1"><summary><strong data-i18n="Requirements">Requirements</strong><span data-i18n="Explore requirement details">Inspect implementation, acceptance criteria and dependency evidence</span></summary>
-  <section class="workspace drilldown">
-    <aside class="panel sidebar">
-      <div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div>
-      <div class="sidebar-tools">
-        <input id="reqSearch" class="search" type="search" placeholder="Search requirement, feature, component…" data-i18n-placeholder="Search requirement, feature, component…" enterkeyhint="search" autocapitalize="none" spellcheck="false">
-        <div class="filters">
-          <button class="filter active" data-filter="all" data-i18n="All">All</button>
-          <button class="filter" data-filter="changed" data-i18n="Changed">Changed</button>
-          <button class="filter" data-filter="drift" data-i18n="Needs convergence">Needs convergence</button>
-          <button class="filter" data-filter="incomplete" data-i18n="Incomplete">Incomplete</button>
-        </div>
-      </div>
-      <div id="requirements" class="req-list"></div>
-    </aside>
-    <div id="featureDetail" class="panel detail"><div class="section empty" data-i18n="Loading project state…">Loading project state…</div></div>
-  </section>
-
-  </details>
-
-  <details id="changesSection" class="panel changes-panel disclosure" tabindex="-1"><summary><strong data-i18n="Current changes">Current changes</strong><span data-i18n="current changes meta">Working tree changes mapped back to requirements and Product Scopes.</span></summary>
-    <div class="panel-head"><div><div class="panel-title" data-i18n="Current changes">Current changes</div><div class="panel-meta" data-i18n="current changes meta">Working tree changes mapped back to requirements and Product Scopes.</div></div></div>
-    <div id="changes" class="table-wrap"></div>
-  </details>
-
-  <details id="filesSection" class="panel structure-panel disclosure" tabindex="-1"><summary><strong data-i18n="Project files">Project files</strong><span data-i18n="project files meta">Browse source structure and large files</span><span id="structureSummary" class="summary-side">—</span></summary>
     <div class="panel-head">
       <div>
-        <div class="panel-title" data-i18n="Project files">Project files</div>
-        <div class="panel-meta" data-i18n="project files meta">Browse the bounded source snapshot and find files that exceed the project line limit.</div>
+        <div id="accessTitle" class="panel-title" data-i18n="Workspace &amp; command access">Workspace &amp; command access</div>
+        <div class="panel-meta" data-i18n="access safety note">Session-scoped access stays behind workspace, command and risky-operation policy.</div>
       </div>
+      <button id="closeAccess" class="quiet-action access-close" type="button" data-i18n="Close">Close</button>
     </div>
-    <div class="structure-layout">
-      <section class="structure-pane">
-        <h3 data-i18n="File structure">File structure</h3>
-        <div id="fileTree" class="file-tree"></div>
-      </section>
-      <section class="structure-pane">
-        <h3 data-i18n="Largest files">Largest files</h3>
-        <div id="largeFiles" class="large-files"></div>
-      </section>
-    </div>
-  </details>
-
-  <details id="diagnosticsSection" class="disclosure" tabindex="-1"><summary><strong data-i18n="Diagnostics & history">Diagnostics & history</strong><span data-i18n="Diagnostics meta">Code distribution, graph revisions and recorded risks</span></summary>
-  <section class="lower">
-    <div class="panel">
-      <div class="panel-head"><div><div class="panel-title" data-i18n="Code statistics">Code statistics</div><div class="panel-meta" data-i18n="current repository snapshot">Current bounded repository snapshot.</div></div></div>
-      <div id="codeStats" class="section"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><div><div class="panel-title" data-i18n="Architecture revisions">Architecture revisions</div><div class="panel-meta" data-i18n="meaningful graph snapshots">Meaningful composite-graph snapshots and structured risk.</div></div></div>
-      <div id="revisions" class="section"></div>
+    <div class="access-grid">
+      <div class="access-card">
+        <h4 data-i18n="Authorized projects">Authorized projects</h4>
+        <div id="workspaceList" class="workspace-list"></div>
+        <div class="access-row"><input id="workspacePath" type="text" placeholder="Absolute or relative project path" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addWorkspace" type="button" data-i18n="Authorize project">Authorize project</button></div>
+        <div id="workspaceMessage" class="access-message" aria-live="polite" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div>
+      </div>
+      <div class="access-card">
+        <h4 data-i18n="Executable access">Executable access</h4>
+        <div id="commandList" class="command-list"></div>
+        <div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div>
+        <div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div>
+      </div>
+      <div class="access-card access-card-wide operation-access-card">
+        <h4 data-i18n="Exact repository operation">Exact repository operation</h4>
+        <div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+        <div class="operation-fields access-row-spaced"><input id="operationArgs" type="text" placeholder="JSON arguments, e.g. [&quot;test&quot;,&quot;--locked&quot;]" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+        <div class="access-row access-row-spaced access-action-row"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div>
+        <div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div>
+      </div>
+      <div class="access-card access-card-wide authorizations-card">
+        <h4 data-i18n="Pending authorizations">Pending authorizations</h4>
+        <div id="authorizationList" class="authorization-list"></div>
+        <div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div>
+      </div>
     </div>
   </section>
 
-  </details>
+  <main class="observatory-main">
+    <header class="workspace-hero">
+      <div class="workspace-hero-copy">
+        <span id="workspaceKicker" class="section-kicker">SYSTEM ARCHITECTURE</span>
+        <h1 id="workspaceTitle" data-i18n="Engineering architecture">Engineering architecture</h1>
+        <p id="workspaceSubtitle" class="workspace-subtitle" data-i18n="architecture overview meta">Read the system by semantic layers, then inspect components and exact dependency evidence.</p>
+      </div>
+      <div class="workspace-hero-motto" aria-hidden="true">
+        <span>OBSERVE&nbsp;&nbsp; UNDERSTAND&nbsp;&nbsp; IMPROVE</span>
+        <i></i>
+        <small>FROM CODE TO CONFIDENCE</small>
+      </div>
+    </header>
 
-  <details id="qualitySection" class="panel quality-panel" tabindex="-1">
-    <summary><span><strong data-i18n="Language quality matrix">Language quality matrix</strong><small data-i18n="language quality meta">Capability coverage and gaps. Expand when you need provider detail.</small></span><span id="qualitySummary" class="summary-side">—</span></summary>
-    <div id="languageQuality" class="table-wrap"></div>
-  </details>
+    <section class="workspace-switchboard" aria-label="Observatory workspace navigation">
+      <nav class="workspace-tabs" role="tablist" aria-label="Observatory workspaces">
+        <button id="tabOverview" type="button" role="tab" data-workspace-tab="overview" data-jump="overviewSection" aria-selected="false" aria-controls="overviewSection" data-i18n="Overview">Overview</button>
+        <button id="tabArchitecture" type="button" role="tab" data-workspace-tab="architecture" data-jump="architectureSection" aria-selected="true" aria-controls="architectureSection" data-i18n="Engineering architecture">Engineering architecture</button>
+        <button id="tabActivity" type="button" role="tab" data-workspace-tab="activity" data-jump="activitySection" aria-selected="false" aria-controls="activitySection" data-i18n="Task activity">Task activity</button>
+        <button id="tabProof" type="button" role="tab" data-workspace-tab="proof" data-jump="proofSection" aria-selected="false" aria-controls="proofSection" data-i18n="Verification evidence">Verification evidence</button>
+        <button id="tabChanges" type="button" role="tab" data-workspace-tab="changes" data-jump="changesSection" aria-selected="false" aria-controls="changesSection" data-i18n="Current changes">Current changes</button>
+        <button id="tabRequirements" type="button" role="tab" data-workspace-tab="requirements" data-jump="requirementsSection" aria-selected="false" aria-controls="requirementsSection" data-i18n="Requirements">Requirements</button>
+        <button id="tabFiles" type="button" role="tab" data-workspace-tab="files" data-jump="filesSection" aria-selected="false" aria-controls="filesSection" data-i18n="Project files">Project files</button>
+      </nav>
+      <div class="workspace-context" aria-label="Current project context">
+        <div class="context-source-line">
+          <span class="context-label" data-i18n="Language / Parser">Language / Parser</span>
+          <strong id="precisionBadge" class="precision-badge">—</strong>
+          <div id="precisionProviders" class="context-provider-list">—</div>
+        </div>
+        <div class="context-runtime">
+          <span id="lastUpdated" class="muted">—</span>
+          <span id="tunnels" class="tunnel-links"></span>
+        </div>
+      </div>
+    </section>
+    <section id="architectureSection" class="architecture-stage workspace-panel" data-workspace-panel="architecture" role="tabpanel" aria-labelledby="tabArchitecture" tabindex="-1">
+      <div class="architecture-layout">
+        <div id="architectureDrilldown" class="architecture-workbench stage-surface">
+          <header class="architecture-panel-head">
+            <div class="architecture-panel-title">
+              <span class="architecture-panel-icon"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></svg></span>
+              <div>
+                <strong data-i18n="System architecture map">System architecture map</strong>
+                <span class="panel-meta" data-i18n="architecture map note">A hierarchical view of systems and their relationships across four semantic layers.</span>
+              </div>
+            </div>
+            <div class="architecture-panel-actions">
+              <div class="system-map-controls" aria-label="System map controls">
+                <button id="systemMapFit" type="button" data-i18n="Fit">Fit</button>
+                <button id="systemMapZoomOut" type="button" aria-label="Zoom out"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <span id="systemMapZoomValue" class="system-map-zoom-value" role="status">100%</span>
+                <button id="systemMapZoomIn" type="button" aria-label="Zoom in"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button id="systemMapFull" type="button" data-i18n="Open full map">Open full map</button>
+              </div>
+            </div>
+          </header>
+          <div class="architecture-canvas">
+            <div id="architectureBlueprint" class="architecture-blueprint"></div>
+            <div id="componentToolbar" class="component-toolbar hidden">
+              <button type="button" class="architecture-back" data-arch-back="blueprint"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span data-i18n="System map">System map</span></button>
+              <input id="componentSearch" type="search" placeholder="Name, responsibility or scope" data-i18n-placeholder="Name, responsibility or scope" enterkeyhint="search" aria-label="Find a component">
+              <span id="componentCount" class="panel-meta" role="status">—</span>
+            </div>
+            <div id="componentCards" class="component-cards hidden"></div>
+            <div class="architecture-graph-shell hidden">
+              <div class="architecture-ledger-toolbar"><button type="button" class="architecture-back" data-arch-back="blueprint"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span data-i18n="System map">System map</span></button><span class="panel-meta" data-i18n="Dependencies">Dependencies</span></div>
+              <div class="architecture-modes" aria-label="Dependency relation mode">
+                <button class="arch-mode active" type="button" data-arch-mode="overlay" aria-pressed="true" data-i18n="Overlay">All evidence</button>
+                <button class="arch-mode" type="button" data-arch-mode="design" aria-pressed="false" data-i18n="Design">Design</button>
+                <button class="arch-mode" type="button" data-arch-mode="actual" aria-pressed="false" data-i18n="Implementation">Implementation</button>
+              </div>
+              <div id="architectureGraph" class="dependency-ledger" role="table" aria-label="Architecture dependency ledger"></div>
+            </div>
+          </div>
+        </div>
+        <aside id="componentInspector" class="component-inspector architecture-inspector" aria-label="Architecture inspector"></aside>
+      </div>
+    </section>
 
-  <footer data-i18n="security footer">Project data is returned only after the local UI token from this page's URL fragment is presented to protected Intelligence endpoints. The fragment itself is not sent in HTTP requests or server logs.</footer>
+    <section id="overviewSection" class="overview-workspace workspace-panel hidden" data-workspace-panel="overview" role="tabpanel" aria-labelledby="tabOverview" tabindex="-1">
+      <section class="diagram-surface overview-cycle-panel" aria-labelledby="engineeringCycleTitle">
+        <header class="diagram-heading">
+          <div class="diagram-heading-icon"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M19 8a8 8 0 0 0-13-3L4 7m16 10-2 2a8 8 0 0 1-13-3"/></svg></div>
+          <div>
+            <span class="diagram-eyebrow">FROM CHANGE TO CONFIDENCE</span>
+            <h2 id="engineeringCycleTitle" data-i18n="Engineering closed loop">Engineering closed loop</h2>
+            <p data-i18n="engineering cycle meta">Understand → Plan → Implement → Prove → Learn → Observe, with evidence-bound feedback.</p>
+          </div>
+        </header>
+        <div id="engineeringFlow" class="engineering-cycle-diagram"></div>
+      </section>
+
+      <section class="overview-pulse-grid" aria-label="Current project pulse">
+        <section id="statusSummary" class="status-summary" aria-label="Project summary"><h2 data-i18n="Loading project state…">Loading project state…</h2></section>
+        <section id="stats" class="stats" aria-label="Current project metrics"></section>
+        <section id="attention" class="attention" aria-label="Actionable signals"></section>
+      </section>
+
+      <section id="engineeringSection" class="overview-engineering-suite" aria-label="Engineering signals">
+        <div class="overview-engineering-grid">
+          <section class="diagram-surface engineering-signal-card">
+            <header class="mini-diagram-head"><div><strong data-i18n="Change impact snapshot">Change impact snapshot</strong><span data-i18n="change impact snapshot meta">Files → components → requirements → verification → drift.</span></div></header>
+            <div id="changeStory"></div>
+          </section>
+          <section class="diagram-surface engineering-signal-card">
+            <header class="mini-diagram-head"><div><strong data-i18n="Runtime signals">Runtime signals</strong><span data-i18n="runtime signals meta">Endpoint, workspace guard, Harness, repository model and proof.</span></div></header>
+            <div id="runtimeTopology"></div>
+          </section>
+        </div>
+        <section class="diagram-surface engineering-timeline-card">
+          <header class="mini-diagram-head"><div><strong data-i18n="Live engineering timeline">Live engineering timeline</strong><span data-i18n="live engineering timeline meta">Recent real harness activity, verification evidence and architecture revisions in one bounded event stream.</span></div></header>
+          <div id="engineeringTimeline"></div>
+        </section>
+      </section>
+    </section>
+
+    <section class="drawer-stack" aria-label="Engineering details">
+      <section id="activitySection" class="activity-workspace workspace-panel hidden" data-workspace-panel="activity" role="tabpanel" aria-labelledby="tabActivity" tabindex="-1">
+        <div class="workspace-body"><div id="activity" class="section"></div><div id="resourceStatus" class="section"></div></div>
+      </section>
+
+      <section id="proofSection" class="proof-workspace-panel workspace-panel hidden" data-workspace-panel="proof" role="tabpanel" aria-labelledby="tabProof" tabindex="-1">
+        <div class="workspace-body proof-workspace">
+          <div id="proofSummary" class="proof-overview"></div>
+          <section class="proof-signals-panel">
+            <div class="proof-signals-head"><div><strong data-i18n="Engineering signals">Engineering signals</strong><span class="panel-meta">Signals from adaptive verification and verified repository learning.</span></div></div>
+            <div class="proof-signal-grid">
+              <section class="proof-signal-card"><h3 data-i18n="Adaptive verification">Adaptive verification</h3><div class="panel-meta" data-i18n="adaptive verification meta">Read-only preview of why the next quick verification may prioritize a focused test or fail-fast sentinel. Full coverage is unchanged.</div><div id="adaptiveVerification"></div></section>
+              <section class="proof-signal-card"><h3 data-i18n="Verified learning">Verified learning</h3><div class="panel-meta" data-i18n="verified learning meta">Temporal holdout quality of prompt-free verified co-change memory.</div><div id="verifiedLearning"></div></section>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="requirementsSection" class="requirements-workspace workspace-panel hidden" data-workspace-panel="requirements" role="tabpanel" aria-labelledby="tabRequirements" tabindex="-1">
+        <section class="diagram-surface traceability-visual" aria-labelledby="traceabilityMapTitle">
+          <header class="diagram-heading compact">
+            <div class="diagram-heading-icon"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="12" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="m7 10 3-3m4 0 3 3M7.5 13h9"/></svg></div>
+            <div><span class="diagram-eyebrow">REQUIREMENT → COMPONENT → CODE → VERIFICATION → EVIDENCE</span><h2 id="traceabilityMapTitle" data-i18n="Requirement to evidence traceability">Requirement to evidence traceability</h2><p data-i18n="traceability map meta">Follow intent through ownership, implementation, verification and revision-bound evidence.</p></div>
+          </header>
+          <div id="traceabilityMap" class="traceability-map"></div>
+        </section>
+        <section class="workspace drilldown"><aside class="panel sidebar"><div class="panel-head"><div><div class="panel-title" data-i18n="Requirements">Requirements</div><div id="reqCount" class="panel-meta">—</div></div></div><div class="sidebar-tools"><input id="reqSearch" class="search" type="search" placeholder="Search requirement, feature, component…" data-i18n-placeholder="Search requirement, feature, component…" enterkeyhint="search" autocapitalize="none" spellcheck="false"><div class="filters"><button class="filter active" data-filter="all" data-i18n="All">All</button><button class="filter" data-filter="changed" data-i18n="Changed">Changed</button><button class="filter" data-filter="drift" data-i18n="Needs convergence">Needs convergence</button><button class="filter" data-filter="incomplete" data-i18n="Incomplete">Incomplete</button></div></div><div id="requirements" class="req-list"></div></aside><div id="featureDetail" class="panel detail"><div class="section empty" data-i18n="Loading project state…">Loading project state…</div></div></section>
+      </section>
+
+      <section id="changesSection" class="changes-panel workspace-panel hidden" data-workspace-panel="changes" role="tabpanel" aria-labelledby="tabChanges" tabindex="-1">
+        <section class="diagram-surface change-convergence-visual" aria-labelledby="changeConvergenceTitle">
+          <header class="diagram-heading compact">
+            <div class="diagram-heading-icon"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></div>
+            <div><span class="diagram-eyebrow">CURRENT CHANGES → IMPACT ANALYSIS → VERIFICATION → CONFIDENCE</span><h2 id="changeConvergenceTitle" data-i18n="Change impact and convergence">Change impact and convergence</h2><p data-i18n="change convergence meta">See what changed, what it affects, which proof is needed, and what confidence remains.</p></div>
+          </header>
+          <div id="changeConvergenceMap" class="change-convergence-map"></div>
+        </section>
+        <section class="section verification-impact-panel"><div class="panel-head"><div><div class="panel-title" data-i18n="Verification impact">Verification impact</div><div class="panel-meta" data-i18n="verification impact meta">Why the current change expands verification across project islands.</div></div></div><div id="verificationImpact"></div></section>
+        <div id="changes" class="table-wrap"></div>
+      </section>
+
+      <section id="filesSection" class="structure-panel workspace-panel hidden" data-workspace-panel="files" role="tabpanel" aria-labelledby="tabFiles" tabindex="-1">
+        <div class="panel-head"><div><div class="panel-title" data-i18n="Project files">Project files</div><div class="panel-meta" data-i18n="project files meta">Browse the bounded source snapshot and find files that exceed the project line limit.</div></div><div id="structureSummary" class="structure-summary">—</div></div>
+        <div class="structure-layout"><section class="structure-pane"><h3 data-i18n="File structure">File structure</h3><div id="fileTree" class="file-tree"></div></section><section class="structure-pane"><h3 data-i18n="Largest files">Largest files</h3><div id="largeFiles" class="large-files"></div></section></div>
+      </section>
+
+      <section id="diagnosticsSection" class="secondary-workspace-section workspace-panel hidden" data-workspace-panel="overview" role="region" aria-labelledby="diagnosticsTitle" tabindex="-1">
+        <header class="secondary-section-head"><div><span class="section-kicker">DIAGNOSTICS</span><h2 id="diagnosticsTitle" data-i18n="Diagnostics &amp; history">Diagnostics &amp; history</h2><p data-i18n="Diagnostics meta">Code distribution, graph revisions and recorded risks</p></div></header>
+        <section class="lower"><div class="panel"><div class="panel-head"><div><div class="panel-title" data-i18n="Code statistics">Code statistics</div><div class="panel-meta" data-i18n="current repository snapshot">Current bounded repository snapshot.</div></div></div><div id="codeStats" class="section"></div></div><div class="panel"><div class="panel-head"><div><div class="panel-title" data-i18n="Architecture revisions">Architecture revisions</div><div class="panel-meta" data-i18n="meaningful graph snapshots">Meaningful composite-graph snapshots and structured risk.</div></div></div><div id="revisions" class="section"></div></div></section>
+      </section>
+
+      <section id="qualitySection" class="secondary-workspace-section quality-panel workspace-panel hidden" data-workspace-panel="overview" role="region" aria-labelledby="qualityTitle" tabindex="-1">
+        <header class="secondary-section-head"><div><span class="section-kicker">QUALITY</span><h2 id="qualityTitle" data-i18n="Language quality matrix">Language quality matrix</h2><p data-i18n="language quality meta">Capability coverage and gaps. Expand when you need provider detail.</p></div><span id="qualitySummary" class="summary-side">—</span></header>
+        <div id="languageQuality" class="table-wrap quality-table-wrap"></div>
+      </section>
+    </section>
+
+    <footer data-i18n="security footer">Project data is returned only after the local UI token from this page's URL fragment is presented to protected Intelligence endpoints. The fragment itself is not sent in HTTP requests or server logs.</footer>
+  </main>
 </div>
 </body>
 </html>

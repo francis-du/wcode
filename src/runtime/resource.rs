@@ -106,13 +106,17 @@ impl ResourceLimits {
                 4
             })
             .max(1);
-        let child_processes = if max_memory_mb <= 256 {
-            1
-        } else if max_memory_mb <= 1_024 {
-            2
-        } else {
-            4
-        };
+        // Heavy repository commands used to bottleneck at two global children
+        // for the default 512 MiB profile, even when eight foreground CPU lanes
+        // and most of the memory budget were idle. Scale conservatively by both
+        // memory and CPU: ~160 MiB of soft budget per child, while the aggregate
+        // advertised child threads never meaningfully exceeds foreground lanes.
+        let child_processes = usize::try_from(max_memory_mb / 160)
+            .unwrap_or(8)
+            .clamp(1, 8)
+            .min(cpu_burst_threads.div_ceil(child_threads).max(1))
+            .min(requested_parallel_tools)
+            .max(1);
         let interactive_cpu_percent = cpu_burst_threads as f64 * 100.0;
 
         Ok(Self {
@@ -608,16 +612,34 @@ impl ResourceGovernor {
         telemetry.throttle_sleep += delay;
     }
 
+    #[cfg(test)]
     pub async fn acquire_child(&self) -> Result<OwnedSemaphorePermit, String> {
-        self.admit_tool().await?;
-        self.child_slot.acquire().await
+        self.acquire_child_with_wait()
+            .await
+            .map(|(permit, _)| permit)
     }
 
-    pub(crate) async fn acquire_git_probe(&self) -> Result<OwnedSemaphorePermit, String> {
-        // Scheduling class is not authorization. The caller validates the
-        // command and obtains normal workspace grants before reaching here.
+    pub(crate) async fn acquire_child_with_wait(
+        &self,
+    ) -> Result<(OwnedSemaphorePermit, u64), String> {
         self.admit_tool().await?;
-        self.probe_slot.acquire().await
+        self.child_slot.acquire_with_wait().await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn acquire_probe(&self) -> Result<OwnedSemaphorePermit, String> {
+        self.acquire_probe_with_wait()
+            .await
+            .map(|(permit, _)| permit)
+    }
+
+    pub(crate) async fn acquire_probe_with_wait(
+        &self,
+    ) -> Result<(OwnedSemaphorePermit, u64), String> {
+        // Scheduling class is not authorization. Only exact, bounded inspection
+        // shapes reach this lane after normal command policy and workspace grants.
+        self.admit_tool().await?;
+        self.probe_slot.acquire_with_wait().await
     }
 
     pub fn background_ready(&self) -> bool {

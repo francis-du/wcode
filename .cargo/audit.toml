@@ -1,0 +1,5 @@
+# Repository declaration for RustSec/cargo-audit. The release workflow runs
+# the audit against Cargo.lock; informational warnings remain advisory while
+# known vulnerabilities fail the cargo-audit action.
+[output]
+quiet = false

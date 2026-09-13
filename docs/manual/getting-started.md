@@ -144,8 +144,8 @@ OVERVIEW panel is removed. Short terminals use a compact header, and 30-second
 throughput appears only when recent traffic and available space justify it.
 The useful keys are:
 
-- `I` — Intelligence overlay.
-- `W` — open the protected Project Observatory for the focused Workspace.
+- `I` — Repository Intelligence overlay.
+- `W` — open the protected Engineering Observatory for the focused Workspace.
 - `O` — reopen Setup Hub.
 - `L` — switch TUI language manually.
 - `+` — add a Workspace.

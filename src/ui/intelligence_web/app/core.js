@@ -12,13 +12,42 @@ const savedTheme = readPreference("wcode.ui.theme");
 const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
 const translations = {
   "zh-CN": {
-    "Project Observatory": "项目观测台",
+    "Engineering Observatory": "工程观测台",
+    "Project digital twin": "项目数字孪生",
+    "Overview": "总览",
+    "Architecture": "架构",
+    "Activity": "活动",
+    "Proof": "证据",
+    "Engineering": "工程",
+    "Changes": "变更",
+    "Files": "文件",
+    "Diagnostics": "诊断",
+    "Quality": "质量",
+    "rail note": "先看架构与变更链，需要证据时再展开原始表格。",
+    "Find subsystem, component, requirement or file…": "搜索子系统、组件、需求或文件…",
+    "Search systems, components, requirements…": "搜索系统、组件、需求…",
+    "Project navigator": "项目导航",
     "observatory subtitle":
-      "实时查看目标状态、实现、变更、证据与收敛，并始终显示数据 Provider 与 Precision。",
+      "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
     "auto refresh": "自动刷新",
     "Refresh semantics": "刷新语义",
     "Manage access": "管理访问",
+    "Semantics": "语义",
+    "Access": "访问",
     "Refresh now": "立即刷新",
+    "Fit": "适配全图",
+    "Open full map": "打开全图",
+    "System architecture map": "系统架构地图",
+    "Blueprint": "蓝图",
+    "System map": "系统地图",
+    "architecture map note": "四个语义层展示系统全貌；精确依赖证据统一在“依赖”账本中查看。",
+    "Dependencies": "依赖",
+    "Data source": "数据来源",
+    "View": "视图",
+    "Relationships": "关系",
+    "Focus": "聚焦",
+    "All relationships": "全部",
+    "Zoom": "缩放",
     "Connecting": "连接中",
     "Live": "实时",
     "Syncing": "同步中",
@@ -181,6 +210,7 @@ Object.assign(translations["zh-CN"], {
   "High risk": "高风险",
   "provider precision": "数据来源精度",
   "Workspace": "工作区",
+  "Language / Parser": "语言 / 解析器",
   "Language": "语言",
   "Revoke": "撤销",
   "complete": "完整",
@@ -243,8 +273,18 @@ Object.assign(translations["zh-CN"], {
   "security footer":
     "只有在本页面 URL 片段中的本地 UI 令牌被提交给受保护的智能端点后，项目数据才会返回。URL 片段本身不会进入 HTTP 请求或服务器日志。",
   "Architecture overview": "整体架构",
+  "Engineering architecture": "工程架构",
+  "Architecture blueprint": "架构蓝图",
+  "Live engineering flow": "实时工程流",
+  "live engineering flow meta": "实时投影仓库理解、受控修改、验证证明、经验学习和观测状态。",
+  "Vibe coding change story": "Vibe Coding 变更链",
+  "vibe coding change story meta": "文件 → 组件 → 需求 → 验证 → 已确认架构偏离。",
+  "Live engineering timeline": "实时工程时间线",
+  "live engineering timeline meta": "把真实 Harness 活动、验证证据和架构版本合成一条有界事件流。",
+  "Engineering signals": "工程信号",
+  "engineering signals meta": "工程流、变更链、运行拓扑与最近工程事件。",
   "architecture overview meta":
-    "对比完整的设计组件架构与当前实现中实际观测到的依赖。",
+    "先按分层蓝图读懂系统，再下钻组件或查看原始依赖图。",
   "Overlay": "叠加对比",
   "Design": "设计",
   "Implementation": "实现",
@@ -299,19 +339,40 @@ Object.assign(translations["zh-CN"], {
 });
 
 Object.assign(translations["zh-CN"], {
-  "observatory subtitle": "看清正在执行的工作、需要处理的问题，以及真正完成的验证。",
+  "observatory subtitle": "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
   "Task activity": "任务活动", "Verification evidence": "验证证据",
+  "Engineering closed loop": "工程闭环流程",
+  "engineering cycle meta": "理解 → 规划 → 实施 → 证明 → 学习 → 观测，并通过版本绑定证据形成持续反馈。",
+  "Change impact snapshot": "变更影响快照",
+  "change impact snapshot meta": "文件 → 组件 → 需求 → 验证 → 偏离。",
+  "Runtime signals": "运行时信号",
+  "runtime signals meta": "入口、工作区边界、Harness、仓库模型与验证状态。",
+  "Requirement to evidence traceability": "需求到证据追踪",
+  "traceability map meta": "沿需求意图追踪到归属组件、实现代码、验证检查与版本绑定证据。",
+  "Change impact and convergence": "变更影响与收敛",
+  "change convergence meta": "看清改了什么、影响什么、需要哪些证明，以及最终还剩多少风险与信心。",
   "Task activity meta": "正在执行的任务优先。等待时间与执行时间分别展示。",
   "Proof meta": "当前版本、历史结果与尚未验证的工作，分别展示。",
-  "Component map": "组件地图", "Dependency graph": "依赖连线图",
+  "Components": "组件", "Component map": "组件地图", "Dependency graph": "依赖连线图",
   "Find a component": "查找组件", "Name, responsibility or scope": "搜索名称、职责或所属范围",
   "Explore requirement details": "查看实现、验收条件与依赖证据",
   "Diagnostics & history": "诊断与历史", "Diagnostics meta": "代码分布、图谱版本与已记录风险",
+  "Verification impact": "验证影响",
+  "verification impact meta": "解释当前改动为什么会扩大到这些项目岛的验证范围。",
+  "Adaptive verification": "自适应验证",
+  "adaptive verification meta": "只读预览下一次 quick 为什么可能优先运行聚焦测试或 fail-fast sentinel；full 覆盖保持不变。",
+  "Verified learning": "验证学习",
+  "verified learning meta": "按全局时间隔离评估不保存提示词的已验证共改记忆。",
+  "Live runtime topology": "实时运行拓扑",
+  "live runtime topology meta": "从真实运行遥测投影当前入口、MCP/授权、工作区边界、Harness 队列、仓库模型和验证状态。",
 });
 
 const q = (id) => document.querySelector(id);
 const els = {
   workspace: q("#workspace"),
+  workspaceKicker: q("#workspaceKicker"),
+  workspaceTitle: q("#workspaceTitle"),
+  workspaceSubtitle: q("#workspaceSubtitle"),
   language: q("#language"),
   theme: q("#theme"),
   manage: q("#manage"),
@@ -337,12 +398,27 @@ const els = {
   activity: q("#activity"),
   resourceStatus: q("#resourceStatus"),
   proofSummary: q("#proofSummary"),
+  adaptiveVerification: q("#adaptiveVerification"),
+  verifiedLearning: q("#verifiedLearning"),
   componentCards: q("#componentCards"),
+  componentToolbar: q("#componentToolbar"),
+  architectureDrilldown: q("#architectureDrilldown"),
   componentSearch: q("#componentSearch"),
   componentCount: q("#componentCount"),
   attention: q("#attention"),
-  architectureMetrics: q("#architectureMetrics"),
+  architectureBlueprint: q("#architectureBlueprint"),
+  engineeringFlow: q("#engineeringFlow"),
+  changeStory: q("#changeStory"),
+  runtimeTopology: q("#runtimeTopology"),
+  engineeringTimeline: q("#engineeringTimeline"),
+  traceabilityMap: q("#traceabilityMap"),
+  changeConvergenceMap: q("#changeConvergenceMap"),
   architectureGraph: q("#architectureGraph"),
+  systemMapFit: q("#systemMapFit"),
+  systemMapZoomOut: q("#systemMapZoomOut"),
+  systemMapZoomIn: q("#systemMapZoomIn"),
+  systemMapZoomValue: q("#systemMapZoomValue"),
+  systemMapFull: q("#systemMapFull"),
   componentInspector: q("#componentInspector"),
   requirements: q("#requirements"),
   reqCount: q("#reqCount"),
@@ -353,6 +429,7 @@ const els = {
   codeStats: q("#codeStats"),
   revisions: q("#revisions"),
   changes: q("#changes"),
+  verificationImpact: q("#verificationImpact"),
   structureSummary: q("#structureSummary"),
   fileTree: q("#fileTree"),
   largeFiles: q("#largeFiles"),
@@ -361,10 +438,12 @@ const els = {
   refreshSemantic: q("#refreshSemantic"),
   syncDot: q("#syncDot"),
   syncState: q("#syncState"),
-  projectIdentity: q("#projectIdentity"),
   precisionBadge: q("#precisionBadge"),
+  precisionProviders: q("#precisionProviders"),
   lastUpdated: q("#lastUpdated"),
   tunnels: q("#tunnels"),
+  projectNavigator: q("#projectNavigator"),
+  navigatorResults: q("#navigatorResults"),
 };
 
 const state = {
@@ -392,9 +471,18 @@ const state = {
   activityUpdated: 0,
   activityController: null,
   pollController: null,
+  tunnelSnapshot: null,
+  tunnelBusy: false,
   syncError: false,
   lastChecked: 0,
-  architectureView: "components",
+  workspaceTab: "architecture",
+  architectureView: "blueprint",
+  systemMapScale: 1,
+  systemMapFit: true,
+  systemMapFull: false,
+  selectedSubsystem: "",
+  selectedEvidenceKey: "",
+  evidenceInspectorOpen: true,
   selected: "",
   selectedComponent: "",
   filter: "all",
@@ -404,6 +492,7 @@ const state = {
   theme: ["system", "dark", "light"].includes(savedTheme)
     ? savedTheme
     : "system",
+  autoRefresh: true,
   rendered: new Map(),
   controller: null,
   requestEpoch: 0,
@@ -455,6 +544,36 @@ const time = (ms) =>
     : "—";
 const pill = (label, cls = "") =>
   `<span class="pill ${cls}">${esc(label)}</span>`;
+const uiIcon = (name, cls = "") => {
+  const paths = {
+    cube: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/>',
+    layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
+    network: '<circle cx="5" cy="12" r="2.5"/><circle cx="12" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="m7 10 3-3m4 0 3 3M7.5 13h9"/>',
+    document: '<path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18"/>',
+    shield: '<path d="M12 2 20 5v6c0 5-3.4 8.6-8 11-4.6-2.4-8-6-8-11V5l8-3Z"/>',
+    database: '<ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"/>',
+    terminal: '<path d="m4 7 5 5-5 5M11 18h9"/>',
+    monitor: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/>',
+    code: '<path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+    sync: '<path d="M20 7h-5V2M4 17h5v5M19 8a8 8 0 0 0-13-3L4 7m16 10-2 2a8 8 0 0 1-13-3"/>',
+    warning: '<path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5M12 17h.01"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+    book: '<path d="M4 4h6a3 3 0 0 1 3 3v13a4 4 0 0 0-4-4H4zM20 4h-6a3 3 0 0 0-3 3v13a4 4 0 0 1 4-4h5z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    "chevron-up": '<path d="m7 14 5-5 5 5"/>',
+    "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+    "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06-2.12 2.12-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21h-3v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06-2.12-2.12.06-.06a1.8 1.8 0 0 0 .36-2A1.8 1.8 0 0 0 5 14.4H5v-3h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06L8.44 6.1l.06.06a1.8 1.8 0 0 0 2 .36A1.8 1.8 0 0 0 11.6 4.9V4h3v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06 2.12 2.12-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H21v3h-.09A1.8 1.8 0 0 0 19.4 15Z"/>',
+  };
+  return `<svg class="ui-icon ${esc(cls)}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.cube}</svg>`;
+};
 const statusClass = (value) => {
   const v = String(value || "").toLowerCase();
   if (
@@ -532,27 +651,39 @@ function setAccessPanel(open, restoreFocus = true) {
   }
 }
 async function refreshTunnels() {
+  if (state.tunnelBusy) return;
+  state.tunnelBusy = true;
   try {
     const response = await fetch("/healthz");
     if (!response.ok) return;
     const data = await response.json();
+    state.tunnelSnapshot = data;
     const tunnels = data.tunnels || [];
     let html = "";
     if (tunnels.length) {
-      html = tunnels.map((tunnel) =>
-        `<a class="tunnel-chip" href="${
-          esc(tunnel.url)
-        }" target="_blank" rel="noreferrer" title="${esc(tunnel.url)}"><i></i>${
-          esc(tunnel.provider)
-        }</a>`
-      ).join("");
+      html = tunnels.map((tunnel) => {
+        const detail = [
+          tunnel.role || "—",
+          tunnel.state || "—",
+          tunnel.lease_age_seconds == null ? null : `lease ${tunnel.lease_age_seconds}s`,
+          tunnel.retry_in_seconds == null ? null : `retry ${tunnel.retry_in_seconds}s`,
+          Number(tunnel.death_count || 0) ? `deaths ${tunnel.death_count}` : null,
+        ].filter(Boolean).join(" · ");
+        const label = `${tunnel.provider || "tunnel"} · ${tunnel.role || tunnel.state || "unknown"}`;
+        if (tunnel.url) {
+          return `<a class="tunnel-chip" href="${esc(tunnel.url)}" target="_blank" rel="noreferrer" title="${esc(`${tunnel.url} · ${detail}`)}"><i></i>${esc(label)}</a>`;
+        }
+        return `<span class="tunnel-chip connecting" title="${esc(detail)}"><i></i>${esc(`${tunnel.provider || "tunnel"} · ${tunnel.state || "retrying"}`)}</span>`;
+      }).join("");
     } else if (data.public_endpoint === "pending") {
       html = `<span class="tunnel-chip connecting">${
         esc(localized("tunnels connecting…", "隧道连接中…"))
       }</span>`;
     }
     setHtml("tunnels", els.tunnels, html);
+    renderRuntimeTopology();
   } catch {}
+  finally { state.tunnelBusy = false; }
 }
 function setSync(kind, label) {
   els.syncDot.className = `sync-dot ${kind}`;
@@ -561,15 +692,24 @@ function setSync(kind, label) {
 }
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
-  els.theme.value = state.theme;
   const light = state.theme === "light" ||
     (state.theme === "system" && systemThemeQuery.matches);
+  if (els.theme) {
+    els.theme.setAttribute("aria-pressed", String(state.theme !== "system"));
+    els.theme.setAttribute("data-theme-state", state.theme);
+    els.theme.title = `${t("Theme")} · ${t(state.theme === "system" ? "System" : state.theme === "dark" ? "Dark" : "Light")}`;
+    els.theme.classList.toggle("light-active", light);
+  }
   const themeColor = document.querySelector('meta[name="theme-color"]');
-  if (themeColor) themeColor.content = light ? "#f7f5ef" : "#171714";
+  if (themeColor) themeColor.content = light ? "#f8f6fc" : "#0b0812";
+}
+function applyAutoRefreshControl() {
+  els.auto.setAttribute("aria-pressed", String(state.autoRefresh));
+  els.auto.classList.toggle("active", state.autoRefresh);
+  els.auto.textContent = state.autoRefresh ? t("Live") : localized("Paused", "暂停");
 }
 function applyLanguage() {
   document.documentElement.lang = state.language;
-  els.language.value = state.language;
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
@@ -578,10 +718,10 @@ function applyLanguage() {
   });
   els.workspace.setAttribute("aria-label", t("Workspace"));
   els.language.setAttribute("aria-label", t("Language"));
+  const languageLabel = els.language.querySelector("strong");
+  if (languageLabel) languageLabel.textContent = state.language === "zh-CN" ? "EN" : "中";
   els.theme.setAttribute("aria-label", t("Theme"));
-  els.theme.querySelector('[value="system"]').textContent = t("System");
-  els.theme.querySelector('[value="dark"]').textContent = t("Dark");
-  els.theme.querySelector('[value="light"]').textContent = t("Light");
+  applyAutoRefreshControl();
   els.workspacePath.placeholder = t("Absolute or relative project path");
   els.commandCandidate.placeholder = state.language === "zh-CN"
     ? "可执行程序名，例如 hugo"

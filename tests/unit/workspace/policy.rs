@@ -40,7 +40,7 @@ async fn repository_commands_request_exact_authorization_instead_of_staying_hard
 }
 
 #[test]
-fn git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
+fn inspection_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
     for command in [
         vec!["status", "--short", "--untracked-files=all"],
         vec!["status", "--short", "--branch"],
@@ -48,7 +48,7 @@ fn git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
         vec!["diff", "--cached", "--numstat"],
         vec!["branch", "--show-current"],
     ] {
-        assert!(is_git_probe("git", &args(&command)));
+        assert!(is_inspection_probe("git", &args(&command)));
     }
     for command in [
         vec!["commit", "-m", "status"],
@@ -59,10 +59,98 @@ fn git_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
         vec!["-c", "core.fsmonitor=helper", "status"],
         vec!["push", "origin", "main"],
     ] {
-        assert!(!is_git_probe("git", &args(&command)), "{command:?}");
+        assert!(!is_inspection_probe("git", &args(&command)), "{command:?}");
     }
-    assert!(!is_git_probe("cargo", &args(&["check"])));
-    assert!(!is_git_probe("python3", &args(&["--version"])));
+    assert!(is_inspection_probe("cargo", &args(&["fmt", "--check"])));
+    assert!(is_inspection_probe(
+        "cargo",
+        &args(&["metadata", "--no-deps", "--format-version", "1"]),
+    ));
+    assert!(!is_inspection_probe("cargo", &args(&["metadata"])));
+    assert!(!is_inspection_probe("cargo", &args(&["check"])));
+    assert!(!is_inspection_probe("cargo", &args(&["fmt"])));
+    assert!(!is_inspection_probe("python3", &args(&["--version"])));
+}
+
+#[tokio::test]
+async fn focused_rust_test_filter_runs_without_runtime_authorization() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname='focused-filter'\nversion='0.1.0'\nedition='2021'\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn focused_smoke() { assert_eq!(super::value(), 1); }\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, true).unwrap();
+    let result = workspace
+        .run_verification_command("cargo", &args(&["test", "focused_smoke"]), ".", 30)
+        .await
+        .expect("bounded focused test should remain in the autonomous verification lane");
+    assert!(result.success, "focused test failed: {}", result.stderr);
+    assert!(workspace.authorization.latest_pending().is_none());
+}
+
+#[test]
+fn focused_rust_test_filter_is_exact_and_does_not_open_arbitrary_test_arguments() {
+    for values in [
+        vec!["test", "focused_smoke"],
+        vec!["test", "--locked", "focused_smoke_2"],
+        vec!["test", "200"],
+        vec!["test", "module::focused_smoke"],
+    ] {
+        assert!(validate_verification_command_shape("cargo", &args(&values)).is_ok());
+    }
+    for values in [
+        vec!["test", "--locked", "focused_smoke", "--", "--nocapture"],
+        vec!["test", "focused::"],
+        vec!["test", "../focused"],
+        vec!["test", "--exact"],
+        vec!["test", "--manifest-path", "other/Cargo.toml"],
+    ] {
+        assert!(validate_verification_command_shape("cargo", &args(&values)).is_err());
+    }
+}
+
+#[test]
+fn focused_python_and_go_test_filters_are_exact_and_path_bounded() {
+    let safe = WorkspaceSecurity::default();
+    for (program, values) in [
+        ("pytest", vec!["-q", "tests/test_engine.py::test_run"]),
+        ("go", vec!["test", ".", "-run", "^TestRun$"]),
+        ("go", vec!["test", "./pkg/engine", "-run", "^TestRun2$"]),
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape(program, &command).is_ok());
+        assert!(validate_command_policy(program, &command, safe).is_ok());
+    }
+
+    for (program, values) in [
+        ("pytest", vec!["-q", "../tests/test_engine.py::test_run"]),
+        ("pytest", vec!["-q", "tests/test_engine.py::TestRun"]),
+        (
+            "pytest",
+            vec!["-q", "tests/test_engine.py::Suite::test_run"],
+        ),
+        (
+            "pytest",
+            vec!["-q", "tests/test_engine.py::test_run", "-k", "smoke"],
+        ),
+        ("go", vec!["test", "./...", "-run", "^TestRun$"]),
+        ("go", vec!["test", "../pkg", "-run", "^TestRun$"]),
+        ("go", vec!["test", "./pkg", "-run", "TestRun"]),
+        ("go", vec!["test", "./pkg", "-run", "^Testlower$"]),
+        ("go", vec!["test", "./pkg", "-run", "^TestRun$", "-count=1"]),
+    ] {
+        assert!(
+            validate_verification_command_shape(program, &args(&values)).is_err(),
+            "focused verification shape unexpectedly accepted {program} {values:?}"
+        );
+    }
 }
 
 #[test]
@@ -86,6 +174,12 @@ fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
     for values in [
         vec!["clippy", "--all-targets", "--fix", "--", "-D", "warnings"],
         vec!["clippy", "--all-targets", "--", "-A", "warnings"],
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape("cargo", &command).is_err());
+        assert!(validate_command_policy("cargo", &command, safe).is_ok());
+    }
+    for values in [
         vec!["clippy", "--all-targets", "--config", "other.toml"],
         vec![
             "clippy",
@@ -97,6 +191,125 @@ fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
         let command = args(&values);
         assert!(validate_verification_command_shape("cargo", &command).is_err());
         assert!(validate_command_policy("cargo", &command, safe).is_err());
+    }
+}
+
+#[test]
+fn common_full_suite_cargo_and_flutter_verification_is_autonomous() {
+    let safe = WorkspaceSecurity::default();
+    for (program, values) in [
+        ("cargo", vec!["test", "--workspace", "--no-fail-fast"]),
+        ("cargo", vec!["check", "--workspace", "--all-targets"]),
+        (
+            "cargo",
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        ),
+        ("cargo", vec!["fmt", "--all", "--", "--check"]),
+        ("flutter", vec!["analyze", "--no-pub"]),
+        ("flutter", vec!["test", "--no-pub"]),
+        (
+            "flutter",
+            vec!["test", "--no-pub", "--file-reporter=json:test-results.json"],
+        ),
+        (
+            "flutter",
+            vec!["build", "web", "--release", "--wasm", "--no-pub"],
+        ),
+    ] {
+        let command = args(&values);
+        assert!(
+            validate_verification_command_shape(program, &command).is_ok(),
+            "verification shape unexpectedly gated: {program} {values:?}"
+        );
+        assert!(
+            validate_command_policy(program, &command, safe).is_ok(),
+            "safe command policy unexpectedly gated: {program} {values:?}"
+        );
+    }
+
+    for (program, values) in [
+        (
+            "cargo",
+            vec!["test", "--manifest-path", "../other/Cargo.toml"],
+        ),
+        ("cargo", vec!["clippy", "--fix", "--", "-D", "warnings"]),
+        ("flutter", vec!["pub", "publish"]),
+        (
+            "flutter",
+            vec!["test", "--file-reporter=json:/tmp/out.json"],
+        ),
+        (
+            "flutter",
+            vec!["test", "--file-reporter=json:.wcode-test.json"],
+        ),
+        ("flutter", vec!["test", "--concurrency=0"]),
+        (
+            "flutter",
+            vec!["build", "web", "--dart-define=TOKEN=secret"],
+        ),
+    ] {
+        assert!(
+            validate_verification_command_shape(program, &args(&values)).is_err(),
+            "unsafe verification shape unexpectedly accepted: {program} {values:?}"
+        );
+    }
+}
+
+#[test]
+fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
+    let safe = WorkspaceSecurity::default();
+    for (program, values) in [
+        ("go", vec!["vet", "./..."]),
+        ("mvn", vec!["-q", "-DskipTests", "compile"]),
+        ("mvn", vec!["test"]),
+        ("gradle", vec!["classes"]),
+        ("gradle", vec!["check"]),
+        ("swift", vec!["build"]),
+        ("swift", vec!["test"]),
+        ("dart", vec!["analyze"]),
+        ("dart", vec!["test"]),
+        (
+            "dart",
+            vec!["format", "-o", "none", "--set-exit-if-changed", "."],
+        ),
+        ("mix", vec!["format", "--check-formatted"]),
+        ("mix", vec!["compile", "--warnings-as-errors"]),
+        ("mix", vec!["test"]),
+        ("dune", vec!["build"]),
+        ("dune", vec!["runtest"]),
+        ("bundle", vec!["exec", "rubocop", "--format", "json"]),
+        ("bundle", vec!["exec", "rspec"]),
+        ("phpstan", vec!["analyse", "--error-format=json"]),
+        ("psalm", vec!["--output-format=json"]),
+        ("phpunit", vec![]),
+        ("php-cs-fixer", vec!["fix", "--dry-run", "--diff"]),
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape(program, &command).is_ok());
+        assert!(validate_command_policy(program, &command, safe).is_ok());
+    }
+    for (program, values) in [
+        ("mvn", vec!["deploy"]),
+        ("gradle", vec!["publish"]),
+        ("swift", vec!["sdk", "list"]),
+        ("dart", vec!["pub", "publish"]),
+        ("mix", vec!["hex.publish"]),
+        ("dune", vec!["exec", "./tool.exe"]),
+        ("bundle", vec!["exec", "rake", "db:migrate"]),
+        ("phpstan", vec!["analyse", "--debug"]),
+        ("phpunit", vec!["--filter", "smoke"]),
+        ("php-cs-fixer", vec!["fix"]),
+    ] {
+        let command = args(&values);
+        assert!(validate_verification_command_shape(program, &command).is_err());
+        assert!(validate_command_policy(program, &command, safe).is_err());
     }
 }
 
@@ -170,22 +383,24 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
         validate_gh_command(&args(&["pr", "merge", "42", "--admin", "--squash"]), true).is_err()
     );
 
-    assert!(validate_repository_runner("just", false).is_err());
-    assert!(validate_repository_runner("task", true).is_ok());
+    assert!(validate_repository_runner("just", &args(&["check"]), false).is_ok());
+    assert!(validate_repository_runner("task", &args(&["test"]), false).is_ok());
+    assert!(validate_repository_runner("just", &args(&["deploy"]), false).is_err());
     assert!(validate_uv_command(&args(&["lock", "--check"]), false).is_ok());
     assert!(validate_uv_command(&args(&["tree", "--locked"]), false).is_ok());
-    assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), false).is_err());
-    assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), true).is_ok());
+    assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), false).is_ok());
+    assert!(validate_uv_command(&args(&["run", "custom-script"]), false).is_err());
     assert!(validate_uv_command(&args(&["auth", "login"]), true).is_err());
 
     assert!(validate_ruff_command(&args(&["check", "."]), false).is_ok());
-    assert!(validate_ruff_command(&args(&["check", "--fix", "."]), false).is_err());
+    assert!(validate_ruff_command(&args(&["check", "--fix", "."]), false).is_ok());
     assert!(validate_ruff_command(&args(&["format", "--check", "."]), false).is_ok());
     assert!(validate_biome_command(&args(&["ci", "."]), false).is_ok());
-    assert!(validate_biome_command(&args(&["check", "--write", "."]), false).is_err());
+    assert!(validate_biome_command(&args(&["check", "--write", "."]), false).is_ok());
     assert!(validate_deno_command(&args(&["lint"]), false).is_ok());
     assert!(validate_deno_command(&args(&["fmt", "--check"]), false).is_ok());
-    assert!(validate_deno_command(&args(&["run", "main.ts"]), false).is_err());
+    assert!(validate_deno_command(&args(&["run", "main.ts"]), false).is_ok());
+    assert!(validate_deno_command(&args(&["run", "--allow-all", "main.ts"]), false).is_err());
 
     assert!(validate_docker_command(&args(&["compose", "config"]), false).is_err());
     assert!(validate_docker_command(&args(&["compose", "config"]), true).is_ok());
@@ -211,8 +426,7 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_jq_command(&args(&["--rawfile", "secret", ".env", "."])).is_err());
 
     assert!(validate_dotnet_command(&args(&["--info"]), false).is_ok());
-    assert!(validate_dotnet_command(&args(&["test", "--no-restore"]), false).is_err());
-    assert!(validate_dotnet_command(&args(&["test", "--no-restore"]), true).is_ok());
+    assert!(validate_dotnet_command(&args(&["test", "--no-restore"]), false).is_ok());
     assert!(validate_dotnet_command(&args(&["tool", "install", "x"]), true).is_err());
     for program in [
         "cmake",
@@ -222,48 +436,56 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
         "swift",
         "zig",
         "pre-commit",
-        "act",
     ] {
-        assert!(validate_known_project_runner(program, &args(&["check"]), false).is_err());
-        assert!(validate_known_project_runner(program, &args(&["check"]), true).is_ok());
+        assert!(validate_known_project_runner(program, &args(&["check"]), false).is_ok());
     }
+    assert!(validate_known_project_runner("act", &args(&["check"]), false).is_err());
+    assert!(validate_known_project_runner("act", &args(&["check"]), true).is_ok());
     assert!(validate_known_project_runner("mvn", &args(&["deploy"]), true).is_err());
     assert!(validate_known_project_runner("gradle", &args(&["publish"]), true).is_err());
     assert!(validate_known_project_runner("swift", &args(&["sdk", "list"]), true).is_err());
     assert!(validate_known_project_runner("act", &args(&["--privileged"]), true).is_err());
 
-    assert!(validate_cargo_command(&args(&["nextest", "run"]), false).is_err());
-    assert!(validate_cargo_command(&args(&["nextest", "run", "--locked"]), false).is_err());
-    assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), false).is_err());
-    assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), true).is_ok());
+    assert!(validate_cargo_command(&args(&["nextest", "run"]), false).is_ok());
+    assert!(validate_cargo_command(&args(&["nextest", "run", "--locked"]), false).is_ok());
+    assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), false).is_ok());
     assert!(validate_cargo_command(&args(&["nextest", "archive"]), true).is_err());
     assert!(validate_git_command(&args(&["lfs", "status"]), false).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_err());
+    assert!(validate_package_command("npm", &args(&["test"]), false).is_ok());
+    assert!(validate_package_command("npm", &args(&["ci"]), false).is_ok());
+    assert!(
+        validate_package_command("pnpm", &args(&["install", "--frozen-lockfile"]), false).is_ok()
+    );
+    assert!(validate_package_command("npm", &args(&["install", "left-pad"]), false).is_err());
+    assert!(validate_package_command("pnpm", &args(&["run", "build"]), false).is_ok());
+    assert!(validate_package_command("yarn", &args(&["run", "lint"]), false).is_ok());
+    assert!(validate_package_command("npm", &args(&["run", "deploy"]), false).is_err());
+    assert!(validate_python_command(&args(&["-m", "pytest", "-q"]), false).is_ok());
+    assert!(validate_python_command(&args(&["-m", "unittest"]), false).is_ok());
+    assert!(validate_python_command(&args(&["-c", "print('x')"]), false).is_err());
+    assert!(validate_node_command(&args(&["--test"]), false).is_ok());
+    assert!(validate_node_command(&args(&["--check", "index.js"]), false).is_ok());
+    assert!(validate_node_command(&args(&["index.js"]), false).is_err());
+    assert!(validate_cargo_command(&args(&["fetch", "--locked"]), false).is_ok());
+    assert!(validate_cargo_command(&args(&["update"]), false).is_ok());
+    assert!(validate_go_command(&args(&["mod", "download"]), false).is_ok());
+    assert!(validate_go_command(&args(&["mod", "tidy"]), false).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), true).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "--all", "origin"]), true).is_err());
 }
 
-#[tokio::test]
-async fn audit_git_literal_messages_request_approval_without_path_misclassification() {
-    let root = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(root.path(), true, true).unwrap();
+#[test]
+fn audit_git_literal_messages_remain_text_without_triggering_path_guards() {
     for command in [
         vec!["commit", "-m", "../migration note"],
         vec!["commit", "--message=.env"],
         vec!["commit", "-m", "/healthz endpoint"],
         vec!["tag", "-a", "v-test", "-m", ".env"],
     ] {
-        let error = workspace
-            .run_command("git", &args(&command), ".", 1)
-            .await
-            .unwrap_err();
-        let required = error
-            .downcast_ref::<crate::authorization::AuthorizationRequired>()
-            .unwrap_or_else(|| {
-                panic!("literal message must request approval: {command:?}: {error}")
-            });
-        assert_eq!(required.request.kind, AuthorizationKind::RiskyExecution);
-        assert!(workspace.authorization.deny(&required.request.id));
+        assert!(
+            validate_command_policy("git", &args(&command), WorkspaceSecurity::default()).is_ok()
+        );
     }
     for command in [
         vec!["add", "--", "../outside"],
@@ -284,7 +506,7 @@ async fn audit_git_literal_messages_request_approval_without_path_misclassificat
 }
 
 #[test]
-fn ordinary_git_lifecycle_uses_approval_instead_of_permanent_denial() {
+fn ordinary_git_lifecycle_is_autonomous_while_destructive_variants_stay_blocked() {
     for command in [
         vec!["branch", "feature/example"],
         vec!["branch", "feature/example", "HEAD"],
@@ -295,11 +517,7 @@ fn ordinary_git_lifecycle_uses_approval_instead_of_permanent_denial() {
         vec!["restore", "--staged", "--", "src/lib.rs"],
     ] {
         assert!(
-            validate_git_command(&args(&command), false).is_err(),
-            "{command:?}"
-        );
-        assert!(
-            validate_git_command(&args(&command), true).is_ok(),
+            validate_git_command(&args(&command), false).is_ok(),
             "{command:?}"
         );
     }
@@ -350,7 +568,7 @@ async fn invalid_commands_do_not_create_useless_approval_requests() {
 }
 
 #[tokio::test]
-async fn git_branch_approval_is_effective_and_does_not_grant_other_operations() {
+async fn bounded_git_commit_and_branch_run_without_authorization() {
     let root = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| {
         std::process::Command::new("git")
@@ -374,49 +592,42 @@ async fn git_branch_approval_is_effective_and_does_not_grant_other_operations() 
         "-m",
         "initial"
     ]));
+    fs::write(root.path().join("tracked.txt"), "autonomous\n").unwrap();
     let workspace = Workspace::new(root.path(), true, true).unwrap();
-    let command = args(&["branch", "approved-feature"]);
-    assert!(workspace
-        .run_command("git", &command, ".", 10)
-        .await
-        .is_err());
-    let denied = workspace.authorization.latest_pending().unwrap();
-    assert_eq!(denied.kind, AuthorizationKind::RiskyExecution);
-    assert!(workspace.authorization.deny(&denied.id));
-    assert!(!git(&[
-        "rev-parse",
-        "--verify",
-        "refs/heads/approved-feature"
-    ]));
-    assert!(workspace
-        .run_command("git", &command, ".", 10)
-        .await
-        .is_err());
-    let approved = workspace.authorization.latest_pending().unwrap();
-    assert!(workspace.authorization.approve_session(&approved.id));
-    let result = workspace
-        .run_command("git", &command, ".", 10)
+    let add = workspace
+        .run_command("git", &args(&["add", "--", "tracked.txt"]), ".", 10)
         .await
         .unwrap();
-    assert!(result.success);
+    assert!(add.success, "git add failed: {}", add.stderr);
+    let commit = workspace
+        .run_command(
+            "git",
+            &args(&["commit", "-m", "autonomous update"]),
+            ".",
+            10,
+        )
+        .await
+        .unwrap();
+    assert!(commit.success, "git commit failed: {}", commit.stderr);
+    let branch = workspace
+        .run_command("git", &args(&["branch", "autonomous-feature"]), ".", 10)
+        .await
+        .unwrap();
+    assert!(branch.success, "git branch failed: {}", branch.stderr);
+    assert!(workspace.authorization.requests(10).is_empty());
     assert!(git(&[
         "rev-parse",
         "--verify",
-        "refs/heads/approved-feature"
+        "refs/heads/autonomous-feature"
     ]));
     assert!(!workspace.security.allow_risky_exec);
-    assert!(workspace
-        .run_command("git", &args(&["tag", "not-approved"]), ".", 10)
-        .await
-        .is_err());
-    assert!(!git(&["rev-parse", "--verify", "refs/tags/not-approved"]));
 }
 
 #[test]
 fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
-    assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_err());
+    assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_ok());
     assert!(validate_git_command(&args(&["push", "origin", "main"]), true).is_ok());
-    assert!(validate_git_command(&args(&["push"]), true).is_err());
+    assert!(validate_git_command(&args(&["push"]), false).is_ok());
     assert!(validate_git_command(&args(&["push", "--force"]), false)
         .unwrap_err()
         .to_string()
@@ -426,7 +637,7 @@ fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
     assert!(validate_git_command(&args(&["push", "origin", "main:"]), true).is_err());
 
     assert!(
-        validate_git_command(&args(&["commit", "-m", "docs: refresh screenshots"]), true).is_ok()
+        validate_git_command(&args(&["commit", "-m", "docs: refresh screenshots"]), false).is_ok()
     );
     assert!(validate_git_command(&args(&["commit", "--amend", "-m", "no"]), true).is_err());
     assert!(validate_git_command(&args(&["commit"]), true).is_err());

@@ -25,15 +25,15 @@ pub(super) fn render_commands_overlay(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SECONDARY))
+        .border_style(Style::default().fg(OUTLINE))
         .style(Style::default().bg(SURFACE_SELECTED))
         .padding(Padding::uniform(1))
         .title(Line::from(vec![
             Span::styled(
                 " C ",
                 Style::default()
-                    .fg(BACKGROUND)
-                    .bg(SECONDARY)
+                    .fg(ACCENT)
+                    .bg(SURFACE_SELECTED)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(

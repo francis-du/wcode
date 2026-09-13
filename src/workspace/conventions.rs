@@ -1,14 +1,15 @@
 use crate::scopes::{self, ProductScope};
 use crate::semantic_provider::{language_for_path, SemanticLanguage};
 use crate::workspace::Workspace;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
 const MAX_CONVENTION_FILES: usize = 10_000;
 const MAX_FINDINGS: usize = 256;
-const OVERSIZED_SOURCE_LINES: usize = 1_000;
+pub(crate) const OVERSIZED_SOURCE_LINES: usize = 1_000;
 const FLAT_RUST_MODULE_THRESHOLD: usize = 16;
 const DOMAIN_PREFIX_THRESHOLD: usize = 3;
 
@@ -75,8 +76,32 @@ pub struct ConventionReport {
     pub truncated: bool,
 }
 
+pub(crate) fn fingerprint_and_paths(workspace: &Workspace) -> Result<(u64, Vec<String>, bool)> {
+    let (entries, scan_truncated) =
+        workspace.source_paths_with_stamps(".", MAX_CONVENTION_FILES)?;
+    let mut hasher = DefaultHasher::new();
+    workspace.root().hash(&mut hasher);
+    scan_truncated.hash(&mut hasher);
+    entries.len().hash(&mut hasher);
+    let mut files = Vec::with_capacity(entries.len());
+    for (path, stamp) in entries {
+        path.hash(&mut hasher);
+        stamp.hash(&mut hasher);
+        files.push(path);
+    }
+    Ok((hasher.finish(), files, scan_truncated))
+}
+
 pub fn status(workspace: &Workspace) -> Result<ConventionReport> {
-    let (files, scan_truncated) = workspace.source_files(".", MAX_CONVENTION_FILES)?;
+    let (_, files, scan_truncated) = fingerprint_and_paths(workspace)?;
+    status_from_paths(workspace, files, scan_truncated)
+}
+
+pub(crate) fn status_from_paths(
+    workspace: &Workspace,
+    files: Vec<String>,
+    scan_truncated: bool,
+) -> Result<ConventionReport> {
     let mut findings = Vec::new();
     let mut detected_languages = BTreeSet::new();
     let mut architecture_domains = BTreeMap::<String, (usize, BTreeSet<SemanticLanguage>)>::new();
@@ -86,8 +111,25 @@ pub fn status(workspace: &Workspace) -> Result<ConventionReport> {
     let mut rust_root_modules = Vec::new();
     let mut prefix_counts = BTreeMap::<String, usize>::new();
     let mut files_checked = 0usize;
+    let source_inspections = crate::resource::parallel_io(&files, |path| {
+        let language = language_for_path(path)?;
+        if generated_directory(path) {
+            return None;
+        }
+        Some(
+            workspace
+                .load_source(path)
+                .map(|source| {
+                    (
+                        production_module_lines(language, &source.content),
+                        generated_source(path, &source.content),
+                    )
+                })
+                .map_err(|error| error.to_string()),
+        )
+    })?;
 
-    for path in files {
+    for (path, source_inspection) in files.into_iter().zip(source_inspections) {
         let Some(language) = language_for_path(&path) else {
             continue;
         };
@@ -149,21 +191,36 @@ pub fn status(workspace: &Workspace) -> Result<ConventionReport> {
             );
         }
 
-        if let Ok(source) = workspace.load_source(&path) {
-            let lines = production_module_lines(language, &source.content);
-            if lines > OVERSIZED_SOURCE_LINES {
-                push_finding(
+        if let Some(source_inspection) = source_inspection {
+            match source_inspection {
+                Ok((lines, generated)) => {
+                    if lines > OVERSIZED_SOURCE_LINES && !generated {
+                        push_finding(
+                            &mut findings,
+                            ConventionFinding {
+                                code: "oversized-source-module".to_owned(),
+                                severity: ConventionSeverity::Error,
+                                path: path.clone(),
+                                language: Some(language),
+                                message: format!(
+                                    "source module has {lines} lines; wcode core policy requires maintained source to stay at or below {OVERSIZED_SOURCE_LINES} lines, so split protocol/UI/orchestration/domain responsibilities before adding more behavior"
+                                ),
+                            },
+                        );
+                    }
+                }
+                Err(error) => push_finding(
                     &mut findings,
                     ConventionFinding {
-                        code: "oversized-source-module".to_owned(),
-                        severity: ConventionSeverity::Warning,
+                        code: "source-policy-uninspectable".to_owned(),
+                        severity: ConventionSeverity::Error,
                         path: path.clone(),
                         language: Some(language),
                         message: format!(
-                            "source module has {lines} lines; split protocol/UI/orchestration/domain responsibilities before adding more behavior"
+                            "wcode cannot prove this maintained source obeys core size constraints because bounded source inspection failed: {error}"
                         ),
                     },
-                );
+                ),
             }
         }
 
@@ -270,14 +327,76 @@ pub fn status(workspace: &Workspace) -> Result<ConventionReport> {
     })
 }
 
-fn production_module_lines(language: SemanticLanguage, content: &str) -> usize {
-    if language != SemanticLanguage::Rust {
-        return content.lines().count();
+fn generated_directory(path: &str) -> bool {
+    path.replace('\\', "/")
+        .to_ascii_lowercase()
+        .split('/')
+        .any(|component| {
+            matches!(
+                component,
+                "generated"
+                    | "gen"
+                    | "vendor"
+                    | "node_modules"
+                    | "target"
+                    | "dist"
+                    | "build"
+                    | ".next"
+                    | ".dart_tool"
+            )
+        })
+}
+
+fn generated_source(path: &str, content: &str) -> bool {
+    if generated_directory(path) {
+        return true;
     }
-    content
-        .split_once("\n#[cfg(test)]\nmod tests {")
-        .map(|(production, _)| production.lines().count())
-        .unwrap_or_else(|| content.lines().count())
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    let header = content
+        .lines()
+        .take(40)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_ascii_lowercase();
+    header.contains("generated code")
+        || header.contains("code generated")
+        || header.contains("@generated")
+        || header.contains("do not modify")
+        || header.contains("do not edit")
+        || (normalized.contains("l10n/app_localizations")
+            && header.contains("ignore_for_file: type=lint"))
+}
+
+pub(crate) fn maintained_source_lines(path: &str, content: &str) -> Option<usize> {
+    let language = language_for_path(path)?;
+    (!generated_source(path, content)).then(|| production_module_lines(language, content))
+}
+
+pub(crate) fn validate_source_write(path: &str, before: Option<&str>, after: &str) -> Result<()> {
+    let Some(after_lines) = maintained_source_lines(path, after) else {
+        return Ok(());
+    };
+    if after_lines <= OVERSIZED_SOURCE_LINES {
+        return Ok(());
+    }
+    let before_lines = before
+        .and_then(|content| maintained_source_lines(path, content))
+        .unwrap_or(0);
+    if before_lines > OVERSIZED_SOURCE_LINES && after_lines <= before_lines {
+        return Ok(());
+    }
+    if before_lines == 0 {
+        bail!(
+            "wcode core policy blocks creating {path} with {after_lines} maintained source lines; the hard limit is {OVERSIZED_SOURCE_LINES}. Split cohesive responsibilities into smaller modules before writing the file"
+        );
+    }
+    bail!(
+        "wcode core policy blocks growing {path} from {before_lines} to {after_lines} maintained source lines; the hard limit is {OVERSIZED_SOURCE_LINES}. Existing oversized files may only stay the same size or shrink while they are decomposed"
+    )
+}
+
+fn production_module_lines(_language: SemanticLanguage, content: &str) -> usize {
+    content.lines().count()
 }
 
 pub fn language_convention(language: SemanticLanguage) -> LanguageConvention {

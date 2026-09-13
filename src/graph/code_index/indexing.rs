@@ -44,7 +44,7 @@ impl CodeIndex {
             });
         }
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-        let source = workspace.load_source(path)?;
+        let source = workspace.load_source_at_stamp(path, &stamp)?;
         let prefilter = symbol_query_leaf(query);
         if !contains_case_insensitive(&source.content, prefilter) {
             self.invalidate(workspace.root(), path);
@@ -92,7 +92,7 @@ impl CodeIndex {
         }
         let symbol_cache_hit = self.cached_record_if_fresh(&key, &stamp)?.is_some();
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-        let source = workspace.load_source(path)?;
+        let source = workspace.load_source_at_stamp(path, &stamp)?;
         let parsed = self.parse_source(workspace.root(), &config, source)?;
         let record = self.store_parsed_file(workspace, key, parsed, &flight, generation)?;
         Ok(EnsureResult {
@@ -154,7 +154,7 @@ impl CodeIndex {
             });
         }
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-        let source = workspace.load_source(path)?;
+        let source = workspace.load_source_at_stamp(path, &stamp)?;
         let could_match = queries
             .iter()
             .any(|query| contains_case_insensitive(&source.content, symbol_query_leaf(query)));

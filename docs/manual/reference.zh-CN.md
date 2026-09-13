@@ -56,7 +56,7 @@ wcode help-all --json                  # 完整的 CLI 定义树
 `runtime_started: false`；它是导航目录，不是完整参数校验 Schema、MCP 工具 Schema、
 外部程序授权名单或当前运行配置，也不枚举第三方程序自身的任意子命令。
 受预设或硬件影响的实际数值仍用 `wcode --show-config` 获取，不能在目录中伪造固定默认值。
-需要构建／安装新的 0.6.2 可执行文件才能使用该命令。
+如果旧运行时尚未声明某个命令，需要构建／安装当前 wcode 可执行文件后才能使用。
 
 `wcode update` 默认更新当前正在运行的二进制所在目录，也可以通过
 `WCODE_INSTALL_DIR` 显式覆盖。更新继续复用 Release Installer 的安全合同：
@@ -65,7 +65,7 @@ Smoke Test，通过后才替换；Windows 会等当前 exe 退出后再执行替
 MCP Host 启动的 stdio 子进程仍然是旧进程镜像，因此升级后需要重新连接或重启
 MCP Host / 会话，新的 Tool Schema 与 Runtime 行为才会真正生效。
 
-本地软件智能：
+本地仓库理解与工程状态：
 
 ```bash
 wcode intelligence
@@ -192,8 +192,8 @@ Workspace / Destructive Write Trust 控制见 [安全模型](../security/)。
 
 | 按键 | 动作 |
 | --- | --- |
-| `I` | 打开 Software Intelligence。 |
-| `W` | 为当前 Workspace 打开受保护 Project Observatory。 |
+| `I` | 打开当前项目的仓库理解视图。 |
+| `W` | 为当前 Workspace 打开受保护 Engineering Observatory。 |
 | `O` | 重新打开 Setup Hub。 |
 | `L` | 切换 TUI 语言。 |
 | `+` | 添加 Workspace。 |
@@ -251,7 +251,7 @@ evidence_status
 | `traceability_status` | Requirement → Component → implementation、Acceptance → verification 覆盖。 |
 | `agent_context` | 编程主入口：自适应 / 显式 Token Budget、相关 Design、按任务收窄的 Repo Map、Hot Source、SHA 编辑目标、活动 Worklist 恢复、验证引用、Readiness 与下一步动作。 |
 | `worklist_status` / `worklist_update` | 跨重连 / 换模型恢复并更新持久工作清单；Revision Guard 防止并发模型覆盖未完成任务。 |
-| `software_context` | 更深层的软件智能上下文，可按 Product Scope 收窄并包含 Graph Context。 |
+| `software_context` | 更深层的仓库智能上下文，可按 Product Scope 收窄并包含 Graph Context。 |
 
 ### 源码导航与有界 I/O
 
@@ -310,9 +310,9 @@ evidence_status
 
 ## Precision 规则
 
-Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Project Observatory 会直接显示当前 Provider / Precision，不把仅 Tree-sitter 的结果冒充成编译器级语义。
+Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Engineering Observatory 会直接显示当前 Provider / Precision，不把仅 Tree-sitter 的结果冒充成编译器级语义。
 
-有界 syntax graph 里“没看到关系”并不等于关系不存在。弱精度下的 negative inference 只能是 advisory，不能直接变成 blocker。详见 [Software Intelligence](../software-intelligence/) 与 [语言质量](../language-quality/)。
+有界 syntax graph 里“没看到关系”并不等于关系不存在。弱精度下的 negative inference 只能是 advisory，不能直接变成 blocker。详见 [仓库理解与工程状态](../software-intelligence/) 与 [语言质量](../language-quality/)。
 
 ## 授权模型
 
@@ -346,7 +346,7 @@ wcode intelligence --check --json
 ## 相关文档
 
 - [快速开始](../getting-started/)
-- [Software Intelligence](../software-intelligence/)
+- [仓库理解与工程状态](../software-intelligence/)
 - [Agent 与 MCP 集成](../code-agent-integrations/)
 - [安全模型](../security/)
 - [语言质量](../language-quality/)

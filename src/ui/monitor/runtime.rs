@@ -43,6 +43,9 @@ pub(super) fn run_dashboard(
     let mut session = TerminalSession::enter()?;
     let mut tick = 0usize;
     let mut ui = DashboardState::default();
+    if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
+        request_intelligence_refresh(&monitor, &config, workspace_id);
+    }
 
     loop {
         if *stop_rx.borrow() {
@@ -426,7 +429,7 @@ pub(super) fn run_dashboard(
                             ui.workspace_focus = ui.workspace_focus.saturating_sub(step);
                             ui.command_offset = 0;
                             ui.clamp(config.workspaces.roots().len(), visible);
-                            if ui.intelligence_open && ui.workspace_focus != previous {
+                            if ui.workspace_focus != previous {
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, ui.workspace_focus)
                                 {
@@ -448,7 +451,7 @@ pub(super) fn run_dashboard(
                                 .min(count.saturating_sub(1));
                             ui.command_offset = 0;
                             ui.clamp(count, visible);
-                            if ui.intelligence_open && ui.workspace_focus != previous {
+                            if ui.workspace_focus != previous {
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, ui.workspace_focus)
                                 {

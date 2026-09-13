@@ -33,7 +33,21 @@ impl UiLanguage {
             (Self::ZhCn, "setup") => "连接设置",
             (Self::ZhCn, "web") => "Web 控制台",
             (Self::ZhCn, "commands") => "命令",
-            (Self::ZhCn, "intelligence") => "智能状态",
+            (Self::ZhCn, "intelligence") => "工程控制台",
+            (Self::ZhCn, "engineering console") => "工程控制台",
+            (Self::ZhCn, "ENGINEERING PULSE") => "工程脉冲",
+            (Self::ZhCn, "ENGINEERING CONSOLE") => "工程控制台",
+            (Self::ZhCn, "ARCH") => "架构",
+            (Self::ZhCn, "DRIFT") => "偏离",
+            (Self::ZhCn, "PROOF") => "证据",
+            (Self::ZhCn, "MODEL") => "模型",
+            (Self::ZhCn, "ARCHITECTURE") => "工程架构",
+            (Self::ZhCn, "PROOF & RUNTIME") => "证据与运行状态",
+            (Self::ZhCn, "updated") => "更新",
+            (Self::ZhCn, "Loading project engineering model…") => "正在加载项目工程模型…",
+            (Self::ZhCn, "Runtime activity stays live while architecture evidence loads.") => {
+                "架构证据加载期间，运行时活动仍保持实时。"
+            }
             (Self::ZhCn, "project") => "项目",
             (Self::ZhCn, "author") => "作者",
             (Self::ZhCn, "help") => "帮助",
@@ -42,8 +56,8 @@ impl UiLanguage {
             (Self::ZhCn, "move workspace") => "切换工作区",
             (Self::ZhCn, "move one page") => "切换一页工作区",
             (Self::ZhCn, "open Connector setup") => "打开连接设置",
-            (Self::ZhCn, "open Project Observatory") => "打开 Project Observatory",
-            (Self::ZhCn, "show live intelligence") => "查看当前智能状态",
+            (Self::ZhCn, "open Engineering Observatory") => "打开 Engineering Observatory",
+            (Self::ZhCn, "show repository intelligence") => "查看工程控制台",
             (Self::ZhCn, "show supported commands") => "查看支持的命令",
             (Self::ZhCn, "open project repository") => "打开项目仓库",
             (Self::ZhCn, "open author profile") => "打开作者主页",
@@ -120,7 +134,7 @@ impl UiLanguage {
             (Self::ZhCn, "restart wcode with one or more --workspace paths") => {
                 "使用一个或多个 --workspace 路径启动 wcode"
             }
-            (Self::ZhCn, "SOFTWARE INTELLIGENCE") => "软件智能",
+            (Self::ZhCn, "REPOSITORY INTELLIGENCE") => "工程控制台",
             (Self::ZhCn, "SUPPORTED COMMANDS") => "支持的命令",
             (Self::ZhCn, "supported") => "个支持项",
             (Self::ZhCn, "enabled") => "已开放可执行程序访问",

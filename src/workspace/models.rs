@@ -6,6 +6,7 @@ pub struct CommandResult {
     pub args: Vec<String>,
     pub exit_code: Option<i32>,
     pub success: bool,
+    pub process_queue_wait_ms: u64,
     pub stdout: String,
     pub stderr: String,
     pub truncated: bool,

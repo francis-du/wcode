@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#0b0812">
   <link rel="icon" href="assets/wcode-icon.svg" type="image/svg+xml">
   <meta name="description" content="Give AI coding agents a real model of your software: architecture, LSP relationships, change impact, guarded edits, verification, and durable evidence — locally over MCP.">
-  <meta property="og:title" content="wcode — The intelligence layer for coding agents">
+  <meta property="og:title" content="wcode — Engineering control plane for coding agents">
   <meta property="og:description" content="Your agent writes code. wcode helps it understand the system, control the blast radius, and prove the change.">
   <meta property="og:type" content="website">
-  <title>wcode — The intelligence layer for coding agents</title>
+  <title>wcode — Engineering control plane for coding agents</title>
   <link rel="alternate" hreflang="en" href="./">
   <link rel="alternate" hreflang="zh-CN" href="./zh/">
   <link rel="stylesheet" href="./assets/site.css?v=20260903-1">
@@ -31,7 +31,7 @@
         <a href="#clients">Clients</a>
         <a href="./docs/">Docs ↗</a>
         <a href="#performance">Parallelism</a>
-        <a href="#intelligence">Intelligence</a>
+        <a href="#intelligence">Repository state</a>
         <a href="#design">Design</a>
         <a href="#security">Security</a>
       </nav>
@@ -46,12 +46,12 @@
   <main id="main">
     <section class="hero section-shell">
       <div class="hero-copy reveal">
-        <div class="eyebrow"><span class="pulse"></span> The local repository layer for coding agents</div>
-        <h1>Your agent writes code.<br><span class="gradient-text">wcode makes it understand the system.</span></h1>
-        <p class="hero-lede">Turn a repository into an evidence-backed software model: architecture, symbols, live LSP relationships, change impact, guarded edits, verification, and durable proof — available to any MCP coding agent.</p>
+        <div class="eyebrow"><span class="pulse"></span> Engineering control plane for coding agents</div>
+        <h1>Your agent writes code.<br><span class="gradient-text">wcode makes the engineering observable and governable.</span></h1>
+        <p class="hero-lede">Understand the project architecture, supervise what Vibe Coding changed, control the blast radius, run guarded actions, and prove the result — without binding the workflow to one coding model or requiring an IDE just to understand project state.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#quickstart">Give your agent wcode <span>→</span></a>
-          <a class="button button-ghost" href="#intelligence">See the intelligence layer</a>
+          <a class="button button-ghost" href="#intelligence">See the engineering state</a>
         </div>
         <div class="hero-trust" aria-label="Key properties">
           <span><b>Understand</b> before editing</span><span><b>Trace</b> real relationships</span><span><b>Guard</b> the blast radius</span><span><b>Prove</b> every change</span>
@@ -132,11 +132,11 @@
         </figure>
         <figure class="screenshot-card reveal">
           <a href="./assets/wcode-architecture.png" target="_blank" rel="noopener"><img src="./assets/wcode-architecture.png" alt="Latest wcode architecture overview" width="3232" height="1932" loading="lazy" decoding="async"></a>
-          <figcaption><strong>Architecture overview</strong><span>Desired versus actual component dependencies, observed drift, evidence and implementation coverage.</span></figcaption>
+          <figcaption><strong>Engineering architecture</strong><span>System → subsystem → component architecture, desired versus actual dependencies, observed drift, current changes, evidence and implementation coverage.</span></figcaption>
         </figure>
         <figure class="screenshot-card reveal">
-          <a href="./assets/wcode-observatory.png" target="_blank" rel="noopener"><img src="./assets/wcode-observatory.png" alt="Latest wcode Project Observatory interface" width="1600" height="1000" loading="lazy" decoding="async"></a>
-          <figcaption><strong>Project Observatory</strong><span>Requirement-first project state, implementation context, verification, and convergence in the WebUI.</span></figcaption>
+          <a href="./assets/wcode-observatory.png" target="_blank" rel="noopener"><img src="./assets/wcode-observatory.png" alt="Latest wcode Engineering Observatory interface" width="1600" height="1000" loading="lazy" decoding="async"></a>
+          <figcaption><strong>Engineering Observatory</strong><span>A project digital twin for architecture, live engineering activity, Vibe Coding change impact, Design-vs-Actual drift, verification and convergence.</span></figcaption>
         </figure>
         <figure class="screenshot-card reveal">
           <a href="./assets/wcode-access-management.png" target="_blank" rel="noopener"><img src="./assets/wcode-access-management.png" alt="Latest wcode authorization and access interface" width="1600" height="1000" loading="lazy" decoding="async"></a>
@@ -173,11 +173,11 @@
     </section>
 
     <section class="section section-shell" id="intelligence">
-      <div class="section-heading reveal"><div class="kicker">04 · SOFTWARE INTELLIGENCE</div><h2>From “find the file” to “understand what this change means.”</h2><p>Most coding tools can search code. wcode builds a reusable model of the project around that search: desired architecture, current implementation, real LSP relationships, Git change impact, risk, verification, and evidence. Agents can ask better questions before editing — and leave behind proof that survives the chat.</p></div>
+      <div class="section-heading reveal"><div class="kicker">04 · REPOSITORY INTELLIGENCE</div><h2>From “find the file” to “understand what this change means.”</h2><p>Repository Intelligence is one layer of the Engineering Control Plane. It builds a reusable model of desired architecture, current implementation, real LSP relationships, Git change impact, risk, verification and evidence so both agents and humans can reason about the project before and after edits.</p></div>
       <div class="performance-grid">
         <article class="performance-card reveal"><span>01</span><h3>Give the agent a map, not a file dump</h3><p><code>agent_context</code> ranks the code, design, tests, edit targets, active work, and semantic gaps that matter for this task. Small fixes stay small; cross-module work gets explicit lanes and a complexity budget.</p></article>
         <article class="performance-card reveal"><span>02</span><h3>Ask semantic questions</h3><p>When text search is not enough, warm LSP sessions answer references, callers, implementations, hover, and impact. wcode tells the agent whether the answer is syntax or real semantic precision instead of quietly pretending grep is a compiler.</p></article>
-        <article class="performance-card reveal"><span>03</span><h3>See the blast radius before merge</h3><p>Map a Git change back to components, requirements, callers, product scopes, public APIs, security boundaries, drift, and maintainability signals. The Project Observatory turns that state into something a human can inspect.</p></article>
+        <article class="performance-card reveal"><span>03</span><h3>See the blast radius before merge</h3><p>Map a Git change back to components, requirements, callers, product scopes, public APIs, security boundaries, drift, and maintainability signals. The Engineering Observatory turns that state into a project digital twin a human can inspect without reading source first.</p></article>
         <article class="performance-card reveal"><span>04</span><h3>Turn “looks good” into evidence</h3><p>Run deterministic gates, language-native checks, independent reviewers, and advanced verification stages. Results are revision-bound Evidence, so yesterday's green result cannot prove today's code.</p></article>
       </div>
       <div class="scheduler-flow reveal"><div><b>Design State</b><small>desired</small></div><i>→</i><div><b>software_context</b><small>understand</small></div><i>→</i><div><b>impact + risk</b><small>decide</small></div><i>→</i><div><b>verification + evidence</b><small>prove</small></div></div>
@@ -187,11 +187,11 @@
     </section>
 
     <section class="section section-shell" id="design">
-      <div class="section-heading reveal"><div class="kicker">05 · DESIGN</div><h2>A Software Intelligence Runtime, not a model host.</h2><p>wcode keeps models replaceable while owning protocol, authorization, Design State, software intelligence, tool scheduling, evidence, and filesystem policy. Each layer can evolve without binding the runtime to one model vendor or widening the trust boundary.</p></div>
+      <div class="section-heading reveal"><div class="kicker">05 · DESIGN</div><h2>An Engineering Control Plane, not a model host.</h2><p>wcode keeps models replaceable while owning protocol, authorization, Design State, repository intelligence, tool scheduling, verification evidence, observability and filesystem policy. Each layer can evolve without binding the runtime to one model vendor or widening the trust boundary.</p></div>
       <div class="architecture reveal" role="img" aria-label="wcode architecture diagram">
         <div class="arch-column arch-clients"><div class="arch-label">MCP clients</div><div class="arch-node"><span>✦</span><div><b>Web clients</b><small>Grok · Claude · Vibe</small></div></div><div class="arch-node"><span>⌘</span><div><b>Coding clients</b><small>Qoder · Cursor · Cline</small></div></div><div class="arch-node"><span>◫</span><div><b>Self-hosted</b><small>Open WebUI · LibreChat</small></div></div></div>
         <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
-        <div class="arch-core"><div class="arch-label">wcode</div><div class="core-stack"><div><b>OAuth 2.1 + PKCE</b><small>Protected Resource Metadata · DCR · issuer binding</small></div><div><b>MCP protocol core</b><small>HTTP + OAuth · local stdio · Tools · Prompts · Resources · 2026 Tasks</small></div><div><b>Software Intelligence Runtime</b><small>Design State · traceability · drift · impact · risk · reconciliation · evidence</small></div><div><b>Positive coding harness</b><small>project context · change review · phased verification</small></div><div><b>Syntax + Semantic Runtime</b><small>Tree-sitter localization · warm LSP relationships · explicit precision</small></div><div><b>Workspace policy</b><small>canonical roots · atomic writes · command guardrails</small></div></div></div>
+        <div class="arch-core"><div class="arch-label">wcode</div><div class="core-stack"><div><b>OAuth 2.1 + PKCE</b><small>Protected Resource Metadata · DCR · issuer binding</small></div><div><b>MCP protocol core</b><small>HTTP + OAuth · local stdio · Tools · Prompts · Resources · 2026 Tasks</small></div><div><b>Engineering Control Plane</b><small>Design State · repository intelligence · guarded change · verification · evidence · observability</small></div><div><b>Positive coding harness</b><small>project context · change review · phased verification</small></div><div><b>Syntax + Semantic Runtime</b><small>Tree-sitter localization · warm LSP relationships · explicit precision</small></div><div><b>Workspace policy</b><small>canonical roots · atomic writes · command guardrails</small></div></div></div>
         <div class="arch-arrow"><span>scoped I/O</span><i>→</i></div>
         <div class="arch-column arch-workspaces"><div class="arch-label">Your machine</div><div class="folder-node"><span>▰</span><div><b>backend</b><small>/Users/me/Code/backend</small></div></div><div class="folder-node"><span>▰</span><div><b>frontend</b><small>/Users/me/Code/frontend</small></div></div><div class="folder-node"><span>▰</span><div><b>shared</b><small>/Users/me/Code/shared</small></div></div></div>
       </div>

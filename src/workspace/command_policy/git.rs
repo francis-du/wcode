@@ -49,7 +49,11 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
         }
         _ => bail!("git mutation subcommand is permanently blocked: {subcommand}"),
     }
-    require_risky_exec("git repository mutation", allow_risky_exec)
+    // Bounded Git lifecycle operations are the repository's publication path,
+    // not an escape hatch. Their dangerous variants are rejected above, so
+    // normal add/commit/branch/switch/tag/stage-restore/push can participate in
+    // autonomous verified iteration without per-operation approval.
+    Ok(())
 }
 
 // Only message values in a fully validated Git form are text, not paths.
@@ -192,24 +196,34 @@ fn validate_git_commit(args: &[String]) -> Result<()> {
 }
 
 fn validate_git_push(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return Ok(());
+    }
     let mut positional = 0usize;
+    let mut set_upstream = false;
     for arg in args {
         if matches!(arg.as_str(), "-u" | "--set-upstream") {
+            set_upstream = true;
             continue;
         }
         if arg.starts_with('-') {
-            bail!("git push option is blocked; force/delete/mirror/all/tag pushes are not authorizable: {arg}");
+            bail!("git push option is blocked; force/delete/mirror/all/tag pushes are permanently unavailable: {arg}");
         }
         if arg.starts_with('+') || arg.ends_with(':') {
             bail!("git push force/delete refspecs are permanently blocked: {arg}");
         }
         positional += 1;
         if positional > 2 {
-            bail!("git push accepts at most an explicit remote and one refspec");
+            bail!("git push accepts either the current upstream or an explicit remote and one refspec");
         }
     }
     if positional != 2 {
-        bail!("git push requires an explicit remote and one explicit refspec for auditable authorization");
+        bail!(
+            "git push accepts either no arguments or an explicit remote and one explicit refspec"
+        );
+    }
+    if set_upstream && positional != 2 {
+        bail!("git push --set-upstream requires an explicit remote and refspec");
     }
     Ok(())
 }

@@ -247,6 +247,16 @@ pub(crate) fn add_candidates(
         }
         SemanticLanguage::Swift => {
             candidates.push(candidate!(
+                "swift-build",
+                StaticAnalysis,
+                LanguageNative,
+                "swift",
+                ["build"],
+                signals.has("Package.swift"),
+                "Package.swift",
+                None,
+            ));
+            candidates.push(candidate!(
                 "swift-test",
                 Test,
                 LanguageNative,

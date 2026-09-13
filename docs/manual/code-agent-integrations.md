@@ -23,7 +23,7 @@ instructions; MCP is what gives the client access to wcode tools.
 
 These are three entrances to one implementation. They share JSON-RPC dispatch,
 the Harness, Workspace selection, command policy, authorization, Tools,
-Prompts, Resources, and Software Intelligence state. SSE is kept for clients
+Prompts, Resources, and repository-intelligence / engineering-control-plane state. SSE is kept for clients
 that still implement the 2024 transport; new setups should use `/mcp`.
 
 Local stdio configuration is intentionally path-free:

@@ -3,8 +3,7 @@ use crate::harness::ToolHarness;
 use crate::mcp::AppState;
 use crate::monitor::{MonitorConfig, MonitorRenderer, OperatorMessageKind, TaskMonitor};
 use crate::tunnel::{
-    normalize_public_url, public_endpoint_health_loop, spawn_tunnel_supervisor,
-    wait_for_public_endpoint, ActiveTunnel, TunnelEvent, TunnelProvider,
+    normalize_public_url, wait_for_public_endpoint, ActiveTunnel, TunnelEvent, TunnelProvider,
 };
 use crate::workspace::{WorkspaceSecurity, Workspaces};
 use crate::{
@@ -453,11 +452,23 @@ pub async fn run() -> Result<()> {
     let shared_public_url = Arc::new(std::sync::RwLock::new(local_url.clone()));
     let (tunnel_settled_tx, tunnel_settled_rx) = watch::channel(false);
     let (tunnel_event_tx, mut tunnel_event_rx) = tokio::sync::mpsc::channel::<TunnelEvent>(8);
-    let mut imessage_sent: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let (standby_probe_tx, mut standby_probe_rx) =
+        tokio::sync::mpsc::channel::<tunnel_lifecycle::StandbyProbeEvent>(8);
+    let mut primary_url: Option<String> = None;
+    let mut standby_leases =
+        std::collections::HashMap::<String, tunnel_lifecycle::StandbyHealthLease>::new();
+    let mut imessage_sent = std::collections::HashMap::<String, String>::new();
     let mut pending_respawns: Vec<(TunnelProvider, std::time::Instant)> = Vec::new();
-    let mut death_counts: std::collections::HashMap<TunnelProvider, u32> =
-        std::collections::HashMap::new();
+    let mut death_counts = std::collections::HashMap::<TunnelProvider, u32>::new();
+    let tunnel_spawn_context = tunnel_lifecycle::TunnelSpawnContext::new(
+        local_url.clone(),
+        auth.instance_id().to_owned(),
+        !args.no_install,
+        monitor.clone(),
+        auth.clone(),
+        tunnel_event_tx.clone(),
+    );
+    const TUNNEL_STABLE_RESET_AFTER: Duration = Duration::from_secs(60);
     let public_url = if let Some(url) = args.public_url.as_deref() {
         let url = normalize_public_url(url)?;
         *shared_public_url.write().unwrap() = url.clone();
@@ -475,48 +486,12 @@ pub async fn run() -> Result<()> {
             "requesting HTTPS endpoint in the background",
         );
         monitor.mark_public_endpoint("pending", None);
-        {
-            let forward_tx = tunnel_event_tx.clone();
-            let local_url = local_url.clone();
-            let instance_id = auth.instance_id().to_owned();
-            let install_missing = !args.no_install;
-            let monitor = monitor.clone();
-            let settled_tx = tunnel_settled_tx.clone();
-            let url_slot = shared_public_url.clone();
-            let auth = auth.clone();
-            tokio::spawn(async move {
-                let mut events = spawn_tunnel_supervisor(
-                    args.tunnel_provider,
-                    &local_url,
-                    &instance_id,
-                    install_missing,
-                    monitor.clone(),
-                );
-                let mut first = true;
-                while let Some(event) = events.recv().await {
-                    let TunnelEvent::Connected(active) = &event;
-                    tunnel_lifecycle::publish_verified_endpoint(
-                        &auth,
-                        &monitor,
-                        active.provider_label(),
-                        active.public_url(),
-                    );
-                    if first {
-                        // Announce the endpoint the moment the first tunnel
-                        // lands so setup-guide/open waits are not blocked on
-                        // the supervision loop starting later.
-                        let public_url = active.public_url().to_owned();
-                        auth.set_public_url(public_url.clone());
-                        *url_slot.write().unwrap() = public_url;
-                        first = false;
-                        let _ = settled_tx.send(true);
-                    }
-                    if forward_tx.send(event).await.is_err() {
-                        return;
-                    }
-                }
-            });
-        }
+        tunnel_lifecycle::spawn_initial_supervisor(
+            args.tunnel_provider,
+            tunnel_spawn_context.clone(),
+            tunnel_settled_tx.clone(),
+            shared_public_url.clone(),
+        );
         local_url.clone()
     };
     // Managed tunnels publish their verified URL from the supervisor task.
@@ -543,8 +518,12 @@ pub async fn run() -> Result<()> {
         }
     }
 
-    let (public_health_stop, _) = watch::channel(false);
-    let mut public_health_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut primary_runtime = tunnel_lifecycle::PrimaryRuntime::new(
+        auth.clone(),
+        monitor.clone(),
+        shared_public_url.clone(),
+        watch::channel(false).0,
+    );
 
     let intelligence_url = format!("{local_url}/intelligence#token={}", auth.ui_token());
     let monitor_config = MonitorConfig {
@@ -614,36 +593,32 @@ pub async fn run() -> Result<()> {
             _ = wait_for_terminate_signal() => break,
             _ = wait_for_monitor_interrupt(monitor_interrupt.clone()) => break,
             event = tunnel_event_rx.recv() => {
-                if let Some(TunnelEvent::Connected(active)) = event {
-                        let recovered_provider = active.provider();
-                        tunnel_lifecycle::record_recovered_provider(&mut death_counts, recovered_provider);
-                        pending_respawns.retain(|(provider, _)| *provider != recovered_provider);
-                        if tunnels.is_empty() {
-                            // No live tunnel yet: this one becomes the primary
-                            // endpoint. Reconnected tunnels never take over an
-                            // existing primary, so retries cannot disturb the
-                            // tunnels that are already up.
+                if let Some(event) = event {
+                    match event {
+                        TunnelEvent::Connected(active) => {
+                        let public_url = active.public_url().to_owned();
+                        pending_respawns.retain(|(provider, _)| *provider != active.provider());
+                        standby_leases.insert(
+                            public_url.clone(),
+                            tunnel_lifecycle::StandbyHealthLease::verified(std::time::Instant::now()),
+                        );
+                        if primary_url.is_none() {
+                            primary_url = Some(public_url.clone());
                             let _ = tunnel_settled_tx.send(true);
-                            monitor.mark_public_endpoint("quick-tunnel", Some(true));
-                            monitor.mark_public_url_check(true, None);
-                            let public_url = active.public_url().to_owned();
-                            *shared_public_url.write().unwrap() = public_url.clone();
-                            auth.set_public_url(public_url.clone());
-                            if let Some(task) = public_health_task.take() {
-                                task.abort();
-                            }
-                            public_health_task = Some(tokio::spawn(public_endpoint_health_loop(
-                                public_url,
-                                auth.instance_id().to_owned(),
-                                monitor.clone(),
-                                public_health_stop.subscribe(),
-                            )));
+                            tunnel_lifecycle::activate_primary(&active, &mut primary_runtime);
+                        } else {
+                            monitor.operator_message(
+                                OperatorMessageKind::Info,
+                                "tunnel",
+                                format!(
+                                    "{} standby verified · lease {}s",
+                                    active.provider_label(),
+                                    tunnel_lifecycle::STANDBY_LEASE_TTL.as_secs()
+                                ),
+                            );
                         }
                         if let Some(recipient) = args.imessage_to.as_deref() {
                             let provider = active.provider_label();
-                            let public_url = active.public_url().to_owned();
-                            // One message per provider link: reconnecting with
-                            // the same URL never spams; a changed URL is news.
                             if imessage_sent.get(provider) == Some(&public_url) {
                                 tunnels.push(active);
                                 continue;
@@ -663,54 +638,96 @@ pub async fn run() -> Result<()> {
                             }
                         }
                         tunnels.push(active);
+                        }
+                        TunnelEvent::ReconnectFailed { provider, error } => {
+                            let cause = format!(
+                                "half-open reconnect failed · {}",
+                                error.lines().next().unwrap_or("unknown error")
+                            );
+                            tunnel_lifecycle::schedule_provider_retry(
+                                &mut death_counts,
+                                &mut pending_respawns,
+                                provider,
+                                &cause,
+                                &monitor,
+                            );
+                        }
                     }
+                }
+            },
+            probe = standby_probe_rx.recv() => {
+                if let Some(probe) = probe {
+                    if primary_url.as_deref() != Some(probe.public_url.as_str()) {
+                        tunnel_lifecycle::handle_standby_probe(
+                            &mut standby_leases,
+                            &tunnels,
+                            probe,
+                            &monitor,
+                        );
+                    }
+                }
             },
             _ = sleep(Duration::from_secs(1)) => {
+                tunnel_lifecycle::reset_stable_provider_backoff(
+                    &tunnels,
+                    &mut death_counts,
+                    TUNNEL_STABLE_RESET_AFTER,
+                    &monitor,
+                );
+                tunnel_lifecycle::schedule_standby_probes(
+                    &mut standby_leases,
+                    &tunnels,
+                    primary_url.as_deref(),
+                    auth.instance_id(),
+                    &standby_probe_tx,
+                );
                 // A dead tunnel only takes itself down: after an exponential
                 // backoff, respawn just that provider; everything else stays.
-                pending_respawns.retain(|&(provider, due)| {
-                    if std::time::Instant::now() < due {
-                        return true;
-                    }
-                    let forward_tx = tunnel_event_tx.clone();
-                    let local_url = local_url.clone();
-                    let instance_id = auth.instance_id().to_owned();
-                    let install_missing = !args.no_install;
-                    let monitor = monitor.clone();
-                    let auth = auth.clone();
-                    tokio::spawn(async move {
-                        let mut events = spawn_tunnel_supervisor(
-                            provider,
-                            &local_url,
-                            &instance_id,
-                            install_missing,
-                            monitor.clone(),
-                        );
-                        while let Some(event) = events.recv().await {
-                            let TunnelEvent::Connected(active) = &event;
-                            tunnel_lifecycle::publish_verified_endpoint(
-                                &auth,
-                                &monitor,
-                                active.provider_label(),
-                                active.public_url(),
-                            );
-                            if forward_tx.send(event).await.is_err() {
-                                return;
-                            }
-                        }
-                    });
-                    false
+                let retry_now = std::time::Instant::now();
+                let due_providers = pending_respawns
+                    .iter()
+                    .filter_map(|(provider, due)| {
+                        tunnel_lifecycle::provider_retry_due(*due, retry_now).then_some(*provider)
+                    })
+                    .collect::<Vec<_>>();
+                pending_respawns.retain(|(_, due)| {
+                    !tunnel_lifecycle::provider_retry_due(*due, retry_now)
                 });
-                let health_failed = monitor.connection_status().public_url_healthy == Some(false);
+                for provider in due_providers {
+                    tunnel_lifecycle::spawn_reconnect_attempt(
+                        provider,
+                        tunnel_spawn_context.clone(),
+                    );
+                }
+                let primary_index = primary_url.as_ref().and_then(|url| {
+                    tunnels.iter().position(|tunnel| tunnel.public_url() == url)
+                });
+                let health_failed = primary_index.is_some()
+                    && monitor.connection_status().public_url_healthy == Some(false);
                 let tunnel_count = tunnels.len();
                 let dead_index = tunnel_lifecycle::dead_tunnel_index(
                     health_failed,
+                    primary_index,
                     tunnel_count,
-                    |index| matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_)),
+                    |index| {
+                        let revoked = primary_index != Some(index)
+                            && tunnel_lifecycle::standby_revoked(
+                                &standby_leases,
+                                tunnels[index].public_url(),
+                            );
+                        revoked || matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_))
+                    },
                 );
                 if let Some(index) = dead_index {
-                    let reason = if health_failed {
-                        "primary endpoint health failed three times".to_owned()
+                    let lease_revoked = primary_index != Some(index)
+                        && tunnel_lifecycle::standby_revoked(
+                            &standby_leases,
+                            tunnels[index].public_url(),
+                        );
+                    let reason = if health_failed && primary_index == Some(index) {
+                        "primary endpoint health failed three consecutive checks".to_owned()
+                    } else if lease_revoked {
+                        "standby endpoint failed two consecutive lease checks".to_owned()
                     } else {
                         format!(
                             "{} tunnel exited with {}",
@@ -725,7 +742,7 @@ pub async fn run() -> Result<()> {
                     };
                     let dead_provider = tunnels[index].provider();
                     let dead_url = tunnels[index].public_url().to_owned();
-                    let was_primary = index == 0;
+                    let was_primary = primary_index == Some(index);
                     monitor.operator_message(
                         OperatorMessageKind::Warning,
                         "tunnel",
@@ -733,53 +750,41 @@ pub async fn run() -> Result<()> {
                     );
                     let mut dead = tunnels.remove(index);
                     dead.stop().await;
+                    standby_leases.remove(&dead_url);
                     monitor.remove_tunnel(&dead_url);
                     auth.unregister_public_url(&dead_url);
-                    if tunnels.is_empty() {
-                        monitor.mark_tunnel_stopped(reason);
-                        *shared_public_url.write().unwrap() = local_url.clone();
-                        auth.set_public_url(local_url.clone());
-                    }
                     if was_primary {
-                        if let Some(task) = public_health_task.take() {
-                            task.abort();
-                        }
-                        if let Some(next) = tunnels.first() {
-                            let next_url = next.public_url().to_owned();
-                            *shared_public_url.write().unwrap() = next_url.clone();
-                            auth.set_public_url(next_url.clone());
-                            monitor.mark_public_url_check(true, None);
-                            public_health_task = Some(tokio::spawn(public_endpoint_health_loop(
-                                next_url,
-                                auth.instance_id().to_owned(),
-                                monitor.clone(),
-                                public_health_stop.subscribe(),
-                            )));
-                        }
+                        primary_url = None;
+                        tunnel_lifecycle::deactivate_primary(
+                            &mut primary_runtime,
+                            &local_url,
+                            reason.clone(),
+                            !tunnels.is_empty(),
+                        );
                     }
-                    let backoff_secs =
-                        tunnel_lifecycle::record_dead_provider(&mut death_counts, dead_provider);
-                    let deaths = death_counts.get(&dead_provider).copied().unwrap_or(1);
-                    monitor.operator_message(
-                        OperatorMessageKind::Warning,
-                        "tunnel",
-                        format!(
-                            "{} respawns in {backoff_secs}s (death #{deaths})",
-                            dead_provider.label()
-                        ),
-                    );
-                    pending_respawns.push((
+                    if tunnels.is_empty() {
+                        monitor.mark_tunnel_stopped(reason.clone());
+                    }
+                    tunnel_lifecycle::schedule_provider_retry(
+                        &mut death_counts,
+                        &mut pending_respawns,
                         dead_provider,
-                        std::time::Instant::now() + Duration::from_secs(backoff_secs),
-                    ));
+                        "runtime endpoint recycled",
+                        &monitor,
+                    );
+                }
+                if primary_url.is_none() {
+                    tunnel_lifecycle::promote_best_standby(
+                        &standby_leases,
+                        &tunnels,
+                        &mut primary_url,
+                        &mut primary_runtime,
+                    );
                 }
             },
         }
     }
-    let _ = public_health_stop.send(true);
-    if let Some(task) = public_health_task {
-        let _ = task.await;
-    }
+    primary_runtime.shutdown().await;
     if let Some(renderer) = renderer {
         renderer.stop().await;
     }

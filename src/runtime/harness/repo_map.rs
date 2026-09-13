@@ -1,3 +1,11 @@
+use super::harness_retrieval::{
+    classify_repo_map_intent, design_boost as retrieval_design_boost,
+    direct_seed_boost as retrieval_direct_seed_boost,
+    exact_query_match as repo_map_exact_query_match,
+    experience_boost as retrieval_experience_boost,
+    relationship_boost as retrieval_relationship_boost, routing_value as retrieval_routing_value,
+    test_boost as retrieval_test_boost, test_path as repo_map_test_path, RepoMapIntent,
+};
 use super::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -19,12 +27,19 @@ impl ToolHarness {
         let started = Instant::now();
         let scope_path = repo_map_scope_path(context);
         let (graph, cache_hit) = self.repo_map_graph(workspace_id, workspace, &scope_path)?;
+        let routing = classify_repo_map_intent(query);
         let query_tokens = repo_map_tokens(query);
         let direct_ids = context
             .symbols
             .iter()
             .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
             .map(|id| format!("symbol:{id}"))
+            .collect::<HashSet<_>>();
+        let given_context_paths = context
+            .symbols
+            .iter()
+            .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
             .collect::<HashSet<_>>();
         let design_paths = context
             .coverage
@@ -33,6 +48,22 @@ impl ToolHarness {
             .flat_map(|requirement| requirement.implementation.iter())
             .filter_map(|reference| repo_map_target_path(&reference.target))
             .collect::<HashSet<_>>();
+        let experience_anchors = context
+            .symbols
+            .iter()
+            .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
+            .chain(design_paths.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let experience_started = Instant::now();
+        let experience = crate::experience_store::related_paths_for_intent(
+            workspace,
+            &experience_anchors,
+            Some(routing.name()),
+            REPO_MAP_MAX_ITEMS.saturating_mul(2),
+        )
+        .unwrap_or_else(|_| crate::experience_store::ExperienceMatches::unavailable());
+        let experience_lookup_ms = experience_started.elapsed().as_millis();
 
         let mut candidates = graph
             .graph
@@ -72,10 +103,29 @@ impl ToolHarness {
                     .count();
                 let direct = direct_ids.contains(&node.id);
                 let design_path = design_paths.contains(&path);
-                let relevance = if direct {
+                let test_path = repo_map_test_path(&path, &kind);
+                let experience_weight = experience.weights.get(&path).copied().unwrap_or_default();
+                let exact_direct =
+                    direct && repo_map_exact_query_match(&name, &qualified_name, &query_tokens);
+                // Software Context seeds are intentionally recall-oriented, so
+                // not every `direct` seed is an exact task target. Keep exact
+                // symbol matches strongest, while allowing bounded task intent
+                // priors to order broader retrieval seeds beneath them.
+                let relevance = if exact_direct {
+                    140.0
+                } else if direct {
                     100.0
+                        + retrieval_direct_seed_boost(
+                            routing.intent,
+                            design_path,
+                            test_path,
+                            experience_weight,
+                        )
                 } else {
-                    (token_hits as f64 * 18.0) + if design_path { 35.0 } else { 0.0 }
+                    (token_hits as f64 * 18.0)
+                        + retrieval_design_boost(routing.intent, design_path)
+                        + retrieval_test_boost(routing.intent, test_path)
+                        + retrieval_experience_boost(routing.intent, experience_weight)
                 };
                 Some(RepoMapCandidate {
                     id: node.id.clone(),
@@ -85,12 +135,16 @@ impl ToolHarness {
                     kind,
                     relevance,
                     direct,
+                    exact_direct,
                     design_path,
+                    query_hits: token_hits,
+                    experience_weight,
                     degree: 0,
                     rank: 0.0,
                 })
             })
             .collect::<Vec<_>>();
+        let precision_targets = repo_map_precision_targets(context, &candidates, &query_tokens);
         if candidates.is_empty() {
             return Ok(json!({
                 "provider": "tree-sitter",
@@ -98,9 +152,30 @@ impl ToolHarness {
                 "items": [],
                 "candidates": 0,
                 "scope_path": scope_path,
+                "routing": retrieval_routing_value(routing),
                 "files_indexed": graph.files_indexed,
                 "cache_hit": cache_hit,
                 "build_ms": started.elapsed().as_millis(),
+                "experience": {
+                    "available": experience.available,
+                    "provider": "verified-change-history",
+                    "precision": "heuristic",
+                    "model": crate::experience_store::retrieval_model(),
+                    "evidence": "deterministic-verification",
+                    "matched_records": experience.matched_records,
+                    "scanned_records": experience.scanned_records,
+                    "boosted_paths": experience.weights.len(),
+                    "intent_conditioned": true,
+                    "activation": {
+                        "policy": crate::experience_store::activation_policy(),
+                        "state": experience.activation.state,
+                        "reason": experience.activation.reason,
+                        "factor": experience.activation.factor,
+                        "evaluable_records": experience.activation.evaluable_records,
+                    },
+                    "truncated": experience.truncated,
+                    "lookup_ms": experience_lookup_ms,
+                },
                 "truncated": graph.truncated || graph.scan_truncated,
             }));
         }
@@ -110,15 +185,17 @@ impl ToolHarness {
             .enumerate()
             .map(|(index, candidate)| (candidate.id.clone(), index))
             .collect::<HashMap<_, _>>();
-        let mut index_by_qualified = HashMap::<(String, String), Vec<usize>>::new();
-        let mut index_by_name = HashMap::<(String, String), Vec<usize>>::new();
+        let mut index_by_path = HashMap::<String, ProviderCandidatePathIndex>::new();
         for (index, candidate) in candidates.iter().enumerate() {
-            index_by_qualified
-                .entry((candidate.path.clone(), candidate.qualified_name.clone()))
+            let path_index = index_by_path.entry(candidate.path.clone()).or_default();
+            path_index
+                .qualified
+                .entry(candidate.qualified_name.clone())
                 .or_default()
                 .push(index);
-            index_by_name
-                .entry((candidate.path.clone(), candidate.name.clone()))
+            path_index
+                .names
+                .entry(candidate.name.clone())
                 .or_default()
                 .push(index);
         }
@@ -166,7 +243,6 @@ impl ToolHarness {
         let mut provider_edges_mapped = 0usize;
         let mut provider_nodes_mapped = 0usize;
         let mut providers_used = BTreeSet::<String>::new();
-        let mut strongest_precision = GraphPrecision::Syntax;
         for stored in graph_provider_store::load_latest(workspace)? {
             if graph_provider_store::freshness(workspace, &stored.import)
                 != graph_provider_store::GraphProviderFreshness::Fresh
@@ -184,13 +260,8 @@ impl ToolHarness {
                 .nodes
                 .iter()
                 .filter_map(|node| {
-                    provider_candidate_index(
-                        node,
-                        &index_by_id,
-                        &index_by_qualified,
-                        &index_by_name,
-                    )
-                    .map(|index| (node.id.clone(), index))
+                    provider_candidate_index(node, &index_by_id, &index_by_path)
+                        .map(|index| (node.id.clone(), index))
                 })
                 .collect::<HashMap<_, _>>();
             provider_nodes_mapped = provider_nodes_mapped.saturating_add(provider_indices.len());
@@ -242,11 +313,6 @@ impl ToolHarness {
             }
             if provider_used {
                 providers_used.insert(stored.import.provider.clone());
-                if graph_precision_rank(stored.import.precision)
-                    > graph_precision_rank(strongest_precision)
-                {
-                    strongest_precision = stored.import.precision;
-                }
             }
         }
         for relations in direct_relations.values_mut() {
@@ -254,6 +320,12 @@ impl ToolHarness {
                 relation_precision_rank(right).cmp(&relation_precision_rank(left))
             });
         }
+        for candidate in &mut candidates {
+            if let Some(relations) = direct_relations.get(&candidate.id) {
+                candidate.relevance += retrieval_relationship_boost(routing.intent, relations);
+            }
+        }
+        let covered_precision = repo_map_covered_precision(&precision_targets, &direct_relations);
         for (candidate, connected) in candidates.iter_mut().zip(&mut neighbors) {
             connected.sort_unstable();
             connected.dedup();
@@ -263,12 +335,12 @@ impl ToolHarness {
         let rank_cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let personalization = repo_map_personalization(&candidates);
         let mut rank = personalization.clone();
+        let mut next = vec![0.0; personalization.len()];
+        let propagation = 1.0 - REPO_MAP_RESTART;
         for _ in 0..REPO_MAP_ITERATIONS {
-            let mut next = personalization
-                .iter()
-                .map(|value| value * REPO_MAP_RESTART)
-                .collect::<Vec<_>>();
-            let propagation = 1.0 - REPO_MAP_RESTART;
+            for (next, base) in next.iter_mut().zip(&personalization) {
+                *next = *base * REPO_MAP_RESTART;
+            }
             for (from, connected) in neighbors.iter().enumerate() {
                 if connected.is_empty() {
                     next[from] += rank[from] * propagation;
@@ -280,7 +352,7 @@ impl ToolHarness {
                 }
             }
             normalize_scores(&mut next);
-            rank = next;
+            std::mem::swap(&mut rank, &mut next);
         }
         for (candidate, score) in candidates.iter_mut().zip(rank) {
             let centrality = (candidate.degree as f64 + 1.0).ln();
@@ -294,6 +366,12 @@ impl ToolHarness {
                 .then_with(|| left.qualified_name.cmp(&right.qualified_name))
                 .then_with(|| left.path.cmp(&right.path))
         });
+        if matches!(
+            routing.intent,
+            RepoMapIntent::CommentToContext | RepoMapIntent::FailureTraceToCode
+        ) {
+            candidates.retain(|candidate| !given_context_paths.contains(&candidate.path));
+        }
         candidates.truncate(max_items);
         drop(rank_cpu);
 
@@ -322,17 +400,38 @@ impl ToolHarness {
 
         Ok(json!({
             "provider": if providers_used.is_empty() { "tree-sitter" } else { "wcode-composite" },
-            "precision": graph_precision_name(strongest_precision),
+            "precision": covered_precision,
             "providers_used": providers_used,
             "provider_nodes_mapped": provider_nodes_mapped,
             "provider_edges_mapped": provider_edges_mapped,
             "items": items,
             "scope_path": scope_path,
+            "routing": retrieval_routing_value(routing),
             "candidates": index_by_id.len(),
             "files_indexed": graph.files_indexed,
             "graph_edges": graph.edge_count,
             "cache_hit": cache_hit,
             "build_ms": started.elapsed().as_millis(),
+            "experience": {
+                "available": experience.available,
+                "provider": "verified-change-history",
+                "precision": "heuristic",
+                "model": crate::experience_store::retrieval_model(),
+                "evidence": "deterministic-verification",
+                "matched_records": experience.matched_records,
+                "scanned_records": experience.scanned_records,
+                "boosted_paths": experience.weights.len(),
+                "intent_conditioned": true,
+                "activation": {
+                    "policy": crate::experience_store::activation_policy(),
+                    "state": experience.activation.state,
+                    "reason": experience.activation.reason,
+                    "factor": experience.activation.factor,
+                    "evaluable_records": experience.activation.evaluable_records,
+                },
+                "truncated": experience.truncated,
+                "lookup_ms": experience_lookup_ms,
+            },
             "scan_truncated": graph.scan_truncated,
             "graph_truncated": graph.truncated,
             "truncated": graph.truncated || graph.scan_truncated || index_by_id.len() > max_items,
@@ -346,45 +445,56 @@ impl ToolHarness {
         path: &str,
     ) -> Result<(Arc<SoftwareGraphSnapshot>, bool)> {
         let cache_key = (workspace.root().to_path_buf(), path.to_owned());
-        let fingerprint_before = repo_map_fingerprint(workspace, path)?;
-        if let Some(snapshot) = self
-            .repo_map_cache
-            .lock()
-            .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?
-            .get(&cache_key)
-            .filter(|cached| cached.fingerprint == fingerprint_before)
-            .map(|cached| cached.snapshot.clone())
+        let (fingerprint, paths, scan_truncated) = repo_map_fingerprint(workspace, path)?;
         {
-            return Ok((snapshot, true));
-        }
-
-        let snapshot = Arc::new(self.code_index.software_graph(
-            workspace_id.to_owned(),
-            workspace,
-            path,
-            REPO_MAP_MAX_FILES,
-            REPO_MAP_MAX_SYMBOLS,
-        )?);
-        let fingerprint_after = repo_map_fingerprint(workspace, path)?;
-        if fingerprint_before == fingerprint_after {
             let mut cache = self
                 .repo_map_cache
                 .lock()
                 .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?;
-            let limit = crate::resource::limits().repo_map_cache_limit();
-            if cache.len() >= limit {
-                if let Some(oldest) = cache.keys().next().cloned() {
-                    cache.remove(&oldest);
-                }
+            if let Some(cached) = cache
+                .get_mut(&cache_key)
+                .filter(|cached| cached.fingerprint == fingerprint)
+            {
+                cached.last_used = Instant::now();
+                return Ok((cached.snapshot.clone(), true));
             }
-            cache.insert(
-                cache_key,
-                CachedRepoMapGraph {
-                    fingerprint: fingerprint_after,
-                    snapshot: snapshot.clone(),
-                },
-            );
         }
+
+        // Reuse the exact source enumeration that established the cache key.
+        // The index still validates each file's metadata around parsing, while
+        // the next request recomputes this fingerprint and invalidates on any
+        // added, removed, or modified source. A second full-tree scan after the
+        // build only duplicated work without making the returned snapshot newer.
+        let snapshot = Arc::new(self.code_index.software_graph_from_paths(
+            workspace_id.to_owned(),
+            workspace,
+            path,
+            paths,
+            scan_truncated,
+            REPO_MAP_MAX_SYMBOLS,
+        )?);
+        let mut cache = self
+            .repo_map_cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?;
+        let limit = crate::resource::limits().repo_map_cache_limit();
+        if cache.len() >= limit {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            cache_key,
+            CachedRepoMapGraph {
+                fingerprint,
+                last_used: Instant::now(),
+                snapshot: snapshot.clone(),
+            },
+        );
         Ok((snapshot, false))
     }
 }
@@ -419,10 +529,10 @@ fn repo_map_scope_path(context: &SoftwareContext) -> String {
     };
     let mut common = first.split('/').collect::<Vec<_>>();
     for directory in directories.iter().skip(1) {
-        let parts = directory.split('/').collect::<Vec<_>>();
         let matching = common
             .iter()
-            .zip(parts.iter())
+            .copied()
+            .zip(directory.split('/'))
             .take_while(|(left, right)| left == right)
             .count();
         common.truncate(matching);
@@ -445,21 +555,20 @@ fn repo_map_parent_path(path: &str) -> Option<&str> {
         .or(Some("."))
 }
 
-fn repo_map_fingerprint(workspace: &Workspace, path: &str) -> Result<u64> {
-    let (paths, truncated) = workspace.source_files(path, REPO_MAP_MAX_FILES)?;
+fn repo_map_fingerprint(workspace: &Workspace, path: &str) -> Result<(u64, Vec<String>, bool)> {
+    let (entries, truncated) = workspace.source_files_with_stamps(path, REPO_MAP_MAX_FILES)?;
     let mut hasher = DefaultHasher::new();
     workspace.root().hash(&mut hasher);
     path.hash(&mut hasher);
     truncated.hash(&mut hasher);
-    paths.len().hash(&mut hasher);
-    for path in paths {
-        path.hash(&mut hasher);
-        match workspace.source_metadata_stamp(&path) {
-            Ok(stamp) => stamp.hash(&mut hasher),
-            Err(_) => 0u8.hash(&mut hasher),
-        }
+    entries.len().hash(&mut hasher);
+    let mut paths = Vec::with_capacity(entries.len());
+    for (source_path, stamp) in entries {
+        source_path.hash(&mut hasher);
+        stamp.hash(&mut hasher);
+        paths.push(source_path);
     }
-    Ok(hasher.finish())
+    Ok((hasher.finish(), paths, truncated))
 }
 
 #[derive(Clone, Debug)]
@@ -471,7 +580,10 @@ struct RepoMapCandidate {
     kind: String,
     relevance: f64,
     direct: bool,
+    exact_direct: bool,
     design_path: bool,
+    query_hits: usize,
+    experience_weight: u16,
     degree: usize,
     rank: f64,
 }
@@ -514,6 +626,48 @@ fn repo_map_tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
+fn repo_map_precision_targets(
+    context: &SoftwareContext,
+    candidates: &[RepoMapCandidate],
+    query_tokens: &[String],
+) -> BTreeSet<String> {
+    let direct_ids = candidates
+        .iter()
+        .filter(|candidate| candidate.direct)
+        .map(|candidate| candidate.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut targets = context
+        .coverage
+        .requirements
+        .iter()
+        .flat_map(|requirement| requirement.implementation.iter())
+        .filter(|reference| reference.resolved)
+        .filter_map(|reference| reference.node_id.as_deref())
+        .filter(|node_id| direct_ids.contains(*node_id))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+
+    // Retrieval seeds intentionally favor recall and may include broad lexical
+    // matches. Without a Design-backed target, only exact symbol tokens are
+    // strong enough to participate in readiness precision claims.
+    if targets.is_empty() {
+        let exact_tokens = query_tokens
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        for candidate in candidates.iter().filter(|candidate| candidate.direct) {
+            let name = candidate.name.to_ascii_lowercase();
+            let qualified_name = candidate.qualified_name.to_ascii_lowercase();
+            if exact_tokens.contains(name.as_str())
+                || exact_tokens.contains(qualified_name.as_str())
+            {
+                targets.insert(candidate.id.clone());
+            }
+        }
+    }
+    targets
+}
+
 fn repo_map_target_path(target: &str) -> Option<String> {
     let candidate = target.split_once("::").map_or(target, |(path, _)| path);
     (candidate.contains('/') || candidate.contains('\\') || candidate.contains('.'))
@@ -547,22 +701,28 @@ fn normalize_scores(values: &mut [f64]) {
     }
 }
 
+#[derive(Default)]
+struct ProviderCandidatePathIndex {
+    qualified: HashMap<String, Vec<usize>>,
+    names: HashMap<String, Vec<usize>>,
+}
+
 fn provider_candidate_index(
     node: &crate::graph::GraphImportNode,
     index_by_id: &HashMap<String, usize>,
-    index_by_qualified: &HashMap<(String, String), Vec<usize>>,
-    index_by_name: &HashMap<(String, String), Vec<usize>>,
+    index_by_path: &HashMap<String, ProviderCandidatePathIndex>,
 ) -> Option<usize> {
     if let Some(index) = index_by_id.get(&node.id) {
         return Some(*index);
     }
-    let path = node.attributes.get("path")?.as_str()?.to_owned();
+    let path = node.attributes.get("path")?.as_str()?;
+    let path_index = index_by_path.get(path)?;
     if let Some(qualified_name) = node
         .attributes
         .get("qualified_name")
         .and_then(Value::as_str)
     {
-        if let Some(indices) = index_by_qualified.get(&(path.clone(), qualified_name.to_owned())) {
+        if let Some(indices) = path_index.qualified.get(qualified_name) {
             if indices.len() == 1 {
                 return indices.first().copied();
             }
@@ -573,8 +733,9 @@ fn provider_candidate_index(
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or(node.label.as_str());
-    index_by_name
-        .get(&(path, name.to_owned()))
+    path_index
+        .names
+        .get(name)
         .filter(|indices| indices.len() == 1)
         .and_then(|indices| indices.first().copied())
 }
@@ -588,18 +749,6 @@ fn provider_precision_boost(precision: GraphPrecision) -> f64 {
     }
 }
 
-fn graph_precision_rank(precision: GraphPrecision) -> u8 {
-    match precision {
-        GraphPrecision::Runtime => 6,
-        GraphPrecision::Semantic => 5,
-        GraphPrecision::Deterministic => 4,
-        GraphPrecision::Syntax => 3,
-        GraphPrecision::Declared => 2,
-        GraphPrecision::Heuristic => 1,
-        GraphPrecision::Mixed => 0,
-    }
-}
-
 fn graph_precision_name(precision: GraphPrecision) -> &'static str {
     match precision {
         GraphPrecision::Runtime => "runtime",
@@ -610,6 +759,48 @@ fn graph_precision_name(precision: GraphPrecision) -> &'static str {
         GraphPrecision::Heuristic => "heuristic",
         GraphPrecision::Mixed => "mixed",
     }
+}
+
+pub(super) fn repo_map_covered_precision(
+    precision_targets: &BTreeSet<String>,
+    direct_relations: &HashMap<String, Vec<Value>>,
+) -> &'static str {
+    if precision_targets.is_empty() {
+        return "syntax";
+    }
+    let mut coverage = precision_targets
+        .iter()
+        .map(|target| (target.as_str(), ("syntax", 3u8)))
+        .collect::<HashMap<_, _>>();
+    for relation in direct_relations.values().flatten() {
+        let Some(direct) = relation.get("direct").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(current) = coverage.get_mut(direct) else {
+            continue;
+        };
+        let Some(precision) = relation.get("precision").and_then(Value::as_str) else {
+            continue;
+        };
+        let rank = relation_precision_rank(relation);
+        if rank > current.1 {
+            current.0 = match precision {
+                "runtime" => "runtime",
+                "semantic" => "semantic",
+                "deterministic" => "deterministic",
+                "syntax" => "syntax",
+                "declared" => "declared",
+                "heuristic" => "heuristic",
+                _ => current.0,
+            };
+            current.1 = rank;
+        }
+    }
+    coverage
+        .values()
+        .min_by_key(|(_, rank)| *rank)
+        .map(|(precision, _)| *precision)
+        .unwrap_or("syntax")
 }
 
 fn relation_precision_rank(value: &Value) -> u8 {
@@ -676,8 +867,10 @@ fn repo_map_item(
         .and_then(|metadata| metadata.pointer("/range/end_line"))
         .cloned()
         .unwrap_or(Value::Null);
-    let reason = if candidate.direct {
+    let reason = if candidate.exact_direct {
         "direct_match"
+    } else if candidate.direct {
+        "retrieval_seed"
     } else if let Some(relation) = direct_relations
         .first()
         .and_then(|relation| relation.get("relation"))
@@ -686,14 +879,16 @@ fn repo_map_item(
         relation
     } else if candidate.design_path && candidate.relevance > 0.0 {
         "design_and_query"
-    } else if candidate.relevance > 0.0 {
+    } else if candidate.query_hits > 0 {
         "query_related"
+    } else if candidate.experience_weight > 0 {
+        "verified_experience"
     } else if candidate.degree > 0 {
         "graph_neighbor"
     } else {
         "central"
     };
-    json!({
+    let mut item = json!({
         "id": candidate.id,
         "path": candidate.path,
         "qualified_name": candidate.qualified_name,
@@ -705,5 +900,15 @@ fn repo_map_item(
         "relationships": direct_relations.iter().take(3).cloned().collect::<Vec<_>>(),
         "degree": candidate.degree,
         "score": (candidate.rank * 100.0).round() / 100.0,
-    })
+    });
+    if candidate.experience_weight > 0 {
+        item["historical_relevance"] = json!({
+            "provider": "verified-change-history",
+            "precision": "heuristic",
+            "model": crate::experience_store::retrieval_model(),
+            "evidence": "deterministic-verification",
+            "weight": candidate.experience_weight,
+        });
+    }
+    item
 }

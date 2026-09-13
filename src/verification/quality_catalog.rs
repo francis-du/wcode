@@ -322,6 +322,16 @@ pub(crate) fn candidates_for(
                 None,
             ));
             candidates.push(candidate!(
+                "mix-compile",
+                StaticAnalysis,
+                LanguageNative,
+                "mix",
+                ["compile", "--warnings-as-errors"],
+                declared,
+                "mix.exs",
+                None,
+            ));
+            candidates.push(candidate!(
                 "mix-test",
                 Test,
                 LanguageNative,
@@ -588,6 +598,16 @@ fn add_java_candidates(
             "mvn"
         };
         candidates.push(candidate!(
+            "maven-compile",
+            StaticAnalysis,
+            QualityProviderSource::LanguageNative,
+            program,
+            ["-q", "-DskipTests", "compile"],
+            true,
+            "pom.xml",
+            None,
+        ));
+        candidates.push(candidate!(
             "maven-test",
             Test,
             QualityProviderSource::LanguageNative,
@@ -633,6 +653,16 @@ fn add_java_candidates(
         } else {
             "gradle"
         };
+        candidates.push(candidate!(
+            "gradle-classes",
+            StaticAnalysis,
+            QualityProviderSource::LanguageNative,
+            program,
+            ["classes"],
+            true,
+            "Gradle build",
+            None,
+        ));
         candidates.push(candidate!(
             "gradle-test",
             Test,

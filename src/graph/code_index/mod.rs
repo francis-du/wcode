@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Point, Query, QueryCursor, Tree};
 
@@ -129,9 +129,11 @@ const OCAML_INTERFACE_TAGS_QUERY: &str = r#"
   (value_name) @name) @definition.variable
 "#;
 
+type LanguageConfigs = HashMap<LanguageId, Arc<LanguageConfig>>;
+
 #[derive(Clone)]
 pub struct CodeIndex {
-    configs: Arc<HashMap<LanguageId, Arc<LanguageConfig>>>,
+    configs: Arc<LanguageConfigs>,
     state: Arc<Mutex<IndexState>>,
 }
 

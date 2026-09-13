@@ -112,7 +112,7 @@ Language Quality 负责常见仓库质量门。Property、Mutation、Fuzz、Runt
 - `project_context` 把能力矩阵放进项目上下文；
 - `language_quality_status` 通过 MCP 暴露完整 Registry；
 - `language_quality_run` 运行一个声明后的 Check-only Provider 并记录 Evidence；
-- Project Observatory 显示检测到的语言与 Capability/Gap Matrix；
+- Engineering Observatory 显示检测到的语言与 Capability/Gap Matrix；
 - `verification_executor_status` 继续负责 Property/Mutation/Fuzz/Runtime 高级 Registry。
 
 目标是让人和 Agent 共用一套事实模型，而不是每个 IDE 各自维护一套“语言支持”故事。

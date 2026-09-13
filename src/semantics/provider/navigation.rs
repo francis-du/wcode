@@ -57,6 +57,42 @@ enum NavigationQueryStatus {
     Failed,
 }
 
+#[derive(Default)]
+struct NavigationLocationCache {
+    sources: std::collections::HashMap<String, SourceDocument>,
+    uri_paths: std::collections::HashMap<String, String>,
+}
+
+impl NavigationLocationCache {
+    fn path_for_uri(&mut self, workspace: &Workspace, uri: &str) -> Option<String> {
+        if let Some(path) = self.uri_paths.get(uri) {
+            return Some(path.clone());
+        }
+        let url = Url::parse(uri).ok()?;
+        let canonical = url.to_file_path().ok()?.canonicalize().ok()?;
+        if !canonical.starts_with(workspace.root()) {
+            return None;
+        }
+        let path = canonical
+            .strip_prefix(workspace.root())
+            .ok()?
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        self.uri_paths.insert(uri.to_owned(), path.clone());
+        Some(path)
+    }
+
+    fn source<'a>(&'a mut self, workspace: &Workspace, path: &str) -> Option<&'a SourceDocument> {
+        if !self.sources.contains_key(path) {
+            self.sources
+                .insert(path.to_owned(), workspace.load_source(path).ok()?);
+        }
+        self.sources.get(path)
+    }
+}
+
 pub(crate) async fn navigate(
     sessions: &SemanticSessionPool,
     workspace: &Workspace,
@@ -151,6 +187,8 @@ pub(crate) async fn navigate(
         failures: Vec::new(),
         truncated: false,
     };
+    let mut location_cache = NavigationLocationCache::default();
+    location_cache.sources.insert(source.path.clone(), source);
 
     let want_definition = matches!(
         intent,
@@ -189,6 +227,7 @@ pub(crate) async fn navigate(
             "textDocument/definition",
             json!({"textDocument":{"uri":uri},"position":position}),
             max_results,
+            &mut location_cache,
         )
         .await;
         result.definitions = locations;
@@ -230,6 +269,7 @@ pub(crate) async fn navigate(
                 "context":{"includeDeclaration":false}
             }),
             max_results,
+            &mut location_cache,
         )
         .await;
         result.references = locations;
@@ -250,6 +290,7 @@ pub(crate) async fn navigate(
             "textDocument/implementation",
             json!({"textDocument":{"uri":uri},"position":position}),
             max_results,
+            &mut location_cache,
         )
         .await;
         result.implementations = locations;
@@ -279,15 +320,21 @@ pub(crate) async fn navigate(
                                 .request("callHierarchy/incomingCalls", json!({"item":item}))
                                 .await
                             {
-                                Ok(incoming) => append_call_locations(
-                                    workspace,
-                                    &incoming,
-                                    "from",
-                                    &session.position_encoding,
-                                    max_results,
-                                    &mut result.incoming_calls,
-                                    &mut result.truncated,
-                                ),
+                                Ok(incoming) => {
+                                    let mut context = CallLocationContext {
+                                        workspace,
+                                        encoding: &session.position_encoding,
+                                        max_results,
+                                        cache: &mut location_cache,
+                                        truncated: &mut result.truncated,
+                                    };
+                                    append_call_locations(
+                                        &mut context,
+                                        &incoming,
+                                        "from",
+                                        &mut result.incoming_calls,
+                                    );
+                                }
                                 Err(_) => result.failures.push("incoming_calls"),
                             }
                         }
@@ -296,15 +343,21 @@ pub(crate) async fn navigate(
                                 .request("callHierarchy/outgoingCalls", json!({"item":item}))
                                 .await
                             {
-                                Ok(outgoing) => append_call_locations(
-                                    workspace,
-                                    &outgoing,
-                                    "to",
-                                    &session.position_encoding,
-                                    max_results,
-                                    &mut result.outgoing_calls,
-                                    &mut result.truncated,
-                                ),
+                                Ok(outgoing) => {
+                                    let mut context = CallLocationContext {
+                                        workspace,
+                                        encoding: &session.position_encoding,
+                                        max_results,
+                                        cache: &mut location_cache,
+                                        truncated: &mut result.truncated,
+                                    };
+                                    append_call_locations(
+                                        &mut context,
+                                        &outgoing,
+                                        "to",
+                                        &mut result.outgoing_calls,
+                                    );
+                                }
                                 Err(_) => result.failures.push("outgoing_calls"),
                             }
                         }
@@ -326,6 +379,7 @@ async fn query_locations(
     method: &str,
     params: Value,
     max_results: usize,
+    cache: &mut NavigationLocationCache,
 ) -> (Vec<SemanticLocation>, NavigationQueryStatus, bool) {
     if !capability_enabled(&session.capabilities, capability) {
         return (Vec::new(), NavigationQueryStatus::Unsupported, false);
@@ -340,6 +394,7 @@ async fn query_locations(
         &value,
         &session.position_encoding,
         max_results,
+        cache,
         &mut output,
         &mut truncated,
     );
@@ -370,6 +425,7 @@ fn append_locations(
     value: &Value,
     encoding: &str,
     max_results: usize,
+    cache: &mut NavigationLocationCache,
     output: &mut Vec<SemanticLocation>,
     truncated: &mut bool,
 ) {
@@ -385,7 +441,7 @@ fn append_locations(
             *truncated = true;
             break;
         }
-        if let Some(location) = location_from_lsp(workspace, item, encoding, None) {
+        if let Some(location) = location_from_lsp(workspace, item, encoding, None, cache) {
             if !output
                 .iter()
                 .any(|existing| same_location(existing, &location))
@@ -396,25 +452,36 @@ fn append_locations(
     }
 }
 
+struct CallLocationContext<'a> {
+    workspace: &'a Workspace,
+    encoding: &'a str,
+    max_results: usize,
+    cache: &'a mut NavigationLocationCache,
+    truncated: &'a mut bool,
+}
+
 fn append_call_locations(
-    workspace: &Workspace,
+    context: &mut CallLocationContext<'_>,
     value: &Value,
     key: &str,
-    encoding: &str,
-    max_results: usize,
     output: &mut Vec<SemanticLocation>,
-    truncated: &mut bool,
 ) {
     for call in value.as_array().into_iter().flatten() {
-        if output.len() >= max_results {
-            *truncated = true;
+        if output.len() >= context.max_results {
+            *context.truncated = true;
             break;
         }
         let Some(item) = call.get(key) else {
             continue;
         };
         let name = item.get("name").and_then(Value::as_str).map(str::to_owned);
-        if let Some(location) = location_from_lsp(workspace, item, encoding, name) {
+        if let Some(location) = location_from_lsp(
+            context.workspace,
+            item,
+            context.encoding,
+            name,
+            context.cache,
+        ) {
             if !output
                 .iter()
                 .any(|existing| same_location(existing, &location))
@@ -430,23 +497,13 @@ fn location_from_lsp(
     item: &Value,
     encoding: &str,
     name: Option<String>,
+    cache: &mut NavigationLocationCache,
 ) -> Option<SemanticLocation> {
     let uri = item
         .get("uri")
         .or_else(|| item.get("targetUri"))?
         .as_str()?;
-    let url = Url::parse(uri).ok()?;
-    let canonical = url.to_file_path().ok()?.canonicalize().ok()?;
-    if !canonical.starts_with(workspace.root()) {
-        return None;
-    }
-    let path = canonical
-        .strip_prefix(workspace.root())
-        .ok()?
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
+    let path = cache.path_for_uri(workspace, uri)?;
     let range = item
         .get("selectionRange")
         .or_else(|| item.get("range"))
@@ -454,7 +511,7 @@ fn location_from_lsp(
         .or_else(|| item.get("targetRange"))?;
     let zero_line = range.pointer("/start/line")?.as_u64()?;
     let lsp_character = range.pointer("/start/character")?.as_u64()?;
-    let source = workspace.load_source(&path).ok()?;
+    let source = cache.source(workspace, &path)?;
     let character =
         lsp_to_byte_column(&source.content, zero_line + 1, lsp_character, encoding).ok()?;
     Some(SemanticLocation {

@@ -11,6 +11,11 @@ use std::path::{Path, PathBuf};
 const MAX_STORED_SEMANTIC_RECORDS: usize = 4_096;
 const MAX_SEMANTIC_RECORD_BYTES: u64 = 128 * 1024;
 
+#[cfg(test)]
+thread_local! {
+    static READ_FACT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn persist(workspace: &Workspace, fact: &SemanticFact) -> Result<()> {
     fact.validate()?;
     let directory = semantic_directory(workspace)?;
@@ -64,27 +69,9 @@ pub(crate) fn load(workspace: &Workspace) -> Result<Vec<SemanticFact>> {
         .into_iter()
         .rev()
     {
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.len() > MAX_SEMANTIC_RECORD_BYTES
-        {
+        let Some(fact) = read_fact(&path)? else {
             continue;
-        }
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(_) => continue,
         };
-        let fact: SemanticFact = match serde_json::from_slice(&bytes) {
-            Ok(fact) => fact,
-            Err(_) => continue,
-        };
-        if fact.validate().is_err() {
-            continue;
-        }
         let should_replace = latest
             .get(&fact.id)
             .is_none_or(|existing| existing.timestamp_ms <= fact.timestamp_ms);
@@ -96,7 +83,52 @@ pub(crate) fn load(workspace: &Workspace) -> Result<Vec<SemanticFact>> {
 }
 
 pub(crate) fn load_one(workspace: &Workspace, id: &str) -> Result<Option<SemanticFact>> {
-    Ok(load(workspace)?.into_iter().find(|fact| fact.id == id))
+    let directory = semantic_directory(workspace)?;
+    if !directory.exists() {
+        return Ok(None);
+    }
+    let metadata = fs::symlink_metadata(&directory)
+        .with_context(|| format!("cannot inspect semantic store {}", directory.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!("semantic store path is not a regular directory");
+    }
+    for path in semantic_paths(&directory)?
+        .into_iter()
+        .rev()
+        .take(MAX_STORED_SEMANTIC_RECORDS)
+    {
+        let Some(fact) = read_fact(&path)? else {
+            continue;
+        };
+        if fact.id == id {
+            return Ok(Some(fact));
+        }
+    }
+    Ok(None)
+}
+
+fn read_fact(path: &Path) -> Result<Option<SemanticFact>> {
+    #[cfg(test)]
+    READ_FACT_CALLS.with(|count| count.set(count.get() + 1));
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(None),
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_SEMANTIC_RECORD_BYTES
+    {
+        return Ok(None);
+    }
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return Ok(None),
+    };
+    let fact: SemanticFact = match serde_json::from_slice(&bytes) {
+        Ok(fact) => fact,
+        Err(_) => return Ok(None),
+    };
+    Ok(fact.validate().is_ok().then_some(fact))
 }
 
 pub(crate) fn capabilities() -> serde_json::Value {

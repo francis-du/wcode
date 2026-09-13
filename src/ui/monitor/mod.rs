@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 const MAX_RECENT_TASKS: usize = 48;
+const MAX_TUNNEL_RUNTIME_STATUSES: usize = 8;
 const MAX_TRAFFIC_EVENTS: usize = 4096;
 const TRAFFIC_WINDOW: Duration = Duration::from_secs(60);
 const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
@@ -100,9 +101,11 @@ struct MonitorState {
     last_mcp_seen: Option<Instant>,
     public_endpoint: Option<String>,
     tunnels: Vec<(String, String)>,
+    tunnel_runtime: BTreeMap<String, TunnelRuntimeState>,
     public_url_healthy: Option<bool>,
     public_url_last_checked: Option<Instant>,
     public_url_consecutive_failures: u8,
+    public_url_consecutive_successes: u8,
     public_url_error: Option<String>,
     tunnel_running: Option<bool>,
     tunnel_error: Option<String>,
@@ -112,6 +115,20 @@ struct MonitorState {
     peak_active: u64,
     observed_active: u64,
     observed_queued: u64,
+}
+
+#[derive(Clone)]
+struct TunnelRuntimeState {
+    provider: String,
+    url: Option<String>,
+    role: String,
+    state: String,
+    lease_verified_at: Option<Instant>,
+    consecutive_failures: u8,
+    death_count: u32,
+    circuit_open: bool,
+    retry_at: Option<Instant>,
+    connected_at: Option<Instant>,
 }
 
 #[derive(Clone, Default)]
@@ -133,6 +150,8 @@ struct WorkspaceStats {
 #[derive(Clone, Default)]
 struct IntelligenceStats {
     design_state: Option<String>,
+    policy_errors: u64,
+    policy_warnings: u64,
     requirements: u64,
     components: u64,
     implementation_coverage: Option<u64>,
@@ -259,6 +278,20 @@ pub struct MonitorRenderer {
     join: tokio::task::JoinHandle<()>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MonitorTunnelRuntimeStatus {
+    pub provider: String,
+    pub url: Option<String>,
+    pub role: String,
+    pub state: String,
+    pub lease_age_seconds: Option<u64>,
+    pub consecutive_failures: u8,
+    pub death_count: u32,
+    pub circuit_open: bool,
+    pub retry_in_seconds: Option<u64>,
+    pub connected_seconds: Option<u64>,
+}
+
 pub struct MonitorConnectionStatus {
     pub oauth_client_registered: bool,
     pub oauth_authorized: bool,
@@ -271,6 +304,7 @@ pub struct MonitorConnectionStatus {
     pub public_url_last_checked_seconds_ago: Option<u64>,
     pub public_url_consecutive_failures: u8,
     pub public_url_error: Option<String>,
+    pub tunnels: Vec<MonitorTunnelRuntimeStatus>,
     pub tunnel_running: Option<bool>,
     pub tunnel_error: Option<String>,
     pub active_tasks: u64,
@@ -292,6 +326,7 @@ struct MonitorSnapshot {
     last_mcp_seen: Option<Instant>,
     public_endpoint: Option<String>,
     tunnels: Vec<(String, String)>,
+    tunnel_runtime: Vec<MonitorTunnelRuntimeStatus>,
     public_url_healthy: Option<bool>,
     public_url_last_checked: Option<Instant>,
     public_url_consecutive_failures: u8,

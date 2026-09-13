@@ -13,8 +13,9 @@ struct DocPage {
 #[test]
 fn complete_help_documentation_exposes_discovery_and_execution_boundaries() {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/manual");
+    let current_release = format!("releases/v{}", env!("CARGO_PKG_VERSION"));
     for suffix in ["", ".zh-CN"] {
-        for page in ["reference", "getting-started", "releases/v0.6.2"] {
+        for page in ["reference", "getting-started", current_release.as_str()] {
             let content = fs::read_to_string(docs.join(format!("{page}{suffix}.md"))).unwrap();
             for command in [
                 "wcode help-all",
@@ -277,9 +278,10 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         fs::read_to_string(docs_root.join("software-intelligence.zh-CN.md")).unwrap();
     for phrase in [
         "Make any coding agent understand your repo before it changes it.",
-        "missing repository layer",
-        "minimal-change strategy",
-        "Understand first. Change less. Prove it works.",
+        "engineering control plane for coding agents",
+        "UNDERSTAND",
+        "Engineering Observatory",
+        "Understand first. Change less. Prove it works. Learn only from proof.",
     ] {
         assert!(
             readme.contains(phrase),
@@ -287,33 +289,37 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         );
     }
     for phrase in [
-        "wcode makes it understand the system",
-        "Ask semantic questions",
-        "blast radius",
+        "Engineering Control Plane",
+        "REPOSITORY INTELLIGENCE",
+        "Repository understanding is still the bottleneck",
         "Stop paying the context tax",
-        "evidence",
+        "verification and evidence",
     ] {
         assert!(
             homepage_en.contains(phrase),
-            "English homepage must explain software intelligence as user value: {phrase}"
+            "English homepage must explain the engineering-control-plane value story: {phrase}"
         );
     }
     for phrase in [
-        "wcode 让它真正理解这个系统",
-        "跨文件语义关系",
-        "Semantic Precision",
-        "改动前先看影响范围",
-        "把“看起来没问题”变成证据",
-        "Context 税",
+        "Engineering Control Plane",
+        "仓库理解",
+        "目标架构",
+        "真实 LSP 语义关系",
+        "验证证据",
+        "可观测",
     ] {
         assert!(
             homepage_zh.contains(phrase),
-            "Chinese homepage must keep the complete software-intelligence value story: {phrase}"
+            "Chinese homepage must keep the complete engineering-control-plane value story: {phrase}"
         );
     }
-    assert!(intelligence_en.contains("The 60-second mental model"));
+    assert!(intelligence_en.contains("Repository Intelligence & Engineering State"));
+    assert!(intelligence_en.contains("The 60-second repository-intelligence model"));
+    assert!(intelligence_en.contains("Engineering Observatory"));
     assert!(intelligence_en.contains("What will this change touch?"));
-    assert!(intelligence_zh.contains("60 秒理解 wcode 的软件智能"));
+    assert!(intelligence_zh.contains("仓库理解与工程状态"));
+    assert!(intelligence_zh.contains("60 秒理解仓库与工程状态"));
+    assert!(intelligence_zh.contains("Engineering Observatory"));
     assert!(intelligence_zh.contains("这次修改会碰到什么？"));
     let releases_en = fs::read_to_string(docs_root.join("releases.md")).unwrap();
     let releases_zh = fs::read_to_string(docs_root.join("releases.zh-CN.md")).unwrap();
@@ -510,10 +516,9 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             "software-intelligence",
             &[
                 "agent_context",
-                "software intelligence an agent can reason from",
-                "What will this change touch?",
-                "Project Observatory",
-                "durable workspace state",
+                "Repository Intelligence",
+                "Engineering Observatory",
+                "Design State",
                 "semantic_provider_refresh",
                 "verification_execute_stages",
             ][..],

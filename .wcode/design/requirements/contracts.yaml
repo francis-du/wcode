@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-CONTRACT-BRIDGE-001
+title: Shared API contracts propagate deterministic cross-language impact
+intent: >-
+  Static local API/codegen configuration must let wcode prove that a shared schema or contract is upstream of one or more generated-code consumer islands without executing generators or guessing from directory proximity. Bounded OpenAPI Generator, GraphQL Code Generator and Buf/Protobuf configuration may create structural contract bridges only from local workspace-contained source paths or stable local glob prefixes to explicit generated output paths owned by a known project island. Remote URLs, workspace escapes, symlinked paths and dynamic JavaScript/TypeScript codegen configuration must not create deterministic bridges. A changed contract outside every language island may still select its proven consumer islands; consumer edits must not reverse-propagate to unrelated producers. Verification selection must expose bounded structural provenance for direct changed-path ownership, contract/schema bridges, transitive manifest dependencies, and fail-safe broad fallback. If an explicit bridge points to generated output that already exists in the workspace and its upstream contract/config changes without any worktree change under that output, change review may surface a structural freshness advisory; this advisory must remain non-blocking and must explicitly state that it is not proof of staleness. Missing outputs, outputs changed in the same worktree, remote/dynamic configs and unproven topology must not produce this advisory. Only a deterministic native freshness provider may ever promote such a signal into a verification gate. Full provenance belongs in the verification report while Agent Context receives a smaller budget-safe summary. Engineering Observatory must expose the same current verification-selection provenance to operators without creating a second topology or extra Git/generator execution; static bridge topology and unsupported-config diagnostics remain available in Project Context.
+priority: critical
+implemented_by:
+  - component:contract-bridges
+acceptance:
+  - AC-CONTRACT-BRIDGE-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+risk:
+  reliability: critical
+  performance: high
+  compatibility: high

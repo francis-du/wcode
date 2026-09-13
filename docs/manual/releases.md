@@ -13,7 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Next release
 
-- [v0.6.2](v0.6.2/) — resource-aware parallel work, simpler setup, clearer observability, and effective verification evidence. Release preparation; publication and cross-platform CI are separate gates.
+- [v0.7.0](v0.7.0/) — a rebuilt Engineering Observatory, faster project-state loading, stronger architecture/proof workflows, and release-hardened agent engineering. Release preparation; publication and cross-platform CI are separate gates.
+
+## 0.7.x
+
+- [v0.7.0](v0.7.0/) — architecture-first project observability, clearer evidence and change workflows, faster initial loading, and stronger release contracts.
 
 ## 0.6.x
 

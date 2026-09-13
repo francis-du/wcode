@@ -139,8 +139,8 @@ pub(super) fn render_authorization_overlay(
             Span::styled(
                 " ! ",
                 Style::default()
-                    .fg(BACKGROUND)
-                    .bg(WARNING)
+                    .fg(WARNING)
+                    .bg(SURFACE_SELECTED)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -327,15 +327,15 @@ pub(super) fn render_help_overlay(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SECONDARY))
+        .border_style(Style::default().fg(OUTLINE))
         .style(Style::default().bg(SURFACE_SELECTED))
         .padding(Padding::horizontal(1))
         .title(Line::from(vec![
             Span::styled(
                 " ? ",
                 Style::default()
-                    .fg(BACKGROUND)
-                    .bg(SECONDARY)
+                    .fg(ACCENT)
+                    .bg(SURFACE_SELECTED)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -356,10 +356,10 @@ pub(super) fn render_help_overlay(
     if width < 74 {
         frame.render_widget(
             Paragraph::new(vec![
-                help_hint_line("I", language.tr("show live intelligence")),
+                help_hint_line("I", language.tr("show repository intelligence")),
                 help_hint_line("C", language.tr("show supported commands")),
                 help_hint_line("O", language.tr("open Connector setup")),
-                help_hint_line("W", language.tr("open Project Observatory")),
+                help_hint_line("W", language.tr("open Engineering Observatory")),
                 help_hint_line("L", language.tr("toggle language")),
                 help_hint_line("P", language.tr("grant full user access")),
                 help_hint_line(
@@ -396,8 +396,8 @@ pub(super) fn render_help_overlay(
             help_hint_line("← / →", language.tr("move workspace focus")),
             help_hint_line("Shift + ← / →", language.tr("move one workspace page")),
             help_hint_line("O", language.tr("open Connector setup")),
-            help_hint_line("W", language.tr("open Project Observatory")),
-            help_hint_line("I", language.tr("show live intelligence")),
+            help_hint_line("W", language.tr("open Engineering Observatory")),
+            help_hint_line("I", language.tr("show repository intelligence")),
             help_hint_line("C", language.tr("show supported commands")),
             help_hint_line("L", language.tr("toggle language")),
             help_hint_line("P", language.tr("grant full user access")),
@@ -566,7 +566,7 @@ fn help_hint_line(key: &str, label: &str) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!(" {key:<15}"),
-            Style::default().fg(SECONDARY).add_modifier(Modifier::BOLD),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(label.to_owned(), Style::default().fg(TEXT_MUTED)),
     ])

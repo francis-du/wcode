@@ -27,7 +27,9 @@ use anyhow::{anyhow, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use uuid::Uuid;
 
 const MAX_EVIDENCE_RECORDS: usize = 4_096;
@@ -53,14 +55,25 @@ struct StoredEvidence {
 }
 
 #[derive(Clone)]
+struct CachedDesignLoad {
+    fingerprint: u64,
+    last_used: Instant,
+    load: Arc<design::DesignLoad>,
+}
+
+const MAX_DESIGN_CACHE_WORKSPACES: usize = 4;
+
+#[derive(Clone)]
 pub struct SoftwareIntelligenceRuntime {
     state: Arc<Mutex<IntelligenceState>>,
+    design_cache: Arc<Mutex<HashMap<PathBuf, CachedDesignLoad>>>,
 }
 
 impl Default for SoftwareIntelligenceRuntime {
     fn default() -> Self {
         Self {
             state: Arc::new(Mutex::new(IntelligenceState::default())),
+            design_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -70,11 +83,16 @@ pub use crate::intelligence_types::{
     DriftStatus, EvidenceStatus, FeatureAcceptanceView, FeatureComponentView,
     FeatureConstraintView, FeatureConvergenceState, FeatureDecisionView,
     FeatureDependencyAlignment, FeatureImplementationView, FeatureRequirementView, GraphContext,
-    GraphContextEdge, GraphContextNode, ProjectAcceptanceProofSummary, ProjectChangeView,
-    ProjectCodeStats, ProjectConvergenceSummary, ProjectFileView, ProjectGraphDeltaView,
-    ProjectObservatory, ProjectProofSummary, ProjectRevisionView, ProjectStructureView,
-    RequirementTrace, RequirementTraceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
-    SoftwareContextRequest, TraceReference, TraceReferenceKind, TraceabilityStatus,
+    GraphContextEdge, GraphContextNode, ProjectAcceptanceProofSummary,
+    ProjectAdaptiveVerificationView, ProjectChangeView, ProjectCodeStats,
+    ProjectConvergenceSummary, ProjectCostEvaluationView, ProjectCostFrontierEntryView,
+    ProjectCostSentinelView, ProjectEngineeringJournalView, ProjectEngineeringMilestoneView,
+    ProjectFileView, ProjectFocusedVerificationView, ProjectGraphDeltaView, ProjectObservatory,
+    ProjectProofSummary, ProjectRevisionView, ProjectStructureView,
+    ProjectVerificationImpactReasonView, ProjectVerificationImpactView,
+    ProjectVerifiedLearningView, RequirementTrace, RequirementTraceStatus, RiskStatus,
+    SemanticStatusView, SoftwareContext, SoftwareContextRequest, TraceReference,
+    TraceReferenceKind, TraceabilityStatus,
 };
 
 #[path = "analysis.rs"]
@@ -102,6 +120,81 @@ mod reconcile_runtime;
 mod semantic_runtime;
 
 impl SoftwareIntelligenceRuntime {
+    pub(crate) fn design_load(&self, workspace: &Workspace) -> Result<Arc<design::DesignLoad>> {
+        let fingerprint = design::fingerprint(workspace);
+        let root = workspace.root().to_path_buf();
+        {
+            let mut cache = self
+                .design_cache
+                .lock()
+                .map_err(|_| anyhow!("design cache poisoned"))?;
+            if let Some(cached) = cache
+                .get_mut(&root)
+                .filter(|cached| cached.fingerprint == fingerprint)
+            {
+                cached.last_used = Instant::now();
+                return Ok(cached.load.clone());
+            }
+        }
+
+        let load = Arc::new(design::load_design(workspace)?);
+        let mut cache = self
+            .design_cache
+            .lock()
+            .map_err(|_| anyhow!("design cache poisoned"))?;
+        if let Some(cached) = cache
+            .get_mut(&root)
+            .filter(|cached| cached.fingerprint == fingerprint)
+        {
+            cached.last_used = Instant::now();
+            return Ok(cached.load.clone());
+        }
+        if cache.len() >= MAX_DESIGN_CACHE_WORKSPACES && !cache.contains_key(&root) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
+                .map(|(root, _)| root.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            root,
+            CachedDesignLoad {
+                fingerprint,
+                last_used: Instant::now(),
+                load: load.clone(),
+            },
+        );
+        Ok(load)
+    }
+
+    pub(crate) fn invalidate_design_cache(&self, root: &Path) {
+        if let Ok(mut cache) = self.design_cache.lock() {
+            cache.remove(root);
+        }
+    }
+
+    pub(crate) fn trim_design_cache(&self, aggressive: bool) {
+        let Ok(mut cache) = self.design_cache.lock() else {
+            return;
+        };
+        if aggressive {
+            cache.clear();
+            return;
+        }
+        while cache.len() > MAX_DESIGN_CACHE_WORKSPACES / 2 {
+            let Some(oldest) = cache
+                .iter()
+                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
+                .map(|(root, _)| root.clone())
+            else {
+                break;
+            };
+            cache.remove(&oldest);
+        }
+    }
+
     fn create_plan_for_risk(
         &self,
         workspace_id: &str,
@@ -133,7 +226,7 @@ impl SoftwareIntelligenceRuntime {
         registry: &StageExecutorRegistry,
     ) -> Result<VerificationPlan> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
-        let revision = workspace_revision(workspace)?;
+        let revision = self.current_revision(workspace)?;
         let subject = format!("change:{}", revision.code);
         let plan_id = self.next_id("VP");
         let job_ids = std::iter::repeat_with(|| self.next_id("VJ"));
@@ -531,7 +624,6 @@ fn provider_graph_context(
     let symbol_paths = symbols
         .iter()
         .filter_map(|symbol| symbol.get("path").and_then(serde_json::Value::as_str))
-        .map(str::to_owned)
         .collect::<HashSet<_>>();
     let fresh_providers = providers
         .iter()
@@ -540,17 +632,22 @@ fn provider_graph_context(
                 != graph_provider_store::GraphProviderFreshness::Stale
         })
         .collect::<Vec<_>>();
-    let mut nodes_by_id = BTreeMap::<String, GraphContextNode>::new();
-    let mut ranked = Vec::<(usize, String)>::new();
+    let mut nodes_by_id = HashMap::<
+        &str,
+        (
+            &crate::graph::GraphImportNode,
+            &crate::graph::GraphProviderImport,
+            usize,
+        ),
+    >::new();
+    let mut ranked = Vec::<(usize, &str)>::new();
 
     for stored in &fresh_providers {
-        let provenance = stored.import.provenance();
         for node in &stored.import.nodes {
             let path = node
                 .attributes
                 .get("path")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
+                .and_then(serde_json::Value::as_str);
             let mut haystack = node.label.to_ascii_lowercase();
             for key in ["name", "qualified_name", "path"] {
                 if let Some(value) = node.attributes.get(key).and_then(serde_json::Value::as_str) {
@@ -563,31 +660,26 @@ fn provider_graph_context(
                 .iter()
                 .filter(|token| haystack.contains(token.as_str()))
                 .count();
-            let path_hit = usize::from(
-                path.as_ref()
-                    .is_some_and(|path| symbol_paths.contains(path)),
-            );
+            let path_hit = usize::from(path.is_some_and(|path| symbol_paths.contains(path)));
             let score = exact
                 .saturating_mul(100)
                 .saturating_add(token_hits.saturating_mul(10))
                 .saturating_add(path_hit.saturating_mul(40));
-            let id = node.id.clone();
-            nodes_by_id.entry(id.clone()).or_insert(GraphContextNode {
-                id: id.clone(),
-                kind: node.kind,
-                label: node.label.clone(),
-                path,
-                provider: provenance.provider.clone(),
-                precision: provenance.precision,
-                score,
-            });
+            nodes_by_id
+                .entry(node.id.as_str())
+                .and_modify(|entry| {
+                    if score > entry.2 {
+                        *entry = (node, &stored.import, score);
+                    }
+                })
+                .or_insert((node, &stored.import, score));
             if score > 0 {
-                ranked.push((score, id));
+                ranked.push((score, node.id.as_str()));
             }
         }
     }
 
-    ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    ranked.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(right.1)));
     ranked.dedup_by(|left, right| left.1 == right.1);
     let candidate_count = ranked.len();
     let seeds = ranked
@@ -605,21 +697,23 @@ fn provider_graph_context(
     for stored in fresh_providers {
         let provenance = stored.import.provenance();
         for edge in &stored.import.edges {
-            if !seeds.contains(&edge.from) && !seeds.contains(&edge.to) {
+            if !seeds.contains(edge.from.as_str()) && !seeds.contains(edge.to.as_str()) {
                 continue;
             }
-            if !nodes_by_id.contains_key(&edge.from) || !nodes_by_id.contains_key(&edge.to) {
+            if !nodes_by_id.contains_key(edge.from.as_str())
+                || !nodes_by_id.contains_key(edge.to.as_str())
+            {
                 continue;
             }
             edge_matches = edge_matches.saturating_add(1);
             if selected.len() < limit {
-                selected.insert(edge.from.clone());
+                selected.insert(edge.from.as_str());
                 if selected.len() < limit {
-                    selected.insert(edge.to.clone());
+                    selected.insert(edge.to.as_str());
                 }
             }
-            if selected.contains(&edge.from)
-                && selected.contains(&edge.to)
+            if selected.contains(edge.from.as_str())
+                && selected.contains(edge.to.as_str())
                 && edges.len() < edge_limit
             {
                 edges.push(GraphContextEdge {
@@ -634,7 +728,23 @@ fn provider_graph_context(
     }
     let mut nodes = selected
         .into_iter()
-        .filter_map(|id| nodes_by_id.remove(&id))
+        .filter_map(|id| {
+            let (node, import, score) = nodes_by_id.get(id)?;
+            let provenance = import.provenance();
+            Some(GraphContextNode {
+                id: id.to_owned(),
+                kind: node.kind,
+                label: node.label.clone(),
+                path: node
+                    .attributes
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                provider: provenance.provider,
+                precision: provenance.precision,
+                score: *score,
+            })
+        })
         .collect::<Vec<_>>();
     nodes.sort_by(|left, right| {
         right
@@ -679,11 +789,8 @@ fn ranked_context_ids(
                 .iter()
                 .filter(|token| haystack.contains(token.as_str()))
                 .count();
-            let id_match = usize::from(
-                tokens
-                    .iter()
-                    .any(|token| id.to_ascii_lowercase().contains(token)),
-            );
+            let id_lower = id.to_ascii_lowercase();
+            let id_match = usize::from(tokens.iter().any(|token| id_lower.contains(token)));
             let score = exact
                 .saturating_mul(100)
                 .saturating_add(token_hits.saturating_mul(10))

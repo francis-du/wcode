@@ -62,7 +62,7 @@ navigation catalog, not a complete parser-validation schema, MCP tool schema,
 external-program allowlist or live configuration. It does not enumerate
 arbitrary commands accepted by third-party executables. Preset/hardware-dependent
 effective values still come from `wcode --show-config`, not hard-coded defaults
-in this catalog. Build/install the new 0.6.2 executable to use the new command.
+in this catalog. Build/install the current wcode executable to use commands that are not advertised by an older runtime.
 
 `wcode update` targets the directory containing the running executable unless
 `WCODE_INSTALL_DIR` explicitly overrides it. It reuses the release installer
@@ -72,7 +72,7 @@ for the running executable to exit before replacement. Existing MCP stdio
 children keep running the old process image, so reconnect or restart the MCP
 Host/session after an update before expecting new Tool schemas or runtime behavior.
 
-Local Software Intelligence views:
+Local repository-intelligence and engineering-state views:
 
 ```bash
 wcode intelligence
@@ -215,8 +215,8 @@ Workspace/destructive-write trust controls are documented in [Security](../secur
 
 | Key | Action |
 | --- | --- |
-| `I` | Open Software Intelligence. |
-| `W` | Open the protected Project Observatory for the focused Workspace. |
+| `I` | Open repository intelligence for the focused project. |
+| `W` | Open the protected Engineering Observatory for the focused Workspace. |
 | `O` | Reopen Setup Hub. |
 | `L` | Switch TUI language. |
 | `+` | Add a Workspace. |
@@ -333,9 +333,9 @@ evidence_status
 
 ## Precision rules
 
-Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Project Observatory exposes the active provider/precision instead of presenting Tree-sitter-only results as compiler truth.
+Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Engineering Observatory exposes the active provider/precision instead of presenting Tree-sitter-only results as compiler truth.
 
-A missing relationship in a bounded syntax graph is not proof that the relationship does not exist. Negative inference stays advisory unless stronger evidence supports it. See [Software Intelligence](../software-intelligence/) and [Language Quality](../language-quality/).
+A missing relationship in a bounded syntax graph is not proof that the relationship does not exist. Negative inference stays advisory unless stronger evidence supports it. See [Repository Intelligence & Engineering State](../software-intelligence/) and [Language Quality](../language-quality/).
 
 ## Authorization model
 
@@ -367,7 +367,7 @@ For implementation quality use the repository-native checks returned by `project
 ## Related guides
 
 - [Getting Started](../getting-started/)
-- [Software Intelligence](../software-intelligence/)
+- [Repository Intelligence & Engineering State](../software-intelligence/)
 - [Code Agent Integrations](../code-agent-integrations/)
 - [Security](../security/)
 - [Language Quality](../language-quality/)

@@ -7,7 +7,7 @@ function renderAccess(force = false) {
     ? workspaceOptions.map(item => `<span class="workspace-chip"><code>${esc(item.id)}</code><span class="panel-meta">${esc(item.root || "")}</span></span>`).join("")
     : `<span class="panel-meta">${esc(state.workspaceAccess ? t("No authorized projects") : unknown)}</span>`);
   setHtml("commandAccess", els.commandList, allowed.length
-    ? allowed.map(program => `<span class="command-chip"><code>${esc(program)}</code><button type="button" data-revoke-command="${esc(program)}" aria-label="${esc(`${t("Revoke")} ${program}`)}">×</button></span>`).join("")
+    ? allowed.map(program => `<span class="command-chip"><code>${esc(program)}</code><button type="button" data-revoke-command="${esc(program)}" aria-label="${esc(`${t("Revoke")} ${program}`)}">${uiIcon("close")}</button></span>`).join("")
     : `<span class="panel-meta">${esc(state.access ? t("No commands authorized") : unknown)}</span>`, () => {
       els.commandList.querySelectorAll("[data-revoke-command]").forEach(button =>
         button.addEventListener("click", () => revokeCommandFromUi(button.dataset.revokeCommand)));

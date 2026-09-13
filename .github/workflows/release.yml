@@ -48,6 +48,11 @@ jobs:
       - name: Check
         run: cargo check --locked
 
+      - name: Audit Rust dependencies
+        uses: actions-rust-lang/audit@v1
+        with:
+          createIssues: false
+
       - name: Validate Design, traceability, and Product Scope contract
         run: >-
           cargo run --quiet --locked --
@@ -180,7 +185,9 @@ jobs:
           fi
           install -m 755 "dist/candidates/wcode-${selected_opt}" dist/package/wcode
           cp README.md dist/package/README.md
-          dist/package/wcode --version
+          cp LICENSE dist/package/LICENSE
+          package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          test "$(dist/package/wcode --version)" = "wcode ${package_version}"
           dist/package/wcode --help >/dev/null
           tar -C dist/package -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
           (
@@ -254,10 +261,18 @@ jobs:
           cp README.md dist/package-universal/README.md
           cp README.md dist/package-arm64/README.md
           cp README.md dist/package-x86_64/README.md
-          dist/package-arm64/wcode --version
-          dist/package-arm64/wcode --help >/dev/null
-          dist/package-universal/wcode --version
-          dist/package-universal/wcode --help >/dev/null
+          cp LICENSE dist/package-universal/LICENSE
+          cp LICENSE dist/package-arm64/LICENSE
+          cp LICENSE dist/package-x86_64/LICENSE
+          package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          for binary in \
+            dist/package-arm64/wcode \
+            dist/package-x86_64/wcode \
+            dist/package-universal/wcode
+          do
+            test "$("$binary" --version)" = "wcode ${package_version}"
+            "$binary" --help >/dev/null
+          done
           COPYFILE_DISABLE=1 tar -C dist/package-universal -cf - . | gzip -9n > "dist/${{ matrix.archive }}"
           COPYFILE_DISABLE=1 tar -C dist/package-arm64 -cf - . | gzip -9n > dist/wcode-macos-aarch64.tar.gz
           COPYFILE_DISABLE=1 tar -C dist/package-x86_64 -cf - . | gzip -9n > dist/wcode-macos-x86_64.tar.gz
@@ -313,6 +328,7 @@ jobs:
           }
           Copy-Item "dist/candidates/wcode-$selectedOpt.exe" dist/package/wcode.exe
           Copy-Item README.md dist/package/README.md
+          Copy-Item LICENSE dist/package/LICENSE
           $versionOutput = & dist/package/wcode.exe --version
           if ($LASTEXITCODE -ne 0) {
             throw "release: Windows binary failed the version smoke test"

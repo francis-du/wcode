@@ -39,6 +39,60 @@ fn public_health_response_must_match_the_current_instance() {
 }
 
 #[test]
+fn primary_health_uses_fast_confirmation_after_any_failure_streak() {
+    assert_eq!(
+        public_health_interval(Some(true), 0),
+        PUBLIC_HEALTH_INTERVAL
+    );
+    assert_eq!(
+        public_health_interval(Some(true), 1),
+        PUBLIC_RECOVERY_HEALTH_INTERVAL
+    );
+    assert_eq!(
+        public_health_interval(Some(false), 0),
+        PUBLIC_RECOVERY_HEALTH_INTERVAL
+    );
+    assert_eq!(
+        public_health_interval(None, 0),
+        PUBLIC_RECOVERY_HEALTH_INTERVAL
+    );
+}
+
+#[test]
+fn provider_startup_retries_are_staggered_without_randomness() {
+    let first = [
+        provider_retry_delay(TunnelProvider::Cloudflare, 1),
+        provider_retry_delay(TunnelProvider::LocalhostRun, 1),
+        provider_retry_delay(TunnelProvider::Pinggy, 1),
+        provider_retry_delay(TunnelProvider::Tailscale, 1),
+    ];
+    assert_eq!(first[0], Duration::from_secs(19));
+    assert_eq!(first[1], Duration::from_secs(21));
+    assert_eq!(first[2], Duration::from_secs(16));
+    assert_eq!(first[3], Duration::from_secs(18));
+    assert_eq!(
+        provider_retry_delay(TunnelProvider::Cloudflare, 1),
+        first[0]
+    );
+    assert_eq!(
+        provider_retry_delay(TunnelProvider::Cloudflare, 2),
+        Duration::from_secs(30)
+    );
+    assert_eq!(
+        provider_retry_delay(TunnelProvider::Cloudflare, 3),
+        Duration::from_secs(63)
+    );
+    assert_eq!(
+        provider_retry_delay(TunnelProvider::Cloudflare, 4),
+        Duration::from_secs(120)
+    );
+    assert_eq!(
+        provider_retry_delay(TunnelProvider::Cloudflare, 40),
+        PROVIDER_STARTUP_MAX_DELAY
+    );
+}
+
+#[test]
 fn public_url_requires_https_or_loopback_http() {
     assert_eq!(
         normalize_public_url("https://example.com/").unwrap(),

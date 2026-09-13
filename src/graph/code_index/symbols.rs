@@ -24,31 +24,61 @@ pub(super) fn prune_ast_cache(state: &mut IndexState) {
 pub(super) fn prune_ast_cache_to(state: &mut IndexState, file_limit: usize, byte_limit: usize) {
     let file_limit = file_limit.max(1);
     let byte_limit = byte_limit.max(1);
-    while state.ast_cache.len() > file_limit || ast_cache_bytes(state) > byte_limit {
-        let Some(oldest) = state
-            .ast_cache
-            .iter()
-            .min_by_key(|(_, entry)| entry.last_used)
-            .map(|(key, _)| key.clone())
-        else {
+    let mut remaining_bytes = ast_cache_bytes(state);
+    if state.ast_cache.len() <= file_limit && remaining_bytes <= byte_limit {
+        return;
+    }
+
+    // Sort eviction candidates once. The previous loop rescanned the whole
+    // cache both for total bytes and the oldest entry after every eviction,
+    // making memory-pressure trimming quadratic in the cache size.
+    let mut candidates = state
+        .ast_cache
+        .iter()
+        .map(|(key, entry)| {
+            (
+                entry.last_used,
+                key.clone(),
+                entry.source_bytes.saturating_mul(3),
+            )
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_unstable_by_key(|(last_used, _, _)| *last_used);
+
+    let mut remaining_files = state.ast_cache.len();
+    for (_, key, bytes) in candidates {
+        if remaining_files <= file_limit && remaining_bytes <= byte_limit {
             break;
-        };
-        state.ast_cache.remove(&oldest);
+        }
+        if state.ast_cache.remove(&key).is_some() {
+            remaining_files = remaining_files.saturating_sub(1);
+            remaining_bytes = remaining_bytes.saturating_sub(bytes);
+        }
     }
 }
 
 pub(super) fn prune_file_cache(state: &mut IndexState, target: usize) {
     let target = target.max(1);
-    while state.files.len() > target {
-        let Some(oldest) = state
-            .files
-            .keys()
-            .min_by_key(|key| state.file_access.get(*key).copied().unwrap_or_default())
-            .cloned()
-        else {
-            break;
-        };
-        remove_file_record(state, &oldest);
+    let excess = state.files.len().saturating_sub(target);
+    if excess == 0 {
+        return;
+    }
+
+    // Access stamps are stable for this trim pass, so rank once instead of
+    // finding the minimum again after every removal.
+    let mut candidates = state
+        .files
+        .keys()
+        .map(|key| {
+            (
+                state.file_access.get(key).copied().unwrap_or_default(),
+                key.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_unstable_by_key(|(last_used, _)| *last_used);
+    for (_, key) in candidates.into_iter().take(excess) {
+        remove_file_record(state, &key);
     }
 }
 

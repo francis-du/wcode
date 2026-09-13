@@ -42,10 +42,12 @@ pub(super) fn build(
         "project":{
             "project_types":profile.project_types,
             "manifests":profile.manifests,
+            "islands":profile.islands,
             "write_enabled":profile.write_enabled,
             "exec_enabled":profile.exec_enabled,
         },
         "targets":[],"files":[],"hot_source":[],"tests":[],"design":[],
+        "core_constraints":compact_core_constraints(),
         "repo_map":{"items":[],"truncated":false},
         "readiness":{
             "edit":"not_applicable",
@@ -60,6 +62,7 @@ pub(super) fn build(
         },
         "workflow":[
             "This is an operator workflow, not a source-edit task. No source index or Design scan was requested.",
+            "core_constraints remain mandatory wcode policy even on this fast operator route; verification must fail closed on deterministically detectable violations.",
             "For Git, first run git status --short --branch and review the actual diff; avoid duplicate commits and preserve unrelated changes.",
             "Stage only reviewed files, request exact human approval when required, commit, then inspect the new commit and worktree state.",
             "A commit does not imply permission to push, tag, publish, install or restart. Do those only when the user requests them.",

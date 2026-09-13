@@ -45,7 +45,7 @@ mod platform {
     impl Guard {
         pub(crate) fn acquire() -> Result<Self> {
             let assertion_type = cf_string("PreventUserIdleSystemSleep")?;
-            let assertion_name = cf_string("wcode Software Intelligence Runtime")?;
+            let assertion_name = cf_string("wcode Engineering Control Plane")?;
             let mut assertion_id = 0;
             // SAFETY: both CF strings are valid for the duration of the call and the
             // assertion ID points to initialized writable storage.
@@ -143,7 +143,7 @@ mod platform {
                 .args([
                     "--what=idle:sleep",
                     "--who=wcode",
-                    "--why=Keep the wcode Software Intelligence Runtime online",
+                    "--why=Keep the wcode Engineering Control Plane online",
                     "--mode=block",
                     "/bin/sleep",
                     "infinity",

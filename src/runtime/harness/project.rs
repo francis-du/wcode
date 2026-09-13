@@ -1,10 +1,365 @@
 use super::*;
 use crate::evidence::{Evidence, EvidenceKind, EvidenceResult};
 use crate::intelligence::{
-    build_project_observatory, ObservatoryInput, ProjectAcceptanceProofSummary, ProjectObservatory,
-    ProjectProofSummary, TraceabilityStatus,
+    build_project_observatory, ObservatoryInput, ProjectAcceptanceProofSummary,
+    ProjectAdaptiveVerificationView, ProjectCostEvaluationView, ProjectCostFrontierEntryView,
+    ProjectCostSentinelView, ProjectEngineeringJournalView, ProjectEngineeringMilestoneView,
+    ProjectFocusedVerificationView, ProjectObservatory, ProjectProofSummary,
+    ProjectVerificationImpactReasonView, ProjectVerificationImpactView,
+    ProjectVerifiedLearningView, TraceabilityStatus,
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+#[path = "project/observatory.rs"]
+mod observatory;
+
+fn observatory_verification_impact(
+    impact: ProjectVerificationImpact,
+) -> ProjectVerificationImpactView {
+    ProjectVerificationImpactView {
+        selective: impact.selective,
+        affected_islands: impact.affected_islands,
+        reasons: impact
+            .reasons
+            .into_iter()
+            .map(|reason| ProjectVerificationImpactReasonView {
+                island: reason.island,
+                kind: reason.kind.to_owned(),
+                source: reason.source,
+                relationship: reason.relationship,
+                evidence: reason.evidence,
+                provider: reason.provider.to_owned(),
+                precision: reason.precision.to_owned(),
+            })
+            .collect(),
+        truncated: impact.truncated,
+        provider: impact.provider.to_owned(),
+        precision: impact.precision.to_owned(),
+    }
+}
+
+fn static_adaptive_verification(reason: &str) -> ProjectAdaptiveVerificationView {
+    ProjectAdaptiveVerificationView {
+        mode: "static".to_owned(),
+        provider: "verification-planner".to_owned(),
+        precision: "deterministic".to_owned(),
+        base_quick_checks: 0,
+        planned_quick_checks: 0,
+        full_coverage_unchanged: true,
+        focused_test: None,
+        cost_sentinel: None,
+        cost_evaluation: None,
+        fallback_reason: Some(reason.to_owned()),
+    }
+}
+
+fn observatory_adaptive_verification(
+    harness: &ToolHarness,
+    workspace_id: &str,
+    workspace: &Workspace,
+    profile: &ProjectProfile,
+    snapshot: &Value,
+    impact: &ProjectVerificationImpact,
+    design: &design::DesignLoad,
+) -> ProjectAdaptiveVerificationView {
+    let base_plan = harness_profile::verification_checks_for_impact(profile, impact, "quick");
+    let gaps = harness_profile::verification_gaps_for_impact(profile, impact, "quick");
+    if !gaps.is_empty() {
+        let mut view = static_adaptive_verification("quick_verification_gap");
+        view.base_quick_checks = base_plan.len();
+        view.planned_quick_checks = base_plan.len();
+        return view;
+    }
+    if base_plan.len() > MAX_VERIFICATION_CHECKS {
+        let mut view = static_adaptive_verification("quick_plan_exceeds_bound");
+        view.base_quick_checks = base_plan.len();
+        view.planned_quick_checks = base_plan.len();
+        return view;
+    }
+
+    let mut plan = base_plan.clone();
+    let focused = if plan.len() < MAX_VERIFICATION_CHECKS {
+        harness_test_focus::focused_quick_test_from_design(
+            harness,
+            workspace_id,
+            workspace,
+            profile,
+            Some(snapshot),
+            &design.state,
+        )
+        .filter(|focused| {
+            !plan.iter().any(|check| {
+                check.cwd == focused.cwd
+                    && check.program == focused.program
+                    && check.args == focused.args
+            })
+        })
+    } else {
+        None
+    };
+    if let Some(focused) = focused.as_ref() {
+        plan.push(focused.clone());
+        sort_checks(&mut plan);
+    }
+    let (cost, cost_evaluation) = harness_cost::observatory_cost_analysis(workspace, &plan);
+    let (cost_activation_state, cost_activation_reason) =
+        harness_cost::cost_backtest_activation(&cost_evaluation);
+    let mode = match (focused.is_some(), cost.is_some()) {
+        (true, true) => "combined",
+        (true, false) => "focused_test",
+        (false, true) => "cost_sentinel",
+        (false, false) => "static",
+    };
+    let precision = match (focused.is_some(), cost.is_some()) {
+        (true, true) => "mixed",
+        (true, false) => harness_test_focus::FOCUSED_TEST_PRECISION,
+        (false, true) => "heuristic",
+        (false, false) => "deterministic",
+    };
+    ProjectAdaptiveVerificationView {
+        mode: mode.to_owned(),
+        provider: "verification-planner".to_owned(),
+        precision: precision.to_owned(),
+        base_quick_checks: base_plan.len(),
+        planned_quick_checks: plan.len(),
+        full_coverage_unchanged: true,
+        focused_test: focused.map(|check| ProjectFocusedVerificationView {
+            check_id: check.id.clone(),
+            command: verification_command_text(&check),
+            island: check.island.clone(),
+            phase: check.phase,
+            reason: check.reason.clone(),
+            provider: harness_test_focus::FOCUSED_TEST_PROVIDER.to_owned(),
+            precision: harness_test_focus::FOCUSED_TEST_PRECISION.to_owned(),
+        }),
+        cost_sentinel: cost.map(|decision| ProjectCostSentinelView {
+            model: decision.model.to_owned(),
+            provider: decision.provider.to_owned(),
+            precision: decision.precision.to_owned(),
+            check_id: decision.sentinel_check,
+            command: decision.sentinel_command,
+            island: decision.sentinel_island,
+            samples: decision.samples,
+            failures: decision.failures,
+            failure_rate_percent: decision.failure_rate_percent,
+            median_elapsed_ms: decision.median_elapsed_ms,
+            estimated_savings_ms: decision.estimated_savings_ms,
+            estimated_total_savings_ms: decision.estimated_total_savings_ms,
+            evidence_records_scanned: decision.evidence_records_scanned,
+            frontier: decision
+                .frontier
+                .into_iter()
+                .map(|entry| ProjectCostFrontierEntryView {
+                    order: entry.order,
+                    check_id: entry.check_id,
+                    command: entry.command,
+                    island: entry.island,
+                    samples: entry.samples,
+                    failures: entry.failures,
+                    failure_rate_percent: entry.failure_rate_percent,
+                    median_elapsed_ms: entry.median_elapsed_ms,
+                    marginal_samples: entry.marginal_samples,
+                    marginal_failures: entry.marginal_failures,
+                    marginal_failure_rate_percent: entry.marginal_failure_rate_percent,
+                    estimated_incremental_savings_ms: entry.estimated_incremental_savings_ms,
+                })
+                .collect(),
+        }),
+        cost_evaluation: Some(ProjectCostEvaluationView {
+            available: cost_evaluation.available,
+            candidate_model: harness_cost::COST_MODEL.to_owned(),
+            baseline_model: harness_cost::COST_BASELINE_MODEL.to_owned(),
+            evaluation_method: harness_cost::COST_EVALUATION_METHOD.to_owned(),
+            activation_state: cost_activation_state.to_owned(),
+            activation_reason: cost_activation_reason.to_owned(),
+            minimum_evaluable_revisions: harness_cost::MIN_BACKTEST_EVALUABLE_REVISIONS,
+            revisions: cost_evaluation.revisions,
+            eligible_revisions: cost_evaluation.eligible_revisions,
+            evaluable_revisions: cost_evaluation.evaluable_revisions,
+            incomplete_revisions: cost_evaluation.incomplete_revisions,
+            wins: cost_evaluation.wins,
+            ties: cost_evaluation.ties,
+            losses: cost_evaluation.losses,
+            outcome_mismatches: cost_evaluation.outcome_mismatches,
+            static_elapsed_ms: cost_evaluation.static_elapsed_ms,
+            frontier_elapsed_ms: cost_evaluation.frontier_elapsed_ms,
+            gross_savings_ms: cost_evaluation.gross_savings_ms,
+            regret_ms: cost_evaluation.regret_ms,
+            net_savings_ms: cost_evaluation.net_savings_ms(),
+            net_savings_percent: if cost_evaluation.static_elapsed_ms == 0 {
+                0.0
+            } else {
+                cost_evaluation.net_savings_ms() as f64 * 100.0
+                    / cost_evaluation.static_elapsed_ms as f64
+            },
+            latest_revision_at_ms: cost_evaluation.latest_revision_at_ms,
+        }),
+        fallback_reason: (mode == "static").then(|| match cost_activation_reason {
+            "outcome_mismatch" => "cost_backtest_outcome_mismatch".to_owned(),
+            "non_positive_net_savings" => "cost_backtest_non_positive_net_savings".to_owned(),
+            _ => "no_strong_adaptive_evidence".to_owned(),
+        }),
+    }
+}
+
+fn observatory_engineering_journal(workspace: &Workspace) -> ProjectEngineeringJournalView {
+    let Ok(history) = crate::engineering_journal::load_recent(workspace, 64) else {
+        return ProjectEngineeringJournalView {
+            available: false,
+            provider: "engineering-milestone-journal".to_owned(),
+            stores_prompts_or_chain_of_thought: false,
+            retained_records: 0,
+            truncated: false,
+            records: Vec::new(),
+        };
+    };
+    ProjectEngineeringJournalView {
+        available: true,
+        provider: "engineering-milestone-journal".to_owned(),
+        stores_prompts_or_chain_of_thought: false,
+        retained_records: history.retained_records,
+        truncated: history.truncated,
+        records: history
+            .records
+            .into_iter()
+            .map(|record| ProjectEngineeringMilestoneView {
+                timestamp_ms: record.timestamp_ms,
+                tool: record.tool,
+                stage: record.stage,
+                outcome: record.outcome,
+                duration_ms: record.duration_ms,
+                paths: record.paths,
+                verification_level: record.verification_level,
+                checks_run: record.checks_run,
+                checks_failed: record.checks_failed,
+            })
+            .collect(),
+    }
+}
+
+fn learning_percent(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 * 100.0 / denominator as f64
+    }
+}
+
+fn observatory_verified_learning(workspace: &Workspace) -> ProjectVerifiedLearningView {
+    let retrieval_model = crate::experience_store::retrieval_model().to_owned();
+    let baseline_model = crate::experience_store::baseline_model().to_owned();
+    let evaluation_method = crate::experience_store::evaluation_method().to_owned();
+    let Ok(evaluation) = crate::experience_store::evaluate_history(workspace) else {
+        return ProjectVerifiedLearningView {
+            available: false,
+            provider: "verified-change-history".to_owned(),
+            retrieval_precision: "heuristic".to_owned(),
+            retrieval_model,
+            baseline_model,
+            evaluation_method,
+            stores_prompts_or_chain_of_thought: false,
+            top_k: 0,
+            records: 0,
+            full_records: 0,
+            quick_records: 0,
+            unique_paths: 0,
+            live_paths: 0,
+            stale_path_references: 0,
+            evaluable_records: 0,
+            records_with_prediction: 0,
+            baseline_records_with_prediction: 0,
+            evaluation_cases: 0,
+            prediction_cases: 0,
+            baseline_prediction_cases: 0,
+            hit_cases: 0,
+            baseline_hit_cases: 0,
+            predictions: 0,
+            baseline_predictions: 0,
+            true_positives: 0,
+            baseline_true_positives: 0,
+            expected_targets: 0,
+            coverage_percent: 0.0,
+            baseline_coverage_percent: 0.0,
+            coverage_delta_percent_points: 0.0,
+            hit_rate_percent: 0.0,
+            baseline_hit_rate_percent: 0.0,
+            hit_rate_delta_percent_points: 0.0,
+            precision_at_k_percent: 0.0,
+            baseline_precision_at_k_percent: 0.0,
+            precision_at_k_delta_percent_points: 0.0,
+            recall_at_k_percent: 0.0,
+            baseline_recall_at_k_percent: 0.0,
+            recall_at_k_delta_percent_points: 0.0,
+            latest_record_at_ms: None,
+        };
+    };
+    let coverage_percent =
+        learning_percent(evaluation.prediction_cases, evaluation.evaluation_cases);
+    let baseline_coverage_percent = learning_percent(
+        evaluation.baseline_prediction_cases,
+        evaluation.evaluation_cases,
+    );
+    let hit_rate_percent = learning_percent(evaluation.hit_cases, evaluation.prediction_cases);
+    let baseline_hit_rate_percent = learning_percent(
+        evaluation.baseline_hit_cases,
+        evaluation.baseline_prediction_cases,
+    );
+    let precision_at_k_percent =
+        learning_percent(evaluation.true_positives, evaluation.predictions);
+    let baseline_precision_at_k_percent = learning_percent(
+        evaluation.baseline_true_positives,
+        evaluation.baseline_predictions,
+    );
+    let recall_at_k_percent =
+        learning_percent(evaluation.true_positives, evaluation.expected_targets);
+    let baseline_recall_at_k_percent = learning_percent(
+        evaluation.baseline_true_positives,
+        evaluation.expected_targets,
+    );
+    ProjectVerifiedLearningView {
+        available: evaluation.available,
+        provider: "verified-change-history".to_owned(),
+        retrieval_precision: "heuristic".to_owned(),
+        retrieval_model,
+        baseline_model,
+        evaluation_method,
+        stores_prompts_or_chain_of_thought: false,
+        top_k: evaluation.top_k,
+        records: evaluation.records,
+        full_records: evaluation.full_records,
+        quick_records: evaluation.quick_records,
+        unique_paths: evaluation.unique_paths,
+        live_paths: evaluation.live_paths,
+        stale_path_references: evaluation.stale_path_references,
+        evaluable_records: evaluation.evaluable_records,
+        records_with_prediction: evaluation.records_with_prediction,
+        baseline_records_with_prediction: evaluation.baseline_records_with_prediction,
+        evaluation_cases: evaluation.evaluation_cases,
+        prediction_cases: evaluation.prediction_cases,
+        baseline_prediction_cases: evaluation.baseline_prediction_cases,
+        hit_cases: evaluation.hit_cases,
+        baseline_hit_cases: evaluation.baseline_hit_cases,
+        predictions: evaluation.predictions,
+        baseline_predictions: evaluation.baseline_predictions,
+        true_positives: evaluation.true_positives,
+        baseline_true_positives: evaluation.baseline_true_positives,
+        expected_targets: evaluation.expected_targets,
+        coverage_percent,
+        baseline_coverage_percent,
+        coverage_delta_percent_points: coverage_percent - baseline_coverage_percent,
+        hit_rate_percent,
+        baseline_hit_rate_percent,
+        hit_rate_delta_percent_points: hit_rate_percent - baseline_hit_rate_percent,
+        precision_at_k_percent,
+        baseline_precision_at_k_percent,
+        precision_at_k_delta_percent_points: precision_at_k_percent
+            - baseline_precision_at_k_percent,
+        recall_at_k_percent,
+        baseline_recall_at_k_percent,
+        recall_at_k_delta_percent_points: recall_at_k_percent - baseline_recall_at_k_percent,
+        latest_record_at_ms: evaluation.latest_record_at_ms,
+    }
+}
 
 fn acceptance_proof_summary(
     design: &design::DesignLoad,
@@ -99,171 +454,7 @@ impl ToolHarness {
             .evidence_change_signal(workspace_id, workspace)
     }
 
-    pub fn project_observatory(
-        &self,
-        workspace_id: impl Into<String>,
-        workspace: &Workspace,
-        review: Option<&ChangeReviewReport>,
-    ) -> Result<ProjectObservatory> {
-        const MAX_OBSERVATORY_FILES: usize = 1_500;
-        const MAX_OBSERVATORY_SYMBOLS: usize = 5_000;
-        const MAX_OBSERVATORY_HISTORY: usize = 32;
-
-        let workspace_id = workspace_id.into();
-        let design = design::load_design(workspace)?;
-        let traceability = self.traceability_status(workspace_id.clone(), workspace)?;
-        let graph = self.software_graph(
-            workspace_id.clone(),
-            workspace,
-            ".",
-            MAX_OBSERVATORY_FILES,
-            MAX_OBSERVATORY_SYMBOLS,
-        )?;
-        let impact = review
-            .map(|review| self.impact_analysis(workspace_id.clone(), workspace, review))
-            .transpose()?;
-        let risk = review
-            .map(|review| self.risk_status(workspace_id.clone(), workspace, review))
-            .transpose()?;
-        let language_quality = self.language_quality_status(workspace)?;
-        let revision = self.intelligence.current_revision(workspace)?;
-        let evidence = self
-            .intelligence
-            .evidence_records(&workspace_id, workspace)?;
-        let acceptance = acceptance_proof_summary(&design, &traceability, &evidence, &revision);
-        let current_evidence = evidence
-            .iter()
-            .filter(|item| item.revision == revision)
-            .collect::<Vec<_>>();
-        let current_subject = format!("change:{}", revision.code);
-        let verification = self.intelligence.verification_history_from_snapshot(
-            &workspace_id,
-            workspace,
-            100,
-            &revision,
-            &evidence,
-        )?;
-        let current_verification = verification
-            .iter()
-            .filter(|status| {
-                status.plan.subject == current_subject
-                    && status.plan.revision.as_ref() == Some(&revision)
-            })
-            .collect::<Vec<_>>();
-        let mut effective = crate::evidence::latest_current(&evidence, &revision);
-        effective.sort_by_key(|item| {
-            (
-                std::cmp::Reverse(crate::evidence::result_severity(item.result)),
-                std::cmp::Reverse(item.timestamp_ms),
-            )
-        });
-        let sanitize = |text: &str| crate::workspace::redact_sensitive_text(text).0;
-        let effective = crate::intelligence_types::ProjectEffectiveProofSummary {
-            total: effective.len(),
-            passed: effective
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Pass)
-                .count(),
-            failed: effective
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Fail)
-                .count(),
-            inconclusive: effective
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Inconclusive)
-                .count(),
-            disagreed: effective
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Disagree)
-                .count(),
-            items: effective
-                .iter()
-                .take(24)
-                .map(|item| crate::intelligence_types::ProjectEvidenceView {
-                    subject: sanitize(&item.subject),
-                    producer: sanitize(&item.producer),
-                    policy: item.policy.as_deref().map(sanitize),
-                    kind: item.kind,
-                    confidence: item.confidence,
-                    result: item.result,
-                    timestamp_ms: item.timestamp_ms,
-                    summary: item
-                        .summary
-                        .as_deref()
-                        .map(|text| sanitize(text).chars().take(500).collect()),
-                })
-                .collect(),
-            truncated: effective.len() > 24,
-        };
-        let proof = ProjectProofSummary {
-            acceptance,
-            effective,
-            revision_code: revision.code.clone(),
-            revision_design: revision.design.clone(),
-            current_evidence: current_evidence.len(),
-            current_passed: current_evidence
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Pass)
-                .count(),
-            current_failed: current_evidence
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Fail)
-                .count(),
-            current_inconclusive: current_evidence
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Inconclusive)
-                .count(),
-            current_disagreed: current_evidence
-                .iter()
-                .filter(|item| item.result == EvidenceResult::Disagree)
-                .count(),
-            current_verification_plans: current_verification.len(),
-            current_verification_ready: current_verification
-                .iter()
-                .filter(|status| status.ready)
-                .count(),
-            current_verification_blocked: current_verification
-                .iter()
-                .filter(|status| !status.ready)
-                .count(),
-            latest_current_evidence_at_ms: current_evidence
-                .iter()
-                .map(|item| item.timestamp_ms)
-                .max(),
-            evidence_scan_truncated: evidence.len() >= 4_096,
-        };
-        let reconciliation = self.reconciliation_history(workspace, 100)?;
-        let latest_reconciliation_plan = reconciliation.first().map(|plan| plan.id.clone());
-        let history = self.graph_history(workspace, MAX_OBSERVATORY_HISTORY)?;
-        let graph_diff = if history.len() >= 2 {
-            self.graph_diff(
-                workspace,
-                &GraphDiffInput {
-                    from_snapshot_id: None,
-                    to_snapshot_id: None,
-                    limit: 200,
-                },
-            )
-            .ok()
-        } else {
-            None
-        };
-
-        Ok(build_project_observatory(ObservatoryInput {
-            workspace: workspace_id,
-            root: workspace.root().display().to_string(),
-            design,
-            traceability,
-            graph: &graph,
-            review,
-            impact,
-            risk,
-            history: &history,
-            graph_diff: graph_diff.as_ref(),
-            language_quality,
-            proof,
-            reconciliation_plans: reconciliation.len(),
-            latest_reconciliation_plan,
-        }))
+    pub(crate) fn observatory_engineering_signal(&self, workspace: &Workspace) -> Result<String> {
+        crate::engineering_journal::change_fingerprint(workspace)
     }
 }

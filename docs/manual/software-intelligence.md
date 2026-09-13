@@ -1,7 +1,7 @@
 ---
 layout: docs
-title: Software Intelligence
-description: Implemented wcode Software Intelligence Runtime features and workflows
+title: Repository Intelligence & Engineering State
+description: How the wcode Engineering Control Plane understands repository design, implementation, impact, drift and proof
 lang: en
 alternate: /zh/docs/software-intelligence/
 permalink: /docs/software-intelligence/
@@ -16,9 +16,9 @@ A coding agent can write code quickly and still be wrong about the system around
 3. **What will this change touch?** — Git-aware impact, product scopes, drift, public API/security signals, and maintainability risk.
 4. **What proves the change is safe?** — deterministic checks, language-native verification, independent review, and revision-bound Evidence.
 
-That is the difference between “AI can search this repository” and **software intelligence an agent can reason from**. The state is available through MCP, local CLI commands, the TUI, and the protected Project Observatory, and it persists beyond a single model or conversation.
+This repository-understanding layer is one subsystem of the broader **wcode Engineering Control Plane**. It is available through MCP, stable `intelligence` CLI/API compatibility surfaces, the TUI, and the protected Engineering Observatory, and it persists beyond a single model or conversation.
 
-## The 60-second mental model
+## The 60-second repository-intelligence model
 
 ```text
 Your coding agent
@@ -31,10 +31,10 @@ impact / drift / risk
       ↓ guarded edits
 verification / reviewers / evidence
       ↓
-Project Observatory + durable workspace state
+Engineering Observatory + durable workspace state
 ```
 
-The Project Observatory makes the same model human-readable: Desired State → Actual State → Change → Proof → Convergence. The generic Software Graph remains the provenance-bearing substrate, not a graph visualization users have to decipher.
+The Engineering Observatory turns that model into a human-readable project digital twin: layered architecture blueprint, Design vs Actual, live engineering activity, Vibe Coding change story, Desired State → Actual State → Change → Proof → Convergence, and explicit drift. The generic Software Graph remains a provenance-bearing substrate and secondary drill-down, not a visualization users must decipher.
 
 Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` requires all effective verification scopes in the latest observed revision to pass; timestamp ties retain failures rather than choosing a favorable record ID. `Fresh` means that unambiguous revision matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
 
@@ -108,7 +108,7 @@ wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 Press `I` to load Intelligence for the selected project, `C` for the complete
-command catalog, and `W` for the protected Project Observatory. The pairing
+command catalog, and `W` for the protected Engineering Observatory. The pairing
 code remains visible after a client connects. The TUI and WebUI show the same
 pending requests and distinguish executable access from an exact repository
 operation.
@@ -118,7 +118,7 @@ snapshot. It shows the project tree, depth, largest files, and files above the
 1,000-line repository limit. If indexing reached its safety bound, the view is
 marked as truncated; the browser does not start a second filesystem scan.
 
-The summary-first Observatory separates four immediately actionable signals: executing tools, pending approvals, working-tree changes, and current-version evidence. Unknown Git status is not a clean tree; missing evidence is not a passing run. A headline and prioritized actions lead to the exact detail section. Component cards group the architecture by responsibility and Product Scope; full dependency graphs remain available on demand rather than dominating the first screen. Requirements, file structure, diagnostics and provider matrices use expandable sections.
+The summary-first Observatory separates four immediately actionable signals: executing tools, pending approvals, working-tree changes, and current-version evidence. Unknown Git status is not a clean tree; missing evidence is not a passing run. The architecture surface starts from a System → Subsystem blueprint with responsibilities, ownership, size, dependency direction, changes and drift; Components are a second-level drill-down, while the raw dependency graph is a secondary diagnostic view. A live engineering flow and bounded timeline project real Harness activity, revision-bound proof, and architecture revisions without creating a second control-state source. Requirements, file structure, diagnostics and provider matrices remain progressively disclosed.
 
 The protected `/intelligence/activity` endpoint reads the existing monitor without executing Git, rebuilding the graph or resetting TUI observation windows. It returns at most 12 task rows for the selected workspace, with queue time separate from execution time. Completed/failed totals are process-lifetime history, not current blockers; process queues and resident memory are explicitly shared by all workspaces. Raw task arguments and other workspaces' task records are not returned.
 
@@ -255,6 +255,21 @@ For substantial coding work, start from one compact task-specific call rather th
 
 Use `agent_context` as the normal coding entry point. It is designed to replace multiple startup discovery round trips with one bounded edit-ready pack. Repo-map ranking combines direct task relevance with existing Software Graph relationships; fresh semantic/runtime/deterministic evidence can strengthen those relationships, while stale provider facts automatically fall back to syntax. When the task language asks for callers, references, implementations, rename impact, or other cross-file relationships and the current graph is syntax-only, readiness recommends `semantic_navigation`; ordinary symbol localization does not pay that LSP cost. The pack keeps model-visible telemetry out of band in Tool Result `_meta` and reports explicit readiness instead of a generic quality score.
 
+#### Task-aware repository retrieval
+
+Repository localization is not treated as one universal ranking problem. `repo_map.routing` reports a versioned, bounded heuristic policy:
+
+| Retrieval intent | Typical request | What gets extra bounded priority |
+| --- | --- | --- |
+| `trace_to_code` | “Where is `REQ-AUTH-001` implemented?” | Design-owned implementation paths and direct implementation/dependency relationships |
+| `code_to_test` | “Which regression tests verify this symbol?” | Test files and test symbols related to the code target |
+| `edit_to_ripple` | “What callers or files are affected by this rename?” | Direct graph relationships plus verified co-change history |
+| `balanced_context` | General or mixed requests | The normal relevance/graph mix without specialized routing |
+
+The router is `provider=query-intent-rules-v1`, `precision=heuristic`. It specializes only when one intent is clear. If test, traceability, and impact signals conflict in the same request, it deliberately abstains from specialization and returns `balanced_context` with the reason `ambiguous_retrieval_signals`; readiness exposes an advisory rather than inventing confidence.
+
+Routing changes only weak priors. An exact literal or qualified symbol target remains stronger than recall-oriented retrieval seeds, and fresh semantic, deterministic, or runtime relationships retain their stronger provenance. Under a tight token budget, routing explanation is discarded before direct SHA edit targets, verification references, the strongest repo-map item, or diagnostic Hot Source. This keeps task awareness useful without letting metadata crowd out the material needed to edit safely.
+
 ### Product Scopes
 
 wcode has one canonical registry for its own product/control-plane boundaries: `runtime`, `integrations`, `workspace`, `design`, `graph`, `semantics`, `traceability`, `risk`, `verification`, `evidence`, `reconciliation`, and `experience`. `workspace_info` and `project_context` expose the registry. `scope_status` applies it to the selected repository and reports per-scope source counts plus bounded unmapped supported-source paths. `tools/list` attaches `dev.wcode/productScopes` to each Tool `_meta`, and MCP Resource clients can read `wcode://runtime/product-scopes`. The same live scope audit is surfaced through the Intelligence operator views.
@@ -351,7 +366,7 @@ Current provider families include native/check-mode Rust, Go, Dart, .NET, Maven/
 
 ### Graph history and diff
 
-`software_graph` persists deduplicated meaningful graph snapshots. `graph_history` lists them, `graph_query` reads one revision or neighborhood, and `graph_diff` compares two revisions (or the latest two by default). Diff aligns nodes by stable node ID and edges by `from + to + kind + provider + precision`; a provenance-revision/attribute change is reported as `changed` rather than noisy delete/add churn. Repeated stable edge identities are compared as revision multisets, so future richer SCIP/runtime providers do not lose duplicate relationships. The Project Observatory uses this history for its architecture-revision timeline and latest Node/Edge `+ / - / ~` delta, while its feature architecture is regenerated from the current repository on refresh.
+`software_graph` persists deduplicated meaningful graph snapshots. `graph_history` lists them, `graph_query` reads one revision or neighborhood, and `graph_diff` compares two revisions (or the latest two by default). Diff aligns nodes by stable node ID and edges by `from + to + kind + provider + precision`; a provenance-revision/attribute change is reported as `changed` rather than noisy delete/add churn. Repeated stable edge identities are compared as revision multisets, so future richer SCIP/runtime providers do not lose duplicate relationships. The Engineering Observatory uses this history for its architecture-revision timeline and latest Node/Edge `+ / - / ~` delta, while its feature architecture is regenerated from the current repository on refresh.
 
 ### Change intelligence
 
@@ -369,7 +384,7 @@ The following tools analyze the current Git working tree and Design State:
 
 These tools require command execution because they internally use the bounded Git change-review path. They therefore do not work with `--no-exec`.
 
-`review_changes` also reports three deterministic maintainability signals. `maintainability-file-crossed-1k` marks a non-deleted source file that crossed 1,000 lines in the current change. `maintainability-concentrated-growth` marks at least 400 net new lines in one source file. `maintainability-cross-scope-churn` marks at least 1,000 changed source lines across three or more Product Scopes. These are review signals, not a verdict on design. The Convention Engine uses the same 1,000-line boundary for the repository as a whole. See [maintainability-review.md](../maintainability-review/).
+`review_changes` also reports deterministic maintainability signals. `maintainability-file-crossed-1k` explains a change that would cross the 1,000-line maintained-source boundary; `maintainability-oversized-source-growth` flags continued growth in an already oversized file; `maintainability-concentrated-growth` marks at least 400 net new lines in one source file; and `maintainability-cross-scope-churn` marks at least 1,000 changed source lines across three or more Product Scopes. Review signals remain separate from design judgment, but the 1,000-line maintained-source boundary itself is a wcode core policy: Workspace mutation tools block new/crossing/growing violations and `verify_project` runs a fail-fast `core-policy` Convention check before repository-native commands. Existing oversized files may only stay the same size or shrink while being semantically decomposed. Generated/vendor/build output is exempt. See [maintainability-review.md](../maintainability-review/).
 
 ## 4. Verification Mesh
 
@@ -483,7 +498,7 @@ or omit `subject` for the latest evidence in the selected workspace.
 
 ### Persistence model
 
-Durable Software Intelligence state lives in wcode's user-level state directory, keyed by the canonical workspace root. Evidence uses bounded immutable records; Verification uses immutable Plan/Job snapshots; Semantic Facts use immutable revisions; Graph Provider facts and composite Software Graph snapshots retain bounded history; Reconciliation Plans/execution and MCP Task snapshots are stored independently. None of these stores modify the repository or require the workspace to be writable.
+Durable repository-intelligence and engineering-state data lives in wcode's user-level state directory, keyed by the canonical workspace root. Evidence uses bounded immutable records; Verification uses immutable Plan/Job snapshots; Semantic Facts use immutable revisions; Graph Provider facts and composite Software Graph snapshots retain bounded history; Reconciliation Plans/execution and MCP Task snapshots are stored independently. None of these stores modify the repository or require the workspace to be writable.
 
 Risk is intentionally recomputed from current Design/Git/Code state. Graph history is queryable through `graph_history` / `graph_query` and directly comparable through `graph_diff`. First-party LSP providers expose source-hash freshness and stale revisions are not overlaid; a newly built `software_graph` therefore combines current source with only usable latest provider revisions.
 
@@ -564,7 +579,7 @@ Implemented now:
 - MCP `2026-07-28` task augmentation for `semantic_provider_refresh` and `verification_execute_stages`, with durable-before-handle storage, OAuth-client scoping, polling, bounded cancellation, and synchronous fallback for clients that do not opt into the extension;
 - persistent Reconciliation Plans plus dependency-aware claim/submit/retry execution state and reconciliation Evidence;
 - local `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI flows in addition to read-only status views;
-- live TUI Software Intelligence overlay (`I`), complete command catalog (`C`), persistent pairing code, and protected Project Observatory (`W`) with an architecture-first component graph, Design-vs-Actual dependency overlay, observed-drift/evidence/implementation coverage metrics, Component Inspector, Requirement drill-down, verification, ADR/constraint context, a bounded project tree and largest-file view, code statistics, mapped Git changes, risk, and architecture revision history;
+- live TUI repository-intelligence overlay (`I`), complete command catalog (`C`), persistent pairing code, and protected Engineering Observatory (`W`) with a System → Subsystem → Component blueprint, live Understand → Change → Prove → Learn → Observe activity, Files → Components → Requirements → Verification → Drift change story, secondary Design-vs-Actual dependency graph, Component Inspector, Requirement drill-down, verification, ADR/constraint context, bounded project tree, code statistics, mapped Git changes, risk, and architecture revision history;
 - MCP exposure of the complete higher-level runtime.
 
 Precision and integration boundaries are explicit rather than hidden:
@@ -583,4 +598,4 @@ The wcode repository already contains `.wcode/project.yaml` and `.wcode/design/*
 
 > Use `agent_context` for the requested wcode change. Follow its readiness/next actions, edit through guarded Workspace tools, run `review_changes` and `verify_project`, then use drift/risk/reconciliation/evidence tools only if the task still needs deeper convergence analysis.
 
-That exercises the implemented Software Intelligence path end to end without requiring a separate demo project.
+That exercises the implemented repository-intelligence and Engineering Control Plane path end to end without requiring a separate demo project.

@@ -5,12 +5,22 @@ use std::fs;
 mod admission;
 #[path = "harness/anchors.rs"]
 mod anchors;
+#[path = "harness/context_discovery.rs"]
+mod context_discovery;
 #[path = "harness/context_rank.rs"]
 mod context_rank;
+#[path = "harness/contracts.rs"]
+mod contracts;
+#[path = "harness/cost.rs"]
+mod cost;
 #[path = "harness/experience.rs"]
 mod experience;
+#[path = "harness/focus.rs"]
+mod focus;
 #[path = "harness/selective.rs"]
 mod selective;
+#[path = "harness/verification_reuse.rs"]
+mod verification_reuse;
 
 #[tokio::test]
 async fn enforces_parallel_limit() {
@@ -128,7 +138,10 @@ fn project_context_detects_guidance_and_quality_checks() {
     fs::create_dir(root.path().join("src")).unwrap();
     fs::write(
         root.path().join("src/large_module.rs"),
-        "// fixture\n".repeat(2_001),
+        format!(
+            "pub fn large_target() {{}}\n{}",
+            "// fixture\n".repeat(2_000)
+        ),
     )
     .unwrap();
     let workspace = Workspace::new(root.path(), true, true).unwrap();
@@ -167,11 +180,75 @@ fn project_context_detects_guidance_and_quality_checks() {
                 ]
             && check.phase == 3
     }));
-    assert!(first
+    let oversized = first
         .conventions
         .findings
         .iter()
-        .any(|finding| finding.code == "oversized-source-module"));
+        .find(|finding| finding.code == "oversized-source-module")
+        .expect("oversized source is a deterministic core-policy violation");
+    assert_eq!(
+        oversized.severity,
+        crate::conventions::ConventionSeverity::Error
+    );
+    let core_gate = harness_quality::core_policy_check(&first.conventions)
+        .expect("core policy gate must fail on deterministic convention errors");
+    assert_eq!(core_gate.id, "core-policy");
+    assert!(!core_gate.success);
+    let agent = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "change large_target behavior",
+            4_000,
+            &[],
+        )
+        .unwrap();
+    assert!(agent["core_constraints"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["id"] == "CONSTRAINT-SOURCE-DECOMPOSITION"
+                && item["rule"]
+                    .as_str()
+                    .is_some_and(|rule| rule.contains("<=1000 lines"))
+        })));
+    assert_eq!(agent["conventions"]["errors"], 1);
+    assert!(agent["conventions"]["findings"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["code"] == "oversized-source-module"
+                && item["path"] == "src/large_module.rs"
+                && item["severity"] == "error"
+        })));
+    assert_eq!(agent["project"]["source_line_limit"], 1_000);
+    let oversized_target = agent["files"]
+        .as_array()
+        .and_then(|files| {
+            files
+                .iter()
+                .find(|file| file["path"] == "src/large_module.rs")
+        })
+        .expect("direct oversized source target must remain visible in the edit-ready pack");
+    assert_eq!(oversized_target["source_oversized"], true);
+    assert!(oversized_target["source_lines"]
+        .as_u64()
+        .is_some_and(|lines| lines > 1_000));
+    assert_eq!(agent["readiness"]["verify"], "blocked_by_core_policy");
+    assert_eq!(agent["readiness"]["hard_constraint_violations"], 1);
+    assert_eq!(agent["readiness"]["oversized_target_files"], 1);
+    assert_eq!(agent["readiness"]["change_strategy"], "localized_refactor");
+    assert!(agent["readiness"]["advisories"]
+        .as_array()
+        .is_some_and(|items| items
+            .iter()
+            .any(|item| item == "oversized_target_requires_decomposition")));
+    assert!(agent["readiness"]["advisories"]
+        .as_array()
+        .is_some_and(|items| items
+            .iter()
+            .any(|item| item == "hard_convention_violations")));
+    assert!(agent["readiness"]["next_actions"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item == "reconciliation_plan")));
     assert_eq!(first.language_quality.languages.len(), 22);
     let rust_quality = first
         .language_quality
@@ -287,6 +364,29 @@ fn maintainability_review_flags_threshold_crossing_and_cross_scope_churn() {
     assert!(untracked_findings
         .iter()
         .any(|finding| finding.code == "maintainability-file-crossed-1k"));
+
+    let still_oversized = root.path().join("src/runtime/still_large.rs");
+    fs::write(&still_oversized, "fn fixture() {}\n".repeat(1_200)).unwrap();
+    let mut growth_findings = Vec::new();
+    append_maintainability_findings(
+        &workspace,
+        &[ChangedFileReview {
+            path: "src/runtime/still_large.rs".into(),
+            status: "modified".into(),
+            staged: false,
+            unstaged: true,
+            untracked: false,
+            category: "source".into(),
+            additions: Some(25),
+            deletions: Some(5),
+            binary: false,
+            risk_reasons: vec![],
+        }],
+        &mut growth_findings,
+    );
+    assert!(growth_findings
+        .iter()
+        .any(|finding| finding.code == "maintainability-oversized-source-growth"));
 }
 
 #[test]
@@ -423,71 +523,6 @@ async fn change_review_runs_all_probes_without_parent_slot_deadlock() {
 
 #[path = "harness/observatory.rs"]
 mod observatory;
-
-#[test]
-fn agent_context_keeps_direct_sha_ahead_of_alphabetical_design_paths() {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join(".wcode/design")).unwrap();
-    fs::create_dir_all(root.path().join("src")).unwrap();
-    fs::write(
-        root.path().join(".wcode/project.yaml"),
-        "schema_version: 1\nname: demo\n",
-    )
-    .unwrap();
-    fs::write(root.path().join(".wcode/design/requirements.yaml"), "- schema_version: 1\n  id: REQ-TARGET-001\n  title: target_feature\n  intent: target_feature\n  priority: high\n  implemented_by: [component:target]\n  acceptance: []\n  constraints: []\n  risk: {}\n").unwrap();
-    let mut references = String::new();
-    for index in 0..14 {
-        let path = format!("src/a{index:02}.rs");
-        fs::write(
-            root.path().join(&path),
-            format!("pub fn unrelated_{index}() {{}}\n"),
-        )
-        .unwrap();
-        references.push_str(&format!("    - kind: file\n      path: {path}\n"));
-    }
-    fs::write(
-        root.path().join("src/z_target.rs"),
-        "pub fn target_feature() {}\n",
-    )
-    .unwrap();
-    references.push_str(
-        "    - kind: symbol\n      path: src/z_target.rs\n      symbol: target_feature\n",
-    );
-    fs::write(root.path().join(".wcode/design/components.yaml"), format!("- schema_version: 1\n  id: component:target\n  name: target_feature\n  responsibilities: [target_feature]\n  depends_on: []\n  constraints: []\n  implementation:\n{references}")).unwrap();
-    let workspace = Workspace::new(root.path(), true, true).unwrap();
-    let harness = ToolHarness::new(8).unwrap();
-    let pack = harness
-        .agent_context("demo", &workspace, "target_feature", 2_000, &[])
-        .unwrap();
-    assert_eq!(pack["files"][0]["path"], "src/z_target.rs");
-    assert_eq!(pack["files"][0]["sha256"].as_str().unwrap().len(), 64);
-    assert!(pack["readiness"]["editable_sha_targets"].as_u64().unwrap() > 0);
-}
-
-#[test]
-fn agent_context_parallel_discovery_respects_the_runtime_slot_cap() {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join("src/runtime")).unwrap();
-    fs::create_dir_all(root.path().join("src/workspace")).unwrap();
-    let workspace = Workspace::new(root.path(), true, true).unwrap();
-    for cap in [1, 8] {
-        let harness = ToolHarness::new(cap).unwrap();
-        let pack = harness
-            .agent_context(
-                "demo",
-                &workspace,
-                "unmatched_target",
-                0,
-                &["runtime".to_owned(), "workspace".to_owned()],
-            )
-            .unwrap();
-        assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 2);
-        assert_eq!(
-            pack["readiness"]["parallelism"]["recommended_concurrency"],
-            cap.min(2)
-        );
-    }
-}
 
 #[test]
 fn agent_context_compiles_edit_ready_pack_with_real_budget_and_sha() {
@@ -824,6 +859,18 @@ mod tests {
     assert!((1_200..=1_800).contains(&adaptive_budget));
     assert!(adaptive["estimated_tokens"].as_u64().unwrap() <= adaptive_budget);
     assert_eq!(adaptive["readiness"]["edit"], "ready");
+
+    let compact_long_query = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "feature_entry 请继续深入优化代码智能上下文召回精度缓存新鲜度验证反馈并检查跨模块边界性能一致性可维护性错误恢复并尽量减少无效扫描和上下文浪费同时保留现有安全边界与确定性验证能力",
+            0,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(compact_long_query["budget_mode"], "adaptive");
+    assert!(compact_long_query["budget"].as_u64().unwrap() > adaptive_budget);
 
     let complex_scopes = vec!["customer-domain".to_owned(), "platform-domain".to_owned()];
     let complex = harness

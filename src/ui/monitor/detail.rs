@@ -62,6 +62,12 @@ pub(super) fn render_setup(
                 .unwrap_or_else(|| "waiting".to_owned()),
         }
     };
+    let runtime_summary = tunnel_runtime_summary(snapshot);
+    let endpoint_detail = if runtime_summary.is_empty() {
+        endpoint_detail
+    } else {
+        format!("{endpoint_detail} · {runtime_summary}")
+    };
     let mcp_seen = snapshot.last_mcp_seen.is_some();
     let mcp_detail = if mcp_seen {
         format!("last seen {}", last_seen_text(snapshot.last_mcp_seen))
@@ -212,6 +218,42 @@ pub(super) fn render_setup(
     );
 }
 
+fn tunnel_runtime_summary(snapshot: &MonitorSnapshot) -> String {
+    let primary = snapshot
+        .tunnel_runtime
+        .iter()
+        .find(|tunnel| tunnel.role == "primary");
+    let standby = snapshot
+        .tunnel_runtime
+        .iter()
+        .filter(|tunnel| tunnel.role == "standby" && tunnel.state != "revoked")
+        .count();
+    let retrying = snapshot
+        .tunnel_runtime
+        .iter()
+        .filter(|tunnel| tunnel.role == "retrying" && !tunnel.circuit_open)
+        .count();
+    let circuits = snapshot
+        .tunnel_runtime
+        .iter()
+        .filter(|tunnel| tunnel.circuit_open)
+        .count();
+    let mut parts = Vec::with_capacity(4);
+    if let Some(primary) = primary {
+        parts.push(format!("P {} {}", primary.provider, primary.state));
+    }
+    if standby > 0 {
+        parts.push(format!("S{standby}"));
+    }
+    if retrying > 0 {
+        parts.push(format!("R{retrying}"));
+    }
+    if circuits > 0 {
+        parts.push(format!("C{circuits}"));
+    }
+    parts.join(" · ")
+}
+
 fn tunnel_lines(snapshot: &MonitorSnapshot, width: usize) -> Vec<Line<'static>> {
     snapshot
         .tunnels
@@ -268,8 +310,8 @@ fn setup_step(number: u8, label: &str) -> Line<'static> {
         Span::styled(
             format!(" {number} "),
             Style::default()
-                .fg(BACKGROUND)
-                .bg(SECONDARY)
+                .fg(ACCENT)
+                .bg(SURFACE_SELECTED)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("  {label}"), Style::default().fg(TEXT)),
@@ -411,7 +453,7 @@ pub(super) fn render_workspace_activity(
             .title_bottom(
                 Line::from(Span::styled(
                     if *is_default { " DEFAULT " } else { " " },
-                    Style::default().fg(if *is_default { SECONDARY } else { TEXT_DIM }),
+                    Style::default().fg(if *is_default { ACCENT } else { TEXT_DIM }),
                 ))
                 .right_aligned(),
             );

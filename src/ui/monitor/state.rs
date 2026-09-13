@@ -26,9 +26,11 @@ impl TaskMonitor {
                 last_mcp_seen: None,
                 public_endpoint: None,
                 tunnels: Vec::new(),
+                tunnel_runtime: BTreeMap::new(),
                 public_url_healthy: None,
                 public_url_last_checked: None,
                 public_url_consecutive_failures: 0,
+                public_url_consecutive_successes: 0,
                 public_url_error: None,
                 tunnel_running: None,
                 tunnel_error: None,
@@ -317,19 +319,43 @@ impl TaskMonitor {
 
     pub fn mark_public_url_check(&self, success: bool, error: Option<String>) {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
-        state.public_url_last_checked = Some(Instant::now());
-        if success {
-            state.public_url_healthy = Some(true);
-            state.public_url_consecutive_failures = 0;
-            state.public_url_error = None;
-        } else {
-            state.public_url_consecutive_failures =
-                state.public_url_consecutive_failures.saturating_add(1);
-            state.public_url_error = error;
-            if state.public_url_consecutive_failures >= 3 {
-                state.public_url_healthy = Some(false);
-            }
+        apply_public_url_check(&mut state, success, error);
+    }
+
+    pub fn mark_managed_public_url_check(
+        &self,
+        public_url: &str,
+        success: bool,
+        error: Option<String>,
+    ) -> bool {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let is_current_primary = state
+            .tunnel_runtime
+            .values()
+            .any(|runtime| runtime.role == "primary" && runtime.url.as_deref() == Some(public_url));
+        if !is_current_primary {
+            return false;
         }
+        apply_public_url_check(&mut state, success, error);
+        true
+    }
+
+    pub fn mark_public_url_verified(&self) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        state.public_url_healthy = Some(true);
+        state.public_url_last_checked = Some(Instant::now());
+        state.public_url_consecutive_failures = 0;
+        state.public_url_consecutive_successes = 0;
+        state.public_url_error = None;
+    }
+
+    pub fn mark_public_url_pending(&self, error: Option<String>) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        state.public_url_healthy = None;
+        state.public_url_last_checked = None;
+        state.public_url_consecutive_failures = 0;
+        state.public_url_consecutive_successes = 0;
+        state.public_url_error = error;
     }
 
     pub fn mark_public_endpoint(&self, mode: impl Into<String>, tunnel_running: Option<bool>) {
@@ -341,26 +367,143 @@ impl TaskMonitor {
 
     pub fn register_tunnel(&self, provider: &str, public_url: &str) {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
-        if state
+        let now = Instant::now();
+        if !state
             .tunnels
             .iter()
             .any(|(existing_provider, url)| existing_provider == provider && url == public_url)
         {
-            return;
+            state
+                .tunnels
+                .push((provider.to_owned(), public_url.to_owned()));
         }
-        state
-            .tunnels
-            .push((provider.to_owned(), public_url.to_owned()));
+        let runtime = state
+            .tunnel_runtime
+            .entry(provider.to_owned())
+            .or_insert_with(|| TunnelRuntimeState {
+                provider: provider.to_owned(),
+                url: None,
+                role: "standby".to_owned(),
+                state: "verified".to_owned(),
+                lease_verified_at: None,
+                consecutive_failures: 0,
+                death_count: 0,
+                circuit_open: false,
+                retry_at: None,
+                connected_at: None,
+            });
+        runtime.provider = provider.to_owned();
+        runtime.url = Some(public_url.to_owned());
+        runtime.role = "standby".to_owned();
+        runtime.state = "verified".to_owned();
+        runtime.lease_verified_at = Some(now);
+        runtime.consecutive_failures = 0;
+        runtime.retry_at = None;
+        runtime.connected_at = Some(now);
     }
 
-    pub fn tunnel_links(&self) -> Vec<(String, String)> {
-        let state = self.state.lock().expect("task monitor lock poisoned");
-        state.tunnels.clone()
+    pub fn mark_tunnel_primary(&self, public_url: &str) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        for runtime in state.tunnel_runtime.values_mut() {
+            if runtime.url.as_deref() == Some(public_url) {
+                runtime.role = "primary".to_owned();
+                runtime.state = "active".to_owned();
+            } else if runtime.url.is_some() && runtime.role == "primary" {
+                runtime.role = "standby".to_owned();
+                runtime.state = "verified".to_owned();
+            }
+        }
+    }
+
+    pub fn mark_tunnel_standby_probe(
+        &self,
+        public_url: &str,
+        success: bool,
+        consecutive_failures: u8,
+        revoked: bool,
+    ) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let Some(runtime) = state
+            .tunnel_runtime
+            .values_mut()
+            .find(|runtime| runtime.url.as_deref() == Some(public_url))
+        else {
+            return;
+        };
+        runtime.role = "standby".to_owned();
+        runtime.consecutive_failures = consecutive_failures;
+        if success {
+            runtime.state = "verified".to_owned();
+            runtime.lease_verified_at = Some(Instant::now());
+        } else {
+            runtime.state = if revoked { "revoked" } else { "suspect" }.to_owned();
+        }
+    }
+
+    pub fn mark_tunnel_retry(
+        &self,
+        provider: &str,
+        death_count: u32,
+        circuit_open: bool,
+        retry_after: Duration,
+    ) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let runtime = state
+            .tunnel_runtime
+            .entry(provider.to_owned())
+            .or_insert_with(|| TunnelRuntimeState {
+                provider: provider.to_owned(),
+                url: None,
+                role: "retrying".to_owned(),
+                state: "retrying".to_owned(),
+                lease_verified_at: None,
+                consecutive_failures: 0,
+                death_count: 0,
+                circuit_open: false,
+                retry_at: None,
+                connected_at: None,
+            });
+        runtime.url = None;
+        runtime.role = "retrying".to_owned();
+        runtime.state = if circuit_open {
+            "circuit-open"
+        } else {
+            "retrying"
+        }
+        .to_owned();
+        runtime.lease_verified_at = None;
+        runtime.consecutive_failures = 0;
+        runtime.death_count = death_count;
+        runtime.circuit_open = circuit_open;
+        runtime.retry_at = Some(Instant::now() + retry_after);
+        runtime.connected_at = None;
+    }
+
+    pub fn mark_tunnel_stable(&self, provider: &str) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        if let Some(runtime) = state.tunnel_runtime.get_mut(provider) {
+            runtime.death_count = 0;
+            runtime.circuit_open = false;
+            runtime.retry_at = None;
+        }
     }
 
     pub fn remove_tunnel(&self, public_url: &str) {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         state.tunnels.retain(|(_, url)| url != public_url);
+        if let Some(runtime) = state
+            .tunnel_runtime
+            .values_mut()
+            .find(|runtime| runtime.url.as_deref() == Some(public_url))
+        {
+            runtime.url = None;
+            runtime.role = "offline".to_owned();
+            runtime.state = "offline".to_owned();
+            runtime.lease_verified_at = None;
+            runtime.consecutive_failures = 0;
+            runtime.retry_at = None;
+            runtime.connected_at = None;
+        }
         if state.tunnels.is_empty() && state.public_endpoint.as_deref() == Some("quick-tunnel") {
             state.public_endpoint = Some("pending".to_owned());
         }
@@ -372,6 +515,7 @@ impl TaskMonitor {
         state.tunnel_error = Some(error.into());
         state.public_url_healthy = None;
         state.public_url_consecutive_failures = 0;
+        state.public_url_consecutive_successes = 0;
         state.public_url_last_checked = None;
         state.public_url_error = None;
     }
@@ -392,6 +536,7 @@ impl TaskMonitor {
                 .map(|seen| seen.elapsed().as_secs()),
             public_url_consecutive_failures: state.public_url_consecutive_failures,
             public_url_error: state.public_url_error.clone(),
+            tunnels: tunnel_runtime_statuses(&state, Instant::now()),
             tunnel_running: state.tunnel_running,
             tunnel_error: state.tunnel_error.clone(),
             active_tasks: state.active_total,
@@ -416,6 +561,10 @@ impl TaskMonitor {
                 });
                 stats.requirements = value["requirements"].as_u64().unwrap_or(0);
                 stats.components = value["components"].as_u64().unwrap_or(0);
+            }
+            "convention_status" => {
+                stats.policy_errors = value["errors"].as_u64().unwrap_or(0);
+                stats.policy_warnings = value["warnings"].as_u64().unwrap_or(0);
             }
             "scope_status" => {
                 stats.scope_source_files = value["source_files"].as_u64().unwrap_or(0);
@@ -669,6 +818,7 @@ impl TaskMonitor {
             last_mcp_seen: state.last_mcp_seen,
             public_endpoint: state.public_endpoint.clone(),
             tunnels: state.tunnels.clone(),
+            tunnel_runtime: tunnel_runtime_statuses(&state, now),
             public_url_healthy: state.public_url_healthy,
             public_url_last_checked: state.public_url_last_checked,
             public_url_consecutive_failures: state.public_url_consecutive_failures,
@@ -684,6 +834,77 @@ impl TaskMonitor {
         state.observed_queued = queued_now;
         snapshot
     }
+}
+
+fn apply_public_url_check(state: &mut MonitorState, success: bool, error: Option<String>) {
+    state.public_url_last_checked = Some(Instant::now());
+    if success {
+        state.public_url_consecutive_failures = 0;
+        state.public_url_error = None;
+        if state.public_url_healthy == Some(false) {
+            state.public_url_consecutive_successes =
+                state.public_url_consecutive_successes.saturating_add(1);
+            if state.public_url_consecutive_successes >= 2 {
+                state.public_url_healthy = Some(true);
+                state.public_url_consecutive_successes = 0;
+            }
+        } else {
+            state.public_url_healthy = Some(true);
+            state.public_url_consecutive_successes = 0;
+        }
+    } else {
+        state.public_url_consecutive_successes = 0;
+        state.public_url_consecutive_failures =
+            state.public_url_consecutive_failures.saturating_add(1);
+        state.public_url_error = error;
+        if state.public_url_consecutive_failures >= 3 {
+            state.public_url_healthy = Some(false);
+        }
+    }
+}
+
+fn tunnel_runtime_statuses(state: &MonitorState, now: Instant) -> Vec<MonitorTunnelRuntimeStatus> {
+    state
+        .tunnel_runtime
+        .values()
+        .take(MAX_TUNNEL_RUNTIME_STATUSES)
+        .map(|runtime| {
+            let primary = runtime.role == "primary";
+            let consecutive_failures = if primary {
+                state.public_url_consecutive_failures
+            } else {
+                runtime.consecutive_failures
+            };
+            let health_state = if primary {
+                match state.public_url_healthy {
+                    Some(false) => "unhealthy".to_owned(),
+                    Some(true) if consecutive_failures > 0 => "suspect".to_owned(),
+                    Some(true) => "healthy".to_owned(),
+                    None => "checking".to_owned(),
+                }
+            } else {
+                runtime.state.clone()
+            };
+            MonitorTunnelRuntimeStatus {
+                provider: runtime.provider.clone(),
+                url: runtime.url.clone(),
+                role: runtime.role.clone(),
+                state: health_state,
+                lease_age_seconds: runtime
+                    .lease_verified_at
+                    .map(|verified| now.saturating_duration_since(verified).as_secs()),
+                consecutive_failures,
+                death_count: runtime.death_count,
+                circuit_open: runtime.circuit_open,
+                retry_in_seconds: runtime
+                    .retry_at
+                    .map(|due| due.saturating_duration_since(now).as_secs()),
+                connected_seconds: runtime
+                    .connected_at
+                    .map(|connected| now.saturating_duration_since(connected).as_secs()),
+            }
+        })
+        .collect()
 }
 
 pub(super) fn trim_history(state: &mut MonitorState, now: Instant) {

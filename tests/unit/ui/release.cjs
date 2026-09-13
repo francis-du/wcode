@@ -35,7 +35,7 @@ async function main() {
   await test('a pre-approval revision response cannot invalidate a fresh authorization list', async () => {
     const s = sandbox();
     s.context.fixture = project();
-    s.run('state.project=fixture;state.revisionKey="same||";state.accessLoaded=true;state.pendingValue=1;');
+    s.run('state.project=fixture;state.revisionKey="same|||";state.accessLoaded=true;state.pendingValue=1;');
     const poll = s.run('pollRevision()');
     await flush();
     const approve = s.run('decideAuthorization("AUTH-release",true)');

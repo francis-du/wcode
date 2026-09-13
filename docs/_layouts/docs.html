@@ -44,7 +44,7 @@
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-label">{% if is_zh %}核心概念{% else %}Core concepts{% endif %}</div>
-        <a {% if page.url contains '/software-intelligence/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/software-intelligence/' | relative_url }}{% else %}{{ '/docs/software-intelligence/' | relative_url }}{% endif %}">{% if is_zh %}软件智能{% else %}Software Intelligence{% endif %}</a>
+        <a {% if page.url contains '/software-intelligence/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/software-intelligence/' | relative_url }}{% else %}{{ '/docs/software-intelligence/' | relative_url }}{% endif %}">{% if is_zh %}仓库理解与工程状态{% else %}Repository Intelligence{% endif %}</a>
         <a {% if page.url contains '/product-scopes/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/product-scopes/' | relative_url }}{% else %}{{ '/docs/product-scopes/' | relative_url }}{% endif %}">{% if is_zh %}产品范围{% else %}Product Scopes{% endif %}</a>
         <a {% if page.url contains '/agentic-engineering/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/agentic-engineering/' | relative_url }}{% else %}{{ '/docs/agentic-engineering/' | relative_url }}{% endif %}">{% if is_zh %}智能体工程{% else %}Agentic Engineering{% endif %}</a>
       </div>

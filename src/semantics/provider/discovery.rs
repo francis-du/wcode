@@ -105,20 +105,15 @@ pub(super) fn executable_name(name: &str) -> String {
     }
 }
 
-pub(super) fn executable_discovery_source(
-    workspace: &Workspace,
-    executable: &Path,
-) -> &'static str {
-    let name = executable
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .trim_end_matches(".exe")
-        .to_owned();
-    let discovered_on_path = find_executable_on_path(workspace, &name)
-        .as_ref()
-        .is_some_and(|path| paths_equal(path, executable));
+pub(super) fn executable_discovery_source(executable: &Path) -> &'static str {
+    let file_name = executable.file_name();
+    let discovered_on_path = file_name.is_some_and(|file_name| {
+        env::var_os("PATH").is_some_and(|path| {
+            env::split_paths(&path)
+                .map(|directory| directory.join(file_name))
+                .any(|candidate| paths_equal(&candidate, executable))
+        })
+    });
     if discovered_on_path {
         "trusted_path"
     } else {

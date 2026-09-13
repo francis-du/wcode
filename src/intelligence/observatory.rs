@@ -5,8 +5,10 @@ use crate::harness::{ChangeReviewReport, ChangedFileReview};
 use crate::intelligence_types::{
     FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView, FeatureConvergenceState,
     FeatureDecisionView, FeatureDependencyAlignment, FeatureImplementationView,
-    FeatureRequirementView, ProjectChangeView, ProjectConvergenceSummary, ProjectGraphDeltaView,
+    FeatureRequirementView, ProjectAdaptiveVerificationView, ProjectChangeView,
+    ProjectConvergenceSummary, ProjectEngineeringJournalView, ProjectGraphDeltaView,
     ProjectGraphPrecisionSummary, ProjectObservatory, ProjectProofSummary, ProjectRevisionView,
+    ProjectVerificationImpactView, ProjectVerifiedLearningView,
 };
 use crate::reconcile::ImpactAnalysis;
 use crate::scopes;
@@ -23,11 +25,15 @@ pub(crate) struct ObservatoryInput<'a> {
     pub graph: &'a SoftwareGraphSnapshot,
     pub review: Option<&'a ChangeReviewReport>,
     pub impact: Option<ImpactAnalysis>,
+    pub verification_impact: Option<ProjectVerificationImpactView>,
     pub risk: Option<RiskStatus>,
     pub history: &'a [GraphHistoryEntry],
     pub graph_diff: Option<&'a GraphDiffResult>,
     pub language_quality: crate::quality_provider::LanguageQualityRegistry,
     pub proof: ProjectProofSummary,
+    pub adaptive_verification: ProjectAdaptiveVerificationView,
+    pub verified_learning: ProjectVerifiedLearningView,
+    pub engineering_journal: ProjectEngineeringJournalView,
     pub reconciliation_plans: usize,
     pub latest_reconciliation_plan: Option<String>,
 }
@@ -156,6 +162,9 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         graph_precision,
         language_quality: input.language_quality,
         proof: input.proof,
+        adaptive_verification: input.adaptive_verification,
+        verified_learning: input.verified_learning,
+        engineering_journal: input.engineering_journal,
         convergence,
         architecture,
         requirements,
@@ -163,6 +172,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         history,
         latest_delta,
         impact: input.impact,
+        verification_impact: input.verification_impact,
         risk: input.risk,
     }
 }

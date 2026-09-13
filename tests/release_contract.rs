@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-fn release_062_windows_packaging_stops_after_each_native_failure() {
+fn release_windows_packaging_stops_after_each_native_failure() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow: serde_yaml::Value = serde_yaml::from_str(
         &fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap(),
@@ -35,7 +35,24 @@ fn release_062_windows_packaging_stops_after_each_native_failure() {
 }
 
 #[test]
-fn release_062_ci_installs_the_javascript_behavior_runtime() {
+fn release_ci_runs_rustsec_dependency_audit() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow: serde_yaml::Value = serde_yaml::from_str(
+        &fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap(),
+    )
+    .unwrap();
+    let steps = workflow["jobs"]["quality"]["steps"].as_sequence().unwrap();
+    let audit = steps
+        .iter()
+        .find(|step| step["name"].as_str() == Some("Audit Rust dependencies"))
+        .expect("release quality gate must audit Rust dependencies");
+    assert_eq!(audit["uses"].as_str(), Some("actions-rust-lang/audit@v1"));
+    assert_eq!(audit["with"]["createIssues"].as_bool(), Some(false));
+    assert!(root.join(".cargo/audit.toml").is_file());
+}
+
+#[test]
+fn release_ci_installs_the_javascript_behavior_runtime() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow: serde_yaml::Value = serde_yaml::from_str(
         &fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap(),
@@ -79,12 +96,20 @@ fn release_workflow_has_one_publish_trigger_and_smokes_distributed_binaries() {
     );
 
     for required in [
+        "cp LICENSE dist/package/LICENSE",
+        "cp LICENSE dist/package-universal/LICENSE",
+        "cp LICENSE dist/package-arm64/LICENSE",
+        "cp LICENSE dist/package-x86_64/LICENSE",
+        "Copy-Item LICENSE dist/package/LICENSE",
+        "test \"$(dist/package/wcode --version)\" = \"wcode ${package_version}\"",
+        "dist/package-x86_64/wcode",
         "codesign --force --sign - dist/package-arm64/wcode",
         "codesign --force --sign - dist/package-x86_64/wcode",
         "codesign --force --sign - dist/package-universal/wcode",
         "codesign --verify --strict --verbose=2 \"$binary\"",
-        "dist/package-arm64/wcode --help >/dev/null",
-        "dist/package-universal/wcode --help >/dev/null",
+        "for binary in \\",
+        "test \"$(\"$binary\" --version)\" = \"wcode ${package_version}\"",
+        "\"$binary\" --help >/dev/null",
         "WCODE_BASE_URL=\"file://$PWD/dist\"",
     ] {
         assert!(

@@ -54,6 +54,14 @@ thread_local! {
 pub(crate) fn load(workspace: &Workspace) -> Result<Vec<Evidence>> {
     #[cfg(test)]
     LOAD_CALLS.with(|count| count.set(count.get() + 1));
+    load_bounded(workspace, MAX_STORED_EVIDENCE)
+}
+
+pub(crate) fn load_recent(workspace: &Workspace, limit: usize) -> Result<Vec<Evidence>> {
+    load_bounded(workspace, limit.clamp(1, MAX_STORED_EVIDENCE))
+}
+
+fn load_bounded(workspace: &Workspace, limit: usize) -> Result<Vec<Evidence>> {
     let directory = evidence_directory(workspace)?;
     if !directory.exists() {
         return Ok(Vec::new());
@@ -65,8 +73,8 @@ pub(crate) fn load(workspace: &Workspace) -> Result<Vec<Evidence>> {
     }
 
     let mut paths = evidence_paths(&directory)?;
-    if paths.len() > MAX_STORED_EVIDENCE {
-        paths = paths.split_off(paths.len() - MAX_STORED_EVIDENCE);
+    if paths.len() > limit {
+        paths = paths.split_off(paths.len() - limit);
     }
     let mut evidence = Vec::with_capacity(paths.len());
     for path in paths {

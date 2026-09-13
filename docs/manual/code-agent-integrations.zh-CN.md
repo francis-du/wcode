@@ -21,7 +21,7 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 | 旧版远程客户端 | SSE 兼容层 | `GET /sse` + `POST /message?sessionId=...` + OAuth |
 
 这不是三套工具实现。它们共用 JSON-RPC dispatch、Harness、Workspace
-选择、命令策略、授权、Tool、Prompt、Resource 和 Software Intelligence
+选择、命令策略、授权、Tool、Prompt、Resource，以及仓库理解 / Engineering Control Plane
 状态。SSE 只为仍使用 2024 传输方式的客户端保留；新配置直接使用
 `/mcp`。
 

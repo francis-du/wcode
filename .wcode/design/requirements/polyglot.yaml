@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-POLYGLOT-001
+title: Polyglot repositories are modeled as manifest-owned language islands
+intent: >-
+  Mixed-language repositories must be decomposed in one bounded manifest scan into structural project islands with nearest-root ownership so coding agents can see which toolchains own a change. Deterministic verification checks must execute from the owning island root, independent affected islands may run in the same phase, and unrelated language toolchains or verification gaps must not block work when changed paths map unambiguously elsewhere. Explicit local manifest dependencies such as Cargo path dependencies, package file/link dependencies, TypeScript project references and Go local replacements must form structural dependency bridges that propagate verification from a changed dependency to its dependents without guessing cross-language semantics. Native bounded gates must cover supported island toolchains including Rust, Node, Python, Go, Java, Swift, Dart, Elixir, OCaml, Ruby and repository-declared PHP quality tools. Verification coverage is level-aware: quick must execute a real affected-island gate and may promote one bounded full fallback when no cheaper quick gate exists, while full must have true full-level coverage for each affected project type. A manifest-owned island without coverage at the requested level must surface an explicit fail-closed gap rather than allowing a workspace-global check to create false confidence. Workspace-local PHP vendor tools may enter the autonomous verification lane only for an exact approved tool/argument shape and only when the executable is a single-link regular file under the island root. Language Quality providers in nested islands must retain their owning root in status, use unique root-scoped provider identities, and execute from a read-only derived subspace. Quick verification may additionally prioritize one Design-declared Rust, Python or Go Acceptance test only when the changed implementation and test resolve inside the same island; the syntax-resolved test must compile to an exact bounded cargo filter, pytest node ID or Go package/-run shape and must never narrow full verification. Unknown or ambiguous ownership must fall back to broader verification rather than under-verify; cross-language signals remain structural unless stronger semantic, runtime or deterministic evidence exists.
+priority: critical
+implemented_by:
+  - component:polyglot-workspace
+acceptance:
+  - AC-POLYGLOT-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+risk:
+  reliability: critical
+  performance: high
+  compatibility: high

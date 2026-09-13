@@ -1,13 +1,23 @@
 use super::*;
 
+#[path = "command_policy/autonomy.rs"]
+mod autonomy;
 #[path = "command_policy/dev_tools.rs"]
 mod dev_tools;
+#[path = "command_policy/focused.rs"]
+mod focused;
 #[path = "command_policy/git.rs"]
 mod git;
 #[path = "command_policy/github.rs"]
 mod github;
 #[path = "command_policy/infrastructure.rs"]
 mod infrastructure;
+pub(super) use autonomy::command_requires_workspace_write;
+use autonomy::{
+    validate_bundle_command, validate_dart_command, validate_dune_command,
+    validate_flutter_command, validate_mix_command, validate_node_command,
+    validate_php_quality_command, validate_python_command,
+};
 use dev_tools::{validate_fd_command, validate_jq_command};
 use git::validate_git_command;
 use github::validate_gh_command;
@@ -70,11 +80,19 @@ pub(super) fn validate_command_policy(
         "npm" | "pnpm" | "yarn" | "bun" => {
             validate_package_command(program, args, security.allow_risky_exec)
         }
-        "just" | "task" => validate_repository_runner(program, security.allow_risky_exec),
+        "just" | "task" => validate_repository_runner(program, args, security.allow_risky_exec),
         "uv" => validate_uv_command(args, security.allow_risky_exec),
         "ruff" => validate_ruff_command(args, security.allow_risky_exec),
         "biome" => validate_biome_command(args, security.allow_risky_exec),
         "deno" => validate_deno_command(args, security.allow_risky_exec),
+        "dart" => validate_dart_command(args, security.allow_risky_exec),
+        "flutter" => validate_flutter_command(args, security.allow_risky_exec),
+        "mix" => validate_mix_command(args, security.allow_risky_exec),
+        "dune" => validate_dune_command(args, security.allow_risky_exec),
+        "bundle" => validate_bundle_command(args, security.allow_risky_exec),
+        "phpstan" | "psalm" | "phpunit" | "php-cs-fixer" => {
+            validate_php_quality_command(program, args, security.allow_risky_exec)
+        }
         "docker" => validate_docker_command(args, security.allow_risky_exec),
         "kubectl" => validate_kubectl_command(args, security.allow_risky_exec),
         "terraform" => validate_terraform_command(args, security.allow_risky_exec),
@@ -84,9 +102,20 @@ pub(super) fn validate_command_policy(
         "cmake" | "ninja" | "mvn" | "gradle" | "swift" | "zig" | "pre-commit" | "act" => {
             validate_known_project_runner(program, args, security.allow_risky_exec)
         }
-        "rustc" | "node" | "python3" | "pytest" | "make" => {
-            require_risky_exec(program, security.allow_risky_exec)
+        "pytest" => Ok(()),
+        "python3" => validate_python_command(args, security.allow_risky_exec),
+        "node" => validate_node_command(args, security.allow_risky_exec),
+        "make"
+            if args.first().is_some_and(|task| {
+                matches!(
+                    task.to_ascii_lowercase().as_str(),
+                    "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
+                )
+            }) =>
+        {
+            Ok(())
         }
+        "rustc" | "make" => require_risky_exec(program, security.allow_risky_exec),
         _ => require_risky_exec(
             "user-authorized external command",
             security.allow_risky_exec,
@@ -168,7 +197,22 @@ fn reject_protected_command_argument(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_repository_runner(program: &str, allow_risky_exec: bool) -> Result<()> {
+fn validate_repository_runner(
+    program: &str,
+    args: &[String],
+    allow_risky_exec: bool,
+) -> Result<()> {
+    let Some(task) = args.first().map(String::as_str) else {
+        bail!("{program} requires an explicit repository task");
+    };
+    if !task.starts_with('-')
+        && matches!(
+            task.to_ascii_lowercase().as_str(),
+            "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
+        )
+    {
+        return Ok(());
+    }
     require_risky_exec(
         &format!("{program} repository task evaluation"),
         allow_risky_exec,
@@ -225,7 +269,9 @@ fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
             Ok(())
         }
         "audit" => Ok(()),
-        "run" | "sync" | "lock" | "format" | "check" | "add" | "remove" => {
+        "run" if uv_run_is_bounded_check(args) => Ok(()),
+        "sync" | "lock" | "format" | "check" => Ok(()),
+        "run" | "add" | "remove" => {
             require_risky_exec(&format!("uv {subcommand}"), allow_risky_exec)
         }
         "auth" | "tool" | "python" | "self" | "cache" | "pip" => {
@@ -238,34 +284,23 @@ fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
     }
 }
 
+fn uv_run_is_bounded_check(args: &[String]) -> bool {
+    args.iter()
+        .skip(1)
+        .find(|arg| !arg.starts_with('-'))
+        .is_some_and(|program| matches!(program.as_str(), "pytest" | "ruff" | "mypy" | "pyright"))
+}
+
 fn validate_ruff_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
     let subcommand = args
         .first()
         .map(String::as_str)
         .ok_or_else(|| anyhow!("ruff subcommand is required"))?;
     match subcommand {
-        "check" => {
-            if args.iter().any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "--fix" | "--fix-only" | "--unsafe-fixes" | "--watch"
-                )
-            }) {
-                require_risky_exec("ruff source modification/watch execution", allow_risky_exec)
-            } else {
-                Ok(())
-            }
+        "check" if args.iter().any(|arg| arg == "--watch") => {
+            require_risky_exec("ruff watch execution", allow_risky_exec)
         }
-        "format" => {
-            if args
-                .iter()
-                .any(|arg| matches!(arg.as_str(), "--check" | "--diff"))
-            {
-                Ok(())
-            } else {
-                require_risky_exec("ruff source formatting", allow_risky_exec)
-            }
-        }
+        "check" | "format" => Ok(()),
         "rule" | "config" | "linter" => Ok(()),
         _ => require_risky_exec(
             &format!("ruff user-authorized operation: {subcommand}"),
@@ -280,15 +315,7 @@ fn validate_biome_command(args: &[String], allow_risky_exec: bool) -> Result<()>
         .map(String::as_str)
         .ok_or_else(|| anyhow!("biome subcommand is required"))?;
     match subcommand {
-        "check" | "lint" | "format" | "ci" => {
-            if args.iter().any(|arg| {
-                matches!(arg.as_str(), "--write" | "--fix") || arg.starts_with("--write=")
-            }) {
-                require_risky_exec("Biome source modification", allow_risky_exec)
-            } else {
-                Ok(())
-            }
-        }
+        "check" | "lint" | "format" | "ci" => Ok(()),
         _ => require_risky_exec(
             &format!("Biome user-authorized operation: {subcommand}"),
             allow_risky_exec,
@@ -310,7 +337,19 @@ fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> Result<()> 
                 "deno {subcommand} is blocked because it can alter host-wide tools or the runtime"
             )
         }
-        "fmt" | "test" | "run" | "task" => {
+        "fmt" => Ok(()),
+        "test" | "run" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
+        "task"
+            if args.get(1).is_some_and(|task| {
+                matches!(
+                    task.to_ascii_lowercase().as_str(),
+                    "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
+                )
+            }) =>
+        {
+            Ok(())
+        }
+        "test" | "run" | "task" => {
             require_risky_exec(&format!("deno {subcommand}"), allow_risky_exec)
         }
         _ => require_risky_exec(
@@ -348,9 +387,7 @@ fn validate_dotnet_command(args: &[String], allow_risky_exec: bool) -> Result<()
     }
     match subcommand {
         "list" => Ok(()),
-        "build" | "test" | "format" | "restore" => {
-            require_risky_exec(&format!("dotnet {subcommand}"), allow_risky_exec)
-        }
+        "build" | "test" | "format" | "restore" => Ok(()),
         "tool" | "workload" | "nuget" | "sdk" => {
             bail!("dotnet {subcommand} is blocked because it can alter host-wide tools, workloads, SDKs, or package sources")
         }
@@ -388,7 +425,11 @@ fn validate_known_project_runner(
         }
         _ => {}
     }
-    require_risky_exec(&format!("{program} project execution"), allow_risky_exec)
+    if program == "act" {
+        require_risky_exec("act container workflow execution", allow_risky_exec)
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_rg_command(args: &[String]) -> Result<()> {
@@ -434,84 +475,145 @@ fn validate_rg_command(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn args_equal(args: &[String], expected: &[&str]) -> bool {
+    args.len() == expected.len()
+        && args
+            .iter()
+            .zip(expected)
+            .all(|(actual, expected)| actual == expected)
+}
+
 pub(super) fn validate_verification_command_shape(program: &str, args: &[String]) -> Result<()> {
-    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let allowed = matches!(
-        (program, args.as_slice()),
-        ("git", ["diff", "--check"])
-            | ("cargo", ["fmt", "--check"])
-            | ("cargo", ["check"])
-            | ("cargo", ["check", "--locked"])
-            | ("cargo", ["test"])
-            | ("cargo", ["test", "--locked"])
-            | ("cargo", ["nextest", "run"])
-            | ("cargo", ["nextest", "run", "--locked"])
-            | ("cargo", ["clippy", "--", "-D", "warnings"])
-            | ("cargo", ["clippy", "--locked", "--", "-D", "warnings"])
-            | ("cargo", ["clippy", "--all-targets", "--", "-D", "warnings"])
-            | (
-                "cargo",
-                [
-                    "clippy",
-                    "--locked",
-                    "--all-targets",
-                    "--",
-                    "-D",
-                    "warnings"
-                ],
-            )
-            | ("cargo", ["build", "--release"])
-            | ("cargo", ["build", "--release", "--locked"])
-            | ("go", ["test", "./..."])
-            | ("pytest", ["-q"])
-            | ("make", ["check" | "lint" | "test"])
-            | (
-                "npm" | "pnpm" | "yarn" | "bun",
-                [
-                    "run",
+    let exact = match program {
+        "git" => args_equal(args, &["diff", "--check"]),
+        "cargo" => {
+            args_equal(args, &["nextest", "run"])
+                || args_equal(args, &["nextest", "run", "--locked"])
+        }
+        "go" => args_equal(args, &["vet", "./..."]) || args_equal(args, &["test", "./..."]),
+        "pytest" => args_equal(args, &["-q"]),
+        "mvn" => args_equal(args, &["-q", "-DskipTests", "compile"]) || args_equal(args, &["test"]),
+        "gradle" => args_equal(args, &["classes"]) || args_equal(args, &["check"]),
+        "swift" => args_equal(args, &["build"]) || args_equal(args, &["test"]),
+        "dart" => {
+            args_equal(args, &["analyze"])
+                || args_equal(args, &["test"])
+                || args_equal(
+                    args,
+                    &["format", "-o", "none", "--set-exit-if-changed", "."],
+                )
+        }
+        "mix" => {
+            args_equal(args, &["format", "--check-formatted"])
+                || args_equal(args, &["compile", "--warnings-as-errors"])
+                || args_equal(args, &["test"])
+        }
+        "dune" => args_equal(args, &["build"]) || args_equal(args, &["runtest"]),
+        "bundle" => {
+            args_equal(args, &["exec", "rubocop", "--format", "json"])
+                || args_equal(args, &["exec", "rspec"])
+        }
+        "phpstan" | "vendor/bin/phpstan" => args_equal(args, &["analyse", "--error-format=json"]),
+        "psalm" | "vendor/bin/psalm" => args_equal(args, &["--output-format=json"]),
+        "phpunit" | "vendor/bin/phpunit" => args.is_empty(),
+        "php-cs-fixer" | "vendor/bin/php-cs-fixer" => {
+            args_equal(args, &["fix", "--dry-run", "--diff"])
+        }
+        "make" => args.len() == 1 && matches!(args[0].as_str(), "check" | "lint" | "test"),
+        "npm" | "pnpm" | "yarn" | "bun" => {
+            args.len() == 2
+                && args[0] == "run"
+                && matches!(
+                    args[1].as_str(),
                     "lint" | "typecheck" | "check" | "format:check" | "test" | "build"
-                ],
-            )
-    );
+                )
+        }
+        _ => false,
+    };
+    let allowed = exact
+        || bounded_common_verification_command(program, args)
+        || focused::bounded_test_filter(program, args);
     if allowed {
         Ok(())
     } else {
         bail!(
             "command is not an approved inferred verification shape: {}",
-            format_command(program, &args)
+            format_command(program, args)
         )
     }
 }
 
-fn format_command(program: &str, args: &[&str]) -> String {
-    std::iter::once(program)
-        .chain(args.iter().copied())
-        .collect::<Vec<_>>()
-        .join(" ")
+fn bounded_common_verification_command(program: &str, args: &[String]) -> bool {
+    match program {
+        "cargo" => bounded_cargo_verification(args),
+        "flutter" => autonomy::safe_flutter_verification(args),
+        _ => false,
+    }
+}
+
+fn bounded_cargo_verification(args: &[String]) -> bool {
+    let Some((subcommand, tail)) = args.split_first() else {
+        return false;
+    };
+    match subcommand.as_str() {
+        "test" => tail.iter().all(|arg| {
+            matches!(
+                arg.as_str(),
+                "--locked" | "--workspace" | "--all" | "--all-targets" | "--no-fail-fast"
+            )
+        }),
+        "check" => tail.iter().all(|arg| {
+            matches!(
+                arg.as_str(),
+                "--locked" | "--workspace" | "--all" | "--all-targets"
+            )
+        }),
+        "build" => tail
+            .iter()
+            .all(|arg| matches!(arg.as_str(), "--locked" | "--workspace" | "--release")),
+        "fmt" => args_equal(tail, &["--check"]) || args_equal(tail, &["--all", "--", "--check"]),
+        "clippy" => {
+            let Some(separator) = tail.iter().position(|arg| arg == "--") else {
+                return false;
+            };
+            tail[..separator]
+                .iter()
+                .all(|arg| matches!(arg.as_str(), "--locked" | "--workspace" | "--all-targets"))
+                && args_equal(&tail[separator + 1..], &["-D", "warnings"])
+        }
+        _ => false,
+    }
+}
+
+fn format_command(program: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        program.to_owned()
+    } else {
+        format!("{program} {}", args.join(" "))
+    }
 }
 
 fn is_default_safe_cargo_command(args: &[String]) -> bool {
-    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
-    matches!(
-        args.as_slice(),
-        ["fmt", "--check"]
-            | ["check"]
-            | ["check", "--locked"]
-            | ["metadata", "--no-deps"]
-            | ["metadata", "--no-deps", "--format-version", "1"]
-            | ["metadata", "--format-version", "1", "--no-deps"]
-            | ["clippy", "--", "-D", "warnings"]
-            | ["clippy", "--locked", "--", "-D", "warnings"]
-            | ["clippy", "--all-targets", "--", "-D", "warnings"]
-            | [
+    args_equal(args, &["fmt", "--check"])
+        || args_equal(args, &["check"])
+        || args_equal(args, &["check", "--locked"])
+        || args_equal(args, &["metadata", "--no-deps"])
+        || args_equal(args, &["metadata", "--no-deps", "--format-version", "1"])
+        || args_equal(args, &["metadata", "--format-version", "1", "--no-deps"])
+        || args_equal(args, &["clippy", "--", "-D", "warnings"])
+        || args_equal(args, &["clippy", "--locked", "--", "-D", "warnings"])
+        || args_equal(args, &["clippy", "--all-targets", "--", "-D", "warnings"])
+        || args_equal(
+            args,
+            &[
                 "clippy",
                 "--locked",
                 "--all-targets",
                 "--",
                 "-D",
-                "warnings"
-            ]
-    )
+                "warnings",
+            ],
+        )
 }
 
 fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
@@ -535,13 +637,7 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
         .map(String::as_str)
         .ok_or_else(|| anyhow!("cargo subcommand is required"))?;
     match subcommand {
-        "metadata" => require_risky_exec("cargo metadata", allow_risky_exec),
-        "fmt" if args.iter().any(|arg| arg == "--check") => {
-            require_risky_exec("cargo formatting", allow_risky_exec)
-        }
-        "check" | "test" | "clippy" | "build" => {
-            require_risky_exec("cargo project execution", allow_risky_exec)
-        }
+        "metadata" | "fmt" | "check" | "test" | "clippy" | "build" | "fetch" | "update" => Ok(()),
         "nextest" => {
             let index = args
                 .iter()
@@ -554,7 +650,7 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             if !matches!(action, "run" | "list") {
                 bail!("cargo nextest {action} is blocked; only run/list enter exact project authorization");
             }
-            require_risky_exec(&format!("cargo nextest {action}"), allow_risky_exec)
+            Ok(())
         }
         "install" | "uninstall" | "login" | "logout" | "owner" | "publish" | "yank" => {
             bail!("cargo {subcommand} is blocked because it can alter host-wide tools, credentials, ownership, or remote registries")
@@ -591,8 +687,13 @@ fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
         "env" | "install" | "telemetry" | "tool" => {
             bail!("go {subcommand} is blocked because it can alter host-wide configuration, tools, or telemetry")
         }
-        "list" | "test" | "vet" | "build" => {
-            require_risky_exec("go project inspection/execution", allow_risky_exec)
+        "list" | "test" | "vet" | "build" => Ok(()),
+        "mod"
+            if args.get(1).is_some_and(|action| {
+                matches!(action.as_str(), "download" | "tidy" | "verify")
+            }) =>
+        {
+            Ok(())
         }
         _ => require_risky_exec(
             &format!("go user-authorized project operation: {subcommand}"),
@@ -635,9 +736,30 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
     }
     if matches!(
         subcommand,
-        "run" | "test" | "build" | "lint" | "check" | "typecheck"
+        "test" | "build" | "lint" | "check" | "typecheck" | "ci"
     ) {
-        return require_risky_exec(&format!("{program} project script"), allow_risky_exec);
+        return Ok(());
+    }
+    if subcommand == "install" && args.iter().skip(1).all(|arg| arg.starts_with('-')) {
+        return Ok(());
+    }
+    if subcommand == "run"
+        && args.get(1).is_some_and(|script| {
+            matches!(
+                script.to_ascii_lowercase().as_str(),
+                "test"
+                    | "build"
+                    | "lint"
+                    | "check"
+                    | "typecheck"
+                    | "format"
+                    | "format:check"
+                    | "verify"
+                    | "ci"
+            )
+        })
+    {
+        return Ok(());
     }
     require_risky_exec(
         &format!("{program} user-authorized project operation: {subcommand}"),
@@ -657,26 +779,35 @@ fn require_risky_exec(label: &str, enabled: bool) -> Result<()> {
 
 /// Only exact, bounded inspection shapes use the separate process queue.
 /// This is consulted after policy checks, never as a grant or validation bypass.
-pub(super) fn is_git_probe(program: &str, args: &[String]) -> bool {
+pub(super) fn is_inspection_probe(program: &str, args: &[String]) -> bool {
+    if program == "cargo" {
+        return args_equal(args, &["fmt", "--check"])
+            || args_equal(args, &["metadata", "--no-deps"])
+            || args_equal(args, &["metadata", "--no-deps", "--format-version", "1"])
+            || args_equal(args, &["metadata", "--format-version", "1", "--no-deps"]);
+    }
     if program != "git" {
         return false;
     }
-    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
-    matches!(
-        args.as_slice(),
-        ["--version"]
-            | ["status"]
-            | ["status", "--short"]
-            | ["status", "--short", "--branch"]
-            | ["status", "--short", "--untracked-files=all"]
-            | ["diff", "--check" | "--numstat"]
-            | ["diff", "--cached", "--check" | "--numstat"]
-            | ["branch", "--show-current"]
-            | [
-                "rev-parse",
-                "--show-toplevel" | "--show-prefix" | "--is-inside-work-tree"
-            ]
-    )
+    match args {
+        [one] => matches!(one.as_str(), "--version" | "status"),
+        [first, second] => matches!(
+            (first.as_str(), second.as_str()),
+            ("status", "--short")
+                | ("diff", "--check" | "--numstat")
+                | ("branch", "--show-current")
+                | (
+                    "rev-parse",
+                    "--show-toplevel" | "--show-prefix" | "--is-inside-work-tree"
+                )
+        ),
+        [first, second, third] => matches!(
+            (first.as_str(), second.as_str(), third.as_str()),
+            ("status", "--short", "--branch" | "--untracked-files=all")
+                | ("diff", "--cached", "--check" | "--numstat")
+        ),
+        _ => false,
+    }
 }
 
 pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<String> {
@@ -828,7 +959,7 @@ pub(super) fn scrub_sensitive_environment(
     }
 }
 
-fn is_git_push_command(args: &[String]) -> bool {
+pub(super) fn is_git_push_command(args: &[String]) -> bool {
     let Some(index) = args.iter().position(|arg| !arg.starts_with('-')) else {
         return false;
     };

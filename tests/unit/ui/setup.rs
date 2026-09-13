@@ -25,15 +25,33 @@ fn setup_page_escapes_labels_and_keeps_optional_configuration_progressive() {
         "prefers-color-scheme:light",
         ":focus-visible",
         "viewport-fit=cover",
+        "#0b0812",
+        "#8b7cff",
+        "#f05aa6",
+        "/intelligence/logo.svg",
+        "\"Inter\",\"Noto Sans SC\"",
+        "\"JetBrains Mono\",\"Noto Sans Mono\"",
+        "class=\"segmented\"",
+        "data-choice=\"mode\"",
+        "data-choice=\"performance\"",
+        "data-choice=\"access\"",
+        "class=\"control-model\"",
+        "font-size:16px",
     ] {
         assert!(page.contains(required), "missing setup contract {required}");
     }
     for forbidden in [
+        "#151512",
+        "#b69761",
+        "#8c8374",
+        "border-radius:16px",
         "x-wcode-ui-token",
         "--full-access",
         "--allow-risky-exec",
         "innerHTML",
         "setInterval(",
+        "font-size:10px",
+        "font-size:11px",
     ] {
         assert!(
             !page.contains(forbidden),

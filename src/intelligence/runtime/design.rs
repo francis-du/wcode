@@ -2,7 +2,16 @@ use super::*;
 
 impl SoftwareIntelligenceRuntime {
     pub(crate) fn current_revision(&self, workspace: &Workspace) -> Result<Revision> {
-        workspace_revision(workspace)
+        let load = self.design_load(workspace)?;
+        self.current_revision_from_load(workspace, load.as_ref())
+    }
+
+    pub(crate) fn current_revision_from_load(
+        &self,
+        workspace: &Workspace,
+        load: &design::DesignLoad,
+    ) -> Result<Revision> {
+        workspace_revision_from_design_state(workspace, load.initialized)
     }
 
     pub fn design_status(
@@ -10,16 +19,16 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: impl Into<String>,
         workspace: &Workspace,
     ) -> Result<DesignStatus> {
-        let load = design::load_design(workspace)?;
+        let load = self.design_load(workspace)?;
         let errors = load.error_count();
         let warnings = load.warning_count();
-        let state = load.state;
+        let state = &load.state;
         Ok(DesignStatus {
             workspace: workspace_id.into(),
             initialized: load.initialized,
             valid: load.initialized && errors == 0,
             schema_version: 1,
-            design_root: load.design_root,
+            design_root: load.design_root.clone(),
             files_loaded: load.files_loaded,
             project: state.project.as_ref().map(|project| project.name.clone()),
             requirements: state.requirements.len(),
@@ -30,7 +39,7 @@ impl SoftwareIntelligenceRuntime {
             design_nodes: state.node_count(),
             errors,
             warnings,
-            diagnostics: load.diagnostics,
+            diagnostics: load.diagnostics.clone(),
         })
     }
 
@@ -41,17 +50,17 @@ impl SoftwareIntelligenceRuntime {
         code_index: &CodeIndex,
         known_checks: &HashSet<String>,
     ) -> Result<TraceabilityStatus> {
-        let load = design::load_design(workspace)?;
+        let load = self.design_load(workspace)?;
         self.traceability_status_from_load(
             workspace_id.into(),
             workspace,
             code_index,
             known_checks,
-            &load,
+            load.as_ref(),
         )
     }
 
-    pub(super) fn traceability_status_from_load(
+    pub(crate) fn traceability_status_from_load(
         &self,
         workspace_id: String,
         workspace: &Workspace,
@@ -174,10 +183,10 @@ impl SoftwareIntelligenceRuntime {
         let workspace_id = workspace_id.into();
         let traceability =
             self.traceability_status(workspace_id.clone(), workspace, code_index, known_checks)?;
-        let state = design::load_design(workspace)?.state;
+        let load = self.design_load(workspace)?;
         Ok(build_drift_status(
             workspace_id,
-            &state,
+            &load.state,
             &traceability,
             review,
         ))
@@ -194,17 +203,44 @@ impl SoftwareIntelligenceRuntime {
         let workspace_id = workspace_id.into();
         let traceability =
             self.traceability_status(workspace_id.clone(), workspace, code_index, known_checks)?;
-        let state = design::load_design(workspace)?.state;
-        let drift = build_drift_status(workspace_id.clone(), &state, &traceability, review);
+        let load = self.design_load(workspace)?;
+        self.risk_status_from_snapshot(
+            workspace_id,
+            workspace,
+            review,
+            traceability,
+            &load.state,
+            None,
+        )
+    }
+
+    pub(crate) fn risk_status_from_snapshot(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: &ChangeReviewReport,
+        traceability: TraceabilityStatus,
+        state: &design::DesignState,
+        advanced: Option<&StageExecutorRegistry>,
+    ) -> Result<RiskStatus> {
+        let workspace_id = workspace_id.into();
+        let drift = build_drift_status(workspace_id.clone(), state, &traceability, review);
         let (level, mut risks) = assess_risk(&workspace_id, review, &traceability, &drift);
         let profile = VerificationProfile::for_risk(level);
         if !required_verification_stages(&profile).is_empty() {
-            let registry = stage_executor::registry(workspace)?;
-            let stage_targets = verification_targets_for_review(review, &registry);
+            let fallback;
+            let registry = match advanced {
+                Some(registry) => registry,
+                None => {
+                    fallback = stage_executor::registry(workspace)?;
+                    &fallback
+                }
+            };
+            let stage_targets = verification_targets_for_review(review, registry);
             append_verification_automation_gap(
                 &workspace_id,
                 &profile,
-                &registry,
+                registry,
                 &stage_targets,
                 &mut risks,
             );
@@ -240,7 +276,38 @@ impl SoftwareIntelligenceRuntime {
             known_checks,
             review,
         )?;
-        let state = design::load_design(workspace)?.state;
+        self.impact_analysis_from_risk(workspace_id, workspace, code_index, review, risk.level)
+    }
+
+    pub(crate) fn impact_analysis_from_risk(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        code_index: &CodeIndex,
+        review: &ChangeReviewReport,
+        risk_level: RiskLevel,
+    ) -> Result<ImpactAnalysis> {
+        let load = self.design_load(workspace)?;
+        self.impact_analysis_from_snapshot(
+            workspace_id,
+            workspace,
+            code_index,
+            review,
+            &load.state,
+            risk_level,
+        )
+    }
+
+    pub(crate) fn impact_analysis_from_snapshot(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        code_index: &CodeIndex,
+        review: &ChangeReviewReport,
+        state: &design::DesignState,
+        risk_level: RiskLevel,
+    ) -> Result<ImpactAnalysis> {
+        let workspace_id = workspace_id.into();
         let mut graph = code_index.software_graph(
             workspace_id.clone(),
             workspace,
@@ -251,9 +318,9 @@ impl SoftwareIntelligenceRuntime {
         graph_provider_store::overlay_latest(workspace, &mut graph)?;
         Ok(build_impact_analysis(
             workspace_id,
-            &state,
+            state,
             review,
-            risk.level,
+            risk_level,
             Some(&graph),
         ))
     }
@@ -319,7 +386,7 @@ impl SoftwareIntelligenceRuntime {
         submission: ReviewSubmission,
     ) -> Result<VerificationJob> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
-        let revision = workspace_revision(workspace)?;
+        let revision = self.current_revision(workspace)?;
         let (job, produced, snapshot) = {
             let mut state = self
                 .state
@@ -434,7 +501,7 @@ impl SoftwareIntelligenceRuntime {
             plan.subject.clone(),
             kind,
             submission.producer.clone(),
-            workspace_revision(workspace)?,
+            self.current_revision(workspace)?,
             result,
             Confidence::High,
         )?;
@@ -492,7 +559,7 @@ impl SoftwareIntelligenceRuntime {
             plan.subject.clone(),
             EvidenceKind::HumanApproval,
             format!("human:{approver}"),
-            workspace_revision(workspace)?,
+            self.current_revision(workspace)?,
             EvidenceResult::Pass,
             Confidence::High,
         )?;
@@ -528,7 +595,7 @@ impl SoftwareIntelligenceRuntime {
                 "verification plan does not belong to the selected workspace"
             ));
         }
-        let revision = workspace_revision(workspace)?;
+        let revision = self.current_revision(workspace)?;
         let evidence = self.evidence_records(workspace_id, workspace)?;
         Self::verification_status_from_snapshot(status, &revision, &evidence)
     }
@@ -661,7 +728,7 @@ impl SoftwareIntelligenceRuntime {
         }
         // Capture once per request, not once per plan. Do not cache these inputs
         // across requests: edits and freshly persisted evidence must be visible.
-        let revision = workspace_revision(workspace)?;
+        let revision = self.current_revision(workspace)?;
         let evidence = self.evidence_records(workspace_id, workspace)?;
         history
             .into_iter()
@@ -703,11 +770,18 @@ impl SoftwareIntelligenceRuntime {
             ));
         }
         // Evidence belongs to the inputs captured before execution, never to
-        // whichever files happen to exist when the checks finish.
+        // whichever files happen to exist when the checks finish. Reused
+        // checks already have exact-revision proof from the earlier run and
+        // must not mint duplicate Evidence merely because a report cites them.
         let revision = expected_revision.clone();
-        let design = design::load_design(workspace)?;
+        let executed_checks = report.checks.iter().filter(|check| !check.reused).count();
+        let design = if executed_checks > 0 {
+            Some(self.design_load(workspace)?)
+        } else {
+            None
+        };
         let mut produced = Vec::new();
-        for check in &report.checks {
+        for check in report.checks.iter().filter(|check| !check.reused) {
             let mut evidence = Evidence::new(
                 self.next_id("EV"),
                 format!("verification:{}", check.id),
@@ -722,6 +796,10 @@ impl SoftwareIntelligenceRuntime {
                 Confidence::Deterministic,
             )?;
             evidence.policy = Some(format!("deterministic/{}/v1", report.level));
+            evidence.summary = Some(crate::harness::verification_metrics_summary(
+                check.execution_ms,
+                check.phase,
+            ));
             evidence.artifact_digest = Some(format!(
                 "sha256:{}",
                 digest_text(&format!(
@@ -733,7 +811,7 @@ impl SoftwareIntelligenceRuntime {
         }
         // A single language provider proves only its own check, never the
         // complete project gate. Keep quick/full policies distinct as well.
-        if matches!(report.level.as_str(), "quick" | "full") {
+        if executed_checks > 0 && matches!(report.level.as_str(), "quick" | "full") {
             let mut aggregate = Evidence::new(
                 self.next_id("EV"),
                 format!("change:{}", revision.code),
@@ -751,44 +829,63 @@ impl SoftwareIntelligenceRuntime {
             aggregate.artifact_digest = Some(format!(
                 "sha256:{}",
                 digest_text(&format!(
-                    "{}\n{}\n{}\n{}",
-                    report.level, report.checks_run, report.checks_failed, report.summary
+                    "{}\n{}\n{}\n{}\n{}",
+                    report.level,
+                    report.checks_run,
+                    report.checks_reused,
+                    report.checks_failed,
+                    report.summary
                 ))
             ));
             produced.push(aggregate);
         }
-        for criterion in design.state.acceptance.values() {
-            let outcomes = criterion
-                .verification
-                .iter()
-                .filter_map(|reference| verification_reference_outcome(reference, report))
-                .collect::<Vec<_>>();
-            if outcomes.is_empty() {
-                continue;
+        if let Some(design) = design.as_ref() {
+            for criterion in design.state.acceptance.values() {
+                if !criterion
+                    .verification
+                    .iter()
+                    .any(|reference| verification_reference_executed(reference, report))
+                {
+                    continue;
+                }
+                let outcomes = criterion
+                    .verification
+                    .iter()
+                    .filter_map(|reference| verification_reference_outcome(reference, report))
+                    .collect::<Vec<_>>();
+                if outcomes.is_empty() {
+                    continue;
+                }
+                let result = if outcomes.iter().any(|outcome| !outcome) {
+                    EvidenceResult::Fail
+                } else if outcomes.len() < criterion.verification.len() {
+                    EvidenceResult::Inconclusive
+                } else {
+                    EvidenceResult::Pass
+                };
+                let mut evidence = Evidence::new(
+                    self.next_id("EV"),
+                    criterion.id.clone(),
+                    EvidenceKind::IntegrationTest,
+                    "deterministic-verification-mesh".into(),
+                    revision.clone(),
+                    result,
+                    Confidence::Deterministic,
+                )?;
+                evidence.policy = Some(format!("acceptance/{}/v1", report.level));
+                produced.push(evidence);
             }
-            let result = if outcomes.iter().any(|outcome| !outcome) {
-                EvidenceResult::Fail
-            } else if outcomes.len() < criterion.verification.len() {
-                EvidenceResult::Inconclusive
-            } else {
-                EvidenceResult::Pass
-            };
-            let mut evidence = Evidence::new(
-                self.next_id("EV"),
-                criterion.id.clone(),
-                EvidenceKind::IntegrationTest,
-                "deterministic-verification-mesh".into(),
-                revision.clone(),
-                result,
-                Confidence::Deterministic,
-            )?;
-            evidence.policy = Some(format!("acceptance/{}/v1", report.level));
-            produced.push(evidence);
         }
-        let current = workspace_revision(workspace)?;
+        let current = self.current_revision(workspace)?;
         if current.code != revision.code || current.design != revision.design {
+            let code_changed = current.code != revision.code;
+            let design_changed = current.design != revision.design;
             return Err(anyhow!(
-                "verification revision changed during execution; results are stale, no evidence was recorded; rerun verification on a stable workspace"
+                "verification revision changed during execution (code_changed={code_changed}, design_changed={design_changed}, expected_code={}, current_code={}, expected_design={}, current_design={}); results are stale, no evidence was recorded; rerun verification on a stable workspace",
+                revision.code,
+                current.code,
+                revision.design.as_deref().unwrap_or("none"),
+                current.design.as_deref().unwrap_or("none"),
             ));
         }
         for evidence in &produced {
