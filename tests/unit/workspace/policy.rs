@@ -580,18 +580,10 @@ async fn bounded_git_commit_and_branch_run_without_authorization() {
             .success()
     };
     assert!(git(&["init", "-q"]));
-    assert!(git(&[
-        "-c",
-        "user.name=Fixture",
-        "-c",
-        "user.email=fixture@example.test",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "initial"
-    ]));
+    assert!(git(&["config", "user.name", "Fixture"]));
+    assert!(git(&["config", "user.email", "fixture@example.test"]));
+    assert!(git(&["config", "commit.gpgsign", "false"]));
+    assert!(git(&["commit", "--allow-empty", "-m", "initial"]));
     fs::write(root.path().join("tracked.txt"), "autonomous\n").unwrap();
     let workspace = Workspace::new(root.path(), true, true).unwrap();
     let add = workspace
