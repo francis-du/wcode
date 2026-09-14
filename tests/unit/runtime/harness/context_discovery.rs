@@ -60,6 +60,11 @@ fn adaptive_agent_budget_does_not_reward_unresolved_queries_with_large_context()
         .agent_context("demo", &workspace, "definitely_missing_symbol", 0, &[])
         .unwrap();
 
+    assert!(
+        exact.get("query").is_none(),
+        "tool inputs must not be echoed back into model context"
+    );
+    assert!(unresolved.get("query").is_none());
     assert!(exact["budget"].as_u64().unwrap() <= 1_600);
     assert!(unresolved["budget"].as_u64().unwrap() <= 1_800);
     assert!(exact["budget"].as_u64().unwrap() <= unresolved["budget"].as_u64().unwrap());

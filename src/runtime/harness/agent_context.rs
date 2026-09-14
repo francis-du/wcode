@@ -627,6 +627,18 @@ fn finalize_agent_context(
             continue;
         }
 
+        // Readiness may be recomputed after trimming and still needs the
+        // original query for routing. Remove the redundant tool-input echo only
+        // after the pack is already within budget, then iterate once more so
+        // byte/token telemetry describes the final model-visible result.
+        if value
+            .as_object_mut()
+            .and_then(|object| object.remove("query"))
+            .is_some()
+        {
+            continue;
+        }
+
         let current = (
             value["serialized_bytes"].clone(),
             value["estimated_tokens"].clone(),

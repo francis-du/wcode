@@ -106,6 +106,14 @@ fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
     assert!(INTELLIGENCE_CSS.contains(".inspector-health"));
     assert!(INTELLIGENCE_CSS.contains(".inspector-compare"));
     assert!(INTELLIGENCE_CSS.contains(".inspector-proof-note"));
+    assert!(INTELLIGENCE_CSS.contains(
+        ".agent-context-efficiency .proof-counts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));}"
+    ));
+    assert!(INTELLIGENCE_CSS
+        .contains(".agent-context-efficiency .proof-counts>*:last-child{grid-column:1/-1;}"));
+    assert!(INTELLIGENCE_CSS.contains(
+        "@media (max-width:520px){.runtime-status-grid,.change-impact-grid{grid-template-columns:1fr;}.agent-context-efficiency .proof-counts{grid-template-columns:1fr;}"
+    ));
 }
 
 #[test]

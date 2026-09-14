@@ -31,7 +31,6 @@ pub(super) fn build(
     };
     let mut pack = json!({
         "workspace":workspace_id,
-        "query":query,
         "intent":intent,
         "budget":budget,
         "budget_mode":if requested_budget.is_some() {"explicit"} else {"adaptive"},
