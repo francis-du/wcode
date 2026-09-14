@@ -3,6 +3,11 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DEPENDENCY_PAIR_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkloadResources {
     pub workspace: String,
@@ -358,23 +363,54 @@ pub fn dependency_graph(
     task_count: usize,
 ) -> DependencyGraph {
     let mut predecessors = vec![BTreeSet::new(); task_count];
+    let mutation_offsets = workloads
+        .iter()
+        .enumerate()
+        .filter_map(|(offset, (_, resources))| {
+            resources.mutations().next().is_some().then_some(offset)
+        })
+        .collect::<Vec<_>>();
+    if mutation_offsets.is_empty() {
+        return DependencyGraph { predecessors };
+    }
+
     for left_offset in 0..workloads.len() {
-        for right_offset in left_offset + 1..workloads.len() {
-            let (left_index, left) = &workloads[left_offset];
-            let (right_index, right) = &workloads[right_offset];
-            if left.workspace != right.workspace || !resources_conflict(left, right) {
-                continue;
+        if workloads[left_offset].1.mutations().next().is_some() {
+            for right_offset in left_offset + 1..workloads.len() {
+                add_resource_dependency(&mut predecessors, workloads, left_offset, right_offset);
             }
-            if creates_parent_of(left, right) && !creates_parent_of(right, left) {
-                predecessors[*right_index].insert(*left_index);
-            } else if creates_parent_of(right, left) && !creates_parent_of(left, right) {
-                predecessors[*left_index].insert(*right_index);
-            } else {
-                predecessors[*right_index].insert(*left_index);
+        } else {
+            for &right_offset in mutation_offsets
+                .iter()
+                .filter(|&&right_offset| right_offset > left_offset)
+            {
+                add_resource_dependency(&mut predecessors, workloads, left_offset, right_offset);
             }
         }
     }
     DependencyGraph { predecessors }
+}
+
+fn add_resource_dependency(
+    predecessors: &mut [BTreeSet<usize>],
+    workloads: &[(usize, WorkloadResources)],
+    left_offset: usize,
+    right_offset: usize,
+) {
+    #[cfg(test)]
+    DEPENDENCY_PAIR_CHECKS.with(|count| count.set(count.get().saturating_add(1)));
+    let (left_index, left) = &workloads[left_offset];
+    let (right_index, right) = &workloads[right_offset];
+    if left.workspace != right.workspace || !resources_conflict(left, right) {
+        return;
+    }
+    if creates_parent_of(left, right) && !creates_parent_of(right, left) {
+        predecessors[*right_index].insert(*left_index);
+    } else if creates_parent_of(right, left) && !creates_parent_of(left, right) {
+        predecessors[*left_index].insert(*right_index);
+    } else {
+        predecessors[*right_index].insert(*left_index);
+    }
 }
 
 /// Describe the exact scheduling graph without executing, reserving slots,

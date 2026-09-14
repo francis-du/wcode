@@ -11,7 +11,6 @@ const MAX_AUTHORIZATION_REQUESTS: usize = 256;
 pub enum AuthorizationKind {
     CommandAccess,
     RiskyExecution,
-    RuntimeExecutor,
     DestructiveDelete,
 }
 

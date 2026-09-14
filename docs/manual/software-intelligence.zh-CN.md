@@ -459,13 +459,7 @@ executors:
     timeout_seconds: 60
 ```
 
-配置 Executor 无 Shell 执行、沿用 Workspace canonical root / symlink 防护、对状态/UI 隐藏配置参数，并清理敏感环境和输出。没有进程级 `--allow-risky-exec` 时，第一次尚未授权的精确 Executor 操作会生成本地 `RuntimeExecutor` Authorization Request；TUI 或受保护 WebUI 批准后重试即可。需要整进程预授权时使用：
-
-```bash
-wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
-```
-
-缺少可执行程序时只会报告 unavailable / missing executor，不会生成假的 Pass Evidence。
+配置 Executor 无 Shell 执行、沿用 Workspace canonical root / symlink 防护、对状态/UI 隐藏配置参数，并清理敏感环境和输出。Property/Mutation/Fuzz/Runtime Executor 属于 Hardened Autonomous Local Development Lane：CWD、进程数、输出和超时都有界，不再生成重复的 `RuntimeExecutor` Authorization Request。缺少可执行程序时只会报告 unavailable / missing executor，不会生成假的 Pass Evidence。
 
 ### MCP 2026 长任务 Tasks
 

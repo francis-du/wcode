@@ -226,7 +226,7 @@ fn tunnel_runtime_summary(snapshot: &MonitorSnapshot) -> String {
     let standby = snapshot
         .tunnel_runtime
         .iter()
-        .filter(|tunnel| tunnel.role == "standby" && tunnel.state != "revoked")
+        .filter(|tunnel| tunnel.role == "standby" && tunnel.state != "quarantined")
         .count();
     let retrying = snapshot
         .tunnel_runtime

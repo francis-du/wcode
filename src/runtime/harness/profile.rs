@@ -529,6 +529,30 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
             );
         }
     }
+    if has_type("cmake") {
+        push_check(
+            checks,
+            "cmake-configure",
+            "quick",
+            "cmake",
+            &[
+                "-S",
+                ".",
+                "-B",
+                "build/wcode-verify",
+                "-DCMAKE_BUILD_TYPE=Release",
+            ],
+            "Configure the owning CMake island in an isolated verification build directory.",
+        );
+        push_check(
+            checks,
+            "cmake-build",
+            "full",
+            "cmake",
+            &["--build", "build/wcode-verify", "--config", "Release"],
+            "Build the owning CMake island from its verified configuration.",
+        );
+    }
     if has_type("make") {
         add_make_checks(root, checks);
     }

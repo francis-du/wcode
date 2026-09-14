@@ -43,83 +43,115 @@ pub(super) fn refresh_intelligence_now(
 ) -> anyhow::Result<()> {
     monitor.register_workspace(workspace_id.to_owned());
     let (_, workspace) = workspaces.select(Some(workspace_id))?;
-    let mut errors = Vec::new();
+    // Prime the shared Design cache once before fan-out. Several intelligence
+    // lanes depend on the same Design State; racing their first cold load only
+    // duplicates YAML scans and validation work without increasing throughput.
+    let mut initial_errors = Vec::new();
     record_refresh(
         monitor,
         workspace_id,
         "design_status",
         harness.design_status(workspace_id, &workspace),
-        &mut errors,
+        &mut initial_errors,
     );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "convention_status",
-        harness.convention_status(&workspace),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "traceability_status",
-        harness.traceability_status(workspace_id, &workspace),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "scope_status",
-        harness.product_scope_status(&workspace),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "software_graph",
-        harness.software_graph(
-            workspace_id,
-            &workspace,
-            ".",
-            TUI_GRAPH_FILES,
-            TUI_GRAPH_SYMBOLS,
-        ),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "semantic_status",
-        harness.semantic_status(workspace_id, &workspace, TUI_STATUS_ITEMS),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "semantic_provider_status",
-        harness.semantic_provider_status(&workspace),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "semantic_session_status",
-        Ok(harness.semantic_session_status(&workspace)),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "graph_provider_status",
-        harness.graph_provider_status(&workspace),
-        &mut errors,
-    );
-    record_refresh(
-        monitor,
-        workspace_id,
-        "evidence_status",
-        harness.evidence_status(workspace_id, &workspace, None, TUI_STATUS_ITEMS),
-        &mut errors,
-    );
+    let concurrent_errors = std::sync::Mutex::new(initial_errors);
+    rayon::scope(|scope| {
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "convention_status",
+                harness.convention_status(&workspace),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "traceability_status",
+                harness.traceability_status(workspace_id, &workspace),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "scope_status",
+                harness.product_scope_status(&workspace),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "software_graph",
+                harness.software_graph(
+                    workspace_id,
+                    &workspace,
+                    ".",
+                    TUI_GRAPH_FILES,
+                    TUI_GRAPH_SYMBOLS,
+                ),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "semantic_status",
+                harness.semantic_status(workspace_id, &workspace, TUI_STATUS_ITEMS),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "semantic_provider_status",
+                harness.semantic_provider_status(&workspace),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "semantic_session_status",
+                Ok(harness.semantic_session_status(&workspace)),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "graph_provider_status",
+                harness.graph_provider_status(&workspace),
+                &concurrent_errors,
+            )
+        });
+        scope.spawn(|_| {
+            record_refresh_concurrent(
+                monitor,
+                workspace_id,
+                "evidence_status",
+                harness.evidence_status(workspace_id, &workspace, None, TUI_STATUS_ITEMS),
+                &concurrent_errors,
+            )
+        });
+    });
+    let mut errors = concurrent_errors
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if harness.cached_project_observatory(&workspace).is_none() {
+        if let Err(error) = harness.project_observatory(workspace_id, &workspace, None) {
+            errors.push(format!("project_observatory: {error}"));
+        }
+    }
     refresh_graph_diff(monitor, harness, workspace_id, &workspace, &mut errors);
     refresh_verification(monitor, harness, workspace_id, &workspace, &mut errors);
     refresh_reconciliation(monitor, harness, workspace_id, &workspace, &mut errors);
@@ -128,6 +160,22 @@ pub(super) fn refresh_intelligence_now(
         Ok(())
     } else {
         Err(anyhow::anyhow!(errors.join(" · ")))
+    }
+}
+
+fn record_refresh_concurrent<T: serde::Serialize>(
+    monitor: &TaskMonitor,
+    workspace_id: &str,
+    tool: &'static str,
+    result: anyhow::Result<T>,
+    errors: &std::sync::Mutex<Vec<String>>,
+) {
+    match result.and_then(|value| serde_json::to_value(value).map_err(anyhow::Error::from)) {
+        Ok(value) => monitor.record_intelligence_result(workspace_id, tool, &value),
+        Err(error) => errors
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(format!("{tool}: {error}")),
     }
 }
 

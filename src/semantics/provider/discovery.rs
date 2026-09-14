@@ -1,5 +1,16 @@
 use super::*;
+use std::collections::HashMap;
 use std::env;
+use std::io::Read;
+use std::process::{Command as StdCommand, Stdio as StdStdio};
+use std::sync::{Mutex, OnceLock};
+use std::thread;
+use std::time::{Duration as StdDuration, Instant};
+
+const RUSTUP_COMPONENT_CACHE_TTL: StdDuration = StdDuration::from_secs(30);
+type RustupComponentCacheKey = (PathBuf, PathBuf);
+type RustupComponentCache = HashMap<RustupComponentCacheKey, (Instant, bool)>;
+static RUSTUP_COMPONENT_CACHE: OnceLock<Mutex<RustupComponentCache>> = OnceLock::new();
 
 pub(super) fn trusted_provider_path(workspace: &Workspace, candidate: &Path) -> Option<PathBuf> {
     let executable = if candidate.is_absolute() {
@@ -14,10 +25,13 @@ pub(super) fn trusted_provider_path(workspace: &Workspace, candidate: &Path) -> 
 pub(super) fn find_executable(workspace: &Workspace, name: &str) -> Option<PathBuf> {
     let candidate = PathBuf::from(name);
     if candidate.components().count() > 1 && candidate.is_file() {
-        return trusted_provider_path(workspace, &candidate);
+        return trusted_provider_path(workspace, &candidate)
+            .filter(|path| provider_executable_ready(workspace, name, path));
     }
     if let Some(path) = find_executable_on_path(workspace, name) {
-        return Some(path);
+        if provider_executable_ready(workspace, name, &path) {
+            return Some(path);
+        }
     }
     known_language_tool_paths(name)
         .into_iter()
@@ -26,7 +40,101 @@ pub(super) fn find_executable(workspace: &Workspace, name: &str) -> Option<PathB
                 .is_file()
                 .then(|| trusted_provider_path(workspace, &candidate))
                 .flatten()
+                .filter(|path| provider_executable_ready(workspace, name, path))
         })
+}
+
+fn provider_executable_ready(workspace: &Workspace, name: &str, executable: &Path) -> bool {
+    if name != "rust-analyzer" || !is_rustup_proxy(executable) {
+        return true;
+    }
+    let key = (workspace.root().to_path_buf(), executable.to_path_buf());
+    let cache = RUSTUP_COMPONENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(cache) = cache.lock() {
+        if let Some((checked_at, available)) = cache.get(&key) {
+            if checked_at.elapsed() < RUSTUP_COMPONENT_CACHE_TTL {
+                return *available;
+            }
+        }
+    }
+    let available = rustup_proxy_component_ready_uncached(workspace, executable);
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(key, (Instant::now(), available));
+    }
+    available
+}
+
+pub(super) fn is_rustup_proxy(executable: &Path) -> bool {
+    rustup_proxy_path(executable).is_some()
+}
+
+pub(super) fn rustup_proxy_path(executable: &Path) -> Option<PathBuf> {
+    let canonical = executable.canonicalize().ok()?;
+    if canonical
+        .file_stem()
+        .is_some_and(|stem| stem.to_string_lossy().eq_ignore_ascii_case("rustup"))
+    {
+        return Some(canonical);
+    }
+    let sibling = executable.parent()?.join(executable_name("rustup"));
+    same_file_identity(executable, &sibling).then_some(sibling)
+}
+
+#[cfg(unix)]
+fn same_file_identity(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let (Ok(left), Ok(right)) = (std::fs::metadata(left), std::fs::metadata(right)) else {
+        return false;
+    };
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file_identity(left: &Path, right: &Path) -> bool {
+    matches!((left.canonicalize(), right.canonicalize()), (Ok(left), Ok(right)) if left == right)
+}
+
+pub(super) fn rustup_proxy_component_ready_uncached(
+    workspace: &Workspace,
+    executable: &Path,
+) -> bool {
+    let Some(rustup) = rustup_proxy_path(executable) else {
+        return true;
+    };
+    let Ok(mut child) = StdCommand::new(rustup)
+        .args(["which", "rust-analyzer"])
+        .current_dir(workspace.root())
+        .stdin(StdStdio::null())
+        .stdout(StdStdio::piped())
+        .stderr(StdStdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + StdDuration::from_millis(750);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => thread::sleep(StdDuration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    };
+    if !status.success() {
+        return false;
+    }
+    let Some(mut stream) = child.stdout.take() else {
+        return false;
+    };
+    let mut stdout = String::new();
+    if stream.read_to_string(&mut stdout).is_err() {
+        return false;
+    }
+    let resolved = stdout.trim().to_owned();
+    !resolved.is_empty() && Path::new(&resolved).is_file()
 }
 
 fn find_executable_on_path(workspace: &Workspace, name: &str) -> Option<PathBuf> {

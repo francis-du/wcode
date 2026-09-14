@@ -167,14 +167,26 @@ pub async fn execute(
     executor: &StageExecutorSpec,
 ) -> Result<StageExecutionResult> {
     executor.validate()?;
-    let mut command = workspace
-        .run_trusted_runtime_command(
-            &executor.program,
-            &executor.args,
-            &executor.cwd,
-            executor.timeout_seconds,
-        )
-        .await?;
+    let mut command =
+        if workspace.development_command_shape_allowed(&executor.program, &executor.args) {
+            workspace
+                .run_command(
+                    &executor.program,
+                    &executor.args,
+                    &executor.cwd,
+                    executor.timeout_seconds,
+                )
+                .await?
+        } else {
+            workspace
+                .run_trusted_runtime_command(
+                    &executor.program,
+                    &executor.args,
+                    &executor.cwd,
+                    executor.timeout_seconds,
+                )
+                .await?
+        };
     let verdict = if command.success {
         ReviewVerdict::Pass
     } else {

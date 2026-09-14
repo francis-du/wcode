@@ -221,6 +221,68 @@ fn incomplete_revisions_cannot_produce_verification_evidence() {
 }
 
 #[test]
+fn generated_build_state_does_not_invalidate_code_revision() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> usize { 1 }\n",
+    )
+    .unwrap();
+    for path in [
+        "build/generated.txt",
+        ".dart_tool/package_config.json",
+        ".build/state.json",
+        ".gradle/cache.bin",
+        ".swiftpm/configuration/state.json",
+        "ios/Flutter/ephemeral/Packages/generated/state.json",
+        "ios/Pods/generated/state.json",
+        "macos/.symlinks/plugins/generated/state.json",
+        "macos/.plugin_symlinks/generated/state.json",
+        ".next/cache/state.json",
+        ".cache/tool-state.json",
+        "coverage/lcov.info",
+        "dist/bundle.js",
+    ] {
+        let path = root.path().join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "generation=1\n").unwrap();
+    }
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let initial = runtime.current_revision(&workspace).unwrap();
+
+    for path in [
+        "build/generated.txt",
+        ".dart_tool/package_config.json",
+        ".build/state.json",
+        ".gradle/cache.bin",
+        ".swiftpm/configuration/state.json",
+        "ios/Flutter/ephemeral/Packages/generated/state.json",
+        "ios/Pods/generated/state.json",
+        "macos/.symlinks/plugins/generated/state.json",
+        "macos/.plugin_symlinks/generated/state.json",
+        ".next/cache/state.json",
+        ".cache/tool-state.json",
+        "coverage/lcov.info",
+        "dist/bundle.js",
+    ] {
+        fs::write(root.path().join(path), "generation=2\n").unwrap();
+    }
+    let generated_changed = runtime.current_revision(&workspace).unwrap();
+    assert_eq!(generated_changed.code, initial.code);
+
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> usize { 2 }\n",
+    )
+    .unwrap();
+    let source_changed = runtime.current_revision(&workspace).unwrap();
+    assert_ne!(source_changed.code, initial.code);
+}
+
+#[test]
 fn stable_verification_keeps_the_captured_revision() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("lib.rs"), "pub fn unchanged() {}\n").unwrap();
@@ -238,4 +300,68 @@ fn stable_verification_keeps_the_captured_revision() {
         crate::evidence_store::load(&workspace).unwrap().len(),
         evidence.len()
     );
+}
+
+#[test]
+fn initialized_revision_reuses_one_scan_and_keeps_code_design_boundaries() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join(".wcode/design")).unwrap();
+    fs::create_dir_all(root.path().join(".wcode/evidence")).unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join(".wcode/project.yaml"),
+        "schema_version: 1\nname: revision-fixture\n",
+    )
+    .unwrap();
+    let product = root.path().join(".wcode/design/product.yaml");
+    fs::write(
+        &product,
+        "schema_version: 1\nid: product:demo\nname: Demo\nvision: Initial\n",
+    )
+    .unwrap();
+    let source = root.path().join("src/lib.rs");
+    fs::write(&source, "pub fn value() -> usize { 1 }\n").unwrap();
+    let runtime_noise = root.path().join(".wcode/evidence/runtime.json");
+    fs::write(&runtime_noise, "{\"generation\":1}\n").unwrap();
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let scan_count = || REVISION_SCAN_CALLS.with(|count| count.get());
+    let reset_scans = || REVISION_SCAN_CALLS.with(|count| count.set(0));
+
+    reset_scans();
+    let initial = runtime.current_revision(&workspace).unwrap();
+    assert_eq!(
+        scan_count(),
+        1,
+        "normal initialized revisions should share one root scan"
+    );
+    assert!(initial.design.is_some());
+
+    fs::write(&runtime_noise, "{\"generation\":2}\n").unwrap();
+    reset_scans();
+    let noise_changed = runtime.current_revision(&workspace).unwrap();
+    assert_eq!(scan_count(), 1);
+    assert_eq!(
+        noise_changed, initial,
+        "non-Design .wcode runtime state is not revision input"
+    );
+
+    fs::write(
+        &product,
+        "schema_version: 1\nid: product:demo\nname: Demo\nvision: Revised\n",
+    )
+    .unwrap();
+    reset_scans();
+    let design_changed = runtime.current_revision(&workspace).unwrap();
+    assert_eq!(scan_count(), 1);
+    assert_eq!(design_changed.code, initial.code);
+    assert_ne!(design_changed.design, initial.design);
+
+    fs::write(&source, "pub fn value() -> usize { 2 }\n").unwrap();
+    reset_scans();
+    let source_changed = runtime.current_revision(&workspace).unwrap();
+    assert_eq!(scan_count(), 1);
+    assert_ne!(source_changed.code, design_changed.code);
+    assert_eq!(source_changed.design, design_changed.design);
 }

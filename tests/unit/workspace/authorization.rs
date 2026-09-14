@@ -21,8 +21,8 @@ fn denial_never_creates_a_grant() {
     let manager = AuthorizationManager::default();
     let request = manager.request(
         "demo",
-        AuthorizationKind::RuntimeExecutor,
-        "run canary",
+        AuthorizationKind::RiskyExecution,
+        "run remote mutation",
         "sha256:deny",
     );
     assert_eq!(manager.request_by_id(&request.id).unwrap().id, request.id);

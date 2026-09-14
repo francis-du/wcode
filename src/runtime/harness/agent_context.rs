@@ -378,11 +378,11 @@ impl ToolHarness {
             "semantic_provider_hints": semantic_provider_hints,
             "worklist": worklist,
             "workflow": [
-                "Parallel-first: before the next tool call, split work into dependency lanes. If readiness.parallelism.strategy is top_level_concurrent_calls, launch independent discovery/read/review calls together now; do not serialize them merely for convenience.",
+                "Parallel-first is mandatory: if readiness.parallelism.required is true, launch independent lanes concurrently now. Prefer one-traversal bulk tools such as read_files, search_many and apply_file_edits before per-item fan-out; use parallel_tools only when no bulk primitive fits.",
                 "Start from hot_source; open additional bodies only when the edit requires them.",
                 "Reuse existing components/helpers before adding branches, wrappers, or new modules.",
                 "Treat core_constraints as mandatory wcode policy in every workspace. Maintained source cannot cross 1000 lines; an already oversized source file may not grow and verification stays blocked until it is decomposed below the limit. Split by cohesive responsibility instead of mechanically slicing text; when conventions.errors is non-zero, reconciliation_plan can turn those violations into implementation tasks.",
-                "Edit independent target files concurrently; serialize only edits with real data or path dependencies. Keep parallel_tools for compact fan-out rather than large nested arguments.",
+                "Edit independent target files concurrently; serialize only edits with real data or path dependencies. Reuse shared snapshots/caches and never repeat a repository traversal that a bulk primitive can perform once.",
                 "Edit with listed SHA preconditions; justify any file outside this pack.",
                 "After edits run review_changes, then verify_project at the recommended level."
             ],
@@ -411,6 +411,10 @@ fn compact_core_constraints() -> Vec<Value> {
         json!({
             "id": "CONSTRAINT-DESIGN-SYNC",
             "rule": "responsibility/path/test/trust/transport moves update matching .wcode Design State in the same change",
+        }),
+        json!({
+            "id": "CONSTRAINT-PARALLEL-FIRST",
+            "rule": "independent lanes must run concurrently; prefer one-traversal bulk tools and shared caches before per-item fan-out; serialize only true dependencies",
         }),
     ]
 }

@@ -567,8 +567,10 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
     assert!(validate_command_policy("cargo", &["metadata".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("go", &["list".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("npm", &["list".to_owned()], trusted).is_ok());
-    assert!(validate_command_policy("cargo", &["run".to_owned()], safe).is_err());
+    assert!(validate_command_policy("cargo", &["run".to_owned()], safe).is_ok());
     assert!(validate_command_policy("cargo", &["run".to_owned()], trusted).is_ok());
+    assert!(validate_command_policy("cargo", &["clean".to_owned()], safe).is_err());
+    assert!(validate_command_policy("cargo", &["clean".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("npm", &["install".to_owned()], safe).is_ok());
     assert!(validate_command_policy("npm", &["install".to_owned()], trusted).is_ok());
     for (program, arguments) in [
@@ -772,39 +774,61 @@ async fn bounded_direct_and_harness_checks_run_without_risky_exec() {
     assert!(verified.success, "cargo check failed: {}", verified.stderr);
 }
 
-#[tokio::test]
-async fn trusted_runtime_executor_requires_explicit_repository_trust() {
-    let dir = tempfile::tempdir().unwrap();
-    let blocked = Workspace::new(dir.path(), false, true).unwrap();
-    let error = blocked
-        .run_trusted_runtime_command("rustc", &["--version".to_owned()], ".", 10)
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("authorization required"));
-    let request = blocked.authorization.latest_pending().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::RuntimeExecutor);
-    assert!(blocked.authorization.approve_session(&request.id));
-    let approved = blocked
-        .run_trusted_runtime_command("rustc", &["--version".to_owned()], ".", 10)
-        .await
-        .unwrap();
-    assert!(approved.success);
+#[test]
+fn all_supported_language_development_tools_are_default_authorized() {
+    for program in LANGUAGE_DEVELOPMENT_COMMANDS {
+        assert!(
+            COMMAND_CATALOG.contains(program),
+            "supported language development tool must be in the default command catalog: {program}"
+        );
+    }
+    for infrastructure in ["docker", "kubectl", "terraform"] {
+        assert!(!LANGUAGE_DEVELOPMENT_COMMANDS.contains(&infrastructure));
+    }
 
-    let trusted = Workspace::new_with_security(
-        dir.path(),
-        false,
-        true,
-        WorkspaceSecurity {
-            allow_risky_exec: true,
-            ..WorkspaceSecurity::default()
-        },
-    )
-    .unwrap();
-    let result = trusted
+    let safe = WorkspaceSecurity::default();
+    for (program, arguments) in [
+        ("cargo", vec!["run"]),
+        (
+            "cargo-fuzz",
+            vec!["fuzz", "run", "parser", "--", "-max_total_time=5"],
+        ),
+        ("shellcheck", vec!["--format=json", "script.sh"]),
+        ("clang-format", vec!["--dry-run", "--Werror", "src.c"]),
+        ("clang", vec!["-fsyntax-only", "src.c"]),
+        ("gofmt", vec!["-d", "main.go"]),
+        ("staticcheck", vec!["./..."]),
+        ("mypy", vec!["."]),
+        ("eslint", vec![".", "--format", "json"]),
+        ("tsc", vec!["--noEmit"]),
+        ("Rscript", vec!["-e", "testthat::test_local()"]),
+        ("ruby", vec!["app.rb"]),
+        ("php", vec!["app.php"]),
+        ("lua", vec!["app.lua"]),
+        ("elixir", vec!["app.exs"]),
+        ("ocamlc", vec!["main.ml"]),
+        ("java", vec!["Main"]),
+        ("composer", vec!["install"]),
+        ("swift-format", vec!["lint", "-r", "."]),
+    ] {
+        let arguments = arguments.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(
+            validate_command_policy(program, &arguments, safe).is_ok(),
+            "bounded development shape must not require risky authorization: {program} {arguments:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn hardened_runtime_executor_runs_without_repetitive_authorization() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, true).unwrap();
+    let result = workspace
         .run_trusted_runtime_command("rustc", &["--version".to_owned()], ".", 10)
         .await
-        .unwrap();
+        .expect("repository-declared test executors should use the hardened autonomous lane");
     assert!(result.success);
+    assert!(workspace.authorization.requests(10).is_empty());
 }
 
 #[tokio::test]

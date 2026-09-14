@@ -13,10 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Next release
 
-- [v0.7.0](v0.7.0/) — a rebuilt Engineering Observatory, faster project-state loading, stronger architecture/proof workflows, and release-hardened agent engineering. Release preparation; publication and cross-platform CI are separate gates.
+- [v0.7.1](v0.7.1/) — resilient tunnel/Host recovery, stale-while-revalidate project loading, hardened `semantic_auto`, autonomous development tooling, and higher real parallel throughput. Push first; create the tag only after CI is green.
 
 ## 0.7.x
 
+- [v0.7.1](v0.7.1/) — network-jitter tolerant stable endpoints, faster project switching, stronger parallel execution, and lower development authorization friction.
 - [v0.7.0](v0.7.0/) — architecture-first project observability, clearer evidence and change workflows, faster initial loading, and stronger release contracts.
 
 ## 0.6.x

@@ -829,28 +829,34 @@ fn command_overlay_shows_the_complete_catalog_and_two_authorization_layers() {
     workspaces
         .revoke_command(Some("backend"), "cargo")
         .expect("revoke cargo for the locked-state fixture");
-    let backend = TestBackend::new(120, 30);
-    let mut terminal = Terminal::new(backend).expect("test terminal");
-
-    terminal
-        .draw(|frame| {
-            render_commands_overlay(
-                frame,
-                frame.area(),
-                &workspaces,
-                "backend",
-                0,
-                UiLanguage::En,
-            )
-        })
-        .expect("command overlay renders");
-    let text = terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>();
+    let area = Rect::new(0, 0, 120, 30);
+    let page_size = command_page_size(area).max(1);
+    let command_count = command_count(&workspaces, "backend");
+    let mut text = String::new();
+    for offset in (0..command_count.max(1)).step_by(page_size) {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_commands_overlay(
+                    frame,
+                    frame.area(),
+                    &workspaces,
+                    "backend",
+                    offset,
+                    UiLanguage::En,
+                )
+            })
+            .expect("command overlay renders");
+        text.extend(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol()),
+        );
+    }
 
     for program in crate::workspace::COMMAND_CATALOG {
         assert!(text.contains(program), "missing command {program}");

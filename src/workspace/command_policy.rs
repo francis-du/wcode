@@ -12,6 +12,10 @@ mod git;
 mod github;
 #[path = "command_policy/infrastructure.rs"]
 mod infrastructure;
+#[path = "command_policy/language_tools.rs"]
+mod language_tools;
+#[path = "command_policy/project_tools.rs"]
+mod project_tools;
 pub(super) use autonomy::command_requires_workspace_write;
 use autonomy::{
     validate_bundle_command, validate_dart_command, validate_dune_command,
@@ -23,6 +27,11 @@ use git::validate_git_command;
 use github::validate_gh_command;
 use infrastructure::{
     validate_docker_command, validate_kubectl_command, validate_terraform_command,
+};
+use project_tools::{
+    is_local_development_task, validate_biome_command, validate_deno_command,
+    validate_dotnet_command, validate_known_project_runner, validate_language_dev_tool,
+    validate_repository_runner, validate_ruff_command, validate_uv_command,
 };
 
 pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
@@ -103,6 +112,13 @@ pub(super) fn validate_command_policy(
             validate_known_project_runner(program, args, security.allow_risky_exec)
         }
         "pytest" => Ok(()),
+        "shellcheck" | "shfmt" | "stylua" | "luacheck" | "busted" | "clang-format"
+        | "clang-tidy" | "cargo-audit" | "cargo-mutants" | "cargo-fuzz" | "gofmt"
+        | "staticcheck" | "govulncheck" | "mypy" | "pyright" | "bandit" | "eslint" | "tsc"
+        | "stylelint" | "Rscript" | "swift-format" | "swiftlint" | "mutmut" | "dotnet-stryker"
+        | "infection" | "muter" => {
+            validate_language_dev_tool(program, args, security.allow_risky_exec)
+        }
         "python3" => validate_python_command(args, security.allow_risky_exec),
         "node" => validate_node_command(args, security.allow_risky_exec),
         "make"
@@ -115,7 +131,18 @@ pub(super) fn validate_command_policy(
         {
             Ok(())
         }
-        "rustc" | "make" => require_risky_exec(program, security.allow_risky_exec),
+        "rustc" => Ok(()),
+        "make"
+            if args
+                .first()
+                .is_some_and(|task| is_local_development_task(task)) =>
+        {
+            Ok(())
+        }
+        "make" => require_risky_exec(program, security.allow_risky_exec),
+        _ if LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program) => {
+            language_tools::validate_language_development_tool(program, args)
+        }
         _ => require_risky_exec(
             "user-authorized external command",
             security.allow_risky_exec,
@@ -195,241 +222,6 @@ fn reject_protected_command_argument(value: &str) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn validate_repository_runner(
-    program: &str,
-    args: &[String],
-    allow_risky_exec: bool,
-) -> Result<()> {
-    let Some(task) = args.first().map(String::as_str) else {
-        bail!("{program} requires an explicit repository task");
-    };
-    if !task.starts_with('-')
-        && matches!(
-            task.to_ascii_lowercase().as_str(),
-            "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
-        )
-    {
-        return Ok(());
-    }
-    require_risky_exec(
-        &format!("{program} repository task evaluation"),
-        allow_risky_exec,
-    )
-}
-
-fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("uv subcommand is required"))?;
-    if args.iter().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "--allow-insecure-host"
-                | "--trusted-host"
-                | "--index"
-                | "--default-index"
-                | "--config-file"
-                | "--project"
-                | "--directory"
-                | "--cache-dir"
-        ) || [
-            "--allow-insecure-host=",
-            "--trusted-host=",
-            "--index=",
-            "--default-index=",
-            "--config-file=",
-            "--project=",
-            "--directory=",
-            "--cache-dir=",
-        ]
-        .iter()
-        .any(|prefix| arg.starts_with(prefix))
-    }) {
-        bail!("uv path/index/config redirection is blocked; use the selected workspace and repository configuration");
-    }
-    match subcommand {
-        "lock"
-            if args.iter().any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "--check" | "--locked" | "--check-exists" | "--frozen"
-                )
-            }) =>
-        {
-            Ok(())
-        }
-        "tree"
-            if args
-                .iter()
-                .any(|arg| matches!(arg.as_str(), "--locked" | "--frozen")) =>
-        {
-            Ok(())
-        }
-        "audit" => Ok(()),
-        "run" if uv_run_is_bounded_check(args) => Ok(()),
-        "sync" | "lock" | "format" | "check" => Ok(()),
-        "run" | "add" | "remove" => {
-            require_risky_exec(&format!("uv {subcommand}"), allow_risky_exec)
-        }
-        "auth" | "tool" | "python" | "self" | "cache" | "pip" => {
-            bail!("uv {subcommand} is blocked because it can alter host-wide tools, credentials, interpreters, caches, or unmanaged environments")
-        }
-        _ => require_risky_exec(
-            &format!("uv user-authorized project operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
-}
-
-fn uv_run_is_bounded_check(args: &[String]) -> bool {
-    args.iter()
-        .skip(1)
-        .find(|arg| !arg.starts_with('-'))
-        .is_some_and(|program| matches!(program.as_str(), "pytest" | "ruff" | "mypy" | "pyright"))
-}
-
-fn validate_ruff_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("ruff subcommand is required"))?;
-    match subcommand {
-        "check" if args.iter().any(|arg| arg == "--watch") => {
-            require_risky_exec("ruff watch execution", allow_risky_exec)
-        }
-        "check" | "format" => Ok(()),
-        "rule" | "config" | "linter" => Ok(()),
-        _ => require_risky_exec(
-            &format!("ruff user-authorized operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
-}
-
-fn validate_biome_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("biome subcommand is required"))?;
-    match subcommand {
-        "check" | "lint" | "format" | "ci" => Ok(()),
-        _ => require_risky_exec(
-            &format!("Biome user-authorized operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
-}
-
-fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("deno subcommand is required"))?;
-    match subcommand {
-        "lint" | "check" => Ok(()),
-        "fmt" if args.iter().any(|arg| arg == "--check") => Ok(()),
-        "test" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
-        "install" | "uninstall" | "upgrade" => {
-            bail!(
-                "deno {subcommand} is blocked because it can alter host-wide tools or the runtime"
-            )
-        }
-        "fmt" => Ok(()),
-        "test" | "run" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
-        "task"
-            if args.get(1).is_some_and(|task| {
-                matches!(
-                    task.to_ascii_lowercase().as_str(),
-                    "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
-                )
-            }) =>
-        {
-            Ok(())
-        }
-        "test" | "run" | "task" => {
-            require_risky_exec(&format!("deno {subcommand}"), allow_risky_exec)
-        }
-        _ => require_risky_exec(
-            &format!("deno user-authorized operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
-}
-
-fn validate_dotnet_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("dotnet subcommand is required"))?;
-    if matches!(subcommand, "--info" | "--list-sdks" | "--list-runtimes") {
-        return Ok(());
-    }
-    if args.iter().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "--interactive"
-                | "--source"
-                | "--configfile"
-                | "--packages"
-                | "--artifacts-path"
-                | "--output"
-                | "-o"
-        ) || arg.starts_with("--source=")
-            || arg.starts_with("--configfile=")
-            || arg.starts_with("--packages=")
-            || arg.starts_with("--artifacts-path=")
-            || arg.starts_with("--output=")
-    }) {
-        bail!("dotnet source/config/output redirection or interactive execution is blocked");
-    }
-    match subcommand {
-        "list" => Ok(()),
-        "build" | "test" | "format" | "restore" => Ok(()),
-        "tool" | "workload" | "nuget" | "sdk" => {
-            bail!("dotnet {subcommand} is blocked because it can alter host-wide tools, workloads, SDKs, or package sources")
-        }
-        "run" | "publish" | "pack" | "new" => {
-            require_risky_exec(&format!("dotnet {subcommand}"), allow_risky_exec)
-        }
-        _ => require_risky_exec(
-            &format!("dotnet user-authorized project operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
-}
-
-fn validate_known_project_runner(
-    program: &str,
-    args: &[String],
-    allow_risky_exec: bool,
-) -> Result<()> {
-    if args.is_empty() {
-        bail!("{program} requires an explicit operation");
-    }
-    match program {
-        "mvn" if args.iter().any(|arg| matches!(arg.as_str(), "deploy" | "install")) => {
-            bail!("Maven install/deploy is blocked because it mutates the local artifact repository or a remote repository")
-        }
-        "gradle" if args.iter().any(|arg| {
-            let task = arg.trim_start_matches(':').to_ascii_lowercase();
-            task.contains("publish") || task.contains("upload") || task.contains("release") || task == "wrapper" || task == "init"
-        }) => bail!("Gradle publish/upload/release/wrapper/init tasks are blocked by the bounded project policy"),
-        "swift" if matches!(args.first().map(String::as_str), Some("sdk" | "package-registry" | "package-collection")) => {
-            bail!("Swift SDK/registry/collection host configuration commands are blocked")
-        }
-        "act" if args.iter().any(|arg| matches!(arg.as_str(), "--bind" | "--privileged") || arg.starts_with("--bind=") || arg.starts_with("--container-daemon-socket=")) => {
-            bail!("act host bind/privileged/daemon redirection is blocked")
-        }
-        _ => {}
-    }
-    if program == "act" {
-        require_risky_exec("act container workflow execution", allow_risky_exec)
-    } else {
-        Ok(())
-    }
 }
 
 fn validate_rg_command(args: &[String]) -> Result<()> {
@@ -637,7 +429,8 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
         .map(String::as_str)
         .ok_or_else(|| anyhow!("cargo subcommand is required"))?;
     match subcommand {
-        "metadata" | "fmt" | "check" | "test" | "clippy" | "build" | "fetch" | "update" => Ok(()),
+        "metadata" | "fmt" | "check" | "test" | "clippy" | "build" | "fetch" | "update" | "run"
+        | "bench" | "doc" | "add" | "remove" | "new" | "init" | "package" => Ok(()),
         "nextest" => {
             let index = args
                 .iter()
@@ -687,7 +480,7 @@ fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
         "env" | "install" | "telemetry" | "tool" => {
             bail!("go {subcommand} is blocked because it can alter host-wide configuration, tools, or telemetry")
         }
-        "list" | "test" | "vet" | "build" => Ok(()),
+        "list" | "test" | "vet" | "build" | "run" | "get" => Ok(()),
         "mod"
             if args.get(1).is_some_and(|action| {
                 matches!(action.as_str(), "download" | "tidy" | "verify")
@@ -736,11 +529,18 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
     }
     if matches!(
         subcommand,
-        "test" | "build" | "lint" | "check" | "typecheck" | "ci"
+        "test"
+            | "build"
+            | "lint"
+            | "check"
+            | "typecheck"
+            | "ci"
+            | "install"
+            | "add"
+            | "remove"
+            | "uninstall"
+            | "update"
     ) {
-        return Ok(());
-    }
-    if subcommand == "install" && args.iter().skip(1).all(|arg| arg.starts_with('-')) {
         return Ok(());
     }
     if subcommand == "run"

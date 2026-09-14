@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-pub(in crate::app) const STANDBY_PROBE_INTERVAL: Duration = Duration::from_secs(30);
-pub(in crate::app) const STANDBY_RETRY_INTERVAL: Duration = Duration::from_secs(5);
-pub(in crate::app) const STANDBY_LEASE_TTL: Duration = Duration::from_secs(75);
+pub(in crate::app) const STANDBY_PROBE_INTERVAL: Duration = Duration::from_secs(15);
+pub(in crate::app) const STANDBY_RETRY_INTERVAL: Duration = Duration::from_secs(2);
+pub(in crate::app) const STANDBY_LEASE_TTL: Duration = Duration::from_secs(45);
 const STANDBY_FAILURE_THRESHOLD: u8 = 2;
-const CIRCUIT_BREAKER_THRESHOLD: u32 = 4;
-const CIRCUIT_BREAKER_MIN_DELAY: u64 = 60;
+const CIRCUIT_BREAKER_THRESHOLD: u32 = 5;
+const CIRCUIT_BREAKER_MIN_DELAY: u64 = 30;
 static NEXT_STANDBY_LEASE_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
@@ -55,6 +55,12 @@ impl StandbyHealthLease {
         self.consecutive_failures >= STANDBY_FAILURE_THRESHOLD
     }
 
+    pub(in crate::app) fn quarantine(&mut self, now: Instant) {
+        self.consecutive_failures = STANDBY_FAILURE_THRESHOLD;
+        self.next_probe_at = now;
+        self.in_flight = false;
+    }
+
     pub(in crate::app) fn eligible(&self, now: Instant) -> bool {
         self.consecutive_failures < STANDBY_FAILURE_THRESHOLD
             && now.saturating_duration_since(self.verified_at) <= STANDBY_LEASE_TTL
@@ -62,10 +68,6 @@ impl StandbyHealthLease {
 
     pub(in crate::app) fn failures(&self) -> u8 {
         self.consecutive_failures
-    }
-
-    pub(in crate::app) fn revoked(&self) -> bool {
-        self.consecutive_failures >= STANDBY_FAILURE_THRESHOLD
     }
 
     pub(in crate::app) fn age(&self, now: Instant) -> Duration {
@@ -117,15 +119,6 @@ pub(in crate::app) fn standby_lease_age(
         .map(|lease| lease.age(Instant::now()))
 }
 
-pub(in crate::app) fn standby_revoked(
-    leases: &HashMap<String, StandbyHealthLease>,
-    public_url: &str,
-) -> bool {
-    leases
-        .get(public_url)
-        .is_some_and(StandbyHealthLease::revoked)
-}
-
 pub(in crate::app) fn dead_tunnel_index<F>(
     health_failed: bool,
     primary_index: Option<usize>,
@@ -146,23 +139,24 @@ where
 
 pub(in crate::app) fn reconnect_backoff_seconds(deaths: u32) -> u64 {
     let exponent = deaths.saturating_sub(1).min(6);
-    5u64.saturating_mul(1u64 << exponent).min(300)
+    2u64.saturating_mul(1u64 << exponent).min(120)
 }
 
 pub(in crate::app) fn reconnect_delay_seconds(provider: TunnelProvider, deaths: u32) -> u64 {
     let base = reconnect_backoff_seconds(deaths);
-    if base >= 300 {
-        return 300;
+    if base >= 120 {
+        return 120;
     }
     let provider_seed = match provider {
         TunnelProvider::Auto => 0,
         TunnelProvider::Cloudflare => 1,
-        TunnelProvider::LocalhostRun => 3,
-        TunnelProvider::Pinggy => 5,
-        TunnelProvider::Tailscale => 7,
+        TunnelProvider::LocalhostRun => 2,
+        TunnelProvider::Pinggy => 0,
+        TunnelProvider::Tailscale => 3,
+        TunnelProvider::DevTunnel => 1,
     };
-    let jitter = (provider_seed + deaths as u64 * 3) % 7;
-    let staggered = base.saturating_add(jitter).min(300);
+    let jitter = (provider_seed + deaths as u64) % 4;
+    let staggered = base.saturating_add(jitter).min(120);
     if provider_circuit_open(deaths) {
         staggered.max(CIRCUIT_BREAKER_MIN_DELAY)
     } else {

@@ -49,11 +49,12 @@ fn loads_structured_design_state_and_validates_references() {
     assert_eq!(load.state.requirements.len(), 1);
     assert_eq!(load.state.components.len(), 1);
     assert_eq!(load.state.acceptance.len(), 1);
-    assert_eq!(load.state.constraints.len(), 4);
+    assert_eq!(load.state.constraints.len(), 5);
     for id in [
         "CONSTRAINT-SOURCE-DECOMPOSITION",
         "CONSTRAINT-TEST-ROOT",
         "CONSTRAINT-DESIGN-SYNC",
+        "CONSTRAINT-PARALLEL-FIRST",
     ] {
         assert!(load.state.constraints.contains_key(id));
     }
@@ -93,7 +94,7 @@ fn absent_design_state_still_receives_runtime_core_constraints() {
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     let load = load_design(&workspace).unwrap();
     assert!(!load.initialized);
-    assert_eq!(load.state.node_count(), 3);
+    assert_eq!(load.state.node_count(), 4);
     assert!(load
         .state
         .constraints

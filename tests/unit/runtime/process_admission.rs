@@ -6,15 +6,20 @@ fn inspection_capacity_scales_with_memory_cpu_and_tool_bounds() {
         for tool_limit in [1, 4, 32] {
             let limits = ResourceLimits::new(10.0, memory_mb, tool_limit).unwrap();
             let probes = limits.probe_process_limit();
-            assert!((1..=4).contains(&probes));
+            assert!((1..=8).contains(&probes));
             assert!(probes <= limits.cpu_burst_threads);
             assert!(probes <= limits.effective_parallel_tools);
-            assert!(probes <= (memory_mb / 128) as usize);
+            assert!(probes <= (memory_mb / 64) as usize);
         }
     }
     let default = ResourceLimits::new(10.0, 512, 32).unwrap();
-    assert!((1..=3).contains(&default.child_processes));
-    assert!(default.child_processes <= default.cpu_burst_threads.div_ceil(default.child_threads));
+    assert_eq!(
+        default.child_processes,
+        (512usize / 128)
+            .clamp(1, 8)
+            .min(default.cpu_burst_threads.div_ceil(default.child_threads))
+            .min(default.effective_parallel_tools)
+    );
 }
 
 #[tokio::test]

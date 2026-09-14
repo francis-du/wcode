@@ -418,6 +418,10 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
     assert!(INTELLIGENCE_APP_PAGE.contains("theme-color\" content=\"#0b0812"));
     assert!(INTELLIGENCE_JS.contains("/intelligence/semantic-refresh"));
     assert!(INTELLIGENCE_JS.contains("/intelligence/revision"));
+    assert!(INTELLIGENCE_JS.contains("projectCache"));
+    assert!(INTELLIGENCE_JS.contains("X-Wcode-Prefer-Cached"));
+    assert!(INTELLIGENCE_JS.contains("snapshot_pending"));
+    assert!(INTELLIGENCE_JS.contains("preserveDom: hasCachedSnapshot"));
     assert!(INTELLIGENCE_JS.contains("graph_precision"));
     assert!(INTELLIGENCE_JS.contains("retry_in_seconds"));
     assert!(INTELLIGENCE_JS.contains("death_count"));

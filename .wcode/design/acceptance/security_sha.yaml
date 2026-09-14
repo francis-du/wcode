@@ -1,0 +1,8 @@
+schema_version: 1
+id: AC-SEC-004
+title: Existing-file edits enforce the observed SHA
+statement: A replacement made with a stale SHA-256 precondition fails instead of overwriting the newer file.
+verification:
+  - kind: test
+    path: tests/unit/workspace/files.rs
+    symbol: blocks_path_traversal_and_stale_writes

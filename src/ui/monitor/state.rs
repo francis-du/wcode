@@ -436,7 +436,7 @@ impl TaskMonitor {
             runtime.state = "verified".to_owned();
             runtime.lease_verified_at = Some(Instant::now());
         } else {
-            runtime.state = if revoked { "revoked" } else { "suspect" }.to_owned();
+            runtime.state = if revoked { "quarantined" } else { "suspect" }.to_owned();
         }
     }
 
@@ -446,6 +446,7 @@ impl TaskMonitor {
         death_count: u32,
         circuit_open: bool,
         retry_after: Duration,
+        retain_endpoint: bool,
     ) {
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         let runtime = state
@@ -463,20 +464,26 @@ impl TaskMonitor {
                 retry_at: None,
                 connected_at: None,
             });
-        runtime.url = None;
-        runtime.role = "retrying".to_owned();
-        runtime.state = if circuit_open {
+        if !retain_endpoint {
+            runtime.url = None;
+            runtime.lease_verified_at = None;
+            runtime.connected_at = None;
+        }
+        if !retain_endpoint {
+            runtime.role = "retrying".to_owned();
+        }
+        runtime.state = if retain_endpoint {
+            "reconnecting"
+        } else if circuit_open {
             "circuit-open"
         } else {
             "retrying"
         }
         .to_owned();
-        runtime.lease_verified_at = None;
         runtime.consecutive_failures = 0;
         runtime.death_count = death_count;
         runtime.circuit_open = circuit_open;
         runtime.retry_at = Some(Instant::now() + retry_after);
-        runtime.connected_at = None;
     }
 
     pub fn mark_tunnel_stable(&self, provider: &str) {

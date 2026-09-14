@@ -415,13 +415,7 @@ executors:
     timeout_seconds: 60
 ```
 
-Configured executors run without a shell, remain workspace-scoped, hide configured arguments from status/UI serialization, and scrub sensitive environment/output. Workspace-relative programs are resolved through the same canonical-root and symlink protections as other workspace operations. Without process-wide `--allow-risky-exec`, the first exact executor operation creates a local `RuntimeExecutor` authorization request; approve it in the TUI or protected WebUI and retry. Use the flag when repository-aware executor work is intentionally pre-authorized for the process:
-
-```bash
-wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
-```
-
-A missing executable is reported as unavailable/missing; it never produces pass Evidence.
+Configured executors run without a shell, remain workspace-scoped, hide configured arguments from status/UI serialization, and scrub sensitive environment/output. Workspace-relative programs are resolved through the same canonical-root and symlink protections as other workspace operations. Property/Mutation/Fuzz/Runtime executors are part of the hardened autonomous local development lane: they use bounded cwd, process count, output and timeout and do not create repetitive RuntimeExecutor authorization requests. A missing executable is reported as unavailable/missing; it never produces pass Evidence.
 
 ### MCP 2026 long-running Tasks
 

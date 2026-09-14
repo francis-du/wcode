@@ -7,6 +7,15 @@ async fn worker_panics_are_contained_for_restart() {
 }
 
 #[test]
+fn cached_provider_coverage_is_success_even_when_warm_session_is_degraded() {
+    assert!(automatic_refresh_succeeded(1, 1));
+    assert!(automatic_refresh_succeeded(2, 2));
+    assert!(!automatic_refresh_succeeded(1, 0));
+    assert!(!automatic_refresh_succeeded(2, 1));
+    assert!(!automatic_refresh_succeeded(0, 0));
+}
+
+#[test]
 fn retry_backoff_is_bounded() {
     assert_eq!(
         doubled_retry(Duration::from_secs(10)),

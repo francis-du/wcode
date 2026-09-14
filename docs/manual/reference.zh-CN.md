@@ -185,8 +185,11 @@ SHA 校验失败，不会覆盖新内容。Setup 不持久化宽泛权限授予�
 Runtime 仍兼容 `--public-url`、`--tunnel-provider`、`--imessage-to`、
 `--max-parallel-tools`、`--max-cpu-percent`、`--max-memory-mb`、
 `--allow-sleep`、`--allow-risky-exec` 等低频部署 / 调优参数，但它们从默认
-`--help` 隐藏，避免普通用户和 Coding Agent 把它们当成必填配置。更宽的
-Workspace / Destructive Write Trust 控制见 [安全模型](../security/)。
+`--help` 隐藏，避免普通用户和 Coding Agent 把它们当成必填配置。有界
+Operator/Development Catalog 包含 `gh`、`just`、`task`、`uv`、`ruff`、`biome`、
+`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、
+`mvn`、`gradle`、`swift`、`zig`、`pre-commit` 与 `act`；语言原生工具继续由各自
+精确命令策略约束。更宽的 Workspace / Destructive Write Trust 控制见 [安全模型](../security/)。
 
 ## TUI 快捷键
 
@@ -320,12 +323,11 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 
 - **可执行程序访问（`CommandAccess`）**：为一个 Workspace 授权裸程序名。
 - **Fingerprint-scoped Trust（`RiskyExecution`）**：只授权该 Workspace / Session 中当前请求对应的 Trust Fingerprint。命令与仓库 Mutation 绑定精确 Operation + Arguments；未进入 Automatic Profile 的 Warm LSP Server 则绑定 Workspace + Server + 当前 Binary Identity，让 Refresh/Navigation 可以复用这一份 Server，但不会放开替换后的 Binary 或其他 Server。
-- **RuntimeExecutor**：为一个精确高级验证 Executor 操作授权。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
 
 Git Mutation 仍然很窄：只有显式 pathspec 的 `git add`、message-only `git commit -m ...`、非 Force / 非 Delete 的 `git push <remote> <refspec>` 可以进入精确授权。已批准 Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass、任意 Git Config 以及 Force/Delete 形态继续阻断。
 
-已知开发 CLI 采用命令级策略，而不是授权一个程序名后整套子命令都放开：`gh`、`just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit`、`act`。严格本地只读 / check-only 形态可直接运行；仓库构建/Runner、Docker/Kubernetes 数据访问和有界源码/远端写操作进入精确授权；Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改以及命令/文件加载绕过面继续阻断。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
+22 个已索引语言的已知开发 CLI 都采用命令级策略，而不是授权一个程序名后整套子命令都放开。受限的本地测试、检查、构建、格式化/Lint、Workspace 脚本、代码生成、依赖维护和仓库声明的 Verification Executor 通过 Hardened Workspace Execution 自动运行；Inline Interpreter Eval、Compiler/Plugin/Agent 注入、Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改、凭据重定向和命令/文件加载绕过面继续授权或阻断。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
 
 ## 诊断
 

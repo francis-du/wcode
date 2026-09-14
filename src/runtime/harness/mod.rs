@@ -132,6 +132,7 @@ pub struct ToolHarness {
     execution_slots: Arc<Semaphore>,
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
+    observatory_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectObservatory>>>,
     convention_cache: Arc<Mutex<HashMap<PathBuf, CachedConventionReport>>>,
     repo_map_cache: Arc<Mutex<HashMap<(PathBuf, String), CachedRepoMapGraph>>>,
     verification_cache: Arc<Mutex<harness_verification_cache::VerificationCache>>,
@@ -201,6 +202,12 @@ struct CachedProjectProfile {
     fingerprint: u64,
     last_used: Instant,
     profile: Arc<ProjectProfile>,
+}
+
+#[derive(Clone)]
+struct CachedProjectObservatory {
+    last_used: Instant,
+    snapshot: Arc<crate::intelligence_types::ProjectObservatory>,
 }
 
 #[derive(Clone)]

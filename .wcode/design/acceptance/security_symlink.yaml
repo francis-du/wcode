@@ -1,0 +1,8 @@
+schema_version: 1
+id: AC-SEC-002
+title: Symlink and hard-link aliases cannot bypass write safety
+statement: Symlink paths are rejected and unsafe aliasing cannot bypass the workspace write boundary.
+verification:
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: blocks_symlink_and_hardlink_aliases

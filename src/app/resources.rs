@@ -86,8 +86,10 @@ impl ResourceArgs {
         let limits = self.resolve()?;
         resource::install(limits)?;
         resource::configure_rayon()?;
-        if let Err(error) = resource::lower_process_priority() {
-            eprintln!("  ! resources    process priority unchanged: {error}");
+        if self.performance == Performance::Light {
+            if let Err(error) = resource::lower_process_priority() {
+                eprintln!("  ! resources    process priority unchanged: {error}");
+            }
         }
         Ok(limits)
     }

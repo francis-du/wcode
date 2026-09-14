@@ -8,15 +8,22 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{sleep, timeout, Duration};
 use url::{Host, Url};
 
-const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(25);
-const PUBLIC_RECOVERY_HEALTH_INTERVAL: Duration = Duration::from_secs(5);
-const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
-const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 6;
-const AUTO_PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(30);
+const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(15);
+const PUBLIC_RECOVERY_HEALTH_INTERVAL: Duration = Duration::from_secs(2);
+const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
+const PUBLIC_TRANSIENT_RECHECKS: usize = 2;
+const PUBLIC_TRANSIENT_RECHECK_DELAY: Duration = Duration::from_millis(250);
+const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 4;
+const AUTO_PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[path = "cloudflare.rs"]
 mod cloudflare;
 use cloudflare::{command_succeeds, ensure_cloudflared, start_cloudflared_once};
+#[path = "devtunnel.rs"]
+mod devtunnel;
+#[cfg(test)]
+use devtunnel::extract_devtunnel_url;
+use devtunnel::{ensure_devtunnel, start_devtunnel_once};
 const QUICK_TUNNEL_HOST_SUFFIXES: &[&str] = &[
     ".trycloudflare.com",
     ".localhost.run",
@@ -40,6 +47,8 @@ pub(crate) enum TunnelProvider {
     LocalhostRun,
     Pinggy,
     Tailscale,
+    #[value(name = "dev-tunnel")]
+    DevTunnel,
 }
 
 impl TunnelProvider {
@@ -50,6 +59,7 @@ impl TunnelProvider {
             Self::LocalhostRun => "localhost.run",
             Self::Pinggy => "pinggy",
             Self::Tailscale => "tailscale",
+            Self::DevTunnel => "dev-tunnel",
         }
     }
 
@@ -60,6 +70,10 @@ impl TunnelProvider {
             Self::Pinggy,
             Self::Tailscale,
         ]
+    }
+
+    pub(crate) fn has_stable_endpoint(self) -> bool {
+        matches!(self, Self::Tailscale | Self::DevTunnel)
     }
 }
 
@@ -149,23 +163,24 @@ pub(crate) enum TunnelEvent {
     },
 }
 
-const PROVIDER_RETRY_INTERVAL: Duration = Duration::from_secs(15);
-const PROVIDER_STARTUP_MAX_DELAY: Duration = Duration::from_secs(120);
+const PROVIDER_RETRY_INTERVAL: Duration = Duration::from_secs(3);
+const PROVIDER_STARTUP_MAX_DELAY: Duration = Duration::from_secs(30);
 
 fn provider_retry_delay(provider: TunnelProvider, attempt: usize) -> Duration {
     let provider_seed = match provider {
         TunnelProvider::Auto => 0,
         TunnelProvider::Cloudflare => 1,
-        TunnelProvider::LocalhostRun => 3,
-        TunnelProvider::Pinggy => 5,
-        TunnelProvider::Tailscale => 7,
+        TunnelProvider::LocalhostRun => 2,
+        TunnelProvider::Pinggy => 0,
+        TunnelProvider::Tailscale => 3,
+        TunnelProvider::DevTunnel => 1,
     };
     let exponent = attempt.saturating_sub(1).min(3) as u32;
     let base = PROVIDER_RETRY_INTERVAL
         .checked_mul(1u32 << exponent)
         .unwrap_or(PROVIDER_STARTUP_MAX_DELAY)
         .min(PROVIDER_STARTUP_MAX_DELAY);
-    let jitter = (provider_seed + attempt as u64 * 3) % 7;
+    let jitter = (provider_seed + attempt as u64) % 4;
     base.saturating_add(Duration::from_secs(jitter))
         .min(PROVIDER_STARTUP_MAX_DELAY)
 }
@@ -180,12 +195,14 @@ pub(crate) fn spawn_tunnel_supervisor(
     local_url: &str,
     instance_id: &str,
     install_missing: bool,
+    dev_tunnel_id: Option<&str>,
     monitor: TaskMonitor,
     retry_forever: bool,
 ) -> mpsc::Receiver<TunnelEvent> {
     let (event_tx, event_rx) = mpsc::channel(4);
     let local_url = local_url.to_owned();
     let instance_id = instance_id.to_owned();
+    let dev_tunnel_id = dev_tunnel_id.map(str::to_owned);
     tokio::spawn(async move {
         let candidates: Vec<TunnelProvider> = if selected == TunnelProvider::Auto {
             TunnelProvider::auto_candidates()
@@ -205,6 +222,7 @@ pub(crate) fn spawn_tunnel_supervisor(
             let instance_id = instance_id.clone();
             let result_tx = result_tx.clone();
             let provider_monitor = monitor.clone();
+            let dev_tunnel_id = dev_tunnel_id.clone();
             tokio::spawn(async move {
                 let mut attempt = 0usize;
                 loop {
@@ -215,6 +233,7 @@ pub(crate) fn spawn_tunnel_supervisor(
                         &local_url,
                         &instance_id,
                         allow_install,
+                        dev_tunnel_id.as_deref(),
                         &provider_monitor,
                     )
                     .await
@@ -270,12 +289,13 @@ async fn try_start_provider(
     local_url: &str,
     instance_id: &str,
     allow_install: bool,
+    dev_tunnel_id: Option<&str>,
     monitor: &TaskMonitor,
 ) -> Result<ActiveTunnel> {
     let start_result = if selected == TunnelProvider::Auto {
         match timeout(
             AUTO_PROVIDER_START_TIMEOUT,
-            start_tunnel_provider_once(provider, local_url, allow_install, monitor),
+            start_tunnel_provider_once(provider, local_url, allow_install, dev_tunnel_id, monitor),
         )
         .await
         {
@@ -287,7 +307,7 @@ async fn try_start_provider(
             )),
         }
     } else {
-        start_tunnel_provider_once(provider, local_url, allow_install, monitor).await
+        start_tunnel_provider_once(provider, local_url, allow_install, dev_tunnel_id, monitor).await
     };
     let (mut child, public_url) = start_result?;
     if let Err(error) = verify_tunnel_candidate(&public_url, instance_id).await {
@@ -313,7 +333,7 @@ pub(crate) async fn public_endpoint_health_loop(
         if *stop.borrow() {
             return;
         }
-        let applied = match check_public_endpoint(&public_url, &instance_id).await {
+        let applied = match check_public_endpoint_resilient(&public_url, &instance_id).await {
             Ok(()) => monitor.mark_managed_public_url_check(&public_url, true, None),
             Err(error) => monitor.mark_managed_public_url_check(&public_url, false, Some(error)),
         };
@@ -386,6 +406,25 @@ pub(crate) async fn wait_for_public_endpoint(
     Err(last_error)
 }
 
+pub(crate) async fn check_public_endpoint_resilient(
+    public_url: &str,
+    expected_instance_id: &str,
+) -> Result<(), String> {
+    match check_public_endpoint(public_url, expected_instance_id).await {
+        Ok(()) => Ok(()),
+        Err(mut last_error) => {
+            for _ in 0..PUBLIC_TRANSIENT_RECHECKS {
+                sleep(PUBLIC_TRANSIENT_RECHECK_DELAY).await;
+                match check_public_endpoint(public_url, expected_instance_id).await {
+                    Ok(()) => return Ok(()),
+                    Err(error) => last_error = error,
+                }
+            }
+            Err(last_error)
+        }
+    }
+}
+
 pub(crate) async fn check_public_endpoint(
     public_url: &str,
     expected_instance_id: &str,
@@ -398,9 +437,9 @@ pub(crate) async fn check_public_endpoint(
             "--silent",
             "--show-error",
             "--connect-timeout",
-            "3",
+            "2",
             "--max-time",
-            "5",
+            "3",
             &health_url,
         ])
         .stdin(std::process::Stdio::null())
@@ -465,6 +504,7 @@ async fn start_tunnel_provider_once(
     provider: TunnelProvider,
     local_url: &str,
     install_missing: bool,
+    dev_tunnel_id: Option<&str>,
     monitor: &TaskMonitor,
 ) -> Result<(Child, String)> {
     match provider {
@@ -485,6 +525,17 @@ async fn start_tunnel_provider_once(
             );
             ensure_tailscale()?;
             start_tailscale_funnel_once(local_url, monitor).await
+        }
+        TunnelProvider::DevTunnel => {
+            let tunnel_id = dev_tunnel_id
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "dev-tunnel requires --dev-tunnel-id with an existing persistent tunnel"
+                    )
+                })?;
+            ensure_devtunnel()?;
+            start_devtunnel_once(local_url, tunnel_id, monitor).await
         }
     }
 }
@@ -665,6 +716,21 @@ fn tailscale_funnel_url() -> Result<String> {
     Ok(format!("https://{dns_name}"))
 }
 
+pub(crate) async fn recover_existing_stable_endpoint(
+    selected: TunnelProvider,
+    instance_id: &str,
+) -> Option<(TunnelProvider, String)> {
+    if !matches!(selected, TunnelProvider::Auto | TunnelProvider::Tailscale) {
+        return None;
+    }
+    let public_url = tokio::task::spawn_blocking(tailscale_funnel_url)
+        .await
+        .ok()?
+        .ok()?;
+    check_public_endpoint(&public_url, instance_id).await.ok()?;
+    Some((TunnelProvider::Tailscale, public_url))
+}
+
 fn ensure_ssh() -> Result<()> {
     if command_succeeds("ssh", &["-V"]) {
         return Ok(());
@@ -674,13 +740,13 @@ fn ensure_ssh() -> Result<()> {
 
 async fn verify_tunnel_candidate(public_url: &str, instance_id: &str) -> Result<(), String> {
     let mut last_error = String::new();
-    for attempt in 1..=4 {
+    for attempt in 1..=3 {
         match check_public_endpoint(public_url, instance_id).await {
             Ok(()) => return Ok(()),
             Err(error) => last_error = error,
         }
-        if attempt < 4 {
-            sleep(Duration::from_secs(2)).await;
+        if attempt < 3 {
+            sleep(Duration::from_secs(1)).await;
         }
     }
     Err(last_error)
@@ -775,7 +841,7 @@ async fn start_ssh_tunnel_once(
             recent_logs.join("\n")
         })
     };
-    let public_url = match timeout(Duration::from_secs(20), wait_for_url).await {
+    let public_url = match timeout(Duration::from_secs(10), wait_for_url).await {
         Ok(Ok(url)) => url,
         Ok(Err(details)) => {
             let _ = child.start_kill();

@@ -112,7 +112,7 @@ pub use app::run;
 
 pub fn run_main() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(resource::TOKIO_WORKER_THREADS)
+        .worker_threads(resource::tokio_worker_threads())
         .max_blocking_threads(resource::TOKIO_MAX_BLOCKING_THREADS)
         .thread_keep_alive(std::time::Duration::from_secs(10))
         .enable_all()

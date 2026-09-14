@@ -19,6 +19,14 @@ impl ToolHarness {
                 |entry| entry.last_used,
             );
         }
+        if let Ok(mut cache) = self.observatory_cache.lock() {
+            trim_cache(
+                &mut cache,
+                aggressive,
+                (limits.project_cache_limit() / 2).max(1),
+                |entry| entry.last_used,
+            );
+        }
         if let Ok(mut cache) = self.convention_cache.lock() {
             trim_cache(
                 &mut cache,

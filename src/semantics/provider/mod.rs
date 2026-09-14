@@ -31,7 +31,10 @@ use registry::{automatic_provider, ProviderCandidate, PROVIDERS};
 mod discovery;
 use discovery::{executable_discovery_source, find_executable};
 #[cfg(test)]
-use discovery::{executable_name, known_language_tool_paths_from, trusted_provider_path};
+use discovery::{
+    executable_name, is_rustup_proxy, known_language_tool_paths_from,
+    rustup_proxy_component_ready_uncached, trusted_provider_path,
+};
 
 #[path = "auto.rs"]
 mod auto;

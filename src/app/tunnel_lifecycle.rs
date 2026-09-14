@@ -1,8 +1,8 @@
 use crate::auth::AuthState;
 use crate::monitor::{OperatorMessageKind, TaskMonitor};
 use crate::tunnel::{
-    check_public_endpoint, public_endpoint_health_loop, spawn_tunnel_supervisor, ActiveTunnel,
-    TunnelEvent, TunnelProvider,
+    check_public_endpoint_resilient, public_endpoint_health_loop, spawn_tunnel_supervisor,
+    ActiveTunnel, TunnelEvent, TunnelProvider,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -17,8 +17,8 @@ use policy::{
 };
 pub(super) use policy::{
     best_verified_standby, dead_tunnel_index, provider_circuit_open, provider_retry_due,
-    record_dead_provider, record_recovered_provider, standby_lease_age, standby_revoked,
-    StandbyHealthLease, STANDBY_LEASE_TTL, STANDBY_RETRY_INTERVAL,
+    record_dead_provider, record_recovered_provider, standby_lease_age, StandbyHealthLease,
+    STANDBY_LEASE_TTL, STANDBY_RETRY_INTERVAL,
 };
 
 #[derive(Debug)]
@@ -33,6 +33,7 @@ pub(super) struct TunnelSpawnContext {
     local_url: String,
     instance_id: String,
     install_missing: bool,
+    dev_tunnel_id: Option<String>,
     monitor: TaskMonitor,
     auth: Arc<AuthState>,
     forward_tx: mpsc::Sender<TunnelEvent>,
@@ -43,6 +44,7 @@ impl TunnelSpawnContext {
         local_url: String,
         instance_id: String,
         install_missing: bool,
+        dev_tunnel_id: Option<String>,
         monitor: TaskMonitor,
         auth: Arc<AuthState>,
         forward_tx: mpsc::Sender<TunnelEvent>,
@@ -51,11 +53,89 @@ impl TunnelSpawnContext {
             local_url,
             instance_id,
             install_missing,
+            dev_tunnel_id,
             monitor,
             auth,
             forward_tx,
         }
     }
+}
+
+#[derive(Default)]
+pub(super) struct TunnelControlState {
+    pub(super) primary_url: Option<String>,
+    pub(super) standby_leases: HashMap<String, StandbyHealthLease>,
+    pending_respawns: Vec<(TunnelProvider, Instant)>,
+    death_counts: HashMap<TunnelProvider, u32>,
+    retained_stable_aliases: HashMap<TunnelProvider, String>,
+}
+
+impl TunnelControlState {
+    pub(super) fn connected(&mut self, active: &ActiveTunnel, auth: &AuthState) {
+        let provider = active.provider();
+        let public_url = active.public_url();
+        if let Some(previous) = self.retained_stable_aliases.remove(&provider) {
+            if previous != public_url {
+                auth.unregister_public_url(&previous);
+            }
+        }
+        self.pending_respawns
+            .retain(|(pending, _)| *pending != provider);
+        self.standby_leases.insert(
+            public_url.to_owned(),
+            StandbyHealthLease::verified(Instant::now()),
+        );
+    }
+
+    pub(super) async fn reconnect_failed(
+        &mut self,
+        provider: TunnelProvider,
+        error: &str,
+        auth: &AuthState,
+        monitor: &TaskMonitor,
+    ) {
+        if let Some(previous) = self.retained_stable_aliases.get(&provider).cloned() {
+            if !stable_alias_survives_provider_exit(provider, &previous, auth.instance_id()).await {
+                self.retained_stable_aliases.remove(&provider);
+                auth.unregister_public_url(&previous);
+            }
+        }
+        let cause = format!(
+            "half-open reconnect failed · {}",
+            error.lines().next().unwrap_or("unknown error")
+        );
+        schedule_provider_retry(
+            &mut self.death_counts,
+            &mut self.pending_respawns,
+            provider,
+            &cause,
+            self.retained_stable_aliases.contains_key(&provider),
+            monitor,
+        );
+    }
+}
+
+pub(super) fn spawn_stable_endpoint_recovery(
+    selected: TunnelProvider,
+    auth: Arc<AuthState>,
+    monitor: TaskMonitor,
+) {
+    tokio::spawn(async move {
+        let instance_id = auth.instance_id().to_owned();
+        if let Some((provider, public_url)) =
+            crate::tunnel::recover_existing_stable_endpoint(selected, &instance_id).await
+        {
+            publish_verified_endpoint(&auth, &monitor, provider.label(), &public_url);
+            monitor.operator_message(
+                OperatorMessageKind::Success,
+                "tunnel",
+                format!(
+                    "{} stable endpoint recovered for this runtime · {public_url}",
+                    provider.label()
+                ),
+            );
+        }
+    });
 }
 
 pub(super) struct PrimaryRuntime {
@@ -105,6 +185,7 @@ pub(super) fn spawn_initial_supervisor(
             &context.local_url,
             &context.instance_id,
             context.install_missing,
+            context.dev_tunnel_id.as_deref(),
             context.monitor.clone(),
             true,
         );
@@ -139,6 +220,7 @@ pub(super) fn spawn_reconnect_attempt(provider: TunnelProvider, context: TunnelS
             &context.local_url,
             &context.instance_id,
             context.install_missing,
+            context.dev_tunnel_id.as_deref(),
             context.monitor.clone(),
             false,
         );
@@ -165,7 +247,7 @@ pub(super) fn spawn_standby_probe(
     sender: mpsc::Sender<StandbyProbeEvent>,
 ) {
     tokio::spawn(async move {
-        let result = check_public_endpoint(&public_url, &instance_id).await;
+        let result = check_public_endpoint_resilient(&public_url, &instance_id).await;
         let _ = sender
             .send(StandbyProbeEvent {
                 public_url,
@@ -237,8 +319,9 @@ pub(super) fn handle_standby_probe(
             monitor.mark_tunnel_standby_probe(&event.public_url, false, lease.failures(), revoked);
             let detail = if revoked {
                 format!(
-                    "{provider} standby lease revoked after {} failed checks · {error}",
-                    lease.failures()
+                    "{provider} standby quarantined after {} failed checks · probing in {}s · {error}",
+                    lease.failures(),
+                    STANDBY_RETRY_INTERVAL.as_secs()
                 )
             } else {
                 format!(
@@ -250,6 +333,30 @@ pub(super) fn handle_standby_probe(
             monitor.operator_message(OperatorMessageKind::Warning, "tunnel", detail);
         }
     }
+}
+
+pub(super) fn quarantine_endpoint(
+    leases: &mut HashMap<String, StandbyHealthLease>,
+    public_url: &str,
+    monitor: &TaskMonitor,
+) {
+    let now = Instant::now();
+    let lease = leases
+        .entry(public_url.to_owned())
+        .or_insert_with(|| StandbyHealthLease::verified(now));
+    lease.quarantine(now);
+    monitor.mark_tunnel_standby_probe(public_url, false, lease.failures(), true);
+}
+
+pub(super) async fn stable_alias_survives_provider_exit(
+    provider: TunnelProvider,
+    public_url: &str,
+    instance_id: &str,
+) -> bool {
+    provider.has_stable_endpoint()
+        && check_public_endpoint_resilient(public_url, instance_id)
+            .await
+            .is_ok()
 }
 
 pub(super) fn activate_primary(active: &ActiveTunnel, runtime: &mut PrimaryRuntime) {
@@ -338,6 +445,7 @@ pub(super) fn schedule_provider_retry(
     pending_respawns: &mut Vec<(TunnelProvider, Instant)>,
     provider: TunnelProvider,
     cause: &str,
+    retain_endpoint: bool,
     monitor: &TaskMonitor,
 ) {
     pending_respawns.retain(|(pending, _)| *pending != provider);
@@ -349,6 +457,7 @@ pub(super) fn schedule_provider_retry(
         deaths,
         circuit_open,
         Duration::from_secs(delay),
+        retain_endpoint,
     );
     monitor.operator_message(
         OperatorMessageKind::Warning,
@@ -360,6 +469,176 @@ pub(super) fn schedule_provider_retry(
         ),
     );
     pending_respawns.push((provider, Instant::now() + Duration::from_secs(delay)));
+}
+
+pub(super) async fn maintain_tunnels(
+    state: &mut TunnelControlState,
+    tunnels: &mut Vec<ActiveTunnel>,
+    primary_runtime: &mut PrimaryRuntime,
+    spawn_context: &TunnelSpawnContext,
+    standby_probe_tx: &mpsc::Sender<StandbyProbeEvent>,
+) {
+    let auth = spawn_context.auth.as_ref();
+    let monitor = &spawn_context.monitor;
+    let local_url = spawn_context.local_url.as_str();
+    reset_stable_provider_backoff(
+        tunnels,
+        &mut state.death_counts,
+        Duration::from_secs(30),
+        monitor,
+    );
+    schedule_standby_probes(
+        &mut state.standby_leases,
+        tunnels,
+        state.primary_url.as_deref(),
+        auth.instance_id(),
+        standby_probe_tx,
+    );
+    let retry_now = Instant::now();
+    let due_providers = state
+        .pending_respawns
+        .iter()
+        .filter_map(|(provider, due)| provider_retry_due(*due, retry_now).then_some(*provider))
+        .collect::<Vec<_>>();
+    state
+        .pending_respawns
+        .retain(|(_, due)| !provider_retry_due(*due, retry_now));
+    for provider in due_providers {
+        spawn_reconnect_attempt(provider, spawn_context.clone());
+    }
+
+    let primary_index = state
+        .primary_url
+        .as_ref()
+        .and_then(|url| tunnels.iter().position(|tunnel| tunnel.public_url() == url));
+    if primary_index.is_some() && monitor.connection_status().public_url_healthy == Some(false) {
+        if let Some(index) = primary_index {
+            let failed_url = tunnels[index].public_url().to_owned();
+            quarantine_endpoint(&mut state.standby_leases, &failed_url, monitor);
+            state.primary_url = None;
+            deactivate_primary(
+                primary_runtime,
+                local_url,
+                "primary endpoint quarantined after repeated health failures; probing for in-place recovery".to_owned(),
+                !tunnels.is_empty(),
+            );
+            promote_best_standby(
+                &state.standby_leases,
+                tunnels,
+                &mut state.primary_url,
+                primary_runtime,
+            );
+        }
+    }
+
+    let primary_index = state
+        .primary_url
+        .as_ref()
+        .and_then(|url| tunnels.iter().position(|tunnel| tunnel.public_url() == url));
+    if primary_index.is_none() && monitor.connection_status().public_url_healthy == Some(false) {
+        if let Some(primary_url) = state.primary_url.clone() {
+            let retained_provider = state
+                .retained_stable_aliases
+                .iter()
+                .find_map(|(provider, url)| (url == &primary_url).then_some(*provider));
+            if let Some(provider) = retained_provider {
+                state.retained_stable_aliases.remove(&provider);
+                auth.unregister_public_url(&primary_url);
+                monitor.remove_tunnel(&primary_url);
+                state.primary_url = None;
+                deactivate_primary(
+                    primary_runtime,
+                    local_url,
+                    "retained stable endpoint became unreachable; trust revoked and failover resumed".to_owned(),
+                    !tunnels.is_empty(),
+                );
+                promote_best_standby(
+                    &state.standby_leases,
+                    tunnels,
+                    &mut state.primary_url,
+                    primary_runtime,
+                );
+            }
+        }
+    }
+    let primary_index = state
+        .primary_url
+        .as_ref()
+        .and_then(|url| tunnels.iter().position(|tunnel| tunnel.public_url() == url));
+    let dead_index = dead_tunnel_index(false, primary_index, tunnels.len(), |index| {
+        matches!(tunnels[index].try_wait(), Ok(Some(_)) | Err(_))
+    });
+    if let Some(index) = dead_index {
+        let reason = format!(
+            "{} tunnel exited with {}",
+            tunnels[index].provider_label(),
+            tunnels[index]
+                .try_wait()
+                .ok()
+                .flatten()
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "unknown status".to_owned())
+        );
+        let dead_provider = tunnels[index].provider();
+        let dead_url = tunnels[index].public_url().to_owned();
+        let was_primary = primary_index == Some(index);
+        monitor.operator_message(
+            OperatorMessageKind::Warning,
+            "tunnel",
+            format!("{reason}; respawning {}", dead_provider.label()),
+        );
+        let retain_stable_alias =
+            stable_alias_survives_provider_exit(dead_provider, &dead_url, auth.instance_id()).await;
+        let mut dead = tunnels.remove(index);
+        dead.stop().await;
+        state.standby_leases.remove(&dead_url);
+        if !retain_stable_alias {
+            monitor.remove_tunnel(&dead_url);
+        }
+        if retain_stable_alias {
+            state
+                .retained_stable_aliases
+                .insert(dead_provider, dead_url.clone());
+            monitor.operator_message(
+                OperatorMessageKind::Info,
+                "tunnel",
+                format!(
+                    "{} process exited but its stable endpoint still reaches this runtime; Host trust retained while reconnecting",
+                    dead_provider.label()
+                ),
+            );
+        } else {
+            auth.unregister_public_url(&dead_url);
+        }
+        if was_primary && !retain_stable_alias {
+            state.primary_url = None;
+            deactivate_primary(
+                primary_runtime,
+                local_url,
+                reason.clone(),
+                !tunnels.is_empty(),
+            );
+        }
+        if tunnels.is_empty() && !retain_stable_alias {
+            monitor.mark_tunnel_stopped(reason.clone());
+        }
+        schedule_provider_retry(
+            &mut state.death_counts,
+            &mut state.pending_respawns,
+            dead_provider,
+            "runtime endpoint recycled",
+            retain_stable_alias,
+            monitor,
+        );
+    }
+    if state.primary_url.is_none() {
+        promote_best_standby(
+            &state.standby_leases,
+            tunnels,
+            &mut state.primary_url,
+            primary_runtime,
+        );
+    }
 }
 
 pub(super) fn reset_stable_provider_backoff(

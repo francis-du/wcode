@@ -173,7 +173,12 @@ async fn refresh_workspace(
         .await;
     let (success, response_bytes) = match result {
         Ok(refresh) => {
-            let success = !refresh.runs.is_empty() && refresh.failures.is_empty();
+            // A cached semantic import is still valid for this exact provider
+            // revision even if the optional warm LSP session cannot initialize.
+            // Count provider coverage, not advisory warm-session failures, so
+            // semantic_auto does not repeatedly red-fail and respawn a server
+            // while a current cached graph is already usable.
+            let success = automatic_refresh_succeeded(state.providers, refresh.runs.len());
             let bytes = serde_json::to_vec(&refresh).map_or(0, |bytes| bytes.len() as u64);
             refresh_monitor_state(workspace_id, workspace, harness, monitor);
             (success, bytes)
@@ -203,6 +208,10 @@ fn refresh_monitor_state(
             monitor.record_intelligence_result(workspace_id, "graph_provider_status", &value);
         }
     }
+}
+
+fn automatic_refresh_succeeded(expected_providers: usize, completed_runs: usize) -> bool {
+    expected_providers > 0 && completed_runs >= expected_providers
 }
 
 fn doubled_retry(current: Duration) -> Duration {

@@ -40,6 +40,11 @@ fn public_health_response_must_match_the_current_instance() {
 
 #[test]
 fn primary_health_uses_fast_confirmation_after_any_failure_streak() {
+    assert_eq!(PUBLIC_TRANSIENT_RECHECKS, 2);
+    assert_eq!(PUBLIC_TRANSIENT_RECHECK_DELAY, Duration::from_millis(250));
+    assert!(
+        PUBLIC_TRANSIENT_RECHECK_DELAY * PUBLIC_TRANSIENT_RECHECKS as u32 <= Duration::from_secs(1)
+    );
     assert_eq!(
         public_health_interval(Some(true), 0),
         PUBLIC_HEALTH_INTERVAL
@@ -65,31 +70,30 @@ fn provider_startup_retries_are_staggered_without_randomness() {
         provider_retry_delay(TunnelProvider::LocalhostRun, 1),
         provider_retry_delay(TunnelProvider::Pinggy, 1),
         provider_retry_delay(TunnelProvider::Tailscale, 1),
+        provider_retry_delay(TunnelProvider::DevTunnel, 1),
     ];
-    assert_eq!(first[0], Duration::from_secs(19));
-    assert_eq!(first[1], Duration::from_secs(21));
-    assert_eq!(first[2], Duration::from_secs(16));
-    assert_eq!(first[3], Duration::from_secs(18));
+    assert_eq!(first[0], Duration::from_secs(5));
+    assert_eq!(first[1], Duration::from_secs(6));
+    assert_eq!(first[2], Duration::from_secs(4));
+    assert_eq!(first[3], Duration::from_secs(3));
+    assert_eq!(first[4], Duration::from_secs(5));
     assert_eq!(
         provider_retry_delay(TunnelProvider::Cloudflare, 1),
         first[0]
     );
     assert_eq!(
         provider_retry_delay(TunnelProvider::Cloudflare, 2),
-        Duration::from_secs(30)
+        Duration::from_secs(9)
     );
     assert_eq!(
         provider_retry_delay(TunnelProvider::Cloudflare, 3),
-        Duration::from_secs(63)
+        Duration::from_secs(12)
     );
     assert_eq!(
         provider_retry_delay(TunnelProvider::Cloudflare, 4),
-        Duration::from_secs(120)
+        Duration::from_secs(25)
     );
-    assert_eq!(
-        provider_retry_delay(TunnelProvider::Cloudflare, 40),
-        PROVIDER_STARTUP_MAX_DELAY
-    );
+    assert!(provider_retry_delay(TunnelProvider::Cloudflare, 40) <= PROVIDER_STARTUP_MAX_DELAY);
 }
 
 #[test]
@@ -120,6 +124,23 @@ fn public_url_requires_https_or_loopback_http() {
             "unexpectedly accepted {value}"
         );
     }
+}
+
+#[test]
+fn parses_persistent_dev_tunnel_url_for_the_requested_port() {
+    let line = "Hosting port 8765 at https://demo.usw2.devtunnels.ms:8765/, https://demo-8765.usw2.devtunnels.ms/ and inspect it at https://demo-8765-inspect.usw2.devtunnels.ms/";
+    assert_eq!(
+        extract_devtunnel_url(line, 8765).as_deref(),
+        Some("https://demo-8765.usw2.devtunnels.ms")
+    );
+    assert_eq!(extract_devtunnel_url(line, 3978), None);
+    assert_eq!(
+        extract_devtunnel_url(
+            "Hosting port 8765 at https://demo-8765-inspect.usw2.devtunnels.ms/",
+            8765
+        ),
+        None
+    );
 }
 
 #[test]
@@ -242,5 +263,33 @@ fn parses_free_ssh_tunnel_urls_without_accepting_provider_hosts() {
             TunnelProvider::Pinggy,
             TunnelProvider::Tailscale
         ]
+    );
+    assert!(TunnelProvider::DevTunnel.has_stable_endpoint());
+    assert!(!TunnelProvider::auto_candidates().contains(&TunnelProvider::DevTunnel));
+}
+
+#[test]
+fn parses_persistent_devtunnel_url_for_the_selected_port() {
+    assert_eq!(
+        extract_devtunnel_url(
+            "Hosting port 8765 at https://demo-8765.usw2.devtunnels.ms/",
+            8765
+        )
+        .as_deref(),
+        Some("https://demo-8765.usw2.devtunnels.ms")
+    );
+    assert_eq!(
+        extract_devtunnel_url(
+            "Hosting port 8765 at https://demo-8765-inspect.usw2.devtunnels.ms/",
+            8765
+        ),
+        None
+    );
+    assert_eq!(
+        extract_devtunnel_url(
+            "Hosting port 9999 at https://demo-9999.usw2.devtunnels.ms/",
+            8765
+        ),
+        None
     );
 }

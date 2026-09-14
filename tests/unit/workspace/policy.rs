@@ -1,5 +1,5 @@
 use super::*;
-use crate::{authorization::AuthorizationKind, workspace::Workspace};
+use crate::{semantic_provider::SemanticLanguage, workspace::Workspace};
 use std::fs;
 
 fn args(values: &[&str]) -> Vec<String> {
@@ -7,7 +7,7 @@ fn args(values: &[&str]) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn repository_commands_request_exact_authorization_instead_of_staying_hard_blocked() {
+async fn local_repository_development_runs_without_exact_authorization() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     fs::write(
@@ -22,21 +22,13 @@ async fn repository_commands_request_exact_authorization_instead_of_staying_hard
     .unwrap();
     let workspace = Workspace::new(dir.path(), false, true).unwrap();
 
-    let blocked = workspace
-        .run_command("cargo", &["run".to_owned()], ".", 30)
-        .await
-        .unwrap_err();
-    assert!(blocked.to_string().contains("authorization required"));
-    let request = workspace.authorization.latest_pending().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::RiskyExecution);
-    assert!(workspace.authorization.approve_session(&request.id));
-
     let result = workspace
         .run_command("cargo", &["run".to_owned()], ".", 30)
         .await
         .unwrap();
     assert!(result.success, "cargo run failed: {}", result.stderr);
     assert!(result.stdout.contains("authorized"));
+    assert!(workspace.authorization.requests(10).is_empty());
 }
 
 #[test]
@@ -307,9 +299,109 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
         ("phpunit", vec!["--filter", "smoke"]),
         ("php-cs-fixer", vec!["fix"]),
     ] {
-        let command = args(&values);
-        assert!(validate_verification_command_shape(program, &command).is_err());
-        assert!(validate_command_policy(program, &command, safe).is_err());
+        assert!(validate_verification_command_shape(program, &args(&values)).is_err());
+    }
+    for (program, values) in [
+        ("mvn", vec!["deploy"]),
+        ("gradle", vec!["publish"]),
+        ("swift", vec!["sdk", "list"]),
+        ("dart", vec!["pub", "publish"]),
+        ("mix", vec!["hex.publish"]),
+        ("phpstan", vec!["analyse", "--debug"]),
+        ("phpunit", vec!["--filter", "smoke"]),
+        ("php-cs-fixer", vec!["fix"]),
+    ] {
+        assert!(validate_command_policy(program, &args(&values), safe).is_err());
+    }
+    for (program, values) in [
+        ("dune", vec!["exec", "./tool.exe"]),
+        ("bundle", vec!["exec", "rake", "db:migrate"]),
+    ] {
+        assert!(validate_command_policy(program, &args(&values), safe).is_ok());
+    }
+}
+
+#[test]
+fn every_supported_language_has_an_autonomous_development_tool_path() {
+    let safe = WorkspaceSecurity::default();
+    let cases = [
+        ("bash", "shellcheck", vec!["--format=json", "script.sh"]),
+        (
+            "c",
+            "clang-format",
+            vec!["--dry-run", "--Werror", "src/main.c"],
+        ),
+        ("cpp", "clang-tidy", vec!["src/main.cpp", "-p", "."]),
+        ("csharp", "dotnet", vec!["test", "--no-restore"]),
+        ("css", "stylelint", vec!["**/*.css", "--formatter", "json"]),
+        ("dart", "dart", vec!["test"]),
+        ("elixir", "mix", vec!["test"]),
+        ("go", "go", vec!["test", "./..."]),
+        ("html", "eslint", vec![".", "--format", "json"]),
+        ("java", "mvn", vec!["test"]),
+        ("javascript", "npm", vec!["run", "test"]),
+        ("lua", "busted", vec![]),
+        ("ocaml", "dune", vec!["runtest"]),
+        ("ocaml-interface", "dune", vec!["build"]),
+        ("php", "phpunit", vec![]),
+        ("python", "pytest", vec!["-q"]),
+        ("r", "Rscript", vec!["-e", "testthat::test_local()"]),
+        ("ruby", "bundle", vec!["exec", "rspec"]),
+        ("rust", "cargo", vec!["test"]),
+        ("swift", "swift", vec!["test"]),
+        ("typescript", "tsc", vec!["--noEmit"]),
+        ("tsx", "npm", vec!["run", "typecheck"]),
+    ];
+    assert_eq!(cases.len(), SemanticLanguage::ALL.len());
+    for (language, program, values) in cases {
+        assert!(
+            validate_command_policy(program, &args(&values), safe).is_ok(),
+            "{language} development command unexpectedly requires authorization: {program} {values:?}"
+        );
+    }
+    for (program, values) in [
+        ("Rscript", vec!["-e", "system('curl example.com')"]),
+        (
+            "cargo-fuzz",
+            vec!["fuzz", "run", "../target", "--", "-max_total_time=5"],
+        ),
+        (
+            "clang-format",
+            vec!["--style=file:/tmp/other", "src/main.c"],
+        ),
+    ] {
+        assert!(validate_command_policy(program, &args(&values), safe).is_err());
+    }
+}
+
+#[test]
+fn smoke_named_repository_targets_are_autonomous_without_opening_release_paths() {
+    let safe = WorkspaceSecurity::default();
+    for target in [
+        "smoke",
+        "smoke-test",
+        "test-smoke",
+        "backend-smoke",
+        "api_smoke",
+    ] {
+        assert!(
+            validate_command_policy("make", &args(&[target]), safe).is_ok(),
+            "safe smoke target unexpectedly required authorization: {target}"
+        );
+    }
+    for target in [
+        "publish-smoke",
+        "deploy-smoke",
+        "release-smoke",
+        "upload-smoke",
+        "install-smoke",
+        "production-smoke",
+        "secret-smoke",
+    ] {
+        assert!(
+            validate_command_policy("make", &args(&[target]), safe).is_err(),
+            "sensitive smoke-shaped target unexpectedly bypassed authorization: {target}"
+        );
     }
 }
 
@@ -385,10 +477,13 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
 
     assert!(validate_repository_runner("just", &args(&["check"]), false).is_ok());
     assert!(validate_repository_runner("task", &args(&["test"]), false).is_ok());
+    assert!(validate_repository_runner("just", &args(&["dev"]), false).is_ok());
+    assert!(validate_repository_runner("task", &args(&["codegen"]), false).is_ok());
     assert!(validate_repository_runner("just", &args(&["deploy"]), false).is_err());
     assert!(validate_uv_command(&args(&["lock", "--check"]), false).is_ok());
     assert!(validate_uv_command(&args(&["tree", "--locked"]), false).is_ok());
     assert!(validate_uv_command(&args(&["run", "--locked", "pytest"]), false).is_ok());
+    assert!(validate_uv_command(&args(&["run", "tool.py"]), false).is_ok());
     assert!(validate_uv_command(&args(&["run", "custom-script"]), false).is_err());
     assert!(validate_uv_command(&args(&["auth", "login"]), true).is_err());
 
@@ -402,10 +497,8 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_deno_command(&args(&["run", "main.ts"]), false).is_ok());
     assert!(validate_deno_command(&args(&["run", "--allow-all", "main.ts"]), false).is_err());
 
-    assert!(validate_docker_command(&args(&["compose", "config"]), false).is_err());
-    assert!(validate_docker_command(&args(&["compose", "config"]), true).is_ok());
-    assert!(validate_docker_command(&args(&["compose", "up", "-d"]), false).is_err());
-    assert!(validate_docker_command(&args(&["compose", "up", "-d"]), true).is_ok());
+    assert!(validate_docker_command(&args(&["compose", "config"]), false).is_ok());
+    assert!(validate_docker_command(&args(&["compose", "up", "-d"]), false).is_ok());
     assert!(validate_docker_command(&args(&["compose", "down", "--volumes"]), true).is_err());
     assert!(validate_kubectl_command(&args(&["api-resources"]), false).is_ok());
     assert!(validate_kubectl_command(&args(&["get", "pods"]), false).is_err());
@@ -439,8 +532,7 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     ] {
         assert!(validate_known_project_runner(program, &args(&["check"]), false).is_ok());
     }
-    assert!(validate_known_project_runner("act", &args(&["check"]), false).is_err());
-    assert!(validate_known_project_runner("act", &args(&["check"]), true).is_ok());
+    assert!(validate_known_project_runner("act", &args(&["check"]), false).is_ok());
     assert!(validate_known_project_runner("mvn", &args(&["deploy"]), true).is_err());
     assert!(validate_known_project_runner("gradle", &args(&["publish"]), true).is_err());
     assert!(validate_known_project_runner("swift", &args(&["sdk", "list"]), true).is_err());
@@ -457,7 +549,7 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(
         validate_package_command("pnpm", &args(&["install", "--frozen-lockfile"]), false).is_ok()
     );
-    assert!(validate_package_command("npm", &args(&["install", "left-pad"]), false).is_err());
+    assert!(validate_package_command("npm", &args(&["install", "left-pad"]), false).is_ok());
     assert!(validate_package_command("pnpm", &args(&["run", "build"]), false).is_ok());
     assert!(validate_package_command("yarn", &args(&["run", "lint"]), false).is_ok());
     assert!(validate_package_command("npm", &args(&["run", "deploy"]), false).is_err());
@@ -466,9 +558,12 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_python_command(&args(&["-c", "print('x')"]), false).is_err());
     assert!(validate_node_command(&args(&["--test"]), false).is_ok());
     assert!(validate_node_command(&args(&["--check", "index.js"]), false).is_ok());
-    assert!(validate_node_command(&args(&["index.js"]), false).is_err());
+    assert!(validate_node_command(&args(&["index.js"]), false).is_ok());
+    assert!(validate_node_command(&args(&["-e", "process.exit(0)"]), false).is_err());
     assert!(validate_cargo_command(&args(&["fetch", "--locked"]), false).is_ok());
     assert!(validate_cargo_command(&args(&["update"]), false).is_ok());
+    assert!(validate_cargo_command(&args(&["run"]), false).is_ok());
+    assert!(validate_cargo_command(&args(&["add", "serde"]), false).is_ok());
     assert!(validate_go_command(&args(&["mod", "download"]), false).is_ok());
     assert!(validate_go_command(&args(&["mod", "tidy"]), false).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), true).is_ok());

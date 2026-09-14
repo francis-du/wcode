@@ -137,6 +137,34 @@ fn coalesced_transaction_limit_is_checked_before_execution() {
 }
 
 #[test]
+fn read_only_fanout_skips_pairwise_conflict_scans() {
+    let workloads = (0..128)
+        .map(|index| {
+            (
+                index,
+                model("read_file", json!({"path": format!("src/{index}.rs")})),
+            )
+        })
+        .collect::<Vec<_>>();
+    DEPENDENCY_PAIR_CHECKS.with(|count| count.set(0));
+    let graph = dependency_graph(&workloads, workloads.len());
+    assert!(graph.predecessors.iter().all(BTreeSet::is_empty));
+    DEPENDENCY_PAIR_CHECKS.with(|count| assert_eq!(count.get(), 0));
+
+    let mut mixed = workloads;
+    mixed[64] = (64, model("write_file", json!({"path":"src/64.rs"})));
+    DEPENDENCY_PAIR_CHECKS.with(|count| count.set(0));
+    let graph = dependency_graph(&mixed, mixed.len());
+    assert_eq!(graph.predecessors[64], BTreeSet::new());
+    DEPENDENCY_PAIR_CHECKS.with(|count| {
+        assert!(
+            count.get() <= 127,
+            "one mutation should compare only against relevant peers, not all read/read pairs"
+        )
+    });
+}
+
+#[test]
 fn independent_reads_and_writes_fan_out() {
     assert_eq!(
         layers(vec![

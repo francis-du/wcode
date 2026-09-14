@@ -10,6 +10,7 @@ impl ToolHarness {
             execution_slots: Arc::new(Semaphore::new(Self::execution_limit(max_parallel))),
             max_parallel,
             project_cache: Default::default(),
+            observatory_cache: Default::default(),
             convention_cache: Default::default(),
             repo_map_cache: Default::default(),
             verification_cache: Default::default(),
@@ -76,7 +77,8 @@ impl ToolHarness {
                     "no_shell": true,
                     "languages": 22,
                     "stages": ["property", "mutation", "fuzz", "runtime_canary"],
-                    "requires_risky_exec": true
+                    "execution_policy": "bounded-no-shell-repository-executors-autonomous",
+                    "requires_risky_exec": false
                 },
                 "evidence": evidence_store::capabilities(),
                 "experience": crate::experience_store::capabilities(),

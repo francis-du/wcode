@@ -71,7 +71,33 @@ function revealSection(id) {
   section.scrollIntoView({ behavior: "smooth", block: "start" });
   section.focus({ preventScroll: true });
 }
-function clearWorkspaceView() {
+function cacheWorkspaceSnapshot() {
+  if (!state.current || !state.project) return;
+  state.projectCache.set(state.current, {
+    project: state.project,
+    revisionKey: state.revisionKey,
+    lastUpdated: state.lastUpdated,
+    lastChecked: state.lastChecked,
+    activitySnapshot: state.activitySnapshot,
+    activityUpdated: state.activityUpdated,
+  });
+  while (state.projectCache.size > 8) state.projectCache.delete(state.projectCache.keys().next().value);
+}
+function restoreWorkspaceSnapshot(workspace) {
+  const cached = state.projectCache.get(workspace);
+  if (!cached) return false;
+  state.project = cached.project;
+  state.revisionKey = cached.revisionKey;
+  state.lastUpdated = cached.lastUpdated;
+  state.lastChecked = cached.lastChecked;
+  state.activitySnapshot = cached.activitySnapshot;
+  state.activityUpdated = cached.activityUpdated;
+  state.syncError = false;
+  renderProject(true);
+  setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
+  return true;
+}
+function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
   state.pendingValue = null; state.pendingApplied = 0;
   state.accessRead = null;
@@ -87,20 +113,28 @@ function clearWorkspaceView() {
   state.accessLoaded = false; state.accessEpoch++; state.semanticRefreshPending = false;
   els.search.value = ""; els.componentSearch.value = "";
   state.activityController?.abort(); state.pollController?.abort();
-  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
-    setHtml(key, els[key], `<div class="section empty">${esc(t("Loading project state…"))}</div>`);
+  if (!preserveDom) {
+    for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
+      setHtml(key, els[key], `<div class="section empty">${esc(t("Loading project state…"))}</div>`);
+    }
+    els.lastUpdated.textContent = "—"; els.precisionBadge.textContent = "—";
+    if (els.precisionProviders) els.precisionProviders.textContent = "—";
+    els.reqCount.textContent = "—"; els.componentCount.textContent = "—";
+    els.structureSummary.textContent = "—"; els.qualitySummary.textContent = "—";
+    setHtml("statusSummary", els.statusSummary, `<h2>${esc(t("Loading project state…"))}</h2>`);
   }
-  els.lastUpdated.textContent = "—"; els.precisionBadge.textContent = "—";
-  if (els.precisionProviders) els.precisionProviders.textContent = "—";
-  els.reqCount.textContent = "—"; els.componentCount.textContent = "—";
-  els.structureSummary.textContent = "—"; els.qualitySummary.textContent = "—";
   renderAccess(true);
-  setHtml("statusSummary", els.statusSummary, `<h2>${esc(t("Loading project state…"))}</h2>`);
 }
 const revisionKey = (revision) => `${revision.fingerprint || "full"}|${revision.graph_revision || ""}|${revision.proof_revision || ""}|${revision.engineering_revision || ""}`;
-async function refreshProject({ workspace, reason = "auto", force = false, revision } = {}) {
+async function refreshProject({ workspace, reason = "auto", force = false, revision, preferCached = false } = {}) {
   if (workspace !== undefined && workspace !== state.current) {
-    state.current = workspace; clearWorkspaceView(); force = true;
+    cacheWorkspaceSnapshot();
+    const hasCachedSnapshot = state.projectCache.has(workspace);
+    state.current = workspace;
+    clearWorkspaceView({ preserveDom: hasCachedSnapshot });
+    const restored = restoreWorkspaceSnapshot(workspace);
+    preferCached = true;
+    force = force && !restored;
   }
   if (state.inFlight && reason === "auto") return false;
   state.controller?.abort();
@@ -109,7 +143,11 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   state.controller = controller; state.inFlight = true;
   const stamp = observationStamp();
   const current = () => epoch === state.requestEpoch && observationCurrent(stamp);
-  const options = { workspace: selectedWorkspace, signal: controller.signal };
+  const options = {
+    workspace: selectedWorkspace,
+    signal: controller.signal,
+    headers: preferCached ? { "X-Wcode-Prefer-Cached": "1" } : undefined,
+  };
   setSync("loading", t("Refreshing project state…"));
   try {
     let observed = revision;
@@ -118,7 +156,17 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     if (!current() || controller.signal.aborted) return false;
     if (typeof data.workspace !== "string" || (selectedWorkspace && data.workspace !== selectedWorkspace)) throw new Error("Workspace response mismatch");
     observePending(data.pending_authorizations, stamp);
+    if (data.snapshot_pending === true) {
+      setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
+      setTimeout(() => {
+        if (selectedWorkspace === state.current) {
+          void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
+        }
+      }, 0);
+      return true;
+    }
     data.pending_authorizations = state.pendingValue;
+    const cachedResponse = data.snapshot_cache === "stale-while-revalidate";
     state.project = data; state.current = data.workspace;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
     state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false;
@@ -128,7 +176,17 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     state.revisionKey = observed ? revisionKey(observed) : null;
     if (state.selected && !data.requirements?.some(r => r.id === state.selected)) state.selected = "";
     renderProject(force);
-    setSync("ok", localized("Snapshot up to date", "快照已更新"));
+    cacheWorkspaceSnapshot();
+    if (cachedResponse) {
+      setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
+      setTimeout(() => {
+        if (selectedWorkspace === state.current) {
+          void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
+        }
+      }, 0);
+    } else {
+      setSync("ok", localized("Snapshot up to date", "快照已更新"));
+    }
     if (revisionRequest) {
       void revisionRequest.then(nextRevision => {
         if (!nextRevision || !current() || controller.signal.aborted) return;
@@ -263,7 +321,7 @@ function schedule() {
   scheduleProject(); scheduleActivity(); renderLive();
 }
 els.workspace.addEventListener("change", async () => {
-  const refresh = refreshProject({ workspace: els.workspace.value, reason: "manual", force: true });
+  const refresh = refreshProject({ workspace: els.workspace.value, reason: "manual", preferCached: true });
   void activityTick();
   await refresh; scheduleProject();
   if (accessPanelOpen()) await loadAccess();
@@ -386,7 +444,7 @@ function startObservatory() {
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();
   void activityTick();
-  return refreshProject({ workspace: state.current, reason: "initial", force: true }).then(scheduleProject);
+  return refreshProject({ workspace: state.current, reason: "initial", preferCached: true }).then(scheduleProject);
 }
 
 applyTheme();

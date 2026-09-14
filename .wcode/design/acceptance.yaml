@@ -1,52 +1,4 @@
 - schema_version: 1
-  id: AC-SEC-001
-  title: Parent traversal and stale-root escapes are rejected
-  statement: Workspace path resolution rejects traversal outside the selected root and stale writes do not silently overwrite changed files.
-  verification:
-    - kind: test
-      path: tests/unit/workspace/files.rs
-      symbol: blocks_path_traversal_and_stale_writes
-
-- schema_version: 1
-  id: AC-SEC-002
-  title: Symlink and hard-link aliases cannot bypass write safety
-  statement: Symlink paths are rejected and unsafe aliasing cannot bypass the workspace write boundary.
-  verification:
-    - kind: test
-      path: tests/unit/workspace/mod.rs
-      symbol: blocks_symlink_and_hardlink_aliases
-
-- schema_version: 1
-  id: AC-SEC-003
-  title: Command policy blocks unbounded project execution by default
-  statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion. Command args must preserve every string including empty arguments; explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of falling back to defaults.
-  verification:
-    - kind: test
-      path: tests/unit/workspace/mod.rs
-      symbol: command_policy_keeps_direct_checks_safe_and_repository_execution_exact
-    - kind: test
-      path: tests/unit/workspace/policy.rs
-      symbol: common_development_tools_have_bounded_read_verify_and_mutation_policies
-    - kind: test
-      path: tests/unit/integrations/mcp/dispatch.rs
-      symbol: strict_command_rejects_invalid_argument_types
-    - kind: test
-      path: tests/unit/integrations/mcp/dispatch.rs
-      symbol: strict_command_arguments_preserve_omission_and_empty_strings
-    - kind: test
-      path: tests/unit/integrations/mcp/dispatch.rs
-      symbol: strict_command_rejects_invalid_optional_settings
-
-- schema_version: 1
-  id: AC-SEC-004
-  title: Existing-file edits enforce the observed SHA
-  statement: A replacement made with a stale SHA-256 precondition fails instead of overwriting the newer file.
-  verification:
-    - kind: test
-      path: tests/unit/workspace/files.rs
-      symbol: blocks_path_traversal_and_stale_writes
-
-- schema_version: 1
   id: AC-MCP-001
   title: MCP transports share dispatch and security
   statement: Protocol revisions are detected explicitly, stdio uses the same Harness dispatch, and authenticated legacy SSE sessions are bounded, Origin-protected, owner-bound, and cleaned up after disconnect.
@@ -290,13 +242,15 @@
 - schema_version: 1
   id: AC-AUTH-001
   title: Human approval remains operation client and challenge bound
-  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. The bounded Git publication lifecycle (add, commit with explicit message, branch/switch/tag, staged restore, and ordinary non-force push) and bounded local developer toolchains (test/check/lint/build/format plus lockfile/dependency sync and named verification scripts) run without human approval so autonomous verified iteration can complete. Force/delete/history-rewriting variants, arbitrary interpreter execution, remote publish/authentication, host-wide configuration and infrastructure mutation remain blocked or explicitly authorized. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio uses the same AuthorizationManager. Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure and protected-path/symlink/hard-link/no-shell boundaries remain enforced; failed transitions leave previous permissions untouched.
+  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. The bounded Git publication lifecycle and hardened local developer toolchains for all 22 indexed languages — including test/check/lint/build/format, workspace scripts, code generation, dependency sync and repository-declared verification executors — run without repetitive human approval. Inline or interactive eval, compiler/plugin/agent injection, force/delete/history rewriting, credential or remote publish/authentication, host-wide configuration and destructive infrastructure mutation remain blocked or explicitly authorized. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio uses the same AuthorizationManager. Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure and protected-path/symlink/hard-link/no-shell boundaries remain enforced; failed transitions leave previous permissions untouched.
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
       symbol: destructive_approval_is_exact_and_consumed_once
     - {kind: test, path: tests/unit/workspace/policy.rs, symbol: bounded_git_commit_and_branch_run_without_authorization}
     - {kind: test, path: tests/unit/workspace/mod.rs, symbol: command_policy_keeps_direct_checks_safe_and_repository_execution_exact}
+    - {kind: test, path: tests/unit/workspace/policy.rs, symbol: every_supported_language_has_an_autonomous_development_tool_path}
+    - {kind: test, path: tests/unit/workspace/mod.rs, symbol: hardened_runtime_executor_runs_without_repetitive_authorization}
     - kind: test
       path: tests/unit/integrations/mcp/protocol.rs
       symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
@@ -475,7 +429,7 @@
 - schema_version: 1
   id: AC-SEMANTIC-001
   title: Semantic providers and scoped registry cover indexed languages
-  statement: All 22 indexed languages have exactly one canonical tested LSP launch profile with current provider-specific commands and only real bounded alternates; every canonical profile completes a spawned stdio mock-LSP initialize handshake, language-native discovery can find supported provider binaries outside PATH without widening execution trust, provider status/failures expose actionable discovery/authorization/spawn/initialize/protocol stages, and navigation and refresh can fall back to an installed alternate after canonical initialization failure. Scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing physically bounded provider sessions without evicting leased slots, pruning idle sessions in headless runtimes, waiting for leased sessions before provider-identity replacement, converting LSP positions correctly, requiring successful session initialization before semantic `runnable`/precision, reporting failed semantic subrequests separately from unsupported/valid-empty results, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization.
+  statement: All 22 indexed languages have exactly one canonical tested LSP launch profile with current provider-specific commands and only real bounded alternates; every canonical profile completes a spawned stdio mock-LSP initialize handshake, language-native discovery can find supported provider binaries outside PATH without widening execution trust, and provider availability requires a runnable executable rather than mere path existence. Rustup symlink or hardlink proxies without an installed rust-analyzer component are treated as unavailable through a cached bounded viability probe, so automatic semantics degrade to syntax instead of repeatedly generating semantic_auto failures. Provider status/failures expose actionable discovery/authorization/spawn/initialize/protocol stages, and navigation and refresh can fall back to an installed alternate after canonical initialization failure. Scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing physically bounded provider sessions without evicting leased slots, pruning idle sessions in headless runtimes, waiting for leased sessions before provider-identity replacement, converting LSP positions correctly, requiring successful session initialization before semantic `runnable`/precision, reporting failed semantic subrequests separately from unsupported/valid-empty results, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization.
   verification:
     - kind: test
       path: tests/unit/semantics/provider.rs
@@ -504,6 +458,9 @@
     - kind: test
       path: tests/unit/semantics/provider.rs
       symbol: provider_launch_path_preserves_rustup_proxy_but_resolves_luals_symlink
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: rustup_proxy_detection_handles_symlinks_and_hardlinks
     - kind: test
       path: tests/unit/semantics/mod.rs
       symbol: scoped_queries_filter_scoped_facts_but_keep_global_facts
@@ -648,12 +605,13 @@
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
   statement: >-
-    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes.
+    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. First load may return a bounded pending shell immediately while heavy snapshot construction continues; usable snapshots are cached per workspace and served stale-while-revalidate, revision/activity fetches run asynchronously with generation guards, and switching to a cached project preserves the rendered view instead of blanking it before refresh. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes.
   verification:
     - {kind: test, path: tests/unit/ui/monitor.rs, symbol: narrow_and_tiny_layouts_do_not_panic}
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_distinguishes_unavailable_review_from_clean}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_serves_cached_snapshot_before_heavy_refresh}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_revision_exposes_proof_freshness_without_starting_commands}
     - {kind: test, path: tests/unit/ui/setup.rs, symbol: setup_page_escapes_labels_and_keeps_optional_configuration_progressive}
     - {kind: test, path: tests/unit/ui/setup.rs, symbol: setup_commands_and_endpoint_selection_run_in_javascript}
@@ -777,7 +735,7 @@
 - schema_version: 1
   id: AC-LANGUAGE-QUALITY-001
   title: Multi-language quality support is explicit and executable without hidden mutation
-  statement: The quality registry represents all indexed languages by dimension, recognizes repository scripts as first-class providers, surfaces missing provider coverage, feeds Project Context and Engineering Observatory, and only executes declared check-only providers. Exact Harness-approved verification command shapes reuse the autonomous verification lane without creating RuntimeExecutor approval requests; all other executable shapes retain the existing authorization boundary. Provider status and run results expose the actual autonomous_verification, runtime_authorization_required, trusted_runtime, or unavailable lane, and successful runs remain revision-exact Evidence.
+  statement: The quality registry represents all indexed languages by dimension, recognizes repository scripts as first-class providers, surfaces missing provider coverage, feeds Project Context and Engineering Observatory, and only executes declared check-only providers. Exact Harness-approved verification shapes use the autonomous_verification lane; other bounded known local developer shapes use autonomous_development; genuinely consequential non-autonomous operations retain runtime_authorization_required or trusted_runtime, while unavailable tools remain explicit. Repository-declared advanced verification executors run through the hardened bounded local executor lane without RuntimeExecutor approval churn. Successful runs remain revision-exact Evidence.
   verification:
     - {kind: test, path: tests/unit/verification/quality.rs, symbol: registry_represents_every_indexed_language_without_a_fake_support_boolean}
     - {kind: test, path: tests/unit/verification/quality.rs, symbol: repository_scripts_are_first_class_quality_providers}
@@ -919,12 +877,13 @@
   id: AC-TUNNEL-001
   title: Managed tunnel selection supports free provider fallback
   statement: >-
-    Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, and OAuth metadata plus existing sessions follow only verified aliases owned by the running wcode process. Primary health has one hysteretic source of truth: isolated or paired failures keep the endpoint live, the third consecutive failure permits failover, recovery requires two consecutive successes, and suspect/recovery probes run faster. Standbys keep independent bounded health leases; two failed lease probes revoke eligibility, stale leases expire, and failover selects only a current verified lease with deterministic freshness/uptime ordering. Standby probe completions are lease-epoch-bound and managed-primary health completions are current-primary-URL-bound, so delayed results from recycled or demoted tunnels cannot mutate replacement state. Startup retries are deterministically staggered, runtime reconnect uses one half-open attempt per due retry, repeated deaths open a bounded circuit-breaker cooldown, reconnect history resets only after sustained stability, and shutdown aborts in-flight health work rather than waiting for the network timeout. TaskMonitor and /healthz expose bounded role/state, lease age, failure/death counts, circuit/retry and uptime evidence; retrying providers without a live URL remain observable but are excluded from setup link selection, and Web/TUI surface this state without driving lifecycle decisions. An unhealthy last tunnel cannot produce an empty-set index panic, and provider paths never write directly to stdout/stderr or inherit child terminal output.
+    Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, and OAuth metadata plus existing sessions follow only verified aliases owned by the running wcode process. Primary health has one hysteretic source of truth: one failed network probe gets two short bounded rechecks before it counts as a failure observation, isolated or paired confirmed failures keep the endpoint live, the third consecutive confirmed failure permits failover, recovery requires two consecutive successes, and suspect/recovery probes run faster. Standbys keep independent bounded health leases; repeated failures quarantine promotion eligibility without treating a still-running tunnel as dead. Stable endpoint Host trust is independent from provider-process liveness: when a stable provider child exits, an instance-matched resilient endpoint recheck may retain the URL, role and Host while the provider reconnects; retained endpoints continue health supervision and lose trust when confirmed rechecks stop reaching this runtime, while restart recovery can reactivate only a currently instance-verified stable endpoint. Historical OAuth resources alone never restore Host trust. Startup/reconnect retries are deterministically staggered and fast for transient failure, repeated deaths open a bounded circuit-breaker cooldown, reconnect history resets only after sustained stability, and shutdown aborts in-flight health work rather than waiting for the network timeout. Zero-config auto mode excludes account/credential-dependent providers; an explicitly selected persistent Microsoft Dev Tunnel requires a supplied tunnel ID, remains outside auto, parses only the requested port's `.devtunnels.ms` endpoint, and must pass the same instance-health gate. Other operator-managed stable tunnel services use validated --public-url and the same health gate. TaskMonitor and /healthz expose bounded role/state, lease age, failure/death counts, circuit/retry and uptime evidence; retrying providers without a live URL remain observable but are excluded from setup link selection, and Web/TUI surface this state without driving lifecycle decisions. An unhealthy last tunnel cannot produce an empty-set index panic, and provider paths never write directly to stdout/stderr or inherit child terminal output.
   verification:
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: tunnel_runtime_never_writes_directly_to_the_terminal}
     - {kind: test, path: tests/unit/ui/monitor_health.rs, symbol: public_url_health_requires_three_failures_and_two_successes_to_recover}
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: primary_health_uses_fast_confirmation_after_any_failure_streak}
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: provider_startup_retries_are_staggered_without_randomness}
+    - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: parses_persistent_dev_tunnel_url_for_the_requested_port}
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: parses_quick_tunnel_url}
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: parses_free_ssh_tunnel_urls_without_accepting_provider_hosts}
     - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: empty_tunnel_set_never_produces_a_dead_index}

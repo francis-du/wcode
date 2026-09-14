@@ -1,0 +1,8 @@
+schema_version: 1
+id: AC-SEC-001
+title: Parent traversal and stale-root escapes are rejected
+statement: Workspace path resolution rejects traversal outside the selected root and stale writes do not silently overwrite changed files.
+verification:
+  - kind: test
+    path: tests/unit/workspace/files.rs
+    symbol: blocks_path_traversal_and_stale_writes

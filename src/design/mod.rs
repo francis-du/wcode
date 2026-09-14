@@ -237,6 +237,13 @@ pub fn baseline_constraints() -> Vec<ConstraintDesign> {
             statement: "Changes to responsibilities, source paths, test paths, trust boundaries or transport behavior must update the matching .wcode Design State in the same change.".into(),
             applies_to: Vec::new(),
         },
+        ConstraintDesign {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            id: "CONSTRAINT-PARALLEL-FIRST".into(),
+            title: "Independent work executes in parallel".into(),
+            statement: "When Agent Context or a Worklist exposes two or more independent runnable lanes, execution must fan them out concurrently up to the runtime cap. Serialize only true data dependencies, overlapping writes, shared mutable state, or output-dependent follow-ups; serial execution of known independent lanes is non-compliant. Use the lowest-overhead safe primitive: prefer one-traversal bulk operations such as read_files, search_many, apply_file_edits, create_files or move_paths before per-item fan-out, reuse shared snapshots and caches, and avoid duplicate repository traversals. Hosts that cannot issue concurrent top-level calls must use wcode parallel_tools for compact known operations.".into(),
+            applies_to: Vec::new(),
+        },
     ]
 }
 

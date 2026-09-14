@@ -51,7 +51,7 @@ fn tunnel_runtime_observability_explains_primary_standby_and_circuit_retry() {
     assert_eq!(standby.consecutive_failures, 1);
 
     monitor.remove_tunnel("https://standby.example");
-    monitor.mark_tunnel_retry("pinggy", 4, true, Duration::from_secs(60));
+    monitor.mark_tunnel_retry("pinggy", 4, true, Duration::from_secs(60), false);
     let retry = monitor.connection_status();
     let pinggy = retry
         .tunnels
@@ -65,6 +65,21 @@ fn tunnel_runtime_observability_explains_primary_standby_and_circuit_retry() {
     assert_eq!(pinggy.death_count, 4);
     assert!(pinggy.circuit_open);
     assert!(pinggy.retry_in_seconds.is_some_and(|seconds| seconds <= 60));
+
+    monitor.register_tunnel("tailscale", "https://stable.example");
+    monitor.mark_public_url_verified();
+    monitor.mark_tunnel_primary("https://stable.example");
+    monitor.mark_tunnel_retry("tailscale", 1, false, Duration::from_secs(2), true);
+    let retained = monitor.connection_status();
+    let tailscale = retained
+        .tunnels
+        .iter()
+        .find(|tunnel| tunnel.provider == "tailscale")
+        .unwrap();
+    assert_eq!(tailscale.url.as_deref(), Some("https://stable.example"));
+    assert_eq!(tailscale.role, "primary");
+    assert_eq!(tailscale.state, "healthy");
+    assert_eq!(tailscale.death_count, 1);
 }
 
 #[test]
@@ -84,23 +99,23 @@ fn health_failure_targets_the_explicit_primary_instead_of_vector_order() {
 
 #[test]
 fn reconnect_backoff_is_bounded_and_recovery_resets_history() {
-    assert_eq!(reconnect_backoff_seconds(1), 5);
-    assert_eq!(reconnect_backoff_seconds(2), 10);
-    assert_eq!(reconnect_backoff_seconds(5), 80);
-    assert_eq!(reconnect_backoff_seconds(6), 160);
-    assert_eq!(reconnect_backoff_seconds(7), 300);
-    assert_eq!(reconnect_backoff_seconds(20), 300);
+    assert_eq!(reconnect_backoff_seconds(1), 2);
+    assert_eq!(reconnect_backoff_seconds(2), 4);
+    assert_eq!(reconnect_backoff_seconds(5), 32);
+    assert_eq!(reconnect_backoff_seconds(6), 64);
+    assert_eq!(reconnect_backoff_seconds(7), 120);
+    assert_eq!(reconnect_backoff_seconds(20), 120);
 
     let mut deaths = HashMap::new();
     assert_eq!(
         record_dead_provider(&mut deaths, TunnelProvider::Tailscale),
-        8
+        2
     );
     assert_eq!(
         record_dead_provider(&mut deaths, TunnelProvider::Tailscale),
-        16
+        5
     );
-    assert_eq!(record_dead_provider(&mut deaths, TunnelProvider::Pinggy), 6);
+    assert_eq!(record_dead_provider(&mut deaths, TunnelProvider::Pinggy), 3);
     assert_eq!(deaths[&TunnelProvider::Tailscale], 2);
     assert_eq!(deaths[&TunnelProvider::Pinggy], 1);
 
@@ -120,22 +135,22 @@ fn reconnect_backoff_is_bounded_and_recovery_resets_history() {
 fn provider_fault_sequence_opens_circuit_then_resets_after_verified_recovery() {
     let provider = TunnelProvider::Cloudflare;
     let mut deaths = HashMap::new();
-    let delays = (0..4)
+    let delays = (0..5)
         .map(|_| record_dead_provider(&mut deaths, provider))
         .collect::<Vec<_>>();
-    assert_eq!(delays, vec![9, 10, 23, 60]);
-    assert_eq!(deaths[&provider], 4);
+    assert_eq!(delays, vec![4, 7, 8, 17, 34]);
+    assert_eq!(deaths[&provider], 5);
     assert!(provider_circuit_open(deaths[&provider]));
 
     let now = Instant::now();
-    let due = now + Duration::from_secs(delays[3]);
-    assert!(!provider_retry_due(due, now + Duration::from_secs(59)));
-    assert!(provider_retry_due(due, now + Duration::from_secs(60)));
+    let due = now + Duration::from_secs(delays[4]);
+    assert!(!provider_retry_due(due, now + Duration::from_secs(33)));
+    assert!(provider_retry_due(due, now + Duration::from_secs(34)));
 
     assert!(record_recovered_provider(&mut deaths, provider));
     assert!(!deaths.contains_key(&provider));
     assert!(!provider_circuit_open(0));
-    assert_eq!(record_dead_provider(&mut deaths, provider), 9);
+    assert_eq!(record_dead_provider(&mut deaths, provider), 4);
     assert_eq!(deaths[&provider], 1);
     assert!(!provider_circuit_open(deaths[&provider]));
 }
@@ -148,16 +163,16 @@ fn reconnect_jitter_is_deterministic_bounded_and_provider_staggered() {
         reconnect_delay_seconds(TunnelProvider::Pinggy, 1),
         reconnect_delay_seconds(TunnelProvider::Tailscale, 1),
     ];
-    assert_eq!(first_delays, [9, 11, 6, 8]);
+    assert_eq!(first_delays, [4, 5, 3, 2]);
     assert_eq!(
         reconnect_delay_seconds(TunnelProvider::Cloudflare, 1),
         first_delays[0]
     );
-    assert!(!provider_circuit_open(3));
-    assert!(provider_circuit_open(4));
-    assert!(reconnect_delay_seconds(TunnelProvider::Tailscale, 4) >= 60);
-    assert_eq!(reconnect_delay_seconds(TunnelProvider::Cloudflare, 20), 300);
-    assert!(first_delays.iter().all(|delay| (5..=11).contains(delay)));
+    assert!(!provider_circuit_open(4));
+    assert!(provider_circuit_open(5));
+    assert!(reconnect_delay_seconds(TunnelProvider::Tailscale, 5) >= 30);
+    assert_eq!(reconnect_delay_seconds(TunnelProvider::Cloudflare, 20), 120);
+    assert!(first_delays.iter().all(|delay| (2..=5).contains(delay)));
 }
 
 #[test]
@@ -260,20 +275,20 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
 fn standby_health_lease_needs_two_failures_and_expires_without_refresh() {
     let start = Instant::now();
     let mut lease = StandbyHealthLease::verified(start);
-    assert!(lease.eligible(start + Duration::from_secs(74)));
-    assert!(!lease.begin_probe(start + Duration::from_secs(29)));
+    assert!(lease.eligible(start + STANDBY_LEASE_TTL - Duration::from_secs(1)));
+    assert!(!lease.begin_probe(start + STANDBY_PROBE_INTERVAL - Duration::from_secs(1)));
     assert!(lease.begin_probe(start + STANDBY_PROBE_INTERVAL));
     assert!(!lease.record_failure(start + STANDBY_PROBE_INTERVAL));
     assert_eq!(lease.failures(), 1);
-    assert!(lease.eligible(start + Duration::from_secs(34)));
-    assert!(!lease.begin_probe(start + Duration::from_secs(34)));
-    assert!(lease.begin_probe(start + Duration::from_secs(35)));
-    assert!(lease.record_failure(start + Duration::from_secs(35)));
-    assert!(lease.revoked());
-    assert!(!lease.eligible(start + Duration::from_secs(35)));
+    let retry_due = start + STANDBY_PROBE_INTERVAL + STANDBY_RETRY_INTERVAL;
+    assert!(lease.eligible(retry_due - Duration::from_secs(1)));
+    assert!(!lease.begin_probe(retry_due - Duration::from_secs(1)));
+    assert!(lease.begin_probe(retry_due));
+    assert!(lease.record_failure(retry_due));
+    assert!(!lease.eligible(retry_due));
 
-    assert!(lease.record_success(start + Duration::from_secs(36)));
-    assert!(!lease.revoked());
-    assert!(lease.eligible(start + Duration::from_secs(36)));
-    assert!(!lease.eligible(start + Duration::from_secs(112)));
+    let recovered_at = retry_due + Duration::from_secs(1);
+    assert!(lease.record_success(recovered_at));
+    assert!(lease.eligible(recovered_at));
+    assert!(!lease.eligible(recovered_at + STANDBY_LEASE_TTL + Duration::from_secs(1)));
 }

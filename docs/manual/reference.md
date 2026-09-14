@@ -208,8 +208,12 @@ The runtime still accepts low-frequency deployment and tuning controls such as
 `--public-url`, `--tunnel-provider`, `--imessage-to`, `--max-parallel-tools`,
 `--max-cpu-percent`, `--max-memory-mb`, `--allow-sleep`, and
 `--allow-risky-exec`. They are hidden from default `--help` so ordinary users
-and coding agents do not treat them as required setup parameters. Broader
-Workspace/destructive-write trust controls are documented in [Security](../security/).
+and coding agents do not treat them as required setup parameters. The bounded
+operator/development catalog includes `gh`, `just`, `task`, `uv`, `ruff`, `biome`,
+`deno`, `docker`, `kubectl`, `terraform`, `fd`, `jq`, `cmake`, `ninja`, `dotnet`,
+`mvn`, `gradle`, `swift`, `zig`, `pre-commit`, and `act`; language-native tools
+remain governed by their own exact command policy. Broader Workspace/destructive-write
+trust controls are documented in [Security](../security/).
 
 ## TUI shortcuts
 
@@ -345,12 +349,11 @@ Important distinctions:
 
 - **Executable access (`CommandAccess`)** authorizes a bare executable for one Workspace.
 - **Fingerprint-scoped trust (`RiskyExecution`)** authorizes only the requested trust fingerprint in that Workspace and session. Command/repository mutations bind the exact operation and arguments; a non-automatic warm LSP server binds Workspace + server + current binary identity so refresh/navigation can reuse that exact server without granting a replacement binary or another server.
-- **RuntimeExecutor** covers one exact advanced verification executor operation.
 - **Destructive delete** is one-shot and separate from reusable session grants.
 
 Git mutation remains deliberately narrow. Only explicit pathspec `git add`, message-only `git commit -m ...`, and non-force/non-delete `git push <remote> <refspec>` shapes can enter exact approval. An approved push may use the current SSH Agent through wcode's fixed non-interactive SSH command; token environments, credential helpers, AskPass, arbitrary Git configuration and force/delete forms remain blocked.
 
-Known development CLIs receive command-specific policy instead of generic program-wide authorization: `gh`, `just`, `task`, `uv`, `ruff`, `biome`, `deno`, `docker`, `kubectl`, `terraform`, `fd`, `jq`, `cmake`, `ninja`, `dotnet`, `mvn`, `gradle`, `swift`, `zig`, `pre-commit`, and `act`. Strict local read/check shapes can run directly; repository build/runners, Docker/Kubernetes data access, and bounded source/remote mutations enter exact authorization. Kubernetes cluster mutation, Terraform apply/destroy/state-secret surfaces, Gradle/Maven publishing, host toolchain mutation, and command/file-loading escape hatches remain blocked. Rust full verification can prefer declared, installed cargo-nextest while retaining `cargo test` as fallback.
+Known development CLIs for all indexed languages receive command-specific policy instead of generic program-wide authorization. Bounded local tests, checks, builds, format/lint, workspace scripts, code generation, dependency maintenance and repository-declared verification executors run autonomously through hardened Workspace execution. Inline interpreter eval, compiler/plugin/agent injection, Kubernetes cluster mutation, Terraform apply/destroy/state-secret surfaces, Gradle/Maven publishing, host toolchain mutation, credential redirection and command/file-loading escape hatches remain authorized or blocked. Rust full verification can prefer declared, installed cargo-nextest while retaining `cargo test` as fallback.
 
 ## Diagnostics
 

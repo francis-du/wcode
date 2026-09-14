@@ -1,6 +1,14 @@
 use super::*;
 
 const MAX_AUTO_DISCOVERY_FILES: usize = 10_000;
+const AUTO_CONFIGURATION_PATHS: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "rust-toolchain",
+    ".cargo/config.toml",
+    ".cargo/config",
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SemanticAutoState {
@@ -44,7 +52,9 @@ pub(crate) fn state(workspace: &Workspace, max_files: usize) -> Result<SemanticA
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Background);
         inputs.extend(paths);
     }
+    inputs.extend(automatic_configuration_stamps(workspace));
     inputs.sort_by(|left, right| left.0.cmp(&right.0));
+    inputs.dedup_by(|left, right| left.0 == right.0);
     let file_count = inputs.len();
     let mut hasher = Sha256::new();
     let mut first = true;
@@ -86,6 +96,18 @@ pub(crate) fn state(workspace: &Workspace, max_files: usize) -> Result<SemanticA
         files: file_count,
         truncated,
     })
+}
+
+fn automatic_configuration_stamps(workspace: &Workspace) -> Vec<StampedSourcePath> {
+    AUTO_CONFIGURATION_PATHS
+        .iter()
+        .filter_map(|path| {
+            workspace
+                .source_paths_with_stamps(path, 1)
+                .ok()
+                .and_then(|(mut paths, _)| paths.pop())
+        })
+        .collect()
 }
 
 pub(super) fn automatic_scan_limit(file_limit: usize) -> usize {

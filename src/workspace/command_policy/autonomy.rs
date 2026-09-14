@@ -11,6 +11,16 @@ pub(super) fn validate_python_command(args: &[String], allow_risky_exec: bool) -
         {
             Ok(())
         }
+        [script, ..]
+            if !script.starts_with('-')
+                && script.ends_with(".py")
+                && !script.split(['/', '\\']).any(|part| part == "..") =>
+        {
+            Ok(())
+        }
+        [flag, ..] if matches!(flag.as_str(), "-c" | "-" | "-i") => {
+            bail!("inline or interactive Python execution is blocked; execute a workspace script or approved module instead")
+        }
         _ => require_risky_exec("python interpreter execution", allow_risky_exec),
     }
 }
@@ -19,9 +29,21 @@ pub(super) fn validate_node_command(args: &[String], allow_risky_exec: bool) -> 
     if args.first().is_some_and(|arg| {
         arg == "--test" || arg.starts_with("--test=") || arg == "--check" || arg == "-c"
     }) {
-        Ok(())
-    } else {
-        require_risky_exec("node interpreter execution", allow_risky_exec)
+        return Ok(());
+    }
+    match args.first().map(String::as_str) {
+        Some("-e" | "--eval" | "-p" | "--print" | "-i" | "--interactive") => {
+            bail!("inline or interactive Node execution is blocked; execute a workspace script or test instead")
+        }
+        Some(script)
+            if !script.starts_with('-')
+                && [".js", ".mjs", ".cjs"]
+                    .iter()
+                    .any(|suffix| script.ends_with(suffix)) =>
+        {
+            Ok(())
+        }
+        _ => require_risky_exec("node interpreter execution", allow_risky_exec),
     }
 }
 
@@ -40,7 +62,12 @@ pub(super) fn validate_dart_command(args: &[String], allow_risky_exec: bool) -> 
 }
 
 pub(super) fn validate_flutter_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if safe_flutter_verification(args) {
+    if safe_flutter_verification(args)
+        || matches!(
+            args.first().map(String::as_str),
+            Some("run" | "devices" | "doctor")
+        )
+    {
         return Ok(());
     }
     if matches!(args, [first, second, ..] if first == "pub" && second == "publish") {
@@ -110,6 +137,9 @@ pub(super) fn validate_mix_command(args: &[String], allow_risky_exec: bool) -> R
     if args_equal(args, &["format", "--check-formatted"])
         || args_equal(args, &["compile", "--warnings-as-errors"])
         || args_equal(args, &["test"])
+        || args
+            .first()
+            .is_some_and(|task| matches!(task.as_str(), "run" | "iex"))
     {
         Ok(())
     } else {
@@ -121,6 +151,7 @@ pub(super) fn validate_dune_command(args: &[String], allow_risky_exec: bool) -> 
     if args_equal(args, &["build"])
         || args_equal(args, &["runtest"])
         || args_equal(args, &["build", "@fmt"])
+        || args.first().is_some_and(|task| task == "exec")
     {
         Ok(())
     } else {
@@ -131,6 +162,7 @@ pub(super) fn validate_dune_command(args: &[String], allow_risky_exec: bool) -> 
 pub(super) fn validate_bundle_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
     if args_equal(args, &["exec", "rubocop", "--format", "json"])
         || args_equal(args, &["exec", "rspec"])
+        || args.first().is_some_and(|task| task == "exec")
     {
         Ok(())
     } else {
@@ -224,6 +256,7 @@ pub(in crate::workspace) fn command_requires_workspace_write(
             command == "ci"
                 || command == "install" && args.iter().skip(1).all(|arg| arg.starts_with('-'))
         }),
+        program if super::language_tools::language_tool_writes_workspace(program, args) => true,
         _ => false,
     }
 }

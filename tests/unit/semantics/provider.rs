@@ -247,6 +247,29 @@ async fn every_canonical_profile_completes_stdio_lsp_initialize() {
 
 #[cfg(unix)]
 #[test]
+fn rustup_proxy_detection_handles_symlinks_and_hardlinks() {
+    use std::os::unix::fs::symlink;
+
+    let tools = tempfile::tempdir().unwrap();
+    let rustup = tools.path().join("rustup");
+    std::fs::write(&rustup, "fixture").unwrap();
+    let symlink_proxy = tools.path().join("rust-analyzer-link");
+    symlink(&rustup, &symlink_proxy).unwrap();
+    assert_eq!(
+        discovery::rustup_proxy_path(&symlink_proxy).unwrap(),
+        rustup.canonicalize().unwrap()
+    );
+
+    let hardlink_proxy = tools.path().join("rust-analyzer");
+    std::fs::hard_link(&rustup, &hardlink_proxy).unwrap();
+    assert_eq!(
+        discovery::rustup_proxy_path(&hardlink_proxy).unwrap(),
+        rustup
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn provider_launch_path_preserves_rustup_proxy_but_resolves_luals_symlink() {
     use std::os::unix::fs::symlink;
 
@@ -458,6 +481,41 @@ fn trusted_provider_path_preserves_proxy_symlink_identity() {
         Some(provider_link),
         "validation must follow the symlink without replacing the executable path"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn rustup_proxy_is_available_only_when_workspace_toolchain_has_rust_analyzer() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let workspace_dir = tempfile::tempdir().unwrap();
+    let tools = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(workspace_dir.path(), false, true).unwrap();
+    let rustup = tools.path().join("rustup");
+    let proxy = tools.path().join("rust-analyzer");
+    let component = tools.path().join("real-rust-analyzer");
+    std::fs::write(&component, "fixture").unwrap();
+    std::fs::write(
+        &rustup,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = which ] && [ \"$2\" = rust-analyzer ]; then echo '{}'; exit 0; fi\nexit 1\n",
+            component.display()
+        ),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&rustup).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&rustup, permissions).unwrap();
+    symlink(&rustup, &proxy).unwrap();
+
+    assert!(is_rustup_proxy(&proxy));
+    assert!(rustup_proxy_component_ready_uncached(&workspace, &proxy));
+
+    std::fs::write(&rustup, "#!/bin/sh\nexit 1\n").unwrap();
+    let mut permissions = std::fs::metadata(&rustup).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&rustup, permissions).unwrap();
+    assert!(!rustup_proxy_component_ready_uncached(&workspace, &proxy));
 }
 
 #[test]

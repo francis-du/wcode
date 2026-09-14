@@ -59,6 +59,7 @@ fn agent_context_parallel_discovery_respects_the_runtime_slot_cap() {
             )
             .unwrap();
         assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 2);
+        assert_eq!(pack["readiness"]["parallelism"]["required"], true);
         assert_eq!(
             pack["readiness"]["parallelism"]["recommended_concurrency"],
             cap.min(2)

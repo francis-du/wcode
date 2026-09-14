@@ -597,6 +597,7 @@ pub(super) fn design_changes_from_review(review: &ChangeReviewReport) -> Vec<Des
 #[cfg(test)]
 thread_local! {
     pub(crate) static REVISION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static REVISION_SCAN_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(super) fn workspace_revision_from_design_state(
@@ -605,25 +606,57 @@ pub(super) fn workspace_revision_from_design_state(
 ) -> Result<Revision> {
     #[cfg(test)]
     REVISION_CALLS.with(|count| count.set(count.get() + 1));
+
+    // Most repositories can derive both code and Design revisions from one
+    // bounded tree walk. If the root scan truncates, preserve the historical
+    // Design precision by performing one dedicated .wcode scan instead of
+    // guessing from an incomplete shared snapshot.
+    let (paths, code_truncated) = revision_paths(workspace, ".")?;
+    let code = workspace_tree_revision_from_paths(workspace, &paths, false, code_truncated)?;
     let design_revision = if design_initialized {
-        Some(workspace_tree_revision(workspace, true)?)
+        if code_truncated {
+            Some(workspace_tree_revision(workspace, true)?)
+        } else {
+            Some(workspace_tree_revision_from_paths(
+                workspace, &paths, true, false,
+            )?)
+        }
     } else {
         None
     };
     Ok(Revision {
         design: design_revision,
-        code: workspace_tree_revision(workspace, false)?,
+        code,
     })
 }
 
 pub(super) fn workspace_tree_revision(workspace: &Workspace, design_only: bool) -> Result<String> {
     let root = if design_only { ".wcode" } else { "." };
-    let (mut paths, truncated) = workspace.source_files(root, MAX_REVISION_FILES)?;
-    paths.sort();
+    let (paths, truncated) = revision_paths(workspace, root)?;
+    workspace_tree_revision_from_paths(workspace, &paths, design_only, truncated)
+}
+
+fn revision_paths(
+    workspace: &Workspace,
+    root: &str,
+) -> Result<(Vec<crate::workspace::StampedSourcePath>, bool)> {
+    #[cfg(test)]
+    REVISION_SCAN_CALLS.with(|count| count.set(count.get() + 1));
+    let (mut paths, truncated) = workspace.source_files_with_stamps(root, MAX_REVISION_FILES)?;
+    paths.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    Ok((paths, truncated))
+}
+
+fn workspace_tree_revision_from_paths(
+    workspace: &Workspace,
+    paths: &[crate::workspace::StampedSourcePath],
+    design_only: bool,
+    truncated: bool,
+) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut included = 0usize;
 
-    for path in paths {
+    for (path, expected_stamp) in paths {
         let include = if design_only {
             path == design::PROJECT_FILE
                 || path == design::DESIGN_ROOT
@@ -635,10 +668,9 @@ pub(super) fn workspace_tree_revision(workspace: &Workspace, design_only: bool) 
         if !include {
             continue;
         }
-        let before = workspace.source_stamp(&path)?;
-        let bytes = std::fs::read(workspace.root().join(&path))?;
-        let after = workspace.source_stamp(&path)?;
-        if before != after {
+        let bytes = std::fs::read(workspace.root().join(path))?;
+        let after = workspace.source_metadata_stamp(path)?;
+        if *expected_stamp != after {
             return Err(anyhow!(
                 "workspace changed while computing software revision; retry the request"
             ));

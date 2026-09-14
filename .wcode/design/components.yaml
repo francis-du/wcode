@@ -304,6 +304,7 @@
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
     - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
     - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
+    - serve bounded per-Workspace cached project snapshots immediately on first paint or Workspace switch, then revalidate revision and Git-heavy project state asynchronously without blanking an available view
     - project existing bounded task activity into a realtime Understand → Change → Prove → Learn → Observe engineering flow and explain each Vibe Coding change through Files → Components → Requirements → Verification → confirmed Drift without creating a second mutable control-state source
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
@@ -463,9 +464,11 @@
   responsibilities:
     - model read write create move and delete resource sets for tool workloads
     - fan out independent work and order conflicting resources through a dependency graph
+    - skip pairwise conflict scans for pure read fan-out and prefer one-traversal bulk primitives for known multi-input work
     - coalesce safe same-file same-SHA edits before execution
   constraints:
     - CONSTRAINT-SCHEDULER-RESOURCES
+    - CONSTRAINT-PARALLEL-FIRST
   implementation:
     - kind: symbol
       path: src/workspace/scheduler.rs
@@ -698,10 +701,12 @@
     - batch multiple symbol query terms into one source-root traversal and one per-file indexing pass instead of repeating repository discovery for each query token
     - reuse the already loaded Design State for traceability calculation inside one software_context request instead of reparsing the same design documents
     - keep traceability and provider precision relevant to the requested behavior rather than truncating unrelated project state
+    - require concurrent execution for known independent lanes, preferring one-traversal bulk primitives and shared snapshots before per-item fan-out
   constraints:
     - CONSTRAINT-CONTEXT-BUDGET
     - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
     - CONSTRAINT-EXPLICIT-PRECISION
+    - CONSTRAINT-PARALLEL-FIRST
   depends_on:
     - component:traceability-drift
     - component:software-graph
@@ -745,11 +750,11 @@
   name: Managed Public Tunnel Runtime
   responsibilities:
     - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
-    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; retry unreachable providers with deterministic provider-specific staggering and keep every instance-health-verified tunnel live
-    - keep primary public-health hysteresis in one monitor-owned state so one transient probe cannot kill the endpoint, require three consecutive failures before failover and two consecutive successes before recovery, and accelerate confirmation probes while suspect or recovering
+    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; support an explicitly configured persistent Microsoft Dev Tunnel without adding account-bound providers to zero-config auto; retry unreachable providers with deterministic provider-specific staggering and keep every instance-health-verified tunnel live
+    - keep primary public-health hysteresis in one monitor-owned state so one transient probe cannot kill the endpoint, recheck a failed network probe twice at short bounded intervals before counting one failure, require three confirmed failure observations before failover and two consecutive successes before recovery, and accelerate confirmation probes while suspect or recovering
     - maintain an independent bounded health lease for each standby, refresh it without touching primary health, bind asynchronous probe results to a monotonic lease epoch, revoke it after repeated failures, expire stale leases, and fail over only to a currently verified standby chosen deterministically by freshest lease then longest uptime
     - bind managed-primary health results to the still-current primary URL so demoted-tunnel completions cannot alter replacement health, cancel in-flight health work on shutdown, respawn a single dead provider with bounded exponential backoff plus deterministic jitter and a repeated-death circuit breaker, use one half-open instance-verified reconnect attempt per due retry, reset death history only after sustained stable uptime, and fall back to pending/local state when no verified public tunnel remains
-    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification, and make it explicit that quick-tunnel hostnames may change across reconnects while Tailscale/custom endpoints can remain stable
+    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification, recover instance-verified stable endpoints after restart, retain active Host trust and observable URL across provider-process reconnects when the same stable endpoint still reaches the current instance, support persistent Microsoft Dev Tunnel IDs as stable explicit providers, and make it explicit that quick-tunnel hostnames may change across reconnects while Tailscale/Dev Tunnel/custom endpoints can remain stable
     - expose bounded per-provider runtime observability through TaskMonitor, /healthz and operator UI with primary/standby/retrying role, health/lease state, failure/death counters, circuit state, retry horizon and uptime while keeping those projections read-only with respect to lifecycle control
     - route provider attempts, retries, dependency/install diagnostics, stale-process reclamation and connection events through TaskMonitor operator messages; never write directly to the terminal or inherit installer stdio while the runtime may be rendering the TUI
     - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
@@ -768,6 +773,8 @@
     - kind: symbol
       path: src/runtime/tunnel/mod.rs
       symbol: start_tailscale_funnel_once
+    - kind: file
+      path: src/runtime/tunnel/devtunnel.rs
     - kind: file
       path: src/app/tunnel_lifecycle.rs
     - kind: file

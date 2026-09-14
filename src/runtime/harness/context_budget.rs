@@ -131,7 +131,8 @@ fn compact_core_constraints(value: &mut Value) -> bool {
     *constraints = json!([
         "source<=1000;oversized-no-growth;generated-exempt",
         "standalone-tests=>tests/",
-        "architecture-moves=>design-sync"
+        "architecture-moves=>design-sync",
+        "independent-lanes=>parallel;bulk-first;serialize-true-deps-only"
     ]);
     true
 }
@@ -198,7 +199,7 @@ fn compact_repo_map_explanation(value: &mut Value) -> bool {
     let Some(object) = repo_map.as_object() else {
         return false;
     };
-    if object.len() <= 7
+    if object.len() <= 8
         && object.contains_key("provider")
         && object.contains_key("precision")
         && object.contains_key("items")
@@ -206,6 +207,7 @@ fn compact_repo_map_explanation(value: &mut Value) -> bool {
         && object.contains_key("cache_hit")
         && object.contains_key("scope_path")
         && object.contains_key("files_indexed")
+        && object.contains_key("deferred")
     {
         return false;
     }
@@ -234,6 +236,10 @@ fn compact_repo_map_explanation(value: &mut Value) -> bool {
         .get("files_indexed")
         .cloned()
         .unwrap_or_else(|| json!(0));
+    let deferred = object
+        .get("deferred")
+        .cloned()
+        .unwrap_or(Value::Bool(false));
     *repo_map = json!({
         "provider": provider,
         "precision": precision,
@@ -242,6 +248,7 @@ fn compact_repo_map_explanation(value: &mut Value) -> bool {
         "cache_hit": cache_hit,
         "scope_path": scope_path,
         "files_indexed": files_indexed,
+        "deferred": deferred,
     });
     true
 }

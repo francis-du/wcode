@@ -19,6 +19,12 @@ pub(super) fn discover_nested_project_islands(
             continue;
         }
         let project_types = types.into_iter().collect::<Vec<_>>();
+        if project_types.len() == 1
+            && project_types[0] == "cmake"
+            && is_flutter_platform_cmake_scaffold(workspace_root, &directory)
+        {
+            continue;
+        }
         let inherited = discovered
             .iter()
             .filter(|island| directory.starts_with(&island.absolute_root))
@@ -153,6 +159,27 @@ pub(super) fn manifest_project_types(root: &Path) -> BTreeSet<String> {
     types
 }
 
+fn is_flutter_platform_cmake_scaffold(workspace_root: &Path, directory: &Path) -> bool {
+    directory
+        .ancestors()
+        .take_while(|candidate| candidate.starts_with(workspace_root))
+        .any(|candidate| {
+            let Some(platform) = candidate.file_name().and_then(|name| name.to_str()) else {
+                return false;
+            };
+            if !matches!(platform, "linux" | "windows") {
+                return false;
+            }
+            let Some(app_root) = candidate.parent() else {
+                return false;
+            };
+            app_root.join("pubspec.yaml").is_file()
+                && candidate.join("CMakeLists.txt").is_file()
+                && candidate.join("flutter/CMakeLists.txt").is_file()
+                && candidate.join("runner/CMakeLists.txt").is_file()
+        })
+}
+
 pub(super) fn languages_for_project_types(project_types: &[String]) -> Vec<String> {
     let mut languages = BTreeSet::new();
     for project_type in project_types {
@@ -196,6 +223,17 @@ pub(super) fn profile_visible_entry(entry: &DirEntry) -> bool {
             | ".wcode"
             | "target"
             | "node_modules"
+            | "build"
+            | "coverage"
+            | ".dart_tool"
+            | ".build"
+            | ".gradle"
+            | ".swiftpm"
+            | "ephemeral"
+            | "Pods"
+            | ".symlinks"
+            | ".plugin_symlinks"
+            | "DerivedData"
             | ".venv"
             | "venv"
             | "dist"
@@ -821,6 +859,7 @@ fn project_type_check_prefix(project_type: &str) -> Option<&'static str> {
         "ruby" => Some("ruby-"),
         "php" => Some("php-"),
         "make" => Some("make-"),
+        "cmake" => Some("cmake-"),
         _ => None,
     }
 }

@@ -13,17 +13,34 @@ fn burst_friendly_limits_keep_tool_concurrency_and_bound_cpu_workers() {
     );
     assert!((1..=8).contains(&limits.cpu_burst_threads));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
-    assert!((1..=3).contains(&limits.child_processes));
-    assert!(limits.child_processes <= limits.cpu_burst_threads.div_ceil(limits.child_threads));
+    assert!(limits.child_processes >= limits.cpu_burst_threads.div_ceil(limits.child_threads));
+    assert!(limits.child_processes <= limits.cpu_burst_threads);
+    assert!(limits.child_processes <= 12);
     assert!((1..=2).contains(&limits.child_threads));
     assert_eq!(limits.indexed_file_limit(), REPO_MAP_MAX_FILES);
     assert_eq!(limits.ast_file_limit(), 32);
     assert_eq!(limits.ast_byte_limit(), 32 * 1024 * 1024);
     assert_eq!(limits.semantic_session_limit(), 2);
     assert_eq!(limits.repo_map_cache_limit(), 2);
+    assert_eq!(limits.io_parallelism(), 32);
+    assert_eq!(
+        limits.probe_process_limit(),
+        limits.cpu_burst_threads.min(8)
+    );
+    assert!((4..=8).contains(&tokio_worker_threads()));
 
     let explicitly_raised = ResourceLimits::new(10.0, 512, 120).unwrap();
     assert_eq!(explicitly_raised.effective_parallel_tools, 64);
+}
+
+#[test]
+fn foreground_cpu_budget_is_latency_biased_without_raising_background_target() {
+    let limits = ResourceLimits::new(10.0, 512, 32).unwrap();
+    assert_eq!(limits.interactive_burst_seconds(), 8.0);
+    assert_eq!(limits.interactive_debt_seconds(), 4.0);
+    assert_eq!(limits.background_burst_seconds(), 0.5);
+    assert_eq!(limits.max_cpu_percent, 10.0);
+    assert!(limits.interactive_cpu_percent > limits.max_cpu_percent);
 }
 
 #[test]

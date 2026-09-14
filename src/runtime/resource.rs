@@ -28,8 +28,14 @@ use tokio::time::MissedTickBehavior;
 pub const DEFAULT_MAX_CPU_PERCENT: f64 = 10.0;
 pub const DEFAULT_MAX_MEMORY_MB: u64 = 512;
 pub const DEFAULT_MAX_PARALLEL_TOOLS: usize = 32;
-pub const TOKIO_WORKER_THREADS: usize = 4;
 pub const TOKIO_MAX_BLOCKING_THREADS: usize = 64;
+
+pub fn tokio_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(8)
+        .clamp(4, 8)
+}
 
 const MIN_MEMORY_MB: u64 = 128;
 const MAX_MEMORY_MB: u64 = 32 * 1024;
@@ -106,12 +112,13 @@ impl ResourceLimits {
                 4
             })
             .max(1);
-        // Heavy repository commands used to bottleneck at two global children
-        // for the default 512 MiB profile, even when eight foreground CPU lanes
-        // and most of the memory budget were idle. Scale conservatively by both
-        // memory and CPU: ~160 MiB of soft budget per child, while the aggregate
-        // advertised child threads never meaningfully exceeds foreground lanes.
-        let child_processes = usize::try_from(max_memory_mb / 160)
+        // Heavy repository commands are latency-sensitive foreground work. Use
+        // ~128 MiB of soft budget per child and never advertise more children
+        // than the foreground CPU lanes can sustain at `child_threads` each.
+        // On an 8-lane host the default 512 MiB profile reaches four 2-thread
+        // children: higher fan-out than the old three-child profile without
+        // oversubscribing the CPU burst budget.
+        let child_processes = usize::try_from(max_memory_mb / 128)
             .unwrap_or(8)
             .clamp(1, 8)
             .min(cpu_burst_threads.div_ceil(child_threads).max(1))
@@ -150,8 +157,8 @@ impl ResourceLimits {
     pub(crate) fn io_parallelism(self) -> usize {
         // Each active file operation may hold original, replacement and output
         // buffers. Share one bounded I/O pool instead of multiplying per batch.
-        usize::try_from(self.max_memory_bytes / (32 * 1024 * 1024))
-            .unwrap_or(16)
+        usize::try_from(self.max_memory_bytes / (16 * 1024 * 1024))
+            .unwrap_or(32)
             .clamp(1, 32)
             .min(self.effective_parallel_tools)
             .max(1)
@@ -160,9 +167,9 @@ impl ResourceLimits {
     fn probe_process_limit(self) -> usize {
         // Small, fixed-form Git inspections get separate capacity; compilers
         // and arbitrary commands keep the existing heavy-process bound.
-        usize::try_from(self.max_memory_bytes / (128 * 1024 * 1024))
-            .unwrap_or(4)
-            .clamp(1, 4)
+        usize::try_from(self.max_memory_bytes / (64 * 1024 * 1024))
+            .unwrap_or(8)
+            .clamp(1, 8)
             .min(self.cpu_burst_threads)
             .min(self.effective_parallel_tools)
     }
@@ -217,11 +224,14 @@ impl ResourceLimits {
     }
 
     fn interactive_burst_seconds(self) -> f64 {
-        4.0
+        // Foreground coding/indexing already has a hard worker cap. Keep a
+        // larger latency-first credit window so a burst of independent tool
+        // work does not turn into token-bucket sleeps while the user waits.
+        8.0
     }
 
     fn interactive_debt_seconds(self) -> f64 {
-        2.0
+        4.0
     }
 
     fn background_burst_seconds(self) -> f64 {

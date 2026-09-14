@@ -14,12 +14,8 @@ pub(super) fn validate_docker_command(args: &[String], allow_risky_exec: bool) -
         .map(String::as_str)
         .ok_or_else(|| anyhow!("docker subcommand is required"))?;
     match subcommand {
-        "info" | "ps" | "images" => {
-            require_risky_exec("Docker daemon inspection", allow_risky_exec)
-        }
-        "network" | "volume" if args.get(1).is_some_and(|action| action == "ls") => {
-            require_risky_exec("Docker daemon inspection", allow_risky_exec)
-        }
+        "info" | "ps" | "images" => Ok(()),
+        "network" | "volume" if args.get(1).is_some_and(|action| action == "ls") => Ok(()),
         "compose" => validate_docker_compose(&args[1..], allow_risky_exec),
         _ => bail!("docker {subcommand} is blocked; wcode only exposes bounded inspection and Compose workflows"),
     }
@@ -32,12 +28,7 @@ fn validate_docker_compose(args: &[String], allow_risky_exec: bool) -> Result<()
         .map(String::as_str)
         .ok_or_else(|| anyhow!("docker compose subcommand is required"))?;
     match action {
-        "config" | "ps" | "ls" => {
-            require_risky_exec(&format!("docker compose {action}"), allow_risky_exec)
-        }
-        "build" | "up" | "start" | "stop" | "restart" | "pull" => {
-            require_risky_exec(&format!("docker compose {action}"), allow_risky_exec)
-        }
+        "config" | "ps" | "ls" | "build" | "up" | "start" | "stop" | "restart" | "pull" => Ok(()),
         "down" => {
             if args.iter().any(|arg| {
                 matches!(

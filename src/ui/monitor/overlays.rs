@@ -169,7 +169,6 @@ pub(super) fn render_authorization_overlay(
             crate::authorization::AuthorizationKind::RiskyExecution => {
                 language.tr("Exact repository operation")
             }
-            crate::authorization::AuthorizationKind::RuntimeExecutor => language.tr("RUNTIME EXEC"),
             crate::authorization::AuthorizationKind::DestructiveDelete => language.tr("DELETE"),
         };
         let prefix = if selected { "›" } else { " " };

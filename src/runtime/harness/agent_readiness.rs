@@ -270,8 +270,12 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .max(worklist_lanes)
         .max(previous_candidate_lanes)
         .max(1);
-    let parallel_strategy = if candidate_lanes > 1 {
-        "top_level_concurrent_calls"
+    let parallel_required = candidate_lanes > 1;
+    if parallel_required {
+        advisories.push("parallel_execution_required");
+    }
+    let parallel_strategy = if parallel_required {
+        "parallel_required"
     } else {
         "single_lane"
     };
@@ -323,17 +327,23 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "next_actions": next_actions,
         "parallelism": {
             "strategy": parallel_strategy,
+            "required": parallel_required,
             "candidate_lanes": candidate_lanes,
-            "execution_bias": if candidate_lanes > 1 { "parallel_first" } else { "single_lane" },
+            "execution_bias": if parallel_required { "parallel_first" } else { "single_lane" },
             "max_parallel": max_parallel,
             "recommended_concurrency": candidate_lanes.min(max_parallel),
-            "instruction": if candidate_lanes > 1 {
-                "Launch independent top-level tool calls concurrently in the next action. Serialize only true data dependencies or overlapping writes."
+            "lane_targets": if !target_paths.is_empty() {
+                target_paths.iter().copied().collect::<Vec<_>>()
+            } else {
+                value["scopes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>()
+            },
+            "instruction": if parallel_required {
+                "Parallel execution is required for the independent lanes in the next action. Use concurrent top-level calls when supported; otherwise use wcode parallel_tools for compact known operations. Serialize only true data dependencies or overlapping writes."
             } else {
                 "Keep this task in one lane unless new independent targets are discovered."
             },
             "serialize_only": ["overlapping file writes", "shared mutable state", "output-dependent follow-ups"],
-            "parallel_tools": "compact_fanout_only"
+            "fallback_tool": if parallel_required { "parallel_tools" } else { "none" }
         },
         "change_strategy": change_strategy,
         "complexity_budget": complexity_budget,
@@ -362,7 +372,8 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
                 "execution_bias",
                 "instruction",
                 "serialize_only",
-                "parallel_tools",
+                "fallback_tool",
+                "lane_targets",
             ] {
                 parallelism.remove(key);
             }

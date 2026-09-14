@@ -489,6 +489,47 @@ pub(super) async fn intelligence_web_project(
         Ok(selected) => selected,
         Err(response) => return *response,
     };
+    let prefer_cached = headers
+        .get("x-wcode-prefer-cached")
+        .and_then(|value| value.to_str().ok())
+        == Some("1");
+    if prefer_cached {
+        if let Some(snapshot) = state.harness.cached_project_observatory(&workspace) {
+            if let Ok(mut value) = serde_json::to_value(snapshot) {
+                value["workspace_options"] = intelligence_workspace_options(&state);
+                value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
+                value["activity"] = state.monitor.observatory_activity(&workspace_id);
+                value["pending_authorizations"] = json!(state
+                    .workspaces
+                    .authorization_requests(256)
+                    .into_iter()
+                    .filter(|request| {
+                        request.status == AuthorizationStatus::Pending
+                            && request.workspace == workspace_id
+                    })
+                    .count());
+                value["snapshot_cache"] = json!("stale-while-revalidate");
+                let mut response =
+                    ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response();
+                response.headers_mut().insert(
+                    axum::http::HeaderName::from_static("server-timing"),
+                    "snapshot-cache;dur=0.1".parse().unwrap(),
+                );
+                return response;
+            }
+        }
+        return (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(json!({
+                "workspace": workspace_id,
+                "workspace_options": intelligence_workspace_options(&state),
+                "activity": state.monitor.observatory_activity(&workspace_id),
+                "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
+                "snapshot_pending": true
+            })),
+        )
+            .into_response();
+    }
     let review_started = std::time::Instant::now();
     let (review, review_reason) = if !workspace.exec_enabled() {
         (None, "execution_disabled")

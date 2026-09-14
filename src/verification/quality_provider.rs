@@ -59,6 +59,7 @@ pub enum QualityProviderSource {
 pub enum QualityExecutionLane {
     Unavailable,
     AutonomousVerification,
+    AutonomousDevelopment,
     RuntimeAuthorizationRequired,
     TrustedRuntime,
 }
@@ -431,14 +432,22 @@ pub async fn execute(
     let timeout_seconds = timeout_seconds.clamp(1, 300);
     let autonomous_verification =
         scoped_workspace.verification_command_shape_allowed(&candidate.program, &candidate.args);
+    let autonomous_development =
+        scoped_workspace.development_command_shape_allowed(&candidate.program, &candidate.args);
     let execution_lane = if autonomous_verification {
         QualityExecutionLane::AutonomousVerification
+    } else if autonomous_development {
+        QualityExecutionLane::AutonomousDevelopment
     } else {
         QualityExecutionLane::TrustedRuntime
     };
     let command = if autonomous_verification {
         scoped_workspace
             .run_verification_command(&candidate.program, &candidate.args, ".", timeout_seconds)
+            .await?
+    } else if autonomous_development {
+        scoped_workspace
+            .run_command(&candidate.program, &candidate.args, ".", timeout_seconds)
             .await?
     } else {
         scoped_workspace
@@ -489,17 +498,18 @@ fn provider_status(
         && workspace.exec_enabled();
     let autonomous_verification = runnable
         && workspace.verification_command_shape_allowed(&candidate.program, &candidate.args);
+    let autonomous_development = runnable
+        && workspace.development_command_shape_allowed(&candidate.program, &candidate.args);
     let execution_lane = if !runnable {
         QualityExecutionLane::Unavailable
     } else if autonomous_verification {
         QualityExecutionLane::AutonomousVerification
-    } else if workspace.risky_exec_enabled() {
-        QualityExecutionLane::TrustedRuntime
+    } else if autonomous_development {
+        QualityExecutionLane::AutonomousDevelopment
     } else {
-        QualityExecutionLane::RuntimeAuthorizationRequired
+        QualityExecutionLane::TrustedRuntime
     };
-    let authorization_required =
-        execution_lane == QualityExecutionLane::RuntimeAuthorizationRequired;
+    let authorization_required = false;
     let reason = if !language_present {
         "no matching source files detected".to_owned()
     } else if !candidate.declared {
@@ -518,6 +528,9 @@ fn provider_status(
         "command execution is disabled".to_owned()
     } else if autonomous_verification {
         "provider is declared, available, and approved for autonomous exact-shape verification"
+            .to_owned()
+    } else if autonomous_development {
+        "provider is declared, available, check-only, and allowed by the autonomous development-command policy"
             .to_owned()
     } else if authorization_required {
         "provider is ready but execution requires explicit repository-aware authorization"

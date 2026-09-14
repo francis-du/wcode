@@ -17,6 +17,8 @@ mod cost;
 mod experience;
 #[path = "harness/focus.rs"]
 mod focus;
+#[path = "harness/review_generated.rs"]
+mod review_generated;
 #[path = "harness/selective.rs"]
 mod selective;
 #[path = "harness/verification_reuse.rs"]
@@ -70,7 +72,7 @@ fn design_init_bootstraps_minimal_valid_state_without_overwrite() {
     }
     assert_eq!(status.requirements, 0);
     assert_eq!(status.components, 0);
-    assert_eq!(status.constraints, 3);
+    assert_eq!(status.constraints, 4);
     assert_eq!(status.acceptance_criteria, 0);
     assert_eq!(status.decisions, 0);
     let constraints = fs::read_to_string(root.path().join(".wcode/design/constraints.yaml"))
@@ -78,6 +80,7 @@ fn design_init_bootstraps_minimal_valid_state_without_overwrite() {
     assert!(constraints.contains("CONSTRAINT-SOURCE-DECOMPOSITION"));
     assert!(constraints.contains("CONSTRAINT-TEST-ROOT"));
     assert!(constraints.contains("CONSTRAINT-DESIGN-SYNC"));
+    assert!(constraints.contains("CONSTRAINT-PARALLEL-FIRST"));
     assert!(harness
         .design_init("demo", &workspace, "Other", "")
         .is_err());
@@ -210,6 +213,14 @@ fn project_context_detects_guidance_and_quality_checks() {
                 && item["rule"]
                     .as_str()
                     .is_some_and(|rule| rule.contains("<=1000 lines"))
+        })));
+    assert!(agent["core_constraints"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["id"] == "CONSTRAINT-PARALLEL-FIRST"
+                && item["rule"]
+                    .as_str()
+                    .is_some_and(|rule| rule.contains("bulk tools"))
         })));
     assert_eq!(agent["conventions"]["errors"], 1);
     assert!(agent["conventions"]["findings"]
@@ -724,8 +735,9 @@ mod tests {
         .unwrap();
     assert_eq!(
         parallel_task["readiness"]["parallelism"]["strategy"],
-        "top_level_concurrent_calls"
+        "parallel_required"
     );
+    assert_eq!(parallel_task["readiness"]["parallelism"]["required"], true);
     assert!(
         parallel_task["readiness"]["parallelism"]["candidate_lanes"]
             .as_u64()
@@ -745,7 +757,7 @@ mod tests {
     assert!(parallel_task["readiness"]["parallelism"]["instruction"]
         .as_str()
         .unwrap()
-        .contains("next action"));
+        .contains("required"));
     assert_eq!(
         parallel_task["readiness"]["parallelism"]["serialize_only"]
             .as_array()
@@ -766,7 +778,7 @@ mod tests {
         .unwrap();
     assert_eq!(
         compact_parallel_task["readiness"]["parallelism"]["strategy"],
-        "top_level_concurrent_calls"
+        "parallel_required"
     );
     assert!(
         compact_parallel_task["readiness"]["parallelism"]["candidate_lanes"]

@@ -29,7 +29,7 @@
 - schema_version: 1
   id: CONSTRAINT-BOUNDED-DEV-TOOLS
   title: Common development CLIs remain command-bounded
-  statement: Known developer CLIs must use tool-specific policy that separates read/check-only shapes from exact authorized mutations and permanently blocks credential redirection, unbounded helper execution, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command.
+  statement: Known developer CLIs for every indexed language must default bounded local test/check/lint/build/format/codegen/dependency and workspace-script workflows to the hardened autonomous development lane, while tool-specific policy permanently blocks shell evaluation, inline/interactive interpreter escape where unsafe, compiler/plugin/agent injection, credential or filesystem redirection, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command.
   applies_to:
     - component:command-execution
 
@@ -227,6 +227,12 @@
   id: CONSTRAINT-DESIGN-SYNC
   title: Design references move with the code
   statement: Changes to responsibilities, source paths, test paths, trust boundaries or transport behavior must update the matching .wcode Design State in the same change.
+
+- schema_version: 1
+  id: CONSTRAINT-PARALLEL-FIRST
+  title: Independent work executes in parallel
+  statement: >-
+    When Agent Context or a Worklist exposes two or more independent runnable lanes, execution must fan them out concurrently up to the runtime cap. Serialize only true data dependencies, overlapping writes, shared mutable state, or output-dependent follow-ups; serial execution of known independent lanes is non-compliant. Use the lowest-overhead safe primitive: prefer one-traversal bulk operations such as read_files, search_many, apply_file_edits, create_files or move_paths before per-item fan-out, reuse shared snapshots and caches, and avoid duplicate repository traversals. Hosts that cannot issue concurrent top-level calls must use wcode parallel_tools for compact known operations.
 
 - schema_version: 1
   id: CONSTRAINT-CLI-SURFACE

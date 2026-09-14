@@ -347,11 +347,18 @@ fn generated_directory(path: &str) -> bool {
         })
 }
 
-fn generated_source(path: &str, content: &str) -> bool {
+pub(crate) fn generated_source_path(path: &str) -> bool {
     if generated_directory(path) {
         return true;
     }
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    normalized.contains("l10n/app_localizations") && normalized.ends_with(".dart")
+}
+
+fn generated_source(path: &str, content: &str) -> bool {
+    if generated_source_path(path) {
+        return true;
+    }
     let header = content
         .lines()
         .take(40)
@@ -363,8 +370,6 @@ fn generated_source(path: &str, content: &str) -> bool {
         || header.contains("@generated")
         || header.contains("do not modify")
         || header.contains("do not edit")
-        || (normalized.contains("l10n/app_localizations")
-            && header.contains("ignore_for_file: type=lint"))
 }
 
 pub(crate) fn maintained_source_lines(path: &str, content: &str) -> Option<usize> {

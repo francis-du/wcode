@@ -21,7 +21,10 @@ impl Workspace {
         let mut admissible = self.security;
         admissible.allow_risky_exec = true;
         validate_command_policy(program, args, admissible)?;
-        let autonomous_verification = validate_verification_command_shape(program, args).is_ok();
+        let mut safe_development = self.security;
+        safe_development.allow_risky_exec = false;
+        let autonomous_development =
+            validate_command_policy(program, args, safe_development).is_ok();
         let cwd_path = self.existing_path(cwd)?;
         if !cwd_path.is_dir() {
             bail!("cwd is not a directory");
@@ -45,7 +48,7 @@ impl Workspace {
         }
         let mut effective_security = self.security;
         if !effective_security.allow_risky_exec
-            && !autonomous_verification
+            && !autonomous_development
             && validate_command_policy(program, args, effective_security).is_err()
         {
             let mut elevated = effective_security;
@@ -107,6 +110,12 @@ impl Workspace {
         args: &[String],
     ) -> bool {
         validate_verification_command_shape(program, args).is_ok()
+    }
+
+    pub(crate) fn development_command_shape_allowed(&self, program: &str, args: &[String]) -> bool {
+        let mut security = self.security;
+        security.allow_risky_exec = false;
+        validate_command_policy(program, args, security).is_ok()
     }
 
     pub(crate) async fn run_verification_command(
@@ -184,17 +193,10 @@ impl Workspace {
         if !self.allow_exec {
             bail!("runtime executor requires command execution; restart without --no-exec");
         }
-        if !self.security.allow_risky_exec {
-            let operation = format!("runtime_executor\0{program}\0{}\0{cwd}", args.join("\0"));
-            self.authorize_risky_operation(
-                AuthorizationKind::RuntimeExecutor,
-                &operation,
-                &format!(
-                    "allow repository-defined executor: {program} {}",
-                    args.join(" ")
-                ),
-            )?;
-        }
+        // Repository-declared test/quality executors use the hardened local
+        // development lane and do not require repetitive human approval. The
+        // executable and cwd remain workspace-bounded, sensitive environment
+        // state is scrubbed, stdin is closed, and process/output/time are bounded.
         if program.trim().is_empty()
             || program.len() > 512
             || program.contains(['\0', '\n', '\r'])

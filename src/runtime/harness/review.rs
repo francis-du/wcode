@@ -359,10 +359,12 @@ pub(super) fn append_maintainability_findings(
     let mut changed_scopes = BTreeSet::new();
     let mut source_churn = 0u64;
 
-    for file in files
-        .iter()
-        .filter(|file| file.category == "source" && !file.binary && file.status != "deleted")
-    {
+    for file in files.iter().filter(|file| {
+        file.category == "source"
+            && !file.binary
+            && file.status != "deleted"
+            && !crate::conventions::generated_source_path(&file.path)
+    }) {
         let additions = file.additions.unwrap_or(0);
         let deletions = file.deletions.unwrap_or(0);
         source_churn = source_churn.saturating_add(additions.saturating_add(deletions));

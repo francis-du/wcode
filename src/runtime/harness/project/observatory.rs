@@ -1,6 +1,45 @@
 use super::*;
 
 impl ToolHarness {
+    pub fn cached_project_observatory(
+        &self,
+        workspace: &Workspace,
+    ) -> Option<crate::intelligence_types::ProjectObservatory> {
+        let root = workspace.root().to_path_buf();
+        let mut cache = self.observatory_cache.lock().ok()?;
+        let cached = cache.get_mut(&root)?;
+        cached.last_used = Instant::now();
+        Some(cached.snapshot.as_ref().clone())
+    }
+
+    fn cache_project_observatory(
+        &self,
+        workspace: &Workspace,
+        snapshot: &crate::intelligence_types::ProjectObservatory,
+    ) {
+        let Ok(mut cache) = self.observatory_cache.lock() else {
+            return;
+        };
+        let root = workspace.root().to_path_buf();
+        let limit = crate::resource::limits().project_cache_limit();
+        if cache.len() >= limit && !cache.contains_key(&root) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(path, _)| path.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            root,
+            CachedProjectObservatory {
+                last_used: Instant::now(),
+                snapshot: Arc::new(snapshot.clone()),
+            },
+        );
+    }
+
     pub fn project_observatory(
         &self,
         workspace_id: impl Into<String>,
@@ -272,7 +311,7 @@ impl ToolHarness {
             None
         };
 
-        Ok(build_project_observatory(ObservatoryInput {
+        let snapshot = build_project_observatory(ObservatoryInput {
             workspace: workspace_id,
             root: workspace.root().display().to_string(),
             design: design.as_ref().clone(),
@@ -291,6 +330,8 @@ impl ToolHarness {
             engineering_journal,
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
-        }))
+        });
+        self.cache_project_observatory(workspace, &snapshot);
+        Ok(snapshot)
     }
 }

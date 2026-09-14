@@ -16,7 +16,7 @@ fn perf_foreground_capacity_uses_hardware_without_raising_background_budget() {
     assert_eq!(limits.max_cpu_percent, 10.0);
     assert_eq!(
         limits.child_processes,
-        (512usize / 160)
+        (512usize / 128)
             .clamp(1, 8)
             .min(limits.cpu_burst_threads.div_ceil(limits.child_threads))
             .min(limits.effective_parallel_tools),

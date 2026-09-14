@@ -460,6 +460,7 @@ const state = {
   projectTickActive: false,
   started: false,
   project: null,
+  projectCache: new Map(),
   access: null,
   workspaceAccess: null,
   authorizations: [],
@@ -740,7 +741,7 @@ function applyLanguage() {
 }
 
 async function uiJson(path, method = "GET", body, options = {}) {
-  const headers = requestHeaders(options.workspace ?? state.current);
+  const headers = { ...requestHeaders(options.workspace ?? state.current), ...(options.headers || {}) };
   if (!token) throw new Error(localized("Open this page from the wcode TUI to authorize access.", "请从 wcode 终端面板打开此页面以授权访问。"));
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const controller = new AbortController();

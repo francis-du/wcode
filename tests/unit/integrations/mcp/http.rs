@@ -92,6 +92,33 @@ async fn observatory_project_distinguishes_unavailable_review_from_clean() {
 }
 
 #[tokio::test]
+async fn observatory_project_serves_cached_snapshot_before_heavy_refresh() {
+    let (state, _root) = origin_test_state();
+    let workspace = state.workspaces.default_id().to_owned();
+    let mut cached_headers = ui_headers(&state, &workspace);
+    cached_headers.insert("x-wcode-prefer-cached", "1".parse().unwrap());
+
+    let cold = intelligence_web_project(State(state.clone()), cached_headers.clone()).await;
+    assert_eq!(cold.status(), StatusCode::OK);
+    let cold = response_json(cold).await;
+    assert_eq!(cold["snapshot_pending"], true);
+
+    let full = intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace)).await;
+    assert_eq!(full.status(), StatusCode::OK);
+    let _ = response_json(full).await;
+
+    let cached = intelligence_web_project(State(state.clone()), cached_headers).await;
+    assert_eq!(cached.status(), StatusCode::OK);
+    assert!(cached.headers()["server-timing"]
+        .to_str()
+        .unwrap()
+        .contains("snapshot-cache"));
+    let cached = response_json(cached).await;
+    assert_eq!(cached["snapshot_cache"], "stale-while-revalidate");
+    assert_eq!(cached["git_review"]["reason"], "cached_snapshot");
+}
+
+#[tokio::test]
 async fn observatory_revision_exposes_proof_freshness_without_starting_commands() {
     let (state, _root) = origin_test_state();
     let workspace = state.workspaces.default_id().to_owned();
@@ -335,6 +362,7 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
         4,
         true,
         std::time::Duration::from_secs(60),
+        false,
     );
     state.monitor.mark_public_url_check(true, None);
     let full = health(State(state.clone()), HeaderMap::new()).await.0;
@@ -455,7 +483,7 @@ async fn webui_command_approval_gates_executable_access_without_re_gating_safe_t
     assert!(state.workspaces.latest_pending_authorization().is_none());
 
     let child_error = child
-        .run_command("cargo", &["run".to_owned()], ".", 30)
+        .run_command("cargo", &["clean".to_owned()], ".", 30)
         .await
         .unwrap_err();
     assert!(child_error.to_string().contains("authorization required"));

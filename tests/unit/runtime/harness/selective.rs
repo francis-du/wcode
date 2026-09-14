@@ -727,3 +727,166 @@ fn polyglot_quick_verification_promotes_a_bounded_full_fallback_and_full_stays_s
     assert_eq!(full_gaps[0].project_types, vec!["node"]);
     assert_eq!(full_gaps[0].level, "full");
 }
+
+#[test]
+fn flutter_platform_cmake_scaffolds_stay_owned_by_the_dart_island() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    fs::create_dir_all(root.path().join("app/lib")).unwrap();
+    fs::write(
+        root.path().join("app/pubspec.yaml"),
+        "name: app\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("app/lib/main.dart"), "void main() {}\n").unwrap();
+
+    for platform in ["linux", "windows"] {
+        let platform_root = root.path().join("app").join(platform);
+        fs::create_dir_all(platform_root.join("flutter")).unwrap();
+        fs::create_dir_all(platform_root.join("runner")).unwrap();
+        for manifest in [
+            platform_root.join("CMakeLists.txt"),
+            platform_root.join("flutter/CMakeLists.txt"),
+            platform_root.join("runner/CMakeLists.txt"),
+        ] {
+            fs::write(manifest, "cmake_minimum_required(VERSION 3.13)\n").unwrap();
+        }
+        fs::write(
+            platform_root.join("runner/main.cpp"),
+            "int main() { return 0; }\n",
+        )
+        .unwrap();
+    }
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+
+    assert!(profile.islands.iter().any(|island| island.root == "app"));
+    assert!(!profile.islands.iter().any(|island| {
+        island.root.starts_with("app/linux") || island.root.starts_with("app/windows")
+    }));
+
+    let snapshot = json!({
+        "available": true,
+        "truncated": false,
+        "files": [{"path":"app/windows/runner/main.cpp"}]
+    });
+    assert!(
+        super::super::harness_profile::verification_gaps_for_snapshot(
+            &profile,
+            Some(&snapshot),
+            "full",
+        )
+        .is_empty()
+    );
+    let checks = super::super::harness_profile::verification_checks_for_snapshot(
+        &profile,
+        Some(&snapshot),
+        "full",
+    );
+    assert!(checks.iter().any(|check| check.id == "app:dart-test"));
+    assert!(!checks.iter().any(|check| check.id.contains("cmake")));
+}
+
+#[test]
+fn flutter_generated_swift_packages_are_not_independent_islands() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    fs::create_dir_all(root.path().join("app/lib")).unwrap();
+    fs::write(
+        root.path().join("app/pubspec.yaml"),
+        "name: app\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("app/lib/main.dart"), "void main() {}\n").unwrap();
+    let generated = root
+        .path()
+        .join("app/ios/Flutter/ephemeral/Packages/GeneratedPlugin");
+    fs::create_dir_all(generated.join("Sources/GeneratedPlugin")).unwrap();
+    fs::write(
+        generated.join("Package.swift"),
+        "// swift-tools-version: 5.9\n",
+    )
+    .unwrap();
+    fs::write(
+        generated.join("Sources/GeneratedPlugin/Plugin.swift"),
+        "public struct Plugin {}\n",
+    )
+    .unwrap();
+    let native = root.path().join("native-swift");
+    fs::create_dir_all(native.join("Sources/App")).unwrap();
+    fs::write(
+        native.join("Package.swift"),
+        "// swift-tools-version: 5.9\n",
+    )
+    .unwrap();
+    fs::write(native.join("Sources/App/main.swift"), "print(\"ok\")\n").unwrap();
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+
+    assert!(profile.islands.iter().any(|island| island.root == "app"));
+    assert!(profile
+        .islands
+        .iter()
+        .any(|island| island.root == "native-swift"));
+    assert!(!profile
+        .islands
+        .iter()
+        .any(|island| island.root.contains("/ephemeral/")));
+    assert!(!profile
+        .recommended_checks
+        .iter()
+        .any(|check| check.cwd.contains("/ephemeral/")));
+}
+
+#[test]
+fn standalone_cmake_islands_keep_native_configure_and_build_gates() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    fs::create_dir_all(root.path().join("native/src")).unwrap();
+    fs::write(
+        root.path().join("native/CMakeLists.txt"),
+        "cmake_minimum_required(VERSION 3.13)\nproject(native LANGUAGES CXX)\nadd_executable(native src/main.cpp)\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("native/src/main.cpp"),
+        "int main() { return 0; }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+    let native = profile
+        .islands
+        .iter()
+        .find(|island| island.root == "native")
+        .expect("standalone CMake project remains an island");
+    assert_eq!(native.project_types, vec!["cmake"]);
+    assert_eq!(native.verification_status, "native");
+    assert!(native.verification_gaps.is_empty());
+    assert!(profile.recommended_checks.iter().any(|check| {
+        check.id == "native:cmake-configure" && check.level == "quick" && check.phase == 0
+    }));
+    assert!(profile.recommended_checks.iter().any(|check| {
+        check.id == "native:cmake-build" && check.level == "full" && check.phase == 3
+    }));
+
+    let snapshot = json!({
+        "available": true,
+        "truncated": false,
+        "files": [{"path":"native/src/main.cpp"}]
+    });
+    assert!(
+        super::super::harness_profile::verification_gaps_for_snapshot(
+            &profile,
+            Some(&snapshot),
+            "full",
+        )
+        .is_empty()
+    );
+}
