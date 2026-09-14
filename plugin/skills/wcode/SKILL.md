@@ -12,9 +12,17 @@ Tool visibility bootstrap:
   or abbreviate tools, so inspect the available/deferred tool registry before
   concluding that wcode is unavailable. Discover `wcode` or `agent_context`
   once, then load only the tools needed by `next_actions`. Reuse discovered
-  schemas; do not repeatedly load the entire tool catalog.
+  schemas; do not repeatedly load the entire tool catalog. When the Host exposes
+  tool `_meta`, keep tools with `dev.wcode/preloadRecommended=true` immediately
+  available and discover the rest on demand. The catalog and server instructions
+  are intentionally deterministic so cache-sensitive Hosts can retain stable prefixes.
 - Once found, use the real wcode MCP tools and keep one namespace for the task.
   Do not switch to an alias such as `hcode` merely because both are registered.
+  Capability-first model tuning is preferred over vendor branching: Hosts with
+  deferred tool search should load the core tier first; Hosts with native
+  parallel function calling should issue independent top-level calls together;
+  Hosts without either capability should use the same workflow through the
+  compact deterministic catalog and `parallel_tools`.
 - The minimum coding chain is `agent_context` first, guarded wcode reads/edits
   next, then `review_changes` and `verify_project`; use Design, Graph, drift,
   impact, risk, Evidence, and Verification tools when readiness or risk calls

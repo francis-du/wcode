@@ -236,7 +236,7 @@ impl SoftwareIntelligenceRuntime {
                     &fallback
                 }
             };
-            let stage_targets = verification_targets_for_review(review, registry);
+            let stage_targets = verification_targets_for_review(review, registry, level);
             append_verification_automation_gap(
                 &workspace_id,
                 &profile,
@@ -342,7 +342,7 @@ impl SoftwareIntelligenceRuntime {
             review,
         )?;
         let registry = stage_executor::registry(workspace)?;
-        let stage_targets = verification_targets_for_review(review, &registry);
+        let stage_targets = verification_targets_for_review(review, &registry, risk.level);
         self.create_plan_for_risk_with_targets(
             &workspace_id,
             workspace,

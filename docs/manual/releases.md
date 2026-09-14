@@ -13,10 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Next release
 
-- [v0.7.1](v0.7.1/) — resilient tunnel/Host recovery, stale-while-revalidate project loading, hardened `semantic_auto`, autonomous development tooling, and higher real parallel throughput. Push first; create the tag only after CI is green.
+- [v0.7.2](v0.7.2/) — clearer operator observability, model-efficient core tool discovery, retrieval telemetry, and risk-relevant Verification Mesh targeting. Push first; create the tag only after CI is green.
 
 ## 0.7.x
 
+- [v0.7.2](v0.7.2/) — clearer Observatory/TUI/Setup state, model-host efficiency, precise advanced verification targets, and safer low-friction repository inspection.
 - [v0.7.1](v0.7.1/) — network-jitter tolerant stable endpoints, faster project switching, stronger parallel execution, and lower development authorization friction.
 - [v0.7.0](v0.7.0/) — architecture-first project observability, clearer evidence and change workflows, faster initial loading, and stronger release contracts.
 

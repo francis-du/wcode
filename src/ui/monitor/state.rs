@@ -160,6 +160,15 @@ impl TaskMonitor {
             "orchestration": orchestration, "calls": stats.calls,
             "completed": stats.completed, "failed": stats.failed,
             "counter_scope": "workspace_since_process_start",
+            "agent_context": {
+                "calls": stats.agent_context_calls,
+                "model_bytes": stats.agent_context_model_bytes,
+                "bytes_avoided": stats.agent_context_bytes_avoided,
+                "repo_map_cache_hits": stats.agent_repo_map_cache_hits,
+                "repo_map_candidates": stats.agent_repo_map_candidates,
+                "repo_map_delivered": stats.agent_repo_map_delivered,
+                "build_ms": stats.agent_context_build_ms,
+            },
             "recent": recent, "recent_truncated": retained > 12,
             "history_scope": "bounded_process_memory",
         })
@@ -188,26 +197,6 @@ impl TaskMonitor {
         let stats = state.intelligence.entry(workspace.to_owned()).or_default();
         stats.refreshing = false;
         stats.refresh_error = error;
-    }
-
-    pub(crate) fn record_agent_context_metrics(
-        &self,
-        workspace: &str,
-        model_bytes: u64,
-        context_bytes_avoided: u64,
-        repo_map_cache_hit: bool,
-    ) {
-        let mut state = self.state.lock().expect("task monitor lock poisoned");
-        let stats = state.workspaces.entry(workspace.to_owned()).or_default();
-        stats.agent_context_calls = stats.agent_context_calls.saturating_add(1);
-        stats.agent_context_model_bytes =
-            stats.agent_context_model_bytes.saturating_add(model_bytes);
-        stats.agent_context_bytes_avoided = stats
-            .agent_context_bytes_avoided
-            .saturating_add(context_bytes_avoided);
-        stats.agent_repo_map_cache_hits = stats
-            .agent_repo_map_cache_hits
-            .saturating_add(u64::from(repo_map_cache_hit));
     }
 
     pub fn spawn_renderer(&self, config: MonitorConfig, enabled: bool) -> Option<MonitorRenderer> {

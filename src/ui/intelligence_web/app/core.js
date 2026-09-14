@@ -689,6 +689,7 @@ async function refreshTunnels() {
 function setSync(kind, label) {
   els.syncDot.className = `sync-dot ${kind}`;
   els.syncState.textContent = label;
+  els.syncState.parentElement?.setAttribute("aria-label", label);
   els.refresh.disabled = kind === "loading";
 }
 function applyTheme() {

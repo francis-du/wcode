@@ -61,6 +61,7 @@ Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and 
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Repository Intelligence & Engineering State](https://wcode.francis.run/docs/software-intelligence/)
+- [v0.7.2 — clearer observability, model-efficient tools, precise verification](https://wcode.francis.run/docs/releases/v0.7.2/)
 - [v0.7.1 — resilient tunnels, real-time project loading, stronger parallel execution](https://wcode.francis.run/docs/releases/v0.7.1/)
 - [Releases](https://github.com/francis-du/wcode/releases)
 

@@ -241,6 +241,27 @@ fn core_tool_routing_survives_compact_description_limits() {
 }
 
 #[test]
+fn tool_catalog_exposes_model_neutral_agent_hints() {
+    let catalog = tools();
+    let core = [
+        "agent_context",
+        "search_many",
+        "read_files",
+        "apply_file_edits",
+        "review_changes",
+        "verify_project",
+    ];
+    for tool in catalog {
+        let name = tool["name"].as_str().unwrap();
+        if core.contains(&name) {
+            assert_eq!(tool["_meta"]["dev.wcode/preloadRecommended"], true);
+        } else {
+            assert!(tool["_meta"].get("dev.wcode/preloadRecommended").is_none());
+        }
+    }
+}
+
+#[test]
 fn tool_catalog_is_deterministic_compact_and_unique() {
     let first = tools();
     let second = tools();

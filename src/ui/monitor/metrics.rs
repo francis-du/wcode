@@ -1,5 +1,35 @@
 use super::*;
 
+impl TaskMonitor {
+    pub(crate) fn record_agent_context_metrics(
+        &self,
+        workspace: &str,
+        metrics: AgentContextMetrics,
+    ) {
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let stats = state.workspaces.entry(workspace.to_owned()).or_default();
+        stats.agent_context_calls = stats.agent_context_calls.saturating_add(1);
+        stats.agent_context_model_bytes = stats
+            .agent_context_model_bytes
+            .saturating_add(metrics.model_bytes);
+        stats.agent_context_bytes_avoided = stats
+            .agent_context_bytes_avoided
+            .saturating_add(metrics.context_bytes_avoided);
+        stats.agent_repo_map_cache_hits = stats
+            .agent_repo_map_cache_hits
+            .saturating_add(u64::from(metrics.repo_map_cache_hit));
+        stats.agent_repo_map_candidates = stats
+            .agent_repo_map_candidates
+            .saturating_add(metrics.repo_map_candidates);
+        stats.agent_repo_map_delivered = stats
+            .agent_repo_map_delivered
+            .saturating_add(metrics.repo_map_delivered);
+        stats.agent_context_build_ms = stats
+            .agent_context_build_ms
+            .saturating_add(metrics.build_ms);
+    }
+}
+
 pub(super) fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
     if count == 0 {
         return Vec::new();
@@ -93,13 +123,21 @@ pub(super) fn render_throughput(
 
     let bar_width = columns[1].width.saturating_sub(23).clamp(6, 18) as usize;
     let (filled, empty, color) = slot_bar(totals.active, config.max_parallel as u64, bar_width);
+    let agent_context = if totals.agent_context_calls > 0 {
+        format!(
+            "CTX {}/{} · HIT {}/{} · AVG {}ms",
+            totals.agent_repo_map_delivered,
+            totals.agent_repo_map_candidates,
+            totals.agent_repo_map_cache_hits,
+            totals.agent_context_calls,
+            totals.agent_context_build_ms / totals.agent_context_calls,
+        )
+    } else {
+        "SLOT UTILIZATION".to_owned()
+    };
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from(Span::styled(
-                "SLOT UTILIZATION",
-                Style::default().fg(TEXT_DIM),
-            ))
-            .right_aligned(),
+            Line::from(Span::styled(agent_context, Style::default().fg(TEXT_DIM))).right_aligned(),
             Line::from(vec![
                 Span::styled(
                     filled,
@@ -121,16 +159,27 @@ pub(super) fn render_throughput(
 }
 
 pub(super) fn process_queue_text(resources: &crate::resource::ResourceSnapshot) -> String {
+    let waiting = resources
+        .child_queue
+        .waiting
+        .saturating_add(resources.probe_queue.waiting);
+    let max_wait_ms = resources
+        .child_queue
+        .max_wait_ms
+        .max(resources.probe_queue.max_wait_ms);
+    let wait = if max_wait_ms > 0 {
+        format!(" · WAIT {max_wait_ms}ms")
+    } else {
+        String::new()
+    };
     format!(
-        "PROC {}/{} · GIT {}/{} · Q {}",
+        "PROC {}/{} · GIT {}/{} · Q {}{}",
         resources.child_queue.active,
         resources.child_queue.limit,
         resources.probe_queue.active,
         resources.probe_queue.limit,
-        resources
-            .child_queue
-            .waiting
-            .saturating_add(resources.probe_queue.waiting),
+        waiting,
+        wait,
     )
 }
 

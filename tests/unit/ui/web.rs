@@ -345,7 +345,23 @@ fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first()
     assert!(INTELLIGENCE_APP_PAGE.contains("role=\"tablist\""));
     assert!(INTELLIGENCE_APP_PAGE
         .contains("class=\"global-status\" role=\"status\" aria-live=\"polite\""));
+    let controls = INTELLIGENCE_APP_PAGE
+        .find("<div class=\"global-controls\"")
+        .unwrap();
+    let sync = INTELLIGENCE_APP_PAGE
+        .find("<section class=\"global-status\"")
+        .unwrap();
+    let workspace = INTELLIGENCE_APP_PAGE
+        .find("<label class=\"workspace-switcher\"")
+        .unwrap();
+    assert!(controls < sync && sync < workspace);
     assert!(!INTELLIGENCE_CSS.contains(".global-status{display:none"));
+    assert!(!INTELLIGENCE_CSS.contains(".global-status{position:absolute!important"));
+    assert!(!INTELLIGENCE_CSS.contains("clip-path:inset(50%)"));
+    assert!(INTELLIGENCE_JS.contains("parentElement?.setAttribute(\"aria-label\", label)"));
+    assert!(INTELLIGENCE_JS.contains("Agent context efficiency"));
+    assert!(INTELLIGENCE_JS.contains("RepoMap delivered / candidates"));
+    assert!(INTELLIGENCE_JS.contains("not a quality score"));
     assert!(INTELLIGENCE_APP_PAGE.contains("role=\"combobox\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-autocomplete=\"list\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-labelledby=\"tabArchitecture\""));

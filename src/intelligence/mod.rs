@@ -195,6 +195,7 @@ impl SoftwareIntelligenceRuntime {
         }
     }
 
+    #[cfg(test)]
     fn create_plan_for_risk(
         &self,
         workspace_id: &str,

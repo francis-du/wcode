@@ -231,11 +231,23 @@ async fn call_leaf_tool_mode(
                 let repo_map_cache_hit = telemetry["repo_map"]["cache_hit"]
                     .as_bool()
                     .unwrap_or(false);
+                let repo_map_candidates = telemetry["repo_map"]["candidates"]
+                    .as_u64()
+                    .unwrap_or_default();
+                let repo_map_delivered = response["structuredContent"]["repo_map"]["items"]
+                    .as_array()
+                    .map_or(0, |items| items.len() as u64);
+                let build_ms = telemetry["timing"]["build_ms"].as_u64().unwrap_or_default();
                 state.monitor.record_agent_context_metrics(
                     &workspace_label,
-                    response_bytes,
-                    context_bytes_avoided,
-                    repo_map_cache_hit,
+                    crate::monitor::AgentContextMetrics {
+                        model_bytes: response_bytes,
+                        context_bytes_avoided,
+                        repo_map_cache_hit,
+                        repo_map_candidates,
+                        repo_map_delivered,
+                        build_ms,
+                    },
                 );
                 task.finish_with_context_savings(success, response_bytes, context_bytes_avoided);
                 let journal_outcome = if response

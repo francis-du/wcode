@@ -46,7 +46,8 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
-- [v0.7.1 发布候选](releases/v0.7.1/) — 稳定隧道抗抖动、项目实时切换、Semantic Auto 加固、减少开发授权摩擦并强化真实并行吞吐。
+- [v0.7.2 发布候选](releases/v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型高效工具发现、Agent Context 检索遥测与更精确的 Verification Mesh Target。
+- [v0.7.1 发布说明](releases/v0.7.1/) — 稳定隧道抗抖动、项目实时切换、Semantic Auto 加固、减少开发授权摩擦并强化真实并行吞吐。
 - [v0.7.0 发布说明](releases/v0.7.0/) — 重构 Engineering Observatory、加快项目状态加载、强化架构/证据工作流，并收紧发布契约。
 - [v0.6.2 发布说明](releases/v0.6.2/) — 资源感知并行、更简配置、更清楚的观测台与版本绑定的有效证据。
 - [v0.6.1 发布说明](releases/v0.6.1/) — 完成驱动的并行调度、更少的重复上下文调用和任务优先 TUI。

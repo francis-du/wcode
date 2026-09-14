@@ -865,6 +865,15 @@ pub(super) fn totals(snapshot: &MonitorSnapshot) -> WorkspaceStats {
             total.agent_repo_map_cache_hits = total
                 .agent_repo_map_cache_hits
                 .saturating_add(stats.agent_repo_map_cache_hits);
+            total.agent_repo_map_candidates = total
+                .agent_repo_map_candidates
+                .saturating_add(stats.agent_repo_map_candidates);
+            total.agent_repo_map_delivered = total
+                .agent_repo_map_delivered
+                .saturating_add(stats.agent_repo_map_delivered);
+            total.agent_context_build_ms = total
+                .agent_context_build_ms
+                .saturating_add(stats.agent_context_build_ms);
             total
         })
 }

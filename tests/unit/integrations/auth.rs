@@ -38,7 +38,9 @@ fn auth_pages_fit_mobile_viewports_without_disabling_zoom() {
         assert!(html.contains("viewport-fit=cover"));
         assert!(html.contains("color-scheme\" content=\"dark light"));
         assert!(html.contains("#0b0812"));
-        assert!(html.contains("#8b7cff"));
+        assert!(html.contains("#8b7cff") || html.contains("#665cff"));
+        assert!(html.contains("@media(prefers-color-scheme:light)"));
+        assert!(html.contains("#f8f6fc"));
         assert!(html.contains("/intelligence/logo.svg"));
         assert!(html.contains("Inter"));
         assert!(html.contains("Noto Sans"));

@@ -46,7 +46,8 @@ For retrieval, clear `trace→code`, `code→test`, and `edit→ripple` tasks us
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
 - [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
 - [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
-- [v0.7.1 release candidate](releases/v0.7.1/) — resilient stable tunnels, real-time project switching, hardened semantic auto-discovery, less authorization friction, and stronger parallel execution.
+- [v0.7.2 release candidate](releases/v0.7.2/) — clearer Observatory/TUI/Setup state, model-efficient tool discovery, Agent Context retrieval telemetry, and more precise Verification Mesh targets.
+- [v0.7.1 release notes](releases/v0.7.1/) — resilient stable tunnels, real-time project switching, hardened semantic auto-discovery, less authorization friction, and stronger parallel execution.
 - [v0.7.0 release notes](releases/v0.7.0/) — a rebuilt Engineering Observatory, faster project-state loading, stronger architecture/proof workflows, and hardened release contracts.
 - [v0.6.2 release notes](releases/v0.6.2/) — resource-aware parallelism, simpler setup, a clearer Observatory, and effective revision-bound evidence.
 - [v0.6.1 release notes](releases/v0.6.1/) — completion-driven parallel scheduling, fewer redundant context calls, and a task-first TUI.

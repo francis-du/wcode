@@ -13,10 +13,11 @@ permalink: /zh/docs/releases/
 
 ## 下一版本
 
-- [v0.7.1](v0.7.1/) — 隧道／Host 抗抖动恢复、Stale-while-revalidate 项目加载、`semantic_auto` 加固、开发工具自治以及更高的真实并行吞吐。先 Push，CI 全绿后再创建 Tag。
+- [v0.7.2](v0.7.2/) — 更清晰的 Operator 可观测、模型高效核心工具发现、检索遥测与 Risk-relevant Verification Mesh Target。先 Push，CI 全绿后再创建 Tag。
 
 ## 0.7.x
 
+- [v0.7.2](v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型 Host 效率、更精确的高级验证目标，以及更低摩擦的安全仓库检查。
 - [v0.7.1](v0.7.1/) — 稳定入口网络抖动容错、更快项目切换、更强并行执行与更低开发授权摩擦。
 - [v0.7.0](v0.7.0/) — 架构优先的项目观测、更清晰的证据与变更工作流、更快首屏加载，以及更强发布契约。
 

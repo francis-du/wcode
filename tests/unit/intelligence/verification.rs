@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn verification_targets_follow_changed_source_languages() {
-    let review = ChangeReviewReport {
+    let mut review = ChangeReviewReport {
         workspace: "demo".into(),
         execution: "fixture".into(),
         clean: false,
@@ -76,8 +76,96 @@ fn verification_targets_follow_changed_source_languages() {
     };
 
     assert_eq!(
-        verification_targets_for_review(&review, &registry),
+        verification_targets_for_review(&review, &registry, RiskLevel::Medium),
         vec!["language:javascript", "language:rust"]
+    );
+
+    review.files[0]
+        .risk_reasons
+        .push("security-sensitive path".to_owned());
+    assert_eq!(
+        verification_targets_for_review(&review, &registry, RiskLevel::High),
+        vec!["language:rust"]
+    );
+
+    review.files = vec![crate::harness::ChangedFileReview {
+        path: "src/ui/theme.css".into(),
+        status: "modified".into(),
+        staged: false,
+        unstaged: true,
+        untracked: false,
+        binary: false,
+        category: "source".into(),
+        additions: Some(1),
+        deletions: Some(0),
+        risk_reasons: vec!["security-sensitive path".into()],
+    }];
+    assert!(
+        verification_targets_for_review(&review, &registry, RiskLevel::High).is_empty(),
+        "presentation-only source must not fall back to unrelated detected languages"
+    );
+}
+
+#[test]
+fn explicit_presentation_stage_executor_opts_the_language_into_targeting() {
+    let review = ChangeReviewReport {
+        workspace: "demo".into(),
+        execution: "fixture".into(),
+        clean: false,
+        files_changed: 1,
+        staged_files: 0,
+        unstaged_files: 1,
+        untracked_files: 0,
+        additions: 1,
+        deletions: 0,
+        binary_files: 0,
+        source_changed: true,
+        tests_changed: false,
+        docs_only: false,
+        risk_level: "high".into(),
+        recommended_verification: "full".into(),
+        recommended_checks: vec![],
+        summary: "fixture".into(),
+        files: vec![crate::harness::ChangedFileReview {
+            path: "src/ui/theme.css".into(),
+            status: "modified".into(),
+            staged: false,
+            unstaged: true,
+            untracked: false,
+            binary: false,
+            category: "source".into(),
+            additions: Some(1),
+            deletions: Some(0),
+            risk_reasons: vec!["security-sensitive path".into()],
+        }],
+        findings: vec![],
+        probes: vec![],
+        truncated: false,
+    };
+    let registry = StageExecutorRegistry {
+        configured: true,
+        config_path: ".wcode/executors.yaml",
+        detected_languages: vec![crate::semantic_provider::SemanticLanguage::Css],
+        executors: vec![crate::stage_executor::StageExecutorEntry {
+            spec: crate::stage_executor::StageExecutorSpec {
+                id: "css-property".into(),
+                stage: VerificationStage::Property,
+                languages: vec![crate::semantic_provider::SemanticLanguage::Css],
+                program: "make".into(),
+                args: vec!["check".into()],
+                cwd: ".".into(),
+                timeout_seconds: 10,
+                builtin: false,
+            },
+            available: false,
+            reason: "fixture".into(),
+        }],
+        coverage: BTreeMap::new(),
+        universal_config: true,
+    };
+    assert_eq!(
+        verification_targets_for_review(&review, &registry, RiskLevel::High),
+        vec!["language:css"]
     );
 }
 

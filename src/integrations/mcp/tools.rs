@@ -265,6 +265,18 @@ fn strip_model_tuning_args(value: &mut Value) {
     }
 }
 
+fn preload_recommended(name: &str) -> bool {
+    matches!(
+        name,
+        "agent_context"
+            | "search_many"
+            | "read_files"
+            | "apply_file_edits"
+            | "review_changes"
+            | "verify_project"
+    )
+}
+
 fn tool(
     name: &str,
     description: &str,
@@ -278,6 +290,10 @@ fn tool(
         .into_iter()
         .map(|scope| scope.as_str())
         .collect::<Vec<_>>();
+    let mut meta = json!({"dev.wcode/productScopes": product_scopes});
+    if preload_recommended(name) {
+        meta["dev.wcode/preloadRecommended"] = Value::Bool(true);
+    }
     json!({
         "name": name,
         "title": name.replace('_', " "),
@@ -289,9 +305,7 @@ fn tool(
             "idempotentHint": read_only,
             "openWorldHint": false,
         },
-        "_meta": {
-            "dev.wcode/productScopes": product_scopes,
-        }
+        "_meta": meta
     })
 }
 

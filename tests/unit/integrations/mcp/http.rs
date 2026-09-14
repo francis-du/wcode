@@ -365,6 +365,7 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
         false,
     );
     state.monitor.mark_public_url_check(true, None);
+    state.monitor.mark_mcp_initialized();
     let full = health(State(state.clone()), HeaderMap::new()).await.0;
     let response = setup_status(State(state.clone()), HeaderMap::new()).await;
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
@@ -372,6 +373,9 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
     for key in ["ok", "mcp_url", "public_endpoint", "public_url_healthy"] {
         assert_eq!(compact[key], full[key], "connection field {key}");
     }
+    assert_eq!(compact["mcp_initialized"], true);
+    assert!(compact["mcp_last_seen_seconds_ago"].as_u64().is_some());
+    assert_eq!(compact["public_url_healthy"], true);
     assert_eq!(compact["tunnels"].as_array().unwrap().len(), 1);
     assert_eq!(full["tunnels"].as_array().unwrap().len(), 2);
     let compact_live = &compact["tunnels"][0];

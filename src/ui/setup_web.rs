@@ -131,7 +131,13 @@ function selectEndpoint(data){
   for(var i=0;i<Math.min(tunnels.length,8);i++){var endpoint=publicEndpoint(tunnels[i]&&tunnels[i].mcp_url);if(endpoint)return endpoint;}
   return null;
 }
-if(typeof module!=='undefined'&&module.exports)module.exports={buildCommand:buildCommand,buildSetup:buildSetup,clientConfig:clientConfig,publicEndpoint:publicEndpoint,selectEndpoint:selectEndpoint};
+function mcpActivity(data){
+  if(!data||data.ok!==true)return {state:'unavailable',age:null};
+  var age=Number(data.mcp_last_seen_seconds_ago);
+  if(Number.isFinite(age)&&age>=0)return {state:'active',age:Math.floor(age)};
+  return {state:data.mcp_initialized===true?'initialized':'waiting',age:null};
+}
+if(typeof module!=='undefined'&&module.exports)module.exports={buildCommand:buildCommand,buildSetup:buildSetup,clientConfig:clientConfig,publicEndpoint:publicEndpoint,selectEndpoint:selectEndpoint,mcpActivity:mcpActivity};
 if(typeof document==='undefined')return;
 var language='en';
 var zh={
@@ -155,7 +161,7 @@ var zh={
  'In a local agent, use command wcode and arguments mcp-stdio. Optional preset arguments can follow it.':'手动配置本地智能体时，命令填 wcode，参数填 mcp-stdio；可在参数后追加性能预设。',
  'Inspect resolved settings without starting:':'只查看最终配置，不启动服务：','Current runtime details':'当前运行信息','Default workspace':'默认工作区','Workspace roots':'工作区数量','Tool capacity':'工具容量',
  'Presets never approve commands. Manage requests in the TUI or protected WebUI.':'性能预设不会批准命令。请在终端面板或受保护 WebUI 管理授权请求。',
- 'Documentation ↗':'文档 ↗','Source ↗':'源码 ↗','Verified public endpoint ready':'公网地址已验证，可用于连接',
+ 'Documentation ↗':'文档 ↗','Source ↗':'源码 ↗','Verified public endpoint ready':'公网地址已验证，可用于连接','Waiting for MCP request':'等待 MCP 请求','MCP initialized · waiting for next request':'MCP 已初始化 · 等待下一次请求','MCP active just now':'MCP 刚刚有请求',
  'Local-only mode · use a local agent':'当前仅本机模式，请使用本地智能体','Public endpoint unavailable · waiting for recovery':'公网入口不可用，等待运行时恢复',
  'Waiting for a verified public endpoint':'等待已验证的公网地址','Connection status unavailable · do not use stale endpoints':'连接状态暂不可用，请勿继续使用旧地址',
  'Copied.':'已复制。','Clipboard unavailable; text selected for manual copy.':'剪贴板不可用，已选中文本，请手动复制。',
@@ -166,10 +172,15 @@ function t(text){return language==='zh'?(zh[text]||text):text;}
 var timer=null,inflight=null,lastData=null,lastError=false;
 var endpoint=document.getElementById('remote-endpoint'),copyEndpoint=document.getElementById('copy-endpoint');
 function showHealth(data,failed){
-  var selected=selectEndpoint(data);
+  var selected=selectEndpoint(data),activity=mcpActivity(data);
   endpoint.textContent=selected||t('No verified public endpoint yet');
   copyEndpoint.disabled=!selected;
   var status=failed?'Connection status unavailable · do not use stale endpoints':selected?'Verified public endpoint ready':data&&data.public_endpoint==='local-only'?'Local-only mode · use a local agent':data&&data.public_url_healthy===false?'Public endpoint unavailable · waiting for recovery':'Waiting for a verified public endpoint';
+  if(selected){
+    if(activity.state==='active')status+=' · '+(activity.age<2?t('MCP active just now'):(language==='zh'?'MCP 最近请求 · '+activity.age+' 秒前':'MCP active · '+activity.age+'s ago'));
+    else if(activity.state==='initialized')status+=' · '+t('MCP initialized · waiting for next request');
+    else status+=' · '+t('Waiting for MCP request');
+  }
   document.getElementById('remote-status').textContent=t(status);
   var list=document.getElementById('endpoints');list.replaceChildren();
   if(!selected)return;

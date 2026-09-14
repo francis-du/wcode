@@ -7,15 +7,20 @@ fn process_queue_labels_separate_occupancy_from_waiters() {
         limit: 2,
         active: 2,
         waiting: 3,
+        max_wait_ms: 41,
         ..Default::default()
     };
     resources.probe_queue = crate::resource::ProcessQueueSnapshot {
         limit: 4,
         active: 1,
         waiting: 2,
+        max_wait_ms: 17,
         ..Default::default()
     };
-    assert_eq!(process_queue_text(&resources), "PROC 2/2 · GIT 1/4 · Q 5");
+    assert_eq!(
+        process_queue_text(&resources),
+        "PROC 2/2 · GIT 1/4 · Q 5 · WAIT 41ms"
+    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: 论文驱动的改进
-description: 纳入 0.6.2 发布准备的诊断上下文与依赖预览，以及论文依据和适用边界。
+description: 论文与官方资料驱动的上下文检索、工具编排、模型 Host 效率、验证目标与实现边界。
 lang: zh-CN
 alternate: /docs/research-upgrades/
 permalink: /zh/docs/research-upgrades/
@@ -24,6 +24,23 @@ permalink: /zh/docs/research-upgrades/
 | [The Complexity Trap](https://arxiv.org/abs/2508.21433)，2025-08-29，修订于 2025-10-27 | 在论文的 SWE-agent 实验中，简单的观测遮蔽与模型摘要相比具有竞争力。 | 使用有界原文片段，而非增加摘要模型。本轮没有实现对话轨迹遮蔽，也不把论文中的成本降幅套用到 wcode。 |
 | [Do Context Files Help Coding Agents?](https://arxiv.org/abs/2607.27250)，2026-07-28 | 一个小样本双智能体消融实验没有检测到上下文文件带来的正确率改善，结论受统计检验能力限制。 | 保持必需指令简短，按需提供更丰富的上下文。这不能证明仓库指令没有价值。 |
 | [LLMCompiler](https://arxiv.org/abs/2312.04511)，ICML 2024；首次提交于 2023-12-07 | 分离计划、任务调度与执行，可实现遵守依赖的并行调用。 | 将已有调度图以零子任务执行的形式提供出来。不照搬其加速倍数，也不再叠加一个模型规划器。 |
+
+## 2026-09-15 追加调研：检索精度与模型／Host 效率
+
+v0.7.2 继续保持控制面 Model-neutral，但会主动优化当前 Coding Model 与 Host 真正使用的接口。取舍以能力而不是厂商为中心：Host 可以支持 Deferred Tool Search、Prompt Cache、Native Parallel Call，也可以一个都不支持；仓库语义、授权和验证绝不会因为某个模型品牌字符串而改变。
+
+| 原始资料 | 当前信号 | wcode 取舍 |
+| --- | --- | --- |
+| [Agent Retrieval Bench](https://arxiv.org/abs/2607.24882)，2026-07-27 | 没有一种检索方法在所有 Coding Task 上都占优；预算内 Context Yield 与下一步真正需要的文件应独立于最终补丁评估。 | 保持 `agent_context` 自适应和任务路由，展示 candidate→delivery 效率，并优先精确定位／关系，不靠简单放大 Context。 |
+| [ContextBench](https://arxiv.org/abs/2602.05892)，2026-02-05 | Coding Agent 往往过度检索，而且“探索过”与“真正使用”的上下文之间存在明显差距。 | 保持有界 Context Pack，不把第二次全仓库 dump 变成必需步骤；衡量最终交付给模型的上下文，而不是只追 Recall。 |
+| [CORE-Bench](https://arxiv.org/abs/2606.11864)，2026-06-10 | Agentic Repository Retrieval 与孤立代码片段搜索明显不同。 | 保留 Repository State、issue→edit 与 broader-context 路由，不用一个通用 Embedding Query 替代全部检索。 |
+| [Anthropic Advanced Tool Use](https://www.anthropic.com/engineering/advanced-tool-use) | 当工具目录较大时，Deferred Tool Discovery 能降低 Tool Definition Context，并改善工具选择。 | 仅把少量 wcode 核心工具标为 `dev.wcode/preloadRecommended=true`；专业工具按需发现。这只是通用 `_meta` 建议，不形成 Anthropic 专属依赖。 |
+| [OpenAI Codex Agent Loop](https://openai.com/index/unrolling-the-codex-agent-loop/) 与 [Agents API](https://openai.com/index/introducing-the-agents-api/) | 精确稳定的 Prompt／Tool Prefix 有利于 Cache 复用；Tool Search 与 Programmatic Orchestration 可以减少不必要的工具上下文。 | 保持 Tool 顺序与 Server Instructions 确定性，严格控制目录体积，使用一个稳定的核心 Preload 集，而不是每个模型生成一份目录。 |
+| [Gemini Context Caching](https://ai.google.dev/gemini-api/docs/caching) | 重复稳定 Prefix 能提高 Implicit Cache 命中机会。 | 静态 Instructions 与 Tool Definition 保持稳定；动态仓库状态留在 Tool Result 和 Agent Context 中，不烘焙进定义。 |
+
+`preloadRecommended` 不代表工具结果可以缓存、调用天然幂等或无需授权。只读／破坏性／幂等语义仍使用标准 MCP Annotation，wcode Runtime 继续执行自己的 Policy Check。忽略这条 Hint 的旧 Host 仍获得相同的确定性完整目录和行为。
+
+同一版本也会保守收敛 Verification Mesh 的 Advanced Stage Target。High／Critical Plan 优先使用已经有确定性风险归因的源码；CSS／HTML 展示源码除非显式 Advanced Executor 选择它们，否则不会制造语言级 Property／Mutation／Fuzz Cross-product。Full Deterministic Verification 与 Security／Adversarial Review 不减少。缺少真实 Rust Mutation／Fuzz Executor 时继续显式暴露 Gap；普通 `cargo test` 绝不会冒充 Mutation 或 Fuzz Evidence。
 
 ## 诊断上下文
 

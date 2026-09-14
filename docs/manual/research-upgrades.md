@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: Research-informed improvements
-description: Diagnostic context and dependency previews prepared for 0.6.2, with research rationale and explicit limits.
+description: Research-informed context retrieval, tool orchestration, model-host efficiency, verification targeting, and explicit implementation limits.
 lang: en
 alternate: /zh/docs/research-upgrades/
 permalink: /docs/research-upgrades/
@@ -24,6 +24,23 @@ The implementation extends `agent_context` and `parallel_tools`. It adds no mode
 | [The Complexity Trap](https://arxiv.org/abs/2508.21433), 2025-08-29, revised 2025-10-27 | In its SWE-agent experiments, simple observation masking was competitive with model-generated summaries. | Use bounded original excerpts instead of adding a summarization model. We do not implement trajectory masking here or transfer the paper's cost reductions to wcode. |
 | [Do Context Files Help Coding Agents?](https://arxiv.org/abs/2607.27250), 2026-07-28 | A small two-agent ablation did not detect a correctness gain from context files; statistical power limits that conclusion. | Keep mandatory instructions short and make richer context demand-driven. This does not establish that repository instructions are useless. |
 | [LLMCompiler](https://arxiv.org/abs/2312.04511), ICML 2024; first submitted 2023-12-07 | Separating planning, task dispatch and execution enables dependency-aware parallel calls. | Expose a no-execution view of the existing scheduler graph. Do not copy reported speedup multipliers or add another model-based planner. |
+
+## 2026-09-15 follow-up: retrieval precision and model-host efficiency
+
+The v0.7.2 follow-up keeps the control plane model-neutral, but deliberately optimizes the interfaces used by current coding models and Hosts. The decision is capability-first rather than vendor-first: a Host may use deferred tool search, prompt caching, native parallel calls, all of them, or none of them. Core repository semantics, authorization and verification do not change based on a model brand string.
+
+| Primary source | Current signal | wcode decision |
+| --- | --- | --- |
+| [Agent Retrieval Bench](https://arxiv.org/abs/2607.24882), 2026-07-27 | No retrieval family dominates every coding task; budgeted context yield and next-needed files matter independently from final patch generation. | Keep `agent_context` adaptive and task-routed, expose candidate→delivery efficiency, and prefer exact anchors/relationships over simply increasing context size. |
+| [ContextBench](https://arxiv.org/abs/2602.05892), 2026-02-05 | Coding agents tend to over-retrieve and there is a measurable gap between explored and actually used context. | Preserve bounded context packs, avoid mandatory second-pass repository dumps, and measure delivered context rather than treating recall alone as success. |
+| [CORE-Bench](https://arxiv.org/abs/2606.11864), 2026-06-10 | Agentic repository retrieval is materially different from isolated snippet search. | Keep repository-state, issue-to-edit and broader-context routing explicit instead of replacing it with one generic embedding query. |
+| [Anthropic advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use) | Deferred tool discovery can reduce tool-definition context and improve tool selection when catalogs are large. | Mark only a small wcode core as `dev.wcode/preloadRecommended=true`; specialist tools remain discoverable on demand. This is an advisory `_meta` hint, not an Anthropic-only dependency. |
+| [OpenAI Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/) and [Agents API](https://openai.com/index/introducing-the-agents-api/) | Exact stable prompt/tool prefixes improve cache reuse; tool search and programmatic orchestration reduce unnecessary tool context. | Keep tool order and server instructions deterministic, keep the catalog compact, and use one stable core preload set rather than model-specific catalogs. |
+| [Gemini context caching](https://ai.google.dev/gemini-api/docs/caching) | Repeated stable prefixes improve implicit cache-hit opportunities. | Keep static instructions and tool definitions stable; dynamic repository state stays in tool results and Agent Context rather than being baked into definitions. |
+
+The preload hint does not mean a tool call result is cache-safe, idempotent, or permission-free. Standard MCP annotations remain the source for read-only/destructive/idempotency semantics, and wcode still performs its own runtime policy checks. Hosts that ignore the hint receive the same deterministic full catalog and behavior.
+
+The same release narrows advanced Verification Mesh targets conservatively. High/Critical plans prefer source files that already carry deterministic risk attribution, while CSS/HTML presentation sources do not manufacture language-level Property/Mutation/Fuzz targets unless an explicit advanced executor opts them in. Full deterministic verification and Security/Adversarial review stay intact. Missing real Rust mutation or fuzz executors remain explicit gaps; ordinary `cargo test` is never relabeled as mutation or fuzz evidence.
 
 ## Diagnostic context
 

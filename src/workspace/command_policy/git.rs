@@ -14,12 +14,13 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
     let tail = &args[subcommand_index + 1..];
     if matches!(
         subcommand,
-        "status" | "diff" | "log" | "show" | "rev-parse" | "ls-files"
+        "status" | "diff" | "log" | "show" | "rev-parse" | "ls-files" | "grep"
     ) {
         for arg in tail {
             if arg == "--ext-diff"
                 || arg == "--textconv"
                 || arg == "--open-files-in-pager"
+                || arg.starts_with("--open-files-in-pager=")
                 || arg == "--show-signature"
                 || arg == "--output"
                 || arg.starts_with("--output=")
@@ -28,6 +29,16 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
                 || arg.contains("%G")
             {
                 bail!("git option can execute helpers or write outside the result stream: {arg}");
+            }
+            if subcommand == "grep"
+                && matches!(
+                    arg.as_str(),
+                    "--no-index" | "--untracked" | "--no-exclude-standard" | "--recurse-submodules"
+                )
+            {
+                bail!(
+                    "git grep option widens inspection beyond the bounded repository view: {arg}"
+                );
             }
         }
         return Ok(());

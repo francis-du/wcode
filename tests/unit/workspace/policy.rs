@@ -644,6 +644,35 @@ fn ordinary_git_lifecycle_is_autonomous_while_destructive_variants_stay_blocked(
     }
 }
 
+#[test]
+fn bounded_git_inspection_includes_repository_grep_without_helper_or_scope_escape() {
+    let safe = WorkspaceSecurity::default();
+    for command in [
+        vec!["grep", "-n", "needle", "--", "src", "tests"],
+        vec!["grep", "-n", "-E", "foo|bar", "--", "src"],
+    ] {
+        assert!(
+            validate_command_policy("git", &args(&command), safe).is_ok(),
+            "bounded repository grep was rejected: {command:?}"
+        );
+    }
+    for command in [
+        vec!["grep", "--textconv", "needle"],
+        vec!["grep", "--open-files-in-pager=less", "needle"],
+        vec!["grep", "--no-index", "needle"],
+        vec!["grep", "--untracked", "needle"],
+        vec!["grep", "--recurse-submodules", "needle"],
+    ] {
+        assert!(
+            validate_command_policy("git", &args(&command), safe).is_err(),
+            "unsafe repository grep mode was accepted: {command:?}"
+        );
+    }
+    assert!(
+        validate_command_policy("git", &args(&["grep", "needle", "--", ".env"]), safe).is_err()
+    );
+}
+
 #[tokio::test]
 async fn invalid_commands_do_not_create_useless_approval_requests() {
     let root = tempfile::tempdir().unwrap();

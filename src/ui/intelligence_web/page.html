@@ -29,12 +29,11 @@
       <div id="navigatorResults" class="navigator-results hidden" role="listbox"></div>
     </section>
 
-    <section class="global-status" role="status" aria-live="polite" aria-atomic="true">
-      <span id="syncDot" class="sync-dot"></span>
-      <strong id="syncState" data-i18n="Connecting">Connecting</strong>
-    </section>
-
     <div class="global-controls" aria-label="Observatory controls">
+      <section class="global-status" role="status" aria-live="polite" aria-atomic="true" aria-label="Connecting">
+        <span id="syncDot" class="sync-dot"></span>
+        <strong id="syncState" data-i18n="Connecting">Connecting</strong>
+      </section>
       <label class="workspace-switcher">
         <span data-i18n="Workspace">Workspace</span>
         <select id="workspace" aria-label="Workspace"></select>

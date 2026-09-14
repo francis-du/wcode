@@ -131,6 +131,16 @@ struct TunnelRuntimeState {
     connected_at: Option<Instant>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct AgentContextMetrics {
+    pub(crate) model_bytes: u64,
+    pub(crate) context_bytes_avoided: u64,
+    pub(crate) repo_map_cache_hit: bool,
+    pub(crate) repo_map_candidates: u64,
+    pub(crate) repo_map_delivered: u64,
+    pub(crate) build_ms: u64,
+}
+
 #[derive(Clone, Default)]
 struct WorkspaceStats {
     queued: u64,
@@ -145,6 +155,9 @@ struct WorkspaceStats {
     agent_context_model_bytes: u64,
     agent_context_bytes_avoided: u64,
     agent_repo_map_cache_hits: u64,
+    agent_repo_map_candidates: u64,
+    agent_repo_map_delivered: u64,
+    agent_context_build_ms: u64,
 }
 
 #[derive(Clone, Default)]

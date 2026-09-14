@@ -366,7 +366,15 @@ impl SoftwareIntelligenceRuntime {
             risk.level,
             Some(&graph),
         );
-        let verification_plan = self.create_plan_for_risk(&workspace_id, workspace, risk.level)?;
+        let registry = stage_executor::registry(workspace)?;
+        let stage_targets = verification_targets_for_review(review, &registry, risk.level);
+        let verification_plan = self.create_plan_for_risk_with_targets(
+            &workspace_id,
+            workspace,
+            risk.level,
+            stage_targets,
+            &registry,
+        )?;
         let conventions = crate::conventions::status(workspace)?;
         let mut tasks = Vec::new();
         let mut intents = Vec::new();

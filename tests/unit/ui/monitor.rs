@@ -314,7 +314,17 @@ fn tracks_task_lifecycle_per_workspace_and_bytes() {
     assert_eq!(snapshot.workspaces["web"].response_bytes, 512);
     assert_eq!(snapshot.workspaces["web"].context_bytes_avoided, 4_096);
     assert_eq!(snapshot.workspaces["api"].completed, 0);
-    monitor.record_agent_context_metrics("web", 800, 3_200, true);
+    monitor.record_agent_context_metrics(
+        "web",
+        AgentContextMetrics {
+            model_bytes: 800,
+            context_bytes_avoided: 3_200,
+            repo_map_cache_hit: true,
+            repo_map_candidates: 40,
+            repo_map_delivered: 8,
+            build_ms: 120,
+        },
+    );
     let snapshot = monitor.snapshot();
     assert_eq!(snapshot.workspaces["web"].agent_context_calls, 1);
     assert_eq!(snapshot.workspaces["web"].agent_context_model_bytes, 800);
@@ -323,6 +333,13 @@ fn tracks_task_lifecycle_per_workspace_and_bytes() {
         3_200
     );
     assert_eq!(snapshot.workspaces["web"].agent_repo_map_cache_hits, 1);
+    assert_eq!(snapshot.workspaces["web"].agent_repo_map_candidates, 40);
+    assert_eq!(snapshot.workspaces["web"].agent_repo_map_delivered, 8);
+    assert_eq!(snapshot.workspaces["web"].agent_context_build_ms, 120);
+    let activity = monitor.observatory_activity("web");
+    assert_eq!(activity["agent_context"]["repo_map_candidates"], 40);
+    assert_eq!(activity["agent_context"]["repo_map_delivered"], 8);
+    assert_eq!(activity["agent_context"]["build_ms"], 120);
     assert_eq!(totals(&snapshot).calls, 1);
     assert_eq!(estimated_tokens(totals(&snapshot).response_bytes), 128);
     assert_eq!(
@@ -693,6 +710,17 @@ fn help_and_footer_render_project_and_author_links() {
     let mut saved = monitor.queue("backend", "symbol_context", "saved context", 1);
     saved.start();
     saved.finish_with_context_savings(true, 400, 4_000);
+    monitor.record_agent_context_metrics(
+        "backend",
+        AgentContextMetrics {
+            model_bytes: 800,
+            context_bytes_avoided: 3_200,
+            repo_map_cache_hit: true,
+            repo_map_candidates: 40,
+            repo_map_delivered: 8,
+            build_ms: 120,
+        },
+    );
     let mut first = monitor.queue("backend", "read_file", "one", 1);
     let mut second = monitor.queue("backend", "search_code", "two", 1);
     first.start();
@@ -746,7 +774,9 @@ fn help_and_footer_render_project_and_author_links() {
     assert!(!text.contains("OVERVIEW"));
     assert!(text.contains("WORKSPACE ACTIVITY"));
     assert!(text.contains("THROUGHPUT"));
-    assert!(text.contains("SLOT UTILIZATION"));
+    assert!(text.contains("CTX 8/40"));
+    assert!(text.contains("HIT 1/1"));
+    assert!(text.contains("AVG 120ms"));
     assert!(text.contains("SAVED ~1.0K"));
     assert!(text.contains('╭'));
     assert!(text.contains('╰'));

@@ -61,6 +61,8 @@ pub(super) async fn setup_status(
             "mcp_url": format!("{public_url}/mcp"),
             "public_endpoint": connection.public_endpoint,
             "public_url_healthy": connection.public_url_healthy,
+            "mcp_initialized": connection.chatgpt_initialized,
+            "mcp_last_seen_seconds_ago": connection.last_mcp_seen_seconds_ago,
             "tunnels": tunnels,
         })),
     )

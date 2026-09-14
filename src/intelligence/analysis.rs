@@ -282,24 +282,56 @@ pub(super) fn assess_risk(
 pub(super) fn verification_targets_for_review(
     review: &ChangeReviewReport,
     registry: &StageExecutorRegistry,
+    risk_level: RiskLevel,
 ) -> Vec<String> {
-    let mut targets = review
+    let source_files = review
         .files
         .iter()
         .filter(|file| file.category == "source")
+        .collect::<Vec<_>>();
+    let risk_scoped = risk_level >= RiskLevel::High
+        && source_files
+            .iter()
+            .any(|file| !file.risk_reasons.is_empty());
+    let mut targets = source_files
+        .iter()
+        .copied()
+        .filter(|file| !risk_scoped || !file.risk_reasons.is_empty())
         .filter_map(|file| crate::semantic_provider::language_for_path(&file.path))
+        .filter(|language| advanced_stage_language_target(*language, registry))
         .map(stage_executor::language_target)
         .collect::<BTreeSet<_>>();
-    if targets.is_empty() {
+    // A change with no source files still needs a conservative workspace-level
+    // language scope. In contrast, source-only presentation changes that do not
+    // map to a behavioral language keep the advanced stages required globally
+    // without manufacturing unrelated language target cross-products.
+    if source_files.is_empty() {
         targets.extend(
             registry
                 .detected_languages
                 .iter()
                 .copied()
+                .filter(|language| advanced_stage_language_target(*language, registry))
                 .map(stage_executor::language_target),
         );
     }
     targets.into_iter().collect()
+}
+
+fn advanced_stage_language_target(
+    language: crate::semantic_provider::SemanticLanguage,
+    registry: &StageExecutorRegistry,
+) -> bool {
+    if !matches!(
+        language,
+        crate::semantic_provider::SemanticLanguage::Css
+            | crate::semantic_provider::SemanticLanguage::Html
+    ) {
+        return true;
+    }
+    registry.executors.iter().any(|executor| {
+        executor.spec.languages.is_empty() || executor.spec.languages.contains(&language)
+    })
 }
 
 pub(super) fn required_verification_stages(
