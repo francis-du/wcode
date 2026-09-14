@@ -608,6 +608,10 @@ async fn positive_harness_tools_flow_through_mcp() {
         .as_u64()
         .is_some_and(|tokens| tokens <= 1_000));
     assert!(telemetry["context_bytes_avoided"].as_u64().unwrap() > 0);
+    assert_eq!(telemetry["budget_tokens"], 1000);
+    assert!(telemetry["budget_utilization_percent"]
+        .as_f64()
+        .is_some_and(|percent| percent > 0.0 && percent <= 100.0));
     assert!(telemetry["timing"].is_object());
     assert!(agent["content"][0]["text"]
         .as_str()

@@ -859,6 +859,12 @@ pub(super) fn totals(snapshot: &MonitorSnapshot) -> WorkspaceStats {
             total.agent_context_model_bytes = total
                 .agent_context_model_bytes
                 .saturating_add(stats.agent_context_model_bytes);
+            total.agent_context_model_tokens = total
+                .agent_context_model_tokens
+                .saturating_add(stats.agent_context_model_tokens);
+            total.agent_context_budget_tokens = total
+                .agent_context_budget_tokens
+                .saturating_add(stats.agent_context_budget_tokens);
             total.agent_context_bytes_avoided = total
                 .agent_context_bytes_avoided
                 .saturating_add(stats.agent_context_bytes_avoided);

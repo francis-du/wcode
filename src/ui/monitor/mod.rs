@@ -134,6 +134,8 @@ struct TunnelRuntimeState {
 #[derive(Clone, Copy)]
 pub(crate) struct AgentContextMetrics {
     pub(crate) model_bytes: u64,
+    pub(crate) model_tokens: u64,
+    pub(crate) budget_tokens: u64,
     pub(crate) context_bytes_avoided: u64,
     pub(crate) repo_map_cache_hit: bool,
     pub(crate) repo_map_candidates: u64,
@@ -153,6 +155,8 @@ struct WorkspaceStats {
     context_bytes_avoided: u64,
     agent_context_calls: u64,
     agent_context_model_bytes: u64,
+    agent_context_model_tokens: u64,
+    agent_context_budget_tokens: u64,
     agent_context_bytes_avoided: u64,
     agent_repo_map_cache_hits: u64,
     agent_repo_map_candidates: u64,

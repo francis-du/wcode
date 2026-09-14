@@ -549,8 +549,12 @@ fn adaptive_agent_budget(
 ) -> usize {
     let mut budget = 1_400usize;
     let symbol_count = context.symbols.len();
+    // Retrieval uncertainty must not buy a large context pack by itself. A
+    // missing direct symbol gets a small exploration allowance; real breadth
+    // signals below (Requirements, Design, graph truncation, risks and scopes)
+    // are what earn more model context.
     if symbol_count == 0 {
-        budget = budget.saturating_add(1_000);
+        budget = budget.saturating_add(200);
     } else if symbol_count > 2 {
         budget = budget.saturating_add(300);
     }

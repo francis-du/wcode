@@ -361,6 +361,8 @@ fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first()
     assert!(INTELLIGENCE_JS.contains("parentElement?.setAttribute(\"aria-label\", label)"));
     assert!(INTELLIGENCE_JS.contains("Agent context efficiency"));
     assert!(INTELLIGENCE_JS.contains("RepoMap delivered / candidates"));
+    assert!(INTELLIGENCE_JS.contains("Context budget utilization"));
+    assert!(INTELLIGENCE_JS.contains("budget_tokens"));
     assert!(INTELLIGENCE_JS.contains("not a quality score"));
     assert!(INTELLIGENCE_APP_PAGE.contains("role=\"combobox\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-autocomplete=\"list\""));

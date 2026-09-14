@@ -42,6 +42,31 @@ fn agent_context_keeps_direct_sha_ahead_of_alphabetical_design_paths() {
 }
 
 #[test]
+fn adaptive_agent_budget_does_not_reward_unresolved_queries_with_large_context() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/target.rs"),
+        "pub fn target_feature() -> usize { 7 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+
+    let exact = harness
+        .agent_context("demo", &workspace, "target_feature", 0, &[])
+        .unwrap();
+    let unresolved = harness
+        .agent_context("demo", &workspace, "definitely_missing_symbol", 0, &[])
+        .unwrap();
+
+    assert!(exact["budget"].as_u64().unwrap() <= 1_600);
+    assert!(unresolved["budget"].as_u64().unwrap() <= 1_800);
+    assert!(exact["budget"].as_u64().unwrap() <= unresolved["budget"].as_u64().unwrap());
+    assert_eq!(exact["hot_source"][0]["qualified_name"], "target_feature");
+}
+
+#[test]
 fn agent_context_parallel_discovery_respects_the_runtime_slot_cap() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("src/runtime")).unwrap();
@@ -58,6 +83,7 @@ fn agent_context_parallel_discovery_respects_the_runtime_slot_cap() {
                 &["runtime".to_owned(), "workspace".to_owned()],
             )
             .unwrap();
+        assert!(pack["budget"].as_u64().unwrap() <= 2_000);
         assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 2);
         assert_eq!(pack["readiness"]["parallelism"]["required"], true);
         assert_eq!(

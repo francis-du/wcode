@@ -237,11 +237,17 @@ async fn call_leaf_tool_mode(
                 let repo_map_delivered = response["structuredContent"]["repo_map"]["items"]
                     .as_array()
                     .map_or(0, |items| items.len() as u64);
+                let model_tokens = telemetry["model_estimated_tokens"]
+                    .as_u64()
+                    .unwrap_or_else(|| response_bytes.div_ceil(4));
+                let budget_tokens = telemetry["budget_tokens"].as_u64().unwrap_or_default();
                 let build_ms = telemetry["timing"]["build_ms"].as_u64().unwrap_or_default();
                 state.monitor.record_agent_context_metrics(
                     &workspace_label,
                     crate::monitor::AgentContextMetrics {
                         model_bytes: response_bytes,
+                        model_tokens,
+                        budget_tokens,
                         context_bytes_avoided,
                         repo_map_cache_hit,
                         repo_map_candidates,

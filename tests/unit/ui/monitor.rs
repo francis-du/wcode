@@ -318,6 +318,8 @@ fn tracks_task_lifecycle_per_workspace_and_bytes() {
         "web",
         AgentContextMetrics {
             model_bytes: 800,
+            model_tokens: 200,
+            budget_tokens: 400,
             context_bytes_avoided: 3_200,
             repo_map_cache_hit: true,
             repo_map_candidates: 40,
@@ -328,6 +330,8 @@ fn tracks_task_lifecycle_per_workspace_and_bytes() {
     let snapshot = monitor.snapshot();
     assert_eq!(snapshot.workspaces["web"].agent_context_calls, 1);
     assert_eq!(snapshot.workspaces["web"].agent_context_model_bytes, 800);
+    assert_eq!(snapshot.workspaces["web"].agent_context_model_tokens, 200);
+    assert_eq!(snapshot.workspaces["web"].agent_context_budget_tokens, 400);
     assert_eq!(
         snapshot.workspaces["web"].agent_context_bytes_avoided,
         3_200
@@ -339,6 +343,8 @@ fn tracks_task_lifecycle_per_workspace_and_bytes() {
     let activity = monitor.observatory_activity("web");
     assert_eq!(activity["agent_context"]["repo_map_candidates"], 40);
     assert_eq!(activity["agent_context"]["repo_map_delivered"], 8);
+    assert_eq!(activity["agent_context"]["model_tokens"], 200);
+    assert_eq!(activity["agent_context"]["budget_tokens"], 400);
     assert_eq!(activity["agent_context"]["build_ms"], 120);
     assert_eq!(totals(&snapshot).calls, 1);
     assert_eq!(estimated_tokens(totals(&snapshot).response_bytes), 128);
@@ -714,6 +720,8 @@ fn help_and_footer_render_project_and_author_links() {
         "backend",
         AgentContextMetrics {
             model_bytes: 800,
+            model_tokens: 200,
+            budget_tokens: 400,
             context_bytes_avoided: 3_200,
             repo_map_cache_hit: true,
             repo_map_candidates: 40,
@@ -775,8 +783,9 @@ fn help_and_footer_render_project_and_author_links() {
     assert!(text.contains("WORKSPACE ACTIVITY"));
     assert!(text.contains("THROUGHPUT"));
     assert!(text.contains("CTX 8/40"));
+    assert!(text.contains("BUD 50%"));
     assert!(text.contains("HIT 1/1"));
-    assert!(text.contains("AVG 120ms"));
+    assert!(text.contains("120ms"));
     assert!(text.contains("SAVED ~1.0K"));
     assert!(text.contains('╭'));
     assert!(text.contains('╰'));

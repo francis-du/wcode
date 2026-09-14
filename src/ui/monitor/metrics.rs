@@ -12,6 +12,12 @@ impl TaskMonitor {
         stats.agent_context_model_bytes = stats
             .agent_context_model_bytes
             .saturating_add(metrics.model_bytes);
+        stats.agent_context_model_tokens = stats
+            .agent_context_model_tokens
+            .saturating_add(metrics.model_tokens);
+        stats.agent_context_budget_tokens = stats
+            .agent_context_budget_tokens
+            .saturating_add(metrics.budget_tokens);
         stats.agent_context_bytes_avoided = stats
             .agent_context_bytes_avoided
             .saturating_add(metrics.context_bytes_avoided);
@@ -124,10 +130,20 @@ pub(super) fn render_throughput(
     let bar_width = columns[1].width.saturating_sub(23).clamp(6, 18) as usize;
     let (filled, empty, color) = slot_bar(totals.active, config.max_parallel as u64, bar_width);
     let agent_context = if totals.agent_context_calls > 0 {
+        let budget_use = if totals.agent_context_budget_tokens == 0 {
+            0
+        } else {
+            totals
+                .agent_context_model_tokens
+                .saturating_mul(100)
+                .saturating_div(totals.agent_context_budget_tokens)
+                .min(100)
+        };
         format!(
-            "CTX {}/{} · HIT {}/{} · AVG {}ms",
+            "CTX {}/{} · BUD {}% · HIT {}/{} · {}ms",
             totals.agent_repo_map_delivered,
             totals.agent_repo_map_candidates,
+            budget_use,
             totals.agent_repo_map_cache_hits,
             totals.agent_context_calls,
             totals.agent_context_build_ms / totals.agent_context_calls,

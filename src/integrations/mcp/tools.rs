@@ -236,6 +236,7 @@ fn strip_schema_defaults(value: &mut Value) {
 
 const MODEL_HIDDEN_TUNING_ARGS: &[&str] = &[
     "timeout_seconds",
+    "budget",
     "limit",
     "max_results",
     "max_files",
@@ -372,6 +373,18 @@ fn agent_context_result(mut value: Value, is_error: bool, include_text: bool) ->
     let model_tokens = model_bytes.div_ceil(4);
     telemetry.insert("model_serialized_bytes".to_owned(), json!(model_bytes));
     telemetry.insert("model_estimated_tokens".to_owned(), json!(model_tokens));
+    if let Some(budget_tokens) = value.get("budget").and_then(Value::as_u64) {
+        let utilization_percent = if budget_tokens == 0 {
+            0.0
+        } else {
+            ((model_tokens as f64 / budget_tokens as f64) * 10_000.0).round() / 100.0
+        };
+        telemetry.insert("budget_tokens".to_owned(), json!(budget_tokens));
+        telemetry.insert(
+            "budget_utilization_percent".to_owned(),
+            json!(utilization_percent.min(100.0)),
+        );
+    }
     if let Some(baseline) = telemetry
         .get("baseline_context_bytes")
         .and_then(Value::as_u64)

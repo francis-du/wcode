@@ -163,6 +163,8 @@ impl TaskMonitor {
             "agent_context": {
                 "calls": stats.agent_context_calls,
                 "model_bytes": stats.agent_context_model_bytes,
+                "model_tokens": stats.agent_context_model_tokens,
+                "budget_tokens": stats.agent_context_budget_tokens,
                 "bytes_avoided": stats.agent_context_bytes_avoided,
                 "repo_map_cache_hits": stats.agent_repo_map_cache_hits,
                 "repo_map_candidates": stats.agent_repo_map_candidates,

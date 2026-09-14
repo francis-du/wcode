@@ -306,15 +306,9 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
         .iter()
         .find(|tool| tool["name"] == "agent_context")
         .unwrap();
-    assert!(agent_context["inputSchema"]["properties"]["budget"]
-        .get("default")
+    assert!(agent_context["inputSchema"]["properties"]
+        .get("budget")
         .is_none());
-    assert!(
-        agent_context["inputSchema"]["properties"]["budget"]["description"]
-            .as_str()
-            .unwrap()
-            .contains("adaptive")
-    );
     assert!(names.contains("agent_context"));
     assert!(names.contains("semantic_navigation"));
     assert!(names.contains("verify_project"));
