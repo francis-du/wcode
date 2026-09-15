@@ -37,4 +37,4 @@
   affects:
     - component:agent-context
     - component:mcp-runtime
-    - component:workspace-registry
+    - component:workspace-operations

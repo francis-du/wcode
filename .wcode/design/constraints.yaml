@@ -216,7 +216,7 @@
 - schema_version: 1
   id: CONSTRAINT-SOURCE-DECOMPOSITION
   title: Source modules stay bounded
-  statement: Maintained text files must stay at or below 1000 physical lines; generated lockfiles and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.
+  statement: Maintained text files must stay at or below 1000 physical lines; generated source outputs, lockfiles, and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.
 
 - schema_version: 1
   id: CONSTRAINT-TEST-ROOT

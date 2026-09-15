@@ -103,6 +103,24 @@ fn absent_design_state_still_receives_runtime_core_constraints() {
 }
 
 #[test]
+fn repository_design_state_is_valid() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = Workspace::new(root, false, false).unwrap();
+    let load = load_design(&workspace).unwrap();
+
+    assert!(
+        load.initialized,
+        "repository Design State must be initialized"
+    );
+    assert_eq!(
+        load.error_count(),
+        0,
+        "repository Design State must stay valid: {:?}",
+        load.diagnostics
+    );
+}
+
+#[test]
 fn project_design_cannot_override_runtime_core_constraints() {
     let dir = fixture_workspace();
     fs::write(
