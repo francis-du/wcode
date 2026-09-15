@@ -461,10 +461,30 @@ fn every_supported_language_has_an_autonomous_development_tool_path() {
     assert!(validate_command_policy("vitest", &args(&["watch"]), safe).is_ok());
     assert!(validate_command_policy("jest", &args(&["--watch"]), safe).is_ok());
     for (program, values) in [
-        ("biome", vec!["check", ".", "--config-path=/tmp/biome.json"]),
+        (
+            "biome",
+            vec![
+                "check",
+                ".",
+                if cfg!(windows) {
+                    r"--config-path=C:\biome.json"
+                } else {
+                    "--config-path=/tmp/biome.json"
+                },
+            ],
+        ),
         (
             "prettier",
-            vec![".", "--check", "--config", "/tmp/prettier.json"],
+            vec![
+                ".",
+                "--check",
+                "--config",
+                if cfg!(windows) {
+                    r"C:\prettier.json"
+                } else {
+                    "/tmp/prettier.json"
+                },
+            ],
         ),
         ("Rscript", vec!["-e", "testthat::test_local()"]),
         (
