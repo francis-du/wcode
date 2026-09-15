@@ -274,6 +274,81 @@ fn semantic_dimension_counts_only_initialized_runnable_sessions() {
 }
 
 #[test]
+fn quality_coverage_requires_runnable_provider_not_just_declared_binary() {
+    let provider = QualityProviderStatus {
+        id: "fixture".into(),
+        root: ".".into(),
+        capability: QualityCapability::Format,
+        covers: vec![QualityCapability::Lint],
+        source: QualityProviderSource::Ecosystem,
+        program: "fixture".into(),
+        command: "fixture --check".into(),
+        declared: true,
+        available: true,
+        runnable: false,
+        authorization_required: false,
+        execution_lane: QualityExecutionLane::Unavailable,
+        check_only: true,
+        external_advisory_data: false,
+        machine_format: None,
+        reason: "command execution is disabled".into(),
+    };
+    let language = LanguageQualityStatus {
+        language: SemanticLanguage::JavaScript,
+        detected_files: 1,
+        syntax_available: true,
+        semantic_provider: None,
+        semantic_available: false,
+        semantic_runnable: false,
+        providers: vec![provider.clone()],
+        advanced_stages: Vec::new(),
+        gaps: Vec::new(),
+    };
+    for dimension in ["format", "lint"] {
+        let covered = dimension_coverage(std::slice::from_ref(&language))
+            .into_iter()
+            .find(|item| item.dimension == dimension)
+            .unwrap()
+            .covered_languages;
+        assert_eq!(
+            covered, 0,
+            "{dimension} must not count an unrunnable provider"
+        );
+    }
+    let gaps = quality_gaps(SemanticLanguage::JavaScript, true, &[provider]);
+    assert!(gaps.iter().any(|gap| gap.contains("format")));
+    assert!(gaps.iter().any(|gap| gap.contains("lint")));
+}
+
+#[test]
+fn advisory_security_providers_report_external_data_and_real_machine_output() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("Cargo.lock"), "version = 3\n").unwrap();
+    fs::create_dir_all(dir.path().join(".cargo")).unwrap();
+    fs::write(dir.path().join(".cargo/audit.toml"), "[advisories]\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let signals = RepoSignals::load(&workspace);
+    let candidates = crate::quality_catalog::candidates_for(
+        &workspace,
+        &signals,
+        SemanticLanguage::Rust,
+        &["src/lib.rs".into()],
+    );
+    let audit = candidates
+        .iter()
+        .find(|candidate| candidate.id == "cargo-audit")
+        .unwrap();
+    assert_eq!(audit.args, ["--json"]);
+    assert_eq!(audit.machine_format, Some("json"));
+    assert!(audit.external_advisory_data);
+}
+
+#[test]
 fn multi_capability_providers_report_real_shared_language_checks() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
@@ -668,6 +743,40 @@ fn bats_files_provide_a_fixed_bash_test_provider() {
     assert_eq!(bats.capability, QualityCapability::Test);
     assert_eq!(bats.program, "bats");
     assert_eq!(bats.args, vec!["smoke.bats"]);
+}
+
+#[test]
+fn php_composer_lock_exposes_fixed_security_audit_provider() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("composer.json"),
+        r#"{"require":{"php":"^8.3"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("composer.lock"),
+        r#"{"packages":[],"packages-dev":[]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("index.php"), "<?php echo 1;\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let signals = RepoSignals::load(&workspace);
+    let candidates = crate::quality_catalog::candidates_for(
+        &workspace,
+        &signals,
+        SemanticLanguage::Php,
+        &["index.php".into()],
+    );
+    let audit = candidates
+        .iter()
+        .find(|candidate| candidate.id == "composer-audit")
+        .unwrap();
+    assert!(audit.declared && audit.check_only);
+    assert_eq!(audit.capability, QualityCapability::Security);
+    assert_eq!(audit.program, "composer");
+    assert_eq!(audit.args, ["audit", "--locked", "--format=json"]);
+    assert_eq!(audit.machine_format, Some("json"));
+    assert!(audit.external_advisory_data);
 }
 
 #[test]

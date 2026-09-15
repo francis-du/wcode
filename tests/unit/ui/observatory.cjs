@@ -116,9 +116,10 @@ async function run(){
     assert.equal(s.run('qualityProviders(language,"lint").length'),0);
     assert.ok(s.run('qualityCell(language,"lint")').includes('not runnable'));
     assert.ok(s.run('qualityCell(language,"test")').includes('discovery only'));
-    s.run('language.providers[0].runnable=true;');
+    s.run('language.providers[0].runnable=true;language.providers[0].external_advisory_data=true;');
     assert.equal(s.run('qualityProviders(language,"lint").length'),1);
-    assert.ok(s.run('qualityCell(language,"lint")').includes('covered'));
+    const covered=s.run('qualityCell(language,"lint")');
+    assert.ok(covered.includes('covered'));assert.ok(covered.includes('advisory data'));
   });
   const healthyTunnel = (provider='fixture') => ({public_url_healthy:true,public_endpoint:'ready',tunnels:[{provider,role:'primary',state:'verified',url:'https://example.test'}]});
   await test('only the primary tunnel is a dashboard link and it preserves fragment credentials',async()=>{

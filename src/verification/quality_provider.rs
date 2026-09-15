@@ -80,6 +80,7 @@ pub struct QualityProviderStatus {
     pub authorization_required: bool,
     pub execution_lane: QualityExecutionLane,
     pub check_only: bool,
+    pub external_advisory_data: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_format: Option<String>,
     pub reason: String,
@@ -138,6 +139,7 @@ pub(crate) struct QualityCandidate {
     pub(crate) declared: bool,
     pub(crate) check_only: bool,
     pub(crate) fail_on_stdout: bool,
+    pub(crate) external_advisory_data: bool,
     pub(crate) machine_format: Option<&'static str>,
     pub(crate) declaration: String,
 }
@@ -565,6 +567,7 @@ fn provider_status(
         authorization_required,
         execution_lane,
         check_only: candidate.check_only,
+        external_advisory_data: candidate.external_advisory_data,
         machine_format: candidate.machine_format.map(str::to_owned),
         reason,
     }
@@ -644,14 +647,12 @@ fn quality_gaps(
         .filter(|capability| {
             !providers.iter().any(|provider| {
                 (provider.capability == *capability || provider.covers.contains(capability))
-                    && provider.declared
-                    && provider.available
-                    && provider.check_only
+                    && provider.runnable
             })
         })
         .map(|capability| {
             format!(
-                "no repository-declared and available {} provider",
+                "no runnable repository-declared {} provider",
                 capability.as_str()
             )
         })
@@ -672,7 +673,7 @@ fn expected_capabilities(language: SemanticLanguage) -> Vec<QualityCapability> {
         SemanticLanguage::JavaScript => vec![Format, Lint, Test],
         SemanticLanguage::Lua => vec![Format, Lint, Test],
         SemanticLanguage::Ocaml | SemanticLanguage::OcamlInterface => vec![Format, TypeCheck, Test],
-        SemanticLanguage::Php => vec![Format, TypeCheck, StaticAnalysis, Test],
+        SemanticLanguage::Php => vec![Format, TypeCheck, StaticAnalysis, Test, Security],
         SemanticLanguage::Python => vec![Format, Lint, TypeCheck, Test, Security],
         SemanticLanguage::R => vec![Format, Lint, Test],
         SemanticLanguage::Ruby => vec![Format, Lint, Test],
@@ -715,9 +716,7 @@ fn dimension_coverage(languages: &[LanguageQualityStatus]) -> Vec<QualityDimensi
                         && language.providers.iter().any(|provider| {
                             (provider.capability == capability
                                 || provider.covers.contains(&capability))
-                                && provider.declared
-                                && provider.available
-                                && provider.check_only
+                                && provider.runnable
                         })
                 })
                 .count(),

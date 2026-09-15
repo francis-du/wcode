@@ -12,7 +12,7 @@ pub(crate) fn add_candidates(
     files: &[String],
     candidates: &mut Vec<QualityCandidate>,
 ) {
-    use QualityCapability::{Format, Lint, StaticAnalysis, Test, TypeCheck};
+    use QualityCapability::{Format, Lint, Security, StaticAnalysis, Test, TypeCheck};
     use QualityProviderSource::{Ecosystem, LanguageNative};
     match language {
         SemanticLanguage::Bash => {
@@ -136,6 +136,18 @@ pub(crate) fn add_candidates(
                 .cloned()
                 .unwrap_or_default()
                 .to_ascii_lowercase();
+            let mut composer_audit = candidate!(
+                "composer-audit",
+                Security,
+                Ecosystem,
+                "composer",
+                ["audit", "--locked", "--format=json"],
+                signals.has("composer.json") && workspace.root().join("composer.lock").is_file(),
+                "composer.json plus composer.lock; advisory data is obtained from configured Composer repositories",
+                Some("json"),
+            );
+            composer_audit.external_advisory_data = true;
+            candidates.push(composer_audit);
             let mut phpstan = candidate_owned!(
                 "phpstan",
                 StaticAnalysis,

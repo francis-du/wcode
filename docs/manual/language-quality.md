@@ -86,12 +86,12 @@ The registry can recognize check-only providers across the canonical surface, in
 | Bash | declared ShellCheck/shfmt |
 | Lua | StyLua, Luacheck, Busted when declared |
 | OCaml | Dune build/runtest and `@fmt` with ocamlformat |
-| PHP | PHPStan/Psalm (type-check + static coverage), PHPUnit, PHP CS Fixer dry-run |
+| PHP | PHPStan/Psalm (type-check + static coverage), PHPUnit, PHP CS Fixer dry-run, and locked Composer advisory audit |
 | R | styler dry-fail formatting, lintr, testthat when declared; built-in expressions use `Rscript --vanilla` |
 | Ruby | RuboCop lint, Standard Ruby combined lint/format check, RSpec when declared |
 | Swift | `swift build` (type-check + static coverage), SwiftPM tests, declared swift-format/SwiftLint |
 
-Deno dependency-resolving verification uses `--frozen` so a check cannot silently refresh `deno.lock`; `deno audit --fix` stays outside the check-only lane because it rewrites dependency declarations and the lockfile. Workspace-local executables and Java build wrappers count as available only when they satisfy the same regular-file/single-link/executable checks used by the runtime.
+Deno dependency-resolving verification uses `--frozen` so a check cannot silently refresh `deno.lock`; `deno audit --fix` stays outside the check-only lane because it rewrites dependency declarations and the lockfile. PHP repositories with both `composer.json` and `composer.lock` expose only the fixed `composer audit --locked --format=json` security shape; Composer obtains advisory data from the repositories configured for that project, so this is not an offline-only check. Workspace-local executables and Java build wrappers count as available only when they satisfy the same regular-file/single-link/executable checks used by the runtime.
 
 This table describes registry capability, not host availability. `language_quality_status` is the source of truth for one workspace.
 
@@ -104,8 +104,9 @@ This table describes registry capability, not host availability. `language_quali
 3. the repository must declare the provider;
 4. the executable must be available;
 5. the provider must be registered as check-only;
-6. exact approved shapes use the autonomous verification/development lane; other registered check-only providers use the bounded trusted-runtime lane without inventing a separate approval workflow;
-7. source-writing formatter/fixer modes are not exposed through this lane.
+6. the provider must be runnable in the current Workspace (including command execution being enabled);
+7. exact approved shapes use the autonomous verification/development lane; other registered check-only providers use the bounded trusted-runtime lane without inventing a separate approval workflow;
+8. source-writing formatter/fixer modes are not exposed through this lane.
 
 The command result becomes a `VerificationReport`, and wcode persists the result as current code+design revision Evidence. A historical pass does not prove a later revision.
 

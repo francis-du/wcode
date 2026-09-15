@@ -335,6 +335,7 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
         "php-cs-fixer" | "vendor/bin/php-cs-fixer" => {
             args_equal(args, &["fix", "--dry-run", "--diff"])
         }
+        "composer" => args_equal(args, &["audit", "--locked", "--format=json"]),
         program if node_quality_program(program, "biome") => {
             args_equal(args, &["format", ".", "--reporter=json"])
                 || args_equal(

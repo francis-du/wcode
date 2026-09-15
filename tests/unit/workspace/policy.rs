@@ -308,6 +308,7 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
         ("psalm", vec!["--output-format=json"]),
         ("phpunit", vec![]),
         ("php-cs-fixer", vec!["fix", "--dry-run", "--diff"]),
+        ("composer", vec!["audit", "--locked", "--format=json"]),
     ] {
         let command = args(&values);
         assert!(validate_verification_command_shape(program, &command).is_ok());
@@ -330,6 +331,7 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
         ("phpstan", vec!["analyse", "--debug"]),
         ("phpunit", vec!["--filter", "smoke"]),
         ("php-cs-fixer", vec!["fix"]),
+        ("composer", vec!["audit", "--format=json"]),
         ("htmlhint", vec!["**/*.html", "--rulesdir", "tools/rules"]),
         ("bats", vec!["--recursive", "tests"]),
         ("bats", vec!["tests/not-bats.sh"]),

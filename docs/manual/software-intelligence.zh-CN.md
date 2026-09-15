@@ -388,11 +388,11 @@ TUI Intelligence 会把 Installed `available`、Policy/Trust `launch-ready`、�
 
 ### Language Quality Matrix
 
-wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_status` 复用同一套 22 语言 canonical surface，分别展示 Syntax、Semantic、Format、Lint、Type Check、Static Analysis、Test、Security、Property、Mutation、Fuzz、Runtime-Canary。Semantic 只有在真实 LSP Initialize 成功后才算 Covered，发现 Executable 不够。仓库 Manifest、依赖、配置文件、package script 和语言原生项目结构决定“这个项目声明了什么”；但只有 declared + available + check-only 的 Quality Provider 才能让矩阵变绿，Discovery-only Script 只展示意图。一个真实 Provider 可以通过有界 `covers` 同时贡献多个 Dimension，避免 Dart Analyzer 或 Compiler/Build Check 为填两列被重复执行。缺少可执行程序或质量维度会明确显示为 gap。
+wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_status` 复用同一套 22 语言 canonical surface，分别展示 Syntax、Semantic、Format、Lint、Type Check、Static Analysis、Test、Security、Property、Mutation、Fuzz、Runtime-Canary。Semantic 只有在真实 LSP Initialize 成功后才算 Covered，发现 Executable 不够。仓库 Manifest、依赖、配置文件、package script 和语言原生项目结构决定“这个项目声明了什么”；但只有 declared + available + check-only + runnable 的 Quality Provider 才能让矩阵变绿，Discovery-only Script 只展示意图。一个真实 Provider 可以通过有界 `covers` 同时贡献多个 Dimension，避免 Dart Analyzer 或 Compiler/Build Check 为填两列被重复执行。缺少可执行程序或质量维度会明确显示为 gap。
 
 `language_quality_run` 只执行 Matrix 中 detected + declared + available + runnable + check-only 的 Provider。精确获批形态复用自治 Verification/Development Lane，其他已注册 Check-only Provider 使用有界 Trusted Runtime Lane，不再虚构一层额外授权流程。这个通道没有 Formatter/Fixer 写模式，不会借“检查”偷偷修改源码。真实 Command Result 会转成 Verification Report 并记录为当前 code+design Revision Evidence，所以旧版本的 Pass 不会冒充当前版本已经验证。
 
-目前 Registry 能识别 Rust / Go / Python / JS/TS/CSS/HTML / C/C++ / .NET / Java / 纯 Dart/Flutter / Deno / Elixir / Bash / Lua / OCaml / PHP / R / Ruby / Swift 的主流原生或仓库声明质量链，并补充 Prettier、HTMLHint、语言插件约束后的 ESLint/Biome。Scoped npm Package 按真实 Package Key 匹配，不再被 JSON Pointer 的 `/` 拆坏；CSS/HTML 只有对应插件或 Biome 显式 Opt-in 后才会变绿。Deno 依赖检查统一 Frozen；R 使用 `Rscript --vanilla`；Ruby 的 RuboCop 只算 Lint。这不等于本机全部安装，实际状态以 `language_quality_status` 为准。详见 [language-quality.md](../language-quality/)。
+目前 Registry 能识别 Rust / Go / Python / JS/TS/CSS/HTML / C/C++ / .NET / Java / 纯 Dart/Flutter / Deno / Elixir / Bash / Lua / OCaml / PHP / R / Ruby / Swift 的主流原生或仓库声明质量链，并补充 Prettier、HTMLHint、语言插件约束后的 ESLint/Biome。Scoped npm Package 按真实 Package Key 匹配，不再被 JSON Pointer 的 `/` 拆坏；CSS/HTML 只有对应插件或 Biome 显式 Opt-in 后才会变绿。Deno 依赖检查统一 Frozen；PHP 还支持基于 Lockfile 的 Composer Advisory Audit，该检查固定为只读 Shape，但可能访问项目配置的 Advisory Repository；R 使用 `Rscript --vanilla`；Ruby 的 RuboCop 只算 Lint。这不等于本机全部安装，实际状态以 `language_quality_status` 为准。详见 [language-quality.md](../language-quality/)。
 
 ### Graph History / Query / Diff
 

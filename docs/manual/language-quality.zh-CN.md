@@ -84,12 +84,12 @@ Registry 能识别的 Check-only Provider 包括：
 | Bash | 声明后的 ShellCheck/shfmt |
 | Lua | 声明后的 StyLua、Luacheck、Busted |
 | OCaml | Dune Build/Runtest 与 ocamlformat `@fmt` |
-| PHP | PHPStan／Psalm（Type Check + Static Coverage）、PHPUnit、PHP CS Fixer Dry-run |
+| PHP | PHPStan／Psalm（Type Check + Static Coverage）、PHPUnit、PHP CS Fixer Dry-run，以及基于 Lockfile 的 Composer Advisory Audit |
 | R | 声明后的 styler Dry-fail Format、lintr、testthat；内置表达式统一使用 `Rscript --vanilla` |
 | Ruby | RuboCop Lint、Standard Ruby 组合 Lint/Format Check、声明后的 RSpec |
 | Swift | `swift build`（Type Check + Static Coverage）、SwiftPM Test、声明后的 swift-format/SwiftLint |
 
-Deno 的依赖解析型 Verification 统一使用 `--frozen`，避免检查时静默刷新 `deno.lock`；`deno audit --fix` 会改 Dependency Declaration 与 Lockfile，因此不进入 Check-only Lane。Workspace 内可执行文件与 Java Wrapper 只有通过 Runtime 同一套 Regular-file / Single-link / Executable 检查后才算 Available。
+Deno 的依赖解析型 Verification 统一使用 `--frozen`，避免检查时静默刷新 `deno.lock`；`deno audit --fix` 会改 Dependency Declaration 与 Lockfile，因此不进入 Check-only Lane。PHP 仓库同时存在 `composer.json` 与 `composer.lock` 时，只暴露固定的 `composer audit --locked --format=json` Security Shape；Composer 会从项目配置的 Repository 获取 Advisory 数据，因此这不是纯离线检查。Workspace 内可执行文件与 Java Wrapper 只有通过 Runtime 同一套 Regular-file / Single-link / Executable 检查后才算 Available。
 
 这张表只描述 Registry 能力，不代表当前主机一定可用。某个 Workspace 的事实来源始终是 `language_quality_status`。
 
@@ -102,8 +102,9 @@ Deno 的依赖解析型 Verification 统一使用 `--frozen`，避免检查时�
 3. 仓库必须声明 Provider；
 4. 可执行程序必须可用；
 5. Provider 必须注册为 Check-only；
-6. 精确获批的命令形态进入自治 Verification/Development Lane；其他已注册 Check-only Provider 进入有界 Trusted Runtime Lane，不虚构额外授权流程；
-7. Formatter/Fixer 的写源码模式不暴露给这个 Lane。
+6. Provider 在当前 Workspace 中必须真实 Runnable（包括命令执行没有被禁用）；
+7. 精确获批的命令形态进入自治 Verification/Development Lane；其他已注册 Check-only Provider 进入有界 Trusted Runtime Lane，不虚构额外授权流程；
+8. Formatter/Fixer 的写源码模式不暴露给这个 Lane。
 
 真实命令结果会转成 `VerificationReport`，并作为当前 code+design Revision 的 Evidence 持久化。历史 Pass 不能证明后续 Revision。
 

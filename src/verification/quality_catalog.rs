@@ -30,6 +30,7 @@ macro_rules! candidate_owned {
             declared: $declared,
             check_only: true,
             fail_on_stdout: $fail_on_stdout,
+            external_advisory_data: false,
             machine_format: $machine_format,
             declaration: ($declaration).into(),
         }
@@ -123,18 +124,19 @@ pub(crate) fn candidates_for(
                 "Cargo.toml",
                 None,
             ));
-            candidates.push(candidate_owned!(
+            let mut cargo_audit = candidate!(
                 "cargo-audit",
                 Security,
                 Ecosystem,
                 "cargo-audit",
-                Vec::new(),
+                ["--json"],
                 signals.any_contains(&["Cargo.toml", "Cargo.lock", "Makefile"], "cargo-audit")
                     || workspace.root().join(".cargo/audit.toml").is_file(),
                 "cargo-audit repository configuration",
                 Some("json"),
-                false,
-            ));
+            );
+            cargo_audit.external_advisory_data = true;
+            candidates.push(cargo_audit);
         }
         SemanticLanguage::Go => {
             let declared = signals.has("go.mod");
@@ -183,7 +185,7 @@ pub(crate) fn candidates_for(
                 "staticcheck in repository configuration",
                 None,
             ));
-            candidates.push(candidate!(
+            let mut govulncheck = candidate!(
                 "govulncheck",
                 Security,
                 Ecosystem,
@@ -192,7 +194,9 @@ pub(crate) fn candidates_for(
                 signals.any_contains(&["go.mod", "Makefile"], "govulncheck"),
                 "govulncheck in repository configuration",
                 None,
-            ));
+            );
+            govulncheck.external_advisory_data = true;
+            candidates.push(govulncheck);
         }
         SemanticLanguage::Python => {
             let python = format!(

@@ -45,7 +45,7 @@ pub(crate) fn add_deno_tooling(
         "deno.json/deno.jsonc",
         None,
     ));
-    candidates.push(candidate!(
+    let mut deno_audit = candidate!(
         "deno-audit",
         Security,
         LanguageNative,
@@ -54,7 +54,9 @@ pub(crate) fn add_deno_tooling(
         declared && workspace.root().join("deno.lock").is_file(),
         "Deno configuration plus deno.lock",
         None,
-    ));
+    );
+    deno_audit.external_advisory_data = true;
+    candidates.push(deno_audit);
     if matches!(
         language,
         SemanticLanguage::TypeScript | SemanticLanguage::Tsx

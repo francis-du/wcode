@@ -111,9 +111,12 @@ function qualityProviders(language, capability) {
 function qualityCell(language, capability) {
   const providers = qualityProviders(language, capability);
   if (providers.length) {
+    const external = providers.some((provider) => provider.external_advisory_data);
     return `<span title="${
       esc(providers.map((provider) => provider.id).join(", "))
-    }">${pill(t("covered"), "good")}</span>`;
+    }">${pill(t("covered"), "good")}${
+      external ? ` ${pill(localized("advisory data", "外部数据"), "info")}` : ""
+    }</span>`;
   }
   const declared = qualityMatches(language, capability).filter((provider) => provider.declared);
   if (declared.some((provider) => provider.check_only && !provider.available)) {
