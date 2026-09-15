@@ -11,6 +11,8 @@ permalink: /docs/security/
 
 wcode is designed around a simple rule: connecting a model must not implicitly expose the machine.
 
+![wcode security and authorization boundary](/assets/wcode-security-boundary.svg)
+
 ## Workspace isolation
 
 Only configured Workspace roots exist from the model's point of view. Model-facing file operations reject absolute paths, parent traversal, protected paths, symlink components, workspace escape, and unsafe hard-link cases.
@@ -44,27 +46,24 @@ Repository-aware LSP servers can load repository-controlled configuration or cod
 
 Pending authorization requests are visible in the TUI and protected WebUI. The model can request access; it cannot approve its own request.
 
-![wcode authorization and access controls](/assets/img_3.png)
+![wcode authorization and access controls](/assets/wcode-access-management.png)
 
 TUI flow:
 
 ```text
 ↑ / ↓  select request
-Y      approve
+A      authorize all commands for this Workspace session
+Y      approve this exact request
 N      deny
 ```
 
-Command requests have two distinct scopes. **Executable access** permits one
-program name in one Workspace. **Exact repository operation** permits one
-fingerprinted argument set in that Workspace. The WebUI and TUI show these
-labels separately. Approving `cargo` does not approve every `cargo` command;
-approving `cargo test` does not cover different arguments or another subspace.
-A denial creates no grant.
+The command view also uses **F** to toggle the Workspace-wide session grant. The protected WebUI exposes the same switch, and stdio elicitation offers `exact`, `all_commands`, or `deny` when the client supports forms.
 
-`RiskyExecution` is the underlying fingerprint-scoped trust mechanism, not a
-blanket command switch. For non-automatic LSP servers the fingerprint binds Workspace + server + current binary identity, allowing that exact warm session to be reused for refresh/navigation without authorizing a replacement binary, another server, or another Workspace.
+Command authorization therefore has two human-selected modes. **Exact authorization** keeps executable access and one fingerprinted repository operation separate. **All commands for this Workspace session** resolves pending executable/RiskyExecution requests for that Workspace and lets later otherwise-authorizable command shapes proceed without another prompt until the grant is revoked or the runtime exits. It does not spill into another Workspace. Destructive file deletion remains exact and one-shot, and command shapes that are permanently blocked by policy remain blocked.
 
-An approval does not disable Workspace isolation or turn command execution into a shell.
+`RiskyExecution` remains the fingerprint-scoped trust mechanism for exact approval. The Workspace-wide grant is a separate runtime-only operator choice layered above those otherwise-authorizable command requests. For non-automatic LSP servers, exact mode continues to bind Workspace + server + current binary identity; all-command mode intentionally suppresses repeated command/RiskyExecution prompts only inside the selected Workspace.
+
+Neither exact nor session-wide command approval disables Workspace isolation.
 
 ## OAuth and remote MCP
 
@@ -103,7 +102,7 @@ The tunnel provides reachability, not authorization.
 
 ## Media and model capability
 
-`read_media` is metadata-first. It can identify bounded PNG/JPEG/GIF/WebP images, common audio formats, and MP4/WebM metadata without assuming the connected model is multimodal. Image/audio payloads are emitted only when the client explicitly advertises the `run.francis.wcode/media-content` extension for that kind (and optional MIME filter); unknown or unsupported capability fails closed without sending binary content. Video remains metadata-only because MCP has no standard video Tool Result content block.
+`read_media` is metadata-first. It can identify bounded PNG/JPEG/GIF/WebP images, common audio formats, and MP4/WebM metadata. The caller explicitly opts into binary payloads with `include_content=true`, which returns standard MCP `image` / `audio` Tool Result content blocks; no private capability extension is required. Video remains metadata-only because MCP has no standard video Tool Result content block.
 
 ## Secrets and model context
 

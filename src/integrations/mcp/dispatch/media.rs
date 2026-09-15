@@ -68,17 +68,6 @@ pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<
         task.finish(false, serialized_size(&response) as u64);
         return Ok(response);
     }
-    if !client_supports_media_content(params, view.kind, view.mime_type) {
-        metadata["error_code"] = json!("multimodal_not_supported");
-        metadata["required_client_extension"] = json!(MEDIA_CONTENT_EXTENSION_ID);
-        metadata["error"] = json!(
-            "client/model media capability was not explicitly advertised; wcode did not emit a multimodal payload"
-        );
-        let response = tool_result(metadata, true);
-        task.finish(false, serialized_size(&response) as u64);
-        return Ok(response);
-    }
-
     metadata["content_returned"] = json!(true);
     let encoded = STANDARD.encode(&view.data);
     let text = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_owned());
@@ -92,31 +81,4 @@ pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<
     });
     task.finish(true, serialized_size(&response) as u64);
     Ok(response)
-}
-
-pub(super) fn client_supports_media_content(params: &Value, kind: &str, mime_type: &str) -> bool {
-    let Some(extension) = params
-        .get("_meta")
-        .and_then(Value::as_object)
-        .and_then(|meta| meta.get("io.modelcontextprotocol/clientCapabilities"))
-        .and_then(Value::as_object)
-        .and_then(|capabilities| capabilities.get("extensions"))
-        .and_then(Value::as_object)
-        .and_then(|extensions| extensions.get(MEDIA_CONTENT_EXTENSION_ID))
-        .and_then(Value::as_object)
-    else {
-        return false;
-    };
-
-    let kind_supported = extension
-        .get("contentTypes")
-        .and_then(Value::as_array)
-        .is_some_and(|types| types.iter().any(|value| value.as_str() == Some(kind)));
-    if !kind_supported {
-        return false;
-    }
-    extension
-        .get("mimeTypes")
-        .and_then(Value::as_array)
-        .is_none_or(|types| types.iter().any(|value| value.as_str() == Some(mime_type)))
 }

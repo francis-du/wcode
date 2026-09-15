@@ -187,7 +187,7 @@ fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
 }
 
 #[test]
-fn common_full_suite_cargo_and_flutter_verification_is_autonomous() {
+fn common_full_suite_verification_is_autonomous() {
     let safe = WorkspaceSecurity::default();
     for (program, values) in [
         ("cargo", vec!["test", "--workspace", "--no-fail-fast"]),
@@ -214,6 +214,29 @@ fn common_full_suite_cargo_and_flutter_verification_is_autonomous() {
             "flutter",
             vec!["build", "web", "--release", "--wasm", "--no-pub"],
         ),
+        ("deno", vec!["fmt", "--check"]),
+        ("deno", vec!["lint"]),
+        ("deno", vec!["check", "--frozen", "."]),
+        ("deno", vec!["test", "--frozen"]),
+        (
+            "Rscript",
+            vec![
+                "--vanilla",
+                "-e",
+                "quit(status=if(length(lintr::lint_package()))1 else 0)",
+            ],
+        ),
+        (
+            "Rscript",
+            vec!["--vanilla", "-e", "styler::style_pkg(dry=\"fail\")"],
+        ),
+        ("Rscript", vec!["--vanilla", "-e", "testthat::test_local()"]),
+        (
+            "dotnet",
+            vec!["format", "--verify-no-changes", "--no-restore"],
+        ),
+        ("dotnet", vec!["build", "--no-restore"]),
+        ("dotnet", vec!["test", "--no-restore"]),
     ] {
         let command = args(&values);
         assert!(

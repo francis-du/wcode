@@ -51,9 +51,13 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
                 .collect::<HashSet<_>>()
         })
         .unwrap_or_default();
-    let path_lines = super::observatory_files::graph_file_lines(input.graph);
-    let code = super::observatory_files::code_stats(input.graph, input.review);
-    let structure = super::observatory_files::build_project_structure(input.graph);
+    let files = super::observatory_files::project_files(input.graph);
+    let path_lines = super::observatory_files::graph_file_lines(&files);
+    let code = super::observatory_files::code_stats(input.graph, &files, input.review);
+    let structure = super::observatory_files::build_project_structure(
+        files,
+        input.graph.truncated || input.graph.scan_truncated,
+    );
     let graph_precision = graph_precision_summary(input.graph);
     let component_paths = component_paths(&state);
     let actual_dependencies =

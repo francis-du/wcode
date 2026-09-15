@@ -77,11 +77,27 @@ async function main() {
     assert.equal(s.run('refreshes'), 1);
     assert.equal(s.node('#refreshSemantic').disabled, false);
   });
+  await test('workspace-wide command authorization is single-flight and keeps delete separate', async () => {
+    const s = sandbox();
+    s.run('state.access={all_commands_authorized:false,allowed_commands:[]};state.accessLoaded=true;state.authorizations=[{id:"AUTH-c",kind:"command_access",workspace:"A"},{id:"AUTH-r",kind:"risky_execution",workspace:"A"},{id:"AUTH-d",kind:"destructive_delete",workspace:"A"}];renderAccess();');
+    const first = s.run('toggleAllCommandsFromUi()');
+    const second = s.run('toggleAllCommandsFromUi()');
+    await flush();
+    assert.equal(s.requests.length, 1);
+    assert.equal(s.requests[0].url, '/intelligence/command-trust');
+    assert.equal(s.requests[0].options.method, 'POST');
+    respond(s.requests[0], {all_commands_authorized:true,allowed_commands:[],available_commands:[]});
+    await Promise.all([first, second]);
+    assert.equal(s.run('state.access.all_commands_authorized'), true);
+    assert.equal(s.run('state.authorizations.length'), 1);
+    assert.equal(s.run('state.authorizations[0].kind'), 'destructive_delete');
+    assert.ok(s.node('#allCommandsStatus').textContent.includes('All commands authorized'));
+  });
   const report = {suite: 'release-webui', results};
   fs.mkdirSync(path.join(process.argv[2], 'target'), {recursive: true});
   fs.writeFileSync(path.join(process.argv[2], 'target/wcode-release-webui.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
-  assert.equal(results.length, 6);
+  assert.equal(results.length, 7);
   assert.ok(results.every(item => item.passed), 'release WebUI regressions failed');
 }
 main().catch(error => {console.error(error); process.exitCode = 1;});

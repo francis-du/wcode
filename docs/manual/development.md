@@ -73,7 +73,7 @@ OAuth origin selection is request-specific. Only a Host registered after instanc
 
 The Agent installer never executes a Host CLI. Detection is filesystem/PATH evidence only; safe adapters write project-local files, parse before merge, and use normal Workspace atomic writes. JSONC/YAML and unknown schema shapes remain manual. Keep adapter metadata in the registry instead of adding Host-specific branches to `main.rs`.
 
-Media remains metadata-first. Binary image/audio content is emitted only when the current MCP request advertises the matching `run.francis.wcode/media-content` extension; unknown capability remains metadata-only/fail-closed and video remains metadata-only.
+Media remains metadata-first. `include_content=true` is the explicit per-call opt-in for standard MCP `image` / `audio` Tool Result content blocks; no private client extension is required. Video remains metadata-only because MCP has no standard video Tool Result content block.
 
 ## Engineering Control Plane and repository-intelligence invariants
 

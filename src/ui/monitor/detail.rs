@@ -786,27 +786,34 @@ pub(super) fn render_footer(
         Line::from(vec![
             Span::raw(" "),
             keycap("←/→"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("O"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("W"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("I"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("C"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("L"),
-            Span::raw("  "),
+            Span::raw(" "),
             keycap("Y/N"),
-            Span::raw(if pending_authorizations > 0 {
-                " ! "
-            } else {
-                "  "
-            }),
-            keycap("?"),
-            Span::raw("  "),
-            keycap("^C"),
+            Span::raw(if pending_authorizations > 0 { " !" } else { "" }),
         ])
+    };
+    let pairing_area = if area.width < 78 {
+        // Keep help and exit visible even when the complete shortcut row cannot fit.
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(8)])
+            .split(rows[0]);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![keycap("?"), Span::raw(" "), keycap("^C")])),
+            columns[1],
+        );
+        columns[0]
+    } else {
+        rows[0]
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -823,7 +830,7 @@ pub(super) fn render_footer(
                 Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
             ),
         ])),
-        rows[0],
+        pairing_area,
     );
     frame.render_widget(Paragraph::new(line), rows[1]);
 }

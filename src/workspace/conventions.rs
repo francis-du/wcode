@@ -355,7 +355,7 @@ pub(crate) fn generated_source_path(path: &str) -> bool {
     normalized.contains("l10n/app_localizations") && normalized.ends_with(".dart")
 }
 
-fn generated_source(path: &str, content: &str) -> bool {
+pub(crate) fn generated_source(path: &str, content: &str) -> bool {
     if generated_source_path(path) {
         return true;
     }

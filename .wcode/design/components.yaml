@@ -504,7 +504,7 @@
   responsibilities:
     - expose Tools Prompts Resources and durable Tasks over one shared runtime
     - attach Product Scope metadata so agents can discover capability boundaries
-    - honor per-request client capability metadata for form elicitation, media content and Tasks instead of assuming optional client support
+    - honor per-request client capability metadata for form elicitation and Tasks, while media uses standard MCP image/audio content blocks behind explicit include_content opt-in
     - keep model-facing Tool schemas compact by omitting runtime defaults and low-frequency tuning fields while preserving runtime compatibility for explicit legacy arguments
     - guide agents to omit default/inferable arguments and use host-level concurrent top-level calls for independent lanes instead of large nested parallel_tools payloads
     - preserve owner-scoped task execution across modern MCP requests
@@ -598,6 +598,7 @@
     - discover repository-declared language-native and ecosystem check-only quality providers without executing them
     - expose unavailable providers and missing quality dimensions as explicit gaps
     - execute declared available check-only providers through the exact verification lane when their command shape is Harness-approved, otherwise retain the trusted runtime authorization boundary, expose autonomous/authorization/trusted/unavailable execution lanes explicitly, and persist current-revision Evidence
+    - bind manifest-owned polyglot project types to deterministic native verification checks and language-quality providers so discovered Flutter, Deno, R and .NET islands do not remain manifest-only when safe check-only tooling is declared
   constraints:
     - CONSTRAINT-LANGUAGE-CAPABILITY-HONESTY
     - CONSTRAINT-EVIDENCE-PROVENANCE
@@ -618,6 +619,9 @@
     - kind: symbol
       path: src/verification/quality_catalog.rs
       symbol: candidates_for
+    - kind: symbol
+      path: src/runtime/harness/profile_polyglot.rs
+      symbol: add_polyglot_checks
 
 - schema_version: 1
   id: component:convention-engine
@@ -702,6 +706,7 @@
     - reuse the already loaded Design State for traceability calculation inside one software_context request instead of reparsing the same design documents
     - keep traceability and provider precision relevant to the requested behavior rather than truncating unrelated project state
     - require concurrent execution for known independent lanes, preferring one-traversal bulk primitives and shared snapshots before per-item fan-out
+    - when no explicit workspace is supplied, prefer the most specific discovered subspace whose id or final path segment appears in the query text so multi-project parents do not inject unrelated noise
   constraints:
     - CONSTRAINT-CONTEXT-BUDGET
     - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
@@ -717,6 +722,12 @@
     - kind: symbol
       path: src/runtime/harness/agent_context.rs
       symbol: ToolHarness::agent_context
+    - kind: symbol
+      path: src/workspace/registry.rs
+      symbol: Workspaces::prefer_specific_for_query
+    - kind: symbol
+      path: src/integrations/mcp/dispatch/intelligence.rs
+      symbol: call
     - kind: symbol
       path: src/runtime/harness/agent_readiness.rs
       symbol: covered_repo_map_precision

@@ -279,21 +279,38 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     for phrase in [
         "Make any coding agent understand your repo before it changes it.",
         "engineering control plane for coding agents",
-        "UNDERSTAND",
         "Engineering Observatory",
         "Understand first. Change less. Prove it works. Learn only from proof.",
+        "wcode-engineering-loop.svg",
+        "wcode-intelligence-stack.svg",
+        "wcode-verification-mesh.svg",
+        "wcode-security-boundary.svg",
+        "living product documentation",
     ] {
         assert!(
             readme.contains(phrase),
-            "README must lead with concrete agent value: {phrase}"
+            "README must explain the current product model: {phrase}"
         );
     }
+    assert!(
+        !readme.contains("/zh/"),
+        "README language switching belongs on the website"
+    );
+    assert!(
+        !readme.contains("docs/releases"),
+        "README must not carry version-specific documentation navigation"
+    );
     for phrase in [
         "Engineering Control Plane",
         "REPOSITORY INTELLIGENCE",
         "Repository understanding is still the bottleneck",
         "Stop paying the context tax",
         "verification and evidence",
+        "LIVING SYSTEM MODEL",
+        "wcode-engineering-loop.svg",
+        "wcode-intelligence-stack.svg",
+        "wcode-verification-mesh.svg",
+        "wcode-security-boundary.svg",
     ] {
         assert!(
             homepage_en.contains(phrase),
@@ -307,6 +324,11 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         "真实 LSP 语义关系",
         "验证证据",
         "可观测",
+        "活系统模型",
+        "assets/zh/engineering-loop.svg",
+        "assets/zh/intelligence-stack.svg",
+        "assets/zh/verification-mesh.svg",
+        "assets/zh/security-boundary.svg",
     ] {
         assert!(
             homepage_zh.contains(phrase),

@@ -13,10 +13,11 @@ permalink: /zh/docs/releases/
 
 ## 下一版本
 
-- [v0.7.3](v0.7.3/) — 更低摩擦的开发命令自治、更完整的多语言质量能力、更可靠的 Context/Cache，以及 WebUI/Verification 稳定性修复。先 Push，CI 全绿后再创建 Tag。
+- [v0.7.4](v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Tool Result，以及按当前产品重做的文档/UI。先 Push，CI 全绿后再创建 Tag。
 
 ## 0.7.x
 
+- [v0.7.3](v0.7.3/) — 更低摩擦的开发命令自治、更完整的多语言质量能力、更可靠的 Context/Cache，以及 WebUI/Verification 稳定性修复。
 - [v0.7.2](v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型 Host 效率、更精确的高级验证目标，以及更低摩擦的安全仓库检查。
 - [v0.7.1](v0.7.1/) — 稳定入口网络抖动容错、更快项目切换、更强并行执行与更低开发授权摩擦。
 - [v0.7.0](v0.7.0/) — 架构优先的项目观测、更清晰的证据与变更工作流、更快首屏加载，以及更强发布契约。

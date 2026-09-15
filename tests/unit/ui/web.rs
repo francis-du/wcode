@@ -30,6 +30,13 @@ fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
     assert!(INTELLIGENCE_APP_PAGE.contains("data-arch-mode=\"design\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("data-arch-mode=\"actual\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("Requirements"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"allCommandsToggle\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"allCommandsStatus\""));
+    assert!(INTELLIGENCE_JS.contains("/intelligence/command-trust"));
+    assert!(INTELLIGENCE_JS.contains("toggleAllCommandsFromUi"));
+    assert!(INTELLIGENCE_JS.contains("all_commands_authorized"));
+    assert!(INTELLIGENCE_JS.contains("本次运行已全部授权"));
+    assert!(INTELLIGENCE_CSS.contains(".all-command-trust-row"));
     assert!(INTELLIGENCE_JS.contains("observed_drift_percent"));
     assert!(INTELLIGENCE_JS.contains("evidence_coverage_percent"));
     assert!(INTELLIGENCE_JS.contains("implementation_coverage_percent"));
@@ -260,7 +267,10 @@ fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first()
     assert!(
         INTELLIGENCE_CSS.contains("grid-template-columns:326px minmax(360px,394px) minmax(0,1fr)")
     );
-    assert!(INTELLIGENCE_CSS.contains("height:96px;min-height:96px"));
+    assert!(
+        INTELLIGENCE_CSS.contains("height:auto;min-height:96px"),
+        "The hero must grow when workspace names wrap."
+    );
     assert!(INTELLIGENCE_CSS.contains("min-height:38px;padding:7px 22px"));
     assert!(INTELLIGENCE_APP_PAGE.contains("<kbd>⌘ K</kbd>"));
     assert!(!INTELLIGENCE_CSS.contains(".sticky-chrome"));
@@ -293,7 +303,9 @@ fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first()
     assert!(INTELLIGENCE_CSS.contains(".workspace-tabs{display:flex"));
     assert!(INTELLIGENCE_CSS.contains("overscroll-behavior-inline:contain"));
     assert!(INTELLIGENCE_CSS.contains("@media (max-width:1240px)"));
-    assert!(INTELLIGENCE_CSS.contains(".global-controls{grid-column:3;grid-row:1"));
+    assert!(INTELLIGENCE_CSS.contains("@media (max-width:1680px)"));
+    assert!(INTELLIGENCE_CSS.contains(".global-controls{grid-column:2;grid-row:1"));
+    assert!(INTELLIGENCE_CSS.contains(".project-navigator{grid-column:1/-1;grid-row:2"));
     assert!(INTELLIGENCE_CSS
         .contains(".workspace-switcher{display:grid;grid-template-columns:auto minmax(0,1fr)"));
     assert!(INTELLIGENCE_JS.contains("visibleSources = sourceItems.length <= 2"));
@@ -471,6 +483,8 @@ fn observatory_exposes_file_structure_and_largest_files() {
     assert!(INTELLIGENCE_JS.contains("renderProjectStructure"));
     assert!(INTELLIGENCE_JS.contains("structure.entries"));
     assert!(INTELLIGENCE_JS.contains("line_limit"));
+    assert!(INTELLIGENCE_JS.contains("file.generated"));
+    assert!(INTELLIGENCE_JS.contains("generated · line limit exempt"));
     assert!(INTELLIGENCE_CSS.contains(".file-tree"));
 }
 

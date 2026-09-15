@@ -269,6 +269,7 @@ pub struct ProjectFileView {
     pub lines: usize,
     pub bytes: u64,
     pub depth: usize,
+    pub generated: bool,
     pub over_limit: bool,
 }
 

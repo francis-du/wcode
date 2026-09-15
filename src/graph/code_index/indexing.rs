@@ -317,6 +317,7 @@ impl CodeIndex {
         });
         let source_bytes = source.content.len();
         let line_count = source.content.lines().count();
+        let generated_source = crate::conventions::generated_source(&source.path, &source.content);
 
         Ok(ParsedFile {
             record: FileRecord {
@@ -326,6 +327,7 @@ impl CodeIndex {
                 language: config.id,
                 source_bytes,
                 line_count,
+                generated_source,
                 parse_errors,
                 symbols,
             },

@@ -48,7 +48,6 @@ const MAX_BATCH_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEMS: usize = 128;
 const MAX_PARALLEL_FANOUT_ITEM_BYTES: usize = 512 * 1024;
 const MAX_PARALLEL_FANOUT_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-const MEDIA_CONTENT_EXTENSION_ID: &str = "run.francis.wcode/media-content";
 const PARALLEL_READ_TOOLS: &[&str] = &[
     "workspace_info",
     "design_status",
@@ -148,6 +147,11 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(intelligence_web_commands)
                 .post(intelligence_web_allow_command)
                 .delete(intelligence_web_revoke_command),
+        )
+        .route(
+            "/intelligence/command-trust",
+            post(intelligence_web_enable_all_commands)
+                .delete(intelligence_web_disable_all_commands),
         )
         .route(
             "/intelligence/authorizations",
@@ -574,7 +578,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or protected paths. Omit default Workspace/path/limit/timeout/budget arguments. For coding call agent_context first; obey core_constraints and readiness/next_actions/parallelism, and resume active Worklist items without dropping unfinished work. When readiness marks parallelism required, run independent lanes concurrently. Prefer one-traversal bulk tools for known inputs; use parallel_tools only when no bulk primitive fits. Use find_symbol/search_code to localize, semantic_navigation for needed cross-file relations, and symbol_context/read_file only for missing source. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
+const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or protected paths. Omit default Workspace/path/limit/timeout/budget arguments. For coding call agent_context first (it prefers the most specific subspace matching the query when workspace is omitted); obey core_constraints and readiness/next_actions/parallelism, and resume active Worklist items without dropping unfinished work. When readiness marks parallelism required, run independent lanes concurrently. Prefer one-traversal bulk tools for known inputs; use parallel_tools only when no bulk primitive fits. Use find_symbol/search_code to localize, semantic_navigation for needed cross-file relations, and symbol_context/read_file only for missing source. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
 
 fn join_error_message(scope: &str, error: &JoinError) -> String {
     let kind = if error.is_cancelled() {
@@ -679,12 +683,7 @@ pub(crate) async fn handle_message(
                 "prompts": {"listChanged": false},
                 "resources": {"listChanged": false, "subscribe": false},
                 "extensions": {
-                    "io.modelcontextprotocol/tasks": {},
-                    (MEDIA_CONTENT_EXTENSION_ID): {
-                        "contentTypes": ["image", "audio"],
-                        "optInPerCall": true,
-                        "metadataOnlyWithoutCapability": true
-                    }
+                    "io.modelcontextprotocol/tasks": {}
                 }
             },
             "instructions": SERVER_INSTRUCTIONS,

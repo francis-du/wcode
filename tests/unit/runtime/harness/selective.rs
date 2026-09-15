@@ -735,7 +735,7 @@ fn flutter_platform_cmake_scaffolds_stay_owned_by_the_dart_island() {
     fs::create_dir_all(root.path().join("app/lib")).unwrap();
     fs::write(
         root.path().join("app/pubspec.yaml"),
-        "name: app\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n",
+        "name: app\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\ndependencies:\n  flutter:\n    sdk: flutter\n",
     )
     .unwrap();
     fs::write(root.path().join("app/lib/main.dart"), "void main() {}\n").unwrap();
@@ -785,8 +785,75 @@ fn flutter_platform_cmake_scaffolds_stay_owned_by_the_dart_island() {
         Some(&snapshot),
         "full",
     );
-    assert!(checks.iter().any(|check| check.id == "app:dart-test"));
+    assert!(checks.iter().any(|check| check.id == "app:dart-format"));
+    assert!(checks.iter().any(|check| check.id == "app:flutter-analyze"));
+    assert!(checks.iter().any(|check| check.id == "app:flutter-test"));
     assert!(!checks.iter().any(|check| check.id.contains("cmake")));
+}
+
+#[test]
+fn deno_r_and_dotnet_islands_receive_native_verification_checks() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+
+    fs::create_dir_all(root.path().join("deno_app")).unwrap();
+    fs::write(root.path().join("deno_app/deno.json"), "{}\n").unwrap();
+    fs::write(
+        root.path().join("deno_app/main.ts"),
+        "export const value = 1;\n",
+    )
+    .unwrap();
+
+    fs::create_dir_all(root.path().join("r_pkg/tests/testthat")).unwrap();
+    fs::write(
+        root.path().join("r_pkg/DESCRIPTION"),
+        "Package: demo\nImports: lintr, styler, testthat\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("r_pkg/analysis.R"), "value <- 1\n").unwrap();
+
+    fs::create_dir_all(root.path().join("dotnet_app")).unwrap();
+    fs::write(
+        root.path().join("dotnet_app/App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("dotnet_app/Program.cs"),
+        "public static class Program { public static void Main() {} }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+
+    for (root, expected_checks) in [
+        (
+            "deno_app",
+            &["deno-format", "deno-lint", "deno-check", "deno-test"][..],
+        ),
+        ("r_pkg", &["r-format", "r-lint", "r-test"][..]),
+        (
+            "dotnet_app",
+            &["dotnet-format", "dotnet-build", "dotnet-test"][..],
+        ),
+    ] {
+        let island = profile
+            .islands
+            .iter()
+            .find(|island| island.root == root)
+            .unwrap();
+        assert_eq!(island.verification_status, "native", "{root}");
+        assert!(island.verification_gaps.is_empty(), "{root}");
+        for check in expected_checks {
+            assert!(
+                island.check_ids.iter().any(|id| id.ends_with(check)),
+                "{root} must include {check}: {:?}",
+                island.check_ids
+            );
+        }
+    }
 }
 
 #[test]

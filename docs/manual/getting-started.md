@@ -159,6 +159,31 @@ The protected WebUI exposes the same requests. It labels executable access and
 exact repository operations separately; approving one does not imply the
 other.
 
+### Navigate the Engineering Observatory
+
+Select the specific project in the workspace selector before inspecting its state. The default **Engineering architecture** tab starts with the system map; component and dependency details are available from that view.
+
+| Tab | Question it answers |
+| --- | --- |
+| Overview | What needs attention, and what has happened recently? |
+| Engineering architecture | Which systems and components own the code, and how do they relate? |
+| Task activity | What is running or queued, and where is time or memory being used? |
+| Verification evidence | What evidence exists for this revision, and what remains unresolved? |
+| Current changes | Which files changed, what do they affect, and which checks are needed? |
+| Requirements | How does a requirement connect to implementation and proof? |
+| Project files | Which source files are present in the snapshot, and which are largest? |
+
+The language and theme buttons are in the top bar. **Access** opens project and command permissions. On narrow screens, scroll the tab row to reach additional views.
+
+Read status labels before interpreting the numbers:
+
+- **Mapped** means a verification reference resolves; **Executed** means qualifying evidence exists.
+- **Passed** describes the effective results for the observed revision; **Fresh** means the evidence matches the current code and design.
+- **Syntax** describes Tree-sitter relationships. Semantic precision requires a live provider and matching source.
+- **Truncated** means a bounded view is partial. An unavailable snapshot or unknown Git state does not mean an empty repository.
+
+If the view looks stale, check the selected workspace and refresh status, then use **Refresh**. Hidden tabs pause polling; returning to the page resumes it when live refresh is enabled. Use the current protected URL opened by **W** if authorization has expired with the runtime.
+
 ## 7. Common modes
 
 Use `wcode help-all` to see every supported CLI command and parameter, including

@@ -279,6 +279,7 @@ struct FileRecord {
     language: LanguageId,
     source_bytes: usize,
     line_count: usize,
+    generated_source: bool,
     parse_errors: bool,
     symbols: Vec<CodeSymbol>,
 }

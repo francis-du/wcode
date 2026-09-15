@@ -112,6 +112,8 @@ Deno 的依赖解析型 Verification 统一使用 `--frozen`，避免检查时�
 
 Language Quality 负责常见仓库质量门。Property、Mutation、Fuzz、Runtime-Canary 继续是 Verification Mesh 中 Provider-neutral 的高级 Stage，可来自保守的内置 Discovery 或 `.wcode/executors.yaml`。
 
+![wcode Verification Mesh](/assets/zh/verification-mesh.svg)
+
 内置 Property Discovery 现在同时要求 Repository 声明对应框架，并且在**相同语言源码**里真实观察到框架使用；JS/TS 还必须有固定 Vitest/Jest Runner，任意 `test` Script 不再能生成 Property Evidence。JS/TS Mutation 不再根据 `mutation` / `mutate` Script 名或可执行 Stryker 配置自动推导：这些脚本／配置本身可以执行 Repository JavaScript，因此在出现可证明的有界 Adapter 前，Mutation 保持显式 Executor 配置。其他生态的 Mutation Tool 也只有在对应项目类型真实存在时才暴露。
 
 因此即使高级 Stage 缺失，语言能力仍应完整可观测。缺失是需要解决的 Gap，不是把语言标成“不支持”或伪造 Passing Stage 的理由。

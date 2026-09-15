@@ -70,7 +70,7 @@ const translations = {
     "Authorize operation": "授权操作",
     "operation safety note": "只授权当前 Session 内一个精确的仓库感知命令。",
     "Pending authorizations": "待授权请求",
-    "authorization safety note": "每次只批准或拒绝一个精确请求。",
+    "authorization safety note": "可批准当前精确请求、为当前 Workspace 本次运行全部授权，或拒绝。",
     "Approve": "批准",
     "Deny": "拒绝",
     "No pending authorizations": "没有待授权请求",
@@ -88,6 +88,12 @@ const translations = {
     "Command authorized": "命令已授权",
     "Command revoked": "命令授权已撤销",
     "Operation authorized": "操作已授权",
+    "Authorize all commands": "全部授权",
+    "Disable all command authorization": "关闭全部授权",
+    "All commands authorized for this session": "本次运行已全部授权",
+    "All commands require per-request approval": "命令按请求授权",
+    "All command authorization enabled": "已开启全部授权",
+    "All command authorization disabled": "已关闭全部授权",
     "Requirements": "需求",
     "All": "全部",
     "Changed": "有变更",
@@ -332,6 +338,9 @@ Object.assign(translations["zh-CN"], {
   "project files meta":
     "查看有界源码快照的目录层级，并找出超过项目行数上限的文件。",
   "File structure": "文件结构",
+  "Filter file tree…": "筛选文件名或路径…",
+  "Filter file tree": "筛选文件树",
+  "No matching files.": "没有匹配的文件。",
   "Largest files": "大文件",
   "No source files in this snapshot.": "当前快照中没有源码文件。",
   "Within line limit": "均未超过行数上限",
@@ -386,6 +395,8 @@ const els = {
   commandCandidate: q("#commandCandidate"),
   addCommand: q("#addCommand"),
   commandMessage: q("#commandMessage"),
+  allCommandsStatus: q("#allCommandsStatus"),
+  allCommandsToggle: q("#allCommandsToggle"),
   operationProgram: q("#operationProgram"),
   operationArgs: q("#operationArgs"),
   operationCwd: q("#operationCwd"),
@@ -432,6 +443,8 @@ const els = {
   verificationImpact: q("#verificationImpact"),
   structureSummary: q("#structureSummary"),
   fileTree: q("#fileTree"),
+  fileSearch: q("#fileSearch"),
+  fileSearchStatus: q("#fileSearchStatus"),
   largeFiles: q("#largeFiles"),
   auto: q("#autoRefresh"),
   refresh: q("#refresh"),
@@ -736,6 +749,7 @@ function setSync(kind, label) {
   els.syncState.textContent = label;
   els.syncState.parentElement?.setAttribute("aria-label", label);
   els.refresh.disabled = kind === "loading";
+  document.querySelector(".observatory-main")?.setAttribute("aria-busy", String(kind === "loading" && !state.project));
 }
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
@@ -745,6 +759,7 @@ function applyTheme() {
     els.theme.setAttribute("aria-pressed", String(state.theme !== "system"));
     els.theme.setAttribute("data-theme-state", state.theme);
     els.theme.title = `${t("Theme")} · ${t(state.theme === "system" ? "System" : state.theme === "dark" ? "Dark" : "Light")}`;
+    els.theme.setAttribute("aria-label", els.theme.title);
     els.theme.classList.toggle("light-active", light);
   }
   const themeColor = document.querySelector('meta[name="theme-color"]');
@@ -753,6 +768,11 @@ function applyTheme() {
 function applyAutoRefreshControl() {
   els.auto.setAttribute("aria-pressed", String(state.autoRefresh));
   els.auto.classList.toggle("active", state.autoRefresh);
+  const label = state.autoRefresh
+    ? localized("Automatic refresh: on", "自动刷新：开启")
+    : localized("Automatic refresh: paused", "自动刷新：暂停");
+  els.auto.setAttribute("aria-label", label);
+  els.auto.title = label;
   els.auto.textContent = state.autoRefresh ? t("Live") : localized("Paused", "暂停");
 }
 function applyLanguage() {
@@ -767,7 +787,12 @@ function applyLanguage() {
   els.language.setAttribute("aria-label", t("Language"));
   const languageLabel = els.language.querySelector("strong");
   if (languageLabel) languageLabel.textContent = state.language === "zh-CN" ? "EN" : "中";
-  els.theme.setAttribute("aria-label", t("Theme"));
+  applyTheme();
+  els.refresh.setAttribute("aria-label", t("Refresh now"));
+  els.refreshSemantic?.setAttribute("aria-label", t("Refresh semantic providers"));
+  els.manage?.setAttribute("aria-label", t("Workspace & command access"));
+  els.projectNavigator?.setAttribute("aria-label", t("Search systems, components, requirements…"));
+  els.fileSearch?.setAttribute("aria-label", t("Filter file tree"));
   applyAutoRefreshControl();
   els.workspacePath.placeholder = t("Absolute or relative project path");
   els.commandCandidate.placeholder = state.language === "zh-CN"

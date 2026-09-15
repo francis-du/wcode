@@ -29,6 +29,8 @@ Revision-exact Evidence
 Convergence
 ```
 
+![wcode Engineering Control Plane loop](/assets/wcode-engineering-loop.svg)
+
 ### 1. Context Policy: give the agent a map
 
 Always-on instructions should stay short. They identify the Workspace/security boundary, Desired State, Product Scopes, the preferred coding path, and authoritative verification tools. Detailed architecture, requirement history, source bodies, language tooling, and verification state should be loaded only when needed.

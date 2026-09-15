@@ -17,8 +17,6 @@ mod leaf_workspace;
 mod media;
 #[path = "parallel_output.rs"]
 mod parallel_output;
-#[cfg(test)]
-use media::client_supports_media_content;
 use media::read_media_tool;
 pub(crate) use parallel_output::parallel_item_from_response;
 use parallel_output::{parallel_item_error, serialized_size};

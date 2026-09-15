@@ -97,6 +97,20 @@ function restoreWorkspaceSnapshot(workspace) {
   setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
   return true;
 }
+function renderProjectPlaceholder(failed = false) {
+  const title = failed ? t("Refresh failed") : t("Loading project state…");
+  const detail = token
+    ? localized("Check the connection, then use Refresh to try again.", "请检查连接，然后点击刷新重试。")
+    : localized("Open this page from the wcode terminal to connect your workspace.", "请从 wcode 终端打开此页面，连接你的工作区。");
+  const content = failed
+    ? `<div class="section empty connection-state"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div>`
+    : `<div class="section empty loading-state">${esc(title)}</div>`;
+  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
+    if ((key === "activity" || key === "resourceStatus") && state.activitySnapshot) continue;
+    setHtml(key, els[key], content);
+  }
+  setHtml("statusSummary", els.statusSummary, `<h2>${esc(title)}</h2>${failed ? `<p>${esc(detail)}</p>` : ""}`);
+}
 function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
   state.pendingValue = null; state.pendingApplied = 0;
@@ -113,16 +127,15 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.access = null; state.workspaceAccess = null; state.authorizations = [];
   state.accessLoaded = false; state.accessEpoch++; state.semanticRefreshPending = false;
   els.search.value = ""; els.componentSearch.value = "";
+  if (els.fileSearch) els.fileSearch.value = "";
+  if (els.fileSearchStatus) els.fileSearchStatus.textContent = "";
   state.activityController?.abort(); state.pollController?.abort();
   if (!preserveDom) {
-    for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
-      setHtml(key, els[key], `<div class="section empty">${esc(t("Loading project state…"))}</div>`);
-    }
+    renderProjectPlaceholder();
     els.lastUpdated.textContent = "—"; els.precisionBadge.textContent = "—";
     if (els.precisionProviders) els.precisionProviders.textContent = "—";
     els.reqCount.textContent = "—"; els.componentCount.textContent = "—";
     els.structureSummary.textContent = "—"; els.qualitySummary.textContent = "—";
-    setHtml("statusSummary", els.statusSummary, `<h2>${esc(t("Loading project state…"))}</h2>`);
   }
   renderAccess(true);
 }
@@ -192,9 +205,10 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   } catch (error) {
     if (current() && !controller.signal.aborted) {
       state.syncError = true;
-      setSync("error", `${t("Refresh failed")} · ${error.message}`);
+      console.warn("wcode: project refresh failed", error);
+      setSync("error", t("Refresh failed"));
       renderAttention(); renderLive();
-      if (!state.project) setHtml("statusSummary", els.statusSummary, `<h2>${esc(t("Refresh failed"))}</h2><p>${esc(error.message)}</p>`);
+      if (!state.project) renderProjectPlaceholder(true);
     }
     return false;
   } finally {
@@ -235,7 +249,8 @@ async function pollRevision() {
         // heavy project rebuild every interval.
         state.syncError = true;
         state.lastChecked = Date.now();
-        setSync("error", `${t("Refresh failed")} · ${error.message}`);
+        console.warn("wcode: revision refresh failed", error);
+        setSync("error", t("Refresh failed"));
         renderAttention(); renderLive();
       }
     }
@@ -332,8 +347,10 @@ els.theme.addEventListener("click", () => {
 els.manage.addEventListener("click", async () => { const open = !accessPanelOpen(); setAccessPanel(open); if (open) await loadAccess(); });
 els.closeAccess.addEventListener("click", () => setAccessPanel(false));
 els.addWorkspace.addEventListener("click", addWorkspaceFromUi);
+els.fileSearch?.addEventListener("input", renderProjectStructure);
 els.workspacePath.addEventListener("keydown", event => { if (event.key === "Enter") addWorkspaceFromUi(); });
 els.addCommand.addEventListener("click", addCommandFromUi);
+els.allCommandsToggle?.addEventListener("click", toggleAllCommandsFromUi);
 els.commandCandidate.addEventListener("keydown", event => { if (event.key === "Enter") addCommandFromUi(); });
 els.authorizeOperation.addEventListener("click", authorizeOperationFromUi);
 els.operationArgs.addEventListener("keydown", event => { if (event.key === "Enter") authorizeOperationFromUi(); });

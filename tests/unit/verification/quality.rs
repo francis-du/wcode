@@ -92,6 +92,35 @@ fn polyglot_registry_scopes_nested_manifest_providers_to_their_islands() {
     )
     .unwrap();
     fs::write(dir.path().join("mobile/lib/app.dart"), "void main() {}\n").unwrap();
+    fs::create_dir_all(dir.path().join("flutter_app/lib")).unwrap();
+    fs::write(
+        dir.path().join("flutter_app/pubspec.yaml"),
+        "name: flutter_app\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("flutter_app/lib/main.dart"),
+        "void main() {}\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("deno_app")).unwrap();
+    fs::write(dir.path().join("deno_app/deno.json"), "{}\n").unwrap();
+    fs::write(
+        dir.path().join("deno_app/main.ts"),
+        "export const value = 1;\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("dotnet_app")).unwrap();
+    fs::write(
+        dir.path().join("dotnet_app/App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("dotnet_app/Program.cs"),
+        "public static class Program { public static void Main() {} }\n",
+    )
+    .unwrap();
     fs::create_dir_all(dir.path().join("web/src")).unwrap();
     fs::write(
         dir.path().join("web/package.json"),
@@ -109,6 +138,9 @@ fn polyglot_registry_scopes_nested_manifest_providers_to_their_islands() {
     let project_roots = vec![
         (".".to_owned(), vec!["rust".to_owned()]),
         ("mobile".to_owned(), vec!["dart".to_owned()]),
+        ("flutter_app".to_owned(), vec!["flutter".to_owned()]),
+        ("deno_app".to_owned(), vec!["deno".to_owned()]),
+        ("dotnet_app".to_owned(), vec!["dotnet-csharp".to_owned()]),
         ("web".to_owned(), vec!["node".to_owned()]),
     ];
     let registry = registry_for_project_roots(&workspace, None, &project_roots).unwrap();
@@ -121,13 +153,36 @@ fn polyglot_registry_scopes_nested_manifest_providers_to_their_islands() {
     assert!(dart.providers.iter().any(|provider| {
         provider.id == "mobile::dart-analyze" && provider.root == "mobile" && provider.declared
     }));
+    assert!(dart.providers.iter().any(|provider| {
+        provider.id == "flutter_app::flutter-analyze"
+            && provider.root == "flutter_app"
+            && provider.declared
+    }));
+    assert!(dart.providers.iter().any(|provider| {
+        provider.id == "flutter_app::flutter-test"
+            && provider.root == "flutter_app"
+            && provider.declared
+    }));
     let typescript = registry
         .languages
         .iter()
         .find(|status| status.language == SemanticLanguage::TypeScript)
         .unwrap();
     assert!(typescript.providers.iter().any(|provider| {
+        provider.id == "deno_app::deno-check" && provider.root == "deno_app" && provider.declared
+    }));
+    assert!(typescript.providers.iter().any(|provider| {
         provider.id == "web::package-lint" && provider.root == "web" && provider.declared
+    }));
+    let csharp = registry
+        .languages
+        .iter()
+        .find(|status| status.language == SemanticLanguage::CSharp)
+        .unwrap();
+    assert!(csharp.providers.iter().any(|provider| {
+        provider.id == "dotnet_app::dotnet-build"
+            && provider.root == "dotnet_app"
+            && provider.declared
     }));
     let rust = registry
         .languages

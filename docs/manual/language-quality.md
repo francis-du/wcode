@@ -114,6 +114,8 @@ The command result becomes a `VerificationReport`, and wcode persists the result
 
 Language Quality covers common repository quality gates. Property, Mutation, Fuzz, and Runtime-Canary remain provider-neutral advanced stages in the Verification Mesh and can come from conservative built-in discovery or `.wcode/executors.yaml`.
 
+![wcode Verification Mesh](/assets/wcode-verification-mesh.svg)
+
 Built-in Property discovery requires both repository framework declaration and evidence that the framework is actually referenced from source of the matching language. JS/TS Property discovery additionally requires a known fixed Vitest/Jest runner; arbitrary `test` scripts are not Property evidence. JS/TS mutation is not inferred from `mutation`/`mutate` script names or executable Stryker configuration: because those scripts/configs can execute repository JavaScript, mutation remains an explicit executor configuration unless a future bounded adapter can prove its command contract. Mutation tools for other ecosystems are exposed only when the corresponding project type is present.
 
 A language therefore remains fully observable even when advanced-stage coverage is missing. Missing coverage is a gap to resolve, not a reason to claim the language is unsupported or to fabricate a passing stage.

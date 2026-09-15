@@ -27,3 +27,14 @@
   affects:
     - component:documentation-governance
     - component:agent-integration
+
+- schema_version: 1
+  id: ADR-004
+  title: agent_context prefers the most specific matching subspace
+  status: accepted
+  decision: When agent_context is invoked without an explicit workspace argument, wcode may select the deepest discovered subspace whose id or final path segment appears in the query text. Explicit workspace arguments always win; other tools retain default selection.
+  rationale: Multi-project parent workspaces otherwise inject unrelated noise into the coding startup pack. Conservative textual matching keeps the preference predictable and does not expand the trust boundary of non-agent_context tools.
+  affects:
+    - component:agent-context
+    - component:mcp-runtime
+    - component:workspace-registry

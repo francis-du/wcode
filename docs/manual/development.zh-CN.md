@@ -71,7 +71,7 @@ OAuth Origin 按请求解析。只有通过实例健康校验并注册的 Host �
 
 Agent Installer 不执行任何 Host CLI。Detection 只看 Filesystem/PATH Evidence；Safe Adapter 只写项目文件，Merge 前先 Parse，并复用 Workspace Atomic Write。JSONC/YAML 和未知 Schema 保持 Manual。Host Metadata 统一放 Registry，不能在 `main.rs` 继续堆 Host-specific Branch。
 
-Media 继续 Metadata-first。Image/Audio Binary Content 只有当前 MCP Request 显式声明匹配的 `run.francis.wcode/media-content` Extension 时才发出；Capability Unknown 时只返回 Metadata / Fail-closed，Video 始终 Metadata-only。
+Media 继续 Metadata-first。`include_content=true` 本身就是单次调用的显式 Opt-in，wcode 直接返回标准 MCP `image` / `audio` Tool Result Content Block，不再要求私有 Client Extension。MCP 没有标准 Video Tool Result Content Block，因此 Video 继续 Metadata-only。
 
 ## Engineering Control Plane 与仓库理解不变量
 

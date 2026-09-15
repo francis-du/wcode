@@ -1,5 +1,27 @@
 use super::*;
 
+#[test]
+fn narrow_footer_keeps_pairing_approval_help_and_exit_visible() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.mark_mcp_initialized();
+
+    for width in [40, 60, 77] {
+        let text = monitor_test_text(&monitor, &config, width, 20, &DashboardState::default());
+        assert!(
+            text.contains(&config.pairing_code),
+            "pairing code at {width} columns"
+        );
+        for shortcut in ["Y/N", "?", "^C", " O ", " W "] {
+            assert!(
+                text.contains(shortcut),
+                "missing {shortcut} at {width} columns"
+            );
+        }
+    }
+}
+
 fn seed_engineering_state(monitor: &TaskMonitor, workspace: &str) {
     monitor.record_intelligence_result(
         workspace,

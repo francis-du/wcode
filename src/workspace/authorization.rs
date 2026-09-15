@@ -67,6 +67,7 @@ struct AuthorizationState {
     requests: BTreeMap<String, AuthorizationRequest>,
     session_grants: HashSet<String>,
     one_shot_grants: HashSet<String>,
+    workspace_command_grants: HashSet<String>,
     interactive_tokens: BTreeMap<String, String>,
 }
 
@@ -82,6 +83,50 @@ impl AuthorizationManager {
             .expect("authorization state lock poisoned")
             .session_grants
             .contains(fingerprint)
+    }
+
+    pub fn workspace_commands_granted(&self, workspace: &str) -> bool {
+        self.state
+            .lock()
+            .expect("authorization state lock poisoned")
+            .workspace_command_grants
+            .contains(workspace)
+    }
+
+    pub fn set_workspace_commands_granted(&self, workspace: &str, enabled: bool) -> bool {
+        let mut state = self
+            .state
+            .lock()
+            .expect("authorization state lock poisoned");
+        let changed = if enabled {
+            state.workspace_command_grants.insert(workspace.to_owned())
+        } else {
+            state.workspace_command_grants.remove(workspace)
+        };
+        if enabled {
+            let decided_at_ms = now_ms();
+            let resolved = state
+                .requests
+                .iter_mut()
+                .filter_map(|(id, request)| {
+                    (request.workspace == workspace
+                        && request.status == AuthorizationStatus::Pending
+                        && matches!(
+                            request.kind,
+                            AuthorizationKind::CommandAccess | AuthorizationKind::RiskyExecution
+                        ))
+                    .then(|| {
+                        request.status = AuthorizationStatus::ApprovedSession;
+                        request.decided_at_ms = Some(decided_at_ms);
+                        id.clone()
+                    })
+                })
+                .collect::<Vec<_>>();
+            for id in resolved {
+                state.interactive_tokens.remove(&id);
+            }
+        }
+        changed
     }
 
     pub fn request(

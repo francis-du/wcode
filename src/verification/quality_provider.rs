@@ -586,7 +586,7 @@ fn semantic_languages_for_project_types(project_types: &[String]) -> BTreeSet<Se
             "rust" => {
                 languages.insert(SemanticLanguage::Rust);
             }
-            "node" => {
+            "node" | "deno" => {
                 languages.extend([
                     SemanticLanguage::JavaScript,
                     SemanticLanguage::TypeScript,
@@ -604,10 +604,13 @@ fn semantic_languages_for_project_types(project_types: &[String]) -> BTreeSet<Se
             "java" => {
                 languages.insert(SemanticLanguage::Java);
             }
+            "dotnet" | "dotnet-csharp" => {
+                languages.insert(SemanticLanguage::CSharp);
+            }
             "swift" => {
                 languages.insert(SemanticLanguage::Swift);
             }
-            "dart" => {
+            "dart" | "flutter" => {
                 languages.insert(SemanticLanguage::Dart);
             }
             "elixir" => {

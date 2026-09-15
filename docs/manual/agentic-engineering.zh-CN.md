@@ -29,6 +29,8 @@ Revision-exact Evidence
 Convergence
 ```
 
+![wcode Engineering Control Plane 闭环](/assets/zh/engineering-loop.svg)
+
 ### 1. Context Policy：先给地图
 
 常驻指令应保持短小，只说明 Workspace / 安全边界、Desired State、Product Scope、推荐编程路径和权威验证工具。详细架构、Requirement 历史、源码正文、语言工具和 Verification 状态只在任务需要时加载。

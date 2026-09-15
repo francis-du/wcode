@@ -12,76 +12,50 @@ const MAX_STRUCTURE_FILES: usize = 1_500;
 const MAX_LARGEST_FILES: usize = 32;
 const SOURCE_LINE_LIMIT: usize = 1_000;
 
-pub(super) fn graph_file_lines(graph: &SoftwareGraphSnapshot) -> BTreeMap<String, usize> {
-    graph
-        .graph
-        .nodes
-        .values()
-        .filter(|node| node.kind == NodeKind::File)
-        .filter_map(|node| {
-            let path = node
-                .attributes
-                .get("path")
-                .and_then(serde_json::Value::as_str)?;
-            let lines = node
-                .attributes
-                .get("line_count")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or_default();
-            Some((path.to_owned(), lines))
-        })
+pub(super) fn graph_file_lines(
+    files: &BTreeMap<String, ProjectFileView>,
+) -> BTreeMap<String, usize> {
+    files
+        .iter()
+        .map(|(path, file)| (path.clone(), file.lines))
         .collect()
 }
 
 pub(super) fn code_stats(
     graph: &SoftwareGraphSnapshot,
+    files: &BTreeMap<String, ProjectFileView>,
     review: Option<&ChangeReviewReport>,
 ) -> ProjectCodeStats {
     let mut source_files = 0usize;
     let mut source_lines = 0usize;
     let mut source_bytes = 0u64;
-    let mut symbols = 0usize;
+    let symbols = graph
+        .graph
+        .nodes
+        .values()
+        .filter(|node| {
+            node.kind != NodeKind::File
+                && node
+                    .attributes
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+        })
+        .count();
     let mut languages = BTreeMap::<String, (usize, usize)>::new();
     let mut product_scopes = BTreeMap::<String, (usize, usize)>::new();
 
-    for node in graph.graph.nodes.values() {
-        let path = node
-            .attributes
-            .get("path")
-            .and_then(serde_json::Value::as_str);
-        if node.kind == NodeKind::File {
-            let Some(path) = path else { continue };
-            source_files = source_files.saturating_add(1);
-            let lines = node
-                .attributes
-                .get("line_count")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or_default();
-            let bytes = node
-                .attributes
-                .get("source_bytes")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or_default();
-            source_lines = source_lines.saturating_add(lines);
-            source_bytes = source_bytes.saturating_add(bytes);
-            let language = node
-                .attributes
-                .get("language")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown")
-                .to_owned();
-            let entry = languages.entry(language).or_default();
+    for file in files.values() {
+        source_files = source_files.saturating_add(1);
+        source_lines = source_lines.saturating_add(file.lines);
+        source_bytes = source_bytes.saturating_add(file.bytes);
+        let entry = languages.entry(file.language.clone()).or_default();
+        entry.0 = entry.0.saturating_add(1);
+        entry.1 = entry.1.saturating_add(file.lines);
+        if let Some(scope) = scopes::source_scope(&file.path) {
+            let entry = product_scopes.entry(scope.as_str().to_owned()).or_default();
             entry.0 = entry.0.saturating_add(1);
-            entry.1 = entry.1.saturating_add(lines);
-            if let Some(scope) = scopes::source_scope(path) {
-                let entry = product_scopes.entry(scope.as_str().to_owned()).or_default();
-                entry.0 = entry.0.saturating_add(1);
-                entry.1 = entry.1.saturating_add(lines);
-            }
-        } else if path.is_some() {
-            symbols = symbols.saturating_add(1);
+            entry.1 = entry.1.saturating_add(file.lines);
         }
     }
 
@@ -142,7 +116,7 @@ fn breakdown(values: BTreeMap<String, (usize, usize)>) -> Vec<CodeStatBreakdown>
         .collect()
 }
 
-pub(super) fn build_project_structure(graph: &SoftwareGraphSnapshot) -> ProjectStructureView {
+pub(super) fn project_files(graph: &SoftwareGraphSnapshot) -> BTreeMap<String, ProjectFileView> {
     let mut files = BTreeMap::<String, ProjectFileView>::new();
     for node in graph
         .graph
@@ -175,13 +149,20 @@ pub(super) fn build_project_structure(graph: &SoftwareGraphSnapshot) -> ProjectS
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown")
             .to_owned();
+        let generated = node
+            .attributes
+            .get("generated_source")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or_else(|| crate::conventions::generated_source_path(path));
+        let over_limit = lines > SOURCE_LINE_LIMIT && !generated;
         let depth = path.split('/').filter(|part| !part.is_empty()).count();
         files
             .entry(path.to_owned())
             .and_modify(|entry| {
                 entry.lines = entry.lines.max(lines);
                 entry.bytes = entry.bytes.max(bytes);
-                entry.over_limit |= lines > SOURCE_LINE_LIMIT;
+                entry.generated |= generated;
+                entry.over_limit = entry.lines > SOURCE_LINE_LIMIT && !entry.generated;
                 if entry.language == "unknown" && language != "unknown" {
                     entry.language.clone_from(&language);
                 }
@@ -192,34 +173,45 @@ pub(super) fn build_project_structure(graph: &SoftwareGraphSnapshot) -> ProjectS
                 lines,
                 bytes,
                 depth,
-                over_limit: lines > SOURCE_LINE_LIMIT,
+                generated,
+                over_limit,
             });
     }
 
+    files
+}
+
+pub(super) fn build_project_structure(
+    files: BTreeMap<String, ProjectFileView>,
+    graph_truncated: bool,
+) -> ProjectStructureView {
     let total_files = files.len();
-    let entries = files
-        .into_values()
-        .take(MAX_STRUCTURE_FILES)
-        .collect::<Vec<_>>();
     let mut directories = BTreeSet::new();
     let mut max_depth = 0usize;
-    for entry in &entries {
+    for entry in files.values() {
         max_depth = max_depth.max(entry.depth);
         let parts = entry.path.split('/').collect::<Vec<_>>();
         for end in 1..parts.len() {
             directories.insert(parts[..end].join("/"));
         }
     }
-    let oversized_files = entries.iter().filter(|entry| entry.over_limit).count();
-    let mut largest_files = entries.clone();
-    largest_files.sort_by(|left, right| {
+    let oversized_files = files.values().filter(|entry| entry.over_limit).count();
+    // Rank the whole snapshot before bounding the tree. Clone only the winners.
+    let mut largest_files = files.values().collect::<Vec<_>>();
+    let compare = |left: &&ProjectFileView, right: &&ProjectFileView| {
         right
             .lines
             .cmp(&left.lines)
             .then_with(|| right.bytes.cmp(&left.bytes))
             .then_with(|| left.path.cmp(&right.path))
-    });
-    largest_files.truncate(MAX_LARGEST_FILES);
+    };
+    if largest_files.len() > MAX_LARGEST_FILES {
+        largest_files.select_nth_unstable_by(MAX_LARGEST_FILES, compare);
+        largest_files.truncate(MAX_LARGEST_FILES);
+    }
+    largest_files.sort_by(compare);
+    let largest_files = largest_files.into_iter().cloned().collect();
+    let entries = files.into_values().take(MAX_STRUCTURE_FILES).collect();
 
     ProjectStructureView {
         entries,
@@ -228,7 +220,7 @@ pub(super) fn build_project_structure(graph: &SoftwareGraphSnapshot) -> ProjectS
         max_depth,
         oversized_files,
         line_limit: SOURCE_LINE_LIMIT,
-        truncated: graph.truncated || graph.scan_truncated || total_files > MAX_STRUCTURE_FILES,
+        truncated: graph_truncated || total_files > MAX_STRUCTURE_FILES,
     }
 }
 

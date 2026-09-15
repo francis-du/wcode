@@ -279,6 +279,38 @@ pub(super) async fn intelligence_web_allow_command(
     }
 }
 
+pub(super) async fn intelligence_web_enable_all_commands(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = intelligence_ui_authorized(&state, &headers) {
+        return *response;
+    }
+    match state
+        .workspaces
+        .set_all_commands_authorized(requested_intelligence_workspace(&headers), true)
+    {
+        Ok(workspace) => (StatusCode::OK, Json(workspace)).into_response(),
+        Err(error) => intelligence_bad_request(error),
+    }
+}
+
+pub(super) async fn intelligence_web_disable_all_commands(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = intelligence_ui_authorized(&state, &headers) {
+        return *response;
+    }
+    match state
+        .workspaces
+        .set_all_commands_authorized(requested_intelligence_workspace(&headers), false)
+    {
+        Ok(workspace) => (StatusCode::OK, Json(workspace)).into_response(),
+        Err(error) => intelligence_bad_request(error),
+    }
+}
+
 pub(super) async fn intelligence_web_revoke_command(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

@@ -569,3 +569,70 @@ fn exact_operation_endpoint_does_not_implicitly_allow_an_executable() {
             .any(|program| program == "cargo")
     );
 }
+
+#[tokio::test]
+async fn webui_workspace_command_trust_can_be_enabled_and_revoked() {
+    let root = tempfile::tempdir().unwrap();
+    cargo_project(root.path(), "command_trust_project");
+    let workspaces = Workspaces::new([root.path()], true, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    workspaces
+        .revoke_command(Some(&workspace_id), "cargo")
+        .unwrap();
+    let (_, workspace) = workspaces.select(Some(&workspace_id)).unwrap();
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(2).unwrap(),
+        monitor: TaskMonitor::new([workspace_id.clone()]),
+        tasks: TaskRuntime::default(),
+    });
+
+    let first = workspace
+        .run_command("cargo", &["--version".to_owned()], ".", 30)
+        .await
+        .unwrap_err();
+    assert!(first.to_string().contains("authorization required"));
+
+    let enabled = response_json(
+        intelligence_web_enable_all_commands(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(enabled["all_commands_authorized"], true);
+    assert!(state
+        .workspaces
+        .all_commands_authorized(Some(&workspace_id))
+        .unwrap());
+    assert!(state
+        .workspaces
+        .authorization_requests(32)
+        .iter()
+        .all(
+            |request| request.kind == AuthorizationKind::DestructiveDelete
+                || request.status != crate::authorization::AuthorizationStatus::Pending
+        ));
+
+    let result = workspace
+        .run_command("cargo", &["--version".to_owned()], ".", 30)
+        .await
+        .expect("workspace command trust should avoid another command-access request");
+    assert!(result.success);
+
+    let disabled = response_json(
+        intelligence_web_disable_all_commands(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(disabled["all_commands_authorized"], false);
+    assert!(!state
+        .workspaces
+        .all_commands_authorized(Some(&workspace_id))
+        .unwrap());
+}

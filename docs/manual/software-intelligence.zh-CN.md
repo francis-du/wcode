@@ -34,6 +34,8 @@ Verification / Reviewer / Evidence
 Engineering Observatory + 持久 Workspace State
 ```
 
+![wcode 仓库智能栈](/assets/zh/intelligence-stack.svg)
+
 Engineering Observatory 把同一份模型变成项目数字孪生：先显示分层工程架构蓝图，再显示 Design vs Actual、实时工程活动、Vibe Coding 变更链、Desired State → Actual State → Change → Proof → Convergence 和明确的架构偏离。Software Graph 只是保留 Provenance 的底层能力与二级下钻，不要求用户先看懂一张“球图”才能理解项目。
 
 验证映射与实际证据明确分开：`Mapped` 表示某个 Acceptance Criterion 声明的验证引用都能解析，并不代表已经运行；`Executed` 表示存在合格的验证 Evidence；`Passed` 要求最新观测版本内各有效验证范围均通过；同时间戳冲突保留失败，不按记录 ID 选择有利结果。`Fresh` 表示这个无歧义的版本与当前代码及 Design State Revision 完全一致。这些计数分别暴露在 `ProjectObservatory.proof.acceptance`，因此 100% Traceability Mapping 不会被误读为当前版本已经验证通过。
@@ -665,7 +667,7 @@ file_outline
 find_symbol
 symbol_context
 read_file / read_files
-read_media  # 默认只读 Metadata；Image/Audio Payload 需要当前请求显式声明 run.francis.wcode/media-content
+read_media  # 默认只读 Metadata；include_content=true 显式返回标准 MCP Image/Audio Content
 path_info
 parallel_tools
 replace_text / write_file / apply_edits / apply_file_edits
@@ -697,7 +699,7 @@ run_command
 - 持久化 Reconciliation Plan + dependency-aware Claim / Submit / Retry 执行状态机 + Reconciliation Evidence
 - `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI
 - TUI 仓库理解、完整命令清单和持续显示的配对码；受保护 Engineering Observatory 包含 System → Subsystem → Component 架构蓝图、实时 Understand → Change → Prove → Learn → Observe 工程流、Files → Components → Requirements → Verification → Drift 的 Vibe Coding 变更链、二级 Design-vs-Actual 依赖图、组件与需求详情、验收和验证、约束与决策、受限文件树、代码统计、Git 改动映射和架构版本历史
-- `read_media` 的 Capability-aware 多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；只有当前请求显式声明匹配的 `run.francis.wcode/media-content` Client Capability 时才返回 Image/Audio Content，能力未知或不支持时 Fail Closed，视频始终 Metadata-only
+- `read_media` 的多媒体边界：PNG/JPEG/GIF/WebP 可返回尺寸，常见音频与 MP4/WebM 可识别 Metadata；默认只返回 Metadata，调用方设置 `include_content=true` 时直接返回标准 MCP Image/Audio Content，视频始终 Metadata-only
 - 完整高阶 MCP Surface
 
 ### 明确精度 / 集成边界

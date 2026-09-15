@@ -290,6 +290,41 @@ pub(super) fn run_dashboard(
                             let _ = open_external_url(&config.project_url);
                         }
                         KeyCode::Char('a') | KeyCode::Char('A')
+                            if key.kind == KeyEventKind::Press
+                                && ui.authorization_visible(area) =>
+                        {
+                            if let Some(request) =
+                                ui.pending_authorizations.get(ui.authorization_focus)
+                            {
+                                if request.kind
+                                    == crate::authorization::AuthorizationKind::DestructiveDelete
+                                {
+                                    ui.workspace_message = Some(
+                                        ui.language
+                                            .tr("all command authorization does not include delete")
+                                            .to_owned(),
+                                    );
+                                } else {
+                                    let result = config.workspaces.set_all_commands_authorized(
+                                        Some(&request.workspace),
+                                        true,
+                                    );
+                                    ui.workspace_message = Some(match result {
+                                        Ok(_) => format!(
+                                            "{} {}",
+                                            ui.language.tr("all commands authorized"),
+                                            request.workspace
+                                        ),
+                                        Err(error) => format!(
+                                            "{}: {error}",
+                                            ui.language.tr("all command authorization failed")
+                                        ),
+                                    });
+                                }
+                                ui.clamp_authorizations(pending_authorizations(&config).len());
+                            }
+                        }
+                        KeyCode::Char('a') | KeyCode::Char('A')
                             if key.kind == KeyEventKind::Press =>
                         {
                             let _ = open_external_url(&config.author_url);
@@ -300,6 +335,37 @@ pub(super) fn run_dashboard(
                             ui.help_open = false;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
+                        }
+                        KeyCode::Char('f') | KeyCode::Char('F')
+                            if key.kind == KeyEventKind::Press && ui.commands_open =>
+                        {
+                            if let Some(workspace_id) =
+                                focused_workspace_id(&config, ui.workspace_focus)
+                            {
+                                let enabled = config
+                                    .workspaces
+                                    .all_commands_authorized(Some(&workspace_id))
+                                    .unwrap_or(false);
+                                ui.workspace_message = Some(
+                                    match config
+                                        .workspaces
+                                        .set_all_commands_authorized(Some(&workspace_id), !enabled)
+                                    {
+                                        Ok(_) if enabled => format!(
+                                            "{} {workspace_id}",
+                                            ui.language.tr("all command authorization disabled")
+                                        ),
+                                        Ok(_) => format!(
+                                            "{} {workspace_id}",
+                                            ui.language.tr("all commands authorized")
+                                        ),
+                                        Err(error) => format!(
+                                            "{}: {error}",
+                                            ui.language.tr("all command authorization failed")
+                                        ),
+                                    },
+                                );
+                            }
                         }
                         KeyCode::Char('y') | KeyCode::Char('Y')
                             if key.kind == KeyEventKind::Press

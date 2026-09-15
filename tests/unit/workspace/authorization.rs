@@ -57,3 +57,39 @@ fn destructive_approval_is_exact_and_consumed_once() {
     assert!(manager.consume_one_shot_grant("sha256:delete-once"));
     assert!(!manager.consume_one_shot_grant("sha256:delete-once"));
 }
+
+#[test]
+fn workspace_command_grant_resolves_command_requests_but_not_delete() {
+    let manager = AuthorizationManager::default();
+    let command = manager.request_command("demo", "cargo", "sha256:command");
+    let risky = manager.request(
+        "demo",
+        AuthorizationKind::RiskyExecution,
+        "run cargo publish",
+        "sha256:risky",
+    );
+    let delete = manager.request(
+        "demo",
+        AuthorizationKind::DestructiveDelete,
+        "delete src/obsolete.rs",
+        "sha256:delete",
+    );
+
+    assert!(manager.set_workspace_commands_granted("demo", true));
+    assert!(manager.workspace_commands_granted("demo"));
+    assert_eq!(
+        manager.request_by_id(&command.id).unwrap().status,
+        AuthorizationStatus::ApprovedSession
+    );
+    assert_eq!(
+        manager.request_by_id(&risky.id).unwrap().status,
+        AuthorizationStatus::ApprovedSession
+    );
+    assert_eq!(
+        manager.request_by_id(&delete.id).unwrap().status,
+        AuthorizationStatus::Pending
+    );
+
+    assert!(manager.set_workspace_commands_granted("demo", false));
+    assert!(!manager.workspace_commands_granted("demo"));
+}

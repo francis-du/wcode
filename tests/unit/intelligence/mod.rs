@@ -8,6 +8,100 @@ mod history;
 mod revision;
 mod verification;
 
+fn observatory_file_snapshot(
+    entries: impl IntoIterator<Item = (String, usize)>,
+) -> crate::graph::SoftwareGraphSnapshot {
+    use crate::graph::{GraphNode, GraphProvenance, SoftwareGraph, SoftwareGraphSnapshot};
+
+    let mut graph = SoftwareGraph::default();
+    for (index, (path, lines)) in entries.into_iter().enumerate() {
+        graph
+            .add_node(GraphNode {
+                id: format!("fixture:file:{index:04}"),
+                kind: NodeKind::File,
+                label: path.clone(),
+                attributes: BTreeMap::from([
+                    ("path".into(), serde_json::json!(path)),
+                    ("line_count".into(), serde_json::json!(lines)),
+                    ("source_bytes".into(), serde_json::json!(lines * 10)),
+                    ("language".into(), serde_json::json!("rust")),
+                ]),
+                provenance: GraphProvenance {
+                    provider: "fixture".into(),
+                    precision: GraphPrecision::Syntax,
+                    revision: "fixture-revision".into(),
+                },
+            })
+            .unwrap();
+    }
+    SoftwareGraphSnapshot {
+        workspace: "fixture".into(),
+        path: ".".into(),
+        provider: "fixture".into(),
+        precision: GraphPrecision::Syntax,
+        files_considered: graph.nodes.len(),
+        files_indexed: graph.nodes.len(),
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: graph.nodes.len(),
+        edge_count: 0,
+        failures: Vec::new(),
+        graph,
+    }
+}
+
+#[test]
+fn observatory_file_totals_include_files_beyond_the_tree_limit() {
+    let graph = observatory_file_snapshot(
+        (0..1_500)
+            .map(|index| (format!("a/{index:04}.rs"), 1))
+            .chain([
+                ("z/deep/huge.rs".into(), 2_001),
+                ("z/deep/l10n/app_localizations_en.dart".into(), 3_000),
+            ]),
+    );
+    let files = observatory_files::project_files(&graph);
+    let structure = observatory_files::build_project_structure(files, false);
+    assert_eq!(structure.entries.len(), 1_500);
+    assert!(structure.truncated);
+    assert_eq!(structure.oversized_files, 1);
+    assert_eq!(structure.max_depth, 4);
+    assert_eq!(structure.directory_count, 4);
+    assert_eq!(structure.largest_files.len(), 32);
+    assert_eq!(
+        structure.largest_files[0].path,
+        "z/deep/l10n/app_localizations_en.dart"
+    );
+    assert!(structure.largest_files[0].generated);
+    assert!(!structure.largest_files[0].over_limit);
+    assert_eq!(structure.largest_files[1].path, "z/deep/huge.rs");
+    assert!(structure.largest_files[1].over_limit);
+}
+
+#[test]
+fn observatory_file_stats_deduplicate_provider_nodes_and_ignore_unsafe_paths() {
+    let graph = observatory_file_snapshot([
+        ("src/runtime/example.rs".into(), 200),
+        ("src/runtime/example.rs".into(), 2),
+        ("../outside.rs".into(), 9_000),
+    ]);
+    let files = observatory_files::project_files(&graph);
+    let code = observatory_files::code_stats(&graph, &files, None);
+    assert_eq!(code.source_files, 1);
+    assert_eq!(code.source_lines, 200);
+    assert_eq!(code.source_bytes, 2_000);
+    assert_eq!(code.languages.len(), 1);
+    assert_eq!(code.languages[0].files, 1);
+    assert_eq!(code.languages[0].lines, 200);
+    assert_eq!(code.product_scopes.len(), 1);
+    assert_eq!(code.product_scopes[0].files, 1);
+    assert_eq!(code.product_scopes[0].lines, 200);
+    let lines = observatory_files::graph_file_lines(&files);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines["src/runtime/example.rs"], 200);
+}
+
 #[test]
 fn design_status_distinguishes_uninitialized_from_invalid() {
     let empty = tempfile::tempdir().unwrap();

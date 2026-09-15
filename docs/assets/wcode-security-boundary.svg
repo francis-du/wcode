@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">wcode security and authorization boundary</title>
+  <desc id="desc">Diagram showing local and remote MCP clients crossing protocol, OAuth, harness, authorization, and workspace boundaries before guarded repository operations.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a0810"/><stop offset="1" stop-color="#18111f"/></linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#715aff"/><stop offset="1" stop-color="#d477ce"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8b789f"/></marker>
+    <style>
+      .title{font:700 52px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#f7f3ff;letter-spacing:-1px}
+      .sub{font:400 21px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#ada4b8}
+      .k{font:700 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#cfbfff;letter-spacing:2px}
+      .h{font:700 22px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .t{font:500 16px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#c4bbcc}
+      .small{font:500 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#958b9f}
+      .mono{font:600 14px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#ebe2f5}
+    </style>
+  </defs>
+  <rect width="1600" height="920" rx="36" fill="url(#bg)"/>
+  <circle cx="1450" cy="85" r="280" fill="#9d7bff" opacity=".07"/>
+  <text x="80" y="88" class="k">SECURITY MODEL · CONNECTING A MODEL ≠ EXPOSING THE MACHINE</text>
+  <text x="80" y="148" class="title">Every operation crosses explicit boundaries.</text>
+  <text x="80" y="186" class="sub">Remote reachability, model requests, command trust, and filesystem authority are separate decisions.</text>
+
+  <g>
+    <text x="80" y="254" class="k">CLIENTS</text>
+    <rect x="80" y="278" width="284" height="120" rx="24" fill="#17121f" stroke="#3b2f49"/>
+    <text x="108" y="316" class="h">Local coding agent</text><text x="108" y="346" class="t">stdio · host working directory</text><text x="108" y="374" class="small">no network auth hop</text>
+    <rect x="80" y="430" width="284" height="140" rx="24" fill="#17121f" stroke="#3b2f49"/>
+    <text x="108" y="468" class="h">Remote client</text><text x="108" y="498" class="t">Streamable HTTP /mcp</text><text x="108" y="526" class="t">legacy SSE compatibility</text><text x="108" y="554" class="small">network path always authenticated</text>
+  </g>
+
+  <path d="M364 338H454" stroke="#86739a" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M364 500H418V412H454" fill="none" stroke="#86739a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="464" y="274" width="286" height="300" rx="30" fill="#191321" stroke="#4a395a"/>
+    <text x="494" y="314" class="k">TRANSPORT &amp; IDENTITY</text>
+    <rect x="494" y="338" width="226" height="72" rx="18" fill="#251a31"/><text x="516" y="368" class="h">MCP protocol core</text><text x="516" y="392" class="small">same dispatch for all transports</text>
+    <rect x="494" y="426" width="226" height="104" rx="18" fill="#2b1d33"/><text x="516" y="458" class="h">OAuth boundary</text><text x="516" y="484" class="t">PKCE · resource binding</text><text x="516" y="510" class="small">Host + Origin validation</text>
+    <text x="494" y="552" class="small">OAuth applies to network transports.</text>
+  </g>
+
+  <path d="M750 424H836" stroke="#86739a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="846" y="248" width="330" height="352" rx="32" fill="url(#core)" opacity=".92"/>
+    <text x="878" y="290" class="k" fill="#fff">WCODE HARNESS</text>
+    <text x="878" y="332" class="h">Policy before execution</text>
+    <rect x="878" y="356" width="266" height="52" rx="16" fill="#170f24" opacity=".62"/><text x="900" y="389" class="mono">workspace boundary</text>
+    <rect x="878" y="422" width="266" height="52" rx="16" fill="#170f24" opacity=".62"/><text x="900" y="455" class="mono">path + SHA guards</text>
+    <rect x="878" y="488" width="266" height="52" rx="16" fill="#170f24" opacity=".62"/><text x="900" y="521" class="mono">command policy · no shell</text>
+    <text x="878" y="568" class="small" fill="#fff">Global semaphore + resource scheduler keep</text>
+    <text x="878" y="588" class="small" fill="#fff">concurrent work inside the same trust boundary.</text>
+  </g>
+
+  <path d="M1176 424H1260" stroke="#86739a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="1270" y="274" width="250" height="300" rx="30" fill="#17121f" stroke="#3b2f49"/>
+    <text x="1298" y="314" class="k">WORKSPACE</text>
+    <text x="1298" y="350" class="h">Guarded operations</text>
+    <text x="1298" y="385" class="t">read / search</text><text x="1298" y="413" class="t">atomic edit / create</text><text x="1298" y="441" class="t">bounded verification</text><text x="1298" y="469" class="t">approved command shapes</text>
+    <rect x="1298" y="500" width="194" height="38" rx="19" fill="#21322d"/><text x="1395" y="524" text-anchor="middle" class="mono">canonical roots only</text>
+  </g>
+
+  <g>
+    <rect x="464" y="652" width="712" height="150" rx="28" fill="#17121f" stroke="#4b3a5a"/>
+    <text x="494" y="692" class="k">LOCAL HUMAN AUTHORIZATION</text>
+    <text x="494" y="730" class="h">The model may request trust. It cannot grant it.</text>
+    <text x="494" y="760" class="t">TUI / WebUI / stdio → exact request or Workspace-wide command session grant</text>
+    <rect x="948" y="686" width="198" height="34" rx="17" fill="#2b2140"/><text x="1047" y="708" text-anchor="middle" class="mono">approve / deny</text>
+    <path d="M1010 652V608" stroke="#87749d" stroke-width="2" marker-end="url(#arrow)"/>
+  </g>
+
+  <g>
+    <rect x="80" y="652" width="330" height="150" rx="28" fill="#1e141b" stroke="#5b3345"/>
+    <text x="108" y="692" class="k" fill="#ffb5d2">PERMANENT / FAIL-CLOSED EDGES</text>
+    <text x="108" y="730" class="t">workspace escape · shell injection</text><text x="108" y="758" class="t">protected credential/VCS paths</text><text x="108" y="786" class="t">recursive/destructive unsafe shapes</text>
+  </g>
+
+  <text x="80" y="862" class="small">Approval never disables Workspace isolation. A tunnel supplies reachability, not authorization. Existing-file writes remain SHA-guarded after access is granted.</text>
+</svg>

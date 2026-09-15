@@ -7,6 +7,8 @@ use std::sync::atomic::Ordering;
 mod contracts;
 #[path = "islands.rs"]
 mod islands;
+#[path = "profile_polyglot.rs"]
+mod profile_polyglot;
 #[path = "profile_scan.rs"]
 mod profile_scan;
 pub(super) use contracts::contract_freshness_advisories;
@@ -274,7 +276,7 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
             .iter()
             .any(|project_type| project_type == name)
     };
-    add_polyglot_checks(root, project_types, checks);
+    profile_polyglot::add_polyglot_checks(root, project_types, checks);
     if has_type("rust") {
         let locked = root.join("Cargo.lock").is_file();
         push_check(
@@ -588,42 +590,6 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
     }
     if has_type("make") {
         add_make_checks(root, checks);
-    }
-}
-
-fn add_polyglot_checks(root: &Path, project_types: &[String], checks: &mut Vec<CheckSpec>) {
-    let has_type = |name: &str| {
-        project_types
-            .iter()
-            .any(|project_type| project_type == name)
-    };
-    if has_type("dart") {
-        push_check(
-            checks,
-            "dart-format",
-            "quick",
-            "dart",
-            &["format", "-o", "none", "--set-exit-if-changed", "."],
-            "Verify Dart formatting without modifying source.",
-        );
-        if root.join("pubspec.yaml").is_file() {
-            push_check(
-                checks,
-                "dart-analyze",
-                "quick",
-                "dart",
-                &["analyze"],
-                "Run Dart static analysis for the owning package.",
-            );
-            push_check(
-                checks,
-                "dart-test",
-                "full",
-                "dart",
-                &["test"],
-                "Run the Dart test suite for the owning package.",
-            );
-        }
     }
 }
 

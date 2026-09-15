@@ -34,6 +34,8 @@ verification / reviewers / evidence
 Engineering Observatory + durable workspace state
 ```
 
+![wcode Repository Intelligence stack](/assets/wcode-intelligence-stack.svg)
+
 The Engineering Observatory turns that model into a human-readable project digital twin: layered architecture blueprint, Design vs Actual, live engineering activity, Vibe Coding change story, Desired State → Actual State → Change → Proof → Convergence, and explicit drift. The generic Software Graph remains a provenance-bearing substrate and secondary drill-down, not a visualization users must decipher.
 
 Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` requires all effective verification scopes in the latest observed revision to pass; timestamp ties retain failures rather than choosing a favorable record ID. `Fresh` means that unambiguous revision matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
@@ -545,7 +547,7 @@ Risk is intentionally recomputed from current Design/Git/Code state. Graph histo
 - `find_symbol`
 - `symbol_context`
 - `read_file` / `read_files`
-- `read_media` — metadata-first bounded media inspection; image/audio content requires a matching per-request `run.francis.wcode/media-content` client capability, while unknown/legacy capability fails closed and video remains metadata-only
+- `read_media` — metadata-first bounded media inspection; `include_content=true` explicitly opts into standard MCP image/audio content blocks, while video remains metadata-only
 - `path_info`
 - `parallel_tools`
 - `replace_text` / `write_file` / `apply_edits` / `apply_file_edits`
@@ -582,7 +584,7 @@ Precision and integration boundaries are explicit rather than hidden:
 - all 22 indexed languages share one LSP and verification-executor architecture, but wcode does not bundle every third-party LSP/test binary. `semantic_provider_status` and `verification_executor_status` expose exact host availability instead of pretending absent tools exist;
 - hardened first-party LSP servers may auto-refresh through the bounded LSP lane and can be disabled with `--no-semantic`; non-profiled LSP refresh plus Property/Mutation/Fuzz/Runtime execution still require explicit operator trust, while `--allow-risky-exec` remains process-wide pre-authorization; none of these mechanisms is an OS sandbox;
 - model-facing command execution uses command-specific policy for the built-in development CLI catalog and exact `RiskyExecution` fingerprints for bounded repository/remote operations. Repository mutation stays narrower: only explicit-path `git add`, message-only `git commit`, and explicit remote+ref non-force `git push` shapes can cross exact approval; an approved SSH push may use the current SSH Agent only through wcode's fixed non-interactive SSH command. Force/delete/reset/restore-style mutation, shell interpreters, credential-bypass surfaces, workspace escapes, and protected resources remain blocked;
-- `read_media` never infers vision/audio support from a model or vendor name. `include_content=true` emits an image/audio MCP content block only when the current request declares the matching `run.francis.wcode/media-content` extension; otherwise it returns a structured capability error without binary content;
+- `read_media` never infers capability from a model or vendor name. Metadata is the default; `include_content=true` is the explicit caller opt-in that emits a standard MCP image/audio content block without requiring a private extension;
 - Reconciliation execution coordinates durable tasks and evidence, but source edits still use the normal bounded/hash-guarded wcode edit surface instead of a hidden unrestricted patch engine;
 - destructive deletion is deliberately outside normal write flow: the first `delete_path` attempt creates an exact local authorization request, the operator approves or denies it in the TUI or protected WebUI, and only a matching retry can consume the one-shot grant.
 

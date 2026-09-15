@@ -67,6 +67,7 @@
         <div id="commandList" class="command-list"></div>
         <div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div>
         <div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div>
+        <div class="all-command-trust-row"><span id="allCommandsStatus" class="panel-meta" data-i18n="All commands require per-request approval">All commands require per-request approval</span><button id="allCommandsToggle" type="button" data-i18n="Authorize all commands">Authorize all commands</button></div>
       </div>
       <div class="access-card access-card-wide operation-access-card">
         <h4 data-i18n="Exact repository operation">Exact repository operation</h4>
@@ -78,7 +79,7 @@
       <div class="access-card access-card-wide authorizations-card">
         <h4 data-i18n="Pending authorizations">Pending authorizations</h4>
         <div id="authorizationList" class="authorization-list"></div>
-        <div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve or deny one exact request at a time.</div>
+        <div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve this exact request, authorize all commands for this Workspace session, or deny.</div>
       </div>
     </div>
   </section>
@@ -243,7 +244,7 @@
 
       <section id="filesSection" class="structure-panel workspace-panel hidden" data-workspace-panel="files" role="tabpanel" aria-labelledby="tabFiles" tabindex="-1">
         <div class="panel-head"><div><div class="panel-title" data-i18n="Project files">Project files</div><div class="panel-meta" data-i18n="project files meta">Browse the bounded source snapshot and find files that exceed the project line limit.</div></div><div id="structureSummary" class="structure-summary">—</div></div>
-        <div class="structure-layout"><section class="structure-pane"><h3 data-i18n="File structure">File structure</h3><div id="fileTree" class="file-tree"></div></section><section class="structure-pane"><h3 data-i18n="Largest files">Largest files</h3><div id="largeFiles" class="large-files"></div></section></div>
+        <div class="structure-layout"><section class="structure-pane"><h3 data-i18n="File structure">File structure</h3><div class="structure-search"><input id="fileSearch" type="search" placeholder="Filter file tree…" data-i18n-placeholder="Filter file tree…" aria-label="Filter file tree" autocomplete="off" spellcheck="false"><small id="fileSearchStatus" role="status" aria-live="polite"></small></div><div id="fileTree" class="file-tree"></div></section><section class="structure-pane"><h3 data-i18n="Largest files">Largest files</h3><div id="largeFiles" class="large-files"></div></section></div>
       </section>
 
       <section id="diagnosticsSection" class="secondary-workspace-section workspace-panel hidden" data-workspace-panel="overview" role="region" aria-labelledby="diagnosticsTitle" tabindex="-1">

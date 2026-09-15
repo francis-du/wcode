@@ -131,11 +131,18 @@ impl Workspace {
         commands
     }
 
+    pub(crate) fn workspace_commands_granted(&self) -> bool {
+        self.authorization
+            .workspace_commands_granted(&self.authorization_workspace_id())
+    }
+
     pub(crate) fn command_allowed(&self, program: &str) -> bool {
-        self.commands
-            .read()
-            .expect("workspace command allowlist lock poisoned")
-            .contains(program)
+        self.workspace_commands_granted()
+            || self
+                .commands
+                .read()
+                .expect("workspace command allowlist lock poisoned")
+                .contains(program)
     }
 
     pub(crate) fn available_commands(&self) -> Vec<String> {
@@ -172,7 +179,7 @@ impl Workspace {
     }
 
     pub(crate) fn risky_operation_authorized(&self, operation: &str) -> bool {
-        if self.security.allow_risky_exec {
+        if self.security.allow_risky_exec || self.workspace_commands_granted() {
             return true;
         }
         let fingerprint = operation_fingerprint(&self.root, operation);
@@ -185,7 +192,7 @@ impl Workspace {
         operation: &str,
         summary: &str,
     ) -> Result<()> {
-        if self.security.allow_risky_exec {
+        if self.security.allow_risky_exec || self.workspace_commands_granted() {
             return Ok(());
         }
         let fingerprint = operation_fingerprint(&self.root, operation);

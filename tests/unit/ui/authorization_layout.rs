@@ -23,10 +23,14 @@ fn audit_narrow_authorization_keeps_approve_and_deny_visible() {
                 .chunks(usize::from(width))
                 .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
+            assert!(
+                rows.iter().any(|row| row.contains('A')),
+                "all-command shortcut missing at {width}x{height}"
+            );
             let controls = rows
                 .iter()
                 .find(|row| row.contains('Y') && row.contains('N'))
-                .expect("both shortcuts must be visible on the same row");
+                .expect("approve and deny shortcuts must remain visible together");
             // Wide glyphs occupy a second buffer cell containing a blank.
             let visible = controls.split_whitespace().collect::<String>();
             let deny = if language == UiLanguage::ZhCn {

@@ -433,43 +433,28 @@ mod agent_context_enrichment_tests {
     }
 }
 
-#[cfg(test)]
-mod media_capability_tests {
-    use super::*;
+#[tokio::test]
+async fn media_content_uses_standard_mcp_blocks_without_private_client_extension() {
+    let root = tempfile::tempdir().unwrap();
+    let png = STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+        .unwrap();
+    std::fs::write(root.path().join("pixel.png"), png).unwrap();
+    let state = batch_test_state(root.path());
 
-    #[test]
-    fn media_content_is_fail_closed_without_explicit_client_extension() {
-        assert!(!client_supports_media_content(
-            &json!({"name":"read_media","arguments":{}}),
-            "image",
-            "image/png"
-        ));
-    }
+    let result = call_tool(
+        &state,
+        json!({
+            "name":"read_media",
+            "arguments":{"path":"pixel.png","include_content":true}
+        }),
+    )
+    .await
+    .unwrap();
 
-    #[test]
-    fn media_content_requires_matching_kind_and_optional_mime_filter() {
-        let params = json!({
-            "_meta": {
-                "io.modelcontextprotocol/clientCapabilities": {
-                    "extensions": {
-                        (MEDIA_CONTENT_EXTENSION_ID): {
-                            "contentTypes": ["image"],
-                            "mimeTypes": ["image/png"]
-                        }
-                    }
-                }
-            }
-        });
-        assert!(client_supports_media_content(&params, "image", "image/png"));
-        assert!(!client_supports_media_content(
-            &params,
-            "audio",
-            "audio/mpeg"
-        ));
-        assert!(!client_supports_media_content(
-            &params,
-            "image",
-            "image/jpeg"
-        ));
-    }
+    assert_eq!(result["isError"], false);
+    assert_eq!(result["structuredContent"]["content_returned"], true);
+    assert_eq!(result["content"][1]["type"], "image");
+    assert_eq!(result["content"][1]["mimeType"], "image/png");
+    assert!(result["content"][1]["data"].as_str().unwrap().len() > 16);
 }

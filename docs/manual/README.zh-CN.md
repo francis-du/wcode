@@ -22,7 +22,26 @@ permalink: /zh/docs/
 4. **学习（Learn）** — 只有稳定且验证通过的修改才能进入本地 Experience Graph；失败、截断或不完整工作不会被学成“经验”。
 5. **观测（Observe）** — Engineering Observatory 是项目数字孪生：不用打开 IDE，也能看到工程架构蓝图、实时工程流、Vibe Coding 变更链、设计偏离、来源、风险与当前版本证据。
 
-检索也不是一套排名打天下：明确的 `trace→code`、`code→test`、`edit→ripple` 任务使用不同的有界启发式 Prior；多个意图同时出现时主动回退到 balanced context。精确目标和更新鲜、更强的 Semantic / Deterministic / Runtime Evidence 始终高于这些启发式。
+![wcode Engineering Control Plane 闭环](/assets/zh/engineering-loop.svg)
+
+## 找到需要的界面
+
+在 TUI 中按 **W** 打开当前项目的受保护工程观测台，默认进入**工程架构**页。通过工作区选择器切换项目，通过语言和主题按钮调整显示。
+
+| 界面 | 适合查看什么 |
+| --- | --- |
+| TUI 终端面板 | 连接状态、当前项目、实时任务和待授权请求。 |
+| Setup Hub 设置中心 | 配置命令、只读预览、启动选项、性能预设和运行状态。 |
+| 总览（Overview） | 项目概况、工程流程、时间线、诊断和语言质量。 |
+| 工程架构（Engineering architecture） | 系统与组件归属、设计依赖、实际观测关系和架构详情。 |
+| 任务活动（Task activity） | 正在运行和排队的任务、执行耗时和资源占用。 |
+| 验证证据（Verification evidence） | 当前版本的验证结果、就绪状态和已验证的仓库经验。 |
+| 当前变更（Current changes） | 工作树变更、影响范围和需要执行的验证。 |
+| 需求（Requirements） | 从需求到组件、代码、验证和证据的追溯关系。 |
+| 项目文件（Project files） | 有界源码树、最大文件和截断提示。 |
+| 访问（Access） | 项目授权、可执行程序权限、精确操作和待处理请求。 |
+
+检查已映射不代表已经运行，历史通过也可能属于旧版本。界面操作见[快速开始](getting-started/)，证据含义见[仓库理解与工程状态](software-intelligence/)。
 
 ## 从这里开始
 
@@ -46,6 +65,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.7.4 发布说明](releases/v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Content，以及按当前产品重做的文档/UI。
 - [v0.7.3 发布说明](releases/v0.7.3/) — 有界开发命令默认自治、更完整的 Deno/Flutter 质量覆盖、更可靠的仓库智能 Cache，以及 WebUI/Verification 稳定性修复。
 - [v0.7.2 发布说明](releases/v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型高效工具发现、Agent Context 检索遥测与更精确的 Verification Mesh Target。
 - [v0.7.1 发布说明](releases/v0.7.1/) — 稳定隧道抗抖动、项目实时切换、Semantic Auto 加固、减少开发授权摩擦并强化真实并行吞吐。

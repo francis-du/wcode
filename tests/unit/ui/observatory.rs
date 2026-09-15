@@ -13,7 +13,7 @@ fn release_062_webui_keeps_semantic_and_authorization_responses_scoped() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 6
+                .is_some_and(|results| results.len() == 7
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -52,7 +52,7 @@ fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 32
+                .is_some_and(|results| results.len() == 38
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

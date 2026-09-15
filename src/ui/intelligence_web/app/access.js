@@ -22,12 +22,19 @@ function renderAccess(force = false) {
       els.authorizationList.querySelectorAll("[data-deny-authorization]").forEach(button =>
         button.addEventListener("click", () => decideAuthorization(button.dataset.denyAuthorization, false)));
     });
+  const allCommands = state.access?.all_commands_authorized === true;
+  if (els.allCommandsStatus) els.allCommandsStatus.textContent = t(allCommands ? "All commands authorized for this session" : "All commands require per-request approval");
+  if (els.allCommandsToggle) {
+    els.allCommandsToggle.textContent = t(allCommands ? "Disable all command authorization" : "Authorize all commands");
+    els.allCommandsToggle.classList.toggle("danger-toggle", allCommands);
+    els.allCommandsToggle.setAttribute("aria-pressed", allCommands ? "true" : "false");
+  }
   if (!els.commandMessage.dataset.result) els.commandMessage.textContent = t("command safety note");
   if (!els.authorizationMessage.dataset.result) els.authorizationMessage.textContent = t("authorization safety note");
   setAccessBusy(state.accessBusy);
 }
 function setAccessBusy(busy) {
-  for (const button of [els.addWorkspace, els.addCommand, els.authorizeOperation, els.workspace]) button.disabled = busy;
+  for (const button of [els.addWorkspace, els.addCommand, els.authorizeOperation, els.allCommandsToggle, els.workspace].filter(Boolean)) button.disabled = busy;
   els.commandList.querySelectorAll("button").forEach(button => { button.disabled = busy; });
   els.authorizationList.querySelectorAll("button").forEach(button => { button.disabled = busy || !state.accessLoaded; });
 }
@@ -144,6 +151,21 @@ async function revokeCommandFromUi(program) {
     state.access = data;
     accessMessage(els.commandMessage, `${t("Command revoked")}: ${program}`);
     renderAccess();
+  });
+}
+async function toggleAllCommandsFromUi() {
+  if (state.accessBusy || !state.access) return;
+  const enable = state.access.all_commands_authorized !== true;
+  await mutateAccess(els.commandMessage, async op => {
+    const data = await uiJson("/intelligence/command-trust", enable ? "POST" : "DELETE", undefined, { workspace: op.stamp.workspace });
+    if (!accessOperationCurrent(op)) return;
+    state.access = data;
+    if (enable) {
+      state.authorizations = state.authorizations.filter(request => request.kind === "destructive_delete");
+      observePending(state.authorizations.length, op.stamp);
+    }
+    accessMessage(els.commandMessage, t(enable ? "All command authorization enabled" : "All command authorization disabled"));
+    renderAccess(); renderStats(); renderAttention();
   });
 }
 function parseOperationArgs(value) {

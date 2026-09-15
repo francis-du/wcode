@@ -14,6 +14,10 @@ pub(super) fn append_file_graph(
     file_attributes.insert("sha256".to_owned(), json!(record.sha256));
     file_attributes.insert("source_bytes".to_owned(), json!(record.source_bytes));
     file_attributes.insert("line_count".to_owned(), json!(record.line_count));
+    file_attributes.insert(
+        "generated_source".to_owned(),
+        json!(record.generated_source),
+    );
     file_attributes.insert("parse_errors".to_owned(), json!(record.parse_errors));
     graph.add_node(GraphNode {
         id: file_id.clone(),

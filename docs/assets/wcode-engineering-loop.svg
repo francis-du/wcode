@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">wcode Engineering Control Plane loop</title>
+  <desc id="desc">A five-stage loop showing how wcode helps coding agents understand, change, prove, learn, and observe a repository.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0812"/><stop offset="1" stop-color="#171021"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a88cff"/><stop offset="1" stop-color="#ff79b8"/></linearGradient>
+    <linearGradient id="soft" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#21192f"/><stop offset="1" stop-color="#17131f"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".26"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#9a83d4"/></marker>
+    <style>
+      .title{font:700 54px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#f7f3ff;letter-spacing:-1.2px}
+      .sub{font:400 22px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#aea5bd}
+      .eyebrow{font:700 15px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#cfbfff;letter-spacing:2.2px}
+      .stage{font:700 24px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .copy{font:400 17px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#c7bfce}
+      .chip{font:600 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#e8ddff}
+      .center{font:800 34px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .center2{font:500 16px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#ddd4e7}
+      .small{font:500 15px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#9f95ad}
+    </style>
+  </defs>
+  <rect width="1600" height="900" rx="36" fill="url(#bg)"/>
+  <circle cx="1380" cy="100" r="260" fill="#8d62ff" opacity=".08"/>
+  <circle cx="190" cy="790" r="260" fill="#ff67ae" opacity=".06"/>
+
+  <text x="80" y="92" class="eyebrow">WCODE · ENGINEERING CONTROL PLANE</text>
+  <text x="80" y="154" class="title">Understand first. Change less. Prove it.</text>
+  <text x="80" y="194" class="sub">The model stays replaceable. Repository state, policy, proof, and observability stay durable.</text>
+
+  <path d="M310 350 C410 252 525 245 625 310" fill="none" stroke="#6f5a99" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M742 286 C865 238 994 264 1075 356" fill="none" stroke="#6f5a99" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M1132 466 C1160 580 1090 675 980 707" fill="none" stroke="#6f5a99" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M855 735 C714 792 580 766 490 678" fill="none" stroke="#6f5a99" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M398 592 C330 550 289 503 276 451" fill="none" stroke="#6f5a99" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="80" y="272" width="380" height="196" rx="28" fill="url(#soft)" stroke="#3a2d4d"/>
+    <rect x="80" y="272" width="8" height="196" rx="4" fill="#a88cff"/>
+    <text x="112" y="312" class="eyebrow">01 · UNDERSTAND</text>
+    <text x="112" y="349" class="stage">Build a task-ready map</text>
+    <text x="112" y="381" class="copy">agent_context · Design State · Tree-sitter</text>
+    <text x="112" y="408" class="copy">warm LSP · Software Graph · semantics</text>
+    <rect x="112" y="429" width="130" height="24" rx="12" fill="#2b2140"/><text x="127" y="446" class="chip">exact targets</text>
+    <rect x="252" y="429" width="168" height="24" rx="12" fill="#2b2140"/><text x="267" y="446" class="chip">explicit precision</text>
+
+    <rect x="610" y="226" width="380" height="196" rx="28" fill="url(#soft)" stroke="#3a2d4d"/>
+    <rect x="610" y="226" width="8" height="196" rx="4" fill="#c985ff"/>
+    <text x="642" y="266" class="eyebrow">02 · CHANGE</text>
+    <text x="642" y="303" class="stage">Mutate through guardrails</text>
+    <text x="642" y="335" class="copy">Workspace roots · SHA-256 preconditions</text>
+    <text x="642" y="362" class="copy">atomic edits · exact / session authorization</text>
+    <rect x="642" y="383" width="122" height="24" rx="12" fill="#2b2140"/><text x="657" y="400" class="chip">no shell</text>
+    <rect x="774" y="383" width="174" height="24" rx="12" fill="#2b2140"/><text x="789" y="400" class="chip">bounded writes</text>
+
+    <rect x="1070" y="316" width="450" height="208" rx="28" fill="url(#soft)" stroke="#3a2d4d"/>
+    <rect x="1070" y="316" width="8" height="208" rx="4" fill="#ff79b8"/>
+    <text x="1102" y="356" class="eyebrow">03 · PROVE</text>
+    <text x="1102" y="393" class="stage">Make proof revision-exact</text>
+    <text x="1102" y="425" class="copy">review_changes · verify_project · quality gates</text>
+    <text x="1102" y="452" class="copy">Property · Mutation · Fuzz · Runtime · reviewers</text>
+    <rect x="1102" y="475" width="167" height="24" rx="12" fill="#392236"/><text x="1117" y="492" class="chip">fail closed</text>
+    <rect x="1279" y="475" width="197" height="24" rx="12" fill="#392236"/><text x="1294" y="492" class="chip">current revision</text>
+
+    <rect x="798" y="626" width="432" height="176" rx="28" fill="url(#soft)" stroke="#3a2d4d"/>
+    <rect x="798" y="626" width="8" height="176" rx="4" fill="#f2a2d1"/>
+    <text x="830" y="666" class="eyebrow">04 · LEARN</text>
+    <text x="830" y="703" class="stage">Persist only trustworthy state</text>
+    <text x="830" y="735" class="copy">Evidence · graph history · confirmed semantics</text>
+    <text x="830" y="762" class="copy">verified experience survives model/session changes</text>
+
+    <rect x="206" y="576" width="470" height="206" rx="28" fill="url(#soft)" stroke="#3a2d4d"/>
+    <rect x="206" y="576" width="8" height="206" rx="4" fill="#8ed6c6"/>
+    <text x="238" y="616" class="eyebrow" fill="#aee9dc">05 · OBSERVE &amp; RECONCILE</text>
+    <text x="238" y="653" class="stage">See the project as engineering state</text>
+    <text x="238" y="685" class="copy">Engineering Observatory · impact · drift · risk</text>
+    <text x="238" y="712" class="copy">Reconciliation turns gaps into dependency-aware work</text>
+    <rect x="238" y="735" width="154" height="24" rx="12" fill="#18322f"/><text x="253" y="752" class="chip" fill="#c9f2e8">digital twin</text>
+    <rect x="402" y="735" width="220" height="24" rx="12" fill="#18322f"/><text x="417" y="752" class="chip" fill="#c9f2e8">convergence loop</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="790" cy="500" r="118" fill="#130f1b" stroke="url(#accent)" stroke-width="3"/>
+    <circle cx="790" cy="500" r="96" fill="url(#accent)" opacity=".12"/>
+    <text x="790" y="490" text-anchor="middle" class="center">wcode</text>
+    <text x="790" y="520" text-anchor="middle" class="center2">model-neutral control plane</text>
+    <text x="790" y="548" text-anchor="middle" class="small">state · policy · proof</text>
+  </g>
+
+  <text x="80" y="850" class="small">Every arrow keeps provenance and boundaries explicit; a stronger model improves execution quality without becoming the policy source of truth.</text>
+</svg>

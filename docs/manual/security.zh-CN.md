@@ -11,6 +11,8 @@ permalink: /zh/docs/security/
 
 wcode 的基本原则很简单：连接模型不等于把整台机器暴露给模型。
 
+![wcode 安全与授权边界](/assets/zh/security-boundary.svg)
+
 ## Workspace 隔离
 
 模型只能看到显式配置的 Workspace 根目录。面向模型的文件操作会拒绝绝对路径、父级穿越、受保护路径、Symlink 组件、Workspace 逃逸和不安全 Hard-link 情况。
@@ -43,25 +45,24 @@ LSP Server 可能加载仓库控制的配置或代码，因此 wcode 保留独�
 
 待授权请求出现在 TUI 和受保护 WebUI 中。模型可以发起请求，但不能批准自己的请求。
 
-![wcode 授权与访问控制](/assets/img_3.png)
+![wcode 授权与访问控制](/assets/wcode-access-management.png)
 
 TUI 操作：
 
 ```text
 ↑ / ↓  选择请求
-Y      批准
+A      当前 Workspace 本次运行全部授权
+Y      只批准当前精确请求
 N      拒绝
 ```
 
-命令请求分成两个范围。**可执行程序访问**只允许一个 Workspace 中的一个
-程序名；**精确仓库操作**只允许该 Workspace 中的一组参数 Fingerprint。
-TUI 和 WebUI 会分开显示。批准 `cargo` 不等于批准所有 `cargo` 命令；批准
-`cargo test` 也不会覆盖不同参数或另一个 Subspace。拒绝不会留下 Grant。
+命令视图中还可以按 **F** 开关 Workspace 级全部授权。受保护 WebUI 提供同一开关；支持 Form Elicitation 的 stdio 客户端会看到 `exact`、`all_commands`、`deny` 三种选择。
 
-`RiskyExecution` 是底层的 Fingerprint-scoped Trust 机制，不是整进程命令
-开关。对未进入 Automatic Profile 的 LSP Server，Fingerprint 绑定 Workspace + Server + 当前 Binary Identity，因此这一份 Warm Session 可以被 Refresh/Navigation 复用，但替换后的 Binary、其他 Server 或其他 Workspace 都不会继承旧 Grant。
+因此命令授权有两种人工选择的模式。**精确授权**继续把可执行程序访问和一组参数 Fingerprint 分开；**当前 Workspace 本次运行全部授权**会一次性处理该 Workspace 已经待处理的 CommandAccess / RiskyExecution 请求，并让之后原本属于“可授权”范围的命令不再重复弹窗，直到用户关闭或 Runtime 退出。它不会扩散到另一个 Workspace。文件删除仍保持一次一条的一次性精确授权；策略永久阻断的命令形态也不会因为全部授权而变成可执行。
 
-批准某个请求不会关闭 Workspace 隔离，也不会把命令执行变成 Shell。
+`RiskyExecution` 在精确模式下仍然是 Fingerprint-scoped Trust。Workspace 级全部授权是另一层仅存在于当前 Runtime 的 Operator 选择。对未进入 Automatic Profile 的 LSP Server，精确模式继续绑定 Workspace + Server + 当前 Binary Identity；全部授权模式只在选定 Workspace 内有意消除重复的 Command/RiskyExecution 授权提示。
+
+无论精确授权还是全部授权，都不会关闭 Workspace 隔离。
 
 ## OAuth 与远程 MCP
 
@@ -96,7 +97,7 @@ Host 校验与 Origin 校验分别执行。请求携带 Origin 时，它必须�
 
 ## 多媒体与模型能力
 
-`read_media` 默认只返回 Metadata。它可以识别有界的 PNG/JPEG/GIF/WebP 图片、常见音频，以及 MP4/WebM 的基础 Metadata，但不会假设当前模型支持多模态。只有客户端显式声明 `run.francis.wcode/media-content` 扩展并包含对应 Kind（以及可选 MIME Filter）时，wcode 才会发送 Image/Audio Payload；能力未知或不支持时直接 Fail Closed，不发送二进制内容。由于 MCP 当前没有标准 Video Tool Result Content Block，视频继续只返回 Metadata。
+`read_media` 默认只返回 Metadata。它可以识别有界的 PNG/JPEG/GIF/WebP 图片、常见音频，以及 MP4/WebM 的基础 Metadata。调用方通过 `include_content=true` 显式选择返回二进制内容，此时 wcode 直接使用标准 MCP `image` / `audio` Tool Result Content Block，不再要求私有 Capability Extension。由于 MCP 当前没有标准 Video Tool Result Content Block，视频继续只返回 Metadata。
 
 ## 凭据与模型上下文
 

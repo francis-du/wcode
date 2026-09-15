@@ -354,9 +354,29 @@ impl Workspaces {
             "root": workspace.root(),
             "write_enabled": workspace.write_enabled(),
             "exec_enabled": workspace.exec_enabled(),
+            "all_commands_authorized": self.authorization.workspace_commands_granted(&id),
             "allowed_commands": workspace.allowed_commands(),
             "available_commands": workspace.available_commands(),
         }))
+    }
+
+    pub fn all_commands_authorized(&self, id: Option<&str>) -> Result<bool> {
+        let (id, _) = self.select(id)?;
+        Ok(self.authorization.workspace_commands_granted(&id))
+    }
+
+    pub fn set_all_commands_authorized(
+        &self,
+        id: Option<&str>,
+        enabled: bool,
+    ) -> Result<serde_json::Value> {
+        let (id, _) = self.select(id)?;
+        let changed = self
+            .authorization
+            .set_workspace_commands_granted(&id, enabled);
+        let mut value = self.workspace_access(Some(&id))?;
+        value["changed"] = serde_json::json!(changed);
+        Ok(value)
     }
 
     pub fn allow_command(&self, id: Option<&str>, program: &str) -> Result<serde_json::Value> {
@@ -526,6 +546,38 @@ impl Workspaces {
             .collect()
     }
 
+    /// When no explicit workspace was requested, prefer the most specific
+    /// discovered subspace whose id (or final path segment) appears in the
+    /// query. Used by agent_context to reduce multi-project noise while
+    /// remaining conservative: only activates on clear textual matches and
+    /// never overrides an explicit workspace argument.
+    pub fn prefer_specific_for_query(&self, query: &str) -> Option<String> {
+        let query_lower = query.to_ascii_lowercase();
+        let default = self.default_id.as_str();
+        let mut best: Option<(usize, String)> = None;
+        for (id, _) in self.roots() {
+            if id == default {
+                continue;
+            }
+            let id_lower = id.to_ascii_lowercase();
+            let last_segment = id_lower.rsplit('/').next().unwrap_or(&id_lower);
+            let matches = query_contains_token(&query_lower, &id_lower)
+                || (last_segment.len() > 2 && query_contains_token(&query_lower, last_segment));
+            if !matches {
+                continue;
+            }
+            let specificity = id.matches('/').count();
+            let take = match &best {
+                None => true,
+                Some((prev, _)) => specificity > *prev,
+            };
+            if take {
+                best = Some((specificity, id));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
     pub(crate) fn semantic_workspaces(&self) -> Vec<(String, Workspace)> {
         let roots = self.roots.read().expect("workspace registry lock poisoned");
         roots
@@ -540,6 +592,30 @@ impl Workspaces {
             .map(|root| (root.id.clone(), root.workspace.clone()))
             .collect()
     }
+}
+
+/// True when `token` appears in `query` as a path-like or whole-word token
+/// (bounded by non-alphanumeric characters or string edges). Avoids partial
+/// matches such as "code" inside unrelated words while still matching
+/// "wcode", "Rust/wcode", and path segments.
+fn query_contains_token(query: &str, token: &str) -> bool {
+    if token.is_empty() || !query.contains(token) {
+        return false;
+    }
+    let bytes = query.as_bytes();
+    let token_bytes = token.as_bytes();
+    let mut start = 0usize;
+    while let Some(rel) = query[start..].find(token) {
+        let abs = start + rel;
+        let before_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphanumeric();
+        let after = abs + token_bytes.len();
+        let after_ok = after >= bytes.len() || !bytes[after].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
 }
 
 fn is_lexical_child(parent: &Path, candidate: &Path) -> bool {

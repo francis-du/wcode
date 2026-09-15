@@ -126,6 +126,25 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
 }
 
 #[tokio::test]
+async fn workspace_all_command_grant_skips_repetitive_command_authorization() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    workspace.revoke_command("cargo").unwrap();
+    let workspace_id = workspace.authorization_workspace_id();
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, true);
+
+    let result = workspace
+        .run_command("cargo", &["--version".into()], ".", 30)
+        .await
+        .expect("workspace-wide command authorization should skip CommandAccess prompts");
+    assert!(result.success, "{}", result.stderr);
+    assert!(workspace.authorization.latest_pending().is_none());
+    assert!(workspace.risky_operation_authorized("synthetic-risky-operation"));
+}
+
+#[tokio::test]
 async fn normal_command_output_and_exit_status_remain_compatible() {
     let (_root, workspace, program) = command_fixture();
     let result = workspace

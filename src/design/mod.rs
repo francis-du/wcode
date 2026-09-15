@@ -220,7 +220,7 @@ pub fn baseline_constraints() -> Vec<ConstraintDesign> {
             schema_version: CURRENT_SCHEMA_VERSION,
             id: "CONSTRAINT-SOURCE-DECOMPOSITION".into(),
             title: "Source modules stay bounded".into(),
-            statement: "Maintained text files must stay at or below 1000 physical lines; generated lockfiles and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.".into(),
+            statement: "Maintained text files must stay at or below 1000 physical lines; generated source outputs, lockfiles, and binary assets are exempt. Split cohesive responsibilities into domain subdirectories before a file crosses that boundary. Repository filenames stay at or below 32 characters, with Rust stems at or below 24, because the directory already supplies context.".into(),
             applies_to: Vec::new(),
         },
         ConstraintDesign {

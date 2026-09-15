@@ -523,5 +523,45 @@ fn project_observatory_exposes_bounded_file_structure_and_oversized_files() {
         "src/nested/large.rs"
     );
     assert!(project.structure.largest_files[0].over_limit);
+    assert!(!project.structure.largest_files[0].generated);
     assert!(!project.structure.truncated);
+}
+
+#[test]
+fn project_observatory_uses_convention_generated_exemptions_for_line_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let generated_path = root.path().join("lib/l10n/app_localizations_en.dart");
+    fs::create_dir_all(generated_path.parent().unwrap()).unwrap();
+    fs::write(
+        &generated_path,
+        "String get generatedValue => 'value';\n".repeat(1_050),
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let conventions = harness.convention_status(&workspace).unwrap();
+    let project = harness
+        .project_observatory("demo", &workspace, None)
+        .unwrap();
+
+    assert!(!conventions
+        .findings
+        .iter()
+        .any(|finding| finding.code == "oversized-source-module"));
+    assert_eq!(project.structure.oversized_files, 0);
+    let generated = project
+        .structure
+        .entries
+        .iter()
+        .find(|file| file.path == "lib/l10n/app_localizations_en.dart")
+        .expect("generated localization file should remain visible in structure data");
+    assert!(generated.lines > project.structure.line_limit);
+    assert!(generated.generated);
+    assert!(!generated.over_limit);
+    assert_eq!(
+        project.structure.largest_files[0].path,
+        "lib/l10n/app_localizations_en.dart"
+    );
+    assert!(project.structure.largest_files[0].generated);
+    assert!(!project.structure.largest_files[0].over_limit);
 }

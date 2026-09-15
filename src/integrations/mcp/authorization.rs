@@ -36,19 +36,29 @@ pub(crate) fn authorization_request_from_tool_result(
 }
 
 pub(crate) fn authorization_elicitation_params(request: &AuthorizationRequest) -> Value {
+    let scopes = if request.kind == crate::authorization::AuthorizationKind::DestructiveDelete {
+        json!(["exact", "deny"])
+    } else {
+        json!(["exact", "all_commands", "deny"])
+    };
     json!({
         "mode":"form",
         "message":format!("{}\nWorkspace: {}\nRequest: {}", request.summary, request.workspace, request.id),
         "requestedSchema":{
             "type":"object",
             "properties":{
+                "scope":{
+                    "type":"string",
+                    "title":"Authorization scope",
+                    "description":"Approve this exact request, authorize all otherwise-allowable commands for this Workspace session, or deny",
+                    "enum":scopes
+                },
                 "approved":{
                     "type":"boolean",
-                    "title":"Approve",
-                    "description":"Approve this exact wcode authorization request"
+                    "title":"Approve exact request (legacy)",
+                    "description":"Backward-compatible exact-request approval"
                 }
-            },
-            "required":["approved"]
+            }
         }
     })
 }
@@ -138,19 +148,44 @@ pub(crate) fn apply_authorization_response(
     }
     match response.get("action").and_then(Value::as_str) {
         Some("accept") => {
-            let approved = response
-                .pointer("/content/approved")
-                .and_then(Value::as_bool)
-                .ok_or("accepted authorization response must contain boolean content.approved")?;
-            if !approved {
-                state.workspaces.deny_authorization(id);
-                return Ok(false);
+            let scope = response
+                .pointer("/content/scope")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| {
+                    response
+                        .pointer("/content/approved")
+                        .and_then(Value::as_bool)
+                        .map(|approved| if approved { "exact" } else { "deny" }.to_owned())
+                })
+                .ok_or("accepted authorization response must contain content.scope or legacy content.approved")?;
+            match scope.as_str() {
+                "exact" => {
+                    state
+                        .workspaces
+                        .approve_authorization_session_result(id)
+                        .map_err(|error| error.to_string())?;
+                    Ok(true)
+                }
+                "all_commands"
+                    if request.kind
+                        != crate::authorization::AuthorizationKind::DestructiveDelete =>
+                {
+                    state
+                        .workspaces
+                        .set_all_commands_authorized(Some(&request.workspace), true)
+                        .map_err(|error| error.to_string())?;
+                    Ok(true)
+                }
+                "deny" => {
+                    state.workspaces.deny_authorization(id);
+                    Ok(false)
+                }
+                "all_commands" => {
+                    Err("destructive delete cannot use all-commands authorization".to_owned())
+                }
+                other => Err(format!("unsupported authorization scope: {other}")),
             }
-            state
-                .workspaces
-                .approve_authorization_session_result(id)
-                .map_err(|error| error.to_string())?;
-            Ok(true)
         }
         Some("decline" | "cancel") => {
             state.workspaces.deny_authorization(id);

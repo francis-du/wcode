@@ -210,6 +210,68 @@ async function run(){
     assert.equal(s.run('state.activitySnapshot.activity.active'),3);assert.equal(s.run('state.tunnelBusy'),true);
     respond(s.requests.find(item=>item.url==='/healthz'),healthyTunnel());await tunnel;
   });
+  await test('truncated file snapshots never claim complete line-limit success',async()=>{
+    for(const language of ['en','zh-CN']){
+      const s=sandbox();s.context.fixture={...project(),structure:{entries:[{path:'a.rs',lines:10,language:'rust'}],largest_files:[],oversized_files:0,truncated:true}};
+      s.context.fixtureLanguage=language;
+      s.run('state.language=fixtureLanguage;state.project=fixture;renderProjectStructure();');
+      const summary=s.node('#structureSummary').innerHTML;
+      assert.ok(!summary.includes('pill good'),'partial data cannot certify the repository');
+      assert.ok(summary.includes(language==='en'?'No oversized files in snapshot':'当前快照未发现超长文件'));
+      assert.ok(summary.includes(language==='en'?'1 files shown':'展示 1 个文件'));
+    }
+  });
+  await test('empty structure snapshots do not claim line-limit success',async()=>{
+    const s=sandbox();s.context.fixture={...project(),structure:{entries:[],largest_files:[],oversized_files:0,truncated:false}};
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.ok(!s.node('#structureSummary').innerHTML.includes('pill good'));
+    assert.ok(s.node('#fileTree').innerHTML.includes('No source files'));
+  });
+  await test('complete structure snapshots retain real success and generated exemptions',async()=>{
+    const s=sandbox();s.context.fixture={...project(),structure:{entries:[{path:'l10n/app_localizations.dart',lines:1200,language:'dart',generated:true,over_limit:false}],largest_files:[{path:'l10n/app_localizations.dart',lines:1200,language:'dart',generated:true,over_limit:false}],line_limit:1000,oversized_files:0,truncated:false}};
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.ok(s.node('#structureSummary').innerHTML.includes('pill good'));
+    assert.ok(s.node('#fileTree').innerHTML.includes('generated'));
+    assert.ok(s.node('#largeFiles').innerHTML.includes('line limit exempt'));
+  });
+  await test('file filtering reveals nested matches and escapes displayed paths',async()=>{
+    const s=sandbox();s.context.fixture={...project(),structure:{entries:[
+      {path:'src/deep/Parser.rs',language:'rust',lines:12},
+      {path:'src/deep/other.rs',language:'rust',lines:20},
+      {path:'src/deep/<parser>.rs',language:'rust',lines:30}
+    ]}};
+    s.run('state.project=fixture;els.fileSearch.value="PARSER";renderProjectStructure();');
+    const html=s.node('#fileTree').innerHTML;
+    assert.ok(html.includes('Parser.rs'));assert.ok(!html.includes('other.rs'));
+    assert.ok(html.includes('&lt;parser&gt;.rs'));assert.ok(!html.includes('<parser>'));
+    assert.equal((html.match(/class="tree-directory" open/g)||[]).length,2);
+    assert.equal(s.node('#fileSearchStatus').textContent,'2 matching files');
+    s.run('els.fileSearch.value="missing";renderProjectStructure();');
+    assert.ok(s.node('#fileTree').innerHTML.includes('No matching files.'));
+    s.run('clearWorkspaceView();');assert.equal(s.node('#fileSearch').value,'');
+    assert.equal(s.node('#fileSearchStatus').textContent,'');
+  });
+  await test('icon controls retain accessible names across language and theme changes',async()=>{
+    const s=sandbox();s.run('state.language="zh-CN";state.theme="light";applyLanguage();');
+    for(const id of ['#refresh','#refreshSemantic','#manage','#projectNavigator','#fileSearch']){
+      assert.ok(s.node(id).attrs['aria-label'],id+' needs a name when its visual label is hidden');
+    }
+    assert.ok(s.node('#theme').attrs['aria-label'].includes('浅色'));
+    assert.equal(s.node('#autoRefresh').attrs['aria-label'],'自动刷新：开启');
+    s.run('state.autoRefresh=false;applyAutoRefreshControl();');
+    assert.equal(s.node('#autoRefresh').attrs['aria-label'],'自动刷新：暂停');
+  });
+  await test('initial refresh failure replaces loading with useful guidance without raw diagnostics',async()=>{
+    const s=sandbox();s.context.console={...console,warn(){}};
+    const refresh=s.run('refreshProject({reason:"manual"})');await flush();
+    respond(s.requests[0],{error:'internal_private_path_and_stack'},false);await refresh;
+    assert.equal(s.node('#syncState').textContent,'Refresh failed');
+    const html=s.node('#architectureBlueprint').innerHTML;
+    assert.ok(html.includes('connection-state'));assert.ok(html.includes('use Refresh'));
+    assert.ok(!html.includes('internal_private_path_and_stack'));assert.ok(!html.includes('loading-state'));
+    assert.equal(s.node('#refresh').disabled,false);
+    assert.equal(s.node('.observatory-main').attrs['aria-busy'],'false');
+  });
   const view=sandbox();
   const components=[['Runtime','Task scheduling','Schedule independent work and retain real capacity through cancellation.'],['Runtime','Context retrieval','Locate relevant source and retain exact edit preconditions.'],['Integrations','MCP transports','Serve one tool runtime across local and remote clients.'],['Integrations','Agent setup','Configure supported coding agents without replacing unrelated settings.'],['Workspace','File operations','Read and edit bounded files with SHA-checked atomic writes.'],['Workspace','Command execution','Run approved commands and retain timeout diagnostics.'],['Intelligence','Verification','Keep checks and evidence bound to the code revision.'],['Intelligence','Software graph','Map component relationships with explicit provider precision.']].map(([scope,name,purpose],i)=>({id:'component:'+i,name,product_scopes:[scope],responsibilities:[purpose],implementation_targets:['src/example/module_'+i+'.rs'],implementation_files:3+i,implementation_lines:250+i*50,requirements:[],depends_on:i?['component:0']:[],changed:i===1||i===5,changed_paths:i===1?['src/example/module_1.rs']:[]}));
   view.context.fixture={...project(),project:'wcode',root:'/example/wcode',pending_authorizations:2,git_review:{available:true,reason:'available'},code:{changed_files:12,source_files:246,source_lines:48190,languages:[],product_scopes:[]},proof:{current_evidence:7,current_passed:5,current_failed:2,current_inconclusive:0,current_verification_plans:1,current_verification_ready:0,current_verification_blocked:1,revision_code:'sha256:example-current-code',revision_design:'sha256:example-current-design',acceptance:{total:33,mapped:33,executed:28,passed:26,fresh:21}},architecture:{components,dependencies:components.slice(1).map((c,i)=>({from:c.id,to:'component:0',from_name:c.name,to_name:'Task scheduling',status:i===3?'unverified_actual':'aligned',desired:true,actual:i!==3,precision:'syntax',blocking:false})),desired_edges:7,observed_edges:6,aligned_edges:6,blocking_drift_edges:0,components_with_implementation:8,observed_drift_percent:0,evidence_coverage_percent:85.7,implementation_coverage_percent:100},workspace_options:[{id:'A',root:'/example/wcode'}]};

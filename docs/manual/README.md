@@ -22,7 +22,26 @@ wcode is easiest to understand as five layers around the coding model:
 4. **Learn** — only stable verified changes may teach the local Experience Graph; failed or incomplete work does not become memory.
 5. **Observe** — Engineering Observatory acts as a project digital twin: architecture blueprint, live engineering flow, Vibe Coding change story, drift, provenance, risk, and current-revision proof without requiring an IDE.
 
-For retrieval, clear `trace→code`, `code→test`, and `edit→ripple` tasks use different bounded heuristic priors. Ambiguous mixed requests deliberately abstain to balanced context. Exact targets and stronger fresh semantic/deterministic/runtime evidence remain above these heuristics.
+![wcode Engineering Control Plane loop](/assets/wcode-engineering-loop.svg)
+
+## Find the right view
+
+Press **W** in the TUI to open the protected Engineering Observatory for the selected project. The default tab is **Engineering architecture**. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
+
+| Surface | What to use it for |
+| --- | --- |
+| TUI | Connection state, project selection, live activity, and pending authorization. |
+| Setup Hub | Setup commands, dry-run previews, launch options, performance presets, and runtime health. |
+| Overview | Project pulse, engineering flow, timeline, diagnostics, and language quality. |
+| Engineering architecture | System and component ownership, declared and observed dependencies, and architecture inspection. |
+| Task activity | Running and queued work, execution timing, and resource use. |
+| Verification evidence | Current-revision results, readiness, and verified repository learning. |
+| Current changes | Working-tree changes, impact, and verification scope. |
+| Requirements | Requirement → component → code → verification → evidence traceability. |
+| Project files | The bounded source tree, largest files, and truncation indicators. |
+| Access | Authorized projects, executable access, exact operations, and pending requests. |
+
+A mapped check has not necessarily run. A historical pass may belong to an older revision. See [Getting started](getting-started/) for navigation and [Repository Intelligence & Engineering State](software-intelligence/) for evidence semantics.
 
 ## Start here
 
@@ -46,6 +65,7 @@ For retrieval, clear `trace→code`, `code→test`, and `edit→ripple` tasks us
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
 - [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
 - [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
+- [v0.7.4 release notes](releases/v0.7.4/) — Workspace-session command authorization, standard MCP image/audio content, and refreshed current-product docs/UI.
 - [v0.7.3 release notes](releases/v0.7.3/) — autonomous bounded development commands, broader Deno/Flutter quality coverage, stronger repository-intelligence caches, and WebUI/verification reliability.
 - [v0.7.2 release notes](releases/v0.7.2/) — clearer Observatory/TUI/Setup state, model-efficient tool discovery, Agent Context retrieval telemetry, and more precise Verification Mesh targets.
 - [v0.7.1 release notes](releases/v0.7.1/) — resilient stable tunnels, real-time project switching, hardened semantic auto-discovery, less authorization friction, and stronger parallel execution.

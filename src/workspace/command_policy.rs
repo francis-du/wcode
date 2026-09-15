@@ -303,6 +303,11 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
         "mvn" => args_equal(args, &["-q", "-DskipTests", "compile"]) || args_equal(args, &["test"]),
         "gradle" => args_equal(args, &["classes"]) || args_equal(args, &["check"]),
         "swift" => args_equal(args, &["build"]) || args_equal(args, &["test"]),
+        "dotnet" => {
+            args_equal(args, &["format", "--verify-no-changes", "--no-restore"])
+                || args_equal(args, &["build", "--no-restore"])
+                || args_equal(args, &["test", "--no-restore"])
+        }
         "dart" => {
             args_equal(args, &["analyze"])
                 || args_equal(args, &["test"])

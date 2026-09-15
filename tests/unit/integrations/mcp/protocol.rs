@@ -557,6 +557,65 @@ async fn modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
 }
 
 #[tokio::test]
+async fn modern_stdio_authorization_can_grant_all_commands_for_the_workspace_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([dir.path()], false, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    workspaces
+        .revoke_command(Some(&workspace_id), "cargo")
+        .unwrap();
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(2).unwrap(),
+        monitor: TaskMonitor::new([workspace_id.clone()]),
+        tasks: TaskRuntime::default(),
+    });
+    let owner = "c".repeat(64);
+    let request = elicitation_capable(modern_request(
+        "tools/call",
+        json!({
+            "name":"run_command",
+            "arguments":{"program":"cargo","args":["--version"],"cwd":".","timeout_seconds":30}
+        }),
+    ));
+
+    let first = handle_message(
+        state.clone(),
+        request.clone(),
+        MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    let schema = &first["result"]["inputRequests"][AUTHORIZATION_INPUT_KEY]["params"]
+        ["requestedSchema"]["properties"]["scope"];
+    assert_eq!(schema["type"], "string");
+    assert!(schema["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "all_commands"));
+    let request_state = first["result"]["requestState"].as_str().unwrap().to_owned();
+
+    let mut retry = request;
+    retry["id"] = json!(2);
+    retry["params"]["requestState"] = json!(request_state);
+    retry["params"]["inputResponses"] = json!({
+        (AUTHORIZATION_INPUT_KEY): {"action":"accept","content":{"scope":"all_commands"}}
+    });
+    let completed = handle_message(state.clone(), retry, MODERN_PROTOCOL_VERSION, &owner)
+        .await
+        .unwrap();
+    assert_eq!(completed["result"]["resultType"], "complete");
+    assert_eq!(completed["result"]["isError"], false);
+    assert!(state
+        .workspaces
+        .all_commands_authorized(Some(&workspace_id))
+        .unwrap());
+}
+
+#[tokio::test]
 async fn modern_authorization_fails_closed_without_elicitation_capability() {
     let dir = tempfile::tempdir().unwrap();
     let workspaces = Workspaces::new([dir.path()], false, true).unwrap();
@@ -634,12 +693,11 @@ async fn task_capability_is_per_request_and_advertised_by_discovery() {
     .await
     .unwrap();
     assert!(response["result"]["capabilities"]["extensions"][TASK_EXTENSION_ID].is_object());
-    assert!(MEDIA_CONTENT_EXTENSION_ID.starts_with("run.francis.wcode/"));
-    assert_eq!(
-        response["result"]["capabilities"]["extensions"][MEDIA_CONTENT_EXTENSION_ID]
-            ["contentTypes"],
-        json!(["image", "audio"])
-    );
+    assert!(response["result"]["capabilities"]["extensions"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .all(|key| key != "run.francis.wcode/media-content"));
     assert_eq!(
         response["result"]["capabilities"]["tools"]["listChanged"],
         false

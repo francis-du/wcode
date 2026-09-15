@@ -66,6 +66,9 @@ pub(super) fn render_commands_overlay(
         }
     };
     let enabled = entries.iter().filter(|entry| entry.allowed).count();
+    let all_commands = workspaces
+        .all_commands_authorized(Some(workspace_id))
+        .unwrap_or(false);
     let columns = command_columns(inner.width);
     let rows = command_rows(inner.height);
     let capacity = rows.saturating_mul(columns);
@@ -91,6 +94,26 @@ pub(super) fn render_commands_overlay(
         Span::styled(
             format!("  ·  {enabled} {}", language.tr("enabled")),
             Style::default().fg(SUCCESS),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("{}  ", language.tr("ALL COMMANDS")),
+            Style::default().fg(TEXT_DIM),
+        ),
+        Span::styled(
+            language.tr(if all_commands {
+                "AUTHORIZED"
+            } else {
+                "PER-REQUEST"
+            }),
+            Style::default()
+                .fg(if all_commands { SUCCESS } else { WARNING })
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  ·  F {}", language.tr("toggle")),
+            Style::default().fg(TEXT_MUTED),
         ),
     ]));
     lines.push(Line::from(""));
@@ -215,5 +238,5 @@ fn command_columns(width: u16) -> usize {
 }
 
 fn command_rows(height: u16) -> usize {
-    usize::from(height.saturating_sub(7).max(1))
+    usize::from(height.saturating_sub(8).max(1))
 }

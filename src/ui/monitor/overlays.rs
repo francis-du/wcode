@@ -198,7 +198,9 @@ pub(super) fn render_authorization_overlay(
             ),
         ]));
     }
-    let detail_rows = usize::from(inner.height).saturating_sub(visible + 2);
+    let wide_controls = inner.width >= 64;
+    let control_rows = if wide_controls { 2 } else { 1 };
+    let detail_rows = usize::from(inner.height).saturating_sub(visible + 1 + control_rows);
     if detail_rows > 0 {
         lines.push(Line::styled(
             if language == UiLanguage::ZhCn {
@@ -218,31 +220,42 @@ pub(super) fn render_authorization_overlay(
         );
         let offset = detail_scroll.min(details.len().saturating_sub(detail_rows));
         lines.extend(details.into_iter().skip(offset).take(detail_rows));
-        while lines.len() < usize::from(inner.height).saturating_sub(1) {
+        while lines.len() < usize::from(inner.height).saturating_sub(control_rows) {
             lines.push(Line::raw(""));
         }
     }
-    let controls = Line::from(vec![
-        keycap("↑/↓"),
-        Span::styled(
-            format!(" {}   ", language.tr("select request")),
-            Style::default().fg(TEXT_MUTED),
-        ),
-        keycap("Y"),
-        Span::styled(
-            format!(" {}   ", language.tr("approve selected")),
-            Style::default().fg(SUCCESS),
-        ),
-        keycap("N"),
-        Span::styled(
-            format!(" {}", language.tr("deny selected")),
-            Style::default().fg(DANGER),
-        ),
-    ]);
-    if controls.width() <= usize::from(inner.width) {
-        lines.push(controls);
+    if wide_controls {
+        lines.push(Line::from(vec![
+            keycap("A"),
+            Span::styled(
+                format!(" {}", language.tr("authorize all commands")),
+                Style::default().fg(WARNING),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            keycap("↑/↓"),
+            Span::styled(
+                format!(" {}   ", language.tr("select request")),
+                Style::default().fg(TEXT_MUTED),
+            ),
+            keycap("Y"),
+            Span::styled(
+                format!(" {}   ", language.tr("approve selected")),
+                Style::default().fg(SUCCESS),
+            ),
+            keycap("N"),
+            Span::styled(
+                format!(" {}", language.tr("deny selected")),
+                Style::default().fg(DANGER),
+            ),
+        ]));
     } else {
         lines.push(Line::from(vec![
+            keycap("A"),
+            Span::styled(
+                format!(" {}  ", language.tr("all")),
+                Style::default().fg(WARNING),
+            ),
             keycap("Y"),
             Span::styled(
                 format!(" {}  ", language.tr("approve")),
@@ -362,8 +375,8 @@ pub(super) fn render_help_overlay(
                 help_hint_line("L", language.tr("toggle language")),
                 help_hint_line("P", language.tr("grant full user access")),
                 help_hint_line(
-                    "↑/↓ Y/N",
-                    language.tr("select / approve / deny authorization"),
+                    "A / ↑↓ Y/N",
+                    language.tr("all / select / approve / deny authorization"),
                 ),
                 help_hint_line("? / Esc", language.tr("open or close help")),
                 help_hint_line("^C", language.tr("stop wcode")),
@@ -400,6 +413,14 @@ pub(super) fn render_help_overlay(
             help_hint_line("C", language.tr("show supported commands")),
             help_hint_line("L", language.tr("toggle language")),
             help_hint_line("P", language.tr("grant full user access")),
+            help_hint_line(
+                "A",
+                language.tr("authorize all commands for selected workspace"),
+            ),
+            help_hint_line(
+                "F",
+                language.tr("toggle all command authorization in command view"),
+            ),
             help_hint_line("↑ / ↓", language.tr("select authorization")),
             help_hint_line("Y", language.tr("approve selected authorization")),
             help_hint_line("N", language.tr("deny selected authorization")),

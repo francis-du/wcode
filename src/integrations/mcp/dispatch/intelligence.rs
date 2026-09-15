@@ -61,14 +61,11 @@ pub(super) async fn call(
                 "modern_protocol": MODERN_PROTOCOL_VERSION,
                 "legacy_protocols": LEGACY_PROTOCOL_VERSIONS,
                 "capabilities": ["tools", "prompts", "resources", "tasks"],
-                "extensions": {
-                    (MEDIA_CONTENT_EXTENSION_ID): {
-                        "content_types": ["image", "audio"],
-                        "tool": "read_media",
-                        "per_request_capability": true,
-                        "unknown_or_legacy_client": "metadata-only-or-fail-closed",
-                        "video": "metadata-only"
-                    }
+                "media_content": {
+                    "tool": "read_media",
+                    "standard_tool_content_blocks": ["image", "audio"],
+                    "per_call_opt_in": "include_content=true",
+                    "video": "metadata-only"
                 },
                 "local_command": "wcode mcp-stdio",
                 "workspace_default": "MCP Host working directory",
@@ -285,8 +282,18 @@ pub(super) async fn call(
             .await
         }
         "agent_context" => {
-            let (workspace_id, workspace) = selected_workspace(state, args)?;
             let query = required_string(args, "query")?.to_owned();
+            let explicit_workspace = workspace_arg(args)?;
+            let (workspace_id, workspace) = if explicit_workspace.is_some() {
+                selected_workspace(state, args)?
+            } else if let Some(preferred) = state.workspaces.prefer_specific_for_query(&query) {
+                state
+                    .workspaces
+                    .select(Some(&preferred))
+                    .map_err(|error| error.to_string())?
+            } else {
+                selected_workspace(state, args)?
+            };
             let budget = usize_arg(args, "budget").unwrap_or(0);
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
             let context_harness = state.harness.clone();

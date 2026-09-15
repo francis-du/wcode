@@ -30,6 +30,9 @@ impl UiLanguage {
             (Self::ZhCn, "deny") => "拒绝",
             (Self::ZhCn, "select authorization") => "选择授权请求",
             (Self::ZhCn, "select / approve / deny authorization") => "选择 / 批准 / 拒绝授权",
+            (Self::ZhCn, "all / select / approve / deny authorization") => {
+                "全部 / 选择 / 批准 / 拒绝授权"
+            }
             (Self::ZhCn, "setup") => "连接设置",
             (Self::ZhCn, "web") => "Web 控制台",
             (Self::ZhCn, "commands") => "命令",
@@ -157,6 +160,18 @@ impl UiLanguage {
             (Self::ZhCn, "DELETE") => "删除",
             (Self::ZhCn, "select request") => "选择请求",
             (Self::ZhCn, "approve selected") => "批准所选",
+            (Self::ZhCn, "authorize all commands") => "全部授权",
+            (Self::ZhCn, "authorize all commands for selected workspace") => "为所选工作区全部授权",
+            (Self::ZhCn, "toggle all command authorization in command view") => "在命令视图切换全部授权",
+            (Self::ZhCn, "all commands authorized") => "已全部授权",
+            (Self::ZhCn, "all command authorization disabled") => "已关闭全部授权",
+            (Self::ZhCn, "all command authorization failed") => "全部授权失败",
+            (Self::ZhCn, "all command authorization does not include delete") => "全部授权不包含删除操作",
+            (Self::ZhCn, "ALL COMMANDS") => "全部命令",
+            (Self::ZhCn, "AUTHORIZED") => "已授权",
+            (Self::ZhCn, "PER-REQUEST") => "逐项授权",
+            (Self::ZhCn, "toggle") => "切换",
+            (Self::ZhCn, "all") => "全部",
             (Self::ZhCn, "deny selected") => "拒绝所选",
             (Self::ZhCn, "retry the tool") => "重试工具",
             (Self::ZhCn, "approved") => "已批准",

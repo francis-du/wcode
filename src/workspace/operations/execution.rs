@@ -54,11 +54,12 @@ impl Workspace {
         {
             bail!("command modifies repository state and is blocked in a read-only workspace");
         }
-        if !self
-            .commands
-            .read()
-            .expect("workspace command allowlist lock poisoned")
-            .contains(program)
+        if !self.workspace_commands_granted()
+            && !self
+                .commands
+                .read()
+                .expect("workspace command allowlist lock poisoned")
+                .contains(program)
         {
             let fingerprint = self.command_access_fingerprint(program);
             let request = self.authorization.request_command(
@@ -69,7 +70,7 @@ impl Workspace {
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
-        if autonomous_development && development_program {
+        if self.workspace_commands_granted() || (autonomous_development && development_program) {
             effective_security.allow_risky_exec = true;
         }
         if !effective_security.allow_risky_exec
