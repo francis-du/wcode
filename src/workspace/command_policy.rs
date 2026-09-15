@@ -886,6 +886,9 @@ where
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_polyglot.rs"]
+mod polyglot_tests;
+#[cfg(test)]
 #[path = "../../tests/unit/workspace/policy_relaxed.rs"]
 mod relaxed_tests;
 #[cfg(test)]
