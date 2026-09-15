@@ -287,7 +287,7 @@ async fn collect_command_result(
     let mut readers = tokio::task::JoinSet::new();
     readers.spawn(async move { (true, read_bounded_stream(stdout).await) });
     readers.spawn(async move { (false, read_bounded_stream(stderr).await) });
-    let seconds = timeout_seconds.clamp(1, 300);
+    let seconds = timeout_seconds.clamp(1, 1800);
     let waited = timeout(Duration::from_secs(seconds), child.wait()).await;
     let timed_out = waited.is_err();
     let wait_failed = matches!(&waited, Ok(Err(_)));

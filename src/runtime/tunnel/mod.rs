@@ -78,7 +78,10 @@ impl TunnelProvider {
 }
 
 pub(crate) struct ActiveTunnel {
-    child: Child,
+    // Stable providers can survive a wcode restart independently of the
+    // process that originally configured them. Reusing an instance-matched
+    // endpoint avoids killing and recreating a healthy funnel during startup.
+    child: Option<Child>,
     public_url: String,
     provider: TunnelProvider,
     connected_at: std::time::Instant,
@@ -106,16 +109,22 @@ impl ActiveTunnel {
     }
 
     pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
-        self.child.try_wait()
+        match self.child.as_mut() {
+            Some(child) => child.try_wait(),
+            None => Ok(None),
+        }
     }
 
     pub(crate) async fn stop(&mut self) {
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
         // Tunnel providers may wrap themselves in shell scripts (the macOS
         // tailscale CLI is a #!/bin/sh shim), so killing only the direct
         // child leaves the real provider binary orphaned. Tunnels spawn in
         // their own process group; take the whole group down.
         #[cfg(unix)]
-        if let Some(pid) = self.child.id() {
+        if let Some(pid) = child.id() {
             let _ = StdCommand::new("kill")
                 .args(["-9", &format!("-{pid}")])
                 .stdin(StdStdio::null())
@@ -123,8 +132,8 @@ impl ActiveTunnel {
                 .stderr(StdStdio::null())
                 .status();
         }
-        let _ = self.child.start_kill();
-        let _ = self.child.wait().await;
+        let _ = child.start_kill();
+        let _ = child.wait().await;
     }
 }
 
@@ -292,6 +301,21 @@ async fn try_start_provider(
     dev_tunnel_id: Option<&str>,
     monitor: &TaskMonitor,
 ) -> Result<ActiveTunnel> {
+    if provider == TunnelProvider::Tailscale {
+        if let Some(public_url) = reusable_tailscale_endpoint(instance_id).await {
+            monitor.operator_message(
+                OperatorMessageKind::Success,
+                "tailscale",
+                format!("reusing healthy stable endpoint · {public_url}"),
+            );
+            return Ok(ActiveTunnel {
+                child: None,
+                public_url,
+                provider,
+                connected_at: std::time::Instant::now(),
+            });
+        }
+    }
     let start_result = if selected == TunnelProvider::Auto {
         match timeout(
             AUTO_PROVIDER_START_TIMEOUT,
@@ -316,7 +340,7 @@ async fn try_start_provider(
         bail!("{} URL was not reachable: {error}", provider.label());
     }
     Ok(ActiveTunnel {
-        child,
+        child: Some(child),
         public_url,
         provider,
         connected_at: std::time::Instant::now(),
@@ -716,6 +740,17 @@ fn tailscale_funnel_url() -> Result<String> {
     Ok(format!("https://{dns_name}"))
 }
 
+async fn reusable_tailscale_endpoint(instance_id: &str) -> Option<String> {
+    let public_url = tokio::task::spawn_blocking(tailscale_funnel_url)
+        .await
+        .ok()?
+        .ok()?;
+    check_public_endpoint_resilient(&public_url, instance_id)
+        .await
+        .ok()?;
+    Some(public_url)
+}
+
 pub(crate) async fn recover_existing_stable_endpoint(
     selected: TunnelProvider,
     instance_id: &str,
@@ -723,12 +758,9 @@ pub(crate) async fn recover_existing_stable_endpoint(
     if !matches!(selected, TunnelProvider::Auto | TunnelProvider::Tailscale) {
         return None;
     }
-    let public_url = tokio::task::spawn_blocking(tailscale_funnel_url)
+    reusable_tailscale_endpoint(instance_id)
         .await
-        .ok()?
-        .ok()?;
-    check_public_endpoint(&public_url, instance_id).await.ok()?;
-    Some((TunnelProvider::Tailscale, public_url))
+        .map(|public_url| (TunnelProvider::Tailscale, public_url))
 }
 
 fn ensure_ssh() -> Result<()> {

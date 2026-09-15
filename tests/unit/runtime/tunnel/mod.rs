@@ -21,6 +21,20 @@ fn tunnel_runtime_never_writes_directly_to_the_terminal() {
     }
 }
 
+#[tokio::test]
+async fn recovered_stable_tunnel_is_not_treated_as_a_dead_child_process() {
+    let mut tunnel = ActiveTunnel {
+        child: None,
+        public_url: "https://stable.example".to_owned(),
+        provider: TunnelProvider::Tailscale,
+        connected_at: std::time::Instant::now(),
+    };
+    assert!(tunnel.try_wait().unwrap().is_none());
+    tokio::time::timeout(Duration::from_millis(50), tunnel.stop())
+        .await
+        .expect("stopping a recovered stable endpoint must be a no-op");
+}
+
 #[test]
 fn public_health_response_must_match_the_current_instance() {
     let body = br#"{"ok":true,"instance_id":"instance-a"}"#;

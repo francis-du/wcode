@@ -28,7 +28,7 @@ pub(super) async fn run_verification_check(
             &check.program,
             &check.args,
             &check.cwd,
-            timeout_seconds.clamp(1, 300),
+            timeout_seconds.clamp(1, 1800),
         )
         .await
     {

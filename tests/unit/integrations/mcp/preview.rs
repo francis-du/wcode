@@ -22,7 +22,7 @@ async fn audit_verification_options_reject_invalid_explicit_values_before_execut
         ("timeout_seconds", json!("120")),
         ("timeout_seconds", json!(0)),
         ("timeout_seconds", json!(-1)),
-        ("timeout_seconds", json!(301)),
+        ("timeout_seconds", json!(1801)),
         ("timeout_seconds", json!(1.5)),
         ("fail_fast", Value::Null),
     ] {
@@ -39,6 +39,7 @@ async fn audit_verification_options_reject_invalid_explicit_values_before_execut
             "invalid {key} must be rejected directly: {error}"
         );
     }
+    assert!(verification_options(&json!({"timeout_seconds": 1800})).is_ok());
     assert!(state.workspaces.authorization_requests(10).is_empty());
 }
 

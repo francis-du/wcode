@@ -17,6 +17,23 @@ executors:
 }
 
 #[test]
+fn executor_timeout_accepts_thirty_minutes_and_rejects_larger_values() {
+    let mut spec = StageExecutorSpec {
+        id: "long-build".to_owned(),
+        stage: VerificationStage::Property,
+        languages: vec![SemanticLanguage::Rust],
+        program: "cargo".to_owned(),
+        args: vec!["test".to_owned(), "--locked".to_owned()],
+        cwd: ".".to_owned(),
+        timeout_seconds: 1800,
+        builtin: false,
+    };
+    assert!(spec.validate().is_ok());
+    spec.timeout_seconds = 1801;
+    assert!(spec.validate().is_err());
+}
+
+#[test]
 fn every_language_is_representable_in_executor_config() {
     let represented = SemanticLanguage::ALL.into_iter().collect::<BTreeSet<_>>();
     assert_eq!(represented.len(), 22);

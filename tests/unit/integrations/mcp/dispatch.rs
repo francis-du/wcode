@@ -96,7 +96,7 @@ async fn strict_command_rejects_invalid_optional_settings() {
         ("timeout_seconds", json!(0)),
         ("timeout_seconds", json!(-1)),
         ("timeout_seconds", json!(1.5)),
-        ("timeout_seconds", json!(301)),
+        ("timeout_seconds", json!(1801)),
     ] {
         let mut arguments = json!({"program": "git", "args": ["--version"]});
         arguments[key] = value;
@@ -107,6 +107,16 @@ async fn strict_command_rejects_invalid_optional_settings() {
         .await
         .is_err());
     }
+    let accepted = leaf_workspace::call(
+        &state,
+        "run_command",
+        &json!({"program": "git", "args": ["--version"], "timeout_seconds": 1800}),
+    )
+    .await;
+    assert!(
+        accepted.is_ok(),
+        "1800-second command timeout must be accepted"
+    );
     assert!(state.workspaces.authorization_requests(10).is_empty());
 }
 

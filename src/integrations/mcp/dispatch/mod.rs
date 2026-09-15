@@ -510,8 +510,8 @@ pub(crate) fn verification_options(args: &Value) -> Result<(String, bool, u64), 
         None => 120,
         Some(value) => value
             .as_u64()
-            .filter(|value| (1..=300).contains(value))
-            .ok_or("timeout_seconds must be an integer between 1 and 300")?,
+            .filter(|value| (1..=1800).contains(value))
+            .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
     };
     Ok((level, fail_fast, timeout_seconds))
 }

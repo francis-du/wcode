@@ -45,7 +45,7 @@ impl StageExecutorSpec {
             || self.cwd.trim().is_empty()
             || self.cwd.len() > 512
             || self.timeout_seconds == 0
-            || self.timeout_seconds > 300
+            || self.timeout_seconds > 1800
             || self.args.iter().any(|arg| arg.len() > 2_000)
         {
             bail!("verification stage executor is invalid or exceeds its bounds");

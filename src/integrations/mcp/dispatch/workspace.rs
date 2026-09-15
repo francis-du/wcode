@@ -361,8 +361,8 @@ pub(super) async fn call(
                 None => 120,
                 Some(value) => value
                     .as_u64()
-                    .filter(|seconds| (1..=300).contains(seconds))
-                    .ok_or("timeout_seconds must be an integer between 1 and 300")?,
+                    .filter(|seconds| (1..=1800).contains(seconds))
+                    .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
             };
             workspace
                 .run_command(&program, &command_args, cwd, timeout_seconds)

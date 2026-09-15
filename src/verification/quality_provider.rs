@@ -444,7 +444,7 @@ pub async fn execute(
         .into_iter()
         .find(|candidate| candidate.id == local_provider_id)
         .ok_or_else(|| anyhow::anyhow!("quality provider changed while preparing execution"))?;
-    let timeout_seconds = timeout_seconds.clamp(1, 300);
+    let timeout_seconds = timeout_seconds.clamp(1, 1800);
     let autonomous_verification =
         scoped_workspace.verification_command_shape_allowed(&candidate.program, &candidate.args);
     let autonomous_development =

@@ -125,7 +125,7 @@ async fn malformed_verification_options_never_create_tasks() {
         json!({"level": "unknown"}),
         json!({"level": null}),
         json!({"timeout_seconds": 0}),
-        json!({"timeout_seconds": 301}),
+        json!({"timeout_seconds": 1801}),
         json!({"timeout_seconds": "120"}),
         json!({"fail_fast": "false"}),
     ] {
