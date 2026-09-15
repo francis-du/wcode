@@ -56,6 +56,60 @@ fn graph_history_round_trips_and_queries_nodes() {
 }
 
 #[test]
+fn graph_change_signal_uses_metadata_without_reading_snapshot_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let mut graph = SoftwareGraph::default();
+    graph
+        .add_node(GraphNode {
+            id: "function:signal".into(),
+            kind: NodeKind::Function,
+            label: "signal".into(),
+            attributes: BTreeMap::new(),
+            provenance: crate::graph::GraphProvenance {
+                provider: "tree-sitter".into(),
+                precision: GraphPrecision::Syntax,
+                revision: "syntax:signal".into(),
+            },
+        })
+        .unwrap();
+    let snapshot = SoftwareGraphSnapshot {
+        workspace: "demo".into(),
+        path: ".".into(),
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        files_considered: 1,
+        files_indexed: 1,
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: 1,
+        edge_count: 0,
+        failures: vec![],
+        graph,
+    };
+    let stored = persist(&workspace, &snapshot).unwrap();
+
+    READ_SNAPSHOT_CALLS.with(|count| count.set(0));
+    let (revision, first_signal) = change_signal(&workspace).unwrap().unwrap();
+    assert_eq!(revision, stored.id);
+    assert_eq!(READ_SNAPSHOT_CALLS.with(|count| count.get()), 0);
+
+    let directory = graph_directory(&workspace).unwrap();
+    let path = graph_paths(&directory).unwrap().pop().unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b" ")
+        .unwrap();
+    let (revision_after_edit, second_signal) = change_signal(&workspace).unwrap().unwrap();
+    assert_eq!(revision_after_edit, stored.id);
+    assert_ne!(first_signal, second_signal);
+    assert_eq!(READ_SNAPSHOT_CALLS.with(|count| count.get()), 0);
+}
+
+#[test]
 fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();

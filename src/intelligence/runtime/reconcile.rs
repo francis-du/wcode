@@ -78,7 +78,7 @@ impl SoftwareIntelligenceRuntime {
         if query.is_empty() {
             return Err(anyhow!("software context query must not be empty"));
         }
-        let design_load = self.design_load(workspace)?;
+        let (design_load, design_fingerprint) = self.design_load_with_fingerprint(workspace)?;
         let state = &design_load.state;
         let budget = request.budget.clamp(1_000, 64_000);
         let item_cap = (budget / 900).clamp(4, MAX_CONTEXT_ITEMS);
@@ -210,8 +210,9 @@ impl SoftwareIntelligenceRuntime {
         } else {
             scopes::source_roots_for(&requested_scopes)
         };
-        for source_root in &source_roots {
-            let search = match code_index.find_symbols_many(
+        let searches = crate::resource::parallel_io(&source_roots, |source_root| {
+            let source_root = *source_root;
+            match code_index.find_symbols_many(
                 workspace_id.clone(),
                 workspace,
                 &symbol_queries,
@@ -219,9 +220,9 @@ impl SoftwareIntelligenceRuntime {
                 None,
                 symbol_cap.saturating_mul(symbol_queries.len()).min(200),
             ) {
-                Ok(search) => search,
+                Ok(search) => Ok(Some(search)),
                 Err(error)
-                    if *source_root != "."
+                    if source_root != "."
                         && error
                             .downcast_ref::<std::io::Error>()
                             .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
@@ -229,9 +230,16 @@ impl SoftwareIntelligenceRuntime {
                     // Product Scope roots are optional in smaller repositories.
                     // Do not mistake a vanished/replaced Workspace for an absent scope.
                     workspace.path_info(".")?;
-                    continue;
+                    Ok(None)
                 }
-                Err(error) => return Err(error),
+                Err(error) => Err(error),
+            }
+        })?;
+        // parallel_io preserves input order, so merging remains deterministic
+        // before the existing global rank/truncation step.
+        for search in searches {
+            let Some(search) = search? else {
+                continue;
             };
             for symbol in search
                 .get("results")
@@ -255,13 +263,32 @@ impl SoftwareIntelligenceRuntime {
             symbols.sort_by_key(|symbol| context_symbol_rank(symbol, &literals, &symbol_queries));
         }
         symbols.truncate(symbol_cap);
-        let graph_context = provider_graph_context(
-            workspace,
-            &semantic_expansion,
-            &tokens,
-            &symbols,
-            item_cap.min(32),
-        )?;
+        // Provider overlays and Design traceability are independent after the
+        // symbol candidates are fixed. Run them together so a cold graph-store
+        // read does not serialize behind Tree-sitter resolution (or vice versa).
+        let (graph_context, coverage) = rayon::join(
+            || {
+                provider_graph_context(
+                    workspace,
+                    &semantic_expansion,
+                    &tokens,
+                    &symbols,
+                    item_cap.min(32),
+                )
+            },
+            || {
+                self.traceability_status_from_load(
+                    workspace_id.clone(),
+                    workspace,
+                    code_index,
+                    known_checks,
+                    design_load.as_ref(),
+                    design_fingerprint,
+                )
+            },
+        );
+        let graph_context = graph_context?;
+        let mut coverage = coverage?;
         let known_risks = self
             .state
             .lock()
@@ -273,13 +300,6 @@ impl SoftwareIntelligenceRuntime {
             .into_iter()
             .take(item_cap)
             .collect::<Vec<_>>();
-        let mut coverage = self.traceability_status_from_load(
-            workspace_id.clone(),
-            workspace,
-            code_index,
-            known_checks,
-            design_load.as_ref(),
-        )?;
         let requirement_rank = requirements
             .iter()
             .enumerate()
@@ -524,42 +544,81 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
     ) -> Result<ReconciliationExecutionStatus> {
         let plan = self.reconciliation_status(workspace, plan_id)?;
+        self.reconciliation_execution_status_from_plan(workspace_id, workspace, &plan)
+    }
+
+    pub(crate) fn reconciliation_execution_status_from_plan(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan: &ReconciliationPlan,
+    ) -> Result<ReconciliationExecutionStatus> {
         if plan.workspace != workspace_id {
             return Err(anyhow!(
                 "reconciliation plan does not belong to the selected workspace"
             ));
         }
-        let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .unwrap_or(ReconciliationExecution::from_plan(&plan)?);
+        let stored_execution = reconciliation_execution_store::load(workspace, &plan.id)?;
         let verification =
             self.verification_status(workspace_id, workspace, &plan.verification_plan.id)?;
-        let mut changed = execution.set_system_task(
-            ReconciliationTaskKind::Verification,
-            verification.ready,
-            if verification.ready {
-                "Verification Plan is ready with all required evidence.".into()
-            } else {
-                format!(
-                    "Verification blockers: {}",
-                    verification.blockers.join(", ")
+        reconciliation_execution_status_from_inputs(
+            workspace,
+            plan,
+            stored_execution,
+            &verification,
+        )
+    }
+
+    pub(super) fn reconciliation_execution_statuses_from_snapshot(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plans: &[ReconciliationPlan],
+        revision: &Revision,
+        evidence: &[Evidence],
+    ) -> Result<Vec<ReconciliationExecutionStatus>> {
+        if plans.is_empty() {
+            return Ok(Vec::new());
+        }
+        for plan in plans {
+            if plan.workspace != workspace_id {
+                return Err(anyhow!(
+                    "reconciliation plan does not belong to the selected workspace"
+                ));
+            }
+        }
+        let plan_ids = plans.iter().map(|plan| plan.id.clone()).collect::<Vec<_>>();
+        let verification_plan_ids = plans
+            .iter()
+            .map(|plan| plan.verification_plan.id.clone())
+            .collect::<Vec<_>>();
+        let (stored, verification) = rayon::join(
+            || reconciliation_execution_store::load_many(workspace, &plan_ids),
+            || {
+                self.verification_statuses_from_snapshot(
+                    workspace_id,
+                    workspace,
+                    &verification_plan_ids,
+                    revision,
+                    evidence,
                 )
             },
         );
-        if plan.verification_plan.require_human_approval {
-            changed |= execution.set_system_task(
-                ReconciliationTaskKind::HumanApproval,
-                verification.human_approval,
-                if verification.human_approval {
-                    "Explicit HumanApproval Evidence is present.".into()
-                } else {
-                    "Explicit HumanApproval Evidence is still required.".into()
-                },
-            );
-        }
-        if changed || reconciliation_execution_store::load(workspace, plan_id)?.is_none() {
-            reconciliation_execution_store::persist(workspace, &execution)?;
-        }
-        Ok(execution.status())
+        let mut stored = stored?;
+        let verification = verification?;
+        plans
+            .iter()
+            .zip(verification.iter())
+            .map(|(plan, verification)| {
+                let stored_execution = stored.remove(&plan.id);
+                reconciliation_execution_status_from_inputs(
+                    workspace,
+                    plan,
+                    stored_execution,
+                    verification,
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn reconciliation_claim(
@@ -642,4 +701,44 @@ impl SoftwareIntelligenceRuntime {
         reconciliation_execution_store::persist(workspace, &execution)?;
         Ok(run)
     }
+}
+
+pub(super) fn reconciliation_execution_status_from_inputs(
+    workspace: &Workspace,
+    plan: &ReconciliationPlan,
+    stored_execution: Option<ReconciliationExecution>,
+    verification: &VerificationStatus,
+) -> Result<ReconciliationExecutionStatus> {
+    let execution_missing = stored_execution.is_none();
+    let mut execution = match stored_execution {
+        Some(execution) => execution,
+        None => ReconciliationExecution::from_plan(plan)?,
+    };
+    let mut changed = execution.set_system_task(
+        ReconciliationTaskKind::Verification,
+        verification.ready,
+        if verification.ready {
+            "Verification Plan is ready with all required evidence.".into()
+        } else {
+            format!(
+                "Verification blockers: {}",
+                verification.blockers.join(", ")
+            )
+        },
+    );
+    if plan.verification_plan.require_human_approval {
+        changed |= execution.set_system_task(
+            ReconciliationTaskKind::HumanApproval,
+            verification.human_approval,
+            if verification.human_approval {
+                "Explicit HumanApproval Evidence is present.".into()
+            } else {
+                "Explicit HumanApproval Evidence is still required.".into()
+            },
+        );
+    }
+    if changed || execution_missing {
+        reconciliation_execution_store::persist(workspace, &execution)?;
+    }
+    Ok(execution.status())
 }

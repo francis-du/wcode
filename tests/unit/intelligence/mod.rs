@@ -61,6 +61,7 @@ fn traces_requirement_to_real_implementation_and_test_symbols() {
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     let index = CodeIndex::new().unwrap();
     let runtime = SoftwareIntelligenceRuntime::default();
+    trace_cache::TRACE_RESOLUTION_BUILDS.with(|count| count.set(0));
     let status = runtime
         .traceability_status("demo", &workspace, &index, &HashSet::new())
         .unwrap();
@@ -82,6 +83,30 @@ fn traces_requirement_to_real_implementation_and_test_symbols() {
         .verification
         .iter()
         .all(|reference| reference.resolved && reference.kind == TraceReferenceKind::Test));
+    let cached = runtime
+        .traceability_status("demo-alias", &workspace, &index, &HashSet::new())
+        .unwrap();
+    assert_eq!(cached.workspace, "demo-alias");
+    assert_eq!(
+        trace_cache::TRACE_RESOLUTION_BUILDS.with(|count| count.get()),
+        1,
+        "unchanged traceability inputs should reuse resolved references"
+    );
+
+    fs::write(
+        dir.path().join("src/lib.rs"),
+        "// changed metadata must invalidate traceability\nfn secure(path: &str) -> bool { !path.contains(\"..\") }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn blocks_escape() { assert!(!super::secure(\"../secret\")); }\n}\n",
+    )
+    .unwrap();
+    let refreshed = runtime
+        .traceability_status("demo", &workspace, &index, &HashSet::new())
+        .unwrap();
+    assert_eq!(refreshed.complete_requirements, 1);
+    assert_eq!(
+        trace_cache::TRACE_RESOLUTION_BUILDS.with(|count| count.get()),
+        2,
+        "source metadata changes must invalidate traceability resolution"
+    );
 }
 
 #[test]

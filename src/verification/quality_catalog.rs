@@ -1,9 +1,9 @@
-use crate::quality_catalog_extended;
 use crate::quality_provider::{
     QualityCandidate, QualityCapability, QualityProviderSource, RepoSignals,
 };
 use crate::semantic_provider::SemanticLanguage;
 use crate::workspace::Workspace;
+use crate::{quality_catalog_extended, quality_catalog_web};
 use std::fs;
 
 const MAX_COMMAND_FILES: usize = 128;
@@ -23,6 +23,7 @@ macro_rules! candidate_owned {
         QualityCandidate {
             id: ($id).into(),
             capability: $capability,
+            covers: Vec::new(),
             source: $source,
             program: ($program).into(),
             args: $args,
@@ -160,7 +161,7 @@ pub(crate) fn candidates_for(
                 "go.mod",
                 None,
             ));
-            candidates.push(candidate!(
+            let mut go_test = candidate!(
                 "go-test",
                 Test,
                 LanguageNative,
@@ -169,7 +170,9 @@ pub(crate) fn candidates_for(
                 declared,
                 "go.mod",
                 None,
-            ));
+            );
+            go_test.covers.push(TypeCheck);
+            candidates.push(go_test);
             candidates.push(candidate!(
                 "staticcheck",
                 Lint,
@@ -206,7 +209,8 @@ pub(crate) fn candidates_for(
                     .unwrap_or_default()
             )
             .to_ascii_lowercase();
-            let ruff = python.contains("ruff");
+            let ruff =
+                python.contains("ruff") || signals.has("ruff.toml") || signals.has(".ruff.toml");
             candidates.push(candidate!(
                 "ruff-format",
                 Format,
@@ -233,7 +237,10 @@ pub(crate) fn candidates_for(
                 Ecosystem,
                 "mypy",
                 ["."],
-                python.contains("mypy"),
+                python.contains("mypy")
+                    || signals.has("mypy.ini")
+                    || signals.has(".mypy.ini")
+                    || signals.any_contains(&["setup.cfg", "tox.ini"], "[mypy]"),
                 "mypy dependency/configuration",
                 None,
             ));
@@ -253,7 +260,9 @@ pub(crate) fn candidates_for(
                 Ecosystem,
                 "pytest",
                 ["-q"],
-                python.contains("pytest") || workspace.root().join("pytest.ini").is_file(),
+                python.contains("pytest")
+                    || signals.has("pytest.ini")
+                    || signals.any_contains(&["setup.cfg", "tox.ini"], "pytest"),
                 "pytest dependency/configuration",
                 None,
             ));
@@ -269,15 +278,17 @@ pub(crate) fn candidates_for(
             ));
         }
         SemanticLanguage::JavaScript | SemanticLanguage::TypeScript | SemanticLanguage::Tsx => {
-            add_package_script_candidates(workspace, signals, &mut candidates);
-            add_web_tooling(workspace, signals, language, &mut candidates);
+            quality_catalog_web::add_package_script_candidates(workspace, signals, &mut candidates);
+            quality_catalog_web::add_web_tooling(workspace, signals, language, &mut candidates);
+            quality_catalog_web::add_deno_tooling(workspace, signals, language, &mut candidates);
         }
         SemanticLanguage::Css | SemanticLanguage::Html => {
-            add_package_script_candidates(workspace, signals, &mut candidates);
-            add_web_tooling(workspace, signals, language, &mut candidates);
+            quality_catalog_web::add_package_script_candidates(workspace, signals, &mut candidates);
+            quality_catalog_web::add_web_tooling(workspace, signals, language, &mut candidates);
         }
         SemanticLanguage::Dart => {
             let declared = signals.has("pubspec.yaml");
+            let flutter = signals.contains("pubspec.yaml", "sdk: flutter");
             candidates.push(candidate!(
                 "dart-format",
                 Format,
@@ -288,26 +299,53 @@ pub(crate) fn candidates_for(
                 "pubspec.yaml",
                 None,
             ));
-            candidates.push(candidate!(
-                "dart-analyze",
-                StaticAnalysis,
-                LanguageNative,
-                "dart",
-                ["analyze"],
-                declared,
-                "pubspec.yaml",
-                None,
-            ));
-            candidates.push(candidate!(
-                "dart-test",
-                Test,
-                LanguageNative,
-                "dart",
-                ["test"],
-                declared,
-                "pubspec.yaml",
-                None,
-            ));
+            if flutter {
+                let mut flutter_analyze = candidate!(
+                    "flutter-analyze",
+                    StaticAnalysis,
+                    LanguageNative,
+                    "flutter",
+                    ["analyze", "--no-pub"],
+                    true,
+                    "pubspec.yaml declares Flutter SDK",
+                    None,
+                );
+                flutter_analyze.covers.extend([Lint, TypeCheck]);
+                candidates.push(flutter_analyze);
+                candidates.push(candidate!(
+                    "flutter-test",
+                    Test,
+                    LanguageNative,
+                    "flutter",
+                    ["test", "--no-pub"],
+                    true,
+                    "pubspec.yaml declares Flutter SDK",
+                    None,
+                ));
+            } else {
+                let mut dart_analyze = candidate!(
+                    "dart-analyze",
+                    StaticAnalysis,
+                    LanguageNative,
+                    "dart",
+                    ["analyze"],
+                    declared,
+                    "pubspec.yaml",
+                    None,
+                );
+                dart_analyze.covers.extend([Lint, TypeCheck]);
+                candidates.push(dart_analyze);
+                candidates.push(candidate!(
+                    "dart-test",
+                    Test,
+                    LanguageNative,
+                    "dart",
+                    ["test"],
+                    declared,
+                    "pubspec.yaml",
+                    None,
+                ));
+            }
         }
         SemanticLanguage::Elixir => {
             let declared = signals.has("mix.exs");
@@ -378,7 +416,7 @@ pub(crate) fn candidates_for(
             ));
             let mut tidy_args = files;
             tidy_args.extend(["-p".into(), ".".into()]);
-            candidates.push(candidate_owned!(
+            let mut clang_tidy = candidate_owned!(
                 "clang-tidy",
                 StaticAnalysis,
                 Ecosystem,
@@ -389,7 +427,9 @@ pub(crate) fn candidates_for(
                 ".clang-tidy plus compile_commands.json",
                 None,
                 false,
-            ));
+            );
+            clang_tidy.covers.push(TypeCheck);
+            candidates.push(clang_tidy);
         }
         SemanticLanguage::CSharp => {
             let declared = has_root_extension(workspace, &["sln", "csproj", "fsproj"]);
@@ -403,16 +443,18 @@ pub(crate) fn candidates_for(
                 ".NET solution/project",
                 None,
             ));
-            candidates.push(candidate!(
+            let mut dotnet_build = candidate!(
                 "dotnet-build",
                 StaticAnalysis,
                 LanguageNative,
                 "dotnet",
                 ["build", "--no-restore"],
                 declared,
-                ".NET solution/project with Roslyn analyzers",
+                ".NET solution/project with compiler and Roslyn analyzers",
                 None,
-            ));
+            );
+            dotnet_build.covers.push(TypeCheck);
+            candidates.push(dotnet_build);
             candidates.push(candidate!(
                 "dotnet-test",
                 Test,
@@ -445,135 +487,12 @@ pub(crate) fn candidates_for(
     candidates
 }
 
-fn add_web_tooling(
-    workspace: &Workspace,
-    signals: &RepoSignals,
-    language: SemanticLanguage,
-    candidates: &mut Vec<QualityCandidate>,
-) {
-    use QualityCapability::{Format, Lint, TypeCheck};
-    use QualityProviderSource::Ecosystem;
-    let biome = signals.package_dependency("@biomejs/biome")
-        || signals.has("biome.json")
-        || signals.has("biome.jsonc");
-    let biome_program = node_program(workspace, "biome");
-    candidates.push(candidate_owned!(
-        "biome-format",
-        Format,
-        Ecosystem,
-        biome_program.clone(),
-        vec!["check".into(), ".".into(), "--reporter=json".into()],
-        biome,
-        "Biome dependency/configuration",
-        Some("json"),
-        false,
-    ));
-    candidates.push(candidate_owned!(
-        "biome-check",
-        Lint,
-        Ecosystem,
-        biome_program,
-        vec!["check".into(), ".".into(), "--reporter=json".into()],
-        biome,
-        "Biome dependency/configuration",
-        Some("json"),
-        false,
-    ));
-    let eslint = signals.package_dependency("eslint")
-        || [
-            "eslint.config.js",
-            "eslint.config.mjs",
-            ".eslintrc",
-            ".eslintrc.json",
-        ]
-        .iter()
-        .any(|path| signals.has(path));
-    candidates.push(candidate_owned!(
-        "eslint",
-        Lint,
-        Ecosystem,
-        node_program(workspace, "eslint"),
-        vec![".".into(), "--format".into(), "json".into()],
-        eslint,
-        "ESLint dependency/configuration",
-        Some("json"),
-        false,
-    ));
-    if matches!(
-        language,
-        SemanticLanguage::TypeScript | SemanticLanguage::Tsx
-    ) {
-        candidates.push(candidate_owned!(
-            "tsc-no-emit",
-            TypeCheck,
-            Ecosystem,
-            node_program(workspace, "tsc"),
-            vec!["--noEmit".into()],
-            signals.package_dependency("typescript") && signals.has("tsconfig.json"),
-            "TypeScript dependency and tsconfig.json",
-            None,
-            false,
-        ));
-    }
-    if language == SemanticLanguage::Css {
-        let stylelint = signals.package_dependency("stylelint")
-            || workspace.root().join("stylelint.config.js").is_file()
-            || workspace.root().join(".stylelintrc").is_file();
-        candidates.push(candidate_owned!(
-            "stylelint",
-            Lint,
-            Ecosystem,
-            node_program(workspace, "stylelint"),
-            vec!["**/*.css".into(), "--formatter".into(), "json".into()],
-            stylelint,
-            "Stylelint dependency/configuration",
-            Some("json"),
-            false,
-        ));
-    }
-}
-
-fn add_package_script_candidates(
-    workspace: &Workspace,
-    signals: &RepoSignals,
-    candidates: &mut Vec<QualityCandidate>,
-) {
-    use QualityCapability::{Format, Lint, StaticAnalysis, Test, TypeCheck};
-    for (script, capability) in [
-        ("format:check", Format),
-        ("lint", Lint),
-        ("typecheck", TypeCheck),
-        ("check", StaticAnalysis),
-        ("test", Test),
-    ] {
-        if signals.package_script(script) {
-            let (program, args) = package_run_command(workspace, script);
-            let mut provider = candidate_owned!(
-                format!("package-{script}"),
-                capability,
-                QualityProviderSource::RepositoryConfigured,
-                program,
-                args,
-                true,
-                format!("package.json script `{script}`"),
-                None,
-                false,
-            );
-            // Script names express repository quality intent, but their bodies are arbitrary
-            // project-controlled execution. Discovery is safe; the strict check-only lane must
-            // not infer non-mutation from a name such as `lint` or `format:check`.
-            provider.check_only = false;
-            candidates.push(provider);
-        }
-    }
-}
-
 fn add_java_candidates(
     workspace: &Workspace,
     signals: &RepoSignals,
     candidates: &mut Vec<QualityCandidate>,
 ) {
-    use QualityCapability::{Format, Lint, StaticAnalysis, Test};
+    use QualityCapability::{Format, Lint, StaticAnalysis, Test, TypeCheck};
     let maven = signals.has("pom.xml");
     let gradle = signals.has("build.gradle") || signals.has("build.gradle.kts");
     let build_text = format!(
@@ -592,12 +511,12 @@ fn add_java_candidates(
     )
     .to_ascii_lowercase();
     if maven {
-        let program = if workspace.root().join("mvnw").is_file() {
+        let program = if workspace.workspace_program_available("./mvnw") {
             "./mvnw"
         } else {
             "mvn"
         };
-        candidates.push(candidate!(
+        let mut maven_compile = candidate!(
             "maven-compile",
             StaticAnalysis,
             QualityProviderSource::LanguageNative,
@@ -606,7 +525,9 @@ fn add_java_candidates(
             true,
             "pom.xml",
             None,
-        ));
+        );
+        maven_compile.covers.push(TypeCheck);
+        candidates.push(maven_compile);
         candidates.push(candidate!(
             "maven-test",
             Test,
@@ -648,12 +569,12 @@ fn add_java_candidates(
             None,
         ));
     } else if gradle {
-        let program = if workspace.root().join("gradlew").is_file() {
+        let program = if workspace.workspace_program_available("./gradlew") {
             "./gradlew"
         } else {
             "gradle"
         };
-        candidates.push(candidate!(
+        let mut gradle_classes = candidate!(
             "gradle-classes",
             StaticAnalysis,
             QualityProviderSource::LanguageNative,
@@ -662,7 +583,9 @@ fn add_java_candidates(
             true,
             "Gradle build",
             None,
-        ));
+        );
+        gradle_classes.covers.push(TypeCheck);
+        candidates.push(gradle_classes);
         candidates.push(candidate!(
             "gradle-test",
             Test,
@@ -693,29 +616,6 @@ fn add_java_candidates(
             "Spotless plugin in Gradle build",
             None,
         ));
-    }
-}
-
-fn node_program(workspace: &Workspace, name: &str) -> String {
-    let relative = format!("node_modules/.bin/{name}");
-    if workspace.root().join(&relative).is_file() {
-        relative
-    } else {
-        name.to_owned()
-    }
-}
-
-fn package_run_command(workspace: &Workspace, script: &str) -> (String, Vec<String>) {
-    if workspace.root().join("pnpm-lock.yaml").is_file() {
-        ("pnpm".into(), vec!["run".into(), script.into()])
-    } else if workspace.root().join("yarn.lock").is_file() {
-        ("yarn".into(), vec!["run".into(), script.into()])
-    } else if workspace.root().join("bun.lock").is_file()
-        || workspace.root().join("bun.lockb").is_file()
-    {
-        ("bun".into(), vec!["run".into(), script.into()])
-    } else {
-        ("npm".into(), vec!["run".into(), script.into()])
     }
 }
 

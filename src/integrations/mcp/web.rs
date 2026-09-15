@@ -1,6 +1,9 @@
 use super::*;
 use crate::authorization::AuthorizationStatus;
 
+#[path = "web_status.rs"]
+mod web_status;
+
 pub(super) async fn setup_page(
     State(state): State<Arc<AppState>>,
     _headers: HeaderMap,
@@ -625,20 +628,27 @@ pub(super) async fn intelligence_web_revision(
     // File I/O stays off the async worker. The proof signal reads record
     // metadata only; it is invalidation information, never verification proof.
     let signals = mcp_tools::run_blocking(move || -> AnyResult<_> {
-        let graph = harness
-            .graph_history(&workspace_for_read, 1)?
-            .into_iter()
-            .next()
-            .map(|entry| entry.id);
-        let proof = harness.observatory_proof_signal(&id_for_read, &workspace_for_read)?;
-        let engineering = harness.observatory_engineering_signal(&workspace_for_read)?;
-        Ok((graph, proof, engineering))
+        let (graph, (proof, engineering)) = rayon::join(
+            || harness.observatory_graph_signal(&workspace_for_read),
+            || {
+                rayon::join(
+                    || harness.observatory_proof_signal(&id_for_read, &workspace_for_read),
+                    || harness.observatory_engineering_signal(&workspace_for_read),
+                )
+            },
+        );
+        Ok((graph?, proof?, engineering?))
     })
     .await;
     let signal_failed = signals.is_err();
-    let (graph_revision, proof_revision, engineering_revision) = match signals {
-        Ok((graph, proof, engineering)) => (graph, Some(proof), Some(engineering)),
-        Err(_) => (None, None, None),
+    let (graph_revision, graph_signal, proof_revision, engineering_revision) = match signals {
+        Ok((graph, proof, engineering)) => {
+            let (revision, signal) = graph
+                .map(|(revision, signal)| (Some(revision), Some(signal)))
+                .unwrap_or((None, None));
+            (revision, signal, Some(proof), Some(engineering))
+        }
+        Err(_) => (None, None, None, None),
     };
     (
         [(header::CACHE_CONTROL, "no-store")],
@@ -651,6 +661,7 @@ pub(super) async fn intelligence_web_revision(
             "truncated": revision.truncated,
             "full_refresh_required": revision.full_refresh_required || signal_failed,
             "graph_revision": graph_revision,
+            "graph_signal": graph_signal,
             "pending_authorizations": state
                 .workspaces
                 .authorization_requests(256)
@@ -703,64 +714,22 @@ pub(super) async fn intelligence_web_status(
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
     let workspace_id_for_read = workspace_id.clone();
-    let base = match tokio::task::spawn_blocking(move || -> AnyResult<Value> {
-        let design = harness.design_status(workspace_id_for_read.clone(), &workspace_for_read)?;
-        let traceability =
-            harness.traceability_status(workspace_id_for_read.clone(), &workspace_for_read)?;
-        let semantics =
-            harness.semantic_status(&workspace_id_for_read, &workspace_for_read, 100)?;
-        let scope_status = harness.product_scope_status(&workspace_for_read)?;
-        let graph_history = harness.graph_history(&workspace_for_read, 20)?;
-        let graph_diff = if graph_history.len() >= 2 {
-            harness
-                .graph_diff(
-                    &workspace_for_read,
-                    &GraphDiffInput {
-                        from_snapshot_id: None,
-                        to_snapshot_id: None,
-                        limit: 20,
-                    },
-                )
+    let base_task = tokio::task::spawn_blocking(move || {
+        web_status::snapshot(&harness, &workspace_id_for_read, &workspace_for_read)
+    });
+    let review_task = async {
+        if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
+            state
+                .harness
+                .review_changes(workspace_id.clone(), &workspace, 30, &state.monitor)
+                .await
                 .ok()
         } else {
             None
-        };
-        let graph_providers = harness.graph_provider_status(&workspace_for_read)?;
-        let semantic_providers = harness.semantic_provider_status(&workspace_for_read)?;
-        let verification_executors = harness.verification_executor_status(&workspace_for_read)?;
-        let evidence =
-            harness.evidence_status(&workspace_id_for_read, &workspace_for_read, None, 100)?;
-        let reconciliation = harness.reconciliation_history(&workspace_for_read, 20)?;
-        let verification =
-            harness.verification_history(&workspace_id_for_read, &workspace_for_read, 20)?;
-        let mut reconciliation_execution = Vec::new();
-        for plan in reconciliation.iter().take(20) {
-            if let Ok(status) = harness.reconciliation_execution_status(
-                &workspace_id_for_read,
-                &workspace_for_read,
-                &plan.id,
-            ) {
-                reconciliation_execution.push(status);
-            }
         }
-        Ok(json!({
-            "design": design,
-            "traceability": traceability,
-            "semantics": semantics,
-            "scope_status": scope_status,
-            "graph_history": graph_history,
-            "graph_diff": graph_diff,
-            "graph_providers": graph_providers,
-            "semantic_providers": semantic_providers,
-            "verification_executors": verification_executors,
-            "evidence": evidence,
-            "reconciliation": reconciliation,
-            "reconciliation_execution": reconciliation_execution,
-            "verification": verification,
-        }))
-    })
-    .await
-    {
+    };
+    let (base_result, review) = tokio::join!(base_task, review_task);
+    let base = match base_result {
         Ok(Ok(value)) => value,
         Ok(Err(error)) => {
             return (
@@ -777,22 +746,13 @@ pub(super) async fn intelligence_web_status(
                 .into_response()
         }
     };
-    let risk = if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
-        match state
+    let risk = review.and_then(|review| {
+        state
             .harness
-            .review_changes(workspace_id.clone(), &workspace, 30, &state.monitor)
-            .await
-        {
-            Ok(review) => state
-                .harness
-                .risk_status(workspace_id.clone(), &workspace, &review)
-                .ok()
-                .and_then(|risk| serde_json::to_value(risk).ok()),
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+            .risk_status(workspace_id.clone(), &workspace, &review)
+            .ok()
+            .and_then(|risk| serde_json::to_value(risk).ok())
+    });
     let mut value = base;
     value["workspace"] = json!(workspace_id);
     value["root"] = json!(workspace.root());

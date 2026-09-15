@@ -345,7 +345,7 @@ Coverage 不会被压成一个总分，而是分别返回：
 
 `semantic_provider_status` 会扫描 Workspace，并对当前语法索引已经支持的全部 22 种语言报告真实 Provider 状态：Bash、C、C++、C#、CSS、Dart、Elixir、Go、HTML、Java、JavaScript、Lua、OCaml/Interface、PHP、Python、R、Ruby、Rust、Swift、TypeScript、TSX。
 
-v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry 里有一个 Provider 名字”当成支持。22 种索引语言每一种都必须恰好拥有一个 Canonical Launch Profile；Provider-specific Arguments 有单测锁定；而且每个 Canonical Profile 都会真实 Spawn 一个 stdio Mock LSP 并完成 `initialize` Handshake。Alternate 只保留真实可用的实现。Compatibility 与 Runtime Availability 仍然分离：Executable 没安装，或者真实 `initialize` 失败时，wcode 都不会宣称它 Runnable。`semantic_provider_status` 还会明确返回当前选中 Candidate 是否 Canonical，以及本机实际找到几个 Candidate。
+当前 Compatibility Contract 不再把“Registry 里有一个 Provider 名字”当成支持。22 种索引语言每一种都必须恰好拥有一个 Canonical Launch Profile；Provider-specific Arguments 有单测锁定；而且每个 Canonical Profile 都会真实 Spawn 一个 stdio Mock LSP 并完成 `initialize` Handshake。Alternate 只保留真实可用的实现。Compatibility 与 Runtime Availability 仍然分离：Executable 没安装，或者真实 `initialize` 失败时，wcode 都不会宣称它 Runnable。`semantic_provider_status` 还会明确返回当前选中 Candidate 是否 Canonical，以及本机实际找到几个 Candidate。
 
 | 语言 | Canonical LSP Launch Profile | 已安装时可用的 Alternate |
 | --- | --- | --- |
@@ -353,7 +353,7 @@ v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry �
 | C / C++ | `clangd` | — |
 | C# | `csharp-ls` | — |
 | CSS | `vscode-css-language-server --stdio` | — |
-| Dart | `dart language-server --protocol=lsp --client-id wcode --client-version <version>` | — |
+| Dart | `dart language-server --client-id wcode --client-version <version>` | — |
 | Elixir | ElixirLS `language_server.sh` / `language_server.bat`（同时识别发行版 `elixir-ls` Wrapper） | — |
 | Go | `gopls serve` | — |
 | HTML | `vscode-html-language-server --stdio` | — |
@@ -363,14 +363,14 @@ v0.5 把这一层收紧成显式 Compatibility Contract，不再把“Registry �
 | OCaml / Interface | `ocamllsp` | — |
 | PHP | `phpactor language-server` | `intelephense --stdio` |
 | Python | `pyright-langserver --stdio` | `pylsp` |
-| R | `R --no-echo -e languageserver::run()` | — |
+| R | `R --vanilla --no-echo -e languageserver::run()` | — |
 | Ruby | `ruby-lsp` | `solargraph stdio` |
 | Rust | `rust-analyzer` | — |
 | Swift | `sourcekit-lsp` | — |
 
 拥有 Alternate 的语言，在前台 Navigation 和手工 Semantic Refresh 两条路径里都会在 Canonical Provider 已安装但 Initialize 失败时尝试 Alternate。Alternate 仍然经过自己独立的 Trust Boundary；Refresh 成功切换后会在 `fallbacks` 中显式记录，绝不会把一个 Provider 的 Grant 偷偷扩大到另一个 Provider。
 
-Runtime 会自动维护拥有显式 Hardened Profile 的 Provider。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + LSP Server + 当前 Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。LSP Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
+Runtime 只会自动维护拥有显式 Automatic Hardening Profile 的 Provider；当前自动 Profile 是 `rust-analyzer`。后台 Worker 只选择最具体的 Discovered Project Workspace，源码需要连续经过一个短暂稳定窗口才刷新，失败后做有界指数退避，并且每次真实刷新都必须先获取与 Model-facing Work 共用的 Global Harness Semaphore。Harness 还维护一个有容量上限的 Warm Session Pool，以 Workspace + LSP Server + 当前 Binary Identity 为 Key；后台索引和前台语义导航复用同一个活跃 Session。Coordinator 会周期性回收 Idle 且未被 Lease 的 Slot；容量驱逐绝不会删除正在使用的 Slot；全部 Slot 都 Busy 时 Fail Closed，而不是短暂超过进程数上限。LSP Binary Identity 变化时，如果旧 Slot 仍被 Lease，也会先要求当前请求结束，再允许替换。这样 Broad Root 与嵌套 Subspace 不会重复索引，也不会每次语义查询都重启 rust-analyzer。`semantic_provider_refresh` 继续保留为强制 Refresh Surface。
 
 Warm Session 的 Document Sync 现在严格跟随 Server 返回的 `textDocumentSync` Contract：Numeric Full/Incremental 兼容形态按完整 Open 处理；Options 形态尊重 `openClose`；Full Change 发送整文档，Incremental Change 使用旧内容在已协商 UTF-8/UTF-16/UTF-32 Position Encoding 下计算合法 Replacement Range；None 不会硬发 Server 没声明支持的 Change；只有 Server 要求 Open/Close Sync 时才发送 `didClose`。Refresh 使用这条 Session 请求真实 hierarchical Document Symbol；Server 支持 Call Hierarchy / Implementation 时，只对高价值 Symbol 做有界 Relationship Expansion，不再为每个变量和字段浪费请求。第一方 LSP Node 携带 `source_sha256`，因此 Provider Status 会明确给出 `fresh / stale`；源码变化后 Stale Semantic Revision 自动退出 Software Graph、Impact、Reconciliation 和 `software_context.graph_context`。Graph Revision Key 仍由源码 Hash、Provider 二进制元数据和 Symbol 上限决定：输入未变时跳过 Graph 重建，但 Runtime 可以只 Warm 一次 Session，让后续 Semantic Query 不再承担启动成本。返回空符号集的 Server 也不会制造一个假的语义 Revision。
 
@@ -388,11 +388,11 @@ TUI Intelligence 会把 Installed `available`、Policy/Trust `launch-ready`、�
 
 ### Language Quality Matrix
 
-wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_status` 复用同一套 22 语言 canonical surface，分别展示 Syntax、Semantic、Format、Lint、Type Check、Static Analysis、Test、Security、Property、Mutation、Fuzz、Runtime-Canary。仓库 Manifest、依赖、配置文件、package script 和语言原生项目结构决定“这个项目声明了什么”；已知生态工具可以作为候选出现，但没有 Repository declaration 就不会被当成项目质量策略。缺少可执行程序或质量维度会明确显示为 gap。
+wcode 不再用一个 `supported=true` 描述语言能力。`language_quality_status` 复用同一套 22 语言 canonical surface，分别展示 Syntax、Semantic、Format、Lint、Type Check、Static Analysis、Test、Security、Property、Mutation、Fuzz、Runtime-Canary。Semantic 只有在真实 LSP Initialize 成功后才算 Covered，发现 Executable 不够。仓库 Manifest、依赖、配置文件、package script 和语言原生项目结构决定“这个项目声明了什么”；但只有 declared + available + check-only 的 Quality Provider 才能让矩阵变绿，Discovery-only Script 只展示意图。一个真实 Provider 可以通过有界 `covers` 同时贡献多个 Dimension，避免 Dart Analyzer 或 Compiler/Build Check 为填两列被重复执行。缺少可执行程序或质量维度会明确显示为 gap。
 
-`language_quality_run` 只执行 Matrix 中 detected + declared + available + check-only 的 provider，并继续经过正常的 Repository-aware Authorization。这个通道没有 formatter/fixer 写模式，不会借“检查”偷偷修改源码。真实 Command Result 会转成 Verification Report 并记录为当前 code+design Revision Evidence，所以旧版本的 Pass 不会冒充当前版本已经验证。
+`language_quality_run` 只执行 Matrix 中 detected + declared + available + runnable + check-only 的 Provider。精确获批形态复用自治 Verification/Development Lane，其他已注册 Check-only Provider 使用有界 Trusted Runtime Lane，不再虚构一层额外授权流程。这个通道没有 Formatter/Fixer 写模式，不会借“检查”偷偷修改源码。真实 Command Result 会转成 Verification Report 并记录为当前 code+design Revision Evidence，所以旧版本的 Pass 不会冒充当前版本已经验证。
 
-目前 Registry 能识别 Rust / Go / Python / JS/TS/CSS/HTML / C/C++ / .NET / Java / Dart / Elixir / Bash / Lua / OCaml / PHP / R / Ruby / Swift 的主流原生或仓库声明质量链，但这不等于本机全部安装。实际状态以 `language_quality_status` 为准。详见 [language-quality.md](../language-quality/)。
+目前 Registry 能识别 Rust / Go / Python / JS/TS/CSS/HTML / C/C++ / .NET / Java / 纯 Dart/Flutter / Deno / Elixir / Bash / Lua / OCaml / PHP / R / Ruby / Swift 的主流原生或仓库声明质量链，并补充 Prettier、HTMLHint、语言插件约束后的 ESLint/Biome。Scoped npm Package 按真实 Package Key 匹配，不再被 JSON Pointer 的 `/` 拆坏；CSS/HTML 只有对应插件或 Biome 显式 Opt-in 后才会变绿。Deno 依赖检查统一 Frozen；R 使用 `Rscript --vanilla`；Ruby 的 RuboCop 只算 Lint。这不等于本机全部安装，实际状态以 `language_quality_status` 为准。详见 [language-quality.md](../language-quality/)。
 
 ### Graph History / Query / Diff
 
@@ -445,7 +445,7 @@ Verification Plan 和 Reviewer Job 会按 Workspace 持久化，因此 wcode 重
 
 `verification_executor_status` 会返回跨语言 Executor Registry，并区分“已经注册”和“本机真实可执行”；`verification_execute_stages` 会运行当前 Stage 下**所有适用且真实可用**的 Executor，只跳过“这个 Producer 自己已经有最新 Pass Evidence”的 Runner，并把每次真实 Command Result 分别写成 Stage Evidence。`verification_status` 会保留每个 Producer 的最新结果，并按 `Fail > Disagree > Inconclusive > Pass` fail-closed 聚合，所以另一个晚到的 Pass 不能盖掉真实 Runner 的 Fail。CI 或其他外部系统仍然可以用 `verification_stage_submit` 提交真实 Verdict、Producer、Summary 与 Artifact Digest；Workspace Code Revision 变化后旧 Plan 仍会被 stale-revision blocker 阻止。
 
-wcode 会自动发现一批常见生态，例如 Rust proptest/quickcheck/cargo-fuzz/cargo-mutants、Go Property/Fuzz、Python Hypothesis/mutmut、JS/TS fast-check/Stryker、Java jqwik/PIT、C# FsCheck/.NET Stryker、SwiftCheck/Muter、Elixir StreamData、Dart Glados、Ruby Rantly、PHP Eris/Infection、OCaml QCheck、R quickcheck。这些内置发现只是便捷适配器，不是封闭清单。对于其他框架和所有 22 种语言，都可以通过同一份 `.wcode/executors.yaml` 接入：
+wcode 会自动发现一批常见生态，例如 Rust proptest/quickcheck/cargo-fuzz/cargo-mutants、Go Property/Fuzz、Python Hypothesis/mutmut、使用固定 Vitest/Jest Runner 的 JS/TS fast-check、Java jqwik/PIT、C# FsCheck/.NET Stryker、SwiftCheck/Muter、Elixir StreamData、Dart Glados、Ruby Rantly、PHP Eris/Infection、OCaml QCheck、R quickcheck。Property Adapter 同时要求框架声明和对应语言源码里的真实使用；只有依赖名不算 Property Suite 证据。任意 Package Script 不会被重标成 Property/Mutation Evidence。由于 Stryker Config 本身可以执行 Repository JavaScript，JS/TS Stryker 保持显式 `.wcode/executors.yaml` 决定。这些内置发现只是便捷适配器，不是封闭清单。对于其他框架和所有 22 种语言，都可以通过同一份 `.wcode/executors.yaml` 接入：
 
 ```yaml
 schema_version: 1

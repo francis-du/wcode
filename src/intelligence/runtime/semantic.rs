@@ -56,10 +56,25 @@ impl SoftwareIntelligenceRuntime {
         subject: Option<&str>,
         limit: usize,
     ) -> Result<EvidenceStatus> {
-        let mut matching = self
-            .evidence_records(workspace_id, workspace)?
-            .into_iter()
+        let evidence = self.evidence_records(workspace_id, workspace)?;
+        Ok(Self::evidence_status_from_snapshot(
+            workspace_id,
+            subject,
+            limit,
+            &evidence,
+        ))
+    }
+
+    pub(crate) fn evidence_status_from_snapshot(
+        workspace_id: &str,
+        subject: Option<&str>,
+        limit: usize,
+        evidence: &[Evidence],
+    ) -> EvidenceStatus {
+        let mut matching = evidence
+            .iter()
             .filter(|evidence| subject.is_none_or(|subject| evidence.subject == subject))
+            .cloned()
             .collect::<Vec<_>>();
         matching.sort_by(|left, right| {
             (left.timestamp_ms, &left.id).cmp(&(right.timestamp_ms, &right.id))
@@ -87,7 +102,7 @@ impl SoftwareIntelligenceRuntime {
             .count();
         let limit = limit.clamp(1, 500);
         let evidence = matching.into_iter().rev().take(limit).collect::<Vec<_>>();
-        Ok(EvidenceStatus {
+        EvidenceStatus {
             workspace: workspace_id.to_owned(),
             total,
             passed,
@@ -97,7 +112,7 @@ impl SoftwareIntelligenceRuntime {
             deterministic,
             truncated: total > evidence.len(),
             evidence,
-        })
+        }
     }
 
     pub fn semantic_status(

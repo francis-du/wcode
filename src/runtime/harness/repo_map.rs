@@ -8,6 +8,7 @@ use super::harness_retrieval::{
 };
 use super::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::atomic::Ordering;
 
 const REPO_MAP_MAX_SYMBOLS: usize = 6_000;
 const REPO_MAP_MAX_ITEMS: usize = 16;
@@ -438,13 +439,42 @@ impl ToolHarness {
         }))
     }
 
-    fn repo_map_graph(
+    pub(super) fn repo_map_graph(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
         path: &str,
     ) -> Result<(Arc<SoftwareGraphSnapshot>, bool)> {
         let cache_key = (workspace.root().to_path_buf(), path.to_owned());
+        let flight = self.repo_map_flight(&cache_key)?;
+        let observed_generation = flight.generation.load(Ordering::Acquire);
+        let participant =
+            harness_cache_flight::ValidationParticipant::join(&flight, observed_generation);
+        #[cfg(test)]
+        flight.entrants.fetch_add(1, Ordering::AcqRel);
+        let _flight = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // Even generations are completed validation epochs; odd generations
+        // mean a validation is already in progress. Only a caller that observed
+        // the previous completed epoch may reuse the owner's result, because
+        // that owner's scan necessarily began after this caller arrived. A
+        // caller that observed an odd generation started after the scan began
+        // and must validate again, preserving external-edit freshness.
+        if flight.can_reuse_after(observed_generation) {
+            let mut cache = self
+                .repo_map_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?;
+            if let Some(cached) = cache.get_mut(&cache_key) {
+                cached.last_used = Instant::now();
+                return Ok((cached.snapshot.clone(), true));
+            }
+        }
+
+        let mut validation = harness_cache_flight::ValidationGuard::begin(&flight);
         let (fingerprint, paths, scan_truncated) = repo_map_fingerprint(workspace, path)?;
         {
             let mut cache = self
@@ -455,8 +485,17 @@ impl ToolHarness {
                 .get_mut(&cache_key)
                 .filter(|cached| cached.fingerprint == fingerprint)
             {
+                let snapshot = cached.snapshot.clone();
                 cached.last_used = Instant::now();
-                return Ok((cached.snapshot.clone(), true));
+                drop(cache);
+                ensure_shared_repo_map_fingerprint_current(
+                    &participant,
+                    workspace,
+                    path,
+                    fingerprint,
+                )?;
+                validation.mark_success();
+                return Ok((snapshot, true));
             }
         }
 
@@ -473,10 +512,17 @@ impl ToolHarness {
             scan_truncated,
             REPO_MAP_MAX_SYMBOLS,
         )?);
+        if !validation.is_current() {
+            bail!("repo map invalidated while building; retry the request");
+        }
+        ensure_shared_repo_map_fingerprint_current(&participant, workspace, path, fingerprint)?;
         let mut cache = self
             .repo_map_cache
             .lock()
             .map_err(|_| anyhow::anyhow!("repo map cache poisoned"))?;
+        if !validation.is_current() {
+            bail!("repo map invalidated while building; retry the request");
+        }
         let limit = crate::resource::limits().repo_map_cache_limit();
         if cache.len() >= limit {
             if let Some(oldest) = cache
@@ -495,6 +541,7 @@ impl ToolHarness {
                 snapshot: snapshot.clone(),
             },
         );
+        validation.mark_success();
         Ok((snapshot, false))
     }
 }
@@ -553,6 +600,21 @@ fn repo_map_parent_path(path: &str) -> Option<&str> {
     path.rsplit_once('/')
         .map(|(parent, _)| parent)
         .or(Some("."))
+}
+
+pub(super) fn ensure_shared_repo_map_fingerprint_current(
+    participant: &harness_cache_flight::ValidationParticipant<'_>,
+    workspace: &Workspace,
+    path: &str,
+    expected_fingerprint: u64,
+) -> Result<()> {
+    if participant.has_coalescible_peer() {
+        let (confirmed_fingerprint, _, _) = repo_map_fingerprint(workspace, path)?;
+        if confirmed_fingerprint != expected_fingerprint {
+            bail!("repo map changed during shared validation; retry the request");
+        }
+    }
+    Ok(())
 }
 
 fn repo_map_fingerprint(workspace: &Workspace, path: &str) -> Result<(u64, Vec<String>, bool)> {

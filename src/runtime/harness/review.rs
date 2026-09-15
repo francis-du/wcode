@@ -478,21 +478,50 @@ pub(super) fn file_category(path: &str) -> &'static str {
             | "yarn.lock"
             | "bun.lock"
             | "bun.lockb"
+            | "deno.json"
+            | "deno.jsonc"
+            | "deno.lock"
             | "pyproject.toml"
             | "requirements.txt"
+            | "poetry.lock"
+            | "uv.lock"
             | "go.mod"
             | "go.sum"
+            | "go.work"
+            | "go.work.sum"
+            | "pubspec.yaml"
+            | "pubspec.lock"
+            | "mix.exs"
+            | "mix.lock"
+            | "gemfile"
+            | "gemfile.lock"
+            | "composer.json"
+            | "composer.lock"
+            | "dune-project"
+            | "dune-workspace"
+            | "description"
+            | "renv.lock"
+            | "package.swift"
+            | "package.resolved"
+            | "pom.xml"
+            | "build.gradle"
+            | "build.gradle.kts"
+            | "settings.gradle"
+            | "settings.gradle.kts"
+            | "cmakelists.txt"
+            | "meson.build"
+            | "build.zig"
+            | "build.zig.zon"
             | "makefile"
-    ) {
+    ) || [".sln", ".slnx", ".csproj", ".fsproj", ".vbproj"]
+        .iter()
+        .any(|extension| name.ends_with(extension))
+    {
         "manifest"
-    } else if [
-        ".rs", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".go",
-        ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".php", ".scala",
-        ".sh", ".bash", ".css", ".html", ".htm", ".xhtml", ".dart", ".ex", ".exs", ".lua", ".ml",
-        ".mli", ".r",
-    ]
-    .iter()
-    .any(|extension| name.ends_with(extension))
+    } else if crate::semantic_provider::language_for_path(path).is_some()
+        || [".kt", ".kts", ".scala", ".vue", ".svelte"]
+            .iter()
+            .any(|extension| name.ends_with(extension))
     {
         "source"
     } else if name.starts_with('.')
@@ -533,3 +562,7 @@ pub(super) fn security_sensitive_path(path: &str) -> bool {
             )
         })
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/review.rs"]
+mod tests;

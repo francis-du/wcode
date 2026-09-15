@@ -37,7 +37,10 @@ impl ToolHarness {
 
         let workspace_id = workspace_id.into();
         let started = Instant::now();
-        let revision = self.intelligence.current_revision(workspace)?;
+        let design = self.intelligence.design_load(workspace)?;
+        let revision = self
+            .intelligence
+            .current_revision_from_load(workspace, design.as_ref())?;
         // Freeze the observable change set before checks run. Experience is
         // learned only if this exact revision later passes verification.
         let experience_snapshot = self.worktree_status_snapshot(workspace).await.ok();
@@ -84,10 +87,11 @@ impl ToolHarness {
                 cost_model: None,
                 checks: vec![check],
             };
-            self.intelligence.record_verification_report(
+            self.intelligence.record_verification_report_from_design(
                 &workspace_id,
                 workspace,
                 &revision,
+                Some(design.as_ref()),
                 &report,
             )?;
             return Ok(report);
@@ -112,10 +116,11 @@ impl ToolHarness {
                 cost_model: None,
                 checks: vec![check],
             };
-            self.intelligence.record_verification_report(
+            self.intelligence.record_verification_report_from_design(
                 &workspace_id,
                 workspace,
                 &revision,
+                Some(design.as_ref()),
                 &report,
             )?;
             return Ok(report);
@@ -157,10 +162,11 @@ impl ToolHarness {
                 cost_model: None,
                 checks,
             };
-            self.intelligence.record_verification_report(
+            self.intelligence.record_verification_report_from_design(
                 &workspace_id,
                 workspace,
                 &revision,
+                Some(design.as_ref()),
                 &report,
             )?;
             return Ok(report);
@@ -323,10 +329,11 @@ impl ToolHarness {
             cost_model,
             checks,
         };
-        self.intelligence.record_verification_report(
+        self.intelligence.record_verification_report_from_design(
             &workspace_id,
             workspace,
             &revision,
+            Some(design.as_ref()),
             &report,
         )?;
         self.cache_successful_verification_checks(workspace, &reuse_context, &plan, &report);

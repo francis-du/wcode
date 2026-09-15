@@ -668,12 +668,22 @@ pub async fn run() -> Result<()> {
             probe = standby_probe_rx.recv() => {
                 if let Some(probe) = probe {
                     if tunnel_control.primary_url.as_deref() != Some(probe.public_url.as_str()) {
-                        tunnel_lifecycle::handle_standby_probe(
+                        let public_url = probe.public_url.clone();
+                        let revoked = tunnel_lifecycle::handle_standby_probe(
                             &mut tunnel_control.standby_leases,
                             &tunnels,
                             probe,
                             &monitor,
                         );
+                        if revoked {
+                            tunnel_lifecycle::recycle_revoked_standby(
+                                &mut tunnel_control,
+                                &mut tunnels,
+                                &public_url,
+                                &auth,
+                                &monitor,
+                            ).await;
+                        }
                     }
                 }
             },

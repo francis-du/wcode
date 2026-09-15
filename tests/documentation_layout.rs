@@ -479,6 +479,13 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
                 "language_quality_status",
                 "language_quality_run",
                 "check_only",
+                "covers",
+                "Rscript --vanilla",
+                "Standard Ruby",
+                "Deno",
+                "Flutter",
+                "HTMLHint",
+                "clang-tidy",
                 "property",
                 "mutation",
                 "fuzz",
@@ -576,6 +583,22 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         assert!(site.contains("id=\"clientGrid\""));
         assert!(site.contains("id=\"clientSearch\""));
         assert!(site.contains("id=\"sourceList\""));
+        assert!(
+            site.contains("id=\"performance\""),
+            "both homepages must explain bounded parallel/resource behavior"
+        );
+        assert!(
+            site.contains("id=\"languages\""),
+            "both homepages must expose the polyglot quality model"
+        );
+        assert!(
+            site.contains("language-quality/"),
+            "both homepages must link to the canonical language-quality documentation"
+        );
+        assert!(!site.contains("updated Sep 1, 2026"));
+        assert!(!site.contains("更新于 2026-09-01"));
+        assert!(!site.contains("v0.5.2 · Cleaner MCP calls"));
+        assert!(!site.contains("v0.5.2 · 更干净的 MCP 调用"));
         for filter in ["all", "auto", "manual", "cli", "ide", "web"] {
             assert!(
                 site.contains(&format!("data-filter=\"{filter}\"")),

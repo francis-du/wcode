@@ -46,6 +46,8 @@ Global Semaphore 仍是工具总并发上限。执行进程的 MCP 工具和项�
 
 所有 Runtime Collection 都必须有界。Fan-out 数量、单项/聚合 Result Byte、Model-facing Read/Write Size、Source Scan、保留的 Complete AST、Git Review File/Finding、Traffic History、Persistent State History 与 Per-path Lock Map 都有显式 Limit。新增 Cache 必须跟真实 Source/Profile/Provider Revision 失效，不能按“调用了几次”猜 Cache Freshness。
 
+已验证经验的激活缓存键必须覆盖完整规范化记录与当前经过保护的文件存在性，失效判断和时序重放使用同一份输入快照。仅查询元数据的存在性检查不能替代源码 SHA 或验证证据。浏览器确认的版本必须在对应项目请求之前已被观测到；过期缓存响应不能确认更新版本，延迟刷新必须保留请求／工作区代次及页面可见性检查。
+
 Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 
 - `agent_context` 是默认 Coding 入口，使用显式或 Adaptive 的有界 Approximate Token Budget；

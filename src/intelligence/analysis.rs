@@ -1,4 +1,5 @@
 use super::*;
+use crate::design::{CodeRef, VerificationRef};
 
 pub(super) fn build_drift_status(
     workspace: String,
@@ -686,32 +687,45 @@ fn workspace_tree_revision_from_paths(
     truncated: bool,
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    let mut included = 0usize;
+    let included_paths = paths
+        .iter()
+        .filter(|(path, _)| {
+            if design_only {
+                path == design::PROJECT_FILE
+                    || path == design::DESIGN_ROOT
+                    || path.starts_with(&format!("{}/", design::DESIGN_ROOT))
+            } else {
+                (!path.starts_with(".wcode/") && path != ".wcode")
+                    || path == crate::migration_audit::CONFIG_PATH
+            }
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let included = included_paths.len();
+    let batch_size = crate::resource::limits().io_parallelism().clamp(1, 64);
 
-    for (path, expected_stamp) in paths {
-        let include = if design_only {
-            path == design::PROJECT_FILE
-                || path == design::DESIGN_ROOT
-                || path.starts_with(&format!("{}/", design::DESIGN_ROOT))
-        } else {
-            (!path.starts_with(".wcode/") && path != ".wcode")
-                || path == crate::migration_audit::CONFIG_PATH
-        };
-        if !include {
-            continue;
+    // Hash order remains deterministic while bounded I/O batches overlap file
+    // reads and post-read stamp validation. Keep each batch small enough that a
+    // large workspace cannot turn revision calculation into an unbounded byte
+    // accumulator.
+    for batch in included_paths.chunks(batch_size) {
+        let loaded = crate::resource::parallel_io(batch, |(path, expected_stamp)| {
+            let bytes = std::fs::read(workspace.root().join(path))?;
+            let after = workspace.source_metadata_stamp(path)?;
+            if *expected_stamp != after {
+                return Err(anyhow!(
+                    "workspace changed while computing software revision; retry the request"
+                ));
+            }
+            Ok::<_, anyhow::Error>((path.clone(), bytes))
+        })?;
+        for loaded in loaded {
+            let (path, bytes) = loaded?;
+            hasher.update(path.as_bytes());
+            hasher.update([0]);
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(&bytes);
         }
-        let bytes = std::fs::read(workspace.root().join(path))?;
-        let after = workspace.source_metadata_stamp(path)?;
-        if *expected_stamp != after {
-            return Err(anyhow!(
-                "workspace changed while computing software revision; retry the request"
-            ));
-        }
-        hasher.update(path.as_bytes());
-        hasher.update([0]);
-        hasher.update((bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-        included = included.saturating_add(1);
     }
     hasher.update(format!("files={included};truncated={truncated}").as_bytes());
     let digest = format!("{:x}", hasher.finalize());

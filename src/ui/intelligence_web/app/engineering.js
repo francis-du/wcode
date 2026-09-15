@@ -458,8 +458,8 @@ function renderRuntimeTopology() {
   if (!state.project || !els.runtimeTopology) return;
   const project = state.project, activity = state.activitySnapshot?.activity || project.activity, tunnel = state.tunnelSnapshot, tunnels = tunnel?.tunnels || [], primary = tunnels.find(item => item.role === "primary"), pending = pendingCount(), precision = project.graph_precision || {}, proof = effectiveProof();
   const items = [
-    [localized("Endpoint", "入口"), primary ? `${primary.provider || "tunnel"} · ${primary.state || primary.role}` : localized("local / pending", "本地 / 等待"), primary ? "good" : "info"],
-    [localized("OAuth & MCP", "OAuth 与 MCP"), pending == null ? localized("approval unknown", "授权未知") : localized(`${pending} pending`, `${pending} 待授权`), pending ? "warn" : "good"],
+    [localized("Endpoint", "入口"), !tunnel ? localized("telemetry unavailable", "遥测不可用") : primary ? `${primary.provider || "tunnel"} · ${primary.state || primary.role}` : localized("local / pending", "本地 / 等待"), !tunnel ? "warn" : primary ? (tunnel.public_url_healthy === true && primary.state === "verified" ? "good" : "warn") : "info"],
+    [localized("OAuth & MCP", "OAuth 与 MCP"), pending == null ? localized("approval unknown", "授权未知") : localized(`${pending} pending`, `${pending} 待授权`), pending == null ? "info" : pending ? "warn" : "good"],
     [localized("Workspace guard", "工作区边界"), project.git_review?.available === true ? localized("enforced · Git visible", "已执行 · Git 可见") : localized("enforced · Git unavailable", "已执行 · Git 不可用"), "good"],
     [localized("Harness", "Harness"), activity?.available === true ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 执行中 · ${num(activity.queued || 0)} 排队`) : localized("telemetry unavailable", "遥测不可用"), Number(activity?.queued || 0) ? "warn" : "info"],
     [localized("Repository model", "仓库模型"), localized(`${statusLabel(precision.primary || "unknown")} precision`, `${statusLabel(precision.primary || "unknown")} 精度`), ["semantic", "runtime", "deterministic"].includes(precision.primary) ? "good" : "info"],

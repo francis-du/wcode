@@ -69,6 +69,8 @@ pub struct QualityProviderStatus {
     pub id: String,
     pub root: String,
     pub capability: QualityCapability,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<QualityCapability>,
     pub source: QualityProviderSource,
     pub program: String,
     pub command: String,
@@ -129,6 +131,7 @@ pub struct LanguageQualityRun {
 pub(crate) struct QualityCandidate {
     pub(crate) id: String,
     pub(crate) capability: QualityCapability,
+    pub(crate) covers: Vec<QualityCapability>,
     pub(crate) source: QualityProviderSource,
     pub(crate) program: String,
     pub(crate) args: Vec<String>,
@@ -152,7 +155,16 @@ impl RepoSignals {
             "Cargo.lock",
             "Makefile",
             "package.json",
+            "deno.json",
+            "deno.jsonc",
             "pyproject.toml",
+            "ruff.toml",
+            ".ruff.toml",
+            "mypy.ini",
+            ".mypy.ini",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
             "requirements.txt",
             "go.mod",
             "pubspec.yaml",
@@ -226,8 +238,9 @@ impl RepoSignals {
         .into_iter()
         .any(|section| {
             self.package
-                .pointer(&format!("/{section}/{name}"))
-                .is_some()
+                .get(section)
+                .and_then(Value::as_object)
+                .is_some_and(|dependencies| dependencies.contains_key(name))
         })
     }
 
@@ -542,6 +555,7 @@ fn provider_status(
         id: candidate.id.clone(),
         root: ".".to_owned(),
         capability: candidate.capability,
+        covers: candidate.covers.clone(),
         source: candidate.source,
         program: candidate.program.clone(),
         command: command_text(&candidate.program, &candidate.args),
@@ -629,7 +643,10 @@ fn quality_gaps(
         .into_iter()
         .filter(|capability| {
             !providers.iter().any(|provider| {
-                provider.capability == *capability && provider.declared && provider.available
+                (provider.capability == *capability || provider.covers.contains(capability))
+                    && provider.declared
+                    && provider.available
+                    && provider.check_only
             })
         })
         .map(|capability| {
@@ -644,23 +661,23 @@ fn quality_gaps(
 fn expected_capabilities(language: SemanticLanguage) -> Vec<QualityCapability> {
     use QualityCapability::{Format, Lint, Security, StaticAnalysis, Test, TypeCheck};
     match language {
-        SemanticLanguage::Bash => vec![Format, Lint],
-        SemanticLanguage::C | SemanticLanguage::Cpp => vec![Format, StaticAnalysis],
-        SemanticLanguage::CSharp => vec![Format, StaticAnalysis, Test],
+        SemanticLanguage::Bash => vec![Format, Lint, Test],
+        SemanticLanguage::C | SemanticLanguage::Cpp => vec![Format, TypeCheck, StaticAnalysis],
+        SemanticLanguage::CSharp => vec![Format, TypeCheck, StaticAnalysis, Test],
         SemanticLanguage::Css | SemanticLanguage::Html => vec![Format, Lint],
-        SemanticLanguage::Dart => vec![Format, StaticAnalysis, Test],
+        SemanticLanguage::Dart => vec![Format, Lint, TypeCheck, StaticAnalysis, Test],
         SemanticLanguage::Elixir => vec![Format, Lint, StaticAnalysis, Test],
-        SemanticLanguage::Go => vec![Format, StaticAnalysis, Test, Security],
-        SemanticLanguage::Java => vec![StaticAnalysis, Test],
+        SemanticLanguage::Go => vec![Format, TypeCheck, StaticAnalysis, Test, Security],
+        SemanticLanguage::Java => vec![TypeCheck, StaticAnalysis, Test],
         SemanticLanguage::JavaScript => vec![Format, Lint, Test],
         SemanticLanguage::Lua => vec![Format, Lint, Test],
         SemanticLanguage::Ocaml | SemanticLanguage::OcamlInterface => vec![Format, TypeCheck, Test],
-        SemanticLanguage::Php => vec![Format, StaticAnalysis, Test],
+        SemanticLanguage::Php => vec![Format, TypeCheck, StaticAnalysis, Test],
         SemanticLanguage::Python => vec![Format, Lint, TypeCheck, Test, Security],
-        SemanticLanguage::R => vec![Lint, Test],
+        SemanticLanguage::R => vec![Format, Lint, Test],
         SemanticLanguage::Ruby => vec![Format, Lint, Test],
         SemanticLanguage::Rust => vec![Format, Lint, TypeCheck, Test, Security],
-        SemanticLanguage::Swift => vec![Format, Lint, Test],
+        SemanticLanguage::Swift => vec![Format, Lint, TypeCheck, Test],
         SemanticLanguage::TypeScript | SemanticLanguage::Tsx => {
             vec![Format, Lint, TypeCheck, Test]
         }
@@ -683,7 +700,7 @@ fn dimension_coverage(languages: &[LanguageQualityStatus]) -> Vec<QualityDimensi
             detected_languages: detected,
             covered_languages: languages
                 .iter()
-                .filter(|language| language.detected_files > 0 && language.semantic_available)
+                .filter(|language| language.detected_files > 0 && language.semantic_runnable)
                 .count(),
         },
     ];
@@ -696,9 +713,11 @@ fn dimension_coverage(languages: &[LanguageQualityStatus]) -> Vec<QualityDimensi
                 .filter(|language| {
                     language.detected_files > 0
                         && language.providers.iter().any(|provider| {
-                            provider.capability == capability
+                            (provider.capability == capability
+                                || provider.covers.contains(&capability))
                                 && provider.declared
                                 && provider.available
+                                && provider.check_only
                         })
                 })
                 .count(),

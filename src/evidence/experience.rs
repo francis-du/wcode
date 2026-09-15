@@ -11,6 +11,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "experience_io.rs"]
+mod experience_io;
+
 const EXPERIENCE_SCHEMA_VERSION: u8 = 2;
 const MAX_STORED_EXPERIENCES: usize = 512;
 // Very broad release/migration sweeps are deliberately not learned as one
@@ -227,13 +230,13 @@ pub(crate) fn related_paths_for_intent(
     let ranked = model.ranked_scores(anchors);
     let mut live_ranked = Vec::with_capacity(ranked.len().min(limit.saturating_add(1)));
     for (path, score) in ranked {
-        let Ok(info) = workspace.path_info(&path) else {
-            continue;
-        };
-        if info.kind != "file" {
+        if workspace.source_metadata_stamp(&path).is_err() {
             continue;
         }
         live_ranked.push((path, score));
+        if live_ranked.len() > limit {
+            break;
+        }
     }
     let truncated = live_ranked.len() > limit;
     live_ranked.truncate(limit);
@@ -287,43 +290,25 @@ fn recent_context_trajectory(
 
 pub(crate) fn evaluate_history(workspace: &Workspace) -> Result<ExperienceEvaluation> {
     let records = load(workspace)?;
-    let mut unique_paths = BTreeSet::<String>::new();
-    let mut live_paths = BTreeSet::<String>::new();
-    let mut stale_path_references = 0usize;
-    let mut prepared = Vec::<Vec<String>>::with_capacity(records.len());
-    let mut prepared_context = Vec::<Vec<String>>::with_capacity(records.len());
-    for record in &records {
-        let mut record_paths = Vec::with_capacity(record.paths.len());
-        for path in &record.paths {
-            unique_paths.insert(path.clone());
-            let Ok(info) = workspace.path_info(path) else {
-                stale_path_references = stale_path_references.saturating_add(1);
-                continue;
-            };
-            if info.kind == "file" {
-                live_paths.insert(path.clone());
-                record_paths.push(path.clone());
-            } else {
-                stale_path_references = stale_path_references.saturating_add(1);
-            }
-        }
-        let mut context_paths = Vec::with_capacity(record.context_paths.len());
-        for path in &record.context_paths {
-            unique_paths.insert(path.clone());
-            let Ok(info) = workspace.path_info(path) else {
-                stale_path_references = stale_path_references.saturating_add(1);
-                continue;
-            };
-            if info.kind == "file" {
-                live_paths.insert(path.clone());
-                context_paths.push(path.clone());
-            } else {
-                stale_path_references = stale_path_references.saturating_add(1);
-            }
-        }
-        prepared.push(record_paths);
-        prepared_context.push(context_paths);
-    }
+    evaluate_history_from_records(workspace, &records)
+}
+
+fn evaluate_history_from_records(
+    workspace: &Workspace,
+    records: &[VerifiedChangeExperience],
+) -> Result<ExperienceEvaluation> {
+    let paths = experience_io::prepare_evaluation_paths(workspace, records)?;
+    Ok(evaluate_prepared_history(records, paths))
+}
+
+fn evaluate_prepared_history(
+    records: &[VerifiedChangeExperience],
+    paths: experience_io::EvaluationPaths,
+) -> ExperienceEvaluation {
+    #[cfg(test)]
+    tests::record_temporal_evaluation();
+    let prepared = paths.prepared;
+    let prepared_context = paths.prepared_context;
 
     let mut evaluation = ExperienceEvaluation {
         available: true,
@@ -336,9 +321,9 @@ pub(crate) fn evaluate_history(workspace: &Workspace) -> Result<ExperienceEvalua
             .iter()
             .filter(|record| record.level == "quick")
             .count(),
-        unique_paths: unique_paths.len(),
-        live_paths: live_paths.len(),
-        stale_path_references,
+        unique_paths: paths.unique_paths,
+        live_paths: paths.live_paths,
+        stale_path_references: paths.stale_path_references,
         top_k: EXPERIENCE_EVALUATION_TOP_K,
         latest_record_at_ms: records.last().map(|record| record.timestamp_ms),
         ..ExperienceEvaluation::default()
@@ -425,7 +410,7 @@ pub(crate) fn evaluate_history(workspace: &Workspace) -> Result<ExperienceEvalua
     evaluation.baseline_predictions = baseline_metrics.predictions;
     evaluation.true_positives = candidate_metrics.true_positives;
     evaluation.baseline_true_positives = baseline_metrics.true_positives;
-    Ok(evaluation)
+    evaluation
 }
 
 #[derive(Default)]
@@ -703,9 +688,7 @@ pub(crate) fn capabilities() -> serde_json::Value {
 
 #[derive(Clone)]
 struct CachedActivation {
-    records: usize,
-    latest_timestamp_ms: Option<u64>,
-    latest_revision: Option<String>,
+    fingerprint: [u8; 32],
     activation: ExperienceActivation,
 }
 
@@ -715,29 +698,41 @@ fn activation_for_records(
     workspace: &Workspace,
     records: &[VerifiedChangeExperience],
 ) -> ExperienceActivation {
-    let records_len = records.len();
-    let latest_timestamp_ms = records.last().map(|record| record.timestamp_ms);
-    let latest_revision = records.last().map(|record| record.revision.code.clone());
+    // One request-local liveness snapshot drives both the cache key and replay.
+    // Historical revisions and present file membership are independent inputs.
+    let prepared = experience_io::prepare_evaluation_paths(workspace, records).and_then(|paths| {
+        experience_io::activation_fingerprint(records, &paths).map(|key| (paths, key))
+    });
+    let Ok((paths, fingerprint)) = prepared else {
+        return ExperienceActivation {
+            state: "blocked",
+            reason: "temporal_evaluation_unavailable",
+            factor: 0.0,
+            evaluable_records: 0,
+        };
+    };
     let cache = ACTIVATION_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     if let Ok(cache) = cache.lock() {
         if let Some(cached) = cache.get(workspace.root()) {
-            if cached.records == records_len
-                && cached.latest_timestamp_ms == latest_timestamp_ms
-                && cached.latest_revision == latest_revision
-            {
+            if cached.fingerprint == fingerprint {
                 return cached.activation.clone();
             }
         }
     }
 
-    let activation = evaluate_history(workspace)
-        .map(|evaluation| activation_from_evaluation(&evaluation))
-        .unwrap_or(ExperienceActivation {
-            state: "blocked",
-            reason: "temporal_evaluation_unavailable",
-            factor: 0.0,
-            evaluable_records: 0,
-        });
+    let flight = experience_io::activation_flight(workspace.root());
+    let _flight = flight
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Ok(cache) = cache.lock() {
+        if let Some(cached) = cache.get(workspace.root()) {
+            if cached.fingerprint == fingerprint {
+                return cached.activation.clone();
+            }
+        }
+    }
+
+    let activation = activation_from_evaluation(&evaluate_prepared_history(records, paths));
     if let Ok(mut cache) = cache.lock() {
         if cache.len() >= EXPERIENCE_ACTIVATION_CACHE_LIMIT && !cache.contains_key(workspace.root())
         {
@@ -748,9 +743,7 @@ fn activation_for_records(
         cache.insert(
             workspace.root().to_path_buf(),
             CachedActivation {
-                records: records_len,
-                latest_timestamp_ms,
-                latest_revision,
+                fingerprint,
                 activation: activation.clone(),
             },
         );
@@ -834,21 +827,15 @@ fn load(workspace: &Workspace) -> Result<Vec<VerifiedChangeExperience>> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         bail!("verified experience store path is not a regular directory");
     }
-    let paths = experience_paths(&directory)?;
-    let mut records = Vec::with_capacity(paths.len().min(MAX_STORED_EXPERIENCES));
-    for path in paths.into_iter().rev().take(MAX_STORED_EXPERIENCES) {
-        let metadata = fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.len() > MAX_EXPERIENCE_BYTES
-        {
-            continue;
-        }
-        let bytes = fs::read(&path)?;
-        let Ok(record) = serde_json::from_slice::<VerifiedChangeExperience>(&bytes) else {
-            continue;
-        };
-        if valid_record(&record) {
+    let paths = experience_paths(&directory)?
+        .into_iter()
+        .rev()
+        .take(MAX_STORED_EXPERIENCES)
+        .collect::<Vec<_>>();
+    let loaded = crate::resource::parallel_io(&paths, |path| experience_io::read_record(path))?;
+    let mut records = Vec::with_capacity(paths.len());
+    for record in loaded {
+        if let Some(record) = record? {
             records.push(record);
         }
     }

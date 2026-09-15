@@ -98,19 +98,34 @@ function renderRevisions() {
   }`;
   setHtml("revisions", els.revisions, html);
 }
-function qualityProviders(language, capability) {
+function qualityMatches(language, capability) {
   return (language.providers || []).filter((provider) =>
-    provider.capability === capability && provider.declared &&
-    provider.available
+    provider.capability === capability || (provider.covers || []).includes(capability)
+  );
+}
+function qualityProviders(language, capability) {
+  return qualityMatches(language, capability).filter((provider) =>
+    provider.declared && provider.available && provider.runnable && provider.check_only
   );
 }
 function qualityCell(language, capability) {
   const providers = qualityProviders(language, capability);
-  return providers.length
-    ? `<span title="${
+  if (providers.length) {
+    return `<span title="${
       esc(providers.map((provider) => provider.id).join(", "))
-    }">${pill(t("covered"), "good")}</span>`
-    : `<span class="panel-meta">${esc(t("gap"))}</span>`;
+    }">${pill(t("covered"), "good")}</span>`;
+  }
+  const declared = qualityMatches(language, capability).filter((provider) => provider.declared);
+  if (declared.some((provider) => provider.check_only && !provider.available)) {
+    return `<span class="panel-meta">${esc(localized("tool missing", "工具缺失"))}</span>`;
+  }
+  if (declared.some((provider) => provider.check_only && provider.available && !provider.runnable)) {
+    return `<span class="panel-meta">${esc(localized("not runnable", "不可运行"))}</span>`;
+  }
+  if (declared.some((provider) => !provider.check_only)) {
+    return `<span class="panel-meta">${esc(localized("discovery only", "仅发现"))}</span>`;
+  }
+  return `<span class="panel-meta">${esc(t("gap"))}</span>`;
 }
 function renderLanguageQuality() {
   const q = state.project.language_quality || {},

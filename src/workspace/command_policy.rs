@@ -29,9 +29,10 @@ use infrastructure::{
     validate_docker_command, validate_kubectl_command, validate_terraform_command,
 };
 use project_tools::{
-    is_local_development_task, validate_biome_command, validate_deno_command,
-    validate_dotnet_command, validate_known_project_runner, validate_language_dev_tool,
-    validate_repository_runner, validate_ruff_command, validate_uv_command,
+    validate_biome_command, validate_deno_command, validate_dotnet_command,
+    validate_generic_project_tool, validate_known_project_runner, validate_language_dev_tool,
+    validate_local_http_probe, validate_make_command, validate_repository_runner,
+    validate_ruff_command, validate_uv_command,
 };
 
 pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
@@ -90,6 +91,12 @@ pub(super) fn validate_command_policy(
             validate_package_command(program, args, security.allow_risky_exec)
         }
         "just" | "task" => validate_repository_runner(program, args, security.allow_risky_exec),
+        "bazel" | "bazelisk" | "buck2" | "pants" | "meson" | "ctest" | "sbt" | "lein"
+        | "rebar3" | "poetry" | "pdm" | "hatch" | "tox" | "nox" | "nx" | "turbo" | "vite"
+        | "webpack" | "rollup" | "esbuild" | "tsup" | "parcel" | "rspack" | "rolldown" | "rake"
+        | "cabal" | "stack" => {
+            validate_generic_project_tool(program, args, security.allow_risky_exec)
+        }
         "uv" => validate_uv_command(args, security.allow_risky_exec),
         "ruff" => validate_ruff_command(args, security.allow_risky_exec),
         "biome" => validate_biome_command(args, security.allow_risky_exec),
@@ -121,25 +128,9 @@ pub(super) fn validate_command_policy(
         }
         "python3" => validate_python_command(args, security.allow_risky_exec),
         "node" => validate_node_command(args, security.allow_risky_exec),
-        "make"
-            if args.first().is_some_and(|task| {
-                matches!(
-                    task.to_ascii_lowercase().as_str(),
-                    "check" | "test" | "lint" | "fmt" | "format" | "build" | "verify" | "ci"
-                )
-            }) =>
-        {
-            Ok(())
-        }
+        "curl" => validate_local_http_probe(args, security.allow_risky_exec),
+        "make" => validate_make_command(args, security.allow_risky_exec),
         "rustc" => Ok(()),
-        "make"
-            if args
-                .first()
-                .is_some_and(|task| is_local_development_task(task)) =>
-        {
-            Ok(())
-        }
-        "make" => require_risky_exec(program, security.allow_risky_exec),
         _ if LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program) => {
             language_tools::validate_language_development_tool(program, args)
         }
@@ -148,6 +139,31 @@ pub(super) fn validate_command_policy(
             security.allow_risky_exec,
         ),
     }
+}
+
+fn project_target_argument(program: &str, value: &str) -> Result<bool> {
+    if !matches!(program, "bazel" | "bazelisk" | "buck2") {
+        return Ok(false);
+    }
+    let local = if let Some(path) = value.strip_prefix("//") {
+        Some(path)
+    } else if value.starts_with('@') && value.contains("//") {
+        // External repository labels are resolved by the repository's checked-in
+        // build configuration rather than as host filesystem paths.
+        return Ok(true);
+    } else {
+        None
+    };
+    let Some(local) = local else { return Ok(false) };
+    let path = local
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches("/...");
+    if !path.is_empty() {
+        reject_protected_path(Path::new(path))?;
+    }
+    Ok(true)
 }
 
 pub(super) fn validate_command_arguments(program: &str, args: &[String]) -> Result<()> {
@@ -186,7 +202,7 @@ pub(super) fn validate_command_arguments(program: &str, args: &[String]) -> Resu
             }
             continue;
         }
-        if rg_pattern_index == Some(index) {
+        if rg_pattern_index == Some(index) || project_target_argument(program, value)? {
             continue;
         }
         reject_protected_command_argument(value)?;
@@ -295,6 +311,13 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
                     &["format", "-o", "none", "--set-exit-if-changed", "."],
                 )
         }
+        "deno" => {
+            args_equal(args, &["fmt", "--check"])
+                || args_equal(args, &["lint"])
+                || args_equal(args, &["check", "--frozen", "."])
+                || args_equal(args, &["test", "--frozen"])
+                || args_equal(args, &["audit", "--frozen"])
+        }
         "mix" => {
             args_equal(args, &["format", "--check-formatted"])
                 || args_equal(args, &["compile", "--warnings-as-errors"])
@@ -303,6 +326,7 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
         "dune" => args_equal(args, &["build"]) || args_equal(args, &["runtest"]),
         "bundle" => {
             args_equal(args, &["exec", "rubocop", "--format", "json"])
+                || args_equal(args, &["exec", "standardrb", "--format", "json"])
                 || args_equal(args, &["exec", "rspec"])
         }
         "phpstan" | "vendor/bin/phpstan" => args_equal(args, &["analyse", "--error-format=json"]),
@@ -311,6 +335,45 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
         "php-cs-fixer" | "vendor/bin/php-cs-fixer" => {
             args_equal(args, &["fix", "--dry-run", "--diff"])
         }
+        program if node_quality_program(program, "biome") => {
+            args_equal(args, &["format", ".", "--reporter=json"])
+                || args_equal(
+                    args,
+                    &[
+                        "check",
+                        ".",
+                        "--formatter-enabled=false",
+                        "--assist-enabled=false",
+                        "--reporter=json",
+                    ],
+                )
+        }
+        program if node_quality_program(program, "prettier") => args_equal(args, &[".", "--check"]),
+        program if node_quality_program(program, "vitest") => args_equal(args, &["run"]),
+        program if node_quality_program(program, "jest") => args_equal(args, &["--runInBand"]),
+        program if node_quality_program(program, "htmlhint") => {
+            args_equal(args, &["**/*.html", "--format", "json"])
+        }
+        "bats" => {
+            !args.is_empty()
+                && args.len() <= 128
+                && args
+                    .iter()
+                    .all(|arg| !arg.starts_with('-') && arg.to_ascii_lowercase().ends_with(".bats"))
+        }
+        "Rscript" => matches!(
+            args,
+            [vanilla, flag, expr]
+                if vanilla == "--vanilla"
+                    && flag == "-e"
+                    && matches!(
+                        expr.as_str(),
+                        "quit(status=if(length(lintr::lint_package()))1 else 0)"
+                            | "styler::style_pkg(dry=\"fail\")"
+                            | "testthat::test_local()"
+                            | "testthat::test_dir('tests/testthat')"
+                    )
+        ),
         "make" => args.len() == 1 && matches!(args[0].as_str(), "check" | "lint" | "test"),
         "npm" | "pnpm" | "yarn" | "bun" => {
             args.len() == 2
@@ -333,6 +396,10 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
             format_command(program, args)
         )
     }
+}
+
+fn node_quality_program(program: &str, name: &str) -> bool {
+    program == name || program.strip_prefix("node_modules/.bin/") == Some(name)
 }
 
 fn bounded_common_verification_command(program: &str, args: &[String]) -> bool {
@@ -431,6 +498,7 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
     match subcommand {
         "metadata" | "fmt" | "check" | "test" | "clippy" | "build" | "fetch" | "update" | "run"
         | "bench" | "doc" | "add" | "remove" | "new" | "init" | "package" => Ok(()),
+        "clean" => require_risky_exec("cargo clean", allow_risky_exec),
         "nextest" => {
             let index = args
                 .iter()
@@ -440,22 +508,32 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
                 .get(index + 1)
                 .map(String::as_str)
                 .ok_or_else(|| anyhow!("cargo nextest action is required"))?;
-            if !matches!(action, "run" | "list") {
-                bail!("cargo nextest {action} is blocked; only run/list enter exact project authorization");
+            if !matches!(action, "run" | "list" | "archive") {
+                bail!("cargo nextest {action} is blocked by the bounded cargo-nextest policy");
             }
             Ok(())
         }
-        "install" | "uninstall" | "login" | "logout" | "owner" | "publish" | "yank" => {
-            bail!("cargo {subcommand} is blocked because it can alter host-wide tools, credentials, ownership, or remote registries")
+        "login" | "logout" => {
+            bail!(
+                "cargo {subcommand} is blocked because credential flows must remain operator-owned"
+            )
         }
-        _ => require_risky_exec(
-            &format!("cargo user-authorized project operation: {subcommand}"),
+        "owner" | "publish" | "yank" => {
+            bail!("cargo {subcommand} is blocked because registry publication/ownership must remain operator-owned")
+        }
+        "install" | "uninstall" => require_risky_exec(
+            &format!("cargo host tool operation: {subcommand}"),
             allow_risky_exec,
         ),
+        _ if project_tools::is_sensitive_project_task(subcommand) => require_risky_exec(
+            &format!("cargo externally consequential project operation: {subcommand}"),
+            allow_risky_exec,
+        ),
+        _ => Ok(()),
     }
 }
 
-fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+fn validate_go_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
     for arg in args {
         if matches!(
             arg.as_str(),
@@ -477,10 +555,23 @@ fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
         {
             Ok(())
         }
-        "env" | "install" | "telemetry" | "tool" => {
-            bail!("go {subcommand} is blocked because it can alter host-wide configuration, tools, or telemetry")
+        "env"
+            if args.iter().any(|arg| {
+                matches!(arg.as_str(), "-w" | "-u")
+                    || arg.starts_with("-w=")
+                    || arg.starts_with("-u=")
+            }) =>
+        {
+            require_risky_exec("go env host configuration mutation", _allow_risky_exec)
         }
-        "list" | "test" | "vet" | "build" | "run" | "get" => Ok(()),
+        "install" | "telemetry" => {
+            bail!("go {subcommand} is blocked because host-wide tool/telemetry changes must remain operator-owned")
+        }
+        "env" if args.len() == 1 => {
+            bail!("go env without an explicit key is blocked because it exposes broad host configuration")
+        }
+        "list" | "test" | "vet" | "build" | "run" | "get" | "generate" | "clean" | "doc"
+        | "env" | "tool" | "version" | "work" => Ok(()),
         "mod"
             if args.get(1).is_some_and(|action| {
                 matches!(action.as_str(), "download" | "tidy" | "verify")
@@ -488,10 +579,7 @@ fn validate_go_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
         {
             Ok(())
         }
-        _ => require_risky_exec(
-            &format!("go user-authorized project operation: {subcommand}"),
-            allow_risky_exec,
-        ),
+        _ => Ok(()),
     }
 }
 
@@ -521,11 +609,19 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
     if matches!(subcommand, "list" | "ls" | "why") {
         return Ok(());
     }
-    if matches!(
-        subcommand,
-        "login" | "logout" | "publish" | "unpublish" | "owner" | "token" | "config" | "cache"
-    ) {
-        bail!("{program} {subcommand} is blocked because it can alter credentials, remote packages, ownership, or host-wide configuration");
+    if matches!(subcommand, "login" | "logout" | "token") {
+        bail!(
+            "{program} {subcommand} is blocked because credential flows must remain operator-owned"
+        );
+    }
+    if matches!(subcommand, "publish" | "unpublish" | "owner") {
+        bail!("{program} {subcommand} is blocked because registry publication/ownership must remain operator-owned");
+    }
+    if matches!(subcommand, "config" | "cache") {
+        return require_risky_exec(
+            &format!("{program} host configuration operation: {subcommand}"),
+            allow_risky_exec,
+        );
     }
     if matches!(
         subcommand,
@@ -540,24 +636,25 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
             | "remove"
             | "uninstall"
             | "update"
+            | "start"
     ) {
         return Ok(());
     }
     if subcommand == "run"
-        && args.get(1).is_some_and(|script| {
-            matches!(
-                script.to_ascii_lowercase().as_str(),
-                "test"
-                    | "build"
-                    | "lint"
-                    | "check"
-                    | "typecheck"
-                    | "format"
-                    | "format:check"
-                    | "verify"
-                    | "ci"
-            )
-        })
+        && args
+            .get(1)
+            .is_some_and(|script| project_tools::is_autonomous_repository_task(script))
+    {
+        return Ok(());
+    }
+    if matches!(subcommand, "exec" | "dlx" | "x") {
+        let Some(inner) = args.iter().skip(1).find(|arg| !arg.starts_with('-')) else {
+            bail!("{program} {subcommand} requires a development executable or package");
+        };
+        return project_tools::validate_wrapped_development_program(inner);
+    }
+    if matches!(program, "yarn" | "bun" | "pnpm")
+        && project_tools::is_autonomous_repository_task(subcommand)
     {
         return Ok(());
     }
@@ -787,6 +884,9 @@ where
     Ok((String::from_utf8_lossy(&stored).to_string(), truncated))
 }
 
+#[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_relaxed.rs"]
+mod relaxed_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/policy.rs"]
 mod tests;

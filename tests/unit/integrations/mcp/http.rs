@@ -6,6 +6,48 @@ use axum::extract::State;
 use std::fs;
 
 #[tokio::test]
+async fn observatory_shell_and_static_assets_are_served_without_api_authorization() {
+    let page = intelligence_page().await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(page.headers()[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .unwrap()
+        .contains("script-src 'self'"));
+    let page_body = to_bytes(page.into_body(), 64 * 1024).await.unwrap();
+    let page_body = std::str::from_utf8(&page_body).unwrap();
+    assert!(page_body.contains("/intelligence/app.js"));
+    assert!(page_body.contains("/intelligence/app.css"));
+
+    let script = intelligence_script().await;
+    assert_eq!(script.status(), StatusCode::OK);
+    assert_eq!(
+        script.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    let script_body = to_bytes(script.into_body(), 512 * 1024).await.unwrap();
+    let script_body = std::str::from_utf8(&script_body).unwrap();
+    assert!(script_body.contains("function startObservatory()"));
+    assert!(script_body.contains("applyTheme();"));
+
+    let styles = intelligence_styles().await;
+    assert_eq!(styles.status(), StatusCode::OK);
+    assert_eq!(
+        styles.headers()[header::CONTENT_TYPE],
+        "text/css; charset=utf-8"
+    );
+    let style_body = to_bytes(styles.into_body(), 512 * 1024).await.unwrap();
+    assert!(!style_body.is_empty());
+
+    let logo = intelligence_logo().await;
+    assert_eq!(logo.status(), StatusCode::OK);
+    assert_eq!(
+        logo.headers()[header::CONTENT_TYPE],
+        "image/svg+xml; charset=utf-8"
+    );
+}
+
+#[tokio::test]
 async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments() {
     let (state, root) = origin_test_state();
     let workspace = state.workspaces.default_id().to_owned();
@@ -128,6 +170,7 @@ async fn observatory_revision_exposes_proof_freshness_without_starting_commands(
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     let value = response_json(response).await;
     assert_eq!(value["workspace"], workspace);
+    assert!(value.get("graph_signal").is_some());
     assert!(value.get("proof_revision").is_some());
     assert!(value.get("engineering_revision").is_some());
     assert!(value["fingerprint"].as_str().is_some());
@@ -486,31 +529,22 @@ async fn webui_command_approval_gates_executable_access_without_re_gating_safe_t
     );
     assert!(state.workspaces.latest_pending_authorization().is_none());
 
-    let child_error = child
+    let child_clean = child
         .run_command("cargo", &["clean".to_owned()], ".", 30)
         .await
-        .unwrap_err();
-    assert!(child_error.to_string().contains("authorization required"));
-    let child_request = state.workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(child_request.workspace, child_id);
-    assert_eq!(child_request.kind, AuthorizationKind::RiskyExecution);
-    let cross_workspace = intelligence_web_approve_authorization(
-        State(state.clone()),
-        ui_headers(&state, &parent_id),
-        Json(json!({"id": child_request.id})),
-    )
-    .await;
-    assert_eq!(cross_workspace.status(), StatusCode::BAD_REQUEST);
+        .expect("catalogued development commands should not need a separate risky-exec approval");
+    assert!(
+        child_clean.success,
+        "cargo clean failed: {}",
+        child_clean.stderr
+    );
+    assert!(state.workspaces.latest_pending_authorization().is_none());
 
     let visible = response_json(
         intelligence_web_authorizations(State(state.clone()), ui_headers(&state, &child_id)).await,
     )
     .await;
-    assert!(visible["pending"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|request| request["workspace"] == child_id));
+    assert!(visible["pending"].as_array().unwrap().is_empty());
 }
 
 #[test]

@@ -164,6 +164,23 @@ async fn exact_workspace_verification_executable_runs_without_runtime_authorizat
 
 #[cfg(unix)]
 #[test]
+fn workspace_program_availability_requires_real_executable_permission() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("tools")).unwrap();
+    let tool = root.path().join("tools/check");
+    std::fs::write(&tool, "#!/bin/sh\nexit 0\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    assert!(!workspace.workspace_program_available("tools/check"));
+
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(&tool).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&tool, permissions).unwrap();
+    assert!(workspace.workspace_program_available("tools/check"));
+}
+
+#[cfg(unix)]
+#[test]
 fn workspace_verification_executable_rejects_symlink_and_hardlink_aliases() {
     use std::os::unix::fs::symlink;
 
@@ -274,6 +291,38 @@ async fn git_probe_finishes_while_repository_process_capacity_is_occupied() {
     assert!(result.stdout.contains("visible.txt"));
     assert!(workspace.authorization.requests(10).is_empty());
     eprintln!("isolated Git probe completed in {} ms", elapsed.as_millis());
+}
+
+#[test]
+fn development_commands_do_not_need_separate_risky_execution_approval() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    for (program, values) in [
+        ("make", vec!["deploy"]),
+        ("npm", vec!["run", "deploy"]),
+        ("deno", vec!["run", "--allow-all", "main.ts"]),
+        ("dotnet", vec!["tool", "install", "example"]),
+        ("mvn", vec!["deploy"]),
+        ("gradle", vec!["publish"]),
+    ] {
+        let arguments = values.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(
+            workspace.development_command_shape_allowed(program, &arguments),
+            "development command unexpectedly requires a separate risky-exec approval: {program} {arguments:?}"
+        );
+    }
+
+    for (program, values) in [
+        ("python3", vec!["-c", "print('x')"]),
+        ("node", vec!["-e", "process.exit(0)"]),
+        ("uv", vec!["auth", "login"]),
+    ] {
+        let arguments = values.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(
+            !workspace.development_command_shape_allowed(program, &arguments),
+            "permanent development safety boundary unexpectedly opened: {program} {arguments:?}"
+        );
+    }
 }
 
 #[tokio::test]

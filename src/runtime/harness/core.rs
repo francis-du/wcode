@@ -10,9 +10,12 @@ impl ToolHarness {
             execution_slots: Arc::new(Semaphore::new(Self::execution_limit(max_parallel))),
             max_parallel,
             project_cache: Default::default(),
+            project_flights: Default::default(),
             observatory_cache: Default::default(),
             convention_cache: Default::default(),
+            convention_flights: Default::default(),
             repo_map_cache: Default::default(),
+            repo_map_flights: Default::default(),
             verification_cache: Default::default(),
             code_index: CodeIndex::new()?,
             semantic_sessions: SemanticSessionPool::default(),
@@ -90,60 +93,6 @@ impl ToolHarness {
             },
             "code_index": self.code_index.capabilities(),
         })
-    }
-
-    pub fn convention_status(&self, workspace: &Workspace) -> Result<ConventionReport> {
-        Ok(self.convention_status_cached(workspace)?.as_ref().clone())
-    }
-
-    pub(super) fn convention_status_cached(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Arc<ConventionReport>> {
-        let (fingerprint, files, scan_truncated) = conventions::fingerprint_and_paths(workspace)?;
-        let root = workspace.root().to_path_buf();
-        {
-            let mut cache = self
-                .convention_cache
-                .lock()
-                .map_err(|_| anyhow::anyhow!("convention cache poisoned"))?;
-            if let Some(cached) = cache
-                .get_mut(&root)
-                .filter(|cached| cached.fingerprint == fingerprint)
-            {
-                cached.last_used = Instant::now();
-                return Ok(cached.report.clone());
-            }
-        }
-
-        let report = Arc::new(conventions::status_from_paths(
-            workspace,
-            files,
-            scan_truncated,
-        )?);
-        let mut cache = self
-            .convention_cache
-            .lock()
-            .map_err(|_| anyhow::anyhow!("convention cache poisoned"))?;
-        let limit = crate::resource::limits().project_cache_limit();
-        if cache.len() >= limit && !cache.contains_key(&root) {
-            if let Some(oldest) = cache
-                .iter()
-                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
-                .map(|(key, _)| key.clone())
-            {
-                cache.remove(&oldest);
-            }
-        }
-        cache.insert(
-            root,
-            CachedConventionReport {
-                fingerprint,
-                last_used: Instant::now(),
-                report: report.clone(),
-            },
-        );
-        Ok(report)
     }
 
     pub fn design_status(
@@ -262,6 +211,13 @@ impl ToolHarness {
         limit: usize,
     ) -> Result<Vec<GraphHistoryEntry>> {
         graph_store::history(workspace, limit)
+    }
+
+    pub(crate) fn observatory_graph_signal(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Option<(String, String)>> {
+        graph_store::change_signal(workspace)
     }
 
     pub fn graph_query(
@@ -613,6 +569,30 @@ impl ToolHarness {
             .evidence_status(workspace_id, workspace, subject, limit)
     }
 
+    pub(crate) fn intelligence_status_proof_reconciliation_snapshot(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        evidence_limit: usize,
+        verification_limit: usize,
+        reconciliation_limit: usize,
+    ) -> Result<(Value, Value, Value, Value)> {
+        let (evidence, reconciliation, reconciliation_execution, verification) =
+            self.intelligence.status_proof_reconciliation_snapshot(
+                workspace_id,
+                workspace,
+                evidence_limit,
+                verification_limit,
+                reconciliation_limit,
+            )?;
+        Ok((
+            serde_json::to_value(evidence)?,
+            serde_json::to_value(reconciliation)?,
+            serde_json::to_value(reconciliation_execution)?,
+            serde_json::to_value(verification)?,
+        ))
+    }
+
     pub fn verification_claim(
         &self,
         workspace_id: &str,
@@ -649,16 +629,7 @@ impl ToolHarness {
         workspace: &Workspace,
     ) -> Result<LanguageQualityRegistry> {
         let (profile, _) = self.load_project_profile(workspace)?;
-        let project_roots = profile
-            .islands
-            .iter()
-            .map(|island| (island.root.clone(), island.project_types.clone()))
-            .collect::<Vec<_>>();
-        quality_provider::registry_for_project_roots(
-            workspace,
-            Some(&self.semantic_sessions),
-            &project_roots,
-        )
+        self.language_quality_status_from_profile(workspace, profile.as_ref())
     }
 
     pub async fn language_quality_run(
@@ -669,7 +640,10 @@ impl ToolHarness {
         provider_id: &str,
         timeout_seconds: u64,
     ) -> Result<LanguageQualityRun> {
-        let revision = self.intelligence.current_revision(workspace)?;
+        let design = self.intelligence.design_load(workspace)?;
+        let revision = self
+            .intelligence
+            .current_revision_from_load(workspace, design.as_ref())?;
         let started = Instant::now();
         let mut run =
             quality_provider::execute(workspace, language, provider_id, timeout_seconds).await?;
@@ -711,7 +685,13 @@ impl ToolHarness {
         };
         run.evidence_records = self
             .intelligence
-            .record_verification_report(workspace_id, workspace, &revision, &report)?
+            .record_verification_report_from_design(
+                workspace_id,
+                workspace,
+                &revision,
+                Some(design.as_ref()),
+                &report,
+            )?
             .len();
         Ok(run)
     }
@@ -909,11 +889,7 @@ impl ToolHarness {
 
     pub(super) fn known_checks(&self, workspace: &Workspace) -> Result<HashSet<String>> {
         let (profile, _) = self.load_project_profile(workspace)?;
-        Ok(profile
-            .recommended_checks
-            .iter()
-            .map(|check| check.id.clone())
-            .collect())
+        Ok(harness_profile::known_checks_from_profile(profile.as_ref()))
     }
 
     pub fn file_outline(
@@ -966,12 +942,14 @@ impl ToolHarness {
     }
 
     fn invalidate_convention_cache(&self, root: &Path) {
+        self.invalidate_convention_flights(Some(root));
         if let Ok(mut cache) = self.convention_cache.lock() {
             cache.remove(root);
         }
     }
 
     fn invalidate_repo_map_cache(&self, root: &Path) {
+        self.invalidate_repo_map_flights(Some(root));
         if let Ok(mut cache) = self.repo_map_cache.lock() {
             cache.retain(|(cached_root, _), _| cached_root != root);
         }

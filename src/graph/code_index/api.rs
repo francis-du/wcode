@@ -130,6 +130,68 @@ fn build_language_configs() -> Result<Arc<LanguageConfigs>> {
     Ok(Arc::new(configs))
 }
 
+#[derive(Clone, Copy, Default)]
+struct SymbolResolutionCandidates {
+    qualified_index: Option<usize>,
+    qualified_count: usize,
+    name_index: Option<usize>,
+    name_count: usize,
+}
+
+impl SymbolResolutionCandidates {
+    fn record_qualified(&mut self, index: usize) {
+        self.qualified_count = self.qualified_count.saturating_add(1);
+        self.qualified_index.get_or_insert(index);
+    }
+
+    fn record_name(&mut self, index: usize) {
+        self.name_count = self.name_count.saturating_add(1);
+        self.name_index.get_or_insert(index);
+    }
+
+    fn selected(self) -> Option<usize> {
+        if self.qualified_count == 1 {
+            self.qualified_index
+        } else if self.name_count == 1 {
+            self.name_index
+        } else {
+            None
+        }
+    }
+}
+
+fn symbol_resolution_at(record: &FileRecord, index: usize) -> SymbolResolution {
+    let selected = &record.symbols[index];
+    SymbolResolution {
+        id: selected.id.clone(),
+        name: selected.name.clone(),
+        qualified_name: selected.qualified_name.clone(),
+        kind: selected.kind.clone(),
+        path: selected.path.clone(),
+        start_line: selected.name_range.start_line,
+        start_column: selected.name_range.start_column,
+        revision: format!("sha256:{}", record.sha256),
+    }
+}
+
+fn symbol_resolution(record: &FileRecord, requested: &str) -> Option<SymbolResolution> {
+    let mut candidates = SymbolResolutionCandidates::default();
+    for (index, symbol) in record.symbols.iter().enumerate() {
+        if !symbol.is_definition {
+            continue;
+        }
+        if symbol.qualified_name == requested {
+            candidates.record_qualified(index);
+        }
+        if symbol.name == requested {
+            candidates.record_name(index);
+        }
+    }
+    candidates
+        .selected()
+        .map(|index| symbol_resolution_at(record, index))
+}
+
 impl CodeIndex {
     pub fn new() -> Result<Self> {
         let configs = LANGUAGE_CONFIGS
@@ -268,37 +330,55 @@ impl CodeIndex {
             return Ok(None);
         }
         let ensured = self.ensure_indexed(workspace, path, false)?;
-        let definitions = ensured
-            .record
-            .symbols
+        Ok(symbol_resolution(&ensured.record, requested))
+    }
+
+    pub(crate) fn resolve_symbols(
+        &self,
+        workspace: &Workspace,
+        path: &str,
+        requested: &[String],
+    ) -> Result<HashMap<String, Option<SymbolResolution>>> {
+        let mut requested = requested
             .iter()
-            .filter(|symbol| symbol.is_definition)
+            .map(|symbol| symbol.trim())
+            .filter(|symbol| !symbol.is_empty())
+            .map(str::to_owned)
             .collect::<Vec<_>>();
-        let qualified = definitions
+        requested.sort();
+        requested.dedup();
+        if requested.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ensured = self.ensure_indexed(workspace, path, false)?;
+        let requested_index = requested
             .iter()
-            .copied()
-            .filter(|symbol| symbol.qualified_name == requested)
-            .collect::<Vec<_>>();
-        let selected = if qualified.len() == 1 {
-            qualified.first().copied()
-        } else {
-            let by_name = definitions
-                .iter()
-                .copied()
-                .filter(|symbol| symbol.name == requested)
-                .collect::<Vec<_>>();
-            (by_name.len() == 1).then(|| by_name[0])
-        };
-        Ok(selected.map(|symbol| SymbolResolution {
-            id: symbol.id.clone(),
-            name: symbol.name.clone(),
-            qualified_name: symbol.qualified_name.clone(),
-            kind: symbol.kind.clone(),
-            path: symbol.path.clone(),
-            start_line: symbol.name_range.start_line,
-            start_column: symbol.name_range.start_column,
-            revision: format!("sha256:{}", ensured.record.sha256),
-        }))
+            .enumerate()
+            .map(|(index, requested)| (requested.as_str(), index))
+            .collect::<HashMap<_, _>>();
+        let mut candidates = vec![SymbolResolutionCandidates::default(); requested.len()];
+        for (symbol_index, symbol) in ensured.record.symbols.iter().enumerate() {
+            if !symbol.is_definition {
+                continue;
+            }
+            if let Some(&request_index) = requested_index.get(symbol.qualified_name.as_str()) {
+                candidates[request_index].record_qualified(symbol_index);
+            }
+            if let Some(&request_index) = requested_index.get(symbol.name.as_str()) {
+                candidates[request_index].record_name(symbol_index);
+            }
+        }
+        drop(requested_index);
+        Ok(requested
+            .into_iter()
+            .zip(candidates)
+            .map(|(requested, candidates)| {
+                let resolution = candidates
+                    .selected()
+                    .map(|index| symbol_resolution_at(&ensured.record, index));
+                (requested, resolution)
+            })
+            .collect())
     }
 
     pub fn invalidate(&self, root: &Path, path: &str) {

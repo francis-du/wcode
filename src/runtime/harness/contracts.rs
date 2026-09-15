@@ -1,8 +1,7 @@
 use super::*;
 use std::path::Component;
-use walkdir::{DirEntry, WalkDir};
 
-const MAX_CONTRACT_CONFIGS: usize = 64;
+pub(super) const MAX_CONTRACT_CONFIGS: usize = 64;
 const MAX_CONTRACT_BRIDGES: usize = 128;
 const MAX_CONTRACT_DIAGNOSTICS: usize = 32;
 const MAX_CONTRACT_FRESHNESS_ADVISORIES: usize = 32;
@@ -39,9 +38,10 @@ const DYNAMIC_GRAPHQL_CONFIGS: &[&str] = &[
     "codegen.cjs",
 ];
 
-pub(super) fn discover_contract_topology(
+pub(super) fn discover_contract_topology_from_paths(
     workspace_root: &Path,
     islands: &[ProjectIsland],
+    config_paths: &[PathBuf],
 ) -> ProjectContractTopology {
     let mut topology = ProjectContractTopology {
         bridges: Vec::new(),
@@ -50,7 +50,7 @@ pub(super) fn discover_contract_topology(
         provider: "contract-config",
         precision: "structural",
     };
-    let mut configs = contract_config_paths(workspace_root);
+    let mut configs = config_paths.to_vec();
     if configs.len() > MAX_CONTRACT_CONFIGS {
         configs.truncate(MAX_CONTRACT_CONFIGS);
         topology.truncated = true;
@@ -137,31 +137,8 @@ pub(super) fn discover_contract_topology(
     topology
 }
 
-pub(super) fn contract_config_paths(workspace_root: &Path) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    for entry in WalkDir::new(workspace_root)
-        .max_depth(MAX_PROFILE_SCAN_DEPTH.saturating_add(1))
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(contract_visible_entry)
-        .filter_map(Result::ok)
-        .take(MAX_PROFILE_SCAN_ENTRIES)
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy();
-        if STATIC_CONTRACT_CONFIGS.contains(&name.as_ref())
-            || DYNAMIC_GRAPHQL_CONFIGS.contains(&name.as_ref())
-        {
-            paths.push(entry.into_path());
-            if paths.len() > MAX_CONTRACT_CONFIGS {
-                break;
-            }
-        }
-    }
-    paths.sort();
-    paths
+pub(super) fn is_contract_config_name(name: &str) -> bool {
+    STATIC_CONTRACT_CONFIGS.contains(&name) || DYNAMIC_GRAPHQL_CONFIGS.contains(&name)
 }
 
 pub(super) fn matching_contract_bridges<'a>(
@@ -695,18 +672,9 @@ fn portable_relative(root: &Path, path: &Path) -> String {
         .unwrap_or_else(|| ".".to_owned())
 }
 
-fn contract_visible_entry(entry: &DirEntry) -> bool {
-    if entry.depth() == 0 {
-        return true;
-    }
-    if entry.file_type().is_symlink() {
-        return false;
-    }
-    if !entry.file_type().is_dir() {
-        return true;
-    }
-    !matches!(
-        entry.file_name().to_string_lossy().as_ref(),
+pub(super) fn contract_excluded_directory(name: &str) -> bool {
+    matches!(
+        name,
         ".git"
             | ".wcode"
             | "target"

@@ -801,7 +801,7 @@ fn all_supported_language_development_tools_are_default_authorized() {
         ("mypy", vec!["."]),
         ("eslint", vec![".", "--format", "json"]),
         ("tsc", vec!["--noEmit"]),
-        ("Rscript", vec!["-e", "testthat::test_local()"]),
+        ("Rscript", vec!["--vanilla", "-e", "testthat::test_local()"]),
         ("ruby", vec!["app.rb"]),
         ("php", vec!["app.php"]),
         ("lua", vec!["app.lua"]),

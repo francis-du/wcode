@@ -50,12 +50,13 @@ impl ToolHarness {
         const MAX_OBSERVATORY_HISTORY: usize = 32;
 
         let workspace_id = workspace_id.into();
-        let (design, known_checks) = rayon::join(
-            || self.intelligence.design_load(workspace),
-            || self.known_checks(workspace),
+        let (design, profile) = rayon::join(
+            || self.intelligence.design_load_with_fingerprint(workspace),
+            || self.load_project_profile(workspace),
         );
-        let design = design?;
-        let known_checks = known_checks?;
+        let (design, design_fingerprint) = design?;
+        let (profile, _) = profile?;
+        let known_checks = harness_profile::known_checks_from_profile(profile.as_ref());
         let (traceability, graph) = rayon::join(
             || {
                 self.intelligence.traceability_status_from_load(
@@ -64,6 +65,7 @@ impl ToolHarness {
                     &self.code_index,
                     &known_checks,
                     design.as_ref(),
+                    design_fingerprint,
                 )
             },
             || {
@@ -119,94 +121,100 @@ impl ToolHarness {
         let revision = revision?;
         let reconciliation = reconciliation?;
         let history = history?;
-        let (language_quality, review_analysis) = rayon::join(
+        let ((language_quality, review_analysis), verification) = rayon::join(
             || {
-                quality_provider::registry_from_advanced(
-                    workspace,
-                    Some(&self.semantic_sessions),
-                    &advanced,
+                rayon::join(
+                    || {
+                        quality_provider::registry_from_advanced(
+                            workspace,
+                            Some(&self.semantic_sessions),
+                            &advanced,
+                        )
+                    },
+                    || -> Result<_> {
+                        let risk = review
+                            .map(|review| {
+                                self.intelligence.risk_status_from_snapshot(
+                                    workspace_id.clone(),
+                                    workspace,
+                                    review,
+                                    traceability.clone(),
+                                    &design.state,
+                                    Some(&advanced),
+                                )
+                            })
+                            .transpose()?;
+                        let impact = match (review, risk.as_ref()) {
+                            (Some(review), Some(risk)) => {
+                                Some(self.intelligence.impact_analysis_from_snapshot(
+                                    workspace_id.clone(),
+                                    workspace,
+                                    &self.code_index,
+                                    review,
+                                    &design.state,
+                                    risk.level,
+                                )?)
+                            }
+                            _ => None,
+                        };
+                        let (verification_impact, adaptive_verification) = if let Some(review) =
+                            review.filter(|review| !review.files.is_empty())
+                        {
+                            let status_available = review
+                                .probes
+                                .iter()
+                                .find(|probe| probe.id == "status")
+                                .is_some_and(|probe| probe.success);
+                            let snapshot = json!({
+                                "available": status_available,
+                                "truncated": review.truncated,
+                                "files": review.files.iter().map(|file| json!({"path": file.path})).collect::<Vec<_>>(),
+                            });
+                            let raw_impact = harness_profile::verification_impact_for_snapshot(
+                                profile.as_ref(),
+                                Some(&snapshot),
+                            );
+                            let adaptive = observatory_adaptive_verification(
+                                self,
+                                &workspace_id,
+                                workspace,
+                                profile.as_ref(),
+                                &snapshot,
+                                &raw_impact,
+                                &design,
+                            );
+                            (Some(observatory_verification_impact(raw_impact)), adaptive)
+                        } else {
+                            let reason = if review.is_some() {
+                                "no_current_changes"
+                            } else {
+                                "review_unavailable"
+                            };
+                            (None, static_adaptive_verification(reason))
+                        };
+                        Ok((risk, impact, verification_impact, adaptive_verification))
+                    },
                 )
             },
-            || -> Result<_> {
-                let risk = review
-                    .map(|review| {
-                        self.intelligence.risk_status_from_snapshot(
-                            workspace_id.clone(),
-                            workspace,
-                            review,
-                            traceability.clone(),
-                            &design.state,
-                            Some(&advanced),
-                        )
-                    })
-                    .transpose()?;
-                let impact = match (review, risk.as_ref()) {
-                    (Some(review), Some(risk)) => {
-                        Some(self.intelligence.impact_analysis_from_snapshot(
-                            workspace_id.clone(),
-                            workspace,
-                            &self.code_index,
-                            review,
-                            &design.state,
-                            risk.level,
-                        )?)
-                    }
-                    _ => None,
-                };
-                let (verification_impact, adaptive_verification) = if let Some(review) =
-                    review.filter(|review| !review.files.is_empty())
-                {
-                    let status_available = review
-                        .probes
-                        .iter()
-                        .find(|probe| probe.id == "status")
-                        .is_some_and(|probe| probe.success);
-                    let snapshot = json!({
-                        "available": status_available,
-                        "truncated": review.truncated,
-                        "files": review.files.iter().map(|file| json!({"path": file.path})).collect::<Vec<_>>(),
-                    });
-                    let (profile, _) = self.load_project_profile(workspace)?;
-                    let raw_impact = harness_profile::verification_impact_for_snapshot(
-                        &profile,
-                        Some(&snapshot),
-                    );
-                    let adaptive = observatory_adaptive_verification(
-                        self,
-                        &workspace_id,
-                        workspace,
-                        &profile,
-                        &snapshot,
-                        &raw_impact,
-                        &design,
-                    );
-                    (Some(observatory_verification_impact(raw_impact)), adaptive)
-                } else {
-                    let reason = if review.is_some() {
-                        "no_current_changes"
-                    } else {
-                        "review_unavailable"
-                    };
-                    (None, static_adaptive_verification(reason))
-                };
-                Ok((risk, impact, verification_impact, adaptive_verification))
+            || {
+                self.intelligence.verification_history_from_snapshot(
+                    &workspace_id,
+                    workspace,
+                    100,
+                    &revision,
+                    &evidence,
+                )
             },
         );
         let language_quality = language_quality?;
         let (risk, impact, verification_impact, adaptive_verification) = review_analysis?;
+        let verification = verification?;
         let acceptance = acceptance_proof_summary(&design, &traceability, &evidence, &revision);
         let current_evidence = evidence
             .iter()
             .filter(|item| item.revision == revision)
             .collect::<Vec<_>>();
         let current_subject = format!("change:{}", revision.code);
-        let verification = self.intelligence.verification_history_from_snapshot(
-            &workspace_id,
-            workspace,
-            100,
-            &revision,
-            &evidence,
-        )?;
         let current_verification = verification
             .iter()
             .filter(|status| {

@@ -1,7 +1,6 @@
 use super::*;
 use std::path::Component;
 use toml_edit::{DocumentMut, Item};
-use walkdir::{DirEntry, WalkDir};
 
 pub(super) struct DiscoveredProjectIsland {
     pub(super) absolute_root: PathBuf,
@@ -11,10 +10,12 @@ pub(super) struct DiscoveredProjectIsland {
 pub(super) fn discover_nested_project_islands(
     workspace_root: &Path,
     root_project_types: &[String],
+    candidate_dirs: &[PathBuf],
 ) -> Vec<DiscoveredProjectIsland> {
     let mut discovered = Vec::<DiscoveredProjectIsland>::new();
-    for directory in manifest_candidate_dirs(workspace_root) {
-        let types = manifest_project_types(&directory);
+    for directory in candidate_dirs.iter().cloned() {
+        let manifest_names = manifest_file_names(&directory);
+        let types = project_types_for_manifests(&directory, &manifest_names);
         if types.is_empty() {
             continue;
         }
@@ -42,9 +43,8 @@ pub(super) fn discover_nested_project_islands(
         if relative == "." {
             continue;
         }
-        let manifests = MANIFEST_FILES
+        let manifests = manifest_names
             .iter()
-            .filter(|manifest| directory.join(manifest).is_file())
             .map(|manifest| format!("{relative}/{manifest}"))
             .collect::<Vec<_>>();
         discovered.push(DiscoveredProjectIsland {
@@ -70,52 +70,62 @@ pub(super) fn discover_nested_project_islands(
     discovered
 }
 
-pub(super) fn manifest_candidate_dirs(workspace_root: &Path) -> Vec<PathBuf> {
-    let mut directories = BTreeSet::new();
-    for entry in WalkDir::new(workspace_root)
-        .min_depth(1)
-        .max_depth(MAX_PROFILE_SCAN_DEPTH.saturating_add(1))
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(profile_visible_entry)
-        .filter_map(|entry| entry.ok())
-        .take(MAX_PROFILE_SCAN_ENTRIES)
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy();
-        if !MANIFEST_FILES.iter().any(|manifest| *manifest == name) {
-            continue;
-        }
-        if let Some(parent) = entry.path().parent() {
-            if parent != workspace_root {
-                directories.insert(parent.to_path_buf());
+const DOTNET_MANIFEST_EXTENSIONS: &[&str] = &["sln", "slnx", "csproj", "fsproj", "vbproj"];
+
+pub(super) fn is_manifest_file_name(name: &str) -> bool {
+    if MANIFEST_FILES.contains(&name) {
+        return true;
+    }
+    Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            DOTNET_MANIFEST_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        })
+}
+
+pub(super) fn manifest_file_names(root: &Path) -> Vec<String> {
+    let mut names = MANIFEST_FILES
+        .iter()
+        .filter(|manifest| root.join(manifest).is_file())
+        .map(|manifest| (*manifest).to_owned())
+        .collect::<Vec<_>>();
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries
+            .filter_map(Result::ok)
+            .take(MAX_PROFILE_SCAN_ENTRIES)
+        {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !MANIFEST_FILES.iter().any(|manifest| *manifest == name)
+                && is_manifest_file_name(&name)
+            {
+                names.push(name);
             }
         }
     }
-    let mut directories = directories.into_iter().collect::<Vec<_>>();
-    directories.sort_by(|left, right| {
-        left.components()
-            .count()
-            .cmp(&right.components().count())
-            .then_with(|| left.cmp(right))
-    });
-    directories
+    names.sort();
+    names.dedup();
+    names
 }
 
-pub(super) fn manifest_project_types(root: &Path) -> BTreeSet<String> {
+pub(super) fn project_types_for_manifests(root: &Path, manifests: &[String]) -> BTreeSet<String> {
     let mut types = BTreeSet::new();
-    for manifest in MANIFEST_FILES {
-        if !root.join(manifest).is_file() {
-            continue;
-        }
-        match *manifest {
+    for manifest in manifests {
+        match manifest.as_str() {
             "Cargo.toml" => {
                 types.insert("rust".to_owned());
             }
             "package.json" | "tsconfig.json" => {
                 types.insert("node".to_owned());
+            }
+            "deno.json" | "deno.jsonc" => {
+                types.insert("deno".to_owned());
             }
             "pyproject.toml" | "requirements.txt" => {
                 types.insert("python".to_owned());
@@ -130,7 +140,9 @@ pub(super) fn manifest_project_types(root: &Path) -> BTreeSet<String> {
                 types.insert("swift".to_owned());
             }
             "pubspec.yaml" => {
-                types.insert("dart".to_owned());
+                let flutter = read_small_text(&root.join(manifest))
+                    .is_some_and(|content| content.to_ascii_lowercase().contains("sdk: flutter"));
+                types.insert(if flutter { "flutter" } else { "dart" }.to_owned());
             }
             "mix.exs" => {
                 types.insert("elixir".to_owned());
@@ -152,6 +164,18 @@ pub(super) fn manifest_project_types(root: &Path) -> BTreeSet<String> {
             }
             "Makefile" => {
                 types.insert("make".to_owned());
+            }
+            _ if manifest.ends_with(".csproj") => {
+                types.insert("dotnet-csharp".to_owned());
+            }
+            _ if manifest.ends_with(".fsproj") => {
+                types.insert("dotnet-fsharp".to_owned());
+            }
+            _ if manifest.ends_with(".vbproj") => {
+                types.insert("dotnet-vb".to_owned());
+            }
+            _ if manifest.ends_with(".sln") || manifest.ends_with(".slnx") => {
+                types.insert("dotnet".to_owned());
             }
             _ => {}
         }
@@ -188,10 +212,16 @@ pub(super) fn languages_for_project_types(project_types: &[String]) -> Vec<Strin
             | "r" => {
                 languages.insert(project_type.clone());
             }
-            "node" => {
+            "flutter" => {
+                languages.insert("dart".to_owned());
+            }
+            "node" | "deno" => {
                 languages.insert("java-script".to_owned());
                 languages.insert("type-script".to_owned());
                 languages.insert("tsx".to_owned());
+            }
+            "dotnet-csharp" => {
+                languages.insert("c-sharp".to_owned());
             }
             "ocaml" => {
                 languages.insert("ocaml".to_owned());
@@ -207,18 +237,9 @@ pub(super) fn languages_for_project_types(project_types: &[String]) -> Vec<Strin
     languages.into_iter().collect()
 }
 
-pub(super) fn profile_visible_entry(entry: &DirEntry) -> bool {
-    if entry.depth() == 0 {
-        return true;
-    }
-    if entry.file_type().is_symlink() {
-        return false;
-    }
-    if !entry.file_type().is_dir() {
-        return true;
-    }
-    !matches!(
-        entry.file_name().to_string_lossy().as_ref(),
+pub(super) fn profile_excluded_directory(name: &str) -> bool {
+    matches!(
+        name,
         ".git"
             | ".wcode"
             | "target"
@@ -854,10 +875,14 @@ fn project_type_check_prefix(project_type: &str) -> Option<&'static str> {
         "java" => Some("java-"),
         "swift" => Some("swift-"),
         "dart" => Some("dart-"),
+        "flutter" => Some("flutter-"),
+        "deno" => Some("deno-"),
+        "dotnet" | "dotnet-csharp" | "dotnet-fsharp" | "dotnet-vb" => Some("dotnet-"),
         "elixir" => Some("elixir-"),
         "ocaml" => Some("ocaml-"),
         "ruby" => Some("ruby-"),
         "php" => Some("php-"),
+        "r" => Some("r-"),
         "make" => Some("make-"),
         "cmake" => Some("cmake-"),
         _ => None,

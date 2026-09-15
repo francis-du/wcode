@@ -76,28 +76,33 @@ fn load_bounded(workspace: &Workspace, limit: usize) -> Result<Vec<Evidence>> {
     if paths.len() > limit {
         paths = paths.split_off(paths.len() - limit);
     }
+    let loaded = crate::resource::parallel_io(&paths, |path| read_record(path))?;
     let mut evidence = Vec::with_capacity(paths.len());
-    for path in paths {
-        let metadata = fs::symlink_metadata(&path)
-            .with_context(|| format!("cannot inspect evidence record {}", path.display()))?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.len() > MAX_EVIDENCE_BYTES
-        {
-            continue;
-        }
-        let bytes = fs::read(&path)
-            .with_context(|| format!("cannot read evidence record {}", path.display()))?;
-        let record: Evidence = match serde_json::from_slice(&bytes) {
-            Ok(record) => record,
-            Err(_) => continue,
-        };
-        if record.validate().is_ok() {
+    for record in loaded {
+        if let Some(record) = record? {
             evidence.push(record);
         }
     }
     evidence.sort_by_key(|record| record.timestamp_ms);
     Ok(evidence)
+}
+
+fn read_record(path: &Path) -> Result<Option<Evidence>> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("cannot inspect evidence record {}", path.display()))?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_EVIDENCE_BYTES
+    {
+        return Ok(None);
+    }
+    let bytes = fs::read(path)
+        .with_context(|| format!("cannot read evidence record {}", path.display()))?;
+    let record: Evidence = match serde_json::from_slice(&bytes) {
+        Ok(record) => record,
+        Err(_) => return Ok(None),
+    };
+    Ok(record.validate().is_ok().then_some(record))
 }
 
 // Change detection only, never verification evidence. Read immutable record
@@ -129,26 +134,33 @@ pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
         }
     }
     paths.sort();
+    let metadata = crate::resource::parallel_io(&paths, |path| evidence_record_metadata(path))?;
     let mut hasher = Sha256::new();
-    for path in paths {
-        let metadata = fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            bail!("evidence change signal requires regular records");
-        }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
+    for item in metadata {
+        let (name, len, modified) = item?;
         hasher.update(name.as_bytes());
         hasher.update([0]);
-        hasher.update(metadata.len().to_le_bytes());
-        let modified = metadata
-            .modified()?
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos();
+        hasher.update(len.to_le_bytes());
         hasher.update(modified.to_le_bytes());
     }
     Ok(format!("metadata:{:x}", hasher.finalize()))
+}
+
+fn evidence_record_metadata(path: &Path) -> Result<(String, u64, u128)> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        bail!("evidence change signal requires regular records");
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    let modified = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    Ok((name, metadata.len(), modified))
 }
 
 pub(crate) fn capabilities() -> serde_json::Value {

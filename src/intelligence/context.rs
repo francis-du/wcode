@@ -1,4 +1,5 @@
 use super::*;
+use crate::design::{CodeRef, VerificationRef};
 
 pub(super) fn design_context_items(
     state: &design::DesignState,

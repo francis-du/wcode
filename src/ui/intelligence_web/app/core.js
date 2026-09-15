@@ -474,6 +474,8 @@ const state = {
   pollController: null,
   tunnelSnapshot: null,
   tunnelBusy: false,
+  tunnelController: null,
+  tunnelTimer: null,
   syncError: false,
   lastChecked: 0,
   workspaceTab: "architecture",
@@ -651,15 +653,45 @@ function setAccessPanel(open, restoreFocus = true) {
     els.manage.focus({ preventScroll: true });
   }
 }
-async function refreshTunnels() {
-  if (state.tunnelBusy) return;
-  state.tunnelBusy = true;
+function cancelTunnelRefresh() {
+  const controller = state.tunnelController;
+  state.tunnelController = null;
+  state.tunnelBusy = false;
+  clearTimeout(state.tunnelTimer); state.tunnelTimer = null;
+  controller?.abort();
+}
+function tunnelDashboardUrl(tunnel) {
+  if (!tunnel?.url || tunnel.role !== "primary") return "";
   try {
-    const response = await fetch("/healthz");
-    if (!response.ok) return;
+    const url = new URL("/intelligence", tunnel.url);
+    if (!['http:', 'https:'].includes(url.protocol)) return "";
+    const nextFragment = new URLSearchParams();
+    if (token) nextFragment.set("token", token);
+    if (state.current) nextFragment.set("workspace", state.current);
+    url.hash = nextFragment.toString();
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+async function refreshTunnels() {
+  if (document.hidden || state.tunnelBusy) return;
+  const controller = new AbortController();
+  state.tunnelController = controller;
+  state.tunnelBusy = true;
+  const deadline = setTimeout(() => controller.abort(), 10000);
+  state.tunnelTimer = deadline;
+  try {
+    // Keep /healthz: the setup projection omits retrying tunnels and diagnostics.
+    const response = await fetch("/healthz", { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    state.tunnelSnapshot = data;
-    const tunnels = data.tunnels || [];
+    if (state.tunnelController !== controller || controller.signal.aborted) return;
+    if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.tunnels) ||
+        data.tunnels.some(tunnel => !tunnel || typeof tunnel !== "object" || Array.isArray(tunnel))) {
+      throw new Error("Invalid tunnel response");
+    }
+    const tunnels = data.tunnels;
     let html = "";
     if (tunnels.length) {
       html = tunnels.map((tunnel) => {
@@ -671,20 +703,33 @@ async function refreshTunnels() {
           Number(tunnel.death_count || 0) ? `deaths ${tunnel.death_count}` : null,
         ].filter(Boolean).join(" · ");
         const label = `${tunnel.provider || "tunnel"} · ${tunnel.role || tunnel.state || "unknown"}`;
-        if (tunnel.url) {
-          return `<a class="tunnel-chip" href="${esc(tunnel.url)}" target="_blank" rel="noreferrer" title="${esc(`${tunnel.url} · ${detail}`)}"><i></i>${esc(label)}</a>`;
+        const dashboardUrl = tunnelDashboardUrl(tunnel);
+        if (dashboardUrl) {
+          return `<a class="tunnel-chip" href="${esc(dashboardUrl)}" target="_blank" rel="noreferrer" title="${esc(`${tunnel.url} · ${detail}`)}"><i></i>${esc(label)}</a>`;
         }
-        return `<span class="tunnel-chip connecting" title="${esc(detail)}"><i></i>${esc(`${tunnel.provider || "tunnel"} · ${tunnel.state || "retrying"}`)}</span>`;
+        const diagnostic = [tunnel.url || null, detail].filter(Boolean).join(" · ");
+        return `<span class="tunnel-chip connecting" title="${esc(diagnostic)}"><i></i>${esc(label)}</span>`;
       }).join("");
     } else if (data.public_endpoint === "pending") {
       html = `<span class="tunnel-chip connecting">${
         esc(localized("tunnels connecting…", "隧道连接中…"))
       }</span>`;
     }
+    state.tunnelSnapshot = data;
     setHtml("tunnels", els.tunnels, html);
     renderRuntimeTopology();
-  } catch {}
-  finally { state.tunnelBusy = false; }
+  } catch {
+    if (state.tunnelController === controller) {
+      state.tunnelSnapshot = null;
+      setHtml("tunnels", els.tunnels, `<span class="tunnel-chip connecting">${esc(localized("Tunnel status unavailable", "隧道状态不可用"))}</span>`);
+      renderRuntimeTopology();
+    }
+  } finally {
+    clearTimeout(deadline);
+    if (state.tunnelController === controller) {
+      state.tunnelController = null; state.tunnelTimer = null; state.tunnelBusy = false;
+    }
+  }
 }
 function setSync(kind, label) {
   els.syncDot.className = `sync-dot ${kind}`;

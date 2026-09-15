@@ -68,7 +68,7 @@ pub(super) const PROVIDERS: &[ProviderCandidate] = &[
     ProviderCandidate {
         id: "dart-language-server",
         executables: &["dart"],
-        args: &["language-server", "--protocol=lsp"],
+        args: &["language-server"],
         languages: DART,
         canonical: true,
     },
@@ -152,7 +152,7 @@ pub(super) const PROVIDERS: &[ProviderCandidate] = &[
     ProviderCandidate {
         id: "r-languageserver",
         executables: &["R"],
-        args: &["--no-echo", "-e", "languageserver::run()"],
+        args: &["--vanilla", "--no-echo", "-e", "languageserver::run()"],
         languages: R_LANG,
         canonical: true,
     },

@@ -12,7 +12,7 @@ impl ToolHarness {
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
         let (conventions, language_quality) = rayon::join(
             || self.convention_status(workspace),
-            || self.language_quality_status(workspace),
+            || self.language_quality_status_from_profile(workspace, profile.as_ref()),
         );
         let conventions = conventions?;
         let language_quality = language_quality?;
@@ -33,6 +33,23 @@ impl ToolHarness {
             conventions,
             language_quality,
         })
+    }
+
+    pub(super) fn language_quality_status_from_profile(
+        &self,
+        workspace: &Workspace,
+        profile: &ProjectProfile,
+    ) -> Result<LanguageQualityRegistry> {
+        let project_roots = profile
+            .islands
+            .iter()
+            .map(|island| (island.root.clone(), island.project_types.clone()))
+            .collect::<Vec<_>>();
+        quality_provider::registry_for_project_roots(
+            workspace,
+            Some(&self.semantic_sessions),
+            &project_roots,
+        )
     }
 
     pub(crate) fn verification_impact_summary(

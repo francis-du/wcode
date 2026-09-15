@@ -13,7 +13,7 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Next release
 
-- [v0.7.2](v0.7.2/) — clearer operator observability, model-efficient core tool discovery, retrieval telemetry, and risk-relevant Verification Mesh targeting. Push first; create the tag only after CI is green.
+- [v0.7.3](v0.7.3/) — lower-friction autonomous development commands, broader polyglot quality, stronger context/cache correctness, and WebUI/verification reliability. Push first; create the tag only after CI is green.
 
 ## 0.7.x
 

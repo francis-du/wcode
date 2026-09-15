@@ -27,8 +27,8 @@ depends_on:
   - component:language-quality
 implementation:
   - kind: symbol
-    path: src/runtime/harness/islands.rs
-    symbol: manifest_candidate_dirs
+    path: src/runtime/harness/profile_scan.rs
+    symbol: scan
   - kind: symbol
     path: src/runtime/harness/islands.rs
     symbol: discover_nested_project_islands

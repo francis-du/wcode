@@ -45,6 +45,22 @@ pub(crate) fn add_candidates(
                 None,
                 true,
             ));
+            let bats_files = files
+                .iter()
+                .filter(|path| path.to_ascii_lowercase().ends_with(".bats"))
+                .cloned()
+                .collect::<Vec<_>>();
+            candidates.push(candidate_owned!(
+                "bats-test",
+                Test,
+                LanguageNative,
+                "bats",
+                bats_files.clone(),
+                !bats_files.is_empty(),
+                "Bats .bats test files",
+                None,
+                false,
+            ));
         }
         SemanticLanguage::Lua => {
             candidates.push(candidate!(
@@ -120,7 +136,7 @@ pub(crate) fn add_candidates(
                 .cloned()
                 .unwrap_or_default()
                 .to_ascii_lowercase();
-            candidates.push(candidate_owned!(
+            let mut phpstan = candidate_owned!(
                 "phpstan",
                 StaticAnalysis,
                 Ecosystem,
@@ -132,8 +148,10 @@ pub(crate) fn add_candidates(
                 "PHPStan dependency/configuration",
                 Some("json"),
                 false,
-            ));
-            candidates.push(candidate_owned!(
+            );
+            phpstan.covers.push(TypeCheck);
+            candidates.push(phpstan);
+            let mut psalm = candidate_owned!(
                 "psalm",
                 StaticAnalysis,
                 Ecosystem,
@@ -143,7 +161,9 @@ pub(crate) fn add_candidates(
                 "Psalm dependency/configuration",
                 Some("json"),
                 false,
-            ));
+            );
+            psalm.covers.push(TypeCheck);
+            candidates.push(psalm);
             candidates.push(candidate_owned!(
                 "phpunit",
                 Test,
@@ -185,6 +205,7 @@ pub(crate) fn add_candidates(
                 Ecosystem,
                 "Rscript",
                 [
+                    "--vanilla",
                     "-e",
                     "quit(status=if(length(lintr::lint_package()))1 else 0)",
                 ],
@@ -193,11 +214,21 @@ pub(crate) fn add_candidates(
                 None,
             ));
             candidates.push(candidate!(
+                "styler-format",
+                Format,
+                Ecosystem,
+                "Rscript",
+                ["--vanilla", "-e", "styler::style_pkg(dry=\"fail\")"],
+                description.contains("styler"),
+                "styler package declaration",
+                None,
+            ));
+            candidates.push(candidate!(
                 "testthat",
                 Test,
                 Ecosystem,
                 "Rscript",
-                ["-e", "testthat::test_local()"],
+                ["--vanilla", "-e", "testthat::test_local()"],
                 description.contains("testthat")
                     || workspace.root().join("tests/testthat").is_dir(),
                 "testthat package/tests",
@@ -224,16 +255,21 @@ pub(crate) fn add_candidates(
                 "RuboCop dependency/configuration",
                 Some("json"),
             ));
-            candidates.push(candidate!(
-                "rubocop-format",
-                Format,
+            let standard = gemfile.contains("gem 'standard'")
+                || gemfile.contains("gem \"standard\"")
+                || workspace.root().join(".standard.yml").is_file();
+            let mut standardrb = candidate!(
+                "standardrb",
+                Lint,
                 Ecosystem,
                 "bundle",
-                ["exec", "rubocop", "--format", "json"],
-                rubocop,
-                "RuboCop dependency/configuration",
+                ["exec", "standardrb", "--format", "json"],
+                standard,
+                "Standard Ruby dependency/configuration",
                 Some("json"),
-            ));
+            );
+            standardrb.covers.push(Format);
+            candidates.push(standardrb);
             candidates.push(candidate!(
                 "rspec",
                 Test,
@@ -246,7 +282,7 @@ pub(crate) fn add_candidates(
             ));
         }
         SemanticLanguage::Swift => {
-            candidates.push(candidate!(
+            let mut swift_build = candidate!(
                 "swift-build",
                 StaticAnalysis,
                 LanguageNative,
@@ -255,7 +291,9 @@ pub(crate) fn add_candidates(
                 signals.has("Package.swift"),
                 "Package.swift",
                 None,
-            ));
+            );
+            swift_build.covers.push(TypeCheck);
+            candidates.push(swift_build);
             candidates.push(candidate!(
                 "swift-test",
                 Test,
@@ -295,7 +333,7 @@ pub(crate) fn add_candidates(
 
 fn php_vendor_program(workspace: &Workspace, name: &str) -> String {
     let relative = format!("vendor/bin/{name}");
-    if workspace.root().join(&relative).is_file() {
+    if workspace.workspace_program_available(&relative) {
         relative
     } else {
         name.to_owned()

@@ -50,13 +50,14 @@ impl SoftwareIntelligenceRuntime {
         code_index: &CodeIndex,
         known_checks: &HashSet<String>,
     ) -> Result<TraceabilityStatus> {
-        let load = self.design_load(workspace)?;
+        let (load, design_fingerprint) = self.design_load_with_fingerprint(workspace)?;
         self.traceability_status_from_load(
             workspace_id.into(),
             workspace,
             code_index,
             known_checks,
             load.as_ref(),
+            design_fingerprint,
         )
     }
 
@@ -67,7 +68,18 @@ impl SoftwareIntelligenceRuntime {
         code_index: &CodeIndex,
         known_checks: &HashSet<String>,
         load: &design::DesignLoad,
+        design_fingerprint: u64,
     ) -> Result<TraceabilityStatus> {
+        let fingerprint = trace_cache::traceability_fingerprint(
+            workspace,
+            &load.state,
+            design_fingerprint,
+            known_checks,
+        )?;
+        if let Some(mut cached) = self.cached_traceability_status(workspace, fingerprint)? {
+            cached.workspace = workspace_id;
+            return Ok(cached);
+        }
         let errors = load.error_count();
         let initialized = load.initialized;
         let mut diagnostics = load.diagnostics.clone();
@@ -82,6 +94,9 @@ impl SoftwareIntelligenceRuntime {
         let mut partial_requirements = 0usize;
         let mut missing_requirements = 0usize;
         let mut requirements = Vec::new();
+        let resolution_snapshot = TraceResolutionSnapshot::build(code_index, workspace, state);
+        let mut component_resolutions = HashMap::<String, Vec<TraceReference>>::new();
+        let mut acceptance_resolutions = HashMap::<String, Vec<TraceReference>>::new();
 
         for requirement in state.requirements.values() {
             let components_resolved = !requirement.implemented_by.is_empty()
@@ -90,32 +105,35 @@ impl SoftwareIntelligenceRuntime {
                     .iter()
                     .all(|id| state.components.contains_key(id));
             requirement_components_covered += usize::from(components_resolved);
-            let implementation = requirement
-                .implemented_by
-                .iter()
-                .filter_map(|id| state.components.get(id))
-                .flat_map(|component| {
-                    component.implementation.iter().map(|reference| {
-                        resolve_code_reference(code_index, workspace, &component.id, reference)
-                    })
-                })
-                .collect::<Vec<_>>();
-            let verification = requirement
-                .acceptance
-                .iter()
-                .filter_map(|id| state.acceptance.get(id))
-                .flat_map(|criterion| {
-                    criterion.verification.iter().map(|reference| {
-                        resolve_verification_reference(
-                            code_index,
-                            workspace,
+            let mut implementation = Vec::new();
+            for id in &requirement.implemented_by {
+                let Some(component) = state.components.get(id) else {
+                    continue;
+                };
+                let resolved = component_resolutions
+                    .entry(component.id.clone())
+                    .or_insert_with(|| {
+                        resolution_snapshot
+                            .code_references(&component.id, &component.implementation)
+                    });
+                implementation.extend(resolved.iter().cloned());
+            }
+            let mut verification = Vec::new();
+            for id in &requirement.acceptance {
+                let Some(criterion) = state.acceptance.get(id) else {
+                    continue;
+                };
+                let resolved = acceptance_resolutions
+                    .entry(criterion.id.clone())
+                    .or_insert_with(|| {
+                        resolution_snapshot.verification_references(
                             known_checks,
                             &criterion.id,
-                            reference,
+                            &criterion.verification,
                         )
-                    })
-                })
-                .collect::<Vec<_>>();
+                    });
+                verification.extend(resolved.iter().cloned());
+            }
 
             implementation_total += implementation.len();
             implementation_resolved += implementation.iter().filter(|item| item.resolved).count();
@@ -145,7 +163,7 @@ impl SoftwareIntelligenceRuntime {
         let truncated =
             requirements_total > requirements.len() || diagnostics.len() > MAX_TRACE_DIAGNOSTICS;
         diagnostics.truncate(MAX_TRACE_DIAGNOSTICS);
-        Ok(TraceabilityStatus {
+        let status = TraceabilityStatus {
             workspace: workspace_id,
             initialized,
             valid_design: initialized && errors == 0,
@@ -169,7 +187,20 @@ impl SoftwareIntelligenceRuntime {
             missing_requirements,
             requirements,
             diagnostics,
-        })
+        };
+        let confirmed_fingerprint = trace_cache::traceability_fingerprint(
+            workspace,
+            &load.state,
+            design::fingerprint(workspace),
+            known_checks,
+        )?;
+        if confirmed_fingerprint != fingerprint {
+            return Err(anyhow!(
+                "traceability inputs changed while resolving; retry the request"
+            ));
+        }
+        self.cache_traceability_status(workspace, fingerprint, &status)?;
+        Ok(status)
     }
 
     pub(crate) fn drift_status(
@@ -600,7 +631,7 @@ impl SoftwareIntelligenceRuntime {
         Self::verification_status_from_snapshot(status, &revision, &evidence)
     }
 
-    fn verification_status_from_snapshot(
+    pub(super) fn verification_status_from_snapshot(
         mut status: VerificationStatus,
         current_revision: &Revision,
         evidence: &[Evidence],
@@ -696,7 +727,7 @@ impl SoftwareIntelligenceRuntime {
         Ok(status)
     }
 
-    fn verification_base_history(
+    pub(super) fn verification_base_history(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
@@ -750,11 +781,29 @@ impl SoftwareIntelligenceRuntime {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn record_verification_report(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
         expected_revision: &Revision,
+        report: &VerificationReport,
+    ) -> Result<Vec<Evidence>> {
+        self.record_verification_report_from_design(
+            workspace_id,
+            workspace,
+            expected_revision,
+            None,
+            report,
+        )
+    }
+
+    pub(crate) fn record_verification_report_from_design(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        expected_revision: &Revision,
+        design_snapshot: Option<&design::DesignLoad>,
         report: &VerificationReport,
     ) -> Result<Vec<Evidence>> {
         // A bounded scan is not proof of the whole workspace, even when two
@@ -775,8 +824,13 @@ impl SoftwareIntelligenceRuntime {
         // must not mint duplicate Evidence merely because a report cites them.
         let revision = expected_revision.clone();
         let executed_checks = report.checks.iter().filter(|check| !check.reused).count();
-        let design = if executed_checks > 0 {
+        let loaded_design = if executed_checks > 0 && design_snapshot.is_none() {
             Some(self.design_load(workspace)?)
+        } else {
+            None
+        };
+        let design = if executed_checks > 0 {
+            design_snapshot.or(loaded_design.as_deref())
         } else {
             None
         };

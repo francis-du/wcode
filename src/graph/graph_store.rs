@@ -179,6 +179,40 @@ pub(crate) fn persist(
     Ok(stored)
 }
 
+pub(crate) fn change_signal(workspace: &Workspace) -> Result<Option<(String, String)>> {
+    let directory = graph_directory(workspace)?;
+    if !directory.exists() {
+        return Ok(None);
+    }
+    let Some(path) = graph_paths(&directory)?.into_iter().next_back() else {
+        return Ok(None);
+    };
+    let metadata = fs::symlink_metadata(&path)
+        .with_context(|| format!("cannot inspect latest graph snapshot {}", path.display()))?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_GRAPH_SNAPSHOT_BYTES.saturating_add(512 * 1024)
+    {
+        bail!("latest graph history entry is not a bounded regular snapshot");
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("latest graph history filename is not valid UTF-8"))?;
+    let revision = graph_snapshot_id_from_name(name)
+        .ok_or_else(|| anyhow::anyhow!("latest graph history filename is not canonical"))?;
+    let modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos();
+    let mut hasher = Sha256::new();
+    hasher.update(b"graph-history-metadata-v1");
+    hasher.update(name.as_bytes());
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(modified.to_le_bytes());
+    Ok(Some((
+        revision.to_owned(),
+        format!("{:x}", hasher.finalize()),
+    )))
+}
+
 pub(crate) fn history(workspace: &Workspace, limit: usize) -> Result<Vec<GraphHistoryEntry>> {
     let directory = graph_directory(workspace)?;
     if !directory.exists() {
@@ -589,6 +623,16 @@ fn graph_paths(directory: &Path) -> Result<Vec<PathBuf>> {
         .collect::<Vec<_>>();
     paths.sort();
     Ok(paths)
+}
+
+fn graph_snapshot_id_from_name(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".json")?;
+    let (timestamp, revision) = stem.split_once('-')?;
+    if timestamp.len() != 20 || !timestamp.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let digest = revision.strip_prefix("GRAPH-")?;
+    (digest.len() == 24 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(revision)
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {

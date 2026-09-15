@@ -24,38 +24,36 @@ pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
     Ok(serialized_json_bytes(value)?.div_ceil(4))
 }
 
-fn shrink_hot_source_body(value: &mut Value, budget: usize) -> Result<bool> {
-    let excess_bytes = estimated_json_tokens(value)?
-        .saturating_sub(budget)
-        .saturating_mul(4);
+fn shrink_hot_source_body(value: &mut Value, budget: usize, current_tokens: usize) -> bool {
+    let excess_bytes = current_tokens.saturating_sub(budget).saturating_mul(4);
     let Some(body) = value
         .get_mut("hot_source")
         .and_then(Value::as_array_mut)
         .and_then(|items| items.first_mut())
         .and_then(|item| item.get_mut("body"))
     else {
-        return Ok(false);
+        return false;
     };
     let Some(content) = body
         .get("content")
         .and_then(Value::as_str)
         .map(str::to_owned)
     else {
-        return Ok(false);
+        return false;
     };
     let chars = content.chars().count();
     if chars <= 64 {
-        return Ok(false);
+        return false;
     }
     let target = chars
         .saturating_sub(excess_bytes.saturating_add(16))
         .max(64);
     if target >= chars {
-        return Ok(false);
+        return false;
     }
     body["content"] = json!(short_text(&content, target));
     body["truncated"] = json!(true);
-    Ok(true)
+    true
 }
 
 fn pop_array(value: &mut Value, key: &str, minimum: usize) -> bool {
@@ -352,9 +350,19 @@ fn compact_primary_hot_source(value: &mut Value) -> bool {
     true
 }
 
+#[cfg(test)]
 pub(super) fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
+    let current_tokens = estimated_json_tokens(value)?;
+    trim_agent_context_from_tokens(value, budget, current_tokens)
+}
+
+pub(super) fn trim_agent_context_from_tokens(
+    value: &mut Value,
+    budget: usize,
+    mut current_tokens: usize,
+) -> Result<()> {
     let mut truncated = value["truncated"].as_bool().unwrap_or(false);
-    while estimated_json_tokens(value)? > budget {
+    while current_tokens > budget {
         let changed = pop_array(value, "risks", 0)
             || pop_nested_array(value, "relations", "edges", 0)
             || pop_nested_array(value, "relations", "nodes", 0)
@@ -403,11 +411,12 @@ pub(super) fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()>
             // the most useful edit context for as long as possible.
             || pop_array(value, "hot_source", 1)
             || compact_primary_hot_source(value)
-            || shrink_hot_source_body(value, budget)?;
+            || shrink_hot_source_body(value, budget, current_tokens);
         if !changed {
             break;
         }
         truncated = true;
+        current_tokens = estimated_json_tokens(value)?;
     }
     value["truncated"] = json!(truncated);
     Ok(())

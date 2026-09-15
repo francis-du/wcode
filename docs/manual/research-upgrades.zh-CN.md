@@ -42,6 +42,14 @@ v0.7.2 继续保持控制面 Model-neutral，但会主动优化当前 Coding Mod
 
 同一版本也会保守收敛 Verification Mesh 的 Advanced Stage Target。High／Critical Plan 优先使用已经有确定性风险归因的源码；CSS／HTML 展示源码除非显式 Advanced Executor 选择它们，否则不会制造语言级 Property／Mutation／Fuzz Cross-product。Full Deterministic Verification 与 Security／Adversarial Review 不减少。缺少真实 Rust Mutation／Fuzz Executor 时继续显式暴露 Gap；普通 `cargo test` 绝不会冒充 Mutation 或 Fuzz Evidence。
 
+## 2026-09-15 多语言质量追加调研
+
+这一轮不再把 Rust 习惯硬套给所有生态，而是逐项核对当前官方契约。Dart 官方把 `dart analyze` 定义为 Static Analysis，而同一 Analyzer 也负责 Lint 与 Type-system Diagnostic，因此一次真实 Analyzer Run 可以诚实覆盖 Lint／Type／Static，而不应该重复执行三次。Prettier 明确把 `--check` 定义成不写源码的 CI Check，`--write` 才是修改模式；Vitest 的 `vitest run` 是单次非 Watch；Jest 的 `--runInBand` 是有界串行 Test Run。Biome 有独立 Formatter/Linter Switch，因此 Registry 使用不同 Format/Lint Check，不再把同一条宽泛 `biome check` 跑两遍。Standard Ruby 默认 `standardrb` 只报告问题，修复需要 `--fix`；R Startup 官方文档说明默认可能加载 `.Renviron` / `.Rprofile`，而 styler 的 `dry="fail"` 明确不写文件，因此内置 R Quality/LSP Command 统一使用 `--vanilla`，R Formatter Gate 使用 styler Dry-fail。
+
+主要资料：[Dart analyze](https://dart.dev/tools/dart-analyze)、[Dart Analysis/Lints](https://dart.dev/tools/analysis)、[Prettier CLI](https://prettier.io/docs/cli)、[Vitest CLI](https://vitest.dev/guide/cli)、[Jest CLI](https://jestjs.io/docs/30.0/cli)、[Biome CLI](https://biomejs.dev/reference/cli/)、[Standard Ruby](https://github.com/standardrb/standard)、[R Startup](https://www.stat.ethz.ch/R-manual/R-devel/library/base/html/Startup.html) 与 [styler `style_pkg`](https://styler.r-lib.org/reference/style_pkg.html)。
+
+同一轮还收紧 Advanced Stage 的真实性：内置 Property Discovery 现在要求框架声明 + 对应语言源码真实使用；JS/TS fast-check 使用固定 Vitest/Jest Runner，任意 `test`、`mutation`、`mutate` Package Script 都不能生成 Advanced Evidence。由于 JS/TS Stryker 的 Repository Config 本身可以执行 JavaScript，它保持显式 Executor 配置。这里刻意选择“真实 Gap”，而不是宽泛但不可证明的绿色 Coverage。
+
 ## 诊断上下文
 
 在现有 `agent_context` 查询中包含明确位置，例如 `error[E0308] at src/runtime/harness/context_budget.rs:33:9`。支持 `file:line`、`file:line:column`、`file#Lline`，以及支持的源码、配置、文档文件名。接受反斜杠分隔的相对路径和无空白的引用标记；这不是覆盖所有语言堆栈语法的完整解析器。
@@ -115,6 +123,16 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 执行进程的 MCP 工具（`run_command`、`language_quality_run`）和项目验证检查，在占用总工具槽位之前先取得执行准入名额。总量为 32 时，这类请求最多占用 28 个总槽位，为非命令工具留下四个余量；非命令工具仍可使用全部 32 个。单槽位配置保留一个可用名额。调用方取消后，已经开始的阻塞工作仍持有两种名额直到结束；排队取消会释放预留。先到先服务沿用 [Tokio 信号量语义](https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html)。这不保证其他工具、CPU 或内存饱和时的固定延迟，也不绕过用户批准。
 
 执行样例在 `target/wcode-index-sharing.json` 记录真实构建次数与耗时，在 `target/wcode-admission.json` 记录 32 个命令请求排队时、真实进程内 MCP 读取耗时。测试检查目标不变、版本拒绝、不同文件独立、构建表容量与回收、旧结果晚到、队列顺序和名额恢复。这些是本地测试构建诊断，不是模型或网络基准；文件由测试重新生成，本身不等于发布证据。
+
+## 输入绑定缓存与可信刷新基线
+
+2026-09-15 的本地后续迭代参考了 [Anthropic 基于评测的工具设计](https://www.anthropic.com/engineering/writing-tools-for-agents)，以及 2026-06-08 提交的 [Less Context, Better Agents](https://arxiv.org/html/2606.10209v1)。后者研究企业报销流程，不是仓库修复；不能因此给所有编程模型强制套用五次调用的窗口。wcode 保留精确源码与 SHA 上下文，先评测自身检索行为，再考虑模型专用策略。本次不宣称完成模型微调、远端模型评测或论文基准复现。
+
+已验证经验的激活缓存现在绑定完整规范化历史，包括轨迹和检索意图，以及当前经过工作区保护的文件存在性快照。只比较记录数量与末条版本，无法发现早期记录被替换或文件被删除。缓存键与时序重放使用同一份准备好的快照；输入未变时复用缓存决策，相同输入的并发未命中只执行一次重放。存在性检查改用 Workspace 元数据，不再仅为丢弃 SHA 而读取整份源码。元数据不是验证证据，真实编辑和源码 SHA 检查保持独立。
+
+浏览器只确认项目请求之前已观测到的版本，不使用独立迟到的响应为快照背书。手动刷新可以保留此前安全的基线；没有基线的首个快照立即显示，随后成功的版本轮询会保守地再构建一次。过期缓存响应清空基线。延迟重建绑定请求与工作区代次，隐藏页面不启动重建。[MDN 的取消文档](https://developer.mozilla.org/en-US/docs/Web/API/AbortController/abort) 说明了网络请求与响应体的取消范围；代次检查则进一步阻止已经完成的旧工作改写当前 UI。上述规则不代表获得了整个仓库的原子快照。
+
+回归样例覆盖末条不变的历史改写、删除、目录和符号链接替换、文件恢复、轨迹与意图变化、缓存重放复用、六线程请求重叠、提前确认版本，以及过期和隐藏页面的刷新回调。`target/wcode-experience-membership.json` 对 96 条记录、十二个各 512 KiB 的文件执行五次本地对照，并断言准备好的路径一致。耗时仅代表受保护的文件存在性检查，不代表端到端智能体或模型性能。当前已运行的实例仍需使用新构建启动才能获得改动；本地验证不授权发布。
 
 ## 验证与限制
 

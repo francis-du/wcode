@@ -56,6 +56,8 @@ mod power;
 mod quality_catalog;
 #[path = "verification/quality_catalog/extended.rs"]
 mod quality_catalog_extended;
+#[path = "verification/quality_catalog/web.rs"]
+mod quality_catalog_web;
 #[path = "verification/quality_provider.rs"]
 mod quality_provider;
 #[path = "reconciliation/mod.rs"]

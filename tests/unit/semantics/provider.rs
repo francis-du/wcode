@@ -121,12 +121,12 @@ fn provider_specific_launch_profiles_match_current_server_contracts() {
     );
     let dart = provider_launch_args(&first, provider("dart-language-server")).unwrap();
     assert_eq!(dart.first().map(String::as_str), Some("language-server"));
-    assert!(dart.iter().any(|arg| arg == "--protocol=lsp"));
+    assert!(!dart.iter().any(|arg| arg.starts_with("--protocol")));
     assert!(dart.windows(2).any(|pair| pair == ["--client-id", "wcode"]));
     assert!(dart.iter().any(|arg| arg == "--client-version"));
     assert_eq!(
         provider_launch_args(&first, provider("r-languageserver")).unwrap(),
-        ["--no-echo", "-e", "languageserver::run()"]
+        ["--vanilla", "--no-echo", "-e", "languageserver::run()"]
     );
     let jdtls_first = provider_launch_args(&first, provider("jdtls")).unwrap();
     let jdtls_second = provider_launch_args(&second, provider("jdtls")).unwrap();
@@ -307,6 +307,7 @@ fn provider_launch_path_preserves_rustup_proxy_but_resolves_luals_symlink() {
 fn language_detection_covers_the_full_index_surface() {
     let fixtures = [
         ("script.sh", SemanticLanguage::Bash),
+        ("property.bats", SemanticLanguage::Bash),
         ("a.c", SemanticLanguage::C),
         ("a.cpp", SemanticLanguage::Cpp),
         ("a.cs", SemanticLanguage::CSharp),

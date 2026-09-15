@@ -2,11 +2,11 @@ use super::*;
 
 pub(super) fn validate_language_development_tool(program: &str, args: &[String]) -> Result<()> {
     match program {
-        "shellcheck" | "shfmt" | "clang-format" | "gofmt" | "staticcheck" | "govulncheck"
-        | "eslint" | "stylelint" | "tsc" | "busted" | "luacheck" | "stylua" | "mypy"
-        | "pyright" | "bandit" | "swift-format" | "swiftlint" | "cargo-audit" | "ocamlformat" => {
-            Ok(())
-        }
+        "shellcheck" | "shfmt" | "gofmt" | "staticcheck" | "govulncheck" | "eslint"
+        | "stylelint" | "tsc" | "busted" | "luacheck" | "stylua" | "mypy" | "pyright"
+        | "bandit" | "swift-format" | "swiftlint" | "cargo-audit" | "ocamlformat" => Ok(()),
+        "htmlhint" | "bats" | "prettier" | "vitest" | "jest" => Ok(()),
+        "clang-format" => validate_clang_format(args),
         "clang-tidy" => validate_clang_tidy(args),
         "gcc" | "g++" | "clang" | "clang++" | "cc" | "c++" => validate_native_compiler(args),
         "javac" => validate_java_compiler(args),
@@ -38,6 +38,13 @@ fn validate_native_compiler(args: &[String]) -> Result<()> {
         {
             bail!("compiler helper/plugin/response-file redirection is blocked: {arg}");
         }
+    }
+    Ok(())
+}
+
+fn validate_clang_format(args: &[String]) -> Result<()> {
+    if args.iter().any(|arg| arg.starts_with("--style=file:")) {
+        bail!("clang-format external style-file redirection is blocked");
     }
     Ok(())
 }
@@ -106,23 +113,28 @@ fn validate_php_runner(args: &[String]) -> Result<()> {
     match args {
         [flag, script, ..] if flag == "-l" && script.ends_with(".php") => Ok(()),
         [script, ..] if !script.starts_with('-') && script.ends_with(".php") => Ok(()),
-        [flag, ..] if matches!(flag.as_str(), "-r" | "-a" | "-S") => {
-            bail!("inline, interactive, or ad-hoc PHP server execution is blocked; execute a workspace script instead")
+        [flag, ..] if flag == "-S" => Ok(()),
+        [flag, ..] if matches!(flag.as_str(), "-r" | "-a") => {
+            bail!("inline or interactive PHP execution is blocked; execute a workspace script or local development server instead")
         }
-        _ => bail!("php requires a workspace .php script or `-l` syntax check"),
+        _ => bail!("php requires a workspace .php script, `-l` syntax check, or `-S` local development server"),
     }
 }
 
 fn validate_rscript(args: &[String]) -> Result<()> {
     match args {
-        [flag, expr] if flag == "-e" && is_known_r_quality_expression(expr) => Ok(()),
+        [vanilla, flag, expr]
+            if vanilla == "--vanilla" && flag == "-e" && is_known_r_quality_expression(expr) =>
+        {
+            Ok(())
+        }
         [script, ..]
             if !script.starts_with('-') && (script.ends_with(".R") || script.ends_with(".r")) =>
         {
             Ok(())
         }
-        [flag, ..] if flag == "-e" => {
-            bail!("arbitrary inline R execution is blocked; execute a workspace script instead")
+        [flag, ..] if flag == "-e" || flag == "--vanilla" => {
+            bail!("inline R quality execution requires the built-in `--vanilla -e <expression>` shape; arbitrary inline R remains blocked")
         }
         _ => bail!("Rscript requires a workspace R script or a built-in quality expression"),
     }
@@ -132,6 +144,7 @@ fn is_known_r_quality_expression(expr: &str) -> bool {
     matches!(
         expr,
         "quit(status=if(length(lintr::lint_package()))1 else 0)"
+            | "styler::style_pkg(dry=\"fail\")"
             | "testthat::test_local()"
             | "testthat::test_dir('tests/testthat')"
     )
@@ -148,19 +161,10 @@ fn validate_composer(args: &[String]) -> Result<()> {
         bail!("Composer global or cwd redirection is blocked");
     }
     match command {
-        "install"
-        | "update"
-        | "require"
-        | "remove"
-        | "dump-autoload"
-        | "validate"
-        | "check-platform-reqs"
-        | "test"
-        | "run-script" => Ok(()),
         "config" | "global" | "self-update" => {
             bail!("Composer host-wide configuration/update commands are blocked")
         }
-        _ => require_risky_exec(&format!("composer project operation: {command}"), false),
+        _ => Ok(()),
     }
 }
 

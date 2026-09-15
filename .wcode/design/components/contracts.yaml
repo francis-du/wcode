@@ -26,7 +26,7 @@ depends_on:
 implementation:
   - kind: symbol
     path: src/runtime/harness/contracts.rs
-    symbol: discover_contract_topology
+    symbol: discover_contract_topology_from_paths
   - kind: symbol
     path: src/runtime/harness/contracts.rs
     symbol: matching_contract_bridges

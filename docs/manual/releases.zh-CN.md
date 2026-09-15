@@ -13,7 +13,7 @@ permalink: /zh/docs/releases/
 
 ## 下一版本
 
-- [v0.7.2](v0.7.2/) — 更清晰的 Operator 可观测、模型高效核心工具发现、检索遥测与 Risk-relevant Verification Mesh Target。先 Push，CI 全绿后再创建 Tag。
+- [v0.7.3](v0.7.3/) — 更低摩擦的开发命令自治、更完整的多语言质量能力、更可靠的 Context/Cache，以及 WebUI/Verification 稳定性修复。先 Push，CI 全绿后再创建 Tag。
 
 ## 0.7.x
 

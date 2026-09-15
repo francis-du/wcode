@@ -313,7 +313,7 @@ Coverage is returned as separate dimensions rather than one health score:
 
 `semantic_provider_status` scans the workspace and reports provider availability for every language already supported by wcode's syntax index: Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java, JavaScript, Lua, OCaml/interfaces, PHP, Python, R, Ruby, Rust, Swift, TypeScript, and TSX.
 
-v0.5 locks this into an explicit compatibility contract instead of treating “a provider name exists in the registry” as support. Every one of the 22 indexed languages has exactly one canonical launch profile, provider-specific arguments are unit-tested, and every canonical profile is exercised through a real spawned stdio mock-LSP `initialize` handshake on the Rust test matrix. Only real alternates remain. Runtime availability is still separate from compatibility: wcode never claims a server is runnable when its executable is missing or when live `initialize` fails. `semantic_provider_status` exposes whether the selected candidate is canonical and how many installed candidates are available.
+The current compatibility contract does not treat “a provider name exists in the registry” as support. Every one of the 22 indexed languages has exactly one canonical launch profile, provider-specific arguments are unit-tested, and every canonical profile is exercised through a real spawned stdio mock-LSP `initialize` handshake on the Rust test matrix. Only real alternates remain. Runtime availability is still separate from compatibility: wcode never claims a server is runnable when its executable is missing or when live `initialize` fails. `semantic_provider_status` exposes whether the selected candidate is canonical and how many installed candidates are available.
 
 | Language | Canonical LSP launch profile | Installed alternate |
 | --- | --- | --- |
@@ -321,7 +321,7 @@ v0.5 locks this into an explicit compatibility contract instead of treating “a
 | C / C++ | `clangd` | — |
 | C# | `csharp-ls` | — |
 | CSS | `vscode-css-language-server --stdio` | — |
-| Dart | `dart language-server --protocol=lsp --client-id wcode --client-version <version>` | — |
+| Dart | `dart language-server --client-id wcode --client-version <version>` | — |
 | Elixir | ElixirLS `language_server.sh` / `language_server.bat` (`elixir-ls` distro wrapper also recognized) | — |
 | Go | `gopls serve` | — |
 | HTML | `vscode-html-language-server --stdio` | — |
@@ -331,14 +331,14 @@ v0.5 locks this into an explicit compatibility contract instead of treating “a
 | OCaml / interface | `ocamllsp` | — |
 | PHP | `phpactor language-server` | `intelephense --stdio` |
 | Python | `pyright-langserver --stdio` | `pylsp` |
-| R | `R --no-echo -e languageserver::run()` | — |
+| R | `R --vanilla --no-echo -e languageserver::run()` | — |
 | Ruby | `ruby-lsp` | `solargraph stdio` |
 | Rust | `rust-analyzer` | — |
 | Swift | `sourcekit-lsp` | — |
 
 For providers with an alternate, both foreground navigation and manual semantic refresh can recover from a canonical provider that is installed but fails initialization. The alternate crosses its own normal trust boundary and successful refreshes report the switch in `fallbacks`; wcode never silently broadens one provider grant into another.
 
-The runtime automatically maintains providers that have an explicit hardened profile. It watches only the most-specific discovered project Workspaces, waits for a short stable-source window before refreshing, retries failures with bounded exponential backoff, and acquires the same global Harness semaphore as model-facing work. This prevents a broad root and its nested project subspaces from launching duplicate semantic indexing.
+The runtime automatically maintains only providers that have an explicit automatic hardening profile; currently `rust-analyzer` is that automatic profile. It watches only the most-specific discovered project Workspaces, waits for a short stable-source window before refreshing, retries failures with bounded exponential backoff, and acquires the same global Harness semaphore as model-facing work. This prevents a broad root and its nested project subspaces from launching duplicate semantic indexing.
 
 The Harness owns a bounded warm session pool keyed by Workspace, LSP server, and current binary identity; a live session is reused by both background indexing and foreground navigation. The coordinator periodically prunes idle unleased slots, capacity eviction never removes a leased slot, and an all-busy pool fails closed instead of temporarily exceeding its process bound. LSP binary replacement also waits for the active lease to finish before the old slot is dropped and a new one can start. `semantic_provider_refresh` remains available as a force-refresh surface.
 
@@ -358,11 +358,11 @@ The TUI Intelligence view separates installed `available`, policy/trust `launch-
 
 ### Language Quality Matrix
 
-Language support is a capability vector, not a checkbox. `language_quality_status` reuses the same 22-language surface and reports syntax, semantic, format, lint, type-check, static-analysis, test, security, Property, Mutation, Fuzz, and Runtime-Canary coverage separately. Repository manifests/configuration and package scripts define intent; known ecosystem tools may remain visible candidates but are not treated as repository policy until declared. Missing executables and missing dimensions remain explicit gaps.
+Language support is a capability vector, not a checkbox. `language_quality_status` reuses the same 22-language surface and reports syntax, semantic, format, lint, type-check, static-analysis, test, security, Property, Mutation, Fuzz, and Runtime-Canary coverage separately. Semantic counts as covered only after a real LSP initialization; executable discovery alone is not enough. Repository manifests/configuration and package scripts define intent, but only declared + available + check-only quality providers satisfy the matrix. Discovery-only scripts stay visible without manufacturing green coverage. One real provider can expose bounded secondary `covers` dimensions so a Dart analyzer or compiler/build check is not executed twice merely to fill two columns. Missing executables and missing dimensions remain explicit gaps.
 
-`language_quality_run` accepts one provider returned by the matrix and runs it only when the language is detected and the provider is repository-declared, available, and registered as check-only. The command still crosses the normal repository-aware authorization boundary. Formatter/fixer write modes are intentionally absent. The result is converted to a Verification Report and persisted as current code+design revision Evidence, so a historical green run never proves a later revision.
+`language_quality_run` accepts one provider returned by the matrix and runs it only when the language is detected and the provider is repository-declared, available, runnable, and registered as check-only. Exact approved shapes reuse the autonomous verification/development lane; other registered check-only providers use the bounded trusted-runtime lane rather than inventing a separate approval workflow. Formatter/fixer write modes are intentionally absent. The result is converted to a Verification Report and persisted as current code+design revision Evidence, so a historical green run never proves a later revision.
 
-Current provider families include native/check-mode Rust, Go, Dart, .NET, Maven/Gradle, Mix, Dune and SwiftPM flows plus repository-declared Ruff/mypy/Pyright/Bandit, Biome/ESLint/Stylelint/TypeScript, clang-format/clang-tidy, Checkstyle/SpotBugs/Spotless, Credo/Dialyzer, ShellCheck/shfmt, StyLua/Luacheck, PHPStan/Psalm/PHPUnit, lintr/testthat, RuboCop/RSpec and swift-format/SwiftLint. This describes registry capability, not host installation. See [language-quality.md](../language-quality/).
+Current provider families include native/check-mode Rust, Go, pure Dart/Flutter, Deno, .NET, Maven/Gradle, Mix, Dune and SwiftPM flows plus repository-declared Ruff/mypy/Pyright/Bandit, Prettier/Biome/ESLint/Stylelint/HTMLHint/TypeScript, clang-format/clang-tidy, Checkstyle/SpotBugs/Spotless, Credo/Dialyzer, ShellCheck/shfmt, StyLua/Luacheck, PHPStan/Psalm/PHPUnit, R styler/lintr/testthat, Ruby RuboCop/Standard/RSpec, and swift-format/SwiftLint. Scoped npm packages are matched by their literal package key rather than JSON-pointer paths; CSS/HTML plugins and Biome opt-ins must be explicit before those languages turn green. Deno dependency checks are frozen, R inline checks use `Rscript --vanilla`, and RuboCop lint is not duplicated as fake format coverage. This describes registry capability, not host installation. See [language-quality.md](../language-quality/).
 
 ### Graph history and diff
 
@@ -399,7 +399,7 @@ The plan can also require Property, Mutation, Fuzz, Runtime/Canary evidence, adv
 
 Verification Plan/Job state is persisted per workspace, so another wcode process or model executor can resume queued/claimed work. `verification_executor_status` reports the cross-language runner registry and whether each executable is actually available. `verification_execute_stages` runs every applicable available runner for a required stage (skipping only a producer whose latest Evidence already passes) and converts each real command result into persistent Stage Evidence; one runner failure is not hidden by another runner's later success. `verification_stage_submit` remains the provider-neutral adapter for CI/external systems. `verification_status` keeps the latest result per producer and aggregates fail-closed as `Fail > Disagree > Inconclusive > Pass`; a Plan also becomes stale when the workspace code revision changes after plan creation.
 
-Built-in discovery recognizes common ecosystems such as proptest/quickcheck/cargo-fuzz/cargo-mutants, Go property/fuzz tests, Hypothesis/mutmut, fast-check/Stryker, jqwik/PIT, FsCheck/.NET Stryker, SwiftCheck/Muter, StreamData, Glados, Rantly, Eris/Infection, QCheck, and R quickcheck when the corresponding project/tool is present. Those integrations are convenience adapters, not a closed list.
+Built-in discovery recognizes common ecosystems such as proptest/quickcheck/cargo-fuzz/cargo-mutants, Go property/fuzz tests, Hypothesis/mutmut, fast-check with fixed Vitest/Jest runners, jqwik/PIT, FsCheck/.NET Stryker, SwiftCheck/Muter, StreamData, Glados, Rantly, Eris/Infection, QCheck, and R quickcheck. Property adapters require both framework declaration and matching-language source usage; a dependency name alone is not proof that a Property suite exists. Arbitrary package scripts are never relabeled as Property or Mutation evidence. JS/TS Stryker remains an explicit `.wcode/executors.yaml` decision because Stryker configuration can execute repository JavaScript. Those integrations are convenience adapters, not a closed list.
 
 Every one of the 22 indexed languages can provide project-specific runners through `.wcode/executors.yaml` without changing wcode itself:
 

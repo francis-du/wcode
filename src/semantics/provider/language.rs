@@ -14,7 +14,7 @@ pub fn language_for_path(path: &str) -> Option<SemanticLanguage> {
         "gemfile" | "rakefile" | "guardfile" | "podfile" | "fastfile" | "appfile"
         | "deliverfile" | "brewfile" | "vagrantfile" => Some(SemanticLanguage::Ruby),
         _ => match extension.as_str() {
-            "sh" | "bash" | "zsh" | "ksh" | "command" => Some(SemanticLanguage::Bash),
+            "sh" | "bash" | "zsh" | "ksh" | "command" | "bats" => Some(SemanticLanguage::Bash),
             "c" | "h" => Some(SemanticLanguage::C),
             "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "h++" | "ipp" | "tpp" | "inl" => {
                 Some(SemanticLanguage::Cpp)

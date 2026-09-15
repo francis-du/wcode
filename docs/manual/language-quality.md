@@ -27,15 +27,17 @@ For every detected language, `language_quality_status` reports independent dimen
 
 - `syntax` — Tree-sitter parsing/navigation is available;
 - `semantic` — a first-party LSP session for the current provider binary has completed real initialization; executable presence alone is not enough;
-- `format` — a repository-declared or language-native check-only formatting provider exists;
-- `lint` — a repository-declared lint provider exists;
-- `type_check` — a repository-declared/native type checker exists;
-- `static_analysis` — deeper static analysis is available;
-- `test` — a repository-declared/native test provider exists;
-- `security` — a repository-declared security analyzer exists;
+- `format` — a repository-declared or language-native, available, check-only formatting provider exists;
+- `lint` — a repository-declared, available, check-only lint provider exists;
+- `type_check` — a repository-declared/native, available, check-only type checker exists;
+- `static_analysis` — deeper repository-declared/native, available, check-only static analysis is available;
+- `test` — a repository-declared/native, available, check-only test provider exists;
+- `security` — a repository-declared, available, check-only security analyzer exists;
 - `property`, `mutation`, `fuzz`, `runtime_canary` — advanced Verification Mesh stages.
 
-Missing dimensions are returned as explicit `gaps`. A parser or LSP candidate never upgrades the other dimensions automatically.
+Missing dimensions are returned as explicit `gaps`. A parser, executable candidate, or discovery-only package script never upgrades another dimension automatically.
+
+One real command may legitimately cover more than one dimension without being executed twice. A provider has one primary `capability` plus bounded `covers` dimensions. For example, `dart analyze` is one static-analysis invocation that also supplies lint and type-check coverage; PHPStan/Psalm and native compiler/build checks can similarly cover both static analysis and type checking.
 
 LSP state is deliberately staged: `available` means an LSP executable was found; `launch_ready` means execution policy and trust allow it to start; `session_validated` means that exact server binary completed LSP `initialize`; only then does semantic `runnable` become true. `semantic_provider_status` exposes these fields plus a concrete `action` such as `install_lsp`, `authorize_lsp`, or `initialize_lsp`. `language_quality_status.semantic_runnable` consumes the validated result.
 
@@ -46,7 +48,7 @@ A quality provider carries separate state:
 - `declared` — the repository opted into it through a manifest, dependency, config file, or native project convention;
 - `available` — the executable is actually available;
 - `runnable` — the workspace permits command execution and the provider is otherwise executable;
-- `authorization_required` — execution is ready but still needs the normal repository-aware authorization grant;
+- `authorization_required` — whether this registered provider still requires a separate approval step. Exact built-in quality shapes currently report false; arbitrary repository scripts remain discovery-only instead of being smuggled through this flag;
 - `check_only` — the registered command must not rewrite source;
 - `machine_format` — a known structured output format, when the provider invocation exposes one.
 
@@ -61,7 +63,9 @@ wcode should not impose one formatter or linter across ecosystems. Discovery pre
 - native project files such as `Cargo.toml`, `go.mod`, `pubspec.yaml`, `mix.exs`, `Package.swift`, Maven/Gradle projects, Dune projects, and .NET solutions/projects;
 - explicit quality configuration such as `.clang-format`, `.clang-tidy`, Biome/ESLint/Stylelint, `.rubocop.yml`, `.swift-format`, PHPStan/Psalm, `.ocamlformat`, `.shellcheckrc`, StyLua/Luacheck, etc.
 
-Known ecosystem tools may appear as candidates without being `declared`. A candidate is not treated as repository policy and cannot run through `language_quality_run` until the repository declares it. Repository package scripts are first-class discovery signals, but arbitrary script bodies are **not** automatically marked `check_only`; a script name such as `lint` or `format:check` cannot prove that the body will not mutate source. Those providers remain discovery-only in the strict lane unless wcode can statically guarantee the concrete command shape.
+Known ecosystem tools may appear as candidates without being `declared`. A candidate is not treated as repository policy and cannot run through `language_quality_run` until the repository declares it. Repository package scripts are first-class discovery signals, but arbitrary script bodies are **not** automatically marked `check_only`; a script name such as `lint`, `test`, or `format:check` cannot prove that the body will not mutate source. Discovery-only providers therefore do not satisfy the matrix's covered count unless wcode can statically guarantee the concrete command shape.
+
+For R, built-in inline quality checks use only the fixed `Rscript --vanilla -e <known-expression>` forms for lintr, styler dry-fail formatting, and testthat. This prevents workspace/user startup profiles from silently becoming part of an autonomous quality check. For Ruby, RuboCop remains a lint provider; the registry no longer labels the same RuboCop lint command as formatting coverage. Standard Ruby supplies combined lint/format coverage only when the repository explicitly declares it, and its default check command does not apply fixes.
 
 ## Current provider families
 
@@ -70,22 +74,24 @@ The registry can recognize check-only providers across the canonical surface, in
 | Language family | Examples of recognized quality providers |
 | --- | --- |
 | Rust | rustfmt, Clippy, `cargo check`, `cargo test`, optional repository-declared cargo-audit |
-| Go | gofmt diff, `go vet`, `go test`, optional Staticcheck/govulncheck |
-| Python | Ruff format/lint, mypy/Pyright, pytest, Bandit when declared |
-| JS / TS / TSX | repository package scripts, Biome, ESLint, `tsc --noEmit` |
-| CSS / HTML | repository package scripts, Biome, Stylelint for CSS |
-| C / C++ | clang-format dry-run, clang-tidy with compilation database |
-| C# | `dotnet format --verify-no-changes`, build/analyzers, test |
-| Java | Maven/Gradle lifecycle plus declared Checkstyle/SpotBugs/Spotless |
-| Dart | `dart format` check mode, `dart analyze`, `dart test` |
+| Go | gofmt diff, `go vet`, `go test` (test + type-check coverage), optional Staticcheck/govulncheck |
+| Python | Ruff format/lint via dependencies or `ruff.toml`/`.ruff.toml`, mypy via standard config files, Pyright, pytest, Bandit when declared |
+| JS / TS / TSX | Prettier check, Biome/ESLint, `tsc --noEmit`, fixed Vitest/Jest runners; Deno projects add native fmt/lint/frozen check/test plus frozen dependency audit |
+| CSS / HTML | Prettier; CSS Stylelint and plugin-aware ESLint/Biome; HTMLHint plus HTML-specific ESLint/Biome only when the required language plugin/experimental support is explicitly present |
+| C / C++ | clang-format dry-run; clang-tidy with a compilation database contributes static-analysis + type-check coverage because compiler semantic errors are part of its diagnostics |
+| C# | `dotnet format --verify-no-changes`, build/analyzers (static + type-check coverage), test |
+| Java | Maven compile / Gradle classes (type-check + static coverage), tests, plus declared Checkstyle/SpotBugs/Spotless; an unusable wrapper does not shadow a system Maven/Gradle binary |
+| Dart / Flutter | pure Dart uses `dart format` + `dart analyze` + `dart test`; Flutter projects keep Dart format but use `flutter analyze --no-pub` and `flutter test --no-pub` |
 | Elixir | Mix format/test plus declared Credo/Dialyzer |
 | Bash | declared ShellCheck/shfmt |
 | Lua | StyLua, Luacheck, Busted when declared |
 | OCaml | Dune build/runtest and `@fmt` with ocamlformat |
-| PHP | PHPStan, Psalm, PHPUnit, PHP CS Fixer dry-run |
-| R | lintr, testthat when declared |
-| Ruby | RuboCop/RSpec when declared |
-| Swift | SwiftPM tests plus declared swift-format/SwiftLint |
+| PHP | PHPStan/Psalm (type-check + static coverage), PHPUnit, PHP CS Fixer dry-run |
+| R | styler dry-fail formatting, lintr, testthat when declared; built-in expressions use `Rscript --vanilla` |
+| Ruby | RuboCop lint, Standard Ruby combined lint/format check, RSpec when declared |
+| Swift | `swift build` (type-check + static coverage), SwiftPM tests, declared swift-format/SwiftLint |
+
+Deno dependency-resolving verification uses `--frozen` so a check cannot silently refresh `deno.lock`; `deno audit --fix` stays outside the check-only lane because it rewrites dependency declarations and the lockfile. Workspace-local executables and Java build wrappers count as available only when they satisfy the same regular-file/single-link/executable checks used by the runtime.
 
 This table describes registry capability, not host availability. `language_quality_status` is the source of truth for one workspace.
 
@@ -98,14 +104,16 @@ This table describes registry capability, not host availability. `language_quali
 3. the repository must declare the provider;
 4. the executable must be available;
 5. the provider must be registered as check-only;
-6. repository-aware execution still passes through the normal trusted-runtime authorization boundary;
+6. exact approved shapes use the autonomous verification/development lane; other registered check-only providers use the bounded trusted-runtime lane without inventing a separate approval workflow;
 7. source-writing formatter/fixer modes are not exposed through this lane.
 
 The command result becomes a `VerificationReport`, and wcode persists the result as current code+design revision Evidence. A historical pass does not prove a later revision.
 
 ## Relationship to Verification Mesh
 
-Language Quality covers common repository quality gates. Property, Mutation, Fuzz, and Runtime-Canary remain provider-neutral advanced stages in the Verification Mesh and can come from built-in discovery or `.wcode/executors.yaml`.
+Language Quality covers common repository quality gates. Property, Mutation, Fuzz, and Runtime-Canary remain provider-neutral advanced stages in the Verification Mesh and can come from conservative built-in discovery or `.wcode/executors.yaml`.
+
+Built-in Property discovery requires both repository framework declaration and evidence that the framework is actually referenced from source of the matching language. JS/TS Property discovery additionally requires a known fixed Vitest/Jest runner; arbitrary `test` scripts are not Property evidence. JS/TS mutation is not inferred from `mutation`/`mutate` script names or executable Stryker configuration: because those scripts/configs can execute repository JavaScript, mutation remains an explicit executor configuration unless a future bounded adapter can prove its command contract. Mutation tools for other ecosystems are exposed only when the corresponding project type is present.
 
 A language therefore remains fully observable even when advanced-stage coverage is missing. Missing coverage is a gap to resolve, not a reason to claim the language is unsupported or to fabricate a passing stage.
 

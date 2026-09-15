@@ -246,7 +246,7 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     monitor.register_tunnel("pinggy", &url);
 
-    handle_standby_probe(
+    assert!(!handle_standby_probe(
         &mut leases,
         &[],
         StandbyProbeEvent {
@@ -255,10 +255,10 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
             result: Err("stale probe failure".to_owned()),
         },
         &monitor,
-    );
+    ));
     assert_eq!(leases[&url].failures(), 0);
 
-    handle_standby_probe(
+    assert!(!handle_standby_probe(
         &mut leases,
         &[],
         StandbyProbeEvent {
@@ -267,8 +267,31 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
             result: Err("current probe failure".to_owned()),
         },
         &monitor,
-    );
+    ));
     assert_eq!(leases[&url].failures(), 1);
+}
+
+#[test]
+fn quarantined_endpoint_revokes_after_failed_recovery_probe() {
+    let url = "https://stuck.example".to_owned();
+    let now = Instant::now();
+    let mut lease = StandbyHealthLease::verified(now);
+    lease.quarantine(now);
+    let epoch = lease.epoch();
+    let mut leases = HashMap::from([(url.clone(), lease)]);
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    monitor.register_tunnel("tailscale", &url);
+    assert!(handle_standby_probe(
+        &mut leases,
+        &[],
+        StandbyProbeEvent {
+            public_url: url.clone(),
+            lease_epoch: epoch,
+            result: Err("endpoint still unreachable".to_owned()),
+        },
+        &monitor,
+    ));
+    assert!(!leases[&url].eligible(Instant::now()));
 }
 
 #[test]

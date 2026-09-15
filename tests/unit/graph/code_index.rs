@@ -36,6 +36,49 @@ fn rust_outline_keeps_ast_and_qualifies_impl_methods() {
 }
 
 #[test]
+fn batch_symbol_resolution_matches_single_file_resolution_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("service.rs"),
+        "fn first() {}\nfn second() {}\nmod nested { pub fn second() {} }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let requested = vec![
+        "first".to_owned(),
+        "nested::second".to_owned(),
+        "second".to_owned(),
+        "missing".to_owned(),
+    ];
+    let resolved = index
+        .resolve_symbols(&workspace, "service.rs", &requested)
+        .unwrap();
+
+    assert_eq!(resolved["first"].as_ref().unwrap().qualified_name, "first");
+    assert_eq!(
+        resolved["nested::second"].as_ref().unwrap().qualified_name,
+        "nested::second"
+    );
+    assert_eq!(
+        resolved["second"].as_ref().unwrap().qualified_name,
+        "second"
+    );
+    assert!(resolved["missing"].is_none());
+    for requested_name in &requested {
+        let single = index
+            .resolve_symbol(&workspace, "service.rs", requested_name)
+            .unwrap();
+        let batch = resolved.get(requested_name).unwrap();
+        assert_eq!(
+            batch.as_ref().map(|resolution| resolution.id.as_str()),
+            single.as_ref().map(|resolution| resolution.id.as_str()),
+            "batch resolution changed single-symbol semantics for {requested_name}"
+        );
+    }
+}
+
+#[test]
 fn symbol_search_supports_multiple_languages_and_context() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
@@ -403,6 +446,11 @@ fn extensionless_script_names_are_detected() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("Rakefile"), "task :build do\nend\n").unwrap();
     fs::write(dir.path().join(".bashrc"), "load_env() { echo ready; }\n").unwrap();
+    fs::write(
+        dir.path().join("smoke.bats"),
+        "#!/usr/bin/env bats\n@test \"works\" { true; }\n",
+    )
+    .unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     let index = CodeIndex::new().unwrap();
 
@@ -415,6 +463,12 @@ fn extensionless_script_names_are_detected() {
     assert_eq!(
         index
             .file_outline("demo", &workspace, ".bashrc", 100)
+            .unwrap()["language"],
+        "bash"
+    );
+    assert_eq!(
+        index
+            .file_outline("demo", &workspace, "smoke.bats", 100)
             .unwrap()["language"],
         "bash"
     );

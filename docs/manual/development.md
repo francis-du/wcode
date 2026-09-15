@@ -48,6 +48,8 @@ Parallel-first execution is a core repository constraint, not optional guidance.
 
 Runtime collections are bounded. Fan-out count, individual/aggregate result bytes, model-facing read/write size, source scans, retained complete ASTs, Git review files/findings, traffic history, persistent state history, and per-path lock maps all have explicit limits. New caches must invalidate from real source/profile/provider revisions rather than request frequency.
 
+Verified-experience activation cache keys must cover complete normalized records and current guarded file membership, using the same input snapshot for invalidation and replay. Metadata-only membership checks cannot replace source SHA or verification proof. A browser's acknowledged revision must have been observed before the corresponding project request; stale cache responses cannot acknowledge a newer revision, and deferred refreshes must retain request/workspace-generation and visibility checks.
+
 The coding-context hot path optimizes both model cost and wall time:
 
 - `agent_context` is the default coding entry point and uses an explicit or adaptive bounded approximate token budget;

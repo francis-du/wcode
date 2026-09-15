@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration as StdDuration, Instant};
 
 const RUSTUP_COMPONENT_CACHE_TTL: StdDuration = StdDuration::from_secs(30);
+const RUSTUP_COMPONENT_PROBE_TIMEOUT: StdDuration = StdDuration::from_secs(2);
 type RustupComponentCacheKey = (PathBuf, PathBuf);
 type RustupComponentCache = HashMap<RustupComponentCacheKey, (Instant, bool)>;
 static RUSTUP_COMPONENT_CACHE: OnceLock<Mutex<RustupComponentCache>> = OnceLock::new();
@@ -111,7 +112,9 @@ pub(super) fn rustup_proxy_component_ready_uncached(
     else {
         return false;
     };
-    let deadline = Instant::now() + StdDuration::from_millis(750);
+    // rustup is a local probe, but cold filesystem/toolchain startup can exceed
+    // sub-second deadlines under a fully parallel verification run.
+    let deadline = Instant::now() + RUSTUP_COMPONENT_PROBE_TIMEOUT;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,

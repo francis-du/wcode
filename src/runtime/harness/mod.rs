@@ -42,7 +42,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
@@ -74,6 +75,8 @@ const MANIFEST_FILES: &[&str] = &[
     "Cargo.toml",
     "package.json",
     "tsconfig.json",
+    "deno.json",
+    "deno.jsonc",
     "pyproject.toml",
     "requirements.txt",
     "go.mod",
@@ -126,15 +129,22 @@ pub(crate) struct SemanticNavigationRequest {
     pub max_results: usize,
 }
 
+type RepoMapCacheKey = (PathBuf, String);
+type RepoMapCache = HashMap<RepoMapCacheKey, CachedRepoMapGraph>;
+type ValidationFlights<K> = HashMap<K, Weak<ValidationFlight>>;
+
 #[derive(Clone)]
 pub struct ToolHarness {
     slots: Arc<Semaphore>,
     execution_slots: Arc<Semaphore>,
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
+    project_flights: Arc<Mutex<ValidationFlights<PathBuf>>>,
     observatory_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectObservatory>>>,
     convention_cache: Arc<Mutex<HashMap<PathBuf, CachedConventionReport>>>,
-    repo_map_cache: Arc<Mutex<HashMap<(PathBuf, String), CachedRepoMapGraph>>>,
+    convention_flights: Arc<Mutex<ValidationFlights<PathBuf>>>,
+    repo_map_cache: Arc<Mutex<RepoMapCache>>,
+    repo_map_flights: Arc<Mutex<ValidationFlights<RepoMapCacheKey>>>,
     verification_cache: Arc<Mutex<harness_verification_cache::VerificationCache>>,
     code_index: CodeIndex,
     semantic_sessions: SemanticSessionPool,
@@ -222,6 +232,18 @@ struct CachedRepoMapGraph {
     fingerprint: u64,
     last_used: Instant,
     snapshot: Arc<SoftwareGraphSnapshot>,
+}
+
+#[derive(Default)]
+struct ValidationFlight {
+    gate: Mutex<()>,
+    generation: AtomicU64,
+    successful_generation: AtomicU64,
+    invalidation_revision: AtomicU64,
+    successful_revision: AtomicU64,
+    coalescible_callers: AtomicUsize,
+    #[cfg(test)]
+    entrants: AtomicU64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -542,6 +564,12 @@ mod harness_agent_context;
 
 #[path = "retrieval.rs"]
 mod harness_retrieval;
+
+#[path = "cache_flight.rs"]
+mod harness_cache_flight;
+
+#[path = "convention_cache.rs"]
+mod harness_convention_cache;
 
 #[path = "repo_map.rs"]
 mod harness_repo_map;

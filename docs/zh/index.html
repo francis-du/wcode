@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0812">
   <link rel="icon" href="../assets/wcode-icon.svg" type="image/svg+xml">
-  <meta name="description" content="给 AI 编程 Agent 一份真正的软件模型：架构、LSP 语义关系、变更影响、受控编辑、验证与持久证据，本地通过 MCP 提供。">
+  <meta name="description" content="给 AI 编程 Agent 一份真正的软件模型：架构、22 语言 Syntax/Quality 能力、真实初始化后的 LSP 语义关系、变更影响、受控编辑、验证与持久证据，本地通过 MCP 提供。">
   <meta property="og:title" content="wcode — Coding Agent 工程控制平面">
   <meta property="og:description" content="Agent 负责写代码；wcode 让它先理解系统、控制影响范围，并证明改动真的成立。">
   <meta property="og:type" content="website">
   <title>wcode — Coding Agent 工程控制平面</title>
   <link rel="alternate" hreflang="en" href="../">
   <link rel="alternate" hreflang="zh-CN" href="./">
-  <link rel="stylesheet" href="../assets/site.css?v=20260903-1">
+  <link rel="stylesheet" href="../assets/site.css?v=20260915-1">
   <script defer src="../assets/site.js"></script>
 </head>
 <body>
@@ -27,7 +27,9 @@
         <a href="#quickstart">快速开始</a>
         <a href="#clients">支持平台</a>
         <a href="../zh/docs/">文档 ↗</a>
+        <a href="#performance">并行与资源</a>
         <a href="#intelligence">仓库与工程状态</a>
+        <a href="#languages">多语言</a>
         <a href="#design">设计</a>
         <a href="#security">安全</a>
       </nav>
@@ -133,8 +135,20 @@
       <p class="matrix-note">“已验证配置格式”只表示 wcode 能安全合并项目文件，不代表该客户端的每个版本都完成过 OAuth 端到端测试。未知或带注释的配置结构会保持原样。</p>
     </section>
 
+    <section class="section section-shell" id="performance">
+      <div class="section-heading reveal"><div class="kicker">03 · 资源控制与 Harness</div><h2>短时并行拉满，持续运行保持有界。</h2><p>wcode 允许 I/O Fan-out 和短时多核 Burst；CPU、内存与子进程持续受压时才进入反馈控制。全局 Semaphore 与 Path-resource Scheduler 仍会确定性排序真实冲突。</p></div>
+      <div class="performance-grid">
+        <article class="performance-card reveal"><span>32 slots</span><h3>Burst-friendly 默认值</h3><p>I/O 可以并发，CPU 工作允许短时并行；Process、Git Probe、文件 I/O 与 Tool Slot 各自保留独立的有界容量和可观测等待。</p></article>
+        <article class="performance-card reveal"><span>2–128</span><h3><code>parallel_tools</code></h3><p>对已知独立任务做资源感知 Fan-out；重叠路径、父子目录、Move/Delete 与同文件 Edit 会在执行前构建依赖，不靠碰运气并发。</p></article>
+        <article class="performance-card reveal"><span>1 pass</span><h3>能 Bulk 就不拆调用</h3><p><code>read_files</code>、<code>search_many</code> 与批量 Edit 在输入已知时减少 MCP 往返和重复 Traversal；真正独立的未知任务再并行。</p></article>
+        <article class="performance-card reveal"><span>phased</span><h3>验证按成本分阶段</h3><p><code>verify_project</code> 先跑便宜的独立 Gate，再进入 Test、Clippy、Release Build，失败不把后续昂贵检查无意义启动。</p></article>
+      </div>
+      <div class="scheduler-flow reveal"><div><b>MCP 请求</b><small>queued</small></div><i>→</i><div><b>全局 Permit</b><small>running</small></div><i>→</i><div><b>Workspace Tool</b><small>bounded</small></div><i>→</i><div><b>Result + Metrics</b><small>completed / failed</small></div></div>
+      <div class="parallel-notes reveal"><p>冲突文件操作继续串行；写入仍保留 SHA-256 前置条件、路径安全检查与 Per-file Lock。</p><p>Composite Tool 不会拿着父级 Permit 再等待子任务 Permit，避免一槽配置下自锁。</p><p>TUI 的 Slots、Peak、Process/Git Queue 等数字来自真实 Permit 与队列状态，不制造并发数字。</p></div>
+    </section>
+
     <section class="section section-shell" id="intelligence">
-      <div class="section-heading reveal"><div class="kicker">03 · 仓库理解</div><h2>不只回答“代码在哪”，还要回答“这次修改意味着什么”。</h2><p>Repository Intelligence 只是 Engineering Control Plane 的理解层。它把目标架构、当前实现、真实 LSP 语义关系、Git 变更影响、风险、验证和证据组织成可复用的软件模型，让 Agent 和人都能在修改前后看懂项目。</p></div>
+      <div class="section-heading reveal"><div class="kicker">04 · 仓库理解</div><h2>不只回答“代码在哪”，还要回答“这次修改意味着什么”。</h2><p>Repository Intelligence 只是 Engineering Control Plane 的理解层。它把目标架构、当前实现、真实 LSP 语义关系、Git 变更影响、风险、验证和证据组织成可复用的软件模型，让 Agent 和人都能在修改前后看懂项目。</p></div>
       <div class="performance-grid">
         <article class="performance-card reveal"><span>01</span><h3>给 Agent 一张地图，而不是一堆文件</h3><p><code>agent_context</code> 按当前任务挑出真正相关的代码、设计、测试、编辑目标、活动任务和语义缺口。小改动保持小改动；跨模块任务才展开并行 Lane 和复杂度预算。</p></article>
         <article class="performance-card reveal"><span>02</span><h3>直接问跨文件语义关系</h3><p>文本搜索不够时，Warm LSP Session 提供 Reference、Caller、Implementation、Hover 和 Impact。wcode 会明确告诉 Agent 当前是 Syntax 还是 Semantic Precision；LSP 缺失、待授权或初始化失败都会给出下一步，而不是悄悄把文本搜索当成完整语义。</p></article>
@@ -142,13 +156,21 @@
         <article class="performance-card reveal"><span>04</span><h3>把“看起来没问题”变成证据</h3><p>确定性 Gate、语言原生检查、独立 Review 与高级 Verification Stage 都绑定当前 Code / Design Revision；旧版本的 Green 不会冒充当前代码的证明。</p></article>
       </div>
       <div class="scheduler-flow reveal"><div><b>设计状态</b><small>应该是什么</small></div><i>→</i><div><b>software_context</b><small>理解</small></div><i>→</i><div><b>影响 + 风险</b><small>决策</small></div><i>→</i><div><b>验证 + 证据</b><small>证明</small></div></div>
-      <div class="callout reveal"><strong>v0.5.2 · 更干净的 MCP 调用与更快的 Agent 工作流</strong><p>Tool Schema 隐藏服务端默认和低频调优字段，Agent Context 暴露 Dependency Lane 并行策略，<code>wcode setup</code> 成为一键本机配置入口，stdio 补齐标准人工授权，Verification 升级为 Revision / Target-aware。<a href="../zh/docs/releases/v0.5.2/">查看 v0.5.2 发布说明 ↗</a></p></div>
+      <div class="callout reveal"><strong>当前工作流 · Capability-first、Model-neutral</strong><p>Tool Definition 保持紧凑和稳定，<code>agent_context</code> 按任务自适应有界上下文，专业工具按需发现；仓库语义、权限和验证不会根据模型品牌分叉。目标是减少无用 Tool Definition 与全仓库 Dump，同时不隐藏 Precision 和 Verification Gap。<a href="../zh/docs/research-upgrades/">查看调研与测量边界 ↗</a></p></div>
       <div class="callout reveal"><strong>推荐调用顺序</strong><p>从 <code>agent_context(goal, scopes=...)</code> 开始，省略默认 / 可推导 MCP 参数，并按 <code>readiness / next_actions / parallelism</code> 执行。Host 支持时把独立工作拆成多个顶层 Tool Call 并发；输入明确时继续用 <code>read_files</code>、<code>search_many</code>、<code>apply_file_edits</code>，嵌套 <code>parallel_tools</code> 只做紧凑 Fan-out。改完后先执行 <code>review_changes</code> 与 <code>verify_project</code>，再按需进入更深 Drift / Impact / Risk / Evidence。<a href="../zh/docs/product-scopes/">产品范围文档 ↗</a> · <a href="../zh/docs/maintainability-review/">可维护性策略 ↗</a></p></div>
       <div class="parallel-notes reveal"><p>证据、验证、语义事实、图谱提供方版本/历史、收敛计划、MCP 任务与执行状态都按工作区持久化，运行时重启后仍可恢复。</p><p>22 种索引语言现在每一种都恰好拥有一个经过测试的 Canonical LSP Launch Profile，而且每个 Profile 都会真实 Spawn stdio Mock LSP 并完成 Initialize Handshake；PHP、Python、Ruby 保留显式 Installed-provider Alternate。Warm Session 会遵守每个 Server 声明的 Full/Incremental/None Document Sync Contract；后台 Graph Indexing 与前台 <code>semantic_navigation</code> 复用同一个 Session。Stale Semantic Fact 自动退出消费链，普通定位仍默认走 Syntax/Search。</p><p>属性测试、变异测试、模糊测试和运行时金丝雀使用跨语言执行器注册表，并按执行方采用失败关闭方式聚合证据。支持 MCP 2026 Tasks 扩展的客户端可把语义刷新和阶段执行作为可持久轮询任务执行；旧客户端或未显式启用的请求保持同步路径。</p></div>
     </section>
 
+    <section class="section section-shell" id="languages">
+      <div class="section-heading reveal"><div class="kicker">05 · 多语言质量</div><h2>22 种索引语言共用一套能力事实模型。</h2><p>语言支持不是“Rust 有、其他语言没有”的 Boolean。wcode 对每种检测到的语言分别报告 Syntax、真实 Initialize 后的 Semantic、Format、Lint、Type Check、Static Analysis、Test、Security 与高级 Verification；缺什么就明确显示什么。</p></div>
+      <div class="language-strip reveal" aria-label="22 种索引语言"><span>Bash</span><span>C</span><span>C++</span><span>C#</span><span>CSS</span><span>Dart</span><span>Elixir</span><span>Go</span><span>HTML</span><span>Java</span><span>JavaScript</span><span>Lua</span><span>OCaml</span><span>OCaml Interface</span><span>PHP</span><span>Python</span><span>R</span><span>Ruby</span><span>Rust</span><span>Swift</span><span>TypeScript</span><span>TSX</span></div>
+      <div class="scheduler-flow reveal"><div><b>Tree-sitter</b><small>22 语言 Syntax 基线</small></div><i>→</i><div><b>已验证 LSP</b><small>Initialize 后才算 Semantic</small></div><i>→</i><div><b>原生 Quality</b><small>declared · available · check-only</small></div><i>→</i><div><b>Verification</b><small>真实 Evidence 或显式 Gap</small></div></div>
+      <div class="parallel-notes reveal"><p>只发现 LSP Binary 不会变成 Semantic Coverage；非 Hardened Provider 继续需要显式 Trust，不会为了把表格填绿而自动执行。</p><p>一个真实命令可以覆盖多个 Dimension 而不重复跑：Dart/Flutter Analyze 同时贡献 Lint/Type/Static；clang-tidy 同时提供编译器 Type Diagnostic 与 Static Analysis；Go/PHP Analyzer 的组合 Coverage 也保持显式。</p><p>Deno Check/Test 使用 Frozen Dependency State；Scoped npm Package 与 CSS/HTML 插件按真实声明匹配。Package Script 只表示仓库意图，任意 Body 在未证明 Check-only 前不会变绿。</p></div>
+      <div class="callout reveal"><strong>真实生态能力，不靠标签冒充</strong><p>Deno、Flutter、HTMLHint、按插件识别的 ESLint/Biome、Python 标准配置、R <code>--vanilla</code> 与 Ruby Standard 都进入同一套事实模型；不可用或不安全的路径继续显示 Gap。<a href="../zh/docs/language-quality/">查看完整语言质量矩阵 ↗</a></p></div>
+    </section>
+
     <section class="section section-shell" id="design">
-      <div class="section-heading reveal"><div class="kicker">04 · 设计</div><h2>它是 Engineering Control Plane，不是模型宿主。</h2><p>wcode 让模型保持可替换，同时自己拥有协议、授权、Design State、仓库理解、受控修改、工具调度、验证证据、可观测和文件系统策略；这样能力可以演进，但不会绑定单一模型厂商或扩大本地信任边界。</p></div>
+      <div class="section-heading reveal"><div class="kicker">06 · 设计</div><h2>它是 Engineering Control Plane，不是模型宿主。</h2><p>wcode 让模型保持可替换，同时自己拥有协议、授权、Design State、仓库理解、受控修改、工具调度、验证证据、可观测和文件系统策略；这样能力可以演进，但不会绑定单一模型厂商或扩大本地信任边界。</p></div>
       <div class="architecture reveal" role="img" aria-label="wcode 架构图">
         <div class="arch-column arch-clients"><div class="arch-label">MCP 客户端</div><div class="arch-node"><span>✦</span><div><b>网页客户端</b><small>Grok · Claude · Vibe</small></div></div><div class="arch-node"><span>⌘</span><div><b>编程客户端</b><small>Qoder · Cursor · Cline</small></div></div><div class="arch-node"><span>◫</span><div><b>自托管</b><small>Open WebUI · LibreChat</small></div></div></div>
         <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
@@ -160,18 +182,18 @@
     </section>
 
     <section class="section section-shell protocol-section" id="protocol">
-      <div class="section-heading reveal"><div class="kicker">05 · 连接流程</div><h2>OAuth 是 MCP 体验的一部分。</h2><p>无需把长期 API Key 粘贴到任意第三方客户端。兼容客户端可直接从受保护的 MCP 地址发现授权服务器。</p></div>
+      <div class="section-heading reveal"><div class="kicker">07 · 连接流程</div><h2>OAuth 是 MCP 体验的一部分。</h2><p>无需把长期 API Key 粘贴到任意第三方客户端。兼容客户端可直接从受保护的 MCP 地址发现授权服务器。</p></div>
       <div class="sequence reveal"><div class="seq-head"><span>MCP 客户端</span><span>wcode /mcp</span><span>wcode OAuth</span><span>浏览器</span></div><div class="seq-row"><span class="seq-label">1 · 发现</span><i>POST /mcp</i><b>401 + resource_metadata</b><em></em></div><div class="seq-row"><span class="seq-label">2 · 元数据</span><i></i><b>/.well-known/…</b><em></em></div><div class="seq-row"><span class="seq-label">3 · 注册</span><i></i><b>POST /register · DCR</b><em></em></div><div class="seq-row"><span class="seq-label">4 · 授权</span><i></i><b>/authorize + PKCE</b><em>六位验证码</em></div><div class="seq-row"><span class="seq-label">5 · Token</span><i></i><b>POST /token</b><em></em></div><div class="seq-row success"><span class="seq-label">6 · 使用工具</span><i>Bearer + POST /mcp</i><b>tools/list · tools/call</b><em></em></div></div>
       <div class="callout reveal"><strong>为什么仍支持 DCR？</strong><p>新版 MCP 更偏向 Client ID Metadata Document，但保留 DCR 兼容路径。wcode 默认不抓取任意客户端提供的元数据 URL，以免新增 SSRF 和出站网络信任边界。</p></div>
     </section>
 
     <section class="section section-shell" id="security">
-      <div class="section-heading reveal"><div class="kicker">06 · 安全模型</div><h2>权限本身就是产品能力。</h2><p>模型不会继承整台电脑。路径、写入、命令、OAuth Token 和并发任务都经过明确边界。</p></div>
+      <div class="section-heading reveal"><div class="kicker">08 · 安全模型</div><h2>权限本身就是产品能力。</h2><p>模型不会继承整台电脑。路径、写入、命令、OAuth Token 和并发任务都经过明确边界。</p></div>
       <div class="security-grid"><article class="security-card reveal"><span>⌂</span><h3>工作区隔离</h3><p>模型只能看到当前选中的 Workspace Root：默认是当前目录，也可以由操作者显式选择其他 Root。父级穿越、符号链接别名、凭据/VCS 保护路径和非预期过宽 Root 默认拒绝；Full Access 是单独的显式操作决定，也不会暴露 Filesystem Root。</p></article><article class="security-card reveal"><span>↻</span><h3>防止陈旧写入</h3><p>编辑依赖 SHA-256 前置条件，写入保持原子和有界。删除走单独授权路径：只允许在本地 TUI 或受保护 WebUI 精确一次性批准后删除一个普通文件或空目录。</p></article><article class="security-card reveal"><span>⌘</span><h3>默认不使用 Shell</h3><p>命令以参数数组执行。高风险仓库操作默认失败关闭：操作者可以在本地 TUI 或受保护 WebUI 对精确操作做会话授权后重试；模型请求的非默认裸可执行程序名也会进入按工作区管理的待授权列表；<code>--allow-risky-exec</code> 是更宽的进程级预授权。</p></article><article class="security-card reveal"><span>◉</span><h3>OAuth + 配对</h3><p>PKCE 保护授权码；重定向地址受限；访问 Token 绑定资源；刷新 Token 轮换。</p></article><article class="security-card reveal"><span>◎</span><h3>来源校验</h3><p>请求包含 <code>Origin</code> 时必须匹配配置的公网 MCP 来源，降低 DNS Rebinding 风险。</p></article><article class="security-card reveal"><span>≋</span><h3>真实可观测</h3><p>TUI 显示真实排队、运行、完成、失败和槽位占用，不模拟智能体活动。</p></article></div>
     </section>
 
     <section class="section section-shell" id="reference">
-      <div class="section-heading reveal"><div class="kicker">07 · 统一文档</div><h2>只保留一套文档，不再拆成官网文档和 Wiki。</h2><p>快速开始、安全边界、客户端接入、CLI/MCP 参考手册、开发说明和发布说明统一进入同一套中英文文档。</p><p><a class="button button-primary" href="../zh/docs/">打开文档 →</a></p></div>
+      <div class="section-heading reveal"><div class="kicker">09 · 统一文档</div><h2>只保留一套文档，不再拆成官网文档和 Wiki。</h2><p>快速开始、安全边界、客户端接入、CLI/MCP 参考手册、开发说明和发布说明统一进入同一套中英文文档。</p><p><a class="button button-primary" href="../zh/docs/">打开文档 →</a></p></div>
       <div class="reference-layout legacy-reference">
         <aside class="reference-nav reveal" aria-label="文档章节"><a href="#tool-reference">MCP 工具</a><a href="#cli-reference">CLI 参数</a><a href="#diagnostics">诊断</a><a href="#faq">常见问题</a></aside>
         <div class="reference-body">
@@ -188,11 +210,11 @@
       </div>
     </section>
 
-    <section class="section section-shell sources-section"><div class="section-heading reveal"><div class="kicker">08 · 参考资料</div><h2>每项能力都能回到客户端文档核对。</h2><p>客户端配置会随版本变化。标记为“配置已测”的条目经过本地格式测试；其他条目只陈述链接文档明确支持的能力。</p></div><div id="sourceList" class="source-list reveal"></div></section>
+    <section class="section section-shell sources-section"><div class="section-heading reveal"><div class="kicker">10 · 参考资料</div><h2>每项能力都能回到客户端文档核对。</h2><p>客户端配置会随版本变化。标记为“配置已测”的条目经过本地格式测试；其他条目只陈述链接文档明确支持的能力。</p></div><div id="sourceList" class="source-list reveal"></div></section>
 
     <section class="cta section-shell reveal"><div><div class="kicker">开始使用</div><h2>在仓库里启动 wcode。<br>连接你已经在用的客户端。</h2></div><div class="cta-actions"><a class="button button-primary" href="https://github.com/francis-du/wcode">查看 GitHub ↗</a><div class="code-block compact-code" data-copy="curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh"><button class="copy-button" type="button">复制</button><code>curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh</code></div></div></section>
   </main>
 
-  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><img class="brand-mark" src="../assets/wcode-icon.svg" alt=""><span>code</span></div><p>Apache-2.0 · 作者 <a href="https://github.com/francis-du">@francis-du</a></p><p>stdio · Streamable HTTP + OAuth · 旧版 SSE · 更新于 2026-09-01</p></div></footer>
+  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><img class="brand-mark" src="../assets/wcode-icon.svg" alt=""><span>code</span></div><p>Apache-2.0 · 作者 <a href="https://github.com/francis-du">@francis-du</a></p><p>stdio · Streamable HTTP + OAuth · 旧版 SSE · 中英文统一文档</p></div></footer>
 </body>
 </html>

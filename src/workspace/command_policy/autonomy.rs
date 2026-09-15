@@ -1,79 +1,102 @@
 use super::*;
 
 pub(super) fn validate_python_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    match args {
-        [flag, module, ..]
-            if flag == "-m"
-                && matches!(
-                    module.as_str(),
-                    "pytest" | "unittest" | "compileall" | "mypy" | "pyright" | "ruff"
-                ) =>
-        {
-            Ok(())
-        }
-        [script, ..]
-            if !script.starts_with('-')
-                && script.ends_with(".py")
-                && !script.split(['/', '\\']).any(|part| part == "..") =>
-        {
-            Ok(())
-        }
-        [flag, ..] if matches!(flag.as_str(), "-c" | "-" | "-i") => {
-            bail!("inline or interactive Python execution is blocked; execute a workspace script or approved module instead")
-        }
-        _ => require_risky_exec("python interpreter execution", allow_risky_exec),
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "-c" | "-" | "-i"))
+    {
+        bail!("inline or interactive Python execution is blocked; execute a workspace script or module instead");
     }
-}
-
-pub(super) fn validate_node_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if args.first().is_some_and(|arg| {
-        arg == "--test" || arg.starts_with("--test=") || arg == "--check" || arg == "-c"
+    if let Some(index) = args.iter().position(|arg| arg == "-m") {
+        let Some(module) = args.get(index + 1) else {
+            bail!("python -m requires a module name");
+        };
+        if matches!(module.as_str(), "pip" | "ensurepip") {
+            return require_risky_exec("Python environment package management", allow_risky_exec);
+        }
+        return Ok(());
+    }
+    if args.iter().any(|arg| {
+        !arg.starts_with('-')
+            && [".py", ".pyw"]
+                .iter()
+                .any(|suffix| arg.to_ascii_lowercase().ends_with(suffix))
     }) {
         return Ok(());
     }
-    match args.first().map(String::as_str) {
-        Some("-e" | "--eval" | "-p" | "--print" | "-i" | "--interactive") => {
-            bail!("inline or interactive Node execution is blocked; execute a workspace script or test instead")
-        }
-        Some(script)
-            if !script.starts_with('-')
-                && [".js", ".mjs", ".cjs"]
-                    .iter()
-                    .any(|suffix| script.ends_with(suffix)) =>
-        {
-            Ok(())
-        }
-        _ => require_risky_exec("node interpreter execution", allow_risky_exec),
+    require_risky_exec("python interpreter execution", allow_risky_exec)
+}
+
+pub(super) fn validate_node_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    if args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "-e" | "--eval" | "-p" | "--print" | "-i" | "--interactive"
+        )
+    }) {
+        bail!("inline or interactive Node execution is blocked; execute a workspace script or test instead");
     }
+    if args
+        .iter()
+        .any(|arg| arg == "--test" || arg.starts_with("--test="))
+    {
+        return Ok(());
+    }
+    if args.iter().any(|arg| {
+        !arg.starts_with('-')
+            && [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"]
+                .iter()
+                .any(|suffix| arg.to_ascii_lowercase().ends_with(suffix))
+    }) {
+        return Ok(());
+    }
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--check" | "-c"))
+    {
+        return Ok(());
+    }
+    require_risky_exec("node interpreter execution", allow_risky_exec)
 }
 
 pub(super) fn validate_dart_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if args_equal(args, &["analyze"])
-        || args_equal(args, &["test"])
-        || args_equal(
-            args,
-            &["format", "-o", "none", "--set-exit-if-changed", "."],
-        )
-    {
-        Ok(())
-    } else {
-        require_risky_exec("Dart project execution", allow_risky_exec)
+    let Some(command) = args.first().map(String::as_str) else {
+        bail!("dart requires an explicit project command");
+    };
+    match command {
+        "analyze" | "test" | "format" | "run" | "compile" | "fix" | "create" => Ok(()),
+        "pub" => match args.get(1).map(String::as_str) {
+            Some("get" | "upgrade" | "downgrade" | "add" | "remove" | "outdated" | "deps") => {
+                Ok(())
+            }
+            Some("token") => bail!(
+                "dart pub token is blocked because credential flows must remain operator-owned"
+            ),
+            Some("publish" | "global" | "uploader") => require_risky_exec(
+                &format!("Dart pub externally consequential operation: {}", args[1]),
+                allow_risky_exec,
+            ),
+            Some("cache") => require_risky_exec("Dart pub cache operation", allow_risky_exec),
+            Some(_) => Ok(()),
+            None => bail!("dart pub requires an explicit subcommand"),
+        },
+        "devtools" => Ok(()),
+        _ => Ok(()),
     }
 }
 
 pub(super) fn validate_flutter_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if safe_flutter_verification(args)
-        || matches!(
-            args.first().map(String::as_str),
-            Some("run" | "devices" | "doctor")
-        )
+    if matches!(args, [first, second, ..] if first == "pub" && matches!(second.as_str(), "publish" | "global"))
     {
-        return Ok(());
+        return require_risky_exec("Flutter remote/global package operation", allow_risky_exec);
     }
-    if matches!(args, [first, second, ..] if first == "pub" && second == "publish") {
-        bail!("flutter pub publish is blocked because it can mutate a remote package registry");
+    if matches!(
+        args.first().map(String::as_str),
+        Some("upgrade" | "channel" | "config" | "precache")
+    ) {
+        return require_risky_exec("Flutter host toolchain operation", allow_risky_exec);
     }
-    require_risky_exec("Flutter project execution", allow_risky_exec)
+    Ok(())
 }
 
 pub(super) fn safe_flutter_verification(args: &[String]) -> bool {
@@ -134,39 +157,46 @@ fn safe_flutter_file_reporter(arg: &str) -> bool {
 }
 
 pub(super) fn validate_mix_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if args_equal(args, &["format", "--check-formatted"])
-        || args_equal(args, &["compile", "--warnings-as-errors"])
-        || args_equal(args, &["test"])
-        || args
-            .first()
-            .is_some_and(|task| matches!(task.as_str(), "run" | "iex"))
+    let task = args.first().map(String::as_str).unwrap_or_default();
+    if matches!(task, "hex.publish" | "hex.user" | "hex.organization")
+        || matches!(task, "local.hex" | "local.rebar")
     {
-        Ok(())
+        require_risky_exec("Mix remote/global operation", allow_risky_exec)
     } else {
-        require_risky_exec("Mix project execution", allow_risky_exec)
+        Ok(())
     }
 }
 
-pub(super) fn validate_dune_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if args_equal(args, &["build"])
-        || args_equal(args, &["runtest"])
-        || args_equal(args, &["build", "@fmt"])
-        || args.first().is_some_and(|task| task == "exec")
-    {
-        Ok(())
-    } else {
-        require_risky_exec("Dune project execution", allow_risky_exec)
+pub(super) fn validate_dune_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
+    if args.first().is_some_and(|task| task == "exec") {
+        if let Some(program) = args.get(1) {
+            super::project_tools::validate_wrapped_development_program(program)?;
+        }
     }
+    Ok(())
 }
 
 pub(super) fn validate_bundle_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    if args_equal(args, &["exec", "rubocop", "--format", "json"])
-        || args_equal(args, &["exec", "rspec"])
-        || args.first().is_some_and(|task| task == "exec")
-    {
-        Ok(())
-    } else {
-        require_risky_exec("Bundler project execution", allow_risky_exec)
+    match args.first().map(String::as_str) {
+        Some("exec") => {
+            let Some(program) = args.get(1) else {
+                bail!("bundle exec requires a project executable");
+            };
+            super::project_tools::validate_wrapped_development_program(program)
+        }
+        Some("config")
+            if args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "--global" | "global")) =>
+        {
+            require_risky_exec("Bundler global configuration", allow_risky_exec)
+        }
+        Some("gem") | Some("install") | Some("update") | Some("add") | Some("remove")
+        | Some("lock") | Some("cache") | Some("package") | Some("check") | Some("list")
+        | Some("show") | Some("outdated") | Some("platform") | Some("doctor") | Some("clean")
+        | Some("config") => Ok(()),
+        None => Ok(()),
+        _ => Ok(()),
     }
 }
 
@@ -175,17 +205,14 @@ pub(super) fn validate_php_quality_command(
     args: &[String],
     allow_risky_exec: bool,
 ) -> Result<()> {
-    let safe = match program {
-        "phpstan" => args_equal(args, &["analyse", "--error-format=json"]),
-        "psalm" => args_equal(args, &["--output-format=json"]),
-        "phpunit" => args.is_empty(),
-        "php-cs-fixer" => args_equal(args, &["fix", "--dry-run", "--diff"]),
-        _ => false,
-    };
-    if safe {
-        Ok(())
+    if program == "php-cs-fixer"
+        && args
+            .first()
+            .is_some_and(|command| matches!(command.as_str(), "self-update" | "selfupdate"))
+    {
+        require_risky_exec("PHP CS Fixer self-update", allow_risky_exec)
     } else {
-        require_risky_exec("PHP quality-tool execution", allow_risky_exec)
+        Ok(())
     }
 }
 
@@ -242,9 +269,44 @@ pub(in crate::workspace) fn command_requires_workspace_write(
         "biome" => args
             .iter()
             .any(|arg| matches!(arg.as_str(), "--write" | "--fix") || arg.starts_with("--write=")),
-        "deno" => {
-            args.first().is_some_and(|arg| arg == "fmt") && !args.iter().any(|arg| arg == "--check")
-        }
+        "deno" => match args.first().map(String::as_str) {
+            Some("fmt") => !args.iter().any(|arg| arg == "--check"),
+            Some("lint") => args.iter().any(|arg| arg == "--fix"),
+            Some("audit") => args.iter().any(|arg| arg == "--fix"),
+            Some("check" | "run") => !args.iter().any(|arg| arg == "--frozen"),
+            Some("test") => {
+                !args.iter().any(|arg| arg == "--frozen")
+                    || args.iter().any(|arg| {
+                        matches!(
+                            arg.as_str(),
+                            "--update-snapshots" | "-u" | "--coverage" | "--junit-path"
+                        ) || arg.starts_with("--coverage=")
+                            || arg.starts_with("--junit-path=")
+                    })
+            }
+            Some("task") => true,
+            _ => false,
+        },
+        "dart" => match args.first().map(String::as_str) {
+            Some("run" | "compile" | "create") => true,
+            Some("format") => {
+                let check_only = args
+                    .iter()
+                    .any(|arg| matches!(arg.as_str(), "--output=none" | "-o=none"))
+                    || args.windows(2).any(|pair| {
+                        matches!(pair, [flag, value] if matches!(flag.as_str(), "-o" | "--output") && value == "none")
+                    });
+                !check_only
+            }
+            Some("fix") => args.iter().any(|arg| arg == "--apply"),
+            Some("pub") => args.get(1).is_some_and(|subcommand| {
+                matches!(
+                    subcommand.as_str(),
+                    "get" | "upgrade" | "downgrade" | "add" | "remove"
+                )
+            }),
+            _ => false,
+        },
         "uv" => args.first().is_some_and(|arg| {
             matches!(arg.as_str(), "format" | "lock" | "sync" | "add" | "remove")
         }),
@@ -253,9 +315,29 @@ pub(in crate::workspace) fn command_requires_workspace_write(
                 && args.get(1).is_some_and(|action| action == "tidy")
         }
         "npm" | "pnpm" | "yarn" | "bun" => args.first().is_some_and(|command| {
-            command == "ci"
-                || command == "install" && args.iter().skip(1).all(|arg| arg.starts_with('-'))
+            matches!(
+                command.as_str(),
+                "ci" | "install"
+                    | "add"
+                    | "remove"
+                    | "uninstall"
+                    | "update"
+                    | "run"
+                    | "start"
+                    | "build"
+            ) || matches!(program, "yarn" | "bun" | "pnpm")
+                && super::project_tools::is_autonomous_repository_task(command)
         }),
+        "make" | "just" | "task" | "mix" | "dune" | "bundle" | "cmake" | "ninja" | "mvn"
+        | "gradle" | "swift" | "zig" | "pre-commit" | "act" | "bazel" | "bazelisk" | "buck2"
+        | "pants" | "meson" | "ctest" | "sbt" | "lein" | "rebar3" | "poetry" | "pdm" | "hatch"
+        | "tox" | "nox" | "nx" | "turbo" | "vite" | "webpack" | "rollup" | "esbuild" | "tsup"
+        | "parcel" | "rspack" | "rolldown" | "rake" | "cabal" | "stack" => true,
+        "flutter" => !matches!(args.first().map(String::as_str), Some("devices" | "doctor")),
+        "dotnet" => !matches!(
+            args.first().map(String::as_str),
+            Some("list" | "--info" | "--list-sdks" | "--list-runtimes")
+        ),
         program if super::language_tools::language_tool_writes_workspace(program, args) => true,
         _ => false,
     }

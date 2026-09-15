@@ -108,7 +108,8 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.activitySnapshot = null; state.activityUpdated = 0; state.activityError = false;
   if (els.projectNavigator) els.projectNavigator.value = "";
   if (els.navigatorResults) els.navigatorResults.classList.add("hidden");
-  state.tunnelSnapshot = null; state.tunnelBusy = false;
+  cancelTunnelRefresh(); state.tunnelSnapshot = null;
+  setHtml("tunnels", els.tunnels, "");
   state.access = null; state.workspaceAccess = null; state.authorizations = [];
   state.accessLoaded = false; state.accessEpoch++; state.semanticRefreshPending = false;
   els.search.value = ""; els.componentSearch.value = "";
@@ -125,7 +126,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   }
   renderAccess(true);
 }
-const revisionKey = (revision) => `${revision.fingerprint || "full"}|${revision.graph_revision || ""}|${revision.proof_revision || ""}|${revision.engineering_revision || ""}`;
+const revisionKey = (revision) => `${revision.fingerprint || "full"}|${revision.graph_signal || revision.graph_revision || ""}|${revision.proof_revision || ""}|${revision.engineering_revision || ""}`;
 async function refreshProject({ workspace, reason = "auto", force = false, revision, preferCached = false } = {}) {
   if (workspace !== undefined && workspace !== state.current) {
     cacheWorkspaceSnapshot();
@@ -148,10 +149,11 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     signal: controller.signal,
     headers: preferCached ? { "X-Wcode-Prefer-Cached": "1" } : undefined,
   };
+  // Only acknowledge a revision observed before this project request. A
+  // parallel/late signal can describe edits that this snapshot never included.
+  const observedKey = revision ? revisionKey(revision) : state.revisionKey;
   setSync("loading", t("Refreshing project state…"));
   try {
-    let observed = revision;
-    const revisionRequest = observed ? null : uiJson("/intelligence/revision", "GET", undefined, options).catch(() => null);
     const data = await uiJson("/intelligence/project", "GET", undefined, options);
     if (!current() || controller.signal.aborted) return false;
     if (typeof data.workspace !== "string" || (selectedWorkspace && data.workspace !== selectedWorkspace)) throw new Error("Workspace response mismatch");
@@ -159,7 +161,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     if (data.snapshot_pending === true) {
       setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
       setTimeout(() => {
-        if (selectedWorkspace === state.current) {
+        if (current() && !controller.signal.aborted && !document.hidden) {
           void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
         }
       }, 0);
@@ -170,28 +172,21 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     state.project = data; state.current = data.workspace;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
     state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false;
-    // Render the usable project snapshot as soon as it is ready. The initial
-    // revision signal runs concurrently and only seeds the later poll baseline;
-    // a late response is generation/workspace checked before it can mutate state.
-    state.revisionKey = observed ? revisionKey(observed) : null;
+    // Render immediately. Without an earlier baseline, the next revision poll
+    // conservatively rebuilds once; a cached response never certifies freshness.
+    state.revisionKey = cachedResponse ? null : observedKey;
     if (state.selected && !data.requirements?.some(r => r.id === state.selected)) state.selected = "";
     renderProject(force);
     cacheWorkspaceSnapshot();
     if (cachedResponse) {
       setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
       setTimeout(() => {
-        if (selectedWorkspace === state.current) {
+        if (current() && !controller.signal.aborted && !document.hidden) {
           void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
         }
       }, 0);
     } else {
       setSync("ok", localized("Snapshot up to date", "快照已更新"));
-    }
-    if (revisionRequest) {
-      void revisionRequest.then(nextRevision => {
-        if (!nextRevision || !current() || controller.signal.aborted) return;
-        state.revisionKey = revisionKey(nextRevision);
-      });
     }
     return true;
   } catch (error) {
@@ -431,6 +426,7 @@ document.addEventListener("visibilitychange", () => {
   clearTimeout(state.timer); state.timer = null;
   clearTimeout(state.activityTimer); state.activityTimer = null;
   if (document.hidden) {
+    cancelTunnelRefresh();
     state.pollController?.abort(); state.activityController?.abort(); state.controller?.abort();
   } else if (state.autoRefresh) {
     void refreshTick(); void activityTick();

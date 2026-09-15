@@ -3,6 +3,7 @@ use crate::reconcile::ReconciliationExecution;
 use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -66,23 +67,16 @@ pub(crate) fn load(
     workspace: &Workspace,
     plan_id: &str,
 ) -> Result<Option<ReconciliationExecution>> {
-    if plan_id.trim().is_empty()
-        || plan_id.len() > 160
-        || plan_id.contains('/')
-        || plan_id.contains('\\')
-    {
-        bail!("reconciliation plan id is invalid");
-    }
+    validate_plan_id(plan_id)?;
     let directory = execution_directory(workspace)?;
     if !directory.exists() {
         return Ok(None);
     }
-    let prefix = format!("-{plan_id}-");
     for path in execution_paths(&directory)?.into_iter().rev() {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.contains(&prefix) {
+        if execution_snapshot_plan_id(name) != Some(plan_id) {
             continue;
         }
         if let Some(execution) = read_execution(&path)? {
@@ -94,6 +88,46 @@ pub(crate) fn load(
     Ok(None)
 }
 
+pub(crate) fn load_many(
+    workspace: &Workspace,
+    plan_ids: &[String],
+) -> Result<BTreeMap<String, ReconciliationExecution>> {
+    let mut remaining = BTreeSet::new();
+    for plan_id in plan_ids {
+        validate_plan_id(plan_id)?;
+        remaining.insert(plan_id.clone());
+    }
+    if remaining.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let directory = execution_directory(workspace)?;
+    if !directory.exists() {
+        return Ok(BTreeMap::new());
+    }
+    let mut found = BTreeMap::new();
+    for path in execution_paths(&directory)?.into_iter().rev() {
+        if remaining.is_empty() {
+            break;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(plan_id) = execution_snapshot_plan_id(name) else {
+            continue;
+        };
+        if !remaining.contains(plan_id) {
+            continue;
+        }
+        let Some(execution) = read_execution(&path)? else {
+            continue;
+        };
+        if remaining.remove(&execution.plan_id) {
+            found.insert(execution.plan_id.clone(), execution);
+        }
+    }
+    Ok(found)
+}
+
 pub(crate) fn capabilities() -> serde_json::Value {
     serde_json::json!({
         "persistent": true,
@@ -102,6 +136,24 @@ pub(crate) fn capabilities() -> serde_json::Value {
         "max_snapshots": MAX_EXECUTION_SNAPSHOTS,
         "max_snapshot_bytes": MAX_EXECUTION_BYTES
     })
+}
+
+fn validate_plan_id(plan_id: &str) -> Result<()> {
+    if plan_id.trim().is_empty()
+        || plan_id.len() > 160
+        || plan_id.contains('/')
+        || plan_id.contains('\\')
+    {
+        bail!("reconciliation plan id is invalid");
+    }
+    Ok(())
+}
+
+fn execution_snapshot_plan_id(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".json")?;
+    let (_, rest) = stem.split_once('-')?;
+    let (plan_id, digest) = rest.rsplit_once('-')?;
+    (!plan_id.is_empty() && !digest.is_empty()).then_some(plan_id)
 }
 
 fn execution_directory(workspace: &Workspace) -> Result<PathBuf> {

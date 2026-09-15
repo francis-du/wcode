@@ -44,15 +44,17 @@ fn query_anchors(query: &str) -> Vec<Anchor> {
             };
             let path = path.replace('\\', "/");
             let filename = path.rsplit('/').next()?;
-            let extension = filename.rsplit_once('.')?.1.to_ascii_lowercase();
-            if ![
-                "rs", "py", "js", "jsx", "ts", "tsx", "go", "c", "cc", "cpp", "h", "hpp", "cs",
-                "java", "kt", "kts", "swift", "rb", "php", "lua", "ex", "exs", "sh", "bash",
-                "dart", "ml", "mli", "r", "html", "css", "json", "toml", "yaml", "yml", "md",
-                "txt", "env", "ini", "cfg", "xml", "sql", "vue", "svelte",
+            let extension = filename
+                .rsplit_once('.')
+                .map(|(_, extension)| extension.to_ascii_lowercase())
+                .unwrap_or_default();
+            let canonical_source = crate::semantic_provider::language_for_path(&path).is_some();
+            let auxiliary_source_or_config = [
+                "kt", "kts", "scala", "vue", "svelte", "json", "jsonc", "toml", "yaml", "yml",
+                "md", "txt", "env", "ini", "cfg", "xml", "sql", "proto", "graphql", "gql",
             ]
-            .contains(&extension.as_str())
-            {
+            .contains(&extension.as_str());
+            if !canonical_source && !auxiliary_source_or_config {
                 return None;
             }
             if !seen.insert((path.clone(), line)) {
@@ -107,6 +109,7 @@ pub(super) fn build_context(
     harness: &ToolHarness,
     workspace_id: &str,
     workspace: &Workspace,
+    known_checks: &HashSet<String>,
     request: &SoftwareContextRequest,
 ) -> Result<(SoftwareContext, Vec<Value>)> {
     let mut symbols = Vec::new();
@@ -117,12 +120,11 @@ pub(super) fn build_context(
         &request.query,
         &mut symbols,
     )?;
-    let known_checks = harness.known_checks(workspace)?;
     let context = harness.intelligence.software_context_with_symbols(
         workspace_id,
         workspace,
         &harness.code_index,
-        &known_checks,
+        known_checks,
         request,
         (!anchors.is_empty()).then_some(symbols.as_slice()),
     )?;
@@ -315,3 +317,7 @@ pub(super) fn merge(pack: &mut Value, mut records: Vec<Value>) {
         "guidance": "Locations are inspection anchors, not proven root causes. Missing or blocked anchors do not justify editing unrelated files."
     });
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/context_anchors.rs"]
+mod tests;

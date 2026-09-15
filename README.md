@@ -61,6 +61,7 @@ Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, Kiro, OpenCode, and 
 - [中文文档](https://wcode.francis.run/zh/docs/)
 - [Agent and MCP setup](https://wcode.francis.run/docs/code-agent-integrations/)
 - [Repository Intelligence & Engineering State](https://wcode.francis.run/docs/software-intelligence/)
+- [v0.7.3 — autonomous development, broader polyglot quality, stronger reliability](https://wcode.francis.run/docs/releases/v0.7.3/)
 - [v0.7.2 — clearer observability, model-efficient tools, precise verification](https://wcode.francis.run/docs/releases/v0.7.2/)
 - [v0.7.1 — resilient tunnels, real-time project loading, stronger parallel execution](https://wcode.francis.run/docs/releases/v0.7.1/)
 - [Releases](https://github.com/francis-du/wcode/releases)
@@ -206,15 +207,20 @@ wcode exposes a compact set of repository operations, not a remote shell:
 - make atomic, SHA-256-guarded edits inside the selected Workspace;
 - review the current Git change, map impact, and derive risk;
 - run project checks under a no-shell command policy;
+- expose an explicit per-language quality matrix across syntax, initialized semantics, format, lint, type checking, static analysis, tests, security, and advanced verification;
 - persist Design State, Software Graph revisions, Verification Plans, and Evidence.
 
 The syntax index covers Bash, C, C++, C#, CSS, Dart, Elixir, Go, HTML, Java,
 JavaScript, Lua, OCaml, OCaml Interface, PHP, Python, R, Ruby, Rust, Swift,
-TypeScript, and TSX. v0.5 gives every one of those 22 languages exactly one
-tested canonical LSP launch profile; PHP, Python, and Ruby also keep bounded
+TypeScript, and TSX. Every one of those 22 languages has exactly one tested
+canonical LSP launch profile; PHP, Python, and Ruby also keep bounded
 installed-provider fallbacks when the canonical server fails initialization.
-Hardened first-party LSP semantics are enabled by default when an eligible server is installed; the first automatic profile is `rust-analyzer`. Automatic workers stay bounded, run only for the most-specific
-project Workspaces, and keep stale semantic revisions out of graph consumers.
+Finding an LSP executable is not reported as semantic coverage: the exact server
+must initialize successfully for the selected Workspace. Only provider profiles
+with an explicitly hardened automatic-execution contract may start without
+additional trust; today that automatic profile begins with `rust-analyzer`.
+Automatic workers stay bounded, run only for the most-specific project
+Workspaces, and keep stale semantic revisions out of graph consumers.
 A bounded warm session is reused across indexing and `semantic_navigation`; document
 sync follows each server's advertised LSP Full / Incremental / None policy instead of
 assuming one `didOpen` / `didChange` shape for every language. Agents keep
@@ -223,6 +229,15 @@ cross-file references, callers, implementations, and semantic impact. Use
 `--no-semantic` to disable every first-party LSP server. LSP servers without an automatic safety profile retain explicit execution trust. Semantic precision
 is reported only after a real server answers for the current source revision;
 otherwise wcode says `precision=syntax`.
+
+Language quality is capability-based rather than Rust-centric. The same status
+model covers all 22 languages and reports real repository-declared providers for
+format, lint, type checking, static analysis, tests, security, and advanced
+Verification stages. One check can cover multiple dimensions without running
+twice—for example Dart analysis also contributes lint/type coverage, while
+native compiler/build checks can contribute static/type coverage. Discovery-only
+package scripts do not make the matrix green, and missing tooling remains an
+explicit gap. See [Language Quality](https://wcode.francis.run/docs/language-quality/).
 
 ## Authorization is deliberately two-step
 

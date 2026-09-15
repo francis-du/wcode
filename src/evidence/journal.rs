@@ -165,23 +165,10 @@ pub(crate) fn load_recent(
     let retained_records = paths.len();
     let limit = limit.clamp(1, MAX_ENGINEERING_MILESTONES);
     let selected = paths.into_iter().rev().take(limit).collect::<Vec<_>>();
+    let loaded = crate::resource::parallel_io(&selected, |path| read_milestone(path))?;
     let mut records = Vec::with_capacity(selected.len());
-    for path in selected {
-        let metadata = fs::symlink_metadata(&path)
-            .with_context(|| format!("cannot inspect engineering milestone {}", path.display()))?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.len() > MAX_MILESTONE_BYTES
-        {
-            continue;
-        }
-        let bytes = fs::read(&path)
-            .with_context(|| format!("cannot read engineering milestone {}", path.display()))?;
-        let milestone: EngineeringMilestone = match serde_json::from_slice(&bytes) {
-            Ok(milestone) => milestone,
-            Err(_) => continue,
-        };
-        if milestone.validate().is_ok() {
+    for milestone in loaded {
+        if let Some(milestone) = milestone? {
             records.push(milestone);
         }
     }
@@ -191,6 +178,24 @@ pub(crate) fn load_recent(
         retained_records,
         truncated: retained_records > limit,
     })
+}
+
+fn read_milestone(path: &Path) -> Result<Option<EngineeringMilestone>> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("cannot inspect engineering milestone {}", path.display()))?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_MILESTONE_BYTES
+    {
+        return Ok(None);
+    }
+    let bytes = fs::read(path)
+        .with_context(|| format!("cannot read engineering milestone {}", path.display()))?;
+    let milestone: EngineeringMilestone = match serde_json::from_slice(&bytes) {
+        Ok(milestone) => milestone,
+        Err(_) => return Ok(None),
+    };
+    Ok(milestone.validate().is_ok().then_some(milestone))
 }
 
 pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
@@ -204,24 +209,31 @@ pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
         bail!("engineering journal path is not a regular directory");
     }
     let paths = journal_paths(&directory)?;
+    let metadata = crate::resource::parallel_io(&paths, |path| journal_record_metadata(path))?;
     let mut hasher = Sha256::new();
     hasher.update(b"engineering-journal-metadata-v1");
-    for path in paths {
-        let metadata = fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            bail!("engineering journal fingerprint requires regular records");
-        }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
+    for item in metadata {
+        let (name, len, modified) = item?;
         hasher.update(name.as_bytes());
         hasher.update([0]);
-        hasher.update(metadata.len().to_le_bytes());
-        let modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos();
+        hasher.update(len.to_le_bytes());
         hasher.update(modified.to_le_bytes());
     }
     Ok(format!("metadata:{:x}", hasher.finalize()))
+}
+
+fn journal_record_metadata(path: &Path) -> Result<(String, u64, u128)> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        bail!("engineering journal fingerprint requires regular records");
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    let modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos();
+    Ok((name, metadata.len(), modified))
 }
 
 fn journal_directory(workspace: &Workspace) -> Result<PathBuf> {

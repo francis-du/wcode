@@ -3,6 +3,11 @@ use super::*;
 impl ToolHarness {
     pub(crate) fn trim_memory(&self, aggressive: bool) {
         let limits = crate::resource::limits();
+        if aggressive {
+            self.invalidate_project_flights(None);
+            self.invalidate_repo_map_flights(None);
+            self.invalidate_convention_flights(None);
+        }
         if let Ok(mut cache) = self.repo_map_cache.lock() {
             trim_cache(
                 &mut cache,

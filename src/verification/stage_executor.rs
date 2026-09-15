@@ -225,8 +225,40 @@ pub async fn execute(
 
 fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
     let mut executors = Vec::new();
+    let framework_queries = [
+        "proptest",
+        "quickcheck",
+        "testing/quick",
+        "pgregory.net/rapid",
+        "gopter",
+        "hypothesis",
+        "fast-check",
+        "SwiftCheck",
+        "StreamData",
+        "ExUnitProperties",
+        "glados",
+        "Rantly",
+        "property_of",
+        "Eris",
+        "QCheck",
+        "FsCheck",
+        "jqwik",
+        "QuickTheories",
+        "quicktheories",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    let framework_hits = workspace.search_many(&framework_queries, ".", 1_000)?;
+
     let cargo = optional_text(workspace, "Cargo.toml")?.unwrap_or_default();
-    if contains_any(&cargo, &["proptest", "quickcheck"]) {
+    if contains_any(&cargo, &["proptest", "quickcheck"])
+        && framework_used(
+            &framework_hits,
+            &["proptest", "quickcheck"],
+            &[SemanticLanguage::Rust],
+        )
+    {
         executors.push(spec(
             "builtin-rust-property",
             VerificationStage::Property,
@@ -236,7 +268,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
             180,
         ));
     }
-    if find_executable("cargo-mutants").is_some() {
+    if !cargo.is_empty() && find_executable("cargo-mutants").is_some() {
         executors.push(spec(
             "builtin-rust-mutation",
             VerificationStage::Mutation,
@@ -267,9 +299,11 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
 
     let go_mod = optional_text(workspace, "go.mod")?.unwrap_or_default();
     if !go_mod.is_empty()
-        && (!workspace.search("testing/quick", ".", 1)?.is_empty()
-            || !workspace.search("pgregory.net/rapid", ".", 1)?.is_empty()
-            || !workspace.search("gopter", ".", 1)?.is_empty())
+        && framework_used(
+            &framework_hits,
+            &["testing/quick", "pgregory.net/rapid", "gopter"],
+            &[SemanticLanguage::Go],
+        )
     {
         executors.push(spec(
             "builtin-go-property",
@@ -304,7 +338,13 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         optional_text(workspace, "pyproject.toml")?.unwrap_or_default(),
         optional_text(workspace, "requirements.txt")?.unwrap_or_default()
     );
-    if python.to_ascii_lowercase().contains("hypothesis") {
+    if python.to_ascii_lowercase().contains("hypothesis")
+        && framework_used(
+            &framework_hits,
+            &["hypothesis"],
+            &[SemanticLanguage::Python],
+        )
+    {
         executors.push(spec(
             "builtin-python-property",
             VerificationStage::Property,
@@ -332,39 +372,40 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
             SemanticLanguage::TypeScript,
             SemanticLanguage::Tsx,
         ];
-        if package_has_dependency(&package, "fast-check") && package_has_script(&package, "test") {
-            let (program, args) = package_test_command(workspace);
-            executors.push(spec_owned(
-                "builtin-js-property",
-                VerificationStage::Property,
-                languages.to_vec(),
-                &program,
-                args,
-                180,
-            ));
-        }
-        if package_has_dependency(&package, "@stryker-mutator/core") {
-            let script = ["mutation", "mutate"]
-                .into_iter()
-                .find(|script| package_has_script(&package, script));
-            if let Some(script) = script {
-                let (program, args) = package_run_command(workspace, script);
+        if package_has_dependency(&package, "fast-check")
+            && framework_used(&framework_hits, &["fast-check"], &languages)
+        {
+            let runner = if package_has_dependency(&package, "vitest") {
+                Some((node_stage_program(workspace, "vitest"), vec!["run".into()]))
+            } else if package_has_dependency(&package, "jest") {
+                Some((
+                    node_stage_program(workspace, "jest"),
+                    vec!["--runInBand".into()],
+                ))
+            } else {
+                None
+            };
+            if let Some((program, args)) = runner {
                 executors.push(spec_owned(
-                    "builtin-js-mutation",
-                    VerificationStage::Mutation,
+                    "builtin-js-property",
+                    VerificationStage::Property,
                     languages.to_vec(),
                     &program,
                     args,
-                    300,
+                    180,
                 ));
             }
         }
+        // Do not infer mutation execution from an arbitrary package script name.
+        // Stryker configuration may itself execute repository JavaScript, so JS/TS
+        // mutation remains an explicit .wcode/executors.yaml trust decision.
     }
 
-    for (path, needle, id, language, program, args) in [
+    for (path, dependency, source_needles, id, language, program, args) in [
         (
             "Package.swift",
             "SwiftCheck",
+            &["SwiftCheck"][..],
             "builtin-swift-property",
             SemanticLanguage::Swift,
             "swift",
@@ -373,6 +414,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "mix.exs",
             "stream_data",
+            &["StreamData", "ExUnitProperties"][..],
             "builtin-elixir-property",
             SemanticLanguage::Elixir,
             "mix",
@@ -381,6 +423,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "pubspec.yaml",
             "glados",
+            &["glados"][..],
             "builtin-dart-property",
             SemanticLanguage::Dart,
             "dart",
@@ -389,6 +432,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "Gemfile",
             "rantly",
+            &["Rantly", "property_of"][..],
             "builtin-ruby-property",
             SemanticLanguage::Ruby,
             "bundle",
@@ -397,6 +441,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "composer.json",
             "eris",
+            &["Eris"][..],
             "builtin-php-property",
             SemanticLanguage::Php,
             "./vendor/bin/phpunit",
@@ -405,6 +450,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "dune-project",
             "qcheck",
+            &["QCheck"][..],
             "builtin-ocaml-property",
             SemanticLanguage::Ocaml,
             "dune",
@@ -413,16 +459,18 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         (
             "DESCRIPTION",
             "quickcheck",
+            &["quickcheck"][..],
             "builtin-r-property",
             SemanticLanguage::R,
             "Rscript",
-            vec!["-e", "testthat::test_dir('tests/testthat')"],
+            vec!["--vanilla", "-e", "testthat::test_dir('tests/testthat')"],
         ),
     ] {
         if optional_text(workspace, path)?.is_some_and(|text| {
             text.to_ascii_lowercase()
-                .contains(&needle.to_ascii_lowercase())
-        }) {
+                .contains(&dependency.to_ascii_lowercase())
+        }) && framework_used(&framework_hits, source_needles, &[language])
+        {
             executors.push(spec_owned(
                 id,
                 VerificationStage::Property,
@@ -434,7 +482,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
         }
     }
 
-    if !workspace.search("FsCheck", ".", 1)?.is_empty() {
+    if framework_used(&framework_hits, &["FsCheck"], &[SemanticLanguage::CSharp]) {
         executors.push(spec(
             "builtin-csharp-property",
             VerificationStage::Property,
@@ -453,22 +501,38 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
     if contains_any(
         &java_build.to_ascii_lowercase(),
         &["jqwik", "quicktheories"],
+    ) && framework_used(
+        &framework_hits,
+        &["jqwik", "QuickTheories", "quicktheories"],
+        &[SemanticLanguage::Java],
     ) {
         if workspace.root().join("pom.xml").is_file() {
+            let program = if workspace.workspace_program_available("./mvnw") {
+                "./mvnw"
+            } else {
+                "mvn"
+            };
             executors.push(spec(
                 "builtin-java-property",
                 VerificationStage::Property,
                 &[SemanticLanguage::Java],
-                "mvn",
+                program,
                 &["test"],
                 180,
             ));
-        } else if workspace.root().join("gradlew").is_file() {
+        } else if workspace.root().join("build.gradle").is_file()
+            || workspace.root().join("build.gradle.kts").is_file()
+        {
+            let program = if workspace.workspace_program_available("./gradlew") {
+                "./gradlew"
+            } else {
+                "gradle"
+            };
             executors.push(spec(
                 "builtin-java-property",
                 VerificationStage::Property,
                 &[SemanticLanguage::Java],
-                "./gradlew",
+                program,
                 &["test"],
                 180,
             ));
@@ -486,7 +550,9 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
             300,
         ));
     }
-    if find_executable("dotnet-stryker").is_some() {
+    if has_root_extension(workspace, &["sln", "csproj", "fsproj"])
+        && find_executable("dotnet-stryker").is_some()
+    {
         executors.push(spec(
             "builtin-csharp-mutation",
             VerificationStage::Mutation,
@@ -496,7 +562,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
             300,
         ));
     }
-    if find_executable("infection").is_some() {
+    if workspace.root().join("composer.json").is_file() && find_executable("infection").is_some() {
         executors.push(spec(
             "builtin-php-mutation",
             VerificationStage::Mutation,
@@ -506,7 +572,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
             300,
         ));
     }
-    if find_executable("muter").is_some() {
+    if workspace.root().join("Package.swift").is_file() && find_executable("muter").is_some() {
         executors.push(spec(
             "builtin-swift-mutation",
             VerificationStage::Mutation,
@@ -576,32 +642,50 @@ fn package_has_dependency(package: &serde_json::Value, name: &str) -> bool {
         "optionalDependencies",
     ]
     .into_iter()
-    .any(|section| package.pointer(&format!("/{section}/{name}")).is_some())
+    .any(|section| {
+        package
+            .get(section)
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|dependencies| dependencies.contains_key(name))
+    })
 }
 
-fn package_has_script(package: &serde_json::Value, name: &str) -> bool {
-    package
-        .get("scripts")
-        .and_then(serde_json::Value::as_object)
-        .is_some_and(|scripts| scripts.contains_key(name))
+fn framework_used(
+    hits: &[serde_json::Value],
+    queries: &[&str],
+    languages: &[SemanticLanguage],
+) -> bool {
+    hits.iter().any(|hit| {
+        hit.get("query")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|query| queries.contains(&query))
+            && hit
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .and_then(language_for_path)
+                .is_some_and(|language| languages.contains(&language))
+    })
 }
 
-fn package_test_command(workspace: &Workspace) -> (String, Vec<String>) {
-    package_run_command(workspace, "test")
-}
-
-fn package_run_command(workspace: &Workspace, script: &str) -> (String, Vec<String>) {
-    if workspace.root().join("pnpm-lock.yaml").is_file() {
-        ("pnpm".into(), vec!["run".into(), script.into()])
-    } else if workspace.root().join("yarn.lock").is_file() {
-        ("yarn".into(), vec!["run".into(), script.into()])
-    } else if workspace.root().join("bun.lock").is_file()
-        || workspace.root().join("bun.lockb").is_file()
-    {
-        ("bun".into(), vec!["run".into(), script.into()])
+fn node_stage_program(workspace: &Workspace, name: &str) -> String {
+    let relative = format!("node_modules/.bin/{name}");
+    if workspace.workspace_program_available(&relative) {
+        relative
     } else {
-        ("npm".into(), vec!["run".into(), script.into()])
+        name.to_owned()
     }
+}
+
+fn has_root_extension(workspace: &Workspace, extensions: &[&str]) -> bool {
+    std::fs::read_dir(workspace.root()).is_ok_and(|entries| {
+        entries.filter_map(|entry| entry.ok()).any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extensions.contains(&extension))
+        })
+    })
 }
 
 pub(crate) fn language_target(language: SemanticLanguage) -> String {

@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = process.argv[2];
+const APP_FILES=['core','access','overview','architecture','engineering','features','quality','structure','runtime'];
+function productionBundle(){return APP_FILES.map(file=>fs.readFileSync(path.join(root,'src/ui/intelligence_web/app',file+'.js'),'utf8')).join('');}
 class Element {
   constructor(){ this.innerHTML=''; this.textContent=''; this.value=''; this.checked=true; this.disabled=false; this.dataset={}; this.attrs={}; this.events={}; this.classes=new Set(); this.classList={contains:x=>this.classes.has(x),toggle:(x,on)=>on?this.classes.add(x):this.classes.delete(x),add:x=>this.classes.add(x),remove:x=>this.classes.delete(x)}; }
   setAttribute(k,v){this.attrs[k]=v;}
@@ -30,11 +32,11 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
     document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{events[name]=handler;},getElementById:id=>node('#'+id)},
     window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){}},requestAnimationFrame:fn=>fn(),queueMicrotask,
     setTimeout:(fn,ms)=>{if(options.fakeTimers){timers.set(++timerId,{fn,ms});return timerId;}const timer=setTimeout(fn,ms);timer.unref();return timer;},clearTimeout:id=>options.fakeTimers?timers.delete(id):clearTimeout(id),
-    fetch:(url,options={})=>url==='/healthz'
+    fetch:(url,requestOptions={})=>url==='/healthz'&&!options.controlTunnels
       ? Promise.resolve({ok:true,status:200,json:async()=>({public_endpoint:'pending',tunnels:[]})})
-      : new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))};
+      : new Promise((resolve,reject)=>requests.push({url,options:requestOptions,resolve,reject}))};
   vm.createContext(context);
-  for(const file of ['core','access','overview','architecture','engineering','features','quality','structure','runtime']){
+  for(const file of APP_FILES){
     let source=fs.readFileSync(path.join(root,'src/ui/intelligence_web/app',file+'.js'),'utf8');
     source=file==='runtime'?stripRuntimeBootstrap(source):source.replace(/\r\n?/g,'\n');
     vm.runInContext(source,context,{filename:file+'.js'});
@@ -47,6 +49,7 @@ const project=(workspace='A')=>({workspace,project:workspace,root:'/fixture/'+wo
 async function run(){
   const results=[];
   async function test(name,fn){try{await fn();results.push({name,passed:true});}catch(error){results.push({name,passed:false,error:error.stack});}}
+  await test('production concatenated bundle parses as one script',async()=>{new vm.Script(productionBundle(),{filename:'intelligence-app.js'});});
   await test('runtime fixture strips bootstrap after CRLF checkout',async()=>{const source='function ready(){}\r\napplyTheme();\r\napplyLanguage();\r\nstartObservatory();';assert.equal(stripRuntimeBootstrap(source),'function ready(){}');});
   await test('storage denial cannot blank the dashboard',async()=>{const s=sandbox(true);assert.ok(s.run('state.language'));});
   await test('missing proof and unavailable Git are not green success',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;renderStats();renderAttention();');assert.ok(!s.node('#attention').innerHTML.includes('attention-item good'),'no evidence must not produce all-clear');assert.ok(!s.node('#stats').innerHTML.includes('>clean<'),'unavailable review must not look clean');assert.equal(s.run('architectureData().evidence_coverage_percent'),0,'empty architecture evidence must remain zero rather than a fake 100%');});
@@ -56,12 +59,156 @@ async function run(){
   await test('component with no observed dependencies is not marked aligned',async()=>{const s=sandbox();assert.notEqual(s.run('architectureNodeTone({id:"empty",changed:false},[])'),'aligned');});
   await test('quoted operation arguments are not silently split',async()=>{const s=sandbox();assert.deepEqual(JSON.parse(s.run('JSON.stringify(parseOperationArgs(\'["commit","-m","two words",""]\'))')),['commit','-m','two words','']);assert.throws(()=>s.run('parseOperationArgs(\'commit -m "two words"\')'));});
   await test('requirement filtering also changes its selected detail',async()=>{const s=sandbox();s.context.fixture={...project(),requirements:[{id:'first',title:'First',intent:'',components:[],convergence:'stable'},{id:'second',title:'Second',intent:'',components:[],convergence:'incomplete'}]};s.run('state.project=fixture;state.selected="first";state.filter="incomplete";renderRequirements();');assert.equal(s.run('state.selected'),'second');});
+  await test('graph metadata signal takes precedence over the compatible graph revision id',async()=>{const s=sandbox();assert.notEqual(s.run('revisionKey({fingerprint:"same",graph_revision:"GRAPH-same",graph_signal:"before",proof_revision:"same"})'),s.run('revisionKey({fingerprint:"same",graph_revision:"GRAPH-same",graph_signal:"after",proof_revision:"same"})'));});
   await test('evidence-only changes have a different revision key',async()=>{const s=sandbox();assert.notEqual(s.run('revisionKey({fingerprint:"same",graph_revision:"same",proof_revision:"before"})'),s.run('revisionKey({fingerprint:"same",graph_revision:"same",proof_revision:"after"})'));});
   await test('engineering-journal-only changes have a different revision key',async()=>{const s=sandbox();assert.notEqual(s.run('revisionKey({fingerprint:"same",graph_revision:"same",proof_revision:"same",engineering_revision:"before"})'),s.run('revisionKey({fingerprint:"same",graph_revision:"same",proof_revision:"same",engineering_revision:"after"})'));});
   await test('an obsolete failed response cannot make a newer snapshot stale',async()=>{const s=sandbox();s.run('renderProject=()=>{};renderAttention=()=>{};');const first=s.run('refreshProject({reason:"manual",revision:{fingerprint:"first"}})');await flush();const second=s.run('refreshProject({reason:"manual",revision:{fingerprint:"second"}})');await flush();respond(s.requests[1],project());await second;respond(s.requests[0],{error:'old failure'},false);await first;assert.equal(s.run('state.syncError'),false);assert.ok(s.run('state.revisionKey').startsWith('second|'));});
   await test('missing UI credentials never send protected requests',async()=>{const s=sandbox(false,false);await assert.rejects(s.run('uiJson("/intelligence/project","GET",undefined,{workspace:"A"})'),/authorize access/);assert.equal(s.requests.length,0);});
   await test('approval double-click emits only one mutation and a failed reread never replays it',async()=>{const s=sandbox();s.run('state.accessLoaded=true;');const first=s.run('decideAuthorization("AUTH-test",true)');const second=s.run('decideAuthorization("AUTH-test",true)');await flush();assert.equal(s.requests.length,1);respond(s.requests[0],{pending:[],request:{status:'approved'}});await flush();assert.equal(s.requests[1].options.method,'GET');respond(s.requests[1],{error:'read failed'},false);await Promise.all([first,second]);assert.equal(s.requests.filter(r=>r.options.method==='POST').length,1);assert.ok(s.node('#authorizationMessage').textContent.includes('Authorization approved'));assert.equal(s.run('state.accessBusy'),false);});
   await test('activity output escapes task labels and unknown telemetry is not idle',async()=>{const s=sandbox();s.run('renderActivity()');assert.ok(s.node('#activity').innerHTML.includes('unavailable'));s.context.fixture={workspace:'A',activity:{available:true,recent:[{id:1,tool:'<img src=x>',status:'running',slot_counted:true,wait_ms:9,run_ms:11}],completed:0,failed:0}};s.run('state.activitySnapshot=fixture;renderActivity();');assert.ok(s.node('#activity').innerHTML.includes('&lt;img src=x&gt;'));assert.ok(!s.node('#activity').innerHTML.includes('<img src=x>'));});
+  await test('an independently observed revision cannot certify an earlier project snapshot',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
+    const refresh=s.run('refreshProject({reason:"manual"})');await flush();
+    const speculative=s.requests.find(request=>request.url==='/intelligence/revision');
+    respond(s.requests.find(request=>request.url==='/intelligence/project'),project());await refresh;
+    assert.equal(s.run('state.revisionKey'),null);
+    if(speculative){respond(speculative,{workspace:'A',fingerprint:'newer-than-snapshot'});await flush();}
+    assert.equal(s.run('state.revisionKey'),null,'a separately fetched revision is not snapshot provenance');
+    const poll=s.run('pollRevision()');await flush();respond(s.requests.at(-1),{workspace:'A',fingerprint:'newer-than-snapshot'});await flush();
+    assert.equal(s.requests.at(-1).url,'/intelligence/project');respond(s.requests.at(-1),project());await poll;
+    assert.equal(s.run('state.revisionKey'),'newer-than-snapshot|||');
+  });
+  await test('obsolete cached-refresh callbacks cannot abort a newer manual refresh',async()=>{
+    for(const response of [{workspace:'A',snapshot_pending:true},{...project(),snapshot_cache:'stale-while-revalidate'}]){
+      const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
+      const old=s.run('refreshProject({reason:"manual",revision:{fingerprint:"old"}})');await flush();respond(s.requests[0],response);await old;
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      const current=s.run('refreshProject({reason:"manual",revision:{fingerprint:"current"}})');await flush();
+      const request=s.requests.at(-1),count=s.requests.length;deferred.fn();await flush();
+      assert.equal(s.requests.length,count,'old callback must not start another project request');
+      assert.equal(request.options.signal.aborted,false);respond(request,project());await current;
+      assert.equal(s.run('state.revisionKey'),'current|||');
+    }
+  });
+  await test('hidden pages do not start delayed snapshot rebuilds',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
+    const old=s.run('refreshProject({reason:"manual",revision:{fingerprint:"old"}})');await flush();respond(s.requests[0],{workspace:'A',snapshot_pending:true});await old;
+    const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+    s.context.document.hidden=true;deferred.fn();await flush();assert.equal(s.requests.length,1);
+  });
+  await test('manual refresh preserves an earlier safe revision baseline without an extra probe',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});s.run('state.revisionKey="known|||";renderProject=()=>{};renderAttention=()=>{};');
+    const refresh=s.run('refreshProject({reason:"manual"})');await flush();
+    assert.equal(s.requests.length,1);assert.equal(s.requests[0].url,'/intelligence/project');respond(s.requests[0],project());await refresh;
+    assert.equal(s.run('state.revisionKey'),'known|||');
+  });
+  await test('a stale cache response cannot acknowledge a supplied current revision',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
+    const refresh=s.run('refreshProject({reason:"manual",revision:{fingerprint:"new"}})');await flush();
+    respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
+    assert.equal(s.run('state.revisionKey'),null);assert.ok([...s.timers.values()].some(timer=>timer.ms===0));
+  });
+  await test('language quality coverage requires a runnable provider',async()=>{
+    const s=sandbox();s.context.language={providers:[
+      {id:'blocked',capability:'lint',covers:[],declared:true,available:true,runnable:false,check_only:true},
+      {id:'script',capability:'test',covers:[],declared:true,available:true,runnable:true,check_only:false}
+    ]};
+    assert.equal(s.run('qualityProviders(language,"lint").length'),0);
+    assert.ok(s.run('qualityCell(language,"lint")').includes('not runnable'));
+    assert.ok(s.run('qualityCell(language,"test")').includes('discovery only'));
+    s.run('language.providers[0].runnable=true;');
+    assert.equal(s.run('qualityProviders(language,"lint").length'),1);
+    assert.ok(s.run('qualityCell(language,"lint")').includes('covered'));
+  });
+  const healthyTunnel = (provider='fixture') => ({public_url_healthy:true,public_endpoint:'ready',tunnels:[{provider,role:'primary',state:'verified',url:'https://example.test'}]});
+  await test('only the primary tunnel is a dashboard link and it preserves fragment credentials',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const request=s.run('refreshTunnels()');await flush();
+    respond(s.requests[0],{public_url_healthy:true,public_endpoint:'ready',tunnels:[
+      {provider:'primary',role:'primary',state:'healthy',url:'https://primary.example'},
+      {provider:'standby',role:'standby',state:'verified',url:'https://standby.example'}
+    ]});await request;
+    const html=s.node('#tunnels').innerHTML;
+    assert.ok(html.includes('href="https://primary.example/intelligence#token=test-ui&amp;workspace=A"'));
+    assert.ok(html.includes('standby · standby'));
+    assert.ok(!html.includes('href="https://standby.example'));
+    assert.ok(html.includes('title="https://standby.example · standby · verified'));
+  });
+  await test('tunnel requests time out and allow a later retry',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const first=s.run('refreshTunnels()');await flush();
+    const request=s.requests[0],deadline=[...s.timers.values()].find(timer=>timer.ms===10000);
+    assert.ok(deadline,'health requests need a bounded deadline');
+    request.options.signal.addEventListener('abort',()=>request.reject(new DOMException('aborted','AbortError')),{once:true});
+    deadline.fn();await first;
+    assert.equal(s.run('state.tunnelBusy'),false);assert.equal(s.run('state.tunnelSnapshot'),null);
+    assert.ok(s.node('#tunnels').innerHTML.includes('unavailable'));
+    const next=s.run('refreshTunnels()');await flush();respond(s.requests[1],healthyTunnel());await next;
+    assert.equal(s.run('state.tunnelSnapshot.public_url_healthy'),true);assert.equal(s.timers.size,0);
+    assert.equal(s.requests[1].options.cache,'no-store');
+  });
+  await test('old tunnel completion cannot overwrite or unlock a newer request',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const old=s.run('refreshTunnels()');await flush();
+    s.run('state.current="B";clearWorkspaceView({preserveDom:true});');
+    const current=s.run('refreshTunnels()');await flush();
+    assert.equal(s.requests[0].options.signal.aborted,true);
+    respond(s.requests[0],healthyTunnel('obsolete'));await old;
+    assert.equal(s.run('state.tunnelBusy'),true);assert.equal(s.run('state.tunnelSnapshot'),null);
+    await s.run('refreshTunnels()');assert.equal(s.requests.length,2);
+    respond(s.requests[1],healthyTunnel('current'));await current;
+    assert.equal(s.run('state.tunnelSnapshot.tunnels[0].provider'),'current');assert.equal(s.timers.size,0);
+  });
+  await test('hidden tabs cancel tunnel requests and their deadlines',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const request=s.run('refreshTunnels()');await flush();
+    s.context.document.hidden=true;s.events.visibilitychange();
+    assert.equal(s.requests[0].options.signal.aborted,true);assert.equal(s.timers.size,0);
+    respond(s.requests[0],healthyTunnel('hidden'));await request;
+    assert.equal(s.run('state.tunnelSnapshot'),null);assert.equal(s.run('state.tunnelBusy'),false);
+    await s.run('refreshTunnels()');assert.equal(s.requests.length,1);
+  });
+  await test('failed tunnel refresh clears stale healthy telemetry',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});s.context.fixture=project();s.context.health=healthyTunnel('obsolete');
+    s.run('state.project=fixture;state.tunnelSnapshot=health;renderRuntimeTopology();');
+    const request=s.run('refreshTunnels()');await flush();respond(s.requests[0],{error:'offline'},false);await request;
+    assert.equal(s.run('state.tunnelSnapshot'),null);assert.ok(s.node('#tunnels').innerHTML.includes('unavailable'));
+    assert.ok(s.node('#runtimeTopology').innerHTML.includes('telemetry unavailable'));
+    assert.ok(!s.node('#runtimeTopology').innerHTML.includes('obsolete'));
+  });
+  await test('malformed tunnel payloads are not published as current state',async()=>{
+    for(const payload of [null,[],{tunnels:'not-an-array'},{tunnels:[null]}]){
+      const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+      const request=s.run('refreshTunnels()');await flush();respond(s.requests[0],payload);await request;
+      assert.equal(s.run('state.tunnelSnapshot'),null);assert.equal(s.run('state.tunnelBusy'),false);
+      assert.ok(s.node('#tunnels').innerHTML.includes('unavailable'));assert.equal(s.timers.size,0);
+    }
+  });
+  await test('tunnel polling stays single-flight while the body is pending',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const first=s.run('refreshTunnels()');await flush();let complete;
+    s.requests[0].resolve({ok:true,status:200,json:()=>new Promise(resolve=>{complete=resolve;})});await flush();
+    await s.run('refreshTunnels()');assert.equal(s.requests.length,1);
+    assert.ok([...s.timers.values()].some(timer=>timer.ms===10000));
+    complete(healthyTunnel());await first;assert.equal(s.run('state.tunnelBusy'),false);assert.equal(s.timers.size,0);
+  });
+  await test('unhealthy primary and unknown approval state are not green',async()=>{
+    const s=sandbox();s.context.fixture=project();s.context.health={...healthyTunnel(),public_url_healthy:false};
+    s.run('state.project=fixture;state.tunnelSnapshot=health;renderRuntimeTopology();');
+    const html=s.node('#runtimeTopology').innerHTML;
+    assert.ok(html.includes('runtime-status-card warn"><span>Endpoint'));
+    assert.ok(html.includes('runtime-status-card info"><span>OAuth &amp; MCP'));
+    s.run('state.tunnelSnapshot.public_url_healthy=true;renderRuntimeTopology();');
+    assert.ok(s.node('#runtimeTopology').innerHTML.includes('runtime-status-card good"><span>Endpoint'));
+  });
+  await test('slow tunnel requests do not delay activity telemetry',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+    const tunnel=s.run('refreshTunnels()');const activity=s.run('refreshActivity()');await flush();
+    const request=s.requests.find(item=>item.url==='/intelligence/activity');assert.ok(request);
+    respond(request,{workspace:'A',pending_authorizations:0,activity:{available:true,active:3,recent:[]}});await activity;
+    assert.equal(s.run('state.activitySnapshot.activity.active'),3);assert.equal(s.run('state.tunnelBusy'),true);
+    respond(s.requests.find(item=>item.url==='/healthz'),healthyTunnel());await tunnel;
+  });
   const view=sandbox();
   const components=[['Runtime','Task scheduling','Schedule independent work and retain real capacity through cancellation.'],['Runtime','Context retrieval','Locate relevant source and retain exact edit preconditions.'],['Integrations','MCP transports','Serve one tool runtime across local and remote clients.'],['Integrations','Agent setup','Configure supported coding agents without replacing unrelated settings.'],['Workspace','File operations','Read and edit bounded files with SHA-checked atomic writes.'],['Workspace','Command execution','Run approved commands and retain timeout diagnostics.'],['Intelligence','Verification','Keep checks and evidence bound to the code revision.'],['Intelligence','Software graph','Map component relationships with explicit provider precision.']].map(([scope,name,purpose],i)=>({id:'component:'+i,name,product_scopes:[scope],responsibilities:[purpose],implementation_targets:['src/example/module_'+i+'.rs'],implementation_files:3+i,implementation_lines:250+i*50,requirements:[],depends_on:i?['component:0']:[],changed:i===1||i===5,changed_paths:i===1?['src/example/module_1.rs']:[]}));
   view.context.fixture={...project(),project:'wcode',root:'/example/wcode',pending_authorizations:2,git_review:{available:true,reason:'available'},code:{changed_files:12,source_files:246,source_lines:48190,languages:[],product_scopes:[]},proof:{current_evidence:7,current_passed:5,current_failed:2,current_inconclusive:0,current_verification_plans:1,current_verification_ready:0,current_verification_blocked:1,revision_code:'sha256:example-current-code',revision_design:'sha256:example-current-design',acceptance:{total:33,mapped:33,executed:28,passed:26,fresh:21}},architecture:{components,dependencies:components.slice(1).map((c,i)=>({from:c.id,to:'component:0',from_name:c.name,to_name:'Task scheduling',status:i===3?'unverified_actual':'aligned',desired:true,actual:i!==3,precision:'syntax',blocking:false})),desired_edges:7,observed_edges:6,aligned_edges:6,blocking_drift_edges:0,components_with_implementation:8,observed_drift_percent:0,evidence_coverage_percent:85.7,implementation_coverage_percent:100},workspace_options:[{id:'A',root:'/example/wcode'}]};

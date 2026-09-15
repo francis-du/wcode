@@ -1,16 +1,19 @@
 use super::*;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::atomic::Ordering;
 
 #[path = "contracts.rs"]
 mod contracts;
 #[path = "islands.rs"]
 mod islands;
+#[path = "profile_scan.rs"]
+mod profile_scan;
 pub(super) use contracts::contract_freshness_advisories;
-use contracts::{contract_config_paths, discover_contract_topology};
+use contracts::discover_contract_topology_from_paths;
 use islands::{
     attach_manifest_dependencies, discover_nested_project_islands, languages_for_project_types,
-    manifest_candidate_dirs, manifest_project_types,
+    manifest_file_names, project_types_for_manifests,
 };
 pub(super) use islands::{
     verification_checks_for_impact, verification_gaps_for_impact, verification_impact_for_snapshot,
@@ -29,7 +32,33 @@ impl ToolHarness {
         workspace: &Workspace,
     ) -> Result<(Arc<ProjectProfile>, bool)> {
         let root = workspace.root().to_path_buf();
-        let fingerprint = project_fingerprint(workspace);
+        let flight = self.project_flight(&root)?;
+        let observed_generation = flight.generation.load(Ordering::Acquire);
+        let participant =
+            harness_cache_flight::ValidationParticipant::join(&flight, observed_generation);
+        #[cfg(test)]
+        flight.entrants.fetch_add(1, Ordering::AcqRel);
+        let _flight = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // Overlapping callers share one manifest/island validation. Calls that
+        // begin after the owner starts still validate independently so external
+        // manifest/guidance edits are never hidden behind a time-based cache.
+        if flight.can_reuse_after(observed_generation) {
+            let mut cache = self
+                .project_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
+            if let Some(cached) = cache.get_mut(&root) {
+                cached.last_used = Instant::now();
+                return Ok((cached.profile.clone(), true));
+            }
+        }
+
+        let mut validation = harness_cache_flight::ValidationGuard::begin(&flight);
+        let (fingerprint, discovery) = project_fingerprint(workspace);
         {
             let mut cache = self
                 .project_cache
@@ -39,27 +68,32 @@ impl ToolHarness {
                 .get_mut(&root)
                 .filter(|cached| cached.fingerprint == fingerprint)
             {
+                let profile = cached.profile.clone();
                 cached.last_used = Instant::now();
-                return Ok((cached.profile.clone(), true));
+                drop(cache);
+                ensure_shared_project_fingerprint_current(&participant, workspace, fingerprint)?;
+                validation.mark_success();
+                return Ok((profile, true));
             }
         }
 
-        // Build outside the cache lock so context discovery for one workspace does not
-        // block independent requests for other workspaces.
-        let built = Arc::new(build_project_profile(workspace)?);
+        // Reuse the manifest candidate enumeration from fingerprinting. A cold
+        // profile build previously walked the same tree a second time solely to
+        // rediscover these directories.
+        let built = Arc::new(build_project_profile(workspace, &discovery)?);
+        if !validation.is_current() {
+            bail!("project profile cache invalidated while building; retry the request");
+        }
+        ensure_shared_project_fingerprint_current(&participant, workspace, fingerprint)?;
         let mut cache = self
             .project_cache
             .lock()
             .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
-        if let Some(cached) = cache
-            .get_mut(&root)
-            .filter(|cached| cached.fingerprint == fingerprint)
-        {
-            cached.last_used = Instant::now();
-            return Ok((cached.profile.clone(), true));
+        if !validation.is_current() {
+            bail!("project profile cache invalidated while building; retry the request");
         }
         let limit = crate::resource::limits().project_cache_limit();
-        if cache.len() >= limit {
+        if cache.len() >= limit && !cache.contains_key(&root) {
             if let Some(oldest) = cache
                 .iter()
                 .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
@@ -76,18 +110,40 @@ impl ToolHarness {
                 profile: built.clone(),
             },
         );
+        validation.mark_success();
         Ok((built, false))
     }
 }
 
-fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
-    let root = workspace.root();
-    let mut manifests = MANIFEST_FILES
+pub(super) fn ensure_shared_project_fingerprint_current(
+    participant: &harness_cache_flight::ValidationParticipant<'_>,
+    workspace: &Workspace,
+    expected_fingerprint: u64,
+) -> Result<()> {
+    if participant.has_coalescible_peer() {
+        let (confirmed_fingerprint, _) = project_fingerprint(workspace);
+        if confirmed_fingerprint != expected_fingerprint {
+            bail!("project profile changed during shared validation; retry the request");
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn known_checks_from_profile(profile: &ProjectProfile) -> HashSet<String> {
+    profile
+        .recommended_checks
         .iter()
-        .filter(|path| root.join(path).is_file())
-        .map(|path| (*path).to_owned())
-        .collect::<Vec<_>>();
-    let mut project_types = manifest_project_types(root);
+        .map(|check| check.id.clone())
+        .collect()
+}
+
+fn build_project_profile(
+    workspace: &Workspace,
+    discovery: &profile_scan::ProfileDiscoveryPaths,
+) -> Result<ProjectProfile> {
+    let root = workspace.root();
+    let mut manifests = manifest_file_names(root);
+    let mut project_types = project_types_for_manifests(root, &manifests);
     let mut checks = Vec::new();
 
     if root.join(".git").exists() {
@@ -132,7 +188,8 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
         });
     }
 
-    for mut island in discover_nested_project_islands(root, &root_types) {
+    for mut island in discover_nested_project_islands(root, &root_types, &discovery.candidate_dirs)
+    {
         let start = checks.len();
         add_island_checks(
             &island.absolute_root,
@@ -172,7 +229,8 @@ fn build_project_profile(workspace: &Workspace) -> Result<ProjectProfile> {
     }
 
     attach_manifest_dependencies(root, &mut islands);
-    let contracts = discover_contract_topology(root, &islands);
+    let contracts =
+        discover_contract_topology_from_paths(root, &islands, &discovery.contract_configs);
     manifests.sort();
     manifests.dedup();
     deduplicate_checks(&mut checks);
@@ -216,6 +274,7 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
             .iter()
             .any(|project_type| project_type == name)
     };
+    add_polyglot_checks(root, project_types, checks);
     if has_type("rust") {
         let locked = root.join("Cargo.lock").is_file();
         push_check(
@@ -377,32 +436,6 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
             "Build and test the owning Swift package.",
         );
     }
-    if has_type("dart") {
-        push_check(
-            checks,
-            "dart-format",
-            "quick",
-            "dart",
-            &["format", "-o", "none", "--set-exit-if-changed", "."],
-            "Verify Dart formatting without modifying source.",
-        );
-        push_check(
-            checks,
-            "dart-analyze",
-            "quick",
-            "dart",
-            &["analyze"],
-            "Run Dart static analysis for the owning package.",
-        );
-        push_check(
-            checks,
-            "dart-test",
-            "full",
-            "dart",
-            &["test"],
-            "Run the Dart test suite for the owning package.",
-        );
-    }
     if has_type("elixir") {
         push_check(
             checks,
@@ -555,6 +588,42 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
     }
     if has_type("make") {
         add_make_checks(root, checks);
+    }
+}
+
+fn add_polyglot_checks(root: &Path, project_types: &[String], checks: &mut Vec<CheckSpec>) {
+    let has_type = |name: &str| {
+        project_types
+            .iter()
+            .any(|project_type| project_type == name)
+    };
+    if has_type("dart") {
+        push_check(
+            checks,
+            "dart-format",
+            "quick",
+            "dart",
+            &["format", "-o", "none", "--set-exit-if-changed", "."],
+            "Verify Dart formatting without modifying source.",
+        );
+        if root.join("pubspec.yaml").is_file() {
+            push_check(
+                checks,
+                "dart-analyze",
+                "quick",
+                "dart",
+                &["analyze"],
+                "Run Dart static analysis for the owning package.",
+            );
+            push_check(
+                checks,
+                "dart-test",
+                "full",
+                "dart",
+                &["test"],
+                "Run the Dart test suite for the owning package.",
+            );
+        }
     }
 }
 
@@ -777,20 +846,21 @@ fn deduplicate_checks(checks: &mut Vec<CheckSpec>) {
     sort_checks(checks);
 }
 
-fn project_fingerprint(workspace: &Workspace) -> u64 {
+fn project_fingerprint(workspace: &Workspace) -> (u64, profile_scan::ProfileDiscoveryPaths) {
     let root = workspace.root();
+    let discovery = profile_scan::scan(root);
     let mut hasher = DefaultHasher::new();
     root.hash(&mut hasher);
     workspace.write_enabled().hash(&mut hasher);
     workspace.exec_enabled().hash(&mut hasher);
     hash_profile_directory(root, root, &mut hasher);
-    for directory in manifest_candidate_dirs(root) {
-        hash_profile_directory(root, &directory, &mut hasher);
+    for directory in &discovery.candidate_dirs {
+        hash_profile_directory(root, directory, &mut hasher);
     }
-    for path in contract_config_paths(root) {
-        hash_profile_path(root, &path, &mut hasher);
+    for path in &discovery.contract_configs {
+        hash_profile_path(root, path, &mut hasher);
     }
-    hasher.finish()
+    (hasher.finish(), discovery)
 }
 
 fn hash_profile_path(root: &Path, path: &Path, hasher: &mut DefaultHasher) {

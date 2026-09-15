@@ -59,17 +59,22 @@ pub(crate) fn load(workspace: &Workspace) -> Result<Vec<SemanticFact>> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         bail!("semantic store path is not a regular directory");
     }
-    let paths = semantic_paths(&directory)?;
-    let mut latest = BTreeMap::<String, SemanticFact>::new();
-    for path in paths
+    let paths = semantic_paths(&directory)?
         .into_iter()
         .rev()
         .take(MAX_STORED_SEMANTIC_RECORDS)
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-    {
-        let Some(fact) = read_fact(&path)? else {
+        .collect::<Vec<_>>();
+    // Semantic revisions are immutable independent files. Read them through
+    // the bounded file-I/O pool so a large history does not serialize every
+    // metadata/read/JSON step on the Agent Context hot path. Results stay in
+    // path order, so latest-revision selection and error ordering are unchanged.
+    let loaded = crate::resource::parallel_io(&paths, |path| read_fact(path))?;
+    let mut latest = BTreeMap::<String, SemanticFact>::new();
+    for fact in loaded {
+        let Some(fact) = fact? else {
             continue;
         };
         let should_replace = latest

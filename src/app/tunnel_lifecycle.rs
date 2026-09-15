@@ -289,12 +289,12 @@ pub(super) fn handle_standby_probe(
     tunnels: &[ActiveTunnel],
     event: StandbyProbeEvent,
     monitor: &TaskMonitor,
-) {
+) -> bool {
     let Some(lease) = leases.get_mut(&event.public_url) else {
-        return;
+        return false;
     };
     if lease.epoch() != event.lease_epoch {
-        return;
+        return false;
     }
     let provider = tunnels
         .iter()
@@ -313,15 +313,15 @@ pub(super) fn handle_standby_probe(
                     format!("{provider} standby health lease recovered"),
                 );
             }
+            false
         }
         Err(error) => {
             let revoked = lease.record_failure(now);
             monitor.mark_tunnel_standby_probe(&event.public_url, false, lease.failures(), revoked);
             let detail = if revoked {
                 format!(
-                    "{provider} standby quarantined after {} failed checks · probing in {}s · {error}",
-                    lease.failures(),
-                    STANDBY_RETRY_INTERVAL.as_secs()
+                    "{provider} standby revoked after {} failed checks · recycling provider · {error}",
+                    lease.failures()
                 )
             } else {
                 format!(
@@ -331,8 +331,50 @@ pub(super) fn handle_standby_probe(
                 )
             };
             monitor.operator_message(OperatorMessageKind::Warning, "tunnel", detail);
+            revoked
         }
     }
+}
+
+pub(super) async fn recycle_revoked_standby(
+    state: &mut TunnelControlState,
+    tunnels: &mut Vec<ActiveTunnel>,
+    public_url: &str,
+    auth: &AuthState,
+    monitor: &TaskMonitor,
+) -> bool {
+    if state.primary_url.as_deref() == Some(public_url) {
+        return false;
+    }
+    let Some(index) = tunnels
+        .iter()
+        .position(|tunnel| tunnel.public_url() == public_url)
+    else {
+        state.standby_leases.remove(public_url);
+        return false;
+    };
+    let provider = tunnels[index].provider();
+    let mut tunnel = tunnels.remove(index);
+    tunnel.stop().await;
+    state.standby_leases.remove(public_url);
+    if state
+        .retained_stable_aliases
+        .get(&provider)
+        .is_some_and(|url| url == public_url)
+    {
+        state.retained_stable_aliases.remove(&provider);
+    }
+    auth.unregister_public_url(public_url);
+    monitor.remove_tunnel(public_url);
+    schedule_provider_retry(
+        &mut state.death_counts,
+        &mut state.pending_respawns,
+        provider,
+        "endpoint stayed unreachable after quarantine",
+        false,
+        monitor,
+    );
+    true
 }
 
 pub(super) fn quarantine_endpoint(

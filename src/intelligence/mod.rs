@@ -1,5 +1,5 @@
 use crate::code_index::{CodeIndex, SymbolResolution};
-use crate::design::{self, CodeRef, Priority, VerificationRef};
+use crate::design::{self, Priority};
 use crate::evidence::{Confidence, Evidence, EvidenceKind, EvidenceResult, Revision};
 use crate::evidence_store;
 use crate::graph::{EdgeKind, NodeKind, SoftwareGraphSnapshot};
@@ -23,7 +23,7 @@ use crate::verification::{
 };
 use crate::verification_store;
 use crate::workspace::Workspace;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -61,12 +61,20 @@ struct CachedDesignLoad {
     load: Arc<design::DesignLoad>,
 }
 
+#[derive(Clone)]
+struct CachedTraceabilityStatus {
+    fingerprint: u64,
+    last_used: Instant,
+    status: Arc<TraceabilityStatus>,
+}
+
 const MAX_DESIGN_CACHE_WORKSPACES: usize = 4;
 
 #[derive(Clone)]
 pub struct SoftwareIntelligenceRuntime {
     state: Arc<Mutex<IntelligenceState>>,
     design_cache: Arc<Mutex<HashMap<PathBuf, CachedDesignLoad>>>,
+    traceability_cache: Arc<Mutex<HashMap<PathBuf, CachedTraceabilityStatus>>>,
 }
 
 impl Default for SoftwareIntelligenceRuntime {
@@ -74,7 +82,29 @@ impl Default for SoftwareIntelligenceRuntime {
         Self {
             state: Arc::new(Mutex::new(IntelligenceState::default())),
             design_cache: Arc::new(Mutex::new(HashMap::new())),
+            traceability_cache: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+}
+
+fn trim_intelligence_cache<K, V, F>(cache: &mut HashMap<K, V>, aggressive: bool, last_used: F)
+where
+    K: Clone + Eq + std::hash::Hash,
+    F: Fn(&V) -> Instant,
+{
+    if aggressive {
+        cache.clear();
+        return;
+    }
+    while cache.len() > MAX_DESIGN_CACHE_WORKSPACES / 2 {
+        let Some(oldest) = cache
+            .iter()
+            .min_by(|(_, left), (_, right)| last_used(left).cmp(&last_used(right)))
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest);
     }
 }
 
@@ -118,9 +148,21 @@ mod design_runtime;
 mod reconcile_runtime;
 #[path = "runtime/semantic.rs"]
 mod semantic_runtime;
+#[path = "runtime/trace_cache.rs"]
+mod trace_cache;
+#[path = "runtime/verification_snapshot.rs"]
+mod verification_snapshot;
+use trace_cache::TraceResolutionSnapshot;
 
 impl SoftwareIntelligenceRuntime {
     pub(crate) fn design_load(&self, workspace: &Workspace) -> Result<Arc<design::DesignLoad>> {
+        Ok(self.design_load_with_fingerprint(workspace)?.0)
+    }
+
+    pub(crate) fn design_load_with_fingerprint(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<(Arc<design::DesignLoad>, u64)> {
         let fingerprint = design::fingerprint(workspace);
         let root = workspace.root().to_path_buf();
         {
@@ -133,11 +175,15 @@ impl SoftwareIntelligenceRuntime {
                 .filter(|cached| cached.fingerprint == fingerprint)
             {
                 cached.last_used = Instant::now();
-                return Ok(cached.load.clone());
+                return Ok((cached.load.clone(), fingerprint));
             }
         }
 
         let load = Arc::new(design::load_design(workspace)?);
+        let confirmed_fingerprint = design::fingerprint(workspace);
+        if confirmed_fingerprint != fingerprint {
+            bail!("design state changed while loading; retry the request");
+        }
         let mut cache = self
             .design_cache
             .lock()
@@ -147,7 +193,7 @@ impl SoftwareIntelligenceRuntime {
             .filter(|cached| cached.fingerprint == fingerprint)
         {
             cached.last_used = Instant::now();
-            return Ok(cached.load.clone());
+            return Ok((cached.load.clone(), fingerprint));
         }
         if cache.len() >= MAX_DESIGN_CACHE_WORKSPACES && !cache.contains_key(&root) {
             if let Some(oldest) = cache
@@ -166,32 +212,24 @@ impl SoftwareIntelligenceRuntime {
                 load: load.clone(),
             },
         );
-        Ok(load)
+        Ok((load, fingerprint))
     }
 
     pub(crate) fn invalidate_design_cache(&self, root: &Path) {
         if let Ok(mut cache) = self.design_cache.lock() {
             cache.remove(root);
         }
+        if let Ok(mut cache) = self.traceability_cache.lock() {
+            cache.remove(root);
+        }
     }
 
     pub(crate) fn trim_design_cache(&self, aggressive: bool) {
-        let Ok(mut cache) = self.design_cache.lock() else {
-            return;
-        };
-        if aggressive {
-            cache.clear();
-            return;
+        if let Ok(mut cache) = self.design_cache.lock() {
+            trim_intelligence_cache(&mut cache, aggressive, |entry| entry.last_used);
         }
-        while cache.len() > MAX_DESIGN_CACHE_WORKSPACES / 2 {
-            let Some(oldest) = cache
-                .iter()
-                .min_by(|(_, left), (_, right)| left.last_used.cmp(&right.last_used))
-                .map(|(root, _)| root.clone())
-            else {
-                break;
-            };
-            cache.remove(&oldest);
+        if let Ok(mut cache) = self.traceability_cache.lock() {
+            trim_intelligence_cache(&mut cache, aggressive, |entry| entry.last_used);
         }
     }
 
@@ -452,113 +490,6 @@ fn requirement_trace_status(
         RequirementTraceStatus::Partial
     } else {
         RequirementTraceStatus::Missing
-    }
-}
-
-fn resolve_code_reference(
-    code_index: &CodeIndex,
-    workspace: &Workspace,
-    owner: &str,
-    reference: &CodeRef,
-) -> TraceReference {
-    match reference {
-        CodeRef::File { path } => match workspace.source_stamp(path) {
-            Ok(_) => TraceReference {
-                owner: owner.to_owned(),
-                kind: TraceReferenceKind::File,
-                target: path.clone(),
-                resolved: true,
-                provider: "filesystem".into(),
-                precision: "deterministic".into(),
-                node_id: Some(format!("file:{path}")),
-                revision: None,
-                message: None,
-            },
-            Err(error) => unresolved_reference(
-                owner,
-                TraceReferenceKind::File,
-                path,
-                "filesystem",
-                "deterministic",
-                error.to_string(),
-            ),
-        },
-        CodeRef::Symbol { path, symbol } => resolve_symbol_reference(
-            code_index,
-            workspace,
-            owner,
-            TraceReferenceKind::Symbol,
-            path,
-            symbol,
-        ),
-    }
-}
-
-fn resolve_verification_reference(
-    code_index: &CodeIndex,
-    workspace: &Workspace,
-    known_checks: &HashSet<String>,
-    owner: &str,
-    reference: &VerificationRef,
-) -> TraceReference {
-    match reference {
-        VerificationRef::Test { path, symbol } => resolve_symbol_reference(
-            code_index,
-            workspace,
-            owner,
-            TraceReferenceKind::Test,
-            path,
-            symbol,
-        ),
-        VerificationRef::Check { id } if known_checks.contains(id) => TraceReference {
-            owner: owner.to_owned(),
-            kind: TraceReferenceKind::Check,
-            target: id.clone(),
-            resolved: true,
-            provider: "harness".into(),
-            precision: "deterministic".into(),
-            node_id: Some(format!("verification:{id}")),
-            revision: None,
-            message: None,
-        },
-        VerificationRef::Check { id } => unresolved_reference(
-            owner,
-            TraceReferenceKind::Check,
-            id,
-            "harness",
-            "deterministic",
-            "verification check is not present in the inferred project profile",
-        ),
-    }
-}
-
-fn resolve_symbol_reference(
-    code_index: &CodeIndex,
-    workspace: &Workspace,
-    owner: &str,
-    kind: TraceReferenceKind,
-    path: &str,
-    symbol: &str,
-) -> TraceReference {
-    let target = format!("{path}::{symbol}");
-    match code_index.resolve_symbol(workspace, path, symbol) {
-        Ok(Some(resolution)) => resolved_symbol_reference(owner, kind, target, resolution),
-        Ok(None) => unresolved_reference(
-            owner,
-            kind,
-            &target,
-            "tree-sitter",
-            "syntax",
-            "no unique symbol definition matched the declared reference",
-        ),
-        Err(error) => unresolved_reference(
-            owner,
-            kind,
-            &target,
-            "tree-sitter",
-            "syntax",
-            error.to_string(),
-        ),
     }
 }
 

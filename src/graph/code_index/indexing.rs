@@ -352,7 +352,7 @@ impl CodeIndex {
             "gemfile" | "rakefile" | "guardfile" | "podfile" | "fastfile" | "appfile"
             | "deliverfile" | "brewfile" | "vagrantfile" => LanguageId::Ruby,
             _ => match extension.as_str() {
-                "sh" | "bash" | "zsh" | "ksh" | "command" => LanguageId::Bash,
+                "sh" | "bash" | "zsh" | "ksh" | "command" | "bats" => LanguageId::Bash,
                 "c" | "h" => LanguageId::C,
                 "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "h++" | "ipp" | "tpp"
                 | "inl" => LanguageId::Cpp,

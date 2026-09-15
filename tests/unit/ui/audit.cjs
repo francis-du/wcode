@@ -109,7 +109,8 @@ async function main() {
   await test(17,'the first screen requests live activity without waiting for the project',async()=>{
     const s=sandbox(false,true,{fakeTimers:true});s.run('startObservatory()');await flush();
     assert.ok(s.requests.some(r=>r.url==='/intelligence/activity'));
-    assert.ok(s.requests.some(r=>r.url==='/intelligence/revision'));
+    assert.ok(s.requests.some(r=>r.url==='/intelligence/project'));
+    assert.equal(s.requests.filter(r=>r.url==='/intelligence/revision').length,0,'the first snapshot must not wait for or acknowledge an independent revision request');
     assert.equal(s.run('state.inFlight'),true);
   });
   await test(18,'overlapping activity ticks cannot create duplicate poll loops',async()=>{

@@ -1,6 +1,226 @@
 use super::*;
 use crate::evidence::Revision;
 
+thread_local! {
+    static TEMPORAL_EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(super) fn record_temporal_evaluation() {
+    TEMPORAL_EVALUATIONS.with(|count| count.set(count.get() + 1));
+}
+
+fn activation_fixture() -> (tempfile::TempDir, Workspace, Vec<VerifiedChangeExperience>) {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        fs::write(root.path().join("src").join(name), "fn example() {}\n").unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    for (timestamp, companion) in [(1_000, "src/b.rs"), (2_000, "src/c.rs")] {
+        write_evaluation_record(
+            &workspace,
+            timestamp,
+            &format!("revision-{timestamp}"),
+            "full",
+            &["src/a.rs", companion],
+        );
+    }
+    let records = load(&workspace).unwrap();
+    (root, workspace, records)
+}
+
+#[test]
+fn activation_cache_invalidates_prior_record_rewrites_with_unchanged_tail() {
+    let (_root, workspace, mut records) = activation_fixture();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        2
+    );
+    let last = serde_json::to_value(records.last().unwrap()).unwrap();
+    records[0].paths = vec!["src/a.rs".into(), "src/missing.rs".into()];
+    assert!(valid_record(&records[0]));
+    assert_eq!(serde_json::to_value(records.last().unwrap()).unwrap(), last);
+    let expected =
+        activation_from_evaluation(&evaluate_history_from_records(&workspace, &records).unwrap());
+    assert_eq!(expected.evaluable_records, 1);
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        expected.evaluable_records
+    );
+}
+
+#[test]
+fn activation_cache_invalidates_file_removal_directory_replacement_and_restore() {
+    let (root, workspace, records) = activation_fixture();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        2
+    );
+    let path = root.path().join("src/b.rs");
+    fs::remove_file(&path).unwrap();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        1
+    );
+    fs::create_dir(&path).unwrap();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        1
+    );
+    fs::remove_dir(&path).unwrap();
+    fs::write(&path, "fn restored() {}\n").unwrap();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_cache_rejects_symlink_replacement_without_changing_history() {
+    let (root, workspace, records) = activation_fixture();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        2
+    );
+    let path = root.path().join("src/b.rs");
+    fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(root.path().join("src/c.rs"), &path).unwrap();
+    assert_eq!(
+        activation_for_records(&workspace, &records).evaluable_records,
+        1
+    );
+}
+
+#[test]
+fn activation_cache_reuses_identical_inputs_but_tracks_trajectory_and_policy_inputs() {
+    let (root, workspace, mut records) = activation_fixture();
+    TEMPORAL_EVALUATIONS.with(|count| count.set(0));
+    for _ in 0..4 {
+        activation_for_records(&workspace, &records);
+    }
+    assert_eq!(TEMPORAL_EVALUATIONS.with(|count| count.get()), 1);
+    fs::write(
+        root.path().join("src/a.rs"),
+        "fn changed_contents_only() {}\n",
+    )
+    .unwrap();
+    activation_for_records(&workspace, &records);
+    assert_eq!(
+        TEMPORAL_EVALUATIONS.with(|count| count.get()),
+        1,
+        "membership-based replay must not hash source contents"
+    );
+    records[0].context_paths = vec!["src/c.rs".into()];
+    activation_for_records(&workspace, &records);
+    records[0].retrieval_intent = Some("edit_to_ripple".into());
+    activation_for_records(&workspace, &records);
+    records[0].level = "quick".into();
+    activation_for_records(&workspace, &records);
+    records[0].revision.design = Some("design:changed".into());
+    activation_for_records(&workspace, &records);
+    assert_eq!(TEMPORAL_EVALUATIONS.with(|count| count.get()), 5);
+}
+
+#[test]
+fn activation_cache_coalesces_concurrent_identical_replays() {
+    let (_root, workspace, records) = activation_fixture();
+    let barrier = std::sync::Barrier::new(6);
+    let evaluations = std::thread::scope(|scope| {
+        let handles = (0..6)
+            .map(|_| {
+                scope.spawn(|| {
+                    TEMPORAL_EVALUATIONS.with(|count| count.set(0));
+                    barrier.wait();
+                    for _ in 0..3 {
+                        assert_eq!(
+                            activation_for_records(&workspace, &records).evaluable_records,
+                            2
+                        );
+                    }
+                    TEMPORAL_EVALUATIONS.with(|count| count.get())
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .sum::<usize>()
+    });
+    assert_eq!(
+        evaluations, 1,
+        "18 overlapping requests should execute one temporal replay"
+    );
+}
+
+#[test]
+fn metadata_membership_preparation_matches_hashed_lookup_without_source_reads() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    let names = (0..12)
+        .map(|index| format!("src/file_{index:02}.rs"))
+        .collect::<Vec<_>>();
+    let payload = vec![b'x'; 512 * 1024];
+    for name in &names {
+        fs::write(root.path().join(name), &payload).unwrap();
+    }
+    let records = (1..=96)
+        .map(|timestamp_ms| VerifiedChangeExperience {
+            schema_version: EXPERIENCE_SCHEMA_VERSION,
+            revision: Revision {
+                code: format!("revision-{timestamp_ms}"),
+                design: None,
+            },
+            level: "full".into(),
+            paths: names.clone(),
+            context_paths: names[..3].to_vec(),
+            retrieval_intent: Some("edit_to_ripple".into()),
+            timestamp_ms,
+        })
+        .collect::<Vec<_>>();
+    let mut hashed_ms = Vec::new();
+    let mut metadata_ms = Vec::new();
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        let legacy = crate::resource::parallel_io(&names, |path| {
+            workspace
+                .path_info(path)
+                .is_ok_and(|info| info.kind == "file")
+        })
+        .unwrap();
+        hashed_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+        let started = std::time::Instant::now();
+        let prepared = experience_io::prepare_evaluation_paths(&workspace, &records).unwrap();
+        metadata_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+        assert!(legacy.iter().all(|live| *live));
+        assert_eq!(prepared.unique_paths, names.len());
+        assert_eq!(prepared.live_paths, names.len());
+        assert_eq!(prepared.stale_path_references, 0);
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(prepared.prepared[index], record.paths);
+            assert_eq!(prepared.prepared_context[index], record.context_paths);
+        }
+    }
+    hashed_ms.sort_by(f64::total_cmp);
+    metadata_ms.sort_by(f64::total_cmp);
+    let report = serde_json::json!({
+        "fixture": "96 records, 12 unique files, 512 KiB per file",
+        "source_bytes": names.len() * payload.len(), "trials": 5,
+        "legacy_hashed_membership_median_ms": hashed_ms[2],
+        "metadata_preparation_median_ms": metadata_ms[2],
+        "prepared_paths_identical": true, "timing_is_informational": true,
+        "scope": "synthetic guarded file membership, not end-to-end agent latency"
+    });
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(
+        target.join("wcode-experience-membership.json"),
+        serde_json::to_vec_pretty(&report).unwrap(),
+    )
+    .unwrap();
+}
+
 #[test]
 fn verified_experience_is_deduped_workspace_scoped_and_ignores_missing_paths() {
     let first = tempfile::tempdir().unwrap();

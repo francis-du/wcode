@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0812">
   <link rel="icon" href="assets/wcode-icon.svg" type="image/svg+xml">
-  <meta name="description" content="Give AI coding agents a real model of your software: architecture, LSP relationships, change impact, guarded edits, verification, and durable evidence — locally over MCP.">
+  <meta name="description" content="Give AI coding agents a real model of your software: architecture, 22-language syntax and quality capabilities, validated LSP relationships, change impact, guarded edits, verification, and durable evidence — locally over MCP.">
   <meta property="og:title" content="wcode — Engineering control plane for coding agents">
   <meta property="og:description" content="Your agent writes code. wcode helps it understand the system, control the blast radius, and prove the change.">
   <meta property="og:type" content="website">
   <title>wcode — Engineering control plane for coding agents</title>
   <link rel="alternate" hreflang="en" href="./">
   <link rel="alternate" hreflang="zh-CN" href="./zh/">
-  <link rel="stylesheet" href="./assets/site.css?v=20260903-1">
+  <link rel="stylesheet" href="./assets/site.css?v=20260915-1">
   <script defer src="./assets/site.js"></script>
 </head>
 <body>
@@ -32,6 +32,7 @@
         <a href="./docs/">Docs ↗</a>
         <a href="#performance">Parallelism</a>
         <a href="#intelligence">Repository state</a>
+        <a href="#languages">Languages</a>
         <a href="#design">Design</a>
         <a href="#security">Security</a>
       </nav>
@@ -181,13 +182,21 @@
         <article class="performance-card reveal"><span>04</span><h3>Turn “looks good” into evidence</h3><p>Run deterministic gates, language-native checks, independent reviewers, and advanced verification stages. Results are revision-bound Evidence, so yesterday's green result cannot prove today's code.</p></article>
       </div>
       <div class="scheduler-flow reveal"><div><b>Design State</b><small>desired</small></div><i>→</i><div><b>software_context</b><small>understand</small></div><i>→</i><div><b>impact + risk</b><small>decide</small></div><i>→</i><div><b>verification + evidence</b><small>prove</small></div></div>
-      <div class="callout reveal"><strong>v0.5.2 · Cleaner MCP calls and faster Agent workflows</strong><p>Tool schemas now hide server defaults and low-frequency tuning fields, Agent Context exposes dependency-lane parallelism, <code>wcode setup</code> becomes the one-command local configuration path, stdio gains standards-based human authorization, and Verification is revision/target aware. <a href="./docs/releases/v0.5.2/">Read the v0.5.2 release notes ↗</a></p></div>
+      <div class="callout reveal"><strong>Current workflow · capability-first, model-neutral</strong><p>Tool definitions stay compact and stable, <code>agent_context</code> adapts its bounded context to the task, specialized tools remain discoverable on demand, and repository semantics never branch on a model brand. The goal is fewer unnecessary tool definitions and repository dumps without hiding real precision or verification gaps. <a href="./docs/research-upgrades/">Research and measurement notes ↗</a></p></div>
       <div class="callout reveal"><strong>Recommended call order</strong><p>Start with <code>agent_context(goal, scopes=...)</code>, omit default/inferable MCP arguments, and follow <code>readiness / next_actions / parallelism</code>. Split independent work into concurrent top-level calls when the Host supports it; keep bulk <code>read_files</code>, <code>search_many</code>, and <code>apply_file_edits</code> for known inputs, and use nested <code>parallel_tools</code> only for compact fan-out. After the change, run <code>review_changes</code> and <code>verify_project</code>, then add deeper drift / impact / risk / evidence only when required. <a href="./docs/product-scopes/">Product Scope reference ↗</a> · <a href="./docs/maintainability-review/">Maintainability policy ↗</a></p></div>
       <div class="parallel-notes reveal"><p>Evidence, Verification, Semantic Facts, Graph Provider revisions/history, Reconciliation Plans, MCP Tasks, and execution state persist per workspace and survive runtime restarts.</p><p>All 22 indexed languages now have exactly one tested canonical LSP launch profile, and every canonical profile completes a real spawned stdio mock-LSP initialize handshake in tests; PHP, Python, and Ruby retain explicit installed-provider alternates. Warm sessions honor each server's advertised Full/Incremental/None document-sync contract; background graph indexing and foreground <code>semantic_navigation</code> reuse the same session. Stale semantic facts are excluded automatically, while syntax/search remains the default localization path.</p><p>Property / Mutation / Fuzz / Runtime-Canary use a cross-language executor registry with per-producer fail-closed Evidence aggregation. MCP 2026 clients that opt into <code>io.modelcontextprotocol/tasks</code> can run semantic refresh and stage execution as durable pollable tasks; legacy/non-opt-in clients keep the synchronous path.</p></div>
     </section>
 
+    <section class="section section-shell" id="languages">
+      <div class="section-heading reveal"><div class="kicker">05 · POLYGLOT QUALITY</div><h2>One capability model for all 22 indexed languages.</h2><p>Language support is not a Rust-shaped yes/no badge. wcode separately reports syntax, initialized semantics, formatting, linting, type checking, static analysis, tests, security, and advanced verification for every detected language—and leaves missing dimensions visible.</p></div>
+      <div class="language-strip reveal" aria-label="22 indexed languages"><span>Bash</span><span>C</span><span>C++</span><span>C#</span><span>CSS</span><span>Dart</span><span>Elixir</span><span>Go</span><span>HTML</span><span>Java</span><span>JavaScript</span><span>Lua</span><span>OCaml</span><span>OCaml Interface</span><span>PHP</span><span>Python</span><span>R</span><span>Ruby</span><span>Rust</span><span>Swift</span><span>TypeScript</span><span>TSX</span></div>
+      <div class="scheduler-flow reveal"><div><b>Tree-sitter</b><small>22-language syntax baseline</small></div><i>→</i><div><b>Validated LSP</b><small>semantic only after initialize</small></div><i>→</i><div><b>Native quality</b><small>declared · available · check-only</small></div><i>→</i><div><b>Verification</b><small>real Evidence or explicit gap</small></div></div>
+      <div class="parallel-notes reveal"><p>A discovered executable is not semantic coverage. The exact LSP server must initialize for the selected Workspace; non-hardened providers retain explicit trust instead of being auto-started just to make the matrix green.</p><p>One real command may cover several dimensions without running twice: Dart/Flutter analysis contributes lint/type/static coverage; clang-tidy contributes compiler type diagnostics plus static analysis; Go and PHP analyzers keep their shared coverage explicit.</p><p>Deno checks/tests use frozen dependency state; scoped npm packages and CSS/HTML plugins are matched explicitly. Repository scripts remain visible intent, but arbitrary bodies stay discovery-only until their concrete shape is proven check-only.</p></div>
+      <div class="callout reveal"><strong>Real ecosystem checks, not labels</strong><p>Deno, Flutter, HTMLHint, plugin-aware ESLint/Biome, standard Python configs, R <code>--vanilla</code>, and Ruby Standard all flow through the same truthful capability model; unavailable or unsafe paths remain gaps. <a href="./docs/language-quality/">Open the complete language-quality matrix ↗</a></p></div>
+    </section>
+
     <section class="section section-shell" id="design">
-      <div class="section-heading reveal"><div class="kicker">05 · DESIGN</div><h2>An Engineering Control Plane, not a model host.</h2><p>wcode keeps models replaceable while owning protocol, authorization, Design State, repository intelligence, tool scheduling, verification evidence, observability and filesystem policy. Each layer can evolve without binding the runtime to one model vendor or widening the trust boundary.</p></div>
+      <div class="section-heading reveal"><div class="kicker">06 · DESIGN</div><h2>An Engineering Control Plane, not a model host.</h2><p>wcode keeps models replaceable while owning protocol, authorization, Design State, repository intelligence, tool scheduling, verification evidence, observability and filesystem policy. Each layer can evolve without binding the runtime to one model vendor or widening the trust boundary.</p></div>
       <div class="architecture reveal" role="img" aria-label="wcode architecture diagram">
         <div class="arch-column arch-clients"><div class="arch-label">MCP clients</div><div class="arch-node"><span>✦</span><div><b>Web clients</b><small>Grok · Claude · Vibe</small></div></div><div class="arch-node"><span>⌘</span><div><b>Coding clients</b><small>Qoder · Cursor · Cline</small></div></div><div class="arch-node"><span>◫</span><div><b>Self-hosted</b><small>Open WebUI · LibreChat</small></div></div></div>
         <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
@@ -204,13 +213,13 @@
     </section>
 
     <section class="section section-shell protocol-section" id="protocol">
-      <div class="section-heading reveal"><div class="kicker">06 · CONNECTION FLOW</div><h2>OAuth is part of the MCP experience.</h2><p>No API key pasted into a random client. A compatible client can discover the authorization server from the protected MCP endpoint.</p></div>
+      <div class="section-heading reveal"><div class="kicker">07 · CONNECTION FLOW</div><h2>OAuth is part of the MCP experience.</h2><p>No API key pasted into a random client. A compatible client can discover the authorization server from the protected MCP endpoint.</p></div>
       <div class="sequence reveal"><div class="seq-head"><span>MCP client</span><span>wcode /mcp</span><span>wcode OAuth</span><span>Browser</span></div><div class="seq-row"><span class="seq-label">1 · Discover</span><i>POST /mcp</i><b>401 + resource_metadata</b><em></em></div><div class="seq-row"><span class="seq-label">2 · Metadata</span><i></i><b>/.well-known/…</b><em></em></div><div class="seq-row"><span class="seq-label">3 · Register</span><i></i><b>POST /register · DCR</b><em></em></div><div class="seq-row"><span class="seq-label">4 · Authorize</span><i></i><b>/authorize + PKCE</b><em>pairing code</em></div><div class="seq-row"><span class="seq-label">5 · Token</span><i></i><b>POST /token</b><em></em></div><div class="seq-row success"><span class="seq-label">6 · Use tools</span><i>Bearer + POST /mcp</i><b>tools/list · tools/call</b><em></em></div></div>
       <div class="callout reveal"><strong>Why DCR in 2026?</strong><p>The latest MCP revision prefers Client ID Metadata Documents, but explicitly keeps Dynamic Client Registration for backward compatibility. wcode does not fetch arbitrary client-provided metadata URLs by default because doing that safely requires a new outbound-network/SSRF trust boundary.</p></div>
     </section>
 
     <section class="section section-shell" id="security">
-      <div class="section-heading reveal"><div class="kicker">07 · SECURITY MODEL</div><h2>Permission is a product feature.</h2><p>The model does not inherit your entire machine. Every path, edit, command, OAuth token, and concurrent task passes through explicit boundaries.</p></div>
+      <div class="section-heading reveal"><div class="kicker">08 · SECURITY MODEL</div><h2>Permission is a product feature.</h2><p>The model does not inherit your entire machine. Every path, edit, command, OAuth token, and concurrent task passes through explicit boundaries.</p></div>
       <div class="security-grid">
         <article class="security-card reveal"><span>⌂</span><h3>Workspace scoped</h3><p>The model sees only the selected Workspace roots: the current directory by default, or explicit operator-selected roots. Parent traversal, symlink aliases, protected credential/VCS paths, and unintended broad roots fail closed; Full Access is a separate explicit operator decision and still does not expose the filesystem root.</p></article>
         <article class="security-card reveal"><span>↻</span><h3>Stale-write protection</h3><p>Existing files are edited with SHA-256 preconditions and atomic bounded writes. Deletion is a separate path: only one regular file or empty directory can be removed after an exact one-shot authorization in the local TUI.</p></article>
@@ -222,7 +231,7 @@
     </section>
 
     <section class="section section-shell" id="reference">
-      <div class="section-heading reveal"><div class="kicker">08 · DOCUMENTATION</div><h2>One documentation tree. No split Wiki.</h2><p>Guides, security boundaries, Agent integration, CLI/MCP reference, development notes, and releases now live in one bilingual documentation system.</p><p><a class="button button-primary" href="./docs/">Open Docs →</a></p></div>
+      <div class="section-heading reveal"><div class="kicker">09 · DOCUMENTATION</div><h2>One documentation tree. No split Wiki.</h2><p>Guides, security boundaries, Agent integration, CLI/MCP reference, development notes, and releases now live in one bilingual documentation system.</p><p><a class="button button-primary" href="./docs/">Open Docs →</a></p></div>
       <div class="reference-layout legacy-reference">
         <aside class="reference-nav reveal" aria-label="Reference sections"><a href="#tool-reference">MCP tools</a><a href="#cli-reference">CLI flags</a><a href="#diagnostics">Diagnostics</a><a href="#faq">FAQ</a></aside>
         <div class="reference-body">
@@ -243,11 +252,11 @@
       </div>
     </section>
 
-    <section class="section section-shell sources-section"><div class="section-heading reveal"><div class="kicker">09 · SOURCES</div><h2>Check the client docs behind each entry.</h2><p>Client configuration changes over time. Cards marked “config tested” were exercised against their local schema; other entries state only what the linked product documentation supports.</p></div><div id="sourceList" class="source-list reveal"></div></section>
+    <section class="section section-shell sources-section"><div class="section-heading reveal"><div class="kicker">10 · SOURCES</div><h2>Check the client docs behind each entry.</h2><p>Client configuration changes over time. Cards marked “config tested” were exercised against their local schema; other entries state only what the linked product documentation supports.</p></div><div id="sourceList" class="source-list reveal"></div></section>
 
     <section class="cta section-shell reveal"><div><div class="kicker">GET STARTED</div><h2>Run wcode in a repository.<br>Connect the client you already use.</h2></div><div class="cta-actions"><a class="button button-primary" href="https://github.com/francis-du/wcode">View on GitHub ↗</a><div class="code-block compact-code" data-copy="curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh"><button class="copy-button" type="button">Copy</button><code>curl -fsSL https://raw.githubusercontent.com/francis-du/wcode/main/install.sh | sh</code></div></div></section>
   </main>
 
-  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><img class="brand-mark" src="assets/wcode-icon.svg" alt=""><span>code</span></div><p>Apache-2.0 · built by <a href="https://github.com/francis-du">@francis-du</a></p><p>stdio · Streamable HTTP + OAuth · legacy SSE · updated Sep 1, 2026</p></div></footer>
+  <footer class="site-footer"><div class="section-shell footer-inner"><div class="brand"><img class="brand-mark" src="assets/wcode-icon.svg" alt=""><span>code</span></div><p>Apache-2.0 · built by <a href="https://github.com/francis-du">@francis-du</a></p><p>stdio · Streamable HTTP + OAuth · legacy SSE · bilingual documentation</p></div></footer>
 </body>
 </html>

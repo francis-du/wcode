@@ -452,7 +452,8 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
     assert!(INTELLIGENCE_JS.contains("retry_in_seconds"));
     assert!(INTELLIGENCE_JS.contains("death_count"));
     assert!(INTELLIGENCE_JS.contains("tunnel.role || tunnel.state"));
-    assert!(INTELLIGENCE_JS.contains("if (tunnel.url)"));
+    assert!(INTELLIGENCE_JS.contains("const dashboardUrl = tunnelDashboardUrl(tunnel)"));
+    assert!(INTELLIGENCE_JS.contains("if (dashboardUrl)"));
     assert!(!INTELLIGENCE_APP_PAGE.contains("style=\""));
     assert!(!INTELLIGENCE_APP_PAGE.contains("<script>"));
     assert!(!INTELLIGENCE_JS.contains("style=\""));

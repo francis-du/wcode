@@ -4,6 +4,18 @@ use super::*;
 #[path = "../../../tests/unit/workspace/execution.rs"]
 mod tests;
 
+fn ensure_workspace_executable(path: &Path) -> Result<()> {
+    ensure_single_link_file(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if path.metadata()?.permissions().mode() & 0o111 == 0 {
+            bail!("workspace executable does not have an executable permission bit");
+        }
+    }
+    Ok(())
+}
+
 impl Workspace {
     pub async fn run_command(
         &self,
@@ -21,15 +33,25 @@ impl Workspace {
         let mut admissible = self.security;
         admissible.allow_risky_exec = true;
         validate_command_policy(program, args, admissible)?;
+        let development_program = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
         let mut safe_development = self.security;
-        safe_development.allow_risky_exec = false;
+        // Repository development tools are intentionally autonomous. Give
+        // their existing bounded policy the elevated lane up front so normal
+        // build/test/lint/codegen/package-manager workflows do not create a
+        // repetitive RiskyExecution approval request. Permanent policy
+        // rejections (shell interpreters, protected/escaping paths, credential
+        // flows, and explicitly blocked host operations) still fail closed.
+        safe_development.allow_risky_exec = development_program;
         let autonomous_development =
             validate_command_policy(program, args, safe_development).is_ok();
         let cwd_path = self.existing_path(cwd)?;
         if !cwd_path.is_dir() {
             bail!("cwd is not a directory");
         }
-        if !self.allow_write && command_requires_workspace_write(program, args) {
+        if !self.allow_write
+            && command_requires_workspace_write(program, args)
+            && validate_verification_command_shape(program, args).is_err()
+        {
             bail!("command modifies repository state and is blocked in a read-only workspace");
         }
         if !self
@@ -47,6 +69,9 @@ impl Workspace {
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
+        if autonomous_development && development_program {
+            effective_security.allow_risky_exec = true;
+        }
         if !effective_security.allow_risky_exec
             && !autonomous_development
             && validate_command_policy(program, args, effective_security).is_err()
@@ -114,7 +139,7 @@ impl Workspace {
 
     pub(crate) fn development_command_shape_allowed(&self, program: &str, args: &[String]) -> bool {
         let mut security = self.security;
-        security.allow_risky_exec = false;
+        security.allow_risky_exec = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
         validate_command_policy(program, args, security).is_ok()
     }
 
@@ -142,7 +167,7 @@ impl Workspace {
         program.contains(['/', '\\'])
             && self
                 .existing_path(program)
-                .and_then(|path| ensure_single_link_file(&path))
+                .and_then(|path| ensure_workspace_executable(&path))
                 .is_ok()
     }
 
@@ -157,7 +182,7 @@ impl Workspace {
             bail!("project verification requires command execution; restart without --no-exec");
         }
         let executable = self.existing_path(program)?;
-        ensure_single_link_file(&executable)?;
+        ensure_workspace_executable(&executable)?;
         validate_command_arguments(program, args)?;
         let cwd = self.existing_path(cwd)?;
         if !cwd.is_dir() {
@@ -209,9 +234,7 @@ impl Workspace {
         }
         let executable = if program.contains(['/', '\\']) {
             let executable = self.existing_path(program)?;
-            if !executable.is_file() {
-                bail!("runtime executor program is not a regular file");
-            }
+            ensure_workspace_executable(&executable)?;
             executable
         } else {
             PathBuf::from(program)

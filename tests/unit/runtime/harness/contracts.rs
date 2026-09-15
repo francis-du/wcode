@@ -378,3 +378,55 @@ fn contract_bridges_ignore_remote_escaping_and_dynamic_configs_without_execution
         .iter()
         .any(|diagnostic| diagnostic.reason == "no_local_contract_bridge"));
 }
+
+#[test]
+fn shared_profile_scan_preserves_manifest_and_contract_visibility_rules() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("build")).unwrap();
+    fs::create_dir_all(root.path().join(".venv")).unwrap();
+    fs::write(
+        root.path().join("build/package.json"),
+        r#"{"name":"generated-build-tree"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("build/codegen.ts"),
+        "throw new Error('dynamic config must never execute');\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".venv/package.json"),
+        r#"{"name":"ignored-venv"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".venv/codegen.ts"),
+        "throw new Error('hidden config must never execute');\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+
+    assert!(
+        profile.islands.iter().all(|island| island.root != "build"),
+        "profile discovery must keep generated build directories excluded"
+    );
+    assert!(
+        profile.islands.iter().all(|island| island.root != ".venv"),
+        "profile discovery must keep virtual environments excluded"
+    );
+    assert!(profile.contracts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.path == "build/codegen.ts"
+            && diagnostic.reason == "dynamic_graphql_config_not_executed"
+    }));
+    assert!(
+        profile
+            .contracts
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.path != ".venv/codegen.ts"),
+        "contract discovery must keep virtual environments excluded"
+    );
+}

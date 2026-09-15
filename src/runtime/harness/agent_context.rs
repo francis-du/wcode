@@ -20,7 +20,7 @@ use agent_readiness::{
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/context_budget.rs"]
 mod tests;
-use context_budget::{estimated_json_tokens, serialized_json_bytes, trim_agent_context};
+use context_budget::{serialized_json_bytes, trim_agent_context_from_tokens};
 
 const MIN_AGENT_CONTEXT_BUDGET: usize = 1_000;
 const MAX_AGENT_CONTEXT_BUDGET: usize = 12_000;
@@ -69,19 +69,32 @@ impl ToolHarness {
         let internal_budget = requested_budget
             .map(|budget| budget.saturating_mul(2).clamp(2_000, 12_000))
             .unwrap_or(4_000);
-        let software_context_started = Instant::now();
-        let (context, anchors) = context_anchors::build_context(
-            self,
-            &workspace_id,
-            workspace,
-            &SoftwareContextRequest {
-                query: query.to_owned(),
-                intent: "implement".to_owned(),
-                budget: internal_budget,
-                scopes: requested_scopes.to_vec(),
+        let known_checks = harness_profile::known_checks_from_profile(&profile);
+        let context_request = SoftwareContextRequest {
+            query: query.to_owned(),
+            intent: "implement".to_owned(),
+            budget: internal_budget,
+            scopes: requested_scopes.to_vec(),
+        };
+        // Context resolution and repository convention discovery are independent
+        // after Project Profile is known. Keep their caches/freshness contracts
+        // separate, but overlap the filesystem/index work on cold requests.
+        let ((context_result, software_context_ms), convention_report) = rayon::join(
+            || {
+                let started = Instant::now();
+                let result = context_anchors::build_context(
+                    self,
+                    &workspace_id,
+                    workspace,
+                    &known_checks,
+                    &context_request,
+                );
+                (result, started.elapsed().as_millis())
             },
-        )?;
-        let software_context_ms = software_context_started.elapsed().as_millis();
+            || self.convention_status_cached(workspace),
+        );
+        let (context, anchors) = context_result?;
+        let convention_report = convention_report?;
         let budget = requested_budget
             .unwrap_or_else(|| adaptive_agent_budget(&context, query, requested_scopes));
         let budget_mode = if requested_budget.is_some() {
@@ -106,7 +119,6 @@ impl ToolHarness {
             MAX_AGENT_GUIDANCE,
         );
         let core_constraints = compact_core_constraints();
-        let convention_report = self.convention_status_cached(workspace)?;
         let conventions = compact_convention_report(convention_report.as_ref());
         let design = context
             .design_items
@@ -120,36 +132,47 @@ impl ToolHarness {
             .take(MAX_AGENT_TARGETS)
             .map(compact_symbol)
             .collect::<Vec<_>>();
-        let repo_map = context_anchors::repo_map(
-            self,
-            &workspace_id,
-            workspace,
-            query,
-            &context,
-            anchors.is_empty(),
-        )?;
         let hot_source_items = if budget >= 3_000 { 2 } else { 1 };
         let hot_source_chars = budget.saturating_mul(4).saturating_div(3).clamp(900, 3_200);
-        let hot_source = context
-            .symbols
-            .iter()
-            .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
-            .take(if anchors.is_empty() {
-                hot_source_items
-            } else {
-                0
-            })
-            .filter_map(|symbol_id| {
-                self.symbol_context(
-                    workspace_id.clone(),
+        // RepoMap ranking and direct Hot Source expansion share only immutable
+        // context. CodeIndex parse flights already coalesce any overlapping file
+        // parse, so these two retrieval lanes can safely make forward progress
+        // together instead of serializing the cold graph behind exact source.
+        let (repo_map, hot_source) = rayon::join(
+            || {
+                context_anchors::repo_map(
+                    self,
+                    &workspace_id,
                     workspace,
-                    symbol_id,
-                    MAX_AGENT_HOT_SOURCE_LINES,
+                    query,
+                    &context,
+                    anchors.is_empty(),
                 )
-                .ok()
-            })
-            .map(|source| compact_hot_source(&source, hot_source_chars))
-            .collect::<Vec<_>>();
+            },
+            || {
+                context
+                    .symbols
+                    .iter()
+                    .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
+                    .take(if anchors.is_empty() {
+                        hot_source_items
+                    } else {
+                        0
+                    })
+                    .filter_map(|symbol_id| {
+                        self.symbol_context(
+                            workspace_id.clone(),
+                            workspace,
+                            symbol_id,
+                            MAX_AGENT_HOT_SOURCE_LINES,
+                        )
+                        .ok()
+                    })
+                    .map(|source| compact_hot_source(&source, hot_source_chars))
+                    .collect::<Vec<_>>()
+            },
+        );
+        let repo_map = repo_map?;
 
         let mut paths = BTreeMap::<String, BTreeSet<String>>::new();
         for target in &targets {
@@ -621,8 +644,9 @@ fn finalize_agent_context(
         value["context_bytes_avoided"] = json!(avoided);
         value["context_reduction_percent"] = json!(reduction_percent);
 
-        if estimated_json_tokens(value)? > budget {
-            trim_agent_context(value, budget)?;
+        let current_tokens = serialized_json_bytes(value)?.div_ceil(4);
+        if current_tokens > budget {
+            trim_agent_context_from_tokens(value, budget, current_tokens)?;
             update_agent_readiness(value);
             continue;
         }

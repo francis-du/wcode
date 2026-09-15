@@ -11,12 +11,16 @@ mod context_discovery;
 mod context_rank;
 #[path = "harness/contracts.rs"]
 mod contracts;
+#[path = "harness/convention_cache.rs"]
+mod convention_cache;
 #[path = "harness/cost.rs"]
 mod cost;
 #[path = "harness/experience.rs"]
 mod experience;
 #[path = "harness/focus.rs"]
 mod focus;
+#[path = "harness/repo_map.rs"]
+mod repo_map;
 #[path = "harness/review_generated.rs"]
 mod review_generated;
 #[path = "harness/selective.rs"]

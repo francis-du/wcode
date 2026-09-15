@@ -1,51 +1,251 @@
 use super::*;
 
-pub(super) fn is_local_development_task(task: &str) -> bool {
+pub(super) fn is_sensitive_project_task(task: &str) -> bool {
     let task = task.to_ascii_lowercase();
-    if matches!(
-        task.as_str(),
-        "check"
-            | "test"
-            | "tests"
-            | "lint"
-            | "fmt"
-            | "format"
-            | "build"
-            | "verify"
-            | "ci"
-            | "dev"
-            | "start"
-            | "serve"
-            | "run"
-            | "bench"
-            | "benchmark"
-            | "typecheck"
-            | "compile"
-            | "generate"
-            | "codegen"
-            | "smoke"
-            | "smoke-test"
-            | "test-smoke"
-    ) {
-        return true;
-    }
-    let smoke_task = task.ends_with("-smoke") || task.ends_with("_smoke");
-    let sensitive = [
-        "publish",
-        "deploy",
-        "release",
-        "upload",
-        "install",
-        "uninstall",
-        "push",
-        "production",
-        "prod",
-        "credential",
-        "secret",
+    if [
+        "install-global",
+        "global-install",
+        "uninstall-global",
+        "global-uninstall",
+        "registry-publish",
+        "delete-production",
+        "drop-production",
+        "migrate-production",
     ]
     .iter()
-    .any(|marker| task.contains(marker));
-    smoke_task && !sensitive
+    .any(|marker| task.contains(marker))
+    {
+        return true;
+    }
+    task.split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .any(|part| {
+            matches!(
+                part,
+                "publish"
+                    | "deploy"
+                    | "upload"
+                    | "push"
+                    | "credential"
+                    | "secret"
+                    | "token"
+                    | "login"
+                    | "logout"
+                    | "owner"
+                    | "destroy"
+            )
+        })
+}
+
+pub(super) fn is_autonomous_repository_task(task: &str) -> bool {
+    !task.trim().is_empty() && !task.starts_with('-') && !is_sensitive_project_task(task)
+}
+
+fn safe_make_jobs(value: &str) -> bool {
+    value
+        .parse::<usize>()
+        .is_ok_and(|jobs| (1..=128).contains(&jobs))
+}
+
+fn safe_make_assignment(value: &str) -> bool {
+    let Some((name, value)) = value.split_once('=') else {
+        return false;
+    };
+    match name {
+        "CI" => matches!(value, "" | "0" | "1" | "false" | "true"),
+        "NO_COLOR" => matches!(value, "" | "0" | "1" | "false" | "true"),
+        "V" | "VERBOSE" => matches!(value, "0" | "1" | "false" | "true"),
+        "JOBS" | "NPROC" => safe_make_jobs(value),
+        "PORT" => value.parse::<u16>().is_ok_and(|port| port != 0),
+        "CARGO_TERM_COLOR" => matches!(value, "auto" | "always" | "never"),
+        _ => false,
+    }
+}
+
+pub(super) fn validate_make_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    if args.is_empty() {
+        return Ok(());
+    }
+    let mut targets = Vec::new();
+    let mut index = 0usize;
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--" => {
+                targets.extend(args[index + 1..].iter().map(String::as_str));
+                break;
+            }
+            "-j" | "--jobs" => {
+                let Some(value) = args.get(index + 1) else {
+                    return require_risky_exec("unbounded make parallelism", allow_risky_exec);
+                };
+                if !safe_make_jobs(value) {
+                    return require_risky_exec("unbounded make parallelism", allow_risky_exec);
+                }
+                index += 2;
+                continue;
+            }
+            "-C" | "--directory" | "-f" | "--file" => {
+                let Some(value) = args.get(index + 1) else {
+                    return require_risky_exec("incomplete make path option", allow_risky_exec);
+                };
+                if value.is_empty() || value.starts_with('-') {
+                    return require_risky_exec("invalid make path option", allow_risky_exec);
+                }
+                index += 2;
+                continue;
+            }
+            "-k"
+            | "--keep-going"
+            | "-s"
+            | "--silent"
+            | "--no-print-directory"
+            | "-B"
+            | "--always-make"
+            | "-n"
+            | "--just-print"
+            | "--dry-run"
+            | "--recon"
+            | "-q"
+            | "--question"
+            | "-w"
+            | "--print-directory"
+            | "-r"
+            | "--no-builtin-rules"
+            | "-R"
+            | "--no-builtin-variables"
+            | "-p"
+            | "--print-data-base"
+            | "--warn-undefined-variables"
+            | "--trace"
+            | "-O"
+            | "--output-sync" => {
+                index += 1;
+                continue;
+            }
+            _ if arg.starts_with('-')
+                && arg.len() > 2
+                && arg[1..]
+                    .chars()
+                    .all(|flag| matches!(flag, 'r' | 'R' | 'k' | 's' | 'B' | 'n' | 'q' | 'w')) =>
+            {
+                index += 1;
+                continue;
+            }
+            _ if arg.starts_with("-j") && arg.len() > 2 && safe_make_jobs(&arg[2..]) => {
+                index += 1;
+                continue;
+            }
+            _ if arg.strip_prefix("--jobs=").is_some_and(safe_make_jobs) => {
+                index += 1;
+                continue;
+            }
+            _ if arg
+                .strip_prefix("-O")
+                .is_some_and(|mode| matches!(mode, "none" | "line" | "target" | "recurse")) =>
+            {
+                index += 1;
+                continue;
+            }
+            _ if arg
+                .strip_prefix("--output-sync=")
+                .is_some_and(|mode| matches!(mode, "none" | "line" | "target" | "recurse")) =>
+            {
+                index += 1;
+                continue;
+            }
+            _ if arg.starts_with("--directory=") || arg.starts_with("--file=") => {
+                index += 1;
+                continue;
+            }
+            _ if safe_make_assignment(arg) => {
+                index += 1;
+                continue;
+            }
+            _ if arg.contains('=') => {
+                return require_risky_exec("make variable assignment", allow_risky_exec);
+            }
+            _ if arg.starts_with('-') => {
+                return require_risky_exec("make option evaluation", allow_risky_exec);
+            }
+            _ => targets.push(arg.as_str()),
+        }
+        index += 1;
+    }
+    if !targets.is_empty()
+        && targets
+            .iter()
+            .all(|target| is_autonomous_repository_task(target))
+    {
+        Ok(())
+    } else {
+        require_risky_exec("make repository task evaluation", allow_risky_exec)
+    }
+}
+
+pub(super) fn validate_local_http_probe(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    let mut url = None::<&str>;
+    let mut index = 0usize;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        match arg {
+            "-f" | "--fail" | "-s" | "--silent" | "-S" | "--show-error" | "-I" | "--head" => {}
+            "-m" | "--max-time" | "--connect-timeout" => {
+                let Some(value) = args.get(index + 1) else {
+                    return require_risky_exec("curl timeout option", allow_risky_exec);
+                };
+                if !value
+                    .parse::<u64>()
+                    .is_ok_and(|seconds| (1..=30).contains(&seconds))
+                {
+                    return require_risky_exec("curl timeout option", allow_risky_exec);
+                }
+                index += 1;
+            }
+            _ if arg
+                .strip_prefix("--max-time=")
+                .or_else(|| arg.strip_prefix("--connect-timeout="))
+                .is_some_and(|value| {
+                    value
+                        .parse::<u64>()
+                        .is_ok_and(|seconds| (1..=30).contains(&seconds))
+                }) => {}
+            _ if arg.starts_with("-m")
+                && arg.len() > 2
+                && arg[2..]
+                    .parse::<u64>()
+                    .is_ok_and(|seconds| (1..=30).contains(&seconds)) => {}
+            _ if arg.starts_with('-')
+                && arg.len() > 1
+                && arg[1..]
+                    .chars()
+                    .all(|flag| matches!(flag, 'f' | 's' | 'S' | 'I')) => {}
+            _ if arg.starts_with('-') => {
+                return require_risky_exec("curl option evaluation", allow_risky_exec);
+            }
+            _ if url.is_none() => url = Some(arg),
+            _ => return require_risky_exec("multiple curl URLs", allow_risky_exec),
+        }
+        index += 1;
+    }
+    let Some(url) = url else {
+        return require_risky_exec("curl request without URL", allow_risky_exec);
+    };
+    let parsed = url::Url::parse(url).map_err(|error| anyhow!("invalid curl URL: {error}"))?;
+    let local_host = matches!(
+        parsed.host_str(),
+        Some("127.0.0.1" | "localhost" | "::1" | "[::1]")
+    );
+    if matches!(parsed.scheme(), "http" | "https")
+        && local_host
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && parsed.fragment().is_none()
+    {
+        Ok(())
+    } else {
+        require_risky_exec("curl external network request", allow_risky_exec)
+    }
 }
 
 pub(super) fn validate_repository_runner(
@@ -53,10 +253,13 @@ pub(super) fn validate_repository_runner(
     args: &[String],
     allow_risky_exec: bool,
 ) -> Result<()> {
-    let Some(task) = args.first().map(String::as_str) else {
-        bail!("{program} requires an explicit repository task");
+    let task = args
+        .iter()
+        .find(|arg| !arg.starts_with('-') && !arg.contains('='));
+    let Some(task) = task.map(String::as_str) else {
+        return Ok(());
     };
-    if !task.starts_with('-') && is_local_development_task(task) {
+    if is_autonomous_repository_task(task) {
         return Ok(());
     }
     require_risky_exec(
@@ -65,11 +268,105 @@ pub(super) fn validate_repository_runner(
     )
 }
 
+pub(super) fn validate_wrapped_development_program(program: &str) -> Result<()> {
+    if program.starts_with("./") || program.contains('/') || program.contains('\\') {
+        let path = Path::new(program);
+        if path.is_absolute() || program.split(['/', '\\']).any(|part| part == "..") {
+            bail!("wrapped development executable must stay inside the selected workspace");
+        }
+        reject_protected_path(path)?;
+        return Ok(());
+    }
+    validate_authorizable_program(program)?;
+    if matches!(
+        program.to_ascii_lowercase().as_str(),
+        "rm" | "rmdir"
+            | "mv"
+            | "cp"
+            | "dd"
+            | "chmod"
+            | "chown"
+            | "curl"
+            | "wget"
+            | "ssh"
+            | "scp"
+            | "sftp"
+            | "nc"
+            | "netcat"
+            | "socat"
+            | "sudo"
+            | "su"
+            | "env"
+            | "xargs"
+            | "find"
+            | "kill"
+            | "pkill"
+            | "killall"
+            | "open"
+            | "osascript"
+            | "launchctl"
+    ) {
+        bail!(
+            "wrapped host utility is not an autonomous project-development executable: {program}"
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn validate_generic_project_tool(
+    program: &str,
+    args: &[String],
+    allow_risky_exec: bool,
+) -> Result<()> {
+    let operation = args
+        .iter()
+        .find(|arg| !arg.starts_with('-'))
+        .map(String::as_str);
+    if matches!(program, "poetry" | "pdm" | "hatch") && operation == Some("run") {
+        if let Some(index) = args.iter().position(|arg| arg == "run") {
+            if let Some(inner) = args[index + 1..]
+                .iter()
+                .find(|arg| !arg.starts_with('-') && !arg.starts_with('+'))
+            {
+                validate_wrapped_development_program(inner)?;
+            }
+        }
+    }
+    let blocked = match program {
+        "bazel" | "bazelisk" => matches!(operation, Some("mobile-install")),
+        "buck2" => matches!(operation, Some("install")),
+        "pants" => matches!(operation, Some("publish")),
+        "meson" => matches!(operation, Some("install")),
+        "sbt" => args.iter().any(|arg| {
+            let lower = arg.to_ascii_lowercase();
+            lower.contains("publish") || lower.contains("credentials")
+        }),
+        "lein" => matches!(operation, Some("deploy" | "install" | "release")),
+        "rebar3" => matches!(operation, Some("hex")),
+        "poetry" => matches!(operation, Some("publish" | "self" | "config")),
+        "pdm" => matches!(operation, Some("publish" | "self" | "plugin")),
+        "hatch" => matches!(operation, Some("publish")),
+        "nx" => matches!(operation, Some("release" | "connect" | "login" | "logout")),
+        "turbo" => matches!(operation, Some("login" | "logout" | "link" | "unlink")),
+        "cabal" => matches!(operation, Some("upload" | "install" | "user-config")),
+        "stack" => matches!(operation, Some("upload" | "install" | "setup" | "upgrade")),
+        "rake" => operation.is_some_and(is_sensitive_project_task),
+        _ => false,
+    };
+    if blocked {
+        require_risky_exec(
+            &format!("{program} externally consequential operation"),
+            allow_risky_exec,
+        )
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("uv subcommand is required"))?;
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Ok(());
+    };
     if args.iter().any(|arg| {
         matches!(
             arg.as_str(),
@@ -97,90 +394,146 @@ pub(super) fn validate_uv_command(args: &[String], allow_risky_exec: bool) -> Re
         bail!("uv path/index/config redirection is blocked; use the selected workspace and repository configuration");
     }
     match subcommand {
-        "lock" if args.iter().any(|arg| matches!(arg.as_str(), "--check" | "--locked" | "--check-exists" | "--frozen")) => Ok(()),
-        "tree" if args.iter().any(|arg| matches!(arg.as_str(), "--locked" | "--frozen")) => Ok(()),
-        "audit" => Ok(()),
-        "run" if uv_run_is_bounded_check(args) || uv_run_is_local_development(args) => Ok(()),
-        "sync" | "lock" | "format" | "check" | "add" | "remove" => Ok(()),
         "auth" | "tool" | "python" | "self" | "cache" | "pip" => bail!("uv {subcommand} is blocked because it can alter host-wide tools, credentials, interpreters, caches, or unmanaged environments"),
-        _ => require_risky_exec(&format!("uv user-authorized project operation: {subcommand}"), allow_risky_exec),
+        "publish" => require_risky_exec("uv publish", allow_risky_exec),
+        "run" => {
+            let Some(program) = args.iter().skip(1).find(|arg| !arg.starts_with('-')) else {
+                bail!("uv run requires a project command or script");
+            };
+            if [".py", ".js", ".mjs", ".cjs", ".ts", ".tsx"]
+                .iter()
+                .any(|suffix| program.ends_with(suffix))
+            {
+                Ok(())
+            } else {
+                validate_wrapped_development_program(program)
+            }
+        }
+        _ => Ok(()),
     }
-}
-
-fn uv_run_is_bounded_check(args: &[String]) -> bool {
-    args.iter()
-        .skip(1)
-        .find(|arg| !arg.starts_with('-'))
-        .is_some_and(|program| matches!(program.as_str(), "pytest" | "ruff" | "mypy" | "pyright"))
-}
-
-fn uv_run_is_local_development(args: &[String]) -> bool {
-    args.iter()
-        .skip(1)
-        .find(|arg| !arg.starts_with('-'))
-        .is_some_and(|program| {
-            matches!(program.as_str(), "python" | "python3" | "node")
-                || [".py", ".js", ".mjs", ".cjs"]
-                    .iter()
-                    .any(|suffix| program.ends_with(suffix))
-        })
 }
 
 pub(super) fn validate_ruff_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    if args.iter().any(|arg| {
+        matches!(arg.as_str(), "--config" | "--cache-dir")
+            || arg.starts_with("--config=")
+            || arg.starts_with("--cache-dir=")
+    }) {
+        bail!("Ruff config/cache redirection is blocked; use repository configuration inside the selected workspace");
+    }
+    if args_equal(args, &["check", "."])
+        || args_equal(args, &["check", "--fix", "."])
+        || args_equal(args, &["check", "--fix-only", "."])
+        || args_equal(args, &["check", "--output-format", "json", "."])
+        || args_equal(args, &["format", "--check", "."])
+        || args_equal(args, &["format", "."])
+    {
+        return Ok(());
+    }
     let subcommand = args
         .first()
         .map(String::as_str)
-        .ok_or_else(|| anyhow!("ruff subcommand is required"))?;
-    match subcommand {
-        "check" if args.iter().any(|arg| arg == "--watch") => {
-            require_risky_exec("ruff watch execution", allow_risky_exec)
-        }
-        "check" | "format" | "rule" | "config" | "linter" => Ok(()),
-        _ => require_risky_exec(
-            &format!("ruff user-authorized operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
+        .ok_or_else(|| anyhow!("Ruff subcommand is required"))?;
+    require_risky_exec(
+        &format!("Ruff user-authorized operation: {subcommand}"),
+        allow_risky_exec,
+    )
 }
 
 pub(super) fn validate_biome_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
+    if args_equal(args, &["ci", "."])
+        || args_equal(args, &["format", "."])
+        || args_equal(args, &["format", ".", "--reporter=json"])
+        || args_equal(args, &["format", ".", "--write"])
+        || args_equal(args, &["format", "--write", "."])
+        || args_equal(args, &["lint", "."])
+        || args_equal(args, &["check", "."])
+        || args_equal(args, &["check", "--write", "."])
+        || args_equal(args, &["check", ".", "--write"])
+        || args_equal(
+            args,
+            &[
+                "check",
+                ".",
+                "--formatter-enabled=false",
+                "--assist-enabled=false",
+                "--reporter=json",
+            ],
+        )
+    {
+        return Ok(());
+    }
     let subcommand = args
         .first()
         .map(String::as_str)
         .ok_or_else(|| anyhow!("biome subcommand is required"))?;
-    match subcommand {
-        "check" | "lint" | "format" | "ci" => Ok(()),
-        _ => require_risky_exec(
-            &format!("Biome user-authorized operation: {subcommand}"),
-            allow_risky_exec,
-        ),
-    }
+    require_risky_exec(
+        &format!("Biome user-authorized operation: {subcommand}"),
+        allow_risky_exec,
+    )
 }
 
 pub(super) fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("deno subcommand is required"))?;
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Ok(());
+    };
+    let tail = &args[1..];
+    let grants_runtime_permissions = tail
+        .iter()
+        .any(|arg| arg == "-A" || arg == "--allow-all" || arg.starts_with("--allow-"));
+    let redirects_runtime_inputs = tail.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--config"
+                | "-c"
+                | "--import-map"
+                | "--env-file"
+                | "--cert"
+                | "--lock"
+                | "--node-modules-dir"
+                | "--vendor"
+        ) || [
+            "--config=",
+            "--import-map=",
+            "--env-file=",
+            "--cert=",
+            "--lock=",
+            "--node-modules-dir=",
+            "--vendor=",
+        ]
+        .iter()
+        .any(|prefix| arg.starts_with(prefix))
+    });
+    let long_running = tail.iter().any(|arg| {
+        matches!(arg.as_str(), "--watch" | "--watch-hmr")
+            || arg.starts_with("--watch=")
+            || arg.starts_with("--watch-hmr=")
+    });
+    if grants_runtime_permissions || redirects_runtime_inputs || long_running {
+        return require_risky_exec(
+            &format!("deno {subcommand} expanded execution surface"),
+            allow_risky_exec,
+        );
+    }
     match subcommand {
-        "lint" | "check" => Ok(()),
-        "fmt" if args.iter().any(|arg| arg == "--check") => Ok(()),
-        "test" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
-        "install" | "uninstall" | "upgrade" => bail!(
-            "deno {subcommand} is blocked because it can alter host-wide tools or the runtime"
-        ),
-        "fmt" => Ok(()),
-        "test" | "run" if !args.iter().any(|arg| arg.starts_with("--allow-")) => Ok(()),
+        "audit" if tail.iter().any(|arg| arg == "--fix") => {
+            require_risky_exec("deno audit --fix", allow_risky_exec)
+        }
+        "audit" | "lint" | "check" => Ok(()),
+        "fmt" if tail.iter().any(|arg| arg == "--check") => Ok(()),
+        "test" => Ok(()),
+        "install" | "uninstall" | "upgrade" => {
+            bail!("deno {subcommand} is blocked because host-wide tool installation/upgrades must remain operator-owned")
+        }
+        "fmt" | "run" => Ok(()),
         "task"
             if args
                 .get(1)
-                .is_some_and(|task| is_local_development_task(task)) =>
+                .is_some_and(|task| is_autonomous_repository_task(task)) =>
         {
             Ok(())
         }
-        "test" | "run" | "task" => {
-            require_risky_exec(&format!("deno {subcommand}"), allow_risky_exec)
-        }
+        "task" => require_risky_exec("deno task", allow_risky_exec),
         _ => require_risky_exec(
             &format!("deno user-authorized operation: {subcommand}"),
             allow_risky_exec,
@@ -189,105 +542,42 @@ pub(super) fn validate_deno_command(args: &[String], allow_risky_exec: bool) -> 
 }
 
 pub(super) fn validate_dotnet_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
-    let subcommand = args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| anyhow!("dotnet subcommand is required"))?;
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Ok(());
+    };
     if matches!(subcommand, "--info" | "--list-sdks" | "--list-runtimes") {
         return Ok(());
     }
-    if args.iter().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "--interactive"
-                | "--source"
-                | "--configfile"
-                | "--packages"
-                | "--artifacts-path"
-                | "--output"
-                | "-o"
-        ) || arg.starts_with("--source=")
-            || arg.starts_with("--configfile=")
-            || arg.starts_with("--packages=")
-            || arg.starts_with("--artifacts-path=")
-            || arg.starts_with("--output=")
-    }) {
-        bail!("dotnet source/config/output redirection or interactive execution is blocked");
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--interactive"))
+    {
+        bail!("dotnet interactive execution is blocked");
     }
     match subcommand {
-        "list" | "build" | "test" | "format" | "restore" | "run" | "pack" | "new" | "add" | "remove" => Ok(()),
-        "tool" | "workload" | "nuget" | "sdk" => bail!("dotnet {subcommand} is blocked because it can alter host-wide tools, workloads, SDKs, or package sources"),
+        "tool" | "workload" | "nuget" | "sdk" => require_risky_exec(
+            &format!("dotnet host/toolchain operation: {subcommand}"),
+            allow_risky_exec,
+        ),
         "publish" => require_risky_exec("dotnet publish", allow_risky_exec),
-        _ => require_risky_exec(&format!("dotnet user-authorized project operation: {subcommand}"), allow_risky_exec),
+        _ => Ok(()),
     }
 }
 
 pub(super) fn validate_language_dev_tool(
     program: &str,
     args: &[String],
-    allow_risky_exec: bool,
+    _allow_risky_exec: bool,
 ) -> Result<()> {
-    let exact = match program {
-        "cargo-audit" => args.is_empty() || args_equal(args, &["--json"]),
-        "cargo-mutants" => args.is_empty(),
-        "cargo-fuzz" => {
-            matches!(args, [fuzz, run, target, separator, limit]
-                if fuzz == "fuzz"
-                    && run == "run"
-                    && !target.is_empty()
-                    && !target.starts_with('-')
-                    && !target.contains(['/', '\\'])
-                    && separator == "--"
-                    && limit.starts_with("-max_total_time=")
-                    && limit.trim_start_matches("-max_total_time=").parse::<u64>().is_ok_and(|seconds| (1..=60).contains(&seconds)))
+    match program {
+        "Rscript" | "clang-tidy" | "clang-format" | "gofmt" | "shellcheck" | "shfmt" | "stylua"
+        | "luacheck" | "busted" | "staticcheck" | "govulncheck" | "mypy" | "pyright" | "bandit"
+        | "eslint" | "tsc" | "stylelint" | "swift-format" | "swiftlint" => {
+            super::language_tools::validate_language_development_tool(program, args)
         }
-        "shellcheck" => args.first().is_some_and(|arg| arg == "--format=json") && args.len() > 1,
-        "shfmt" => matches!(args.first().map(String::as_str), Some("-d" | "-w")) && args.len() > 1,
-        "stylua" => args_equal(args, &["--check", "."]) || args_equal(args, &["."]),
-        "luacheck" => args_equal(args, &["."]),
-        "busted" => args.is_empty(),
-        "clang-format" => {
-            (args.starts_with(&["--dry-run".into(), "--Werror".into()]) && args.len() > 2)
-                || (args.first().is_some_and(|arg| arg == "-i") && args.len() > 1)
-        }
-        "clang-tidy" => args.len() >= 3 && args.ends_with(&["-p".into(), ".".into()]),
-        "gofmt" => matches!(args.first().map(String::as_str), Some("-d" | "-w")) && args.len() > 1,
-        "staticcheck" | "govulncheck" => args_equal(args, &["./..."]),
-        "mypy" => args_equal(args, &["."]),
-        "pyright" => args_equal(args, &["--outputjson", "."]),
-        "bandit" => args_equal(args, &["-r", ".", "-f", "json"]),
-        "eslint" => {
-            args_equal(args, &[".", "--format", "json"])
-                || args_equal(args, &["--fix", "."])
-                || args_equal(args, &[".", "--fix"])
-        }
-        "tsc" => args_equal(args, &["--noEmit"]),
-        "stylelint" => {
-            args_equal(args, &["**/*.css", "--formatter", "json"])
-                || args_equal(args, &["**/*.css", "--fix"])
-        }
-        "Rscript" => matches!(args, [flag, expression]
-            if flag == "-e"
-                && matches!(expression.as_str(),
-                    "quit(status=if(length(lintr::lint_package()))1 else 0)"
-                    | "testthat::test_local()"
-                    | "testthat::test_dir('tests/testthat')")),
-        "swift-format" => {
-            args_equal(args, &["lint", "-r", "."]) || args_equal(args, &["format", "-i", "-r", "."])
-        }
-        "swiftlint" => args_equal(args, &["lint", "--strict"]),
-        "mutmut" => args_equal(args, &["run"]),
-        "dotnet-stryker" | "muter" => args.is_empty(),
-        "infection" => args_equal(args, &["--no-progress"]),
-        _ => false,
-    };
-    if exact {
-        Ok(())
-    } else {
-        require_risky_exec(
-            &format!("{program} non-standard development operation"),
-            allow_risky_exec,
-        )
+        "cargo-audit" | "cargo-mutants" | "cargo-fuzz" | "mutmut" | "dotnet-stryker" | "muter"
+        | "infection" => Ok(()),
+        _ => Ok(()),
     }
 }
 
@@ -297,19 +587,19 @@ pub(super) fn validate_known_project_runner(
     allow_risky_exec: bool,
 ) -> Result<()> {
     if args.is_empty() {
-        bail!("{program} requires an explicit operation");
+        return Ok(());
     }
     match program {
         "mvn" if args.iter().any(|arg| arg == "deploy") => {
-            bail!("Maven deploy is blocked because it mutates a remote repository")
+            return require_risky_exec("Maven deploy", allow_risky_exec);
         }
         "gradle"
             if args.iter().any(|arg| {
                 let task = arg.trim_start_matches(':').to_ascii_lowercase();
-                task.contains("publish") || task.contains("upload") || task.contains("release")
+                task.contains("publish") || task.contains("upload")
             }) =>
         {
-            bail!("Gradle publish/upload/release tasks are blocked by the bounded project policy")
+            return require_risky_exec("Gradle publish/upload task", allow_risky_exec);
         }
         "swift"
             if matches!(
@@ -317,7 +607,7 @@ pub(super) fn validate_known_project_runner(
                 Some("sdk" | "package-registry" | "package-collection")
             ) =>
         {
-            bail!("Swift SDK/registry/collection host configuration commands are blocked")
+            return require_risky_exec("Swift SDK/registry/collection operation", allow_risky_exec);
         }
         "act"
             if args.iter().any(|arg| {
@@ -326,7 +616,10 @@ pub(super) fn validate_known_project_runner(
                     || arg.starts_with("--container-daemon-socket=")
             }) =>
         {
-            bail!("act host bind/privileged/daemon redirection is blocked")
+            return require_risky_exec(
+                "act host bind/privileged/daemon redirection",
+                allow_risky_exec,
+            );
         }
         _ => {}
     }
