@@ -5,6 +5,7 @@ import WebKit
 
 final class BrowserAudit: NSObject, WKNavigationDelegate {
     let web: WKWebView
+    let window: NSWindow
     let widths = [320,375,720,900,1024,1240,1280,1440,1461,1597,1676,1920]
     var scenarios: [(Int,String,String,String)] = []
     var reports: [[String:Any]] = []
@@ -29,7 +30,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       check(pageFits,'page overflow',pageFits?undefined:{page:describe(document.documentElement),
         outside:[...document.body.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).left < -1||r(el).right>innerWidth+1)).slice(0,24).map(describe)});
       check(document.querySelectorAll('[role="tab"][aria-selected="true"]').length===1,'tab selection');
-      for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar']){
+      for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar','.evidence-inspector-card','.evidence-inspector-section','.evidence-inspector-card .inspector-chip-list','.evidence-inspector-section pre']){
         document.querySelectorAll(selector).forEach((el,i)=>{
           if(!visible(el))return;
           const fits=el.scrollWidth<=el.clientWidth+1;
@@ -54,13 +55,21 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       }
       return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,
         scrollX,scrollY,devicePixelRatio,fontStatus:document.fonts.status,
-        coarsePointer:matchMedia('(pointer:coarse)').matches,errors,diagnostics};
+        coarsePointer:matchMedia('(pointer:coarse)').matches,
+        gutter:getComputedStyle(document.documentElement).getPropertyValue('--page-gutter-x'),
+        media:[1680,1460,1240,900,720,520].map(width=>({width,matches:matchMedia(`(max-width:${width}px)`).matches})),errors,diagnostics};
     })()
     """#
     override init(){
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         web=WKWebView(frame:NSRect(x:0,y:0,width:1597,height:900),configuration:config)
+        window=NSWindow(contentRect:NSRect(x:0,y:0,width:1597,height:900),styleMask:.borderless,backing:.buffered,defer:false)
         super.init();web.navigationDelegate=self
+        // Host the renderer so resizing exercises the actual view hierarchy.
+        window.isReleasedWhenClosed=false
+        window.contentView=web
+        web.autoresizingMask=[.width,.height]
+        window.orderFront(nil)
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
     }
     func start(){let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath);let file=root.appendingPathComponent("target/wcode-browser-fixture.html");web.loadFileURL(file,allowingReadAccessTo:root)}
@@ -74,7 +83,9 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
             try! data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"));print(String(data:data,encoding:.utf8)!);exit(failures==0 ? 0:1)
         }
         let (width,lang,theme,tab)=scenarios[index];index+=1
-        web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
+        window.setContentSize(NSSize(width:width,height:900))
+        web.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
         let setup="window.__expectedAuditWidth=\(width);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);"
         web.evaluateJavaScript(setup){_,error in
             if let error {fputs("\(error)\n",stderr);exit(2)}
@@ -85,6 +96,6 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         }
     }
 }
-let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
+let app=NSApplication.shared;app.setActivationPolicy(.accessory)
 let audit=BrowserAudit();DispatchQueue.main.asyncAfter(deadline:.now()+90){fputs("browser audit timed out\n",stderr);exit(2)}
 audit.start();app.run()

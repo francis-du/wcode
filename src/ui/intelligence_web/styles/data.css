@@ -19,3 +19,8 @@
 .lane-spacer{height:14px;}.card-copy{margin-top:6px;}.card-gap{margin-top:10px;}.compact-banner{margin:14px 0 0;}.quality-summary{border-top:0;}.quality-summary .pills{margin-top:0;}.risk-heading{margin-top:16px!important;}
 footer{margin-top:8px;padding:0 4px;color:var(--muted);font-size:12px;}
 code{font:13px var(--font-mono);color:var(--soft);}
+
+/* Unbounded identifiers must wrap before creating an inspector scrollbar. */
+.evidence-inspector-state{flex-wrap:wrap;min-width:0;}
+.evidence-inspector-state code,.evidence-inspector-card .inspector-chip{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;}
+.evidence-inspector-section pre{overflow-wrap:anywhere;}
