@@ -1,0 +1,59 @@
+name: WebUI layout
+
+on:
+  pull_request:
+    paths:
+      - src/ui/intelligence_web/**
+      - tests/unit/ui/**
+      - .github/workflows/webui-layout.yml
+  push:
+    branches: [main, master]
+    paths:
+      - src/ui/intelligence_web/**
+      - tests/unit/ui/**
+      - .github/workflows/webui-layout.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webui-layout-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webkit:
+    name: WebKit production layout
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install JavaScript test runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Generate offline production fixture
+        run: node tests/unit/ui/browser.cjs .
+
+      - name: Validate real WebKit Observatory layout
+        run: swift tests/unit/ui/browser_webkit.swift
+
+      - name: Preserve reproducible layout evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: webui-layout-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            target/wcode-browser-fixture.html
+            target/wcode-browser-audit.json
+            src/ui/intelligence_web/styles/
+            tests/unit/ui/browser_webkit.swift
+          if-no-files-found: error
+          retention-days: 3
