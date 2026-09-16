@@ -11,31 +11,42 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     var index = 0
     let check = #"""
     (()=>{
-      const errors=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
-      const check=(ok,label)=>{if(!ok)errors.push(label);};
+      const errors=[], diagnostics=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
+      const describe=el=>{
+        if(!el)return null;
+        const b=r(el),s=getComputedStyle(el);
+        return {tag:el.tagName,id:el.id,className:el.className,left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,display:s.display,position:s.position,minWidth:s.minWidth,maxWidth:s.maxWidth,gridTemplateColumns:s.gridTemplateColumns,gridTemplateRows:s.gridTemplateRows,margin:s.margin,padding:s.padding,overflow:s.overflow,transform:s.transform};
+      };
+      const check=(ok,label,el=null,parent=null)=>{
+        if(ok)return;
+        errors.push(label);
+        diagnostics.push({label,element:describe(el),parent:describe(parent)});
+      };
       check(window.__layoutReady===true,'production boot failed');
-      check(document.documentElement.scrollWidth<=innerWidth+1,'page overflow');
+      check(document.documentElement.scrollWidth<=innerWidth+1,'page overflow',document.documentElement);
       check(document.querySelectorAll('[role="tab"][aria-selected="true"]').length===1,'tab selection');
       for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar']){
         document.querySelectorAll(selector).forEach((el,i)=>{
           if(!visible(el))return;
-          check(el.scrollWidth<=el.clientWidth+1,selector+' content overflow '+i);
+          check(el.scrollWidth<=el.clientWidth+1,selector+' content overflow '+i,el,el.parentElement);
           if(selector==='.bar-row'){
             const a=r(el.querySelector('.bar-name')),b=r(el.querySelector('.bar-val')),c=r(el.querySelector('.bar-track'));
-            check(a.right<=b.left+1,'stat overlap');check(c.top>=Math.max(a.bottom,b.bottom)-1,'bar overlap');
+            check(a.right<=b.left+1,'stat overlap',el);check(c.top>=Math.max(a.bottom,b.bottom)-1,'bar overlap',el);
           }
         });
       }
       document.querySelectorAll('.adaptive-cards,.code-distribution,.proof-main-grid,.proof-signal-grid').forEach(grid=>{
         if(!visible(grid))return;const parent=r(grid),children=[...grid.children].filter(visible);
-        children.forEach((child,i)=>{const a=r(child);check(a.left>=parent.left-1&&a.right<=parent.right+1&&a.bottom<=parent.bottom+1,'grid child outside '+grid.className);
-          children.slice(i+1).forEach(other=>{const b=r(other);check(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,'grid overlap '+grid.className);});});
+        children.forEach((child,i)=>{const a=r(child);check(a.left>=parent.left-1&&a.right<=parent.right+1&&a.bottom<=parent.bottom+1,'grid child outside '+grid.className,child,grid);
+          children.slice(i+1).forEach(other=>{const b=r(other);check(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,'grid overlap '+grid.className,child,other);});});
       });
       if(state.workspaceTab==='proof'){
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');
       }
-      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors};
+      const header=document.querySelector('.global-bar');
+      const headerChildren=header&&header.scrollWidth>header.clientWidth+1?[...header.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).right>r(header).right+1||r(el).left<r(header).left-1)).slice(0,12).map(describe):[];
+      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors,diagnostics,headerChildren};
     })()
     """#
     override init(){
