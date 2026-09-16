@@ -23,6 +23,8 @@ use crate::verification::{
 };
 use crate::verification_store;
 use crate::workspace::Workspace;
+
+pub(crate) mod release_gate;
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -163,7 +165,7 @@ impl SoftwareIntelligenceRuntime {
         &self,
         workspace: &Workspace,
     ) -> Result<(Arc<design::DesignLoad>, u64)> {
-        let fingerprint = design::fingerprint(workspace);
+        let fingerprint = design::fingerprint(workspace)?;
         let root = workspace.root().to_path_buf();
         {
             let mut cache = self
@@ -180,7 +182,7 @@ impl SoftwareIntelligenceRuntime {
         }
 
         let load = Arc::new(design::load_design(workspace)?);
-        let confirmed_fingerprint = design::fingerprint(workspace);
+        let confirmed_fingerprint = design::fingerprint(workspace)?;
         if confirmed_fingerprint != fingerprint {
             bail!("design state changed while loading; retry the request");
         }
@@ -431,10 +433,19 @@ fn apply_stage_status(
 fn latest_results_by_producer<'a>(
     records: impl Iterator<Item = &'a Evidence>,
 ) -> BTreeMap<String, EvidenceResult> {
+    let severity = |result| match result {
+        EvidenceResult::Pass => 0,
+        EvidenceResult::Inconclusive => 1,
+        EvidenceResult::Disagree => 2,
+        EvidenceResult::Fail => 3,
+    };
     let mut latest = BTreeMap::<String, &Evidence>::new();
     for record in records {
         let replace = latest.get(&record.producer).is_none_or(|current| {
-            (current.timestamp_ms, current.id.as_str()) < (record.timestamp_ms, record.id.as_str())
+            record.timestamp_ms > current.timestamp_ms
+                || (record.timestamp_ms == current.timestamp_ms
+                    && (severity(record.result) > severity(current.result)
+                        || (record.result == current.result && record.id > current.id)))
         });
         if replace {
             latest.insert(record.producer.clone(), record);

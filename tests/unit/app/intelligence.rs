@@ -19,7 +19,7 @@ fn intelligence_check_requires_valid_complete_scoped_state() {
         },
         "conventions": {"errors": 0, "warnings": 2, "truncated": false}
     })];
-    assert!(intelligence_check_failures(&healthy).is_empty());
+    assert!(crate::intelligence::release_gate::failures(&healthy).is_empty());
 
     let broken = vec![json!({
         "workspace": "demo",
@@ -38,7 +38,7 @@ fn intelligence_check_requires_valid_complete_scoped_state() {
         },
         "conventions": {"errors": 1, "warnings": 0, "truncated": false}
     })];
-    let failures = intelligence_check_failures(&broken);
+    let failures = crate::intelligence::release_gate::failures(&broken);
     assert!(failures
         .iter()
         .any(|failure| failure.contains("Design State is invalid")));
@@ -69,5 +69,5 @@ fn intelligence_check_requires_valid_complete_scoped_state() {
         },
         "conventions": {"errors": 0, "warnings": 0, "truncated": false}
     })];
-    assert!(intelligence_check_failures(&generic).is_empty());
+    assert!(crate::intelligence::release_gate::failures(&generic).is_empty());
 }

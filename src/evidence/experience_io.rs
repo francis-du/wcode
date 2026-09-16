@@ -1,4 +1,7 @@
 use super::*;
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, Weak};
 
 static ACTIVATION_FLIGHTS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
@@ -118,10 +121,26 @@ pub(super) fn read_record(path: &Path) -> Result<Option<VerifiedChangeExperience
     {
         return Ok(None);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() > 1 {
+            return Ok(None);
+        }
+    }
     let bytes = fs::read(path)?;
     let record = match serde_json::from_slice::<VerifiedChangeExperience>(&bytes) {
         Ok(record) => record,
         Err(_) => return Ok(None),
     };
-    Ok(valid_record(&record).then_some(record))
+    if !super::experience_storage::valid_record(&record) {
+        return Ok(None);
+    }
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(None);
+    };
+    if super::experience_storage::canonical_experience_name(&record)? != name {
+        return Ok(None);
+    }
+    Ok(Some(record))
 }

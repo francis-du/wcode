@@ -1,0 +1,25 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {sandbox, project} = require('./observatory.cjs');
+const root = path.resolve(process.argv[2] || '.');
+const styleNames = ['theme','shell','features','data','architecture','engineering','structure','responsive'];
+const styles = styleNames.map(name => fs.readFileSync(path.join(root,'src/ui/intelligence_web/styles',name+'.css'),'utf8')).join('\n');
+const long = 'agent_to_report_e2e_large_result_uses_preview_evidence_and_still_reports_correctly_'.repeat(4);
+const fixture = {...project(), code: {languages:[{name:'rust',files:278,lines:96000000},{name:'java<script>script',files:14,lines:0}],product_scopes:[{name:'runtime',files:52,lines:19000000},{name:long,files:123456789,lines:987654321}],graph_truncated:true}, adaptive_verification:{mode:'combined',provider:'verification-planner',precision:'mixed',base_quick_checks:6,planned_quick_checks:7,full_coverage_unchanged:true,focused_test:{command:'cargo test --locked '+long,island:'.',phase:1,provider:'design-traceability',precision:'declared+syntax',reason:'Prioritize '+long},cost_sentinel:{frontier:[{order:1,command:'cargo test --locked '+long,island:'.',failure_rate_percent:100,marginal_failures:4,marginal_samples:4,marginal_failure_rate_percent:100,estimated_incremental_savings_ms:1426}],estimated_total_savings_ms:1426,model:'bounded-model',provider:'history',precision:'heuristic'}},verified_learning:{available:true,records:0}};
+function render(language) {const s=sandbox(false,true,{fakeTimers:true});s.context.fixture=fixture;s.context.lang=language;s.run('state.project=fixture;state.language=lang;renderCodeStats();renderAdaptiveVerification();renderVerifiedLearning();renderProofSummary();');return s;}
+const tests=[];
+function test(name, fn){try{fn();tests.push({name,passed:true});}catch(error){tests.push({name,passed:false,error:error.stack});}}
+test('statistics use a container-sized distribution layout and escape labels',()=>{const s=render('en');const html=s.node('#codeStats').innerHTML;assert.ok(html.includes('code-distribution'));assert.ok(html.includes('java&lt;script&gt;script'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('value="0"'));assert.ok(html.includes('987,654,321'));});
+test('content spacing never imposes a ten-pixel height',()=>{assert.ok(!/\.card-gap\s*\{[^}]*\bheight\s*:/.test(styles));assert.ok(styles.includes('.card-gap{margin-top:10px;}'));});
+test('nested statistical rows have shrinkable tracks',()=>{assert.ok(!styles.includes('140px minmax(120px,1fr) 112px'));assert.ok(styles.includes('.code-distribution'));assert.ok(styles.includes('minmax(min(100%,300px),1fr)'));});
+test('adaptive frontier no longer uses four-column dependency markup',()=>{const s=render('en');const html=s.node('#adaptiveVerification').innerHTML;assert.ok(html.includes('adaptive-cards'));assert.ok(html.includes('frontier-row'));assert.ok(!html.includes('class="dep"'));assert.ok(html.includes(long));assert.ok(html.includes('Planning preview only'));});
+test('English descriptive copy never leaks internal translation IDs',()=>{const s=render('en');for(const key of ['Diagnostics meta','adaptive verification meta','verified learning meta','bounded graph note']){s.context.key=key;assert.notEqual(s.run('t(key)'),key);}assert.ok(!s.node('#codeStats').innerHTML.includes('bounded graph note'));});
+test('Chinese descriptions and zero-record state remain truthful',()=>{const s=render('zh-CN');assert.ok(s.node('#verifiedLearning').innerHTML.includes('冷启动'));assert.ok(s.node('#adaptiveVerification').innerHTML.includes('不会执行'));assert.ok(s.node('#codeStats').innerHTML.includes('有界快照'));});
+const output=path.join(root,'target/wcode-layout-fixture.html');
+const views=['en','zh-CN'].map(language=>{const s=render(language);return `<article lang="${language}"><section class="lower"><div class="panel"><h2>Code statistics</h2><div class="section" data-layout-stats>${s.node('#codeStats').innerHTML}</div></div><div class="panel"><h2>Architecture revisions</h2><p>Current bounded snapshot</p></div></section><section class="proof-workspace"><div data-layout-proof>${s.node('#proofSummary').innerHTML}</div><section class="proof-signals-panel"><h2>Engineering signals</h2><div class="proof-signal-grid"><section class="proof-signal-card" data-layout-adaptive>${s.node('#adaptiveVerification').innerHTML}</section><section class="proof-signal-card">${s.node('#verifiedLearning').innerHTML}</section></div></section></section></article>`;}).join('');
+fs.mkdirSync(path.dirname(output),{recursive:true});
+fs.writeFileSync(output,`<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>${styles}</style></head><body><main style="padding:20px">${views}</main></body></html>`);
+console.log(JSON.stringify({suite:'observatory-layout',results:tests,fixture:output},null,2));
+assert.ok(tests.every(t=>t.passed),'layout regressions failed');

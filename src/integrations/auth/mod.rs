@@ -222,10 +222,19 @@ impl AuthState {
         self.public_endpoints.set_primary(value);
     }
 
-    pub fn register_public_url(&self, value: String) {
-        self.public_endpoints.register(value);
+    pub fn register_public_url(&self, value: String) -> u64 {
+        self.public_endpoints.register(value)
     }
 
+    pub(crate) fn public_url_epoch(&self, value: &str) -> Option<u64> {
+        self.public_endpoints.registration_epoch(value)
+    }
+
+    pub(crate) fn unregister_public_url_if_epoch(&self, value: &str, expected: u64) -> bool {
+        self.public_endpoints.unregister_if_epoch(value, expected)
+    }
+
+    #[cfg(test)]
     pub fn unregister_public_url(&self, value: &str) {
         self.public_endpoints.unregister(value);
     }

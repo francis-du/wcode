@@ -6,7 +6,7 @@ function bars(items) {
       `<div class="bar-row"><div class="bar-name">${
         esc(item.name)
       }</div><div class="bar-track"><progress class="bar-progress" max="100" value="${
-        Math.max(2, Math.round((item.lines / max) * 100))
+        Math.max(0, Math.min(100, Math.round((Number(item.lines) || 0) / max * 100)))
       }"></progress></div><div class="bar-val">${
         esc(unit(item.files, "file", "files", "个文件"))
       } · ${esc(unit(item.lines, "line", "lines", "行"))}</div></div>`
@@ -15,7 +15,7 @@ function bars(items) {
 }
 function renderCodeStats() {
   const c = state.project.code || {},
-    html = `<div class="two"><div><h3>${esc(t("Languages"))}</h3>${
+    html = `<div class="code-distribution"><div><h3>${esc(t("Languages"))}</h3>${
       bars(c.languages || [])
     }</div><div><h3>${esc(t("Product Scopes"))}</h3>${
       bars(c.product_scopes || [])

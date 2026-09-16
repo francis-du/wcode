@@ -113,7 +113,17 @@ fn symbol_context_never_mixes_cached_relations_with_new_body() {
     let id = outline["symbols"][0]["id"].as_str().unwrap();
     let stamp = workspace.source_stamp("job.rs").unwrap();
     replace_preserving_stamp(&path, "pub fn job() { new(); }\n");
-    assert_eq!(workspace.source_stamp("job.rs").unwrap(), stamp);
+    let replayed = workspace.source_stamp("job.rs").unwrap();
+    #[cfg(unix)]
+    assert_ne!(
+        replayed, stamp,
+        "Unix source stamps must include change metadata that mtime replay cannot hide"
+    );
+    #[cfg(not(unix))]
+    assert_eq!(
+        replayed, stamp,
+        "non-Unix cache freshness relies on the content-SHA fallback when basic metadata is replayed"
+    );
     let result = index.symbol_context("fixture", &workspace, id, 20).unwrap();
     assert!(result["body"]["content"]
         .as_str()
@@ -126,6 +136,36 @@ fn symbol_context_never_mixes_cached_relations_with_new_body() {
     );
     assert!(!calls.iter().any(|call| call["name"] == "old"));
     assert_ne!(result["sha256"], outline["sha256"]);
+}
+
+#[test]
+fn cached_symbol_search_rejects_same_size_same_mtime_rewrite() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("job.rs");
+    fs::write(&path, "pub fn alpha() {}\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+
+    let first = index
+        .find_symbol("fixture", &workspace, "alpha", ".", None, 10)
+        .unwrap();
+    assert_eq!(first["result_count"], 1);
+    replace_preserving_stamp(&path, "pub fn bravo() {}\n");
+
+    let stale = index
+        .find_symbol("fixture", &workspace, "alpha", ".", None, 10)
+        .unwrap();
+    assert_eq!(
+        stale["result_count"], 0,
+        "old symbol must not survive cache replay"
+    );
+    let fresh = index
+        .find_symbol("fixture", &workspace, "bravo", ".", None, 10)
+        .unwrap();
+    assert_eq!(
+        fresh["result_count"], 1,
+        "new symbol must be indexed immediately"
+    );
 }
 
 #[test]

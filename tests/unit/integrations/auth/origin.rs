@@ -7,6 +7,56 @@ fn headers(host: &str) -> HeaderMap {
 }
 
 #[test]
+fn stale_endpoint_cleanup_cannot_remove_a_new_same_url_registration() {
+    let url = "https://stable.example";
+    let endpoints = PublicEndpoints::new(url.to_owned());
+    let old_epoch = endpoints.registration_epoch(url).unwrap();
+    let worker = endpoints.clone();
+    std::thread::spawn(move || worker.register(url.to_owned()))
+        .join()
+        .unwrap();
+    let new_epoch = endpoints.registration_epoch(url).unwrap();
+    assert_ne!(old_epoch, new_epoch);
+    assert!(!endpoints.unregister_if_epoch(url, old_epoch));
+    let mut request = headers("stable.example");
+    request.insert(header::ORIGIN, url.parse().unwrap());
+    assert_eq!(endpoints.for_headers(&request).as_deref(), Some(url));
+    assert!(endpoints.origin_allowed(&request));
+    assert!(endpoints.unregister_if_epoch(url, new_epoch));
+    assert!(!endpoints.unregister_if_epoch(url, new_epoch));
+    endpoints.trust_resource("https://stable.example/mcp");
+    assert!(endpoints.for_headers(&request).is_none());
+    assert!(!endpoints.origin_allowed(&request));
+}
+
+#[test]
+fn primary_promotion_preserves_the_endpoint_owner_epoch() {
+    let endpoints = PublicEndpoints::new("http://127.0.0.1:8765".to_owned());
+    endpoints.register("https://stable.example".to_owned());
+    let epoch = endpoints
+        .registration_epoch("https://stable.example")
+        .unwrap();
+    endpoints.set_primary("https://stable.example/".to_owned());
+    assert_eq!(
+        endpoints.registration_epoch("https://stable.example"),
+        Some(epoch)
+    );
+    assert!(endpoints.unregister_if_epoch("https://stable.example/", epoch));
+    assert!(endpoints.for_headers(&HeaderMap::new()).is_none());
+}
+
+#[test]
+fn unknown_epoch_never_removes_another_endpoint() {
+    let endpoints = PublicEndpoints::new("https://one.example".to_owned());
+    endpoints.register("https://two.example".to_owned());
+    let epoch = endpoints.registration_epoch("https://two.example").unwrap();
+    assert!(!endpoints.unregister_if_epoch("https://one.example", epoch));
+    assert!(!endpoints.unregister_if_epoch("https://missing.example", epoch));
+    assert!(endpoints.for_headers(&headers("one.example")).is_some());
+    assert!(endpoints.for_headers(&headers("two.example")).is_some());
+}
+
+#[test]
 fn browser_origins_follow_active_aliases_not_the_primary_or_token_history() {
     let endpoints = PublicEndpoints::new("http://127.0.0.1:8765".to_owned());
     endpoints.set_primary("https://one.example".to_owned());

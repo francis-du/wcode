@@ -175,7 +175,10 @@ impl AuthorizationManager {
             .values()
             .rev()
             .find(|request| {
-                request.fingerprint == fingerprint && request.status == AuthorizationStatus::Pending
+                request.workspace == workspace
+                    && request.kind == kind
+                    && request.fingerprint == fingerprint
+                    && request.status == AuthorizationStatus::Pending
             })
             .cloned()
         {

@@ -13,9 +13,11 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Next release
 
-- [v0.7.4](v0.7.4/) — Workspace-session command trust, standard MCP image/audio Tool Results, and a current-product docs/UI refresh. Push first; create the tag only after CI is green.
+- [v0.7.5](v0.7.5/) — Candidate: generation-bound endpoint trust, TUI shortcut isolation and responsive Observatory layouts. Not yet tagged or published; the exact release commit must pass CI first.
 
 ## 0.7.x
+
+- [v0.7.4](v0.7.4/) — Workspace-session command trust, standard MCP image/audio Tool Results, and a current-product docs/UI refresh.
 
 - [v0.7.3](v0.7.3/) — lower-friction autonomous development commands, broader polyglot quality, stronger context/cache correctness, and WebUI/verification reliability.
 - [v0.7.2](v0.7.2/) — clearer Observatory/TUI/Setup state, model-host efficiency, precise advanced verification targets, and safer low-friction repository inspection.

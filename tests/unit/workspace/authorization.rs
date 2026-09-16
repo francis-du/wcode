@@ -31,6 +31,40 @@ fn denial_never_creates_a_grant() {
 }
 
 #[test]
+fn pending_request_deduplication_is_workspace_and_kind_bound() {
+    let manager = AuthorizationManager::default();
+    let first = manager.request(
+        "alpha",
+        AuthorizationKind::RiskyExecution,
+        "alpha risky",
+        "sha256:shared",
+    );
+    let duplicate = manager.request(
+        "alpha",
+        AuthorizationKind::RiskyExecution,
+        "alpha risky duplicate",
+        "sha256:shared",
+    );
+    let other_workspace = manager.request(
+        "beta",
+        AuthorizationKind::RiskyExecution,
+        "beta risky",
+        "sha256:shared",
+    );
+    let other_kind = manager.request(
+        "alpha",
+        AuthorizationKind::DestructiveDelete,
+        "alpha delete",
+        "sha256:shared",
+    );
+
+    assert_eq!(duplicate.id, first.id);
+    assert_ne!(other_workspace.id, first.id);
+    assert_ne!(other_kind.id, first.id);
+    assert_eq!(manager.requests(16).len(), 3);
+}
+
+#[test]
 fn command_access_requests_retain_the_requested_program() {
     let manager = AuthorizationManager::default();
     let request = manager.request_command("demo", "git", "sha256:command");

@@ -251,6 +251,20 @@ pub(super) fn source_stamp(metadata: &fs::Metadata) -> SourceStamp {
         .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        SourceStamp {
+            len: metadata.len(),
+            modified_nanos,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            changed_nanos: i128::from(metadata.ctime())
+                .saturating_mul(1_000_000_000)
+                .saturating_add(i128::from(metadata.ctime_nsec())),
+        }
+    }
+    #[cfg(not(unix))]
     SourceStamp {
         len: metadata.len(),
         modified_nanos,

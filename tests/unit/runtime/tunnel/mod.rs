@@ -25,6 +25,7 @@ fn tunnel_runtime_never_writes_directly_to_the_terminal() {
 async fn recovered_stable_tunnel_is_not_treated_as_a_dead_child_process() {
     let mut tunnel = ActiveTunnel {
         child: None,
+        endpoint_epoch: None,
         public_url: "https://stable.example".to_owned(),
         provider: TunnelProvider::Tailscale,
         connected_at: std::time::Instant::now(),

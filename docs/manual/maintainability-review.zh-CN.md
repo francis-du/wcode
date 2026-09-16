@@ -25,6 +25,8 @@ wcode 把可维护性当作批准问题，而不是最后的 Cosmetic Cleanup。
 
 1,000 行边界现在是每个已授权 Workspace 都会继承的 wcode Core Policy，不再只对 wcode 自身仓库生效。`create_file`、`write_file`、`replace_text`、`apply_edits` 及其批量形式会拒绝新建超限维护源码、从 1,000 行以内跨过边界，以及继续扩大已经超限的文件。历史超限文件在拆分过程中可以保持同等行数或缩小，但只要 Convention Error 仍存在，`verify_project` 就会 fail-closed。Generated / vendor / build output 豁免。wcode 不会按某个行号机械自动切文件，因为真正的拆分必须保留 Module、API、Import、Registration 与 Ownership 语义。
 
+Convention 扫描根据根目录 `hugo.toml` 的构建配置排除 `publishDir`（默认 `public`），并把已声明且已初始化的 Git 子模块视为独立源码归属。选中子模块自己的 Workspace 时，会检查其中的维护源码。普通 `public/` 目录和未初始化的子模块路径仍在检查范围内。这些归属信息会参与 Convention 缓存指纹；文件写入检查继续保留原有边界。
+
 ## 独立 Maintainability Reviewer
 
 Medium 及以上 Risk 的 Verification Plan 包含盲审 `maintainability` Reviewer Job，Capability 为 `maintainability_review`。不同模型 Provider 使用同一套批准 Rubric：

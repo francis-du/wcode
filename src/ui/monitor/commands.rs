@@ -7,6 +7,10 @@ struct CommandEntry {
     allowed: bool,
 }
 
+pub(super) fn commands_overlay_visible(area: Rect) -> bool {
+    area.width >= 40 && area.height >= 14
+}
+
 pub(super) fn render_commands_overlay(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -15,7 +19,7 @@ pub(super) fn render_commands_overlay(
     offset: usize,
     language: UiLanguage,
 ) {
-    if area.width < 40 || area.height < 14 {
+    if !commands_overlay_visible(area) {
         return;
     }
     let width = area.width.saturating_sub(2).min(112);

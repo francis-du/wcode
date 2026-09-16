@@ -27,6 +27,28 @@ fn product_scope_registry_matches_wcode_product_model() {
         source_scope("src/intelligence/runtime/design.rs"),
         Some(ProductScope::Traceability)
     );
+    assert_eq!(
+        source_scope("src/intelligence/release_gate.rs"),
+        Some(ProductScope::Traceability)
+    );
+}
+
+#[test]
+fn every_declared_source_root_maps_back_to_its_scope() {
+    for scope in ProductScope::ALL {
+        for root in scope.source_roots() {
+            let probe = if root.ends_with('/') {
+                format!("{root}__scope_probe__.rs")
+            } else {
+                (*root).to_owned()
+            };
+            assert_eq!(
+                source_scope(&probe),
+                Some(scope),
+                "declared Product Scope root `{root}` must be recognized by source_scope"
+            );
+        }
+    }
 }
 
 #[test]

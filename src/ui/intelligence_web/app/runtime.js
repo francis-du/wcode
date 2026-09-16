@@ -92,16 +92,77 @@ function restoreWorkspaceSnapshot(workspace) {
   state.lastChecked = cached.lastChecked;
   state.activitySnapshot = cached.activitySnapshot;
   state.activityUpdated = cached.activityUpdated;
-  state.syncError = false;
-  renderProject(true);
+  state.syncError = false; state.syncFailure = null;
+  try {
+    renderProject(true);
+  } catch (error) {
+    // Cache restoration runs before the request try/finally. A bad cached
+    // render must not reject the switch or prevent an authoritative retry.
+    state.projectCache.delete(workspace);
+    state.project = null; state.revisionKey = null;
+    state.lastUpdated = 0; state.lastChecked = 0; state.rendered.clear();
+    showRefreshFailure(error, "render");
+    return false;
+  }
   setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
   return true;
 }
+function refreshFailureCopy(failure = state.syncFailure) {
+  const { code, status, phase } = failure || {};
+  let title = t("Refresh failed"), detail = localized("Check the connection, then use Refresh to try again.", "请检查连接，然后点击刷新重试。");
+  if (code === "authorization_required" || status === 401) {
+    title = localized("UI authorization required", "需要重新授权访问");
+    detail = localized("Open a new Observatory page from the wcode terminal (W) to authorize access. A link from an earlier runtime may no longer be valid.", "请从 wcode 终端按 W 重新打开观测台并授权访问。旧运行实例生成的链接可能已失效。");
+  } else if (status === 403) {
+    title = localized("Access denied", "访问被拒绝");
+    detail = localized("Open the current Observatory link from the wcode terminal (W). Check the trusted host and origin; reusing an old tunnel address may be rejected.", "请从 wcode 终端按 W 打开当前观测台链接，并检查可信主机与来源。旧隧道地址可能被拒绝。");
+  } else if (phase === "render") {
+    title = localized("Page rendering failed", "页面渲染失败");
+    detail = localized("The snapshot was received, but the page could not display it. Reload this page; this is not a network failure.", "已收到项目快照，但页面未能正确显示。请重新加载页面；这不是网络请求失败。");
+  } else if (code === "timeout" || status === 408 || status === 504) {
+    title = localized("Refresh timed out", "刷新请求超时");
+    detail = localized("The snapshot request exceeded its deadline. Displayed data is not confirmed current; use Refresh to try again.", "快照请求超过等待上限。当前显示的数据尚未确认更新，请点击刷新重试。");
+  } else if (code === "invalid_response" || phase === "response") {
+    title = localized("Invalid response", "接口响应异常");
+    detail = localized("The response is not a valid snapshot for this workspace. Reload the current wcode Observatory page and check the server or proxy.", "响应不是当前工作区的有效快照。请重新加载当前 wcode 观测台，并检查服务或代理。");
+  } else if (status === 400) {
+    title = localized("Workspace unavailable", "工作区不可用");
+    detail = localized("The selected workspace could not be resolved. Reopen the Observatory from the wcode terminal and select an available workspace.", "无法解析所选工作区。请从 wcode 终端重新打开观测台，选择可用工作区。");
+  } else if (status === 404) {
+    title = localized("Endpoint unavailable", "接口不可用");
+    detail = localized("Check that this page and its API belong to the same wcode runtime. Reopen the current Observatory link from the terminal.", "请检查页面与 API 是否属于同一个 wcode 运行实例，并从终端重新打开当前观测台链接。");
+  } else if (status === 429) {
+    title = localized("Server busy", "服务繁忙");
+    detail = localized("The server is limiting requests. Avoid repeated clicks; use Refresh after the current work settles.", "服务正在限制请求。请避免连续点击，待当前任务缓解后再刷新。");
+  } else if (status >= 500) {
+    title = localized("Server error", "服务端错误");
+    detail = localized("The server could not return the project state. Check its diagnostics, then use Refresh to try again.", "服务端未能返回项目状态。请检查服务诊断信息，然后点击刷新重试。");
+  } else if (code === "network") {
+    title = localized("Connection failed", "连接失败");
+  }
+  return { title: status ? `${title} · HTTP ${status}` : title, detail };
+}
+function showRefreshFailure(error, phase = "request") {
+  state.syncError = true;
+  state.syncFailure = {
+    code: ["authorization_required", "invalid_response", "timeout", "network"].includes(error?.code) ? error.code : "",
+    status: Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599 ? error.status : null,
+    phase,
+  };
+  const { title, detail } = refreshFailureCopy();
+  setSync("error", title);
+  els.syncState.title = detail;
+  els.syncState.parentElement?.setAttribute("aria-label", `${title}. ${detail}`);
+  // Error reporting must not invoke the same failing renderer unguarded.
+  for (const render of [renderAttention, renderLive]) {
+    try { render(); } catch (renderError) { console.warn("wcode: refresh error view failed", renderError); }
+  }
+  if (!state.project || phase === "render") renderProjectPlaceholder(true);
+}
 function renderProjectPlaceholder(failed = false) {
-  const title = failed ? t("Refresh failed") : t("Loading project state…");
-  const detail = token
-    ? localized("Check the connection, then use Refresh to try again.", "请检查连接，然后点击刷新重试。")
-    : localized("Open this page from the wcode terminal to connect your workspace.", "请从 wcode 终端打开此页面，连接你的工作区。");
+  const failure = refreshFailureCopy();
+  const title = failed ? failure.title : t("Loading project state…");
+  const detail = failure.detail;
   const content = failed
     ? `<div class="section empty connection-state"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div>`
     : `<div class="section empty loading-state">${esc(title)}</div>`;
@@ -115,7 +176,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
   state.pendingValue = null; state.pendingApplied = 0;
   state.accessRead = null;
-  state.syncError = false;
+  state.syncError = false; state.syncFailure = null;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;
@@ -157,9 +218,15 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   state.controller = controller; state.inFlight = true;
   const stamp = observationStamp();
   const current = () => epoch === state.requestEpoch && observationCurrent(stamp);
+  const continuationReason = reason === "manual" || reason === "initial" ? reason : "background";
+  const previousSnapshot = { project: state.project, revisionKey: state.revisionKey, lastUpdated: state.lastUpdated, lastChecked: state.lastChecked };
+  let phase = "request";
   const options = {
     workspace: selectedWorkspace,
     signal: controller.signal,
+    // Full snapshots include a Git review with its own 30-second budget,
+    // followed by graph/proof assembly. Keep a separate bounded deadline.
+    timeout: preferCached ? 30000 : 120000,
     headers: preferCached ? { "X-Wcode-Prefer-Cached": "1" } : undefined,
   };
   // Only acknowledge a revision observed before this project request. A
@@ -169,22 +236,31 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   try {
     const data = await uiJson("/intelligence/project", "GET", undefined, options);
     if (!current() || controller.signal.aborted) return false;
+    phase = "response";
     if (typeof data.workspace !== "string" || (selectedWorkspace && data.workspace !== selectedWorkspace)) throw new Error("Workspace response mismatch");
+    // Resolve an omitted workspace once, retaining this request's generation.
+    // Deferred refreshes must use the server-selected project, not an empty id.
+    if (!selectedWorkspace) {
+      state.current = data.workspace;
+      stamp.workspace = data.workspace;
+    }
     observePending(data.pending_authorizations, stamp);
     if (data.snapshot_pending === true) {
       setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
       setTimeout(() => {
-        if (current() && !controller.signal.aborted && !document.hidden) {
-          void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
+        if (current() && !controller.signal.aborted && !document.hidden &&
+            (state.autoRefresh || continuationReason !== "background")) {
+          void refreshProject({ workspace: stamp.workspace, reason: continuationReason, force: true });
         }
       }, 0);
       return true;
     }
     data.pending_authorizations = state.pendingValue;
     const cachedResponse = data.snapshot_cache === "stale-while-revalidate";
+    phase = "render";
     state.project = data; state.current = data.workspace;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
-    state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false;
+    state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false; state.syncFailure = null;
     // Render immediately. Without an earlier baseline, the next revision poll
     // conservatively rebuilds once; a cached response never certifies freshness.
     state.revisionKey = cachedResponse ? null : observedKey;
@@ -194,8 +270,9 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     if (cachedResponse) {
       setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
       setTimeout(() => {
-        if (current() && !controller.signal.aborted && !document.hidden) {
-          void refreshProject({ workspace: selectedWorkspace, reason: "background", force: true });
+        if (current() && !controller.signal.aborted && !document.hidden &&
+            (state.autoRefresh || continuationReason !== "background")) {
+          void refreshProject({ workspace: stamp.workspace, reason: continuationReason, force: true });
         }
       }, 0);
     } else {
@@ -204,11 +281,13 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     return true;
   } catch (error) {
     if (current() && !controller.signal.aborted) {
-      state.syncError = true;
+      if (phase === "render") {
+        // A rendering exception cannot certify or cache a newer revision.
+        Object.assign(state, previousSnapshot);
+        state.rendered.clear();
+      }
       console.warn("wcode: project refresh failed", error);
-      setSync("error", t("Refresh failed"));
-      renderAttention(); renderLive();
-      if (!state.project) renderProjectPlaceholder(true);
+      showRefreshFailure(error, phase);
     }
     return false;
   } finally {
@@ -247,11 +326,9 @@ async function pollRevision() {
         // the next poll. A successful later signal sees syncError and forces
         // exactly one full refresh, without amplifying a signal outage into a
         // heavy project rebuild every interval.
-        state.syncError = true;
         state.lastChecked = Date.now();
         console.warn("wcode: revision refresh failed", error);
-        setSync("error", t("Refresh failed"));
-        renderAttention(); renderLive();
+        showRefreshFailure(error);
       }
     }
   } finally { if (state.pollController === controller) state.pollController = null; }
@@ -270,7 +347,20 @@ async function refreshActivity() {
     if (state.project) state.project.activity = data.activity;
     renderActivity(); if (state.project) { renderStats(); renderAttention(); renderEngineeringFlow(); renderChangeConvergenceMap(); renderRuntimeTopology(); renderEngineeringTimeline(); }
   } catch (error) {
-    if (!controller.signal.aborted && observationCurrent(stamp)) { state.activityError = true; renderActivity(); if (state.project) { renderStats(); renderAttention(); renderEngineeringFlow(); renderChangeConvergenceMap(); renderRuntimeTopology(); renderEngineeringTimeline(); } }
+    if (!controller.signal.aborted && observationCurrent(stamp)) {
+      state.activityError = true;
+      const renders = [renderActivity, ...(state.project ? [renderStats, renderAttention, renderEngineeringFlow, renderChangeConvergenceMap, renderRuntimeTopology, renderEngineeringTimeline] : [])];
+      for (const render of renders) {
+        try { render(); } catch (renderError) {
+          console.warn("wcode: activity error view failed", renderError);
+          if (render === renderActivity) {
+            const unavailable = `<div class="empty">${esc(localized("Activity telemetry unavailable", "活动遥测不可用"))}</div>`;
+            setHtml("activity", els.activity, unavailable);
+            setHtml("resourceStatus", els.resourceStatus, unavailable);
+          }
+        }
+      }
+    }
   } finally { if (state.activityController === controller) state.activityController = null; }
 }
 async function refreshSemantics() {

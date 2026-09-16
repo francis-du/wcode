@@ -35,6 +35,7 @@ impl StandbyHealthLease {
         if self.in_flight || now < self.next_probe_at {
             return false;
         }
+        self.epoch = NEXT_STANDBY_LEASE_EPOCH.fetch_add(1, Ordering::Relaxed);
         self.in_flight = true;
         true
     }
@@ -45,6 +46,7 @@ impl StandbyHealthLease {
         self.next_probe_at = now + STANDBY_PROBE_INTERVAL;
         self.consecutive_failures = 0;
         self.in_flight = false;
+        self.epoch = NEXT_STANDBY_LEASE_EPOCH.fetch_add(1, Ordering::Relaxed);
         recovered
     }
 
@@ -52,10 +54,14 @@ impl StandbyHealthLease {
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
         self.next_probe_at = now + STANDBY_RETRY_INTERVAL;
         self.in_flight = false;
+        self.epoch = NEXT_STANDBY_LEASE_EPOCH.fetch_add(1, Ordering::Relaxed);
         self.consecutive_failures >= STANDBY_FAILURE_THRESHOLD
     }
 
     pub(in crate::app) fn quarantine(&mut self, now: Instant) {
+        // Invalidate a probe started before quarantine; its success cannot
+        // certify a recovery that has not actually been checked yet.
+        self.epoch = NEXT_STANDBY_LEASE_EPOCH.fetch_add(1, Ordering::Relaxed);
         self.consecutive_failures = STANDBY_FAILURE_THRESHOLD;
         self.next_probe_at = now;
         self.in_flight = false;

@@ -13,9 +13,11 @@ permalink: /zh/docs/releases/
 
 ## 下一版本
 
-- [v0.7.4](v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Tool Result，以及按当前产品重做的文档/UI。先 Push，CI 全绿后再创建 Tag。
+- [v0.7.5](v0.7.5/) — 发布候选：入口信任代次校验、TUI 快捷键隔离与观测台响应式布局修复。尚未打 Tag 或发布，精确发布提交必须先通过 CI。
 
 ## 0.7.x
+
+- [v0.7.4](v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Tool Result，以及按当前产品重做的文档/UI。
 
 - [v0.7.3](v0.7.3/) — 更低摩擦的开发命令自治、更完整的多语言质量能力、更可靠的 Context/Cache，以及 WebUI/Verification 稳定性修复。
 - [v0.7.2](v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型 Host 效率、更精确的高级验证目标，以及更低摩擦的安全仓库检查。

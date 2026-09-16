@@ -94,12 +94,16 @@
   responsibilities:
     - project indexed source into a provider-neutral software graph
     - keep precision and provenance explicit
+    - invalidate cached syntax facts when source content changes even if size and mtime are replayed
   constraints:
     - CONSTRAINT-EXPLICIT-PRECISION
   implementation:
     - kind: symbol
       path: src/graph/code_index/api.rs
       symbol: CodeIndex::software_graph
+    - kind: symbol
+      path: src/graph/code_index/indexing.rs
+      symbol: CodeIndex::cached_record_if_fresh
 
 - schema_version: 1
   id: component:design-state
@@ -107,6 +111,7 @@
   responsibilities:
     - load structured desired software state from versioned repository files
     - validate stable identifiers and cross-document references
+    - cache parsed desired state only behind a content-sensitive fingerprint so metadata replay cannot preserve stale Design State
     - initialize sparse meaningful Design State with repository-wide source, test, and design-sync constraints
   constraints:
     - CONSTRAINT-SPARSE-DESIGN-STATE
@@ -117,6 +122,9 @@
     - kind: symbol
       path: src/design/mod.rs
       symbol: load_design
+    - kind: symbol
+      path: src/design/mod.rs
+      symbol: fingerprint
     - kind: symbol
       path: src/runtime/harness/core.rs
       symbol: ToolHarness::design_init
@@ -189,6 +197,7 @@
   name: Traceability Drift and Impact Engine
   responsibilities:
     - resolve requirement component implementation and verification chains
+    - invalidate traceability resolution when referenced implementation or test content changes even if basic file metadata is replayed
     - detect design and implementation drift from current changes
     - expand changed symbols through the bounded composite graph
     - expose a fail-closed release check across Design Traceability Product Scope and required Convention state
@@ -197,8 +206,11 @@
       path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::traceability_status
     - kind: symbol
-      path: src/app/intelligence.rs
-      symbol: intelligence_check_failures
+      path: src/intelligence/runtime/trace_cache.rs
+      symbol: traceability_fingerprint
+    - kind: symbol
+      path: src/intelligence/release_gate.rs
+      symbol: failures
     - kind: symbol
       path: src/intelligence/runtime/design.rs
       symbol: SoftwareIntelligenceRuntime::drift_status
@@ -246,7 +258,7 @@
   responsibilities:
     - create persistent blind independent reviewer jobs with contract-first correctness guidance
     - bind plans and admissible evidence to the exact active code plus Design State revision and fixed changed-language verification targets
-    - aggregate deterministic reviewer and stage evidence fail closed by producer and required target
+    - aggregate deterministic reviewer and stage evidence fail closed by producer and required target, preserving the less favorable verdict for equal-time conflicts and rejecting conflicted newest HumanApproval decisions
     - discover and execute bounded property mutation fuzz and runtime-canary adapters with explicit per-target coverage
   constraints:
     - CONSTRAINT-FAIL-CLOSED-VERIFICATION
@@ -279,6 +291,7 @@
   responsibilities:
     - turn drift impact and risk into durable convergence plans
     - coordinate dependency-aware implementation design review and system evidence gates
+    - re-audit deterministic structural change intents before reporting convergence so completed tasks cannot substitute for an unmet repository invariant
     - reject invalid or cyclic execution plans
   constraints:
     - CONSTRAINT-SAFE-RECONCILIATION
@@ -296,6 +309,9 @@
     - kind: symbol
       path: src/reconciliation/mod.rs
       symbol: ReconciliationExecution::status
+    - kind: symbol
+      path: src/intelligence/runtime/reconcile.rs
+      symbol: reconciliation_intent_audit
 
 - schema_version: 1
   id: component:intelligence-ui
@@ -876,7 +892,7 @@
     - component:software-graph
   implementation:
     - kind: symbol
-      path: src/evidence/experience.rs
+      path: src/evidence/experience_storage.rs
       symbol: persist_verified_change
     - kind: symbol
       path: src/evidence/experience.rs

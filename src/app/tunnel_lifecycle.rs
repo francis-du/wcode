@@ -67,39 +67,84 @@ pub(super) struct TunnelControlState {
     pub(super) standby_leases: HashMap<String, StandbyHealthLease>,
     pending_respawns: Vec<(TunnelProvider, Instant)>,
     death_counts: HashMap<TunnelProvider, u32>,
-    retained_stable_aliases: HashMap<TunnelProvider, String>,
+    retained_stable_aliases: HashMap<String, TunnelProvider>,
+    endpoint_epochs: HashMap<String, u64>,
 }
 
 impl TunnelControlState {
-    pub(super) fn connected(&mut self, active: &ActiveTunnel, auth: &AuthState) {
+    pub(super) fn connected(&mut self, active: &ActiveTunnel, auth: &AuthState) -> bool {
+        let Some(epoch) = active.endpoint_epoch else {
+            return false;
+        };
+        if auth.public_url_epoch(active.public_url()) != Some(epoch) {
+            return false;
+        }
         let provider = active.provider();
         let public_url = active.public_url();
-        if let Some(previous) = self.retained_stable_aliases.remove(&provider) {
-            if previous != public_url {
-                auth.unregister_public_url(&previous);
-            }
+        // A different reconnected URL replaces the advertised primary, not the
+        // old alias's trust. That alias keeps its own bounded health lease.
+        if self.primary_url.as_ref().is_some_and(|previous| {
+            previous != public_url && self.retained_stable_aliases.get(previous) == Some(&provider)
+        }) {
+            self.primary_url = None;
         }
+        self.retained_stable_aliases.remove(public_url);
+        self.endpoint_epochs.insert(public_url.to_owned(), epoch);
         self.pending_respawns
             .retain(|(pending, _)| *pending != provider);
         self.standby_leases.insert(
             public_url.to_owned(),
             StandbyHealthLease::verified(Instant::now()),
         );
+        true
     }
 
-    pub(super) async fn reconnect_failed(
+    fn retain_stable_alias(&mut self, provider: TunnelProvider, public_url: &str) -> bool {
+        const MAX_RETAINED_STABLE_ALIASES: usize = 8;
+        if !self.retained_stable_aliases.contains_key(public_url)
+            && self.retained_stable_aliases.len() >= MAX_RETAINED_STABLE_ALIASES
+        {
+            return false;
+        }
+        self.retained_stable_aliases
+            .insert(public_url.to_owned(), provider);
+        self.standby_leases.insert(
+            public_url.to_owned(),
+            StandbyHealthLease::verified(Instant::now()),
+        );
+        true
+    }
+
+    fn withdraw_endpoint(
+        &mut self,
+        public_url: &str,
+        auth: &AuthState,
+        monitor: &TaskMonitor,
+    ) -> bool {
+        // A worker can publish a same-URL replacement while old cleanup awaits
+        // process exit. Compare under the registry lock, never revoke by URL alone.
+        let removed = self
+            .endpoint_epochs
+            .remove(public_url)
+            .is_some_and(|epoch| auth.unregister_public_url_if_epoch(public_url, epoch));
+        if removed {
+            monitor.remove_tunnel(public_url);
+        }
+        removed
+    }
+
+    pub(super) fn reconnect_failed(
         &mut self,
         provider: TunnelProvider,
         error: &str,
-        auth: &AuthState,
+        tunnels: &[ActiveTunnel],
         monitor: &TaskMonitor,
     ) {
-        if let Some(previous) = self.retained_stable_aliases.get(&provider).cloned() {
-            if !stable_alias_survives_provider_exit(provider, &previous, auth.instance_id()).await {
-                self.retained_stable_aliases.remove(&provider);
-                auth.unregister_public_url(&previous);
-            }
+        if tunnels.iter().any(|tunnel| tunnel.provider() == provider) {
+            return;
         }
+        // Provider startup failure is not endpoint-health evidence. Retained
+        // aliases are supervised independently, even after another URL connects.
         let cause = format!(
             "half-open reconnect failed · {}",
             error.lines().next().unwrap_or("unknown error")
@@ -109,33 +154,12 @@ impl TunnelControlState {
             &mut self.pending_respawns,
             provider,
             &cause,
-            self.retained_stable_aliases.contains_key(&provider),
+            self.retained_stable_aliases
+                .values()
+                .any(|retained| *retained == provider),
             monitor,
         );
     }
-}
-
-pub(super) fn spawn_stable_endpoint_recovery(
-    selected: TunnelProvider,
-    auth: Arc<AuthState>,
-    monitor: TaskMonitor,
-) {
-    tokio::spawn(async move {
-        let instance_id = auth.instance_id().to_owned();
-        if let Some((provider, public_url)) =
-            crate::tunnel::recover_existing_stable_endpoint(selected, &instance_id).await
-        {
-            publish_verified_endpoint(&auth, &monitor, provider.label(), &public_url);
-            monitor.operator_message(
-                OperatorMessageKind::Success,
-                "tunnel",
-                format!(
-                    "{} stable endpoint recovered for this runtime · {public_url}",
-                    provider.label()
-                ),
-            );
-        }
-    });
 }
 
 pub(super) struct PrimaryRuntime {
@@ -190,14 +214,14 @@ pub(super) fn spawn_initial_supervisor(
             true,
         );
         let mut first = true;
-        while let Some(event) = events.recv().await {
-            if let TunnelEvent::Connected(active) = &event {
-                publish_verified_endpoint(
+        while let Some(mut event) = events.recv().await {
+            if let TunnelEvent::Connected(active) = &mut event {
+                active.endpoint_epoch = Some(publish_verified_endpoint(
                     &context.auth,
                     &context.monitor,
                     active.provider_label(),
                     active.public_url(),
-                );
+                ));
                 if first {
                     let public_url = active.public_url().to_owned();
                     context.auth.set_public_url(public_url.clone());
@@ -224,14 +248,14 @@ pub(super) fn spawn_reconnect_attempt(provider: TunnelProvider, context: TunnelS
             context.monitor.clone(),
             false,
         );
-        while let Some(event) = events.recv().await {
-            if let TunnelEvent::Connected(active) = &event {
-                publish_verified_endpoint(
+        while let Some(mut event) = events.recv().await {
+            if let TunnelEvent::Connected(active) = &mut event {
+                active.endpoint_epoch = Some(publish_verified_endpoint(
                     &context.auth,
                     &context.monitor,
                     active.provider_label(),
                     active.public_url(),
-                );
+                ));
             }
             if context.forward_tx.send(event).await.is_err() {
                 return;
@@ -261,21 +285,26 @@ pub(super) fn spawn_standby_probe(
 pub(super) fn schedule_standby_probes(
     leases: &mut HashMap<String, StandbyHealthLease>,
     tunnels: &[ActiveTunnel],
+    retained: &HashMap<String, TunnelProvider>,
     primary_url: Option<&str>,
     instance_id: &str,
     sender: &mpsc::Sender<StandbyProbeEvent>,
 ) {
     let now = Instant::now();
-    for tunnel in tunnels {
-        if primary_url == Some(tunnel.public_url()) {
+    for public_url in tunnels
+        .iter()
+        .map(ActiveTunnel::public_url)
+        .chain(retained.keys().map(String::as_str))
+    {
+        if primary_url == Some(public_url) {
             continue;
         }
-        let lease = leases
-            .entry(tunnel.public_url().to_owned())
-            .or_insert_with(|| StandbyHealthLease::verified(now));
+        let Some(lease) = leases.get_mut(public_url) else {
+            continue;
+        };
         if lease.begin_probe(now) {
             spawn_standby_probe(
-                tunnel.public_url().to_owned(),
+                public_url.to_owned(),
                 lease.epoch(),
                 instance_id.to_owned(),
                 sender.clone(),
@@ -346,34 +375,33 @@ pub(super) async fn recycle_revoked_standby(
     if state.primary_url.as_deref() == Some(public_url) {
         return false;
     }
-    let Some(index) = tunnels
+    let index = tunnels
         .iter()
-        .position(|tunnel| tunnel.public_url() == public_url)
-    else {
-        state.standby_leases.remove(public_url);
+        .position(|tunnel| tunnel.public_url() == public_url);
+    let provider = index
+        .map(|index| tunnels[index].provider())
+        .or_else(|| state.retained_stable_aliases.get(public_url).copied());
+    let Some(provider) = provider else {
         return false;
     };
-    let provider = tunnels[index].provider();
-    let mut tunnel = tunnels.remove(index);
-    tunnel.stop().await;
-    state.standby_leases.remove(public_url);
-    if state
-        .retained_stable_aliases
-        .get(&provider)
-        .is_some_and(|url| url == public_url)
-    {
-        state.retained_stable_aliases.remove(&provider);
+    if let Some(index) = index {
+        let mut tunnel = tunnels.remove(index);
+        tunnel.stop().await;
     }
-    auth.unregister_public_url(public_url);
-    monitor.remove_tunnel(public_url);
-    schedule_provider_retry(
-        &mut state.death_counts,
-        &mut state.pending_respawns,
-        provider,
-        "endpoint stayed unreachable after quarantine",
-        false,
-        monitor,
-    );
+    state.standby_leases.remove(public_url);
+    state.retained_stable_aliases.remove(public_url);
+    let withdrawn = state.withdraw_endpoint(public_url, auth, monitor);
+    let replacement_published = !withdrawn && auth.public_url_epoch(public_url).is_some();
+    if !replacement_published && !tunnels.iter().any(|tunnel| tunnel.provider() == provider) {
+        schedule_provider_retry(
+            &mut state.death_counts,
+            &mut state.pending_respawns,
+            provider,
+            "endpoint stayed unreachable after quarantine",
+            false,
+            monitor,
+        );
+    }
     true
 }
 
@@ -472,14 +500,15 @@ pub(super) fn publish_verified_endpoint(
     monitor: &TaskMonitor,
     provider: &str,
     public_url: &str,
-) {
-    auth.register_public_url(public_url.to_owned());
+) -> u64 {
+    let epoch = auth.register_public_url(public_url.to_owned());
     monitor.register_tunnel(provider, public_url);
     monitor.operator_message(
         OperatorMessageKind::Success,
         "tunnel",
         format!("{provider} connected · {public_url}"),
     );
+    epoch
 }
 
 pub(super) fn schedule_provider_retry(
@@ -532,6 +561,7 @@ pub(super) async fn maintain_tunnels(
     schedule_standby_probes(
         &mut state.standby_leases,
         tunnels,
+        &state.retained_stable_aliases,
         state.primary_url.as_deref(),
         auth.instance_id(),
         standby_probe_tx,
@@ -579,14 +609,9 @@ pub(super) async fn maintain_tunnels(
         .and_then(|url| tunnels.iter().position(|tunnel| tunnel.public_url() == url));
     if primary_index.is_none() && monitor.connection_status().public_url_healthy == Some(false) {
         if let Some(primary_url) = state.primary_url.clone() {
-            let retained_provider = state
-                .retained_stable_aliases
-                .iter()
-                .find_map(|(provider, url)| (url == &primary_url).then_some(*provider));
-            if let Some(provider) = retained_provider {
-                state.retained_stable_aliases.remove(&provider);
-                auth.unregister_public_url(&primary_url);
-                monitor.remove_tunnel(&primary_url);
+            if state.retained_stable_aliases.remove(&primary_url).is_some() {
+                state.standby_leases.remove(&primary_url);
+                state.withdraw_endpoint(&primary_url, auth, monitor);
                 state.primary_url = None;
                 deactivate_primary(
                     primary_runtime,
@@ -630,17 +655,14 @@ pub(super) async fn maintain_tunnels(
             format!("{reason}; respawning {}", dead_provider.label()),
         );
         let retain_stable_alias =
-            stable_alias_survives_provider_exit(dead_provider, &dead_url, auth.instance_id()).await;
+            stable_alias_survives_provider_exit(dead_provider, &dead_url, auth.instance_id()).await
+                && state.retain_stable_alias(dead_provider, &dead_url);
         let mut dead = tunnels.remove(index);
         dead.stop().await;
-        state.standby_leases.remove(&dead_url);
         if !retain_stable_alias {
-            monitor.remove_tunnel(&dead_url);
+            state.standby_leases.remove(&dead_url);
         }
         if retain_stable_alias {
-            state
-                .retained_stable_aliases
-                .insert(dead_provider, dead_url.clone());
             monitor.operator_message(
                 OperatorMessageKind::Info,
                 "tunnel",
@@ -650,7 +672,7 @@ pub(super) async fn maintain_tunnels(
                 ),
             );
         } else {
-            auth.unregister_public_url(&dead_url);
+            state.withdraw_endpoint(&dead_url, auth, monitor);
         }
         if was_primary && !retain_stable_alias {
             state.primary_url = None;
@@ -664,14 +686,20 @@ pub(super) async fn maintain_tunnels(
         if tunnels.is_empty() && !retain_stable_alias {
             monitor.mark_tunnel_stopped(reason.clone());
         }
-        schedule_provider_retry(
-            &mut state.death_counts,
-            &mut state.pending_respawns,
-            dead_provider,
-            "runtime endpoint recycled",
-            retain_stable_alias,
-            monitor,
-        );
+        // A newer same-URL registration is already being attached. Do not
+        // overwrite its telemetry or spawn another provider from stale cleanup.
+        let replacement_published =
+            !retain_stable_alias && auth.public_url_epoch(&dead_url).is_some();
+        if !replacement_published {
+            schedule_provider_retry(
+                &mut state.death_counts,
+                &mut state.pending_respawns,
+                dead_provider,
+                "runtime endpoint recycled",
+                retain_stable_alias,
+                monitor,
+            );
+        }
     }
     if state.primary_url.is_none() {
         promote_best_standby(

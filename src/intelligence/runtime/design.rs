@@ -191,7 +191,7 @@ impl SoftwareIntelligenceRuntime {
         let confirmed_fingerprint = trace_cache::traceability_fingerprint(
             workspace,
             &load.state,
-            design::fingerprint(workspace),
+            design::fingerprint(workspace)?,
             known_checks,
         )?;
         if confirmed_fingerprint != fingerprint {
@@ -708,14 +708,25 @@ impl SoftwareIntelligenceRuntime {
             EvidenceKind::Runtime,
             runtime_required,
         );
-        status.human_approval = evidence
+        let human_approvals = evidence
             .iter()
             .filter(|record| {
                 evidence_matches_plan_revision(record, &status.plan)
                     && record.kind == EvidenceKind::HumanApproval
             })
-            .max_by_key(|record| record.timestamp_ms)
-            .is_some_and(|record| record.result == EvidenceResult::Pass);
+            .collect::<Vec<_>>();
+        let latest_human_timestamp = human_approvals
+            .iter()
+            .map(|record| record.timestamp_ms)
+            .max();
+        status.human_approval = latest_human_timestamp.is_some_and(|timestamp| {
+            aggregate_results(
+                human_approvals
+                    .iter()
+                    .filter(|record| record.timestamp_ms == timestamp)
+                    .map(|record| record.result),
+            ) == Some(EvidenceResult::Pass)
+        });
         if status.plan.require_human_approval && !status.human_approval {
             status.blockers.push("human-approval-required".into());
         }

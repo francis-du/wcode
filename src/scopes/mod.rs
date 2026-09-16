@@ -105,6 +105,7 @@ impl ProductScope {
                 "src/intelligence/context.rs",
                 "src/intelligence/observatory.rs",
                 "src/intelligence/observatory/",
+                "src/intelligence/release_gate.rs",
                 "src/intelligence/runtime/",
                 "src/intelligence/types.rs",
             ],

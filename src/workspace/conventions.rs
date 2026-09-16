@@ -77,10 +77,18 @@ pub struct ConventionReport {
 }
 
 pub(crate) fn fingerprint_and_paths(workspace: &Workspace) -> Result<(u64, Vec<String>, bool)> {
-    let (entries, scan_truncated) =
+    let excluded_roots = non_maintained_roots(workspace);
+    let (mut entries, scan_truncated) =
         workspace.source_paths_with_stamps(".", MAX_CONVENTION_FILES)?;
+    entries.retain(|(path, _)| {
+        !excluded_roots.iter().any(|root| {
+            path.strip_prefix(root.as_str())
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+    });
     let mut hasher = DefaultHasher::new();
     workspace.root().hash(&mut hasher);
+    excluded_roots.hash(&mut hasher);
     scan_truncated.hash(&mut hasher);
     entries.len().hash(&mut hasher);
     let mut files = Vec::with_capacity(entries.len());
@@ -325,6 +333,85 @@ pub(crate) fn status_from_paths(
         findings,
         truncated,
     })
+}
+
+fn non_maintained_roots(workspace: &Workspace) -> BTreeSet<String> {
+    let mut roots = BTreeSet::new();
+    // A directory named public is not enough: require the site's build config.
+    if let Ok(source) = workspace.load_source("hugo.toml") {
+        if let Ok(config) = source.content.parse::<toml_edit::DocumentMut>() {
+            let output = config
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("publishDir"));
+            let output = match output {
+                Some((_, value)) => value.as_str(),
+                None => Some("public"),
+            };
+            if let Some(prefix) = output.and_then(relative_directory_prefix) {
+                roots.insert(prefix);
+            }
+        }
+    }
+    // Declared, initialized submodules own their source. Inspecting the selected
+    // child workspace still checks those files; no Git process is needed here.
+    if let Ok(source) = workspace.load_source(".gitmodules") {
+        let mut submodule_section = false;
+        for line in source.content.lines().take(4096) {
+            let line = line.trim();
+            if line.starts_with('[') {
+                submodule_section = line.starts_with("[submodule ") && line.ends_with(']');
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            if !submodule_section || !key.trim().eq_ignore_ascii_case("path") {
+                continue;
+            }
+            let value = value.trim();
+            let value = if value.starts_with('"') {
+                match serde_json::from_str::<String>(value) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                }
+            } else {
+                value.to_owned()
+            };
+            let Some(prefix) = relative_directory_prefix(&value) else {
+                continue;
+            };
+            if !workspace
+                .path_info(&prefix)
+                .is_ok_and(|info| info.kind == "directory")
+            {
+                continue;
+            }
+            let marker = workspace.root().join(&prefix).join(".git");
+            if std::fs::symlink_metadata(marker)
+                .is_ok_and(|metadata| metadata.is_file() || metadata.is_dir())
+            {
+                roots.insert(prefix);
+            }
+        }
+    }
+    roots
+}
+
+fn relative_directory_prefix(value: &str) -> Option<String> {
+    let normalized = value.replace('\\', "/");
+    let normalized = normalized
+        .strip_prefix("./")
+        .unwrap_or(&normalized)
+        .trim_end_matches('/');
+    if normalized.is_empty()
+        || normalized.contains([':', '\0', '\r', '\n'])
+        || normalized
+            .split('/')
+            .any(|part| matches!(part, "" | "." | ".." | ".git"))
+    {
+        return None;
+    }
+    Some(normalized.to_owned())
 }
 
 fn generated_directory(path: &str) -> bool {

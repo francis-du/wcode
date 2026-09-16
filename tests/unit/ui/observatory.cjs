@@ -96,6 +96,50 @@ async function run(){
     const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
     s.context.document.hidden=true;deferred.fn();await flush();assert.equal(s.requests.length,1);
   });
+  await test('paused auto refresh cannot start deferred snapshot rebuilds',async()=>{
+    for(const response of [{workspace:'A',snapshot_pending:true},{...project(),snapshot_cache:'stale-while-revalidate'}]){
+      const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
+      const refresh=s.run('refreshProject({reason:"auto",preferCached:true})');await flush();
+      respond(s.requests[0],response);await refresh;
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      s.run('state.autoRefresh=false;');deferred.fn();await flush();
+      assert.equal(s.requests.length,1,'pausing auto refresh must suppress its queued rebuild');
+    }
+  });
+  await test('explicit refresh completes a cached response even while auto refresh is paused',async()=>{
+    for(const reason of ['manual','initial']){
+      const s=sandbox(false,true,{fakeTimers:true});s.run('state.autoRefresh=false;renderProject=()=>{};renderAttention=()=>{};');
+      s.context.refreshReason=reason;
+      const refresh=s.run('refreshProject({reason:refreshReason,preferCached:true})');await flush();
+      respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      deferred.fn();await flush();assert.equal(s.requests.length,2);
+      respond(s.requests[1],project());await flush();assert.equal(s.run('state.inFlight'),false);
+    }
+  });
+  await test('an omitted workspace resolves before deferred snapshot rebuilds',async()=>{
+    for(const response of [{workspace:'A',snapshot_pending:true},{...project(),snapshot_cache:'stale-while-revalidate'}]){
+      const s=sandbox(false,true,{fakeTimers:true});s.run('state.current="";renderProject=()=>{};renderAttention=()=>{};');
+      const refresh=s.run('refreshProject({reason:"initial",preferCached:true})');await flush();
+      respond(s.requests[0],response);await refresh;
+      assert.equal(s.run('state.current'),'A');
+      const epoch=s.run('state.workspaceEpoch'),deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      deferred.fn();await flush();assert.equal(s.requests.length,2);
+      assert.equal(s.requests[1].options.headers['X-Wcode-Workspace'],'A');
+      assert.equal(s.run('state.workspaceEpoch'),epoch,'resolving the default must not switch back to an empty workspace');
+      respond(s.requests[1],project());await flush();assert.equal(s.run('state.project.workspace'),'A');
+    }
+  });
+  await test('a deferred default-workspace rebuild cannot follow a later project selection',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});s.run('state.current="";renderProject=()=>{};renderAttention=()=>{};');
+    const refresh=s.run('refreshProject({reason:"initial",preferCached:true})');await flush();
+    respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
+    const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+    const current=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();
+    const request=s.requests.at(-1),count=s.requests.length;deferred.fn();await flush();
+    assert.equal(s.requests.length,count);assert.equal(request.options.signal.aborted,false);
+    respond(request,project('B'));await current;assert.equal(s.run('state.project.workspace'),'B');
+  });
   await test('manual refresh preserves an earlier safe revision baseline without an extra probe',async()=>{
     const s=sandbox(false,true,{fakeTimers:true});s.run('state.revisionKey="known|||";renderProject=()=>{};renderAttention=()=>{};');
     const refresh=s.run('refreshProject({reason:"manual"})');await flush();
@@ -265,7 +309,7 @@ async function run(){
     const s=sandbox();s.context.console={...console,warn(){}};
     const refresh=s.run('refreshProject({reason:"manual"})');await flush();
     respond(s.requests[0],{error:'internal_private_path_and_stack'},false);await refresh;
-    assert.equal(s.node('#syncState').textContent,'Refresh failed');
+    assert.equal(s.node('#syncState').textContent,'Server error · HTTP 503');
     const html=s.node('#architectureBlueprint').innerHTML;
     assert.ok(html.includes('connection-state'));assert.ok(html.includes('use Refresh'));
     assert.ok(!html.includes('internal_private_path_and_stack'));assert.ok(!html.includes('loading-state'));

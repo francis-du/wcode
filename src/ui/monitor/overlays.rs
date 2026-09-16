@@ -382,7 +382,15 @@ pub(super) fn render_help_overlay(
                 help_hint_line("^C", language.tr("stop wcode")),
                 pairing_code_line(config, language),
                 help_link_line(language.tr("Project"), &config.project_url, inner.width),
-                help_link_line(language.tr("Author"), &config.author_url, inner.width),
+                help_link_line(
+                    &format!(
+                        "{} {}",
+                        super::monitor_runtime::AUTHOR_SHORTCUT,
+                        language.tr("Author")
+                    ),
+                    &config.author_url,
+                    inner.width,
+                ),
                 help_link_line(
                     language.tr("Setup"),
                     config.setup_url().as_str(),
@@ -483,7 +491,15 @@ pub(super) fn render_help_overlay(
                 &config.project_url,
                 columns[1].width,
             ),
-            help_link_line(language.tr("Author"), &config.author_url, columns[1].width),
+            help_link_line(
+                &format!(
+                    "{} {}",
+                    super::monitor_runtime::AUTHOR_SHORTCUT,
+                    language.tr("Author")
+                ),
+                &config.author_url,
+                columns[1].width,
+            ),
             help_link_line(
                 language.tr("Setup"),
                 config.setup_url().as_str(),

@@ -82,12 +82,25 @@ pub(crate) struct ActiveTunnel {
     // process that originally configured them. Reusing an instance-matched
     // endpoint avoids killing and recreating a healthy funnel during startup.
     child: Option<Child>,
+    // Captured by the publisher, never borrowed from a later same-URL owner.
+    pub(crate) endpoint_epoch: Option<u64>,
     public_url: String,
     provider: TunnelProvider,
     connected_at: std::time::Instant,
 }
 
 impl ActiveTunnel {
+    #[cfg(test)]
+    pub(crate) fn test_fixture(provider: TunnelProvider, public_url: String) -> Self {
+        Self {
+            child: None,
+            endpoint_epoch: None,
+            public_url,
+            provider,
+            connected_at: std::time::Instant::now(),
+        }
+    }
+
     pub(crate) fn public_url(&self) -> &str {
         &self.public_url
     }
@@ -310,6 +323,7 @@ async fn try_start_provider(
             );
             return Ok(ActiveTunnel {
                 child: None,
+                endpoint_epoch: None,
                 public_url,
                 provider,
                 connected_at: std::time::Instant::now(),
@@ -341,6 +355,7 @@ async fn try_start_provider(
     }
     Ok(ActiveTunnel {
         child: Some(child),
+        endpoint_epoch: None,
         public_url,
         provider,
         connected_at: std::time::Instant::now(),
@@ -749,18 +764,6 @@ async fn reusable_tailscale_endpoint(instance_id: &str) -> Option<String> {
         .await
         .ok()?;
     Some(public_url)
-}
-
-pub(crate) async fn recover_existing_stable_endpoint(
-    selected: TunnelProvider,
-    instance_id: &str,
-) -> Option<(TunnelProvider, String)> {
-    if !matches!(selected, TunnelProvider::Auto | TunnelProvider::Tailscale) {
-        return None;
-    }
-    reusable_tailscale_endpoint(instance_id)
-        .await
-        .map(|public_url| (TunnelProvider::Tailscale, public_url))
 }
 
 fn ensure_ssh() -> Result<()> {

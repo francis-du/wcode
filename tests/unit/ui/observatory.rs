@@ -22,6 +22,61 @@ fn release_062_webui_keeps_semantic_and_authorization_responses_scoped() {
 }
 
 #[test]
+fn observatory_refresh_distinguishes_transport_response_and_render_failures() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/refresh.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for observatory refresh regressions");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn observatory_adversarial_failures_are_part_of_the_full_suite() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/adversarial.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for adversarial Observatory regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|report| report["results"].as_array())
+                .is_some_and(|results| results.len() == 6
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn observatory_layout_regressions_cover_long_content_and_nested_grids() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/layout.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for Observatory layout regressions");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn observatory_audit_covers_refresh_access_and_truthful_telemetry() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")
@@ -52,7 +107,7 @@ fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 38
+                .is_some_and(|results| results.len() == 42
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

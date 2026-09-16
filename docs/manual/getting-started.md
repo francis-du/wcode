@@ -182,7 +182,7 @@ Read status labels before interpreting the numbers:
 - **Syntax** describes Tree-sitter relationships. Semantic precision requires a live provider and matching source.
 - **Truncated** means a bounded view is partial. An unavailable snapshot or unknown Git state does not mean an empty repository.
 
-If the view looks stale, check the selected workspace and refresh status, then use **Refresh**. Hidden tabs pause polling; returning to the page resumes it when live refresh is enabled. Use the current protected URL opened by **W** if authorization has expired with the runtime.
+If the view looks stale, check the selected workspace and refresh status, then use **Refresh**. Pausing **Auto refresh** stops automatic updates, including queued background rebuilds. You can still use **Refresh** while paused; it completes the requested update even when a cached snapshot appears first. A **Cached snapshot · refreshing…** label means the displayed snapshot is still being updated, not that current-revision proof has passed. Hidden tabs pause polling; returning to the page resumes it when auto refresh is enabled. Use the current protected URL opened by **W** if authorization has expired with the runtime.
 
 ## 7. Common modes
 

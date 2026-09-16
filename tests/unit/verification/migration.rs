@@ -67,6 +67,113 @@ transitions:
     assert_eq!(report.transitions[0].replacement_matches, 2);
 }
 
+#[test]
+fn migration_audit_evolution_replay_rejects_reintroduced_legacy_paths() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join(".wcode")).unwrap();
+    std::fs::create_dir_all(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join(".wcode/migration.yaml"),
+        r#"schema_version: 1
+id: split-client
+scopes: [src]
+required_paths: [src/new_client.rs]
+forbidden_paths: [src/legacy_client.rs]
+transitions:
+  - id: constructor
+    legacy: "LegacyClient::new"
+    replacement: "NewClient::new"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("src/new_client.rs"),
+        "fn build() { NewClient::new(); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("src/legacy_client.rs"),
+        "fn build() { LegacyClient::new(); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+
+    let legacy = audit(&workspace, &revision()).unwrap().unwrap();
+    assert!(!legacy.passed);
+    assert!(legacy
+        .findings
+        .iter()
+        .any(|finding| finding.code == "forbidden_path_present"));
+    assert!(legacy
+        .findings
+        .iter()
+        .any(|finding| finding.code == "legacy_remaining"));
+
+    std::fs::remove_file(root.path().join("src/legacy_client.rs")).unwrap();
+    let migrated = audit(&workspace, &revision()).unwrap().unwrap();
+    assert!(migrated.passed, "{}", migrated.summary);
+    assert_eq!(migrated.required_paths, 1);
+    assert_eq!(migrated.forbidden_paths, 1);
+
+    std::fs::write(
+        root.path().join("src/legacy_client.rs"),
+        "// regression: legacy file returned\n",
+    )
+    .unwrap();
+    let regressed = audit(&workspace, &revision()).unwrap().unwrap();
+    assert!(!regressed.passed);
+    assert!(regressed
+        .findings
+        .iter()
+        .any(|finding| finding.code == "forbidden_path_present"));
+}
+
+#[cfg(unix)]
+#[test]
+fn forbidden_migration_symlink_is_not_proof_of_absence() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".wcode")).unwrap();
+    std::fs::write(
+        root.path().join(".wcode/migration.yaml"),
+        "schema_version: 1\nid: remove-legacy\nforbidden_paths: [legacy.rs]\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("missing.rs", root.path().join("legacy.rs")).unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let report = audit(&workspace, &revision()).unwrap().unwrap();
+    assert!(
+        !report.passed,
+        "a rejected symlink must not count as absent"
+    );
+    assert!(report
+        .findings
+        .iter()
+        .any(|finding| finding.code == "forbidden_path_uninspectable"));
+}
+
+#[test]
+fn forbidden_migration_path_distinguishes_missing_from_blocked() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".wcode")).unwrap();
+    let config = root.path().join(".wcode/migration.yaml");
+    std::fs::write(
+        &config,
+        "schema_version: 1\nid: remove-legacy\nforbidden_paths: [missing/legacy.rs]\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    assert!(audit(&workspace, &revision()).unwrap().unwrap().passed);
+    std::fs::write(
+        &config,
+        "schema_version: 1\nid: remove-legacy\nforbidden_paths: [.git/config]\n",
+    )
+    .unwrap();
+    assert!(
+        !audit(&workspace, &revision()).unwrap().unwrap().passed,
+        "policy-blocked inspection is not evidence that a path is absent"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn migration_policy_symlink_cannot_disable_the_gate() {

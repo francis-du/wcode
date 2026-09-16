@@ -67,12 +67,13 @@
 - schema_version: 1
   id: AC-INDEX-001
   title: Software graph exposes syntax precision and revision provenance
-  statement: Tree-sitter graph nodes and edges retain syntax precision and revision provenance. Symbol bodies, ranges, signatures and relations must share a SHA or fail explicitly. Concurrent same-file cache misses share a bounded build flight across search and outline entry points; other files remain independent, invalidation rejects late publication, and failed builds do not permanently block later queries.
+  statement: Tree-sitter graph nodes and edges retain syntax precision and revision provenance. Symbol bodies, ranges, signatures and relations must share a SHA or fail explicitly. Cached syntax facts must be invalidated by source-content changes even when file size and mtime are replayed; Unix uses change identity in the source stamp while other platforms retain a content-SHA fallback. Concurrent same-file cache misses share a bounded build flight across search and outline entry points; other files remain independent, invalidation rejects late publication, and failed builds do not permanently block later queries.
   verification:
     - {kind: test, path: tests/unit/graph/code_index.rs, symbol: software_graph_reuses_indexed_symbols_and_marks_syntax_precision}
     - {kind: test, path: tests/unit/graph/consistency.rs, symbol: concurrent_cold_queries_share_one_parse_across_entrypoints}
     - {kind: test, path: tests/unit/graph/consistency.rs, symbol: symbol_context_never_mixes_cached_relations_with_new_body}
     - {kind: test, path: tests/unit/graph/consistency.rs, symbol: changed_symbol_identity_is_not_reused_for_a_different_definition}
+    - {kind: test, path: tests/unit/graph/consistency.rs, symbol: cached_symbol_search_rejects_same_size_same_mtime_rewrite}
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: independent_file_build_is_not_blocked_by_another_flight}
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: parse_flights_are_bounded_reclaimed_and_workspace_scoped}
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: failed_or_panicking_build_does_not_poison_future_file_queries}
@@ -86,6 +87,9 @@
     - kind: test
       path: tests/unit/scopes/mod.rs
       symbol: product_scope_registry_matches_wcode_product_model
+    - kind: test
+      path: tests/unit/scopes/mod.rs
+      symbol: every_declared_source_root_maps_back_to_its_scope
     - kind: test
       path: tests/unit/scopes/mod.rs
       symbol: tool_scope_mapping_exposes_cross_scope_context
@@ -268,6 +272,9 @@
       path: tests/unit/workspace/authorization.rs
       symbol: workspace_command_grant_resolves_command_requests_but_not_delete
     - kind: test
+      path: tests/unit/workspace/authorization.rs
+      symbol: pending_request_deduplication_is_workspace_and_kind_bound
+    - kind: test
       path: tests/unit/integrations/mcp/http.rs
       symbol: webui_workspace_command_trust_can_be_enabled_and_revoked
     - kind: test
@@ -357,6 +364,9 @@
     - kind: test
       path: tests/unit/integrations/mcp/dispatch.rs
       symbol: media_content_uses_standard_mcp_blocks_without_private_client_extension
+    - kind: test
+      path: tests/unit/integrations/mcp/dispatch.rs
+      symbol: media_protocol_matrix_is_standard_and_type_bounded
     - kind: test
       path: tests/unit/integrations/mcp/protocol.rs
       symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
@@ -527,24 +537,9 @@
       symbol: change_review_parsers_classify_status_metrics_and_risk
 
 - schema_version: 1
-  id: AC-INTELLIGENCE-001
-  title: Repository intelligence resolves traceability scoped context and release readiness
-  statement: Requirement traceability resolves real implementation/test symbols, Product Scope filters narrow software-context source navigation, and the CLI check fails closed when Design Traceability Scope or required Convention state is incomplete.
-  verification:
-    - kind: test
-      path: tests/unit/intelligence/mod.rs
-      symbol: traces_requirement_to_real_implementation_and_test_symbols
-    - kind: test
-      path: tests/unit/intelligence/mod.rs
-      symbol: software_context_scopes_narrow_source_navigation
-    - kind: test
-      path: tests/unit/app/intelligence.rs
-      symbol: intelligence_check_requires_valid_complete_scoped_state
-
-- schema_version: 1
   id: AC-VERIFY-001
   title: Verification readiness aggregates required evidence fail closed
-  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, and one changed language's pass cannot clear another changed language's target. Verification Plans bind the exact active code and Design State revision plus fixed risk-relevant behavioral changed-language stage targets so stale or under-scoped evidence cannot clear readiness. High/Critical targeting prefers deterministically risk-attributed changed source when available; presentation-only CSS/HTML stays out of language target cross-products unless an explicit advanced executor opts it in, and required stages remain global blockers rather than falling back to unrelated detected languages when no behavioral target applies. Project and language-quality checks capture revisions before execution and reject changed or incomplete code or Design State revisions before persisting report evidence; stable results retain the captured revision. MCP command and verification error flags reflect actual failures and zero-check verification rather than mere successful report serialization. Correctness reviewers receive a contract-first counterexample rubric, and risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible.
+  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, equal-timestamp conflicting evidence from one producer keeps the less favorable verdict, and one changed language's pass cannot clear another changed language's target. HumanApproval uses only the newest decision timestamp and fails closed when decisions at that timestamp conflict, while a strictly newer human decision may resolve the conflict. Verification Plans bind the exact active code and Design State revision plus fixed risk-relevant behavioral changed-language stage targets so stale or under-scoped evidence cannot clear readiness. High/Critical targeting prefers deterministically risk-attributed changed source when available; presentation-only CSS/HTML stays out of language target cross-products unless an explicit advanced executor opts it in, and required stages remain global blockers rather than falling back to unrelated detected languages when no behavioral target applies. Project and language-quality checks capture revisions before execution and reject changed or incomplete code or Design State revisions before persisting report evidence; stable results retain the captured revision. MCP command and verification error flags reflect actual failures and zero-check verification rather than mere successful report serialization. Correctness reviewers receive a contract-first counterexample rubric, and risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible.
   verification:
     - kind: test
       path: tests/unit/intelligence/verification.rs
@@ -561,6 +556,12 @@
     - kind: test
       path: tests/unit/intelligence/verification.rs
       symbol: stage_readiness_aggregates_latest_result_per_producer_fail_closed
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
+      symbol: equal_timestamp_stage_evidence_conflicts_fail_closed_per_producer
+    - kind: test
+      path: tests/unit/intelligence/verification.rs
+      symbol: equal_timestamp_human_approval_conflict_fails_closed
     - kind: test
       path: tests/unit/intelligence/verification.rs
       symbol: design_revision_change_invalidates_plan_and_evidence
@@ -609,18 +610,29 @@
 - schema_version: 1
   id: AC-RECONCILE-001
   title: Reconciliation execution enforces dependencies and system gates
-  statement: Durable reconciliation claiming retry and completion follow dependency order and Verification/HumanApproval gates remain system-evidence controlled.
+  statement: Durable reconciliation claiming retry and completion follow dependency order, Verification/HumanApproval gates remain system-evidence controlled, and deterministically auditable structural change intents must be re-checked against current repository state before convergence is reported.
   verification:
     - kind: test
       path: tests/unit/reconciliation/mod.rs
       symbol: execution_enforces_dependencies_retries_and_system_evidence_gates
+    - kind: test
+      path: tests/unit/intelligence/intent_audit.rs
+      symbol: core_policy_intent_audit_blocks_false_convergence_until_structure_changes
+    - kind: test
+      path: tests/unit/intelligence/intent_audit.rs
+      symbol: malformed_core_policy_intent_fails_closed
 - schema_version: 1
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
   statement: >-
-    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. First load may return a bounded pending shell immediately while heavy snapshot construction continues; usable snapshots are cached per workspace and served stale-while-revalidate, revision/activity fetches run asynchronously with generation guards, and switching to a cached project preserves the rendered view instead of blanking it before refresh. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes; OAuth provides real light/dark token variants, and Observatory refresh/synchronization state remains visibly readable in the control layer.
+    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. First load may return a bounded pending shell immediately while heavy snapshot construction continues; usable snapshots are cached per workspace and served stale-while-revalidate, revision/activity fetches run asynchronously with generation guards, and switching to a cached project preserves the rendered view instead of blanking it before refresh. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes; OAuth provides real light/dark token variants, and Observatory refresh/synchronization state remains visibly readable in the control layer. TUI input resolves to exactly one context-aware action, rejects unrelated modifier chords and repeated permission grants, reserves A for visible all-command approval, and uses B for the author link with matching help. Nested Observatory statistics and verification content use shrinkable tracks, wrapping long text and content-driven heights rather than fixed-height spacers; English descriptions must not render internal translation keys.
   verification:
     - {kind: test, path: tests/unit/ui/monitor.rs, symbol: narrow_and_tiny_layouts_do_not_panic}
+    - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: author_and_bulk_authorization_never_share_a_key}
+    - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: modified_keys_cannot_trigger_unmodified_permissions_or_navigation}
+    - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: input_and_full_access_confirmation_are_exclusive_contexts}
+    - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: repeated_keys_never_repeat_grants_toggles_or_external_links}
+    - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_layout_regressions_cover_long_content_and_nested_grids}
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_distinguishes_unavailable_review_from_clean}
@@ -695,7 +707,7 @@
 - schema_version: 1
   id: AC-CONVENTION-001
   title: Convention governance surfaces architecture drift
-  statement: Convention inspection reports oversized or flat source growth at the 1000-line boundary and the repository layout gate keeps every Rust test under the root tests tree.
+  statement: Convention inspection reports oversized or flat maintained source at the 1000-line boundary, excludes the output directory configured by root hugo.toml and initialized declared submodules from parent ownership, invalidates cached scope when ownership changes, and keeps ordinary public directories and uninitialized submodules in scope. The repository layout gate keeps every Rust test under the root tests tree.
   verification:
     - kind: test
       path: tests/unit/workspace/conventions.rs
@@ -703,6 +715,9 @@
     - kind: test
       path: tests/unit/workspace/conventions.rs
       symbol: status_surfaces_oversized_and_flat_rust_domain_modules
+    - {kind: test, path: tests/unit/workspace/conventions.rs, symbol: hugo_build_outputs_are_not_maintained_source}
+    - {kind: test, path: tests/unit/workspace/conventions.rs, symbol: initialized_submodule_has_its_own_convention_boundary}
+    - {kind: test, path: tests/unit/workspace/conventions.rs, symbol: hugo_output_scope_is_precise_and_rejects_unsafe_paths}
 
 - schema_version: 1
   id: AC-MAINTAINABILITY-001
@@ -900,7 +915,7 @@
   id: AC-TUNNEL-001
   title: Managed tunnel selection supports free provider fallback
   statement: >-
-    Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, and OAuth metadata plus existing sessions follow only verified aliases owned by the running wcode process. Primary health has one hysteretic source of truth: one failed network probe gets two short bounded rechecks before it counts as a failure observation, isolated or paired confirmed failures keep the endpoint live, the third consecutive confirmed failure permits failover, recovery requires two consecutive successes, and suspect/recovery probes run faster. Standbys keep independent bounded health leases; repeated failures quarantine promotion eligibility without treating a still-running tunnel as dead. Stable endpoint Host trust is independent from provider-process liveness: when a stable provider child exits, an instance-matched resilient endpoint recheck may retain the URL, role and Host while the provider reconnects; retained endpoints continue health supervision and lose trust when confirmed rechecks stop reaching this runtime, while restart recovery can reactivate only a currently instance-verified stable endpoint. Historical OAuth resources alone never restore Host trust. Startup/reconnect retries are deterministically staggered and fast for transient failure, repeated deaths open a bounded circuit-breaker cooldown, reconnect history resets only after sustained stability, and shutdown aborts in-flight health work rather than waiting for the network timeout. Zero-config auto mode excludes account/credential-dependent providers; an explicitly selected persistent Microsoft Dev Tunnel requires a supplied tunnel ID, remains outside auto, parses only the requested port's `.devtunnels.ms` endpoint, and must pass the same instance-health gate. Other operator-managed stable tunnel services use validated --public-url and the same health gate. TaskMonitor and /healthz expose bounded role/state, lease age, failure/death counts, circuit/retry and uptime evidence; retrying providers without a live URL remain observable but are excluded from setup link selection. Setup/Web/TUI present endpoint reachability separately from recent MCP request activity, and absence of recent MCP traffic never drives endpoint revocation or failover. An unhealthy last tunnel cannot produce an empty-set index panic, and provider paths never write directly to stdout/stderr or inherit child terminal output.
+    Every candidate tunnel is instance-health-verified, provider parsing rejects control hosts, and OAuth metadata plus existing sessions follow only verified aliases owned by the running wcode process. Primary health has one hysteretic source of truth: one failed network probe gets two short bounded rechecks before it counts as a failure observation, isolated or paired confirmed failures keep the endpoint live, the third consecutive confirmed failure permits failover, recovery requires two consecutive successes, and suspect/recovery probes run faster. Standbys keep independent bounded health leases; repeated failures quarantine promotion eligibility without treating a still-running tunnel as dead. Stable endpoint Host trust is independent from provider-process liveness: when a stable provider child exits, an instance-matched resilient endpoint recheck may retain the URL, role and Host while the provider reconnects; retained endpoints continue health supervision and lose trust when confirmed rechecks stop reaching this runtime, while restart recovery can reactivate only a currently instance-verified stable endpoint. Retained stable aliases are URL-keyed, bounded and independently probed even after the provider reconnects elsewhere; provider-startup failure cannot substitute for endpoint-health failure. Startup recovery enters the normal Connected ownership path rather than publishing unsupervised aliases. Registry withdrawals atomically compare the recorded registration epoch so stale cleanup cannot revoke a newly published same-URL replacement or overwrite its telemetry. Maintenance uses a persistent interval rather than a sleep restarted by every event. Historical OAuth resources alone never restore Host trust. Startup/reconnect retries are deterministically staggered and fast for transient failure, repeated deaths open a bounded circuit-breaker cooldown, reconnect history resets only after sustained stability, and shutdown aborts in-flight health work rather than waiting for the network timeout. Zero-config auto mode excludes account/credential-dependent providers; an explicitly selected persistent Microsoft Dev Tunnel requires a supplied tunnel ID, remains outside auto, parses only the requested port's `.devtunnels.ms` endpoint, and must pass the same instance-health gate. Other operator-managed stable tunnel services use validated --public-url and the same health gate. TaskMonitor and /healthz expose bounded role/state, lease age, failure/death counts, circuit/retry and uptime evidence; retrying providers without a live URL remain observable but are excluded from setup link selection. Setup/Web/TUI present endpoint reachability separately from recent MCP request activity, and absence of recent MCP traffic never drives endpoint revocation or failover. An unhealthy last tunnel cannot produce an empty-set index panic, and provider paths never write directly to stdout/stderr or inherit child terminal output.
   verification:
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: tunnel_runtime_never_writes_directly_to_the_terminal}
     - {kind: test, path: tests/unit/ui/monitor_health.rs, symbol: public_url_health_requires_three_failures_and_two_successes_to_recover}
@@ -910,6 +925,11 @@
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: parses_quick_tunnel_url}
     - {kind: test, path: tests/unit/runtime/tunnel/mod.rs, symbol: parses_free_ssh_tunnel_urls_without_accepting_provider_hosts}
     - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: empty_tunnel_set_never_produces_a_dead_index}
+    - {kind: test, path: tests/unit/integrations/auth/origin.rs, symbol: stale_endpoint_cleanup_cannot_remove_a_new_same_url_registration}
+    - {kind: test, path: tests/unit/integrations/auth/origin.rs, symbol: primary_promotion_preserves_the_endpoint_owner_epoch}
+    - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: retained_aliases_receive_instance_matched_probes_without_a_provider_child}
+    - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: stale_standby_cleanup_preserves_same_url_replacement_trust}
+    - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: retired_alias_cleanup_does_not_recycle_its_live_replacement_provider}
     - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: health_failure_targets_the_explicit_primary_instead_of_vector_order}
     - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: provider_fault_sequence_opens_circuit_then_resets_after_verified_recovery}
     - {kind: test, path: tests/unit/app/tunnel_lifecycle.rs, symbol: reconnect_jitter_is_deterministic_bounded_and_provider_staggered}

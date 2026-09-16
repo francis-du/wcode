@@ -125,6 +125,12 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Validate real WebKit Observatory layout
+        if: runner.os == 'macOS'
+        run: |
+          node tests/unit/ui/browser.cjs .
+          swift tests/unit/ui/browser_webkit.swift
+
       - name: Validate Windows installer
         if: runner.os == 'Windows'
         shell: pwsh

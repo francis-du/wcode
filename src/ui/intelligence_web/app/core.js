@@ -376,6 +376,16 @@ Object.assign(translations["zh-CN"], {
   "live runtime topology meta": "从真实运行遥测投影当前入口、MCP/授权、工作区边界、Harness 队列、仓库模型和验证状态。",
 });
 
+// Descriptive translation keys need English copy too, not their internal IDs.
+translations.en = {
+  "Diagnostics meta": "Code distribution, graph revisions and recorded risks.",
+  "adaptive verification meta": "Read-only preview of focused tests and fail-fast checks. Full verification coverage is unchanged.",
+  "verified learning meta": "Temporal holdout evaluation of prompt-free verified change history.",
+  "bounded graph note": "The live code graph reached its safety bound; statistics and architecture may be incomplete.",
+  "current repository snapshot": "Current bounded repository snapshot.",
+  "meaningful graph snapshots": "Meaningful graph snapshots and recorded structural changes.",
+};
+
 const q = (id) => document.querySelector(id);
 const els = {
   workspace: q("#workspace"),
@@ -490,6 +500,7 @@ const state = {
   tunnelController: null,
   tunnelTimer: null,
   syncError: false,
+  syncFailure: null,
   lastChecked: 0,
   workspaceTab: "architecture",
   architectureView: "blueprint",
@@ -747,6 +758,7 @@ async function refreshTunnels() {
 function setSync(kind, label) {
   els.syncDot.className = `sync-dot ${kind}`;
   els.syncState.textContent = label;
+  els.syncState.title = "";
   els.syncState.parentElement?.setAttribute("aria-label", label);
   els.refresh.disabled = kind === "loading";
   document.querySelector(".observatory-main")?.setAttribute("aria-busy", String(kind === "loading" && !state.project));
@@ -778,7 +790,8 @@ function applyAutoRefreshControl() {
 function applyLanguage() {
   document.documentElement.lang = state.language;
   document.querySelectorAll("[data-i18n]").forEach((node) => {
-    node.textContent = t(node.dataset.i18n);
+    if (!node.dataset.i18nFallback) node.dataset.i18nFallback = node.textContent;
+    node.textContent = translations[state.language]?.[node.dataset.i18n] || node.dataset.i18nFallback;
   });
   document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
     node.placeholder = t(node.dataset.i18nPlaceholder);
@@ -813,7 +826,11 @@ function applyLanguage() {
 
 async function uiJson(path, method = "GET", body, options = {}) {
   const headers = { ...requestHeaders(options.workspace ?? state.current), ...(options.headers || {}) };
-  if (!token) throw new Error(localized("Open this page from the wcode TUI to authorize access.", "请从 wcode 终端面板打开此页面以授权访问。"));
+  if (!token) {
+    const error = new Error(localized("Open this page from the wcode TUI to authorize access.", "请从 wcode 终端面板打开此页面以授权访问。"));
+    error.code = "authorization_required";
+    throw error;
+  }
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const controller = new AbortController();
   let timedOut = false;
@@ -828,7 +845,11 @@ async function uiJson(path, method = "GET", body, options = {}) {
     });
     let data;
     try { data = await response.json(); } catch {
-      if (response.ok) throw new Error(localized("Invalid JSON response", "响应不是有效 JSON"));
+      if (response.ok) {
+        const error = new Error(localized("Invalid JSON response", "响应不是有效 JSON"));
+        error.code = "invalid_response";
+        throw error;
+      }
     }
     if (!response.ok) {
       const detail = typeof data?.error === "string" ? data.error : data?.error?.message;
@@ -836,10 +857,19 @@ async function uiJson(path, method = "GET", body, options = {}) {
       error.status = response.status;
       throw error;
     }
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid response");
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      const error = new Error("Invalid response");
+      error.code = "invalid_response";
+      throw error;
+    }
     return data;
   } catch (error) {
-    if (timedOut) error = new Error(localized("Request timed out; displayed data may be stale.", "请求超时，显示的数据可能已过期。"));
+    if (timedOut) {
+      error = new Error(localized("Request timed out; displayed data may be stale.", "请求超时，显示的数据可能已过期。"));
+      error.code = "timeout";
+    } else if (!error.code && !error.status && error.name === "TypeError") {
+      error.code = "network";
+    }
     if (method !== "GET" && (!error.status || error.status >= 500)) {
       error.uncertain = true;
       error.message += localized(" The operation may have completed. Refresh its state before retrying.", " 操作可能已经完成，请先刷新实际状态，再决定是否重试。");

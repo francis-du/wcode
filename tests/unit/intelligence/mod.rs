@@ -4,6 +4,8 @@ use crate::stage_executor::{execute as execute_stage, StageExecutorSpec};
 use crate::workspace::{Workspace, WorkspaceSecurity};
 use std::fs;
 
+mod evolution;
+mod evolution_cache;
 mod history;
 mod revision;
 mod verification;

@@ -310,35 +310,31 @@ pub enum VerificationRef {
     Check { id: String },
 }
 
-pub(crate) fn fingerprint(workspace: &Workspace) -> u64 {
+pub(crate) fn fingerprint(workspace: &Workspace) -> Result<u64> {
     let mut hasher = DefaultHasher::new();
     workspace.root().hash(&mut hasher);
     let project_path = workspace.root().join(PROJECT_FILE);
     project_path.is_file().hash(&mut hasher);
     if project_path.is_file() {
         PROJECT_FILE.hash(&mut hasher);
-        match workspace.source_metadata_stamp(PROJECT_FILE) {
-            Ok(stamp) => stamp.hash(&mut hasher),
-            Err(error) => error.to_string().hash(&mut hasher),
-        }
+        workspace
+            .load_source(PROJECT_FILE)?
+            .sha256
+            .hash(&mut hasher);
     }
 
     let design_dir = workspace.root().join(DESIGN_ROOT);
     design_dir.is_dir().hash(&mut hasher);
     if design_dir.is_dir() {
-        match workspace.source_files_with_stamps(DESIGN_ROOT, MAX_DESIGN_FILES) {
-            Ok((files, truncated)) => {
-                truncated.hash(&mut hasher);
-                files.len().hash(&mut hasher);
-                for (path, stamp) in files {
-                    path.hash(&mut hasher);
-                    stamp.hash(&mut hasher);
-                }
-            }
-            Err(error) => error.to_string().hash(&mut hasher),
+        let (files, truncated) = workspace.source_files(DESIGN_ROOT, MAX_DESIGN_FILES)?;
+        truncated.hash(&mut hasher);
+        files.len().hash(&mut hasher);
+        for path in files {
+            path.hash(&mut hasher);
+            workspace.load_source(&path)?.sha256.hash(&mut hasher);
         }
     }
-    hasher.finish()
+    Ok(hasher.finish())
 }
 
 pub fn load_design(workspace: &Workspace) -> Result<DesignLoad> {

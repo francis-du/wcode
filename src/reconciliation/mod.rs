@@ -147,6 +147,8 @@ pub struct ReconciliationExecutionStatus {
     pub completed: usize,
     pub failed: usize,
     pub blocked: usize,
+    pub intent_checked: usize,
+    pub intent_blockers: Vec<String>,
     pub converged: bool,
 }
 
@@ -352,6 +354,8 @@ impl ReconciliationExecution {
             completed,
             failed,
             blocked,
+            intent_checked: 0,
+            intent_blockers: Vec::new(),
             converged: !self.tasks.is_empty() && completed == self.tasks.len() && failed == 0,
         }
     }

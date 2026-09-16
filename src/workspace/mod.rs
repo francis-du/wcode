@@ -352,6 +352,12 @@ pub(crate) type StampedSourcePath = (String, SourceMetadataStamp);
 pub(crate) struct SourceStamp {
     len: u64,
     modified_nanos: u128,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(unix)]
+    changed_nanos: i128,
 }
 
 #[derive(Debug)]

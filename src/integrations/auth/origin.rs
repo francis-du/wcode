@@ -1,5 +1,8 @@
 use axum::http::{header, HeaderMap};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_ENDPOINT_EPOCH: AtomicU64 = AtomicU64::new(1);
 use std::sync::{Arc, RwLock};
 use url::Url;
 
@@ -9,7 +12,7 @@ use url::Url;
 #[derive(Clone)]
 pub(crate) struct PublicEndpoints {
     primary: Arc<RwLock<String>>,
-    active: Arc<RwLock<BTreeSet<String>>>,
+    active: Arc<RwLock<BTreeMap<String, u64>>>,
     trusted_resources: Arc<RwLock<BTreeSet<String>>>,
 }
 
@@ -18,7 +21,10 @@ impl PublicEndpoints {
         let initial = normalize(&initial);
         Self {
             primary: Arc::new(RwLock::new(initial.clone())),
-            active: Arc::new(RwLock::new(BTreeSet::from([initial.clone()]))),
+            active: Arc::new(RwLock::new(BTreeMap::from([(
+                initial.clone(),
+                NEXT_ENDPOINT_EPOCH.fetch_add(1, Ordering::Relaxed),
+            )]))),
             trusted_resources: Arc::new(RwLock::new(BTreeSet::from([initial]))),
         }
     }
@@ -32,21 +38,52 @@ impl PublicEndpoints {
 
     pub(crate) fn set_primary(&self, value: String) {
         let value = normalize(&value);
-        self.register(value.clone());
-        *self.primary.write().expect("public endpoint lock poisoned") = value;
-    }
-
-    pub(crate) fn register(&self, value: String) {
+        // Promotion is not a new endpoint owner. Preserve the registration
+        // epoch so a primary change does not invalidate its own cleanup lease.
         self.active
             .write()
             .expect("public endpoint lock poisoned")
-            .insert(normalize(&value));
+            .entry(value.clone())
+            .or_insert_with(|| NEXT_ENDPOINT_EPOCH.fetch_add(1, Ordering::Relaxed));
+        self.trusted_resources
+            .write()
+            .expect("trusted resource lock poisoned")
+            .insert(value.clone());
+        *self.primary.write().expect("public endpoint lock poisoned") = value;
+    }
+
+    pub(crate) fn register(&self, value: String) -> u64 {
+        let epoch = NEXT_ENDPOINT_EPOCH.fetch_add(1, Ordering::Relaxed);
+        self.active
+            .write()
+            .expect("public endpoint lock poisoned")
+            .insert(normalize(&value), epoch);
         self.trusted_resources
             .write()
             .expect("trusted resource lock poisoned")
             .insert(normalize(&value));
+        epoch
     }
 
+    pub(crate) fn registration_epoch(&self, value: &str) -> Option<u64> {
+        self.active
+            .read()
+            .expect("public endpoint lock poisoned")
+            .get(&normalize(value))
+            .copied()
+    }
+
+    pub(crate) fn unregister_if_epoch(&self, value: &str, expected: u64) -> bool {
+        let value = normalize(value);
+        let mut active = self.active.write().expect("public endpoint lock poisoned");
+        if active.get(&value) != Some(&expected) {
+            return false;
+        }
+        active.remove(&value);
+        true
+    }
+
+    #[cfg(test)]
     pub(crate) fn unregister(&self, value: &str) {
         self.active
             .write()
@@ -73,7 +110,7 @@ impl PublicEndpoints {
                 .active
                 .read()
                 .expect("public endpoint lock poisoned")
-                .contains(&primary)
+                .contains_key(&primary)
                 .then_some(primary);
         };
         if hosts.next().is_some() {
@@ -83,7 +120,7 @@ impl PublicEndpoints {
         self.active
             .read()
             .expect("public endpoint lock poisoned")
-            .iter()
+            .keys()
             .find(|origin| authority_matches(origin, authority))
             .cloned()
     }
@@ -104,7 +141,7 @@ impl PublicEndpoints {
         self.active
             .read()
             .expect("public endpoint lock poisoned")
-            .iter()
+            .keys()
             .filter_map(|known| Url::parse(known).ok())
             .any(|known| known.origin() == origin)
     }
@@ -121,7 +158,7 @@ impl PublicEndpoints {
             .read()
             .expect("trusted resource lock poisoned");
         let active = self.active.read().expect("public endpoint lock poisoned");
-        trusted.contains(&normalize(left)) && active.contains(&normalize(right))
+        trusted.contains(&normalize(left)) && active.contains_key(&normalize(right))
     }
 }
 

@@ -458,3 +458,105 @@ async fn media_content_uses_standard_mcp_blocks_without_private_client_extension
     assert_eq!(result["content"][1]["mimeType"], "image/png");
     assert!(result["content"][1]["data"].as_str().unwrap().len() > 16);
 }
+
+#[tokio::test]
+async fn media_protocol_matrix_is_standard_and_type_bounded() {
+    let root = tempfile::tempdir().unwrap();
+    let png = STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+        .unwrap();
+    std::fs::write(root.path().join("pixel.png"), png).unwrap();
+    std::fs::write(root.path().join("tone.mp3"), b"ID3test").unwrap();
+    std::fs::write(
+        root.path().join("clip.mp4"),
+        [0, 0, 0, 12, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm'],
+    )
+    .unwrap();
+    let state = batch_test_state(root.path());
+
+    for (path, expected_kind, expected_mime) in [
+        ("pixel.png", "image", "image/png"),
+        ("tone.mp3", "audio", "audio/mpeg"),
+    ] {
+        let metadata_only = call_tool(
+            &state,
+            json!({"name":"read_media","arguments":{"path":path}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(metadata_only["isError"], false, "{path}");
+        assert_eq!(metadata_only["structuredContent"]["kind"], expected_kind);
+        assert_eq!(
+            metadata_only["structuredContent"]["mime_type"],
+            expected_mime
+        );
+        assert_eq!(
+            metadata_only["structuredContent"]["content_requested"],
+            false
+        );
+        assert_eq!(
+            metadata_only["structuredContent"]["content_returned"],
+            false
+        );
+        assert!(metadata_only["content"].as_array().unwrap().len() == 1);
+
+        let with_content = call_tool(
+            &state,
+            json!({
+                "name":"read_media",
+                "arguments":{"path":path,"include_content":true}
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(with_content["isError"], false, "{path}");
+        assert_eq!(with_content["structuredContent"]["content_requested"], true);
+        assert_eq!(with_content["structuredContent"]["content_returned"], true);
+        assert_eq!(with_content["content"][1]["type"], expected_kind);
+        assert_eq!(with_content["content"][1]["mimeType"], expected_mime);
+        assert!(!with_content["content"][1]["data"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+    }
+
+    let video_metadata = call_tool(
+        &state,
+        json!({"name":"read_media","arguments":{"path":"clip.mp4"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(video_metadata["isError"], false);
+    assert_eq!(video_metadata["structuredContent"]["kind"], "video");
+    assert_eq!(
+        video_metadata["structuredContent"]["content_available"],
+        false
+    );
+    assert_eq!(
+        video_metadata["structuredContent"]["content_returned"],
+        false
+    );
+
+    let video_content = call_tool(
+        &state,
+        json!({
+            "name":"read_media",
+            "arguments":{"path":"clip.mp4","include_content":true}
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(video_content["isError"], true);
+    assert_eq!(
+        video_content["structuredContent"]["error_code"],
+        "media_content_type_not_supported"
+    );
+    assert_eq!(
+        video_content["structuredContent"]["content_requested"],
+        true
+    );
+    assert_eq!(
+        video_content["structuredContent"]["content_returned"],
+        false
+    );
+}

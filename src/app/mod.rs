@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{timeout, Duration};
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
@@ -474,13 +474,8 @@ pub async fn run() -> Result<()> {
         auth.clone(),
         tunnel_event_tx.clone(),
     );
-    if args.public_url.is_none() && !args.no_tunnel {
-        tunnel_lifecycle::spawn_stable_endpoint_recovery(
-            args.tunnel_provider,
-            auth.clone(),
-            monitor.clone(),
-        );
-    }
+    // Stable endpoints are recovered by try_start_provider and enter the same
+    // Connected/lease lifecycle. No separate worker may publish an unowned alias.
     let public_url = if let Some(url) = args.public_url.as_deref() {
         let url = normalize_public_url(url)?;
         *shared_public_url.write().unwrap() = url.clone();
@@ -594,6 +589,8 @@ pub async fn run() -> Result<()> {
 
     let monitor_interrupt = renderer.as_ref().map(MonitorRenderer::interrupt_receiver);
     let mut server_task_finished = false;
+    let mut tunnel_maintenance = tokio::time::interval(Duration::from_secs(1));
+    tunnel_maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             result = &mut server_task => {
@@ -607,9 +604,22 @@ pub async fn run() -> Result<()> {
             event = tunnel_event_rx.recv() => {
                 if let Some(event) = event {
                     match event {
-                        TunnelEvent::Connected(active) => {
+                        TunnelEvent::Connected(mut active) => {
                         let public_url = active.public_url().to_owned();
-                        tunnel_control.connected(&active, &auth);
+                        if active.endpoint_epoch.is_none() || active.endpoint_epoch != auth.public_url_epoch(&public_url) {
+                            active.stop().await;
+                            continue;
+                        }
+                        // Keep only one owned process for this endpoint. A queued
+                        // older Connected must never attach using a newer epoch.
+                        while let Some(index) = tunnels.iter().position(|t| t.public_url() == public_url) {
+                            let mut previous = tunnels.remove(index);
+                            previous.stop().await;
+                        }
+                        if !tunnel_control.connected(&active, &auth) {
+                            active.stop().await;
+                            continue;
+                        }
                         if tunnel_control.primary_url.is_none() {
                             tunnel_control.primary_url = Some(public_url.clone());
                             let _ = tunnel_settled_tx.send(true);
@@ -659,8 +669,7 @@ pub async fn run() -> Result<()> {
                         }
                         TunnelEvent::ReconnectFailed { provider, error } => {
                             tunnel_control
-                                .reconnect_failed(provider, &error, &auth, &monitor)
-                                .await;
+                                .reconnect_failed(provider, &error, &tunnels, &monitor);
                         }
                     }
                 }
@@ -687,7 +696,7 @@ pub async fn run() -> Result<()> {
                     }
                 }
             },
-            _ = sleep(Duration::from_secs(1)) => {
+            _ = tunnel_maintenance.tick() => {
                 tunnel_lifecycle::maintain_tunnels(
                     &mut tunnel_control,
                     &mut tunnels,

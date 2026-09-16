@@ -1,5 +1,132 @@
 use super::*;
 
+pub(super) const AUTHOR_SHORTCUT: &str = "B";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DashboardAction {
+    Interrupt,
+    ConfirmFullAccess,
+    CancelFullAccess,
+    CancelInput,
+    SubmitInput,
+    EraseInput,
+    TypeInput(char),
+    Dismiss,
+    Help,
+    Intelligence,
+    RefreshIntelligence,
+    Commands,
+    FullAccess,
+    Language,
+    Setup,
+    Observatory,
+    Project,
+    Author,
+    AddWorkspace,
+    GrantAllCommands,
+    ToggleCommandTrust,
+    Approve,
+    Deny,
+    CommandsUp,
+    CommandsDown,
+    CommandsPageUp,
+    CommandsPageDown,
+    AuthorizationUp,
+    AuthorizationDown,
+    AuthorizationPageUp,
+    AuthorizationPageDown,
+    WorkspaceLeft,
+    WorkspaceRight,
+}
+
+fn dashboard_action(
+    key: event::KeyEvent,
+    ui: &DashboardState,
+    area: Rect,
+) -> Option<DashboardAction> {
+    use DashboardAction::*;
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    // Terminal/OS chords must never fall through to unmodified grants or links.
+    if key.modifiers.difference(KeyModifiers::SHIFT) == KeyModifiers::CONTROL {
+        return (key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('c' | 'C')))
+            .then_some(Interrupt);
+    }
+    if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
+        return None;
+    }
+    let press = key.kind == KeyEventKind::Press;
+    let code = match key.code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        code => code,
+    };
+    // Exclusive input/confirmation contexts never fall through to globals.
+    if ui.full_access_confirm {
+        return match code {
+            KeyCode::Char('y') if press && ui.full_access_visible(area) => Some(ConfirmFullAccess),
+            KeyCode::Char('n') | KeyCode::Esc if press => Some(CancelFullAccess),
+            _ => None,
+        };
+    }
+    if ui.workspace_input.is_some() {
+        return match key.code {
+            KeyCode::Esc if press => Some(CancelInput),
+            KeyCode::Enter if press => Some(SubmitInput),
+            KeyCode::Backspace => Some(EraseInput),
+            KeyCode::Char(c) if !c.is_control() => Some(TypeInput(c)),
+            _ => None,
+        };
+    }
+    let authorization = ui.authorization_visible(area);
+    let commands = ui.commands_open
+        && !ui.help_open
+        && !ui.intelligence_open
+        && commands_overlay_visible(area);
+    if !press
+        && !matches!(
+            code,
+            KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+        )
+    {
+        return None;
+    }
+    match code {
+        KeyCode::Esc => Some(Dismiss),
+        KeyCode::Char('?') => Some(Help),
+        KeyCode::Char('i') => Some(Intelligence),
+        KeyCode::Char('r') if ui.intelligence_open => Some(RefreshIntelligence),
+        KeyCode::Char('c') => Some(Commands),
+        KeyCode::Char('p') => Some(FullAccess),
+        KeyCode::Char('l') => Some(Language),
+        KeyCode::Char('o') => Some(Setup),
+        KeyCode::Char('w') => Some(Observatory),
+        KeyCode::Char('g') => Some(Project),
+        KeyCode::Char('b') => Some(Author),
+        KeyCode::Char('+') => Some(AddWorkspace),
+        KeyCode::Char('a') if authorization => Some(GrantAllCommands),
+        KeyCode::Char('f') if commands => Some(ToggleCommandTrust),
+        KeyCode::Char('y') if authorization => Some(Approve),
+        KeyCode::Char('n') if authorization => Some(Deny),
+        KeyCode::Up if commands => Some(CommandsUp),
+        KeyCode::Down if commands => Some(CommandsDown),
+        KeyCode::PageUp if commands => Some(CommandsPageUp),
+        KeyCode::PageDown if commands => Some(CommandsPageDown),
+        KeyCode::Up if authorization => Some(AuthorizationUp),
+        KeyCode::Down if authorization => Some(AuthorizationDown),
+        KeyCode::PageUp if authorization => Some(AuthorizationPageUp),
+        KeyCode::PageDown if authorization => Some(AuthorizationPageDown),
+        KeyCode::Left if !ui.help_open && !authorization => Some(WorkspaceLeft),
+        KeyCode::Right if !ui.help_open && !authorization => Some(WorkspaceRight),
+        _ => None,
+    }
+}
+
 pub(super) fn intelligence_url_for_workspace(base: &str, workspace: &str) -> String {
     let encoded = url::form_urlencoded::byte_serialize(workspace.as_bytes()).collect::<String>();
     let separator = if base.contains('#') { '&' } else { '#' };
@@ -91,18 +218,16 @@ pub(super) fn run_dashboard(
         if event::poll(refresh_interval)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
-                    if key.modifiers.contains(KeyModifiers::CONTROL)
-                        && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
-                    {
+                    let Some(action) = dashboard_action(key, &ui, area) else {
+                        continue;
+                    };
+                    if action == DashboardAction::Interrupt {
                         let _ = interrupt_tx.send(true);
                         break;
                     }
                     if ui.full_access_confirm {
-                        match key.code {
-                            KeyCode::Char('y') | KeyCode::Char('Y')
-                                if key.kind == KeyEventKind::Press
-                                    && ui.full_access_visible(area) =>
-                            {
+                        match action {
+                            DashboardAction::ConfirmFullAccess => {
                                 ui.full_access_confirm = false;
                                 match config.workspaces.grant_full_user_access() {
                                     Ok((id, root)) => {
@@ -128,7 +253,7 @@ pub(super) fn run_dashboard(
                                     }
                                 }
                             }
-                            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            DashboardAction::CancelFullAccess => {
                                 ui.full_access_confirm = false;
                                 ui.workspace_message =
                                     Some(ui.language.tr("full access cancelled").to_owned());
@@ -138,13 +263,13 @@ pub(super) fn run_dashboard(
                         continue;
                     }
                     if ui.workspace_input.is_some() {
-                        match key.code {
-                            KeyCode::Esc => {
+                        match action {
+                            DashboardAction::CancelInput => {
                                 ui.workspace_input = None;
                                 ui.workspace_message =
                                     Some(ui.language.tr("workspace add cancelled").to_owned());
                             }
-                            KeyCode::Enter => {
+                            DashboardAction::SubmitInput => {
                                 let path = ui.workspace_input.take().unwrap_or_default();
                                 if path.trim().is_empty() {
                                     ui.workspace_message = Some(
@@ -178,15 +303,12 @@ pub(super) fn run_dashboard(
                                     }
                                 }
                             }
-                            KeyCode::Backspace => {
+                            DashboardAction::EraseInput => {
                                 if let Some(input) = ui.workspace_input.as_mut() {
                                     input.pop();
                                 }
                             }
-                            KeyCode::Char(character)
-                                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-                            {
+                            DashboardAction::TypeInput(character) => {
                                 if let Some(input) = ui.workspace_input.as_mut() {
                                     if input.chars().count() < 1024 {
                                         input.push(character);
@@ -197,21 +319,19 @@ pub(super) fn run_dashboard(
                         }
                         continue;
                     }
-                    match key.code {
-                        KeyCode::Esc => {
+                    match action {
+                        DashboardAction::Dismiss => {
                             ui.help_open = false;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
                             ui.workspace_message = None;
                         }
-                        KeyCode::Char('?') if key.kind == KeyEventKind::Press => {
+                        DashboardAction::Help => {
                             ui.help_open = !ui.help_open;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
                         }
-                        KeyCode::Char('i') | KeyCode::Char('I')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Intelligence => {
                             ui.intelligence_open = !ui.intelligence_open;
                             ui.help_open = false;
                             ui.commands_open = false;
@@ -223,26 +343,20 @@ pub(super) fn run_dashboard(
                                 }
                             }
                         }
-                        KeyCode::Char('r') | KeyCode::Char('R')
-                            if key.kind == KeyEventKind::Press && ui.intelligence_open =>
-                        {
+                        DashboardAction::RefreshIntelligence => {
                             if let Some(workspace_id) =
                                 focused_workspace_id(&config, ui.workspace_focus)
                             {
                                 request_intelligence_refresh(&monitor, &config, workspace_id);
                             }
                         }
-                        KeyCode::Char('c') | KeyCode::Char('C')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Commands => {
                             ui.commands_open = !ui.commands_open;
                             ui.command_offset = 0;
                             ui.help_open = false;
                             ui.intelligence_open = false;
                         }
-                        KeyCode::Char('p') | KeyCode::Char('P')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::FullAccess => {
                             if config.workspaces.full_access_enabled() {
                                 ui.workspace_message =
                                     Some(ui.language.tr("full access already enabled").to_owned());
@@ -254,9 +368,7 @@ pub(super) fn run_dashboard(
                                 ui.commands_open = false;
                             }
                         }
-                        KeyCode::Char('l') | KeyCode::Char('L')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Language => {
                             ui.language = ui.language.toggle();
                             ui.workspace_message = Some(format!(
                                 "{}: {}",
@@ -264,14 +376,10 @@ pub(super) fn run_dashboard(
                                 ui.language.name()
                             ));
                         }
-                        KeyCode::Char('o') | KeyCode::Char('O')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Setup => {
                             let _ = open_external_url(&config.setup_url());
                         }
-                        KeyCode::Char('w') | KeyCode::Char('W')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Observatory => {
                             let workspaces = configured_workspaces(&config);
                             let url = workspaces
                                 .get(ui.workspace_focus.min(workspaces.len().saturating_sub(1)))
@@ -284,15 +392,10 @@ pub(super) fn run_dashboard(
                                 .unwrap_or_else(|| config.intelligence_url.clone());
                             let _ = open_external_url(&url);
                         }
-                        KeyCode::Char('g') | KeyCode::Char('G')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Project => {
                             let _ = open_external_url(&config.project_url);
                         }
-                        KeyCode::Char('a') | KeyCode::Char('A')
-                            if key.kind == KeyEventKind::Press
-                                && ui.authorization_visible(area) =>
-                        {
+                        DashboardAction::GrantAllCommands => {
                             if let Some(request) =
                                 ui.pending_authorizations.get(ui.authorization_focus)
                             {
@@ -324,21 +427,17 @@ pub(super) fn run_dashboard(
                                 ui.clamp_authorizations(pending_authorizations(&config).len());
                             }
                         }
-                        KeyCode::Char('a') | KeyCode::Char('A')
-                            if key.kind == KeyEventKind::Press =>
-                        {
+                        DashboardAction::Author => {
                             let _ = open_external_url(&config.author_url);
                         }
-                        KeyCode::Char('+') if key.kind == KeyEventKind::Press => {
+                        DashboardAction::AddWorkspace => {
                             ui.workspace_input = Some(String::new());
                             ui.workspace_message = None;
                             ui.help_open = false;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
                         }
-                        KeyCode::Char('f') | KeyCode::Char('F')
-                            if key.kind == KeyEventKind::Press && ui.commands_open =>
-                        {
+                        DashboardAction::ToggleCommandTrust => {
                             if let Some(workspace_id) =
                                 focused_workspace_id(&config, ui.workspace_focus)
                             {
@@ -367,10 +466,7 @@ pub(super) fn run_dashboard(
                                 );
                             }
                         }
-                        KeyCode::Char('y') | KeyCode::Char('Y')
-                            if key.kind == KeyEventKind::Press
-                                && ui.authorization_visible(area) =>
-                        {
+                        DashboardAction::Approve => {
                             if let Some(request) =
                                 ui.pending_authorizations.get(ui.authorization_focus)
                             {
@@ -393,10 +489,7 @@ pub(super) fn run_dashboard(
                                 ui.clamp_authorizations(pending_authorizations(&config).len());
                             }
                         }
-                        KeyCode::Char('n') | KeyCode::Char('N')
-                            if key.kind == KeyEventKind::Press
-                                && ui.authorization_visible(area) =>
-                        {
+                        DashboardAction::Deny => {
                             if let Some(request) =
                                 ui.pending_authorizations.get(ui.authorization_focus)
                             {
@@ -413,10 +506,10 @@ pub(super) fn run_dashboard(
                                 ui.clamp_authorizations(pending_authorizations(&config).len());
                             }
                         }
-                        KeyCode::Up if key.kind == KeyEventKind::Press && ui.commands_open => {
+                        DashboardAction::CommandsUp => {
                             ui.command_offset = ui.command_offset.saturating_sub(1);
                         }
-                        KeyCode::Down if key.kind == KeyEventKind::Press && ui.commands_open => {
+                        DashboardAction::CommandsDown => {
                             if let Some(workspace_id) =
                                 focused_workspace_id(&config, ui.workspace_focus)
                             {
@@ -429,13 +522,11 @@ pub(super) fn run_dashboard(
                                     .min(total.saturating_sub(page));
                             }
                         }
-                        KeyCode::PageUp if key.kind == KeyEventKind::Press && ui.commands_open => {
+                        DashboardAction::CommandsPageUp => {
                             let page = command_page_size(Rect::new(0, 0, size.width, size.height));
                             ui.command_offset = ui.command_offset.saturating_sub(page);
                         }
-                        KeyCode::PageDown
-                            if key.kind == KeyEventKind::Press && ui.commands_open =>
-                        {
+                        DashboardAction::CommandsPageDown => {
                             if let Some(workspace_id) =
                                 focused_workspace_id(&config, ui.workspace_focus)
                             {
@@ -448,36 +539,20 @@ pub(super) fn run_dashboard(
                                     .min(total.saturating_sub(page));
                             }
                         }
-                        KeyCode::PageUp
-                            if key.kind == KeyEventKind::Press
-                                && ui.authorization_visible(area) =>
-                        {
+                        DashboardAction::AuthorizationPageUp => {
                             ui.authorization_scroll = ui.authorization_scroll.saturating_sub(5);
                         }
-                        KeyCode::PageDown
-                            if key.kind == KeyEventKind::Press
-                                && ui.authorization_visible(area) =>
-                        {
+                        DashboardAction::AuthorizationPageDown => {
                             ui.authorization_scroll = ui.authorization_scroll.saturating_add(5);
                         }
-                        KeyCode::Up
-                            if key.kind == KeyEventKind::Press
-                                && !ui.help_open
-                                && !ui.intelligence_open
-                                && !ui.commands_open =>
-                        {
+                        DashboardAction::AuthorizationUp => {
                             let total = pending_authorizations(&config).len();
                             if total > 0 {
                                 ui.authorization_focus = ui.authorization_focus.saturating_sub(1);
                                 ui.authorization_scroll = 0;
                             }
                         }
-                        KeyCode::Down
-                            if key.kind == KeyEventKind::Press
-                                && !ui.help_open
-                                && !ui.intelligence_open
-                                && !ui.commands_open =>
-                        {
+                        DashboardAction::AuthorizationDown => {
                             let total = pending_authorizations(&config).len();
                             if total > 0 {
                                 ui.authorization_focus =
@@ -485,7 +560,7 @@ pub(super) fn run_dashboard(
                                 ui.authorization_scroll = 0;
                             }
                         }
-                        KeyCode::Left => {
+                        DashboardAction::WorkspaceLeft => {
                             let previous = ui.workspace_focus;
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
                                 visible.max(1)
@@ -503,7 +578,7 @@ pub(super) fn run_dashboard(
                                 }
                             }
                         }
-                        KeyCode::Right => {
+                        DashboardAction::WorkspaceRight => {
                             let previous = ui.workspace_focus;
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
                                 visible.max(1)
@@ -655,6 +730,10 @@ pub(super) fn point_in_rect((x, y): (u16, u16), rect: Rect) -> bool {
         && y >= rect.y
         && y < rect.y.saturating_add(rect.height)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/ui/monitor/keys.rs"]
+mod key_tests;
 
 pub(super) fn dashboard_refresh_interval(snapshot: &MonitorSnapshot) -> Duration {
     if snapshot

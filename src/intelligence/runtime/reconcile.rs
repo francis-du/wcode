@@ -703,6 +703,53 @@ impl SoftwareIntelligenceRuntime {
     }
 }
 
+pub(super) fn reconciliation_intent_audit(
+    workspace: &Workspace,
+    intents: &[ChangeIntent],
+) -> Result<(usize, Vec<String>)> {
+    let auditable = intents
+        .iter()
+        .filter_map(|intent| match intent {
+            ChangeIntent::ChangeBehavior {
+                target, desired, ..
+            } if desired["state"].as_str() == Some("conform_to_core_policy") => {
+                Some((target.as_str(), desired["policy"].as_str()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if auditable.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+
+    let report = crate::conventions::status(workspace)?;
+    let mut blockers = Vec::new();
+    for (target, policy) in &auditable {
+        let Some(policy) = policy else {
+            blockers.push(format!(
+                "intent audit failed closed: {target} conform_to_core_policy is missing policy"
+            ));
+            continue;
+        };
+        if report.truncated {
+            blockers.push(format!(
+                "intent audit unavailable: Convention audit truncated before validating {target} against {policy}"
+            ));
+            continue;
+        }
+        if report.findings.iter().any(|finding| {
+            finding.severity == crate::conventions::ConventionSeverity::Error
+                && finding.path == *target
+                && finding.code == *policy
+        }) {
+            blockers.push(format!(
+                "intent not satisfied: {target} still violates {policy}"
+            ));
+        }
+    }
+    Ok((auditable.len(), blockers))
+}
+
 pub(super) fn reconciliation_execution_status_from_inputs(
     workspace: &Workspace,
     plan: &ReconciliationPlan,
@@ -740,5 +787,18 @@ pub(super) fn reconciliation_execution_status_from_inputs(
     if changed || execution_missing {
         reconciliation_execution_store::persist(workspace, &execution)?;
     }
-    Ok(execution.status())
+    let mut status = execution.status();
+    let (intent_checked, intent_blockers) =
+        reconciliation_intent_audit(workspace, &plan.change_intents)?;
+    status.intent_checked = intent_checked;
+    if !intent_blockers.is_empty() {
+        status.blocked = status.blocked.saturating_add(intent_blockers.len());
+        status.converged = false;
+    }
+    status.intent_blockers = intent_blockers;
+    Ok(status)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/intelligence/intent_audit.rs"]
+mod intent_audit_tests;

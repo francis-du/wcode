@@ -1,6 +1,107 @@
 use super::*;
 
 #[test]
+fn hugo_build_outputs_are_not_maintained_source() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("hugo.toml"),
+        "baseURL = 'https://example.test/'\n",
+    )
+    .unwrap();
+    for path in [
+        "public/css/bundle.css",
+        "public/gallery/index.html",
+        "assets/owned.css",
+    ] {
+        let file = root.path().join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "/* maintained or generated line */\n".repeat(1001)).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let report = status(&workspace).unwrap();
+    let oversized = report
+        .findings
+        .iter()
+        .filter(|finding| finding.code == "oversized-source-module")
+        .map(|finding| finding.path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(oversized, ["assets/owned.css"]);
+}
+
+#[test]
+fn convention_scope_keeps_plain_public_and_uninitialized_submodules() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join(".gitmodules"),
+        "[submodule \"theme\"]\n path = themes/theme\n",
+    )
+    .unwrap();
+    for path in ["public/owned.js", "themes/theme/owned.js"] {
+        let file = root.path().join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "// maintained source\n".repeat(1001)).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    assert_eq!(status(&workspace).unwrap().errors, 2);
+}
+
+#[test]
+fn initialized_submodule_has_its_own_convention_boundary() {
+    let root = tempfile::tempdir().unwrap();
+    let child = root.path().join("themes/theme");
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(
+        root.path().join(".gitmodules"),
+        "[submodule \"theme\"]\n path = themes/theme\n",
+    )
+    .unwrap();
+    std::fs::write(
+        child.join("owned.js"),
+        "// maintained source\n".repeat(1001),
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let before = fingerprint_and_paths(&workspace).unwrap().0;
+    assert_eq!(status(&workspace).unwrap().errors, 1);
+    std::fs::write(child.join(".git"), "gitdir: ../../.git/modules/theme\n").unwrap();
+    let after = fingerprint_and_paths(&workspace).unwrap().0;
+    assert_ne!(
+        before, after,
+        "ownership changes must invalidate the convention cache"
+    );
+    assert_eq!(status(&workspace).unwrap().errors, 0);
+    let child_workspace = Workspace::new(&child, false, false).unwrap();
+    assert_eq!(status(&child_workspace).unwrap().errors, 1);
+}
+
+#[test]
+fn hugo_output_scope_is_precise_and_rejects_unsafe_paths() {
+    let root = tempfile::tempdir().unwrap();
+    for path in [
+        "site-output/index.html",
+        "site-output-extra/owned.js",
+        "public/owned.js",
+    ] {
+        let file = root.path().join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "// line\n".repeat(1001)).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    for config in [
+        "publishDir = '.'",
+        "publishDir = '../'",
+        "publishDir = '/'",
+        "publishDir = 7",
+        "invalid TOML",
+    ] {
+        std::fs::write(root.path().join("hugo.toml"), config).unwrap();
+        assert_eq!(status(&workspace).unwrap().errors, 3, "{config}");
+    }
+    std::fs::write(root.path().join("hugo.toml"), "publishDir = 'site-output'").unwrap();
+    assert_eq!(status(&workspace).unwrap().errors, 2);
+}
+
+#[test]
 fn language_policies_cover_the_full_index_surface() {
     let policies = SemanticLanguage::ALL
         .into_iter()

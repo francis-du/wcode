@@ -43,21 +43,22 @@ pub(super) fn traceability_fingerprint(
         }
     }
     let paths = paths.into_iter().collect::<Vec<_>>();
-    let stamps = paths
+    let digests = paths
         .par_iter()
         .map(|path| {
             workspace
-                .source_metadata_stamp(path)
+                .load_source(path)
+                .map(|source| source.sha256)
                 .map_err(|error| error.to_string())
         })
         .collect::<Vec<_>>();
     paths.len().hash(&mut hasher);
-    for (path, stamp) in paths.into_iter().zip(stamps) {
+    for (path, digest) in paths.into_iter().zip(digests) {
         path.hash(&mut hasher);
-        match stamp {
-            Ok(stamp) => {
+        match digest {
+            Ok(digest) => {
                 0u8.hash(&mut hasher);
-                stamp.hash(&mut hasher);
+                digest.hash(&mut hasher);
             }
             Err(error) => {
                 1u8.hash(&mut hasher);

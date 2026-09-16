@@ -227,6 +227,17 @@ trust controls are documented in [Security](../security/).
 | `↑ / ↓` | Select a pending authorization request. |
 | `Y / N` | Approve or deny the selected request. |
 | `P` | Open the explicit Full Access confirmation. |
+| `A` | Authorize all otherwise-allowable commands for the selected visible pending request's Workspace. It does not authorize deletion. |
+| `B` | Open the author page; this no longer shares `A` with authorization. |
+| `G` | Open the project page. |
+| `C` / `F` | Open the command view / toggle its Workspace command authorization. |
+| `R` | Refresh the open intelligence view. |
+| `← / →`, `Shift + ← / →` | Move Workspace focus / move one Workspace page when no authorization overlay is active. |
+| `PgUp / PgDn` | Page the command list or scroll the visible authorization details. |
+| `?` / `Esc` | Open help / dismiss the current overlay. |
+| `Ctrl-C` | Stop wcode gracefully. |
+
+Letter shortcuts accept either case. Other Ctrl/Alt/Super chords never fall through to ordinary shortcuts. Text entry and Full Access confirmation consume their own keys exclusively; holding a key cannot repeat a grant, toggle or external-link action. Approval controls are inactive when their overlay is hidden or too small to display.
 
 ## Recommended MCP workflow
 

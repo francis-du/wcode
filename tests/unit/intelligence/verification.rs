@@ -696,6 +696,37 @@ fn stage_readiness_aggregates_latest_result_per_producer_fail_closed() {
         .any(|blocker| blocker.starts_with("property-evidence-")));
 }
 
+#[test]
+fn equal_timestamp_stage_evidence_conflicts_fail_closed_per_producer() {
+    let revision = Revision {
+        code: "sha256:fixture".into(),
+        design: None,
+    };
+    let mut failed = Evidence::new(
+        "EV-a".into(),
+        "change:sha256:fixture".into(),
+        EvidenceKind::Property,
+        "property-runner".into(),
+        revision,
+        EvidenceResult::Fail,
+        Confidence::High,
+    )
+    .unwrap();
+    failed.timestamp_ms = 42;
+    let mut passed = failed.clone();
+    passed.id = "EV-z".into();
+    passed.result = EvidenceResult::Pass;
+
+    for records in [[&failed, &passed], [&passed, &failed]] {
+        let latest = latest_results_by_producer(records.into_iter());
+        assert_eq!(
+            latest["property-runner"],
+            EvidenceResult::Fail,
+            "equal-time conflicting evidence from one producer must keep the less favorable result"
+        );
+    }
+}
+
 #[tokio::test]
 async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
     let dir = tempfile::tempdir().unwrap();
@@ -761,6 +792,61 @@ async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
         status.stage_results.get("property"),
         Some(&EvidenceResult::Pass),
         "stage evidence must survive runtime restart"
+    );
+}
+
+#[test]
+fn equal_timestamp_human_approval_conflict_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let plan = runtime
+        .create_plan_for_risk("demo", &workspace, RiskLevel::Critical)
+        .unwrap();
+    let revision = plan.revision.clone().expect("critical plan revision");
+    let mut denied = Evidence::new(
+        "EV-a".into(),
+        plan.subject.clone(),
+        EvidenceKind::HumanApproval,
+        "operator-a".into(),
+        revision.clone(),
+        EvidenceResult::Fail,
+        Confidence::High,
+    )
+    .unwrap();
+    denied.timestamp_ms = 42;
+    let mut approved = Evidence::new(
+        "EV-z".into(),
+        plan.subject.clone(),
+        EvidenceKind::HumanApproval,
+        "operator-b".into(),
+        revision,
+        EvidenceResult::Pass,
+        Confidence::High,
+    )
+    .unwrap();
+    approved.timestamp_ms = 42;
+    crate::evidence_store::persist(&workspace, &denied).unwrap();
+    crate::evidence_store::persist(&workspace, &approved).unwrap();
+
+    let conflicted = runtime
+        .verification_status("demo", &workspace, &plan.id)
+        .unwrap();
+    assert!(!conflicted.human_approval);
+    assert!(conflicted
+        .blockers
+        .contains(&"human-approval-required".to_owned()));
+
+    let mut later = approved.clone();
+    later.id = "EV-later".into();
+    later.timestamp_ms = 43;
+    crate::evidence_store::persist(&workspace, &later).unwrap();
+    let resolved = runtime
+        .verification_status("demo", &workspace, &plan.id)
+        .unwrap();
+    assert!(
+        resolved.human_approval,
+        "a strictly newer human decision may resolve the conflict"
     );
 }
 

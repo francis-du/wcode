@@ -1,0 +1,30 @@
+schema_version: 1
+id: AC-INTELLIGENCE-001
+title: Repository intelligence resolves traceability scoped context and release readiness
+statement: >-
+  Requirement traceability resolves real implementation/test symbols, Product Scope filters narrow software-context source navigation, and one canonical release oracle fails closed when Design, Traceability, Product Scope or required Convention state is incomplete. Adversarial mutants must be rejected independently, repeated PASS → FAIL → PASS evolution replay must not leave sticky gate state, and long-lived Design and Traceability caches are content-revision sensitive: same-size rewrites with replayed mtime must invalidate desired-state parsing and implementation/test symbol resolution rather than preserving stale 100% coverage.
+verification:
+  - kind: test
+    path: tests/unit/intelligence/release_gate.rs
+    symbol: incomplete_release_state_cannot_pass
+  - kind: test
+    path: tests/unit/intelligence/mod.rs
+    symbol: traces_requirement_to_real_implementation_and_test_symbols
+  - kind: test
+    path: tests/unit/intelligence/mod.rs
+    symbol: software_context_scopes_narrow_source_navigation
+  - kind: test
+    path: tests/unit/app/intelligence.rs
+    symbol: intelligence_check_requires_valid_complete_scoped_state
+  - kind: test
+    path: tests/unit/intelligence/release_gate.rs
+    symbol: adversarial_release_state_mutants_fail_closed
+  - kind: test
+    path: tests/unit/intelligence/evolution.rs
+    symbol: release_gate_evolution_replay_has_no_sticky_success_or_failure
+  - kind: test
+    path: tests/unit/intelligence/evolution_cache.rs
+    symbol: design_cache_detects_same_size_same_mtime_content_rewrite
+  - kind: test
+    path: tests/unit/intelligence/evolution_cache.rs
+    symbol: traceability_cache_detects_same_size_same_mtime_symbol_rewrite

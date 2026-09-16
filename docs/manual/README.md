@@ -65,6 +65,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
 - [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
 - [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
+- [v0.7.5 release candidate](releases/v0.7.5/) — generation-bound endpoint trust, conflict-free TUI keys and responsive Observatory content.
 - [v0.7.4 release notes](releases/v0.7.4/) — Workspace-session command authorization, standard MCP image/audio content, and refreshed current-product docs/UI.
 - [v0.7.3 release notes](releases/v0.7.3/) — autonomous bounded development commands, broader Deno/Flutter quality coverage, stronger repository-intelligence caches, and WebUI/verification reliability.
 - [v0.7.2 release notes](releases/v0.7.2/) — clearer Observatory/TUI/Setup state, model-efficient tool discovery, Agent Context retrieval telemetry, and more precise Verification Mesh targets.

@@ -1,5 +1,6 @@
 use super::*;
 use crate::evidence::Revision;
+use std::{fs, path::Path};
 
 thread_local! {
     static TEMPORAL_EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -7,6 +8,13 @@ thread_local! {
 
 pub(super) fn record_temporal_evaluation() {
     TEMPORAL_EVALUATIONS.with(|count| count.set(count.get() + 1));
+}
+
+fn seal_record(mut record: VerifiedChangeExperience) -> VerifiedChangeExperience {
+    if record.schema_version == EXPERIENCE_SCHEMA_VERSION {
+        record.payload_digest = Some(experience_payload_digest(&record).unwrap());
+    }
+    record
 }
 
 fn activation_fixture() -> (tempfile::TempDir, Workspace, Vec<VerifiedChangeExperience>) {
@@ -38,6 +46,7 @@ fn activation_cache_invalidates_prior_record_rewrites_with_unchanged_tail() {
     );
     let last = serde_json::to_value(records.last().unwrap()).unwrap();
     records[0].paths = vec!["src/a.rs".into(), "src/missing.rs".into()];
+    records[0].payload_digest = Some(experience_payload_digest(&records[0]).unwrap());
     assert!(valid_record(&records[0]));
     assert_eq!(serde_json::to_value(records.last().unwrap()).unwrap(), last);
     let expected =
@@ -176,6 +185,7 @@ fn metadata_membership_preparation_matches_hashed_lookup_without_source_reads() 
             paths: names.clone(),
             context_paths: names[..3].to_vec(),
             retrieval_intent: Some("edit_to_ripple".into()),
+            payload_digest: None,
             timestamp_ms,
         })
         .collect::<Vec<_>>();
@@ -273,7 +283,7 @@ fn write_evaluation_record(
         .iter()
         .map(|path| (*path).to_owned())
         .collect::<Vec<_>>();
-    let record = VerifiedChangeExperience {
+    let record = seal_record(VerifiedChangeExperience {
         schema_version: EXPERIENCE_SCHEMA_VERSION,
         revision: Revision {
             code: revision.to_owned(),
@@ -283,10 +293,138 @@ fn write_evaluation_record(
         paths: normalize_paths(&paths),
         context_paths: Vec::new(),
         retrieval_intent: None,
+        payload_digest: None,
         timestamp_ms,
-    };
-    let name = format!("eval-{timestamp_ms}-{revision}.json").replace(':', "-");
+    });
+    let name = canonical_experience_name(&record).unwrap();
     fs::write(directory.join(name), serde_json::to_vec(&record).unwrap()).unwrap();
+}
+
+#[test]
+fn duplicate_or_conflicting_experience_records_cannot_amplify_learning() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    for path in ["a.rs", "b.rs", "poison.rs"] {
+        fs::write(root.path().join("src").join(path), format!("// {path}\n")).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let directory = experience_directory(&workspace).unwrap();
+    ensure_regular_directory(&directory).unwrap();
+    let record = seal_record(VerifiedChangeExperience {
+        schema_version: EXPERIENCE_SCHEMA_VERSION,
+        revision: Revision {
+            code: "sha256:duplicate-fixture".into(),
+            design: None,
+        },
+        level: "full".to_owned(),
+        paths: vec!["src/a.rs".into(), "src/b.rs".into()],
+        context_paths: Vec::new(),
+        retrieval_intent: None,
+        payload_digest: None,
+        timestamp_ms: 1_000,
+    });
+    let bytes = serde_json::to_vec(&record).unwrap();
+    let canonical = canonical_experience_name(&record).unwrap();
+    fs::write(directory.join(&canonical), &bytes).unwrap();
+    fs::write(
+        directory.join("11111111111111111111111111111111.json"),
+        &bytes,
+    )
+    .unwrap();
+
+    let loaded = load(&workspace).unwrap();
+    assert_eq!(loaded.len(), 1, "non-canonical copies must not count twice");
+    let anchors = BTreeSet::from(["src/a.rs".to_owned()]);
+    let matches = related_paths(&workspace, &anchors, 8).unwrap();
+    assert_eq!(matches.scanned_records, 1);
+    assert_eq!(matches.matched_records, 1);
+
+    let mut conflicting = record;
+    conflicting.context_paths = vec!["src/poison.rs".into()];
+    conflicting.retrieval_intent = Some("edit_to_ripple".into());
+    conflicting.timestamp_ms = 2_000;
+    fs::write(
+        directory.join("22222222222222222222222222222222.json"),
+        serde_json::to_vec(&conflicting).unwrap(),
+    )
+    .unwrap();
+
+    let after_conflict = load(&workspace).unwrap();
+    assert_eq!(after_conflict.len(), 1);
+    assert!(after_conflict[0].context_paths.is_empty());
+    let unpoisoned = related_paths(&workspace, &anchors, 8).unwrap();
+    assert_eq!(unpoisoned.scanned_records, 1);
+    assert!(!unpoisoned.weights.contains_key("src/poison.rs"));
+}
+
+#[test]
+fn invalid_candidate_files_cannot_crow_out_canonical_history() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    for path in ["a.rs", "b.rs"] {
+        fs::write(root.path().join("src").join(path), format!("// {path}\n")).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let directory = experience_directory(&workspace).unwrap();
+    ensure_regular_directory(&directory).unwrap();
+    let record = seal_record(VerifiedChangeExperience {
+        schema_version: EXPERIENCE_SCHEMA_VERSION,
+        revision: Revision {
+            code: "sha256:real-history".into(),
+            design: None,
+        },
+        level: "full".into(),
+        paths: vec!["src/a.rs".into(), "src/b.rs".into()],
+        context_paths: Vec::new(),
+        retrieval_intent: None,
+        payload_digest: None,
+        timestamp_ms: 1,
+    });
+    let canonical = canonical_experience_name(&record).unwrap();
+    fs::write(
+        directory.join(&canonical),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    for index in 0..=MAX_STORED_EXPERIENCES {
+        let name = format!("{index:032x}.json");
+        if name != canonical {
+            fs::write(directory.join(name), b"{}").unwrap();
+        }
+    }
+    let loaded = load(&workspace).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].revision.code, "sha256:real-history");
+}
+
+#[cfg(unix)]
+#[test]
+fn hardlinked_experience_records_are_not_learned() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    for path in ["a.rs", "b.rs"] {
+        fs::write(root.path().join("src").join(path), format!("// {path}\n")).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let directory = experience_directory(&workspace).unwrap();
+    ensure_regular_directory(&directory).unwrap();
+    let record = seal_record(VerifiedChangeExperience {
+        schema_version: EXPERIENCE_SCHEMA_VERSION,
+        revision: Revision {
+            code: "sha256:hardlink".into(),
+            design: None,
+        },
+        level: "full".into(),
+        paths: vec!["src/a.rs".into(), "src/b.rs".into()],
+        context_paths: Vec::new(),
+        retrieval_intent: None,
+        payload_digest: None,
+        timestamp_ms: 1,
+    });
+    let canonical = directory.join(canonical_experience_name(&record).unwrap());
+    fs::write(&canonical, serde_json::to_vec(&record).unwrap()).unwrap();
+    std::fs::hard_link(&canonical, directory.join("alias.json")).unwrap();
+    assert!(load(&workspace).unwrap().is_empty());
 }
 
 #[test]
@@ -371,8 +509,9 @@ fn legacy_v1_experience_records_remain_readable() {
         "paths": ["src/a.rs", "src/b.rs"],
         "timestamp_ms": 1
     });
+    let legacy_record: VerifiedChangeExperience = serde_json::from_value(legacy.clone()).unwrap();
     fs::write(
-        directory.join("legacy.json"),
+        directory.join(canonical_experience_name(&legacy_record).unwrap()),
         serde_json::to_vec(&legacy).unwrap(),
     )
     .unwrap();
@@ -380,6 +519,66 @@ fn legacy_v1_experience_records_remain_readable() {
     assert_eq!(records.len(), 1);
     assert!(records[0].context_paths.is_empty());
     assert!(records[0].retrieval_intent.is_none());
+}
+
+#[test]
+fn v3_payload_digest_rejects_silent_corruption_while_v2_remains_readable() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    for path in ["a.rs", "b.rs", "context.rs"] {
+        fs::write(root.path().join("src").join(path), format!("// {path}\n")).unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let directory = experience_directory(&workspace).unwrap();
+    ensure_regular_directory(&directory).unwrap();
+
+    let mut current = seal_record(VerifiedChangeExperience {
+        schema_version: EXPERIENCE_SCHEMA_VERSION,
+        revision: Revision {
+            code: "sha256:v3-integrity".into(),
+            design: None,
+        },
+        level: "full".into(),
+        paths: vec!["src/a.rs".into(), "src/b.rs".into()],
+        context_paths: Vec::new(),
+        retrieval_intent: None,
+        payload_digest: None,
+        timestamp_ms: 1,
+    });
+    let current_path = directory.join(canonical_experience_name(&current).unwrap());
+    fs::write(&current_path, serde_json::to_vec(&current).unwrap()).unwrap();
+    assert_eq!(load(&workspace).unwrap().len(), 1);
+
+    current.context_paths = vec!["src/context.rs".into()];
+    current.timestamp_ms = 2;
+    fs::write(&current_path, serde_json::to_vec(&current).unwrap()).unwrap();
+    assert!(
+        load(&workspace).unwrap().is_empty(),
+        "payload mutation without digest refresh must be rejected"
+    );
+    fs::remove_file(&current_path).unwrap();
+
+    let legacy_v2 = VerifiedChangeExperience {
+        schema_version: 2,
+        revision: Revision {
+            code: "sha256:v2-compatible".into(),
+            design: None,
+        },
+        level: "full".into(),
+        paths: vec!["src/a.rs".into(), "src/b.rs".into()],
+        context_paths: Vec::new(),
+        retrieval_intent: None,
+        payload_digest: None,
+        timestamp_ms: 3,
+    };
+    fs::write(
+        directory.join(canonical_experience_name(&legacy_v2).unwrap()),
+        serde_json::to_vec(&legacy_v2).unwrap(),
+    )
+    .unwrap();
+    let records = load(&workspace).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].schema_version, 2);
 }
 
 #[test]
@@ -416,7 +615,7 @@ fn context_trajectory_reuse_is_conditioned_by_retrieval_intent() {
             ],
         ),
     ] {
-        let record = VerifiedChangeExperience {
+        let record = seal_record(VerifiedChangeExperience {
             schema_version: EXPERIENCE_SCHEMA_VERSION,
             revision: Revision {
                 code: format!("sha256:{name}"),
@@ -426,10 +625,11 @@ fn context_trajectory_reuse_is_conditioned_by_retrieval_intent() {
             paths: normalize_paths(&paths),
             context_paths: vec!["src/context.rs".to_owned()],
             retrieval_intent: Some(intent.to_owned()),
+            payload_digest: None,
             timestamp_ms: now_ms(),
-        };
+        });
         fs::write(
-            directory.join(format!("intent-{name}.json")),
+            directory.join(canonical_experience_name(&record).unwrap()),
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();

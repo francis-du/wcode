@@ -1,20 +1,24 @@
 use crate::evidence::Revision;
-use crate::evidence_store::workspace_state_directory;
 use crate::workspace::Workspace;
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "experience_io.rs"]
 mod experience_io;
+#[path = "experience_storage.rs"]
+mod experience_storage;
+pub(crate) use experience_storage::persist_verified_change;
+#[cfg(test)]
+use experience_storage::{
+    canonical_experience_name, ensure_regular_directory, experience_directory,
+    experience_payload_digest, valid_record,
+};
+use experience_storage::{load, normalize_paths, now_ms};
 
-const EXPERIENCE_SCHEMA_VERSION: u8 = 2;
+const EXPERIENCE_SCHEMA_VERSION: u8 = 3;
 const MAX_STORED_EXPERIENCES: usize = 512;
 // Very broad release/migration sweeps are deliberately not learned as one
 // all-to-all relationship because they create noisy retrieval shortcuts.
@@ -48,6 +52,8 @@ struct VerifiedChangeExperience {
     context_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     retrieval_intent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payload_digest: Option<String>,
     timestamp_ms: u64,
 }
 
@@ -110,74 +116,6 @@ pub(crate) struct ExperienceEvaluation {
     pub(crate) expected_targets: usize,
     pub(crate) top_k: usize,
     pub(crate) latest_record_at_ms: Option<u64>,
-}
-
-pub(crate) fn persist_verified_change(
-    workspace: &Workspace,
-    revision: &Revision,
-    level: &str,
-    paths: &[String],
-) -> Result<bool> {
-    if !matches!(level, "quick" | "full") {
-        bail!("verified experience requires quick or full verification");
-    }
-    let paths = normalize_paths(paths);
-    // A single changed file has no edit-ripple relationship to learn. Large
-    // change sets are intentionally ignored rather than teaching noisy global
-    // co-change edges from release sweeps or generated migrations.
-    if paths.len() < 2 || paths.len() > MAX_EXPERIENCE_PATHS {
-        return Ok(false);
-    }
-    if revision.code.trim().is_empty() || revision.code.ends_with(":partial") {
-        return Ok(false);
-    }
-
-    let directory = experience_directory(workspace)?;
-    ensure_regular_directory(&directory)?;
-    let stable = serde_json::to_vec(&(EXPERIENCE_SCHEMA_VERSION, revision, level, &paths))?;
-    let digest = digest_bytes(&stable);
-    let path = directory.join(format!("{}.json", &digest[..32]));
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            if metadata.file_type().is_symlink() || !metadata.is_file() {
-                bail!("verified experience record path is not a regular file");
-            }
-            return Ok(false);
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-
-    let (context_paths, retrieval_intent) = recent_context_trajectory(workspace, &paths);
-    let record = VerifiedChangeExperience {
-        schema_version: EXPERIENCE_SCHEMA_VERSION,
-        revision: revision.clone(),
-        level: level.to_owned(),
-        paths,
-        context_paths,
-        retrieval_intent,
-        timestamp_ms: now_ms(),
-    };
-    let bytes = serde_json::to_vec(&record)?;
-    if bytes.len() as u64 > MAX_EXPERIENCE_BYTES {
-        bail!("verified experience record exceeds the persistent store size bound");
-    }
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&path)
-        .with_context(|| format!("cannot create verified experience {}", path.display()))?;
-    file.write_all(&bytes)
-        .with_context(|| format!("cannot write verified experience {}", path.display()))?;
-    file.sync_all()
-        .with_context(|| format!("cannot sync verified experience {}", path.display()))?;
-    prune_directory(&directory)?;
-    Ok(true)
 }
 
 #[cfg(test)]
@@ -815,163 +753,6 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
     } else {
         numerator as f64 / denominator as f64
     }
-}
-
-fn load(workspace: &Workspace) -> Result<Vec<VerifiedChangeExperience>> {
-    let directory = experience_directory(workspace)?;
-    let metadata = match fs::symlink_metadata(&directory) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        bail!("verified experience store path is not a regular directory");
-    }
-    let paths = experience_paths(&directory)?
-        .into_iter()
-        .rev()
-        .take(MAX_STORED_EXPERIENCES)
-        .collect::<Vec<_>>();
-    let loaded = crate::resource::parallel_io(&paths, |path| experience_io::read_record(path))?;
-    let mut records = Vec::with_capacity(paths.len());
-    for record in loaded {
-        if let Some(record) = record? {
-            records.push(record);
-        }
-    }
-    records.sort_by(|left, right| {
-        left.timestamp_ms
-            .cmp(&right.timestamp_ms)
-            .then_with(|| left.revision.code.cmp(&right.revision.code))
-            .then_with(|| left.level.cmp(&right.level))
-            .then_with(|| left.paths.cmp(&right.paths))
-    });
-    Ok(records)
-}
-
-fn valid_record(record: &VerifiedChangeExperience) -> bool {
-    matches!(record.schema_version, 1 | EXPERIENCE_SCHEMA_VERSION)
-        && matches!(record.level.as_str(), "quick" | "full")
-        && !record.revision.code.trim().is_empty()
-        && !record.revision.code.ends_with(":partial")
-        && (2..=MAX_EXPERIENCE_PATHS).contains(&record.paths.len())
-        && record
-            .paths
-            .iter()
-            .all(|path| normalize_path(path).is_some())
-        && normalize_paths(&record.paths) == record.paths
-        && record.context_paths.len() <= MAX_CONTEXT_PATHS
-        && record
-            .context_paths
-            .iter()
-            .all(|path| normalize_path(path).is_some())
-        && normalize_paths(&record.context_paths) == record.context_paths
-        && record.retrieval_intent.as_ref().is_none_or(|intent| {
-            matches!(
-                intent.as_str(),
-                "balanced_context"
-                    | "trace_to_code"
-                    | "code_to_test"
-                    | "comment_to_context"
-                    | "failure_trace_to_code"
-                    | "edit_to_ripple"
-            )
-        })
-}
-
-fn normalize_paths(paths: &[String]) -> Vec<String> {
-    paths
-        .iter()
-        .filter_map(|path| normalize_path(path))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
-}
-
-fn normalize_path(raw: &str) -> Option<String> {
-    let replaced = raw.trim().replace('\\', "/");
-    if replaced.is_empty() || replaced.len() > MAX_PATH_LENGTH {
-        return None;
-    }
-    let path = Path::new(&replaced);
-    if path.is_absolute() {
-        return None;
-    }
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_str()?.to_owned()),
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
-        }
-    }
-    (!parts.is_empty()).then(|| parts.join("/"))
-}
-
-fn experience_directory(workspace: &Workspace) -> Result<PathBuf> {
-    Ok(workspace_state_directory(workspace)?.join("experience"))
-}
-
-fn ensure_regular_directory(directory: &Path) -> Result<()> {
-    match fs::symlink_metadata(directory) {
-        Ok(metadata) => {
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                bail!("verified experience store path is not a regular directory");
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir_all(directory)?;
-        }
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn experience_paths(directory: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = fs::read_dir(directory)?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.ends_with(".json"))
-                .then(|| entry.path())
-        })
-        .collect::<Vec<_>>();
-    paths.sort_by(|left, right| {
-        let left_modified = fs::symlink_metadata(left)
-            .and_then(|metadata| metadata.modified())
-            .ok();
-        let right_modified = fs::symlink_metadata(right)
-            .and_then(|metadata| metadata.modified())
-            .ok();
-        left_modified
-            .cmp(&right_modified)
-            .then_with(|| left.cmp(right))
-    });
-    Ok(paths)
-}
-
-fn prune_directory(directory: &Path) -> Result<()> {
-    let paths = experience_paths(directory)?;
-    let excess = paths.len().saturating_sub(MAX_STORED_EXPERIENCES);
-    for path in paths.into_iter().take(excess) {
-        let _ = fs::remove_file(path);
-    }
-    Ok(())
-}
-
-fn digest_bytes(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

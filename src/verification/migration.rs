@@ -29,6 +29,8 @@ struct MigrationAuditSpec {
     #[serde(default)]
     required_paths: Vec<String>,
     #[serde(default)]
+    forbidden_paths: Vec<String>,
+    #[serde(default)]
     transitions: Vec<MigrationTransition>,
 }
 
@@ -84,6 +86,7 @@ pub(crate) struct MigrationAuditReport {
     pub truncated: bool,
     pub findings_truncated: bool,
     pub required_paths: usize,
+    pub forbidden_paths: usize,
     pub transitions: Vec<MigrationTransitionResult>,
     pub findings: Vec<MigrationAuditFinding>,
     pub summary: String,
@@ -126,6 +129,42 @@ pub(crate) fn audit(
                     rule_id: None,
                     message: format!("required migration path is missing or inaccessible: {path}"),
                     locations: Vec::new(),
+                },
+            );
+        }
+    }
+    for path in &spec.forbidden_paths {
+        let finding = match workspace.path_info(path) {
+            Ok(_) => Some((
+                "forbidden_path_present",
+                format!("legacy migration path must be removed: {path}"),
+            )),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                None
+            }
+            // Symlink, policy, permission and inspection errors do not prove
+            // absence. Keep the migration gate closed without bypassing guards.
+            Err(_) => Some((
+                "forbidden_path_uninspectable",
+                format!("cannot confirm forbidden migration path is absent: {path}"),
+            )),
+        };
+        if let Some((code, message)) = finding {
+            push_finding(
+                &mut findings,
+                &mut findings_truncated,
+                MigrationAuditFinding {
+                    code: code.into(),
+                    rule_id: None,
+                    message,
+                    locations: vec![MigrationAuditLocation {
+                        path: path.clone(),
+                        line: 1,
+                    }],
                 },
             );
         }
@@ -337,10 +376,11 @@ pub(crate) fn audit(
     let passed = findings.is_empty() && !truncated;
     let summary = if passed {
         format!(
-            "Migration audit `{}` passed: {} transition(s), {} required path(s), {scanned_files} file(s) inspected.",
+            "Migration audit `{}` passed: {} transition(s), {} required path(s), {} forbidden path(s), {scanned_files} file(s) inspected.",
             spec.id,
             spec.transitions.len(),
-            spec.required_paths.len()
+            spec.required_paths.len(),
+            spec.forbidden_paths.len()
         )
     } else {
         format!(
@@ -362,6 +402,7 @@ pub(crate) fn audit(
         truncated,
         findings_truncated,
         required_paths: spec.required_paths.len(),
+        forbidden_paths: spec.forbidden_paths.len(),
         transitions,
         findings,
         summary,
@@ -385,6 +426,7 @@ pub(crate) fn context_summary(workspace: &Workspace) -> Option<Value> {
             "scopes": spec.scopes,
             "transitions": spec.transitions.len(),
             "required_paths": spec.required_paths.len(),
+            "forbidden_paths": spec.forbidden_paths.len(),
         }),
         Ok(None) => return None,
         Err(error) => json!({
@@ -405,6 +447,7 @@ pub(crate) fn capabilities() -> Value {
         "provider": "wcode-migration-audit",
         "precision": "deterministic",
         "matching": "literal-substring",
+        "path_assertions": ["required", "forbidden"],
         "gate_order": "before_behavioral_verification",
         "max_transitions": MAX_TRANSITIONS,
         "max_paths": MAX_PATHS,
@@ -431,13 +474,17 @@ fn validate_spec(spec: &MigrationAuditSpec) -> Result<()> {
         || spec.scopes.len() > MAX_PATHS
         || spec.exclude_paths.len() > MAX_PATHS
         || spec.required_paths.len() > MAX_PATHS
+        || spec.forbidden_paths.len() > MAX_PATHS
         || spec.transitions.len() > MAX_TRANSITIONS
-        || (spec.transitions.is_empty() && spec.required_paths.is_empty())
+        || (spec.transitions.is_empty()
+            && spec.required_paths.is_empty()
+            && spec.forbidden_paths.is_empty())
         || spec
             .scopes
             .iter()
             .chain(&spec.exclude_paths)
             .chain(&spec.required_paths)
+            .chain(&spec.forbidden_paths)
             .any(|path| !valid_path_text(path))
     {
         bail!("migration audit config is invalid or exceeds its bounds");
@@ -483,6 +530,7 @@ fn invalid_report(revision: &Revision, message: String, elapsed_ms: u128) -> Mig
         truncated: false,
         findings_truncated: false,
         required_paths: 0,
+        forbidden_paths: 0,
         transitions: Vec::new(),
         findings: vec![MigrationAuditFinding {
             code: "invalid_config".into(),

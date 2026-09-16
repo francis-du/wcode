@@ -98,7 +98,7 @@ pub(super) async fn run_intelligence_cli(
             "verification": verification,
         }));
     }
-    let check_failures = intelligence_check_failures(&entries);
+    let check_failures = crate::intelligence::release_gate::failures(&entries);
     let check_passed = check_failures.is_empty();
     let check_error = (!check_passed).then(|| check_failures.join("; "));
     let value = json!({
@@ -285,64 +285,6 @@ pub(super) async fn run_intelligence_cli(
         }
     }
     Ok(())
-}
-
-fn intelligence_check_failures(workspaces: &[Value]) -> Vec<String> {
-    let mut failures = Vec::new();
-    for workspace in workspaces {
-        let id = workspace["workspace"].as_str().unwrap_or("workspace");
-        let design = &workspace["design"];
-        if design["initialized"].as_bool() != Some(true) {
-            failures.push(format!("{id}: Design State is uninitialized"));
-        } else if design["valid"].as_bool() != Some(true) {
-            failures.push(format!("{id}: Design State is invalid"));
-        }
-
-        let traceability = &workspace["traceability"];
-        for (key, label) in [
-            ("requirement_to_component", "requirement→component"),
-            ("design_to_implementation", "design→implementation"),
-            (
-                "acceptance_to_verification",
-                "acceptance→verification mapping",
-            ),
-        ] {
-            if traceability[key]["percent"].as_u64() != Some(100) {
-                failures.push(format!("{id}: {label} traceability is incomplete"));
-            }
-        }
-
-        if workspace["product_scope_required"].as_bool() == Some(true) {
-            let scope_status = &workspace["scope_status"];
-            if scope_status["truncated"].as_bool() == Some(true) {
-                failures.push(format!("{id}: Product Scope audit was truncated"));
-            }
-            let source_files = scope_status["source_files"].as_u64();
-            let mapped_files = scope_status["mapped_files"].as_u64();
-            let unmapped_files = scope_status["unmapped_files"]
-                .as_array()
-                .map(Vec::len)
-                .unwrap_or(0);
-            if source_files.is_none()
-                || mapped_files.is_none()
-                || source_files != mapped_files
-                || unmapped_files > 0
-            {
-                failures.push(format!("{id}: Product Scope source mapping is incomplete"));
-            }
-        }
-
-        let conventions = &workspace["conventions"];
-        if conventions["truncated"].as_bool() == Some(true) {
-            failures.push(format!("{id}: Convention audit was truncated"));
-        }
-        if conventions["errors"].as_u64().unwrap_or(0) > 0 {
-            failures.push(format!(
-                "{id}: Convention audit contains required-policy errors"
-            ));
-        }
-    }
-    failures
 }
 
 pub(super) async fn run_verification_cli(

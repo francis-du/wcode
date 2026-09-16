@@ -27,6 +27,8 @@ These findings feed the normal Risk Engine. A high-severity maintainability find
 
 The 1,000-line boundary is a portable wcode core policy for maintained source in every authorized Workspace, not only for the wcode repository. `create_file`, `write_file`, `replace_text`, `apply_edits`, and their batch forms reject creating an oversized maintained source file, crossing the boundary, or growing a file that is already oversized. An existing oversized file may stay the same size or shrink while it is being decomposed, but `verify_project` fails closed on the remaining Convention error until the file is brought back under the boundary. Generated/vendor/build output is exempt. wcode deliberately does not auto-slice a file at an arbitrary line number: decomposition must preserve module, API, import, registration, and ownership semantics.
 
+Convention scans use the root `hugo.toml` build configuration to exclude its `publishDir` (default `public`) and treat declared, initialized Git submodules as separate source owners. Select the submodule Workspace to check its own maintained source. Ordinary `public/` directories and uninitialized submodule paths remain in scope. These ownership facts participate in the Convention cache fingerprint; file-write checks retain their existing bounds.
+
 ## Independent maintainability reviewer
 
 Medium-and-higher risk Verification Plans include a blind `maintainability` reviewer job with capability `maintainability_review`. The job carries the rubric below so different model providers receive the same approval contract.

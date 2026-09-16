@@ -20,7 +20,7 @@ impl CodeIndex {
         let stamp = workspace.source_stamp(path)?;
         let key = FileKey::new(workspace.root(), path.to_owned());
 
-        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+        if let Some(record) = self.cached_record_if_fresh(workspace, &key, &stamp)? {
             return Ok(FileSearchOutcome {
                 matches: matching_symbols(&record, query, kind),
                 cache_hit: true,
@@ -36,7 +36,7 @@ impl CodeIndex {
         let generation = flight.generation.load(Ordering::Acquire);
         // Another entry point may have filled the cache while we waited.
         let stamp = workspace.source_stamp(path)?;
-        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+        if let Some(record) = self.cached_record_if_fresh(workspace, &key, &stamp)? {
             return Ok(FileSearchOutcome {
                 matches: matching_symbols(&record, query, kind),
                 cache_hit: true,
@@ -75,7 +75,7 @@ impl CodeIndex {
         })?;
         let stamp = workspace.source_stamp(path)?;
         let key = FileKey::new(workspace.root(), path.to_owned());
-        if let Some(result) = self.cached_index(&key, &stamp, retain_ast)? {
+        if let Some(result) = self.cached_index(workspace, &key, &stamp, retain_ast)? {
             return Ok(result);
         }
         // Wait without holding an index-state lock or a CPU permit. Different
@@ -87,10 +87,12 @@ impl CodeIndex {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let generation = flight.generation.load(Ordering::Acquire);
         let stamp = workspace.source_stamp(path)?;
-        if let Some(result) = self.cached_index(&key, &stamp, retain_ast)? {
+        if let Some(result) = self.cached_index(workspace, &key, &stamp, retain_ast)? {
             return Ok(result);
         }
-        let symbol_cache_hit = self.cached_record_if_fresh(&key, &stamp)?.is_some();
+        let symbol_cache_hit = self
+            .cached_record_if_fresh(workspace, &key, &stamp)?
+            .is_some();
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source_at_stamp(path, &stamp)?;
         let parsed = self.parse_source(workspace.root(), &config, source)?;
@@ -104,11 +106,12 @@ impl CodeIndex {
 
     fn cached_index(
         &self,
+        workspace: &Workspace,
         key: &FileKey,
         stamp: &SourceStamp,
         retain_ast: bool,
     ) -> Result<Option<EnsureResult>> {
-        let Some(record) = self.cached_record_if_fresh(key, stamp)? else {
+        let Some(record) = self.cached_record_if_fresh(workspace, key, stamp)? else {
             return Ok(None);
         };
         let ast_cache_hit = self.touch_ast(key, &record.sha256)?;
@@ -131,7 +134,7 @@ impl CodeIndex {
             .ok_or_else(|| anyhow!("unsupported source language: {path}"))?;
         let stamp = workspace.source_stamp(path)?;
         let key = FileKey::new(workspace.root(), path.to_owned());
-        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+        if let Some(record) = self.cached_record_if_fresh(workspace, &key, &stamp)? {
             return Ok(FileMultiSearchOutcome {
                 matches: matching_symbols_many(&record, queries, kind),
                 cache_hit: true,
@@ -146,7 +149,7 @@ impl CodeIndex {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let generation = flight.generation.load(Ordering::Acquire);
         let stamp = workspace.source_stamp(path)?;
-        if let Some(record) = self.cached_record_if_fresh(&key, &stamp)? {
+        if let Some(record) = self.cached_record_if_fresh(workspace, &key, &stamp)? {
             return Ok(FileMultiSearchOutcome {
                 matches: matching_symbols_many(&record, queries, kind),
                 cache_hit: true,
@@ -385,22 +388,34 @@ impl CodeIndex {
 
     pub(super) fn cached_record_if_fresh(
         &self,
+        _workspace: &Workspace,
         key: &FileKey,
         stamp: &SourceStamp,
     ) -> Result<Option<Arc<FileRecord>>> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("code index state poisoned"))?;
-        let record = state
-            .files
-            .get(key)
-            .filter(|record| &record.stamp == stamp)
-            .cloned();
-        if record.is_some() {
-            state.access_tick = state.access_tick.saturating_add(1);
-            let tick = state.access_tick;
-            state.file_access.insert(key.clone(), tick);
+        let record = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("code index state poisoned"))?;
+            let record = state
+                .files
+                .get(key)
+                .filter(|record| &record.stamp == stamp)
+                .cloned();
+            if record.is_some() {
+                state.access_tick = state.access_tick.saturating_add(1);
+                let tick = state.access_tick;
+                state.file_access.insert(key.clone(), tick);
+            }
+            record
+        };
+        #[cfg(not(unix))]
+        if let Some(record) = record.as_ref() {
+            let source = _workspace.load_source_at_stamp(&key.path, stamp)?;
+            if source.sha256 != record.sha256 {
+                self.invalidate(_workspace.root(), &key.path);
+                return Ok(None);
+            }
         }
         Ok(record)
     }

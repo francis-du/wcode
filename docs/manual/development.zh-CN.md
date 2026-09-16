@@ -63,7 +63,13 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 
 Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurrency、Agent Context Calls、Average Model Tokens、Repo-map Cache Hit、Saved Context 都来自实际 Request Execution。Terminal Raw Mode、Mouse Capture、Cursor 与 Primary Screen 必须通过现有 RAII Boundary 恢复；Ctrl-C 走同一条 Graceful Shutdown。stdout 不是 TTY 或设置 `--no-monitor` 时不启动 Monitor。
 
+键盘事件先通过 `dashboard_action` 唯一解析，再执行副作用。输入与确认场景独占按键；修饰键不能变成普通授权键，授权／开关／链接动作只接受 Press，不接受 Repeat。`A` 只授权可见请求所属的 Workspace，作者链接改用 `B`。帮助提示必须与上下文／修饰键回归矩阵同步。
+
+观测台内容网格必须按正文自动计算高度，并使用可收缩列。间距类不得给内容容器固定高度；嵌套代码统计和验证预览必须容纳长标识符。先运行 `node tests/unit/ui/layout.cjs .`，macOS 再运行 `swift tests/unit/ui/layout_webkit.swift`，以真实渲染引擎检查移动、平板和桌面宽度下的越界／重叠。测试页只使用生产渲染器 HTML、随包 CSS 与合成数据，不读取凭据，也不访问网络。
+
 Managed Public Tunnel 是 Runtime 自己拥有的 Child，与 Local HTTP Server 分离。`--tunnel-provider auto` 在后台并发启动 Cloudflare、`localhost.run`、Pinggy 与 Tailscale Funnel，面板绝不等待隧道。只有 URL Discovery + 当前 `instance_id` 对应 `/healthz` 成功后才算隧道存活——拿到一个 URL String 本身不是 Readiness。所有已验证隧道全部保留，第一条 Verified Tunnel 成为 Primary，但 Primary Health 使用 Hysteresis：前两次连续失败不摘除，第三次才允许 Failover；进入 Unhealthy 后需要连续两次成功才能恢复。Standby 各自维护有界 Health Lease；重复 Probe Failure 会撤销资格，Lease 过期同样不能被提升；Failover 只从 Eligible Lease 中选择，并确定性地按最新验证、最长 Uptime、稳定 Tie 顺序排序。异步 Completion 必须绑定当前身份：Standby Probe 携带 Lease Epoch，Managed-primary Result 只有在 URL 仍是当前 Primary 时才能写 Global Health，旧连接或已降级 Tunnel 的迟到结果不能污染 Replacement。单个死亡 Provider 独立重拉，使用有界 Exponential Backoff + Provider-specific Deterministic Jitter；重复死亡会打开 Cooldown Circuit，每个到期 Retry 只进行一次 Half-open Instance-verified Attempt；Death History 只有 Sustained Stable Uptime 后才清零，而不是一连上就重置。没有 Verified Standby 时 Public Health 回到 Pending / Local，后台继续恢复。Quick Tunnel 重连后可能得到新 hostname，因此长期远程 Client 应使用 Tailscale Funnel 或 Operator 管理的稳定 `--public-url`。正常 Shutdown 会直接 Abort 正在进行的 Health Task，而不是等 Network Timeout，再 Kill/Wait 全部 Owned Tunnel Child。恢复逻辑绝不能去 Kill / Replace Operator 的无关进程。
+
+入口信任与进程健康分别管理。保留的稳定地址按 URL 索引，最多八个；即使同一 Provider 换地址连接，旧地址仍由独立探测监督。重连启动失败只安排重试，不自行撤销保留地址的信任。恢复入口统一进入 Connected 生命周期，不由独立发布任务旁路注册。每次验证注册获得新的代次，清理时在同一锁内比对记录的代次再撤销；主入口提升不改变所有权代次。旧清理不能撤销新连接的 Host，也不能用重试行覆盖其遥测。维护采用持续 interval，避免不断到来的事件反复推迟维护时点。
 
 Streamable HTTP、`mcp-stdio`、旧版 `/sse` + `/message` 共用同一个 JSON-RPC Dispatch、Harness 与 Workspace Implementation。SSE Session 绑定 Owner/Origin，有容量与 Channel 上限，并在 Stream 关闭时删除；Notification 返回 202 且不发送 Response Event，Channel 满时返回 429，不允许阻塞 Server。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
 
