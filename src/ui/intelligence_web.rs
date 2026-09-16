@@ -9,8 +9,10 @@ pub(crate) const INTELLIGENCE_CSS: &str = concat!(
     include_str!("intelligence_web/styles/engineering.css"),
     include_str!("intelligence_web/styles/structure.css"),
     // Keep responsive overrides last so component-local desktop rules cannot
-    // accidentally win on narrow touch screens.
+    // accidentally win on narrow touch screens. Edge guards come after the
+    // shared breakpoints so intrinsic WebKit widths cannot re-open overflow.
     include_str!("intelligence_web/styles/responsive.css"),
+    include_str!("intelligence_web/styles/responsive_edges.css"),
 );
 pub(crate) const INTELLIGENCE_JS: &str = concat!(
     include_str!("intelligence_web/app/core.js"),
