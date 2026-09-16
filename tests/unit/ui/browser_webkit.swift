@@ -11,15 +11,29 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     var index = 0
     let check = #"""
     (()=>{
-      const errors=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
-      const check=(ok,label)=>{if(!ok)errors.push(label);};
+      const errors=[],diagnostics=[],r=e=>e.getBoundingClientRect(),visible=e=>e.getClientRects().length>0;
+      const describe=el=>{
+        const box=r(el),style=getComputedStyle(el);
+        return {tag:el.tagName,id:el.id,className:String(el.className),
+          rect:{left:box.left,top:box.top,right:box.right,bottom:box.bottom,width:box.width,height:box.height},
+          clientWidth:el.clientWidth,scrollWidth:el.scrollWidth,clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,
+          display:style.display,position:style.position,top:style.top,bottom:style.bottom,
+          minWidth:style.minWidth,width:style.width,height:style.height,alignSelf:style.alignSelf,
+          columns:style.gridTemplateColumns,rows:style.gridTemplateRows,gap:style.gap};
+      };
+      const check=(ok,label,details)=>{if(!ok){errors.push(label);diagnostics.push({label,...details});}};
       check(window.__layoutReady===true,'production boot failed');
-      check(document.documentElement.scrollWidth<=innerWidth+1,'page overflow');
+      check(innerWidth===window.__expectedAuditWidth,'viewport resize not applied',
+        {expected:window.__expectedAuditWidth,actual:innerWidth});
+      const pageFits=document.documentElement.scrollWidth<=innerWidth+1;
+      check(pageFits,'page overflow',pageFits?undefined:{page:describe(document.documentElement),
+        outside:[...document.body.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).left < -1||r(el).right>innerWidth+1)).slice(0,24).map(describe)});
       check(document.querySelectorAll('[role="tab"][aria-selected="true"]').length===1,'tab selection');
       for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar']){
         document.querySelectorAll(selector).forEach((el,i)=>{
           if(!visible(el))return;
-          check(el.scrollWidth<=el.clientWidth+1,selector+' content overflow '+i);
+          const fits=el.scrollWidth<=el.clientWidth+1;
+          check(fits,selector+' content overflow '+i,fits?undefined:{element:describe(el),children:[...el.children].filter(visible).map(describe)});
           if(selector==='.bar-row'){
             const a=r(el.querySelector('.bar-name')),b=r(el.querySelector('.bar-val')),c=r(el.querySelector('.bar-track'));
             check(a.right<=b.left+1,'stat overlap');check(c.top>=Math.max(a.bottom,b.bottom)-1,'bar overlap');
@@ -28,14 +42,19 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       }
       document.querySelectorAll('.adaptive-cards,.code-distribution,.proof-main-grid,.proof-signal-grid').forEach(grid=>{
         if(!visible(grid))return;const parent=r(grid),children=[...grid.children].filter(visible);
-        children.forEach((child,i)=>{const a=r(child);check(a.left>=parent.left-1&&a.right<=parent.right+1&&a.bottom<=parent.bottom+1,'grid child outside '+grid.className);
-          children.slice(i+1).forEach(other=>{const b=r(other);check(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,'grid overlap '+grid.className);});});
+        children.forEach((child,i)=>{
+          const a=r(child),fits=a.left>=parent.left-1&&a.right<=parent.right+1&&a.bottom<=parent.bottom+1;
+          check(fits,'grid child outside '+grid.className,fits?undefined:{grid:describe(grid),child:describe(child),index:i});
+          children.slice(i+1).forEach(other=>{const b=r(other);check(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,'grid overlap '+grid.className);});
+        });
       });
       if(state.workspaceTab==='proof'){
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');
       }
-      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors};
+      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,
+        scrollX,scrollY,devicePixelRatio,fontStatus:document.fonts.status,
+        coarsePointer:matchMedia('(pointer:coarse)').matches,errors,diagnostics};
     })()
     """#
     override init(){
@@ -50,12 +69,13 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     func next(){
         guard index<scenarios.count else {
             let failures=reports.reduce(0){$0+(($1["errors"] as? [String])?.count ?? 1)}
-            let data=try! JSONSerialization.data(withJSONObject:["suite":"full-browser-adversarial","failures":failures,"cases":reports.count,"results":reports],options:[.prettyPrinted,.sortedKeys])
+            let failedCases=reports.filter{!(($0["errors"] as? [String])?.isEmpty ?? false)}.count
+            let data=try! JSONSerialization.data(withJSONObject:["suite":"full-browser-adversarial","failures":failures,"failed_cases":failedCases,"cases":reports.count,"results":reports],options:[.prettyPrinted,.sortedKeys])
             try! data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"));print(String(data:data,encoding:.utf8)!);exit(failures==0 ? 0:1)
         }
         let (width,lang,theme,tab)=scenarios[index];index+=1
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
-        let setup="state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);"
+        let setup="window.__expectedAuditWidth=\(width);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);"
         web.evaluateJavaScript(setup){_,error in
             if let error {fputs("\(error)\n",stderr);exit(2)}
             DispatchQueue.main.asyncAfter(deadline:.now()+0.12){self.web.evaluateJavaScript(self.check){value,error in
