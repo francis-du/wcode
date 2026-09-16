@@ -5,10 +5,12 @@ import WebKit
 
 final class BrowserAudit: NSObject, WKNavigationDelegate {
     let web: WKWebView
+    let window: NSWindow
     let widths = [320,375,720,900,1024,1240,1280,1440,1461,1597,1676,1920]
     var scenarios: [(Int,String,String,String)] = []
     var reports: [[String:Any]] = []
     var index = 0
+    var finished = false
     let check = #"""
     (()=>{
       const errors=[], diagnostics=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
@@ -51,31 +53,61 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     """#
     override init(){
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
-        web=WKWebView(frame:NSRect(x:0,y:0,width:1597,height:900),configuration:config)
+        let frame=NSRect(x:0,y:0,width:1597,height:900)
+        web=WKWebView(frame:frame,configuration:config)
+        window=NSWindow(contentRect:frame,styleMask:[.borderless],backing:.buffered,defer:false)
         super.init();web.navigationDelegate=self
+        window.isReleasedWhenClosed=false
+        window.contentView=web
+        web.autoresizingMask=[.width,.height]
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
     }
-    func start(){let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath);let file=root.appendingPathComponent("target/wcode-browser-fixture.html");web.loadFileURL(file,allowingReadAccessTo:root)}
+    func start(){
+        // A detached WKWebView can be throttled or stop delivering animation frames.
+        window.makeKeyAndOrderFront(nil)
+        let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath)
+        web.loadFileURL(root.appendingPathComponent("target/wcode-browser-fixture.html"),allowingReadAccessTo:root)
+    }
     func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){next()}
-    func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){fputs("\(error)\n",stderr);exit(2)}
+    func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){finish("Navigation failed: \(error)")}
+    func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){finish("Initial navigation failed: \(error)")}
+    func finish(_ reason:String? = nil){
+        guard !finished else{return};finished=true
+        let failures=reports.reduce(0){$0+(($1["errors"] as? [String])?.count ?? 1)} + (reason == nil && reports.count == scenarios.count ? 0:1)
+        let report:[String:Any]=["suite":"full-browser-adversarial","failures":failures,"cases":reports.count,"expected_cases":scenarios.count,"results":reports,"runner_error":reason ?? ""]
+        do {
+            let data=try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys])
+            try data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"),options:.atomic)
+            print(String(data:data,encoding:.utf8)!)
+        } catch {fputs("Cannot persist browser audit: \(error)\n",stderr);exit(2)}
+        window.close();exit(failures==0 ? 0:1)
+    }
     func next(){
-        guard index<scenarios.count else {
-            let failures=reports.reduce(0){$0+(($1["errors"] as? [String])?.count ?? 1)}
-            let data=try! JSONSerialization.data(withJSONObject:["suite":"full-browser-adversarial","failures":failures,"cases":reports.count,"results":reports],options:[.prettyPrinted,.sortedKeys])
-            try! data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"));print(String(data:data,encoding:.utf8)!);exit(failures==0 ? 0:1)
-        }
+        guard !finished else{return}
+        guard index<scenarios.count else{finish();return}
         let (width,lang,theme,tab)=scenarios[index];index+=1
-        web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
-        let setup="state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);"
-        web.evaluateJavaScript(setup){_,error in
-            if let error {fputs("\(error)\n",stderr);exit(2)}
-            DispatchQueue.main.asyncAfter(deadline:.now()+0.12){self.web.evaluateJavaScript(self.check){value,error in
-                guard error==nil,let report=value as? [String:Any] else {fputs("browser check failed\n",stderr);exit(2)}
-                self.reports.append(report);self.next()
-            }}
+        fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
+        window.setContentSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
+        let setup="""
+        state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);
+        await document.fonts.ready;
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        return innerWidth;
+        """
+        web.callAsyncJavaScript(setup,arguments:[:],in:nil,in:.page){result in
+            switch result {
+            case .failure(let error):self.finish("Browser setup failed: \(error)")
+            case .success(let value):
+                guard let actual=value as? NSNumber,actual.intValue==width else{self.finish("Requested viewport \(width), received \(value)");return}
+                self.web.evaluateJavaScript(self.check){value,error in
+                    guard error==nil,let report=value as? [String:Any] else{self.finish("Browser check failed: \(String(describing:error))");return}
+                    self.reports.append(report);self.next()
+                }
+            }
         }
     }
 }
-let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
-let audit=BrowserAudit();DispatchQueue.main.asyncAfter(deadline:.now()+90){fputs("browser audit timed out\n",stderr);exit(2)}
+let app=NSApplication.shared;app.setActivationPolicy(.accessory)
+let audit=BrowserAudit()
+DispatchQueue.main.asyncAfter(deadline:.now()+90){audit.finish("Browser audit timed out after \(audit.reports.count)/\(audit.scenarios.count) cases")}
 audit.start();app.run()

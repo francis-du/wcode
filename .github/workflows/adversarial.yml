@@ -1,0 +1,78 @@
+name: Adversarial release audit
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wcode-adversarial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webkit:
+    name: Native WebKit geometry
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Install JavaScript test runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Validate isolated and full production layouts
+        run: |
+          node tests/unit/ui/layout.cjs .
+          swift tests/unit/ui/layout_webkit.swift
+          node tests/unit/ui/browser.cjs .
+          swift tests/unit/ui/browser_webkit.swift
+      - name: Retain native layout reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wcode-native-layout-${{ github.sha }}
+          path: target/wcode-*-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  adversarial:
+    name: 30 distinct adversarial rounds
+    needs: webkit
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Install JavaScript test runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Compile adversarial Rust cases
+        run: cargo test --locked --lib --no-run
+      - name: Run all 30 rounds against stable inputs
+        run: node tests/release_audit.cjs
+      - name: Retain revision-bound audit results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wcode-adversarial-30-${{ github.sha }}
+          path: |
+            target/wcode-adversarial-30.json
+            target/wcode-*-audit.json
+          if-no-files-found: warn
+          retention-days: 14
