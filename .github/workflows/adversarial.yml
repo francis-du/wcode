@@ -1,104 +1,87 @@
-name: WebUI layout
+name: Adversarial release audit
 
 on:
-  pull_request:
-    paths:
-      - src/**
-      - tests/**
-      - Cargo.toml
-      - Cargo.lock
-      - .github/workflows/webui-layout.yml
   push:
     branches: [main, master]
-    paths:
-      - src/**
-      - tests/**
-      - Cargo.toml
-      - Cargo.lock
-      - .github/workflows/webui-layout.yml
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: webui-layout-${{ github.event.pull_request.number || github.ref }}
+  group: wcode-adversarial-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   webkit:
-    name: WebKit production layout
+    name: Native WebKit geometry
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact revision
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
       - name: Install JavaScript test runtime
         uses: actions/setup-node@v6
         with:
           node-version: "24"
           package-manager-cache: false
-
-      - name: Generate offline production fixture
-        run: node tests/unit/ui/browser.cjs .
-
-      - name: Validate real WebKit Observatory layout
-        run: swift tests/unit/ui/browser_webkit.swift
-
-      - name: Preserve reproducible layout evidence
+      - name: Validate isolated and full production layouts
+        run: |
+          node tests/unit/ui/layout.cjs .
+          swift tests/unit/ui/layout_webkit.swift
+          node tests/unit/ui/browser.cjs .
+          swift tests/unit/ui/browser_webkit.swift
+      - name: Retain native layout reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: webui-layout-${{ github.run_id }}-${{ github.run_attempt }}
+          name: wcode-native-layout-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            target/wcode-browser-fixture.html
+            target/wcode-webkit-layout.json
             target/wcode-browser-audit.json
+            target/wcode-layout-fixture.html
+            target/wcode-browser-fixture.html
             src/ui/intelligence_web/styles/
             tests/unit/ui/browser_webkit.swift
+            tests/unit/ui/layout_webkit.swift
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
   adversarial:
-    name: Thirty adversarial release rounds
+    name: 30 distinct adversarial rounds
     needs: webkit
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact revision
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-
       - name: Install JavaScript test runtime
         uses: actions/setup-node@v6
         with:
           node-version: "24"
           package-manager-cache: false
-
-      - name: Prepare adversarial test binary
+      - name: Compile adversarial Rust cases
         run: cargo test --locked --lib --no-run
-
-      - name: Validate all thirty adversarial rounds
+      - name: Run all 30 rounds against stable inputs
         run: |
           git rev-parse HEAD > target/wcode-audit-revision.txt
           node tests/release_audit.cjs
-
-      - name: Preserve revision-bound adversarial evidence
+      - name: Retain revision-bound audit results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: adversarial-30-${{ github.run_id }}-${{ github.run_attempt }}
+          name: wcode-adversarial-30-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             target/wcode-audit-revision.txt
             target/wcode-adversarial-30.json
