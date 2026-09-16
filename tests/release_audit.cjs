@@ -35,6 +35,7 @@ const rustRounds = [
   ['Navigation is routed only to its visible context','navigation_routes_only_to_the_visible_context'],
 ];
 const rounds = rustRounds.map(([name,filter],i)=>({round:i+1,name,lane:'rust',steps:[cargo(filter)]}));
+rounds[1].steps.push(cargo('tunnel_event_stays_compact_and_preserves_endpoint_ownership'));
 rounds.push({round:20,name:'Refresh status, timeouts, cancellation and revision rollback',lane:'web',steps:[node('tests/unit/ui/refresh.cjs')]});
 const scenarios = ['cached-render-failure','activity-render-failure','effective-zero-beats-history','failed-evidence-is-not-green','activity-old-error-cannot-poison-new-workspace','proof-details-are-bounded-and-escaped'];
 scenarios.forEach((name,i)=>rounds.push({round:21+i,name,lane:'web',steps:[node('tests/unit/ui/adversarial.cjs',name)]}));

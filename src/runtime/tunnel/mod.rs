@@ -178,7 +178,7 @@ pub(crate) fn normalize_public_url(value: &str) -> Result<String> {
 }
 
 pub(crate) enum TunnelEvent {
-    Connected(ActiveTunnel),
+    Connected(Box<ActiveTunnel>),
     ReconnectFailed {
         provider: TunnelProvider,
         error: String,
@@ -292,7 +292,7 @@ pub(crate) fn spawn_tunnel_supervisor(
         drop(result_tx);
         while let Some((provider, result)) = result_rx.recv().await {
             let event = match result {
-                Ok(active) => TunnelEvent::Connected(active),
+                Ok(active) => TunnelEvent::Connected(Box::new(active)),
                 Err(error) => TunnelEvent::ReconnectFailed { provider, error },
             };
             // The app registers verified endpoints in AuthState before

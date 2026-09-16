@@ -604,7 +604,8 @@ pub async fn run() -> Result<()> {
             event = tunnel_event_rx.recv() => {
                 if let Some(event) = event {
                     match event {
-                        TunnelEvent::Connected(mut active) => {
+                        TunnelEvent::Connected(active) => {
+                        let mut active = *active;
                         let public_url = active.public_url().to_owned();
                         if active.endpoint_epoch.is_none() || active.endpoint_epoch != auth.public_url_epoch(&public_url) {
                             active.stop().await;

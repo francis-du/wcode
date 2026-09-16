@@ -2,6 +2,27 @@ use super::cloudflare::extract_cloudflare_tunnel_url;
 use super::*;
 
 #[test]
+fn tunnel_event_stays_compact_and_preserves_endpoint_ownership() {
+    assert!(
+        std::mem::size_of::<TunnelEvent>() <= 64,
+        "platform-specific process handles must not inflate every queued event"
+    );
+    let mut active = ActiveTunnel::test_fixture(
+        TunnelProvider::Tailscale,
+        "https://stable.example".to_owned(),
+    );
+    active.endpoint_epoch = Some(42);
+    let event = TunnelEvent::Connected(Box::new(active));
+    let TunnelEvent::Connected(active) = event else {
+        panic!("connection event changed kind");
+    };
+    let active = *active;
+    assert_eq!(active.endpoint_epoch, Some(42));
+    assert_eq!(active.public_url(), "https://stable.example");
+    assert_eq!(active.provider(), TunnelProvider::Tailscale);
+}
+
+#[test]
 fn tunnel_runtime_never_writes_directly_to_the_terminal() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for path in [
