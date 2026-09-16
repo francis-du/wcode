@@ -3,14 +3,18 @@ name: WebUI layout
 on:
   pull_request:
     paths:
-      - src/ui/intelligence_web/**
-      - tests/unit/ui/**
+      - src/**
+      - tests/**
+      - Cargo.toml
+      - Cargo.lock
       - .github/workflows/webui-layout.yml
   push:
     branches: [main, master]
     paths:
-      - src/ui/intelligence_web/**
-      - tests/unit/ui/**
+      - src/**
+      - tests/**
+      - Cargo.toml
+      - Cargo.lock
       - .github/workflows/webui-layout.yml
   workflow_dispatch:
 
@@ -57,3 +61,48 @@ jobs:
             tests/unit/ui/browser_webkit.swift
           if-no-files-found: error
           retention-days: 3
+
+  adversarial:
+    name: Thirty adversarial release rounds
+    needs: webkit
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install JavaScript test runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Prepare adversarial test binary
+        run: cargo test --locked --lib --no-run
+
+      - name: Validate all thirty adversarial rounds
+        run: |
+          git rev-parse HEAD > target/wcode-audit-revision.txt
+          node tests/release_audit.cjs
+
+      - name: Preserve revision-bound adversarial evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: adversarial-30-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            target/wcode-audit-revision.txt
+            target/wcode-adversarial-30.json
+            target/wcode-webkit-layout.json
+            target/wcode-browser-audit.json
+          if-no-files-found: error
+          retention-days: 14
