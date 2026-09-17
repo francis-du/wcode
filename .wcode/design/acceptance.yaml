@@ -948,9 +948,7 @@
   title: One-command Agent setup is dry-run safe and idempotent
   statement: wcode setup drives the same adapter registry and reports detection evidence, supports a no-write dry run, offers Global-first interactive and Current-project scopes, keeps non-interactive writes project-scoped, installs path-free `wcode mcp-stdio`, safely writes only verified user-level Host paths for confirmed Global setup, installs the embedded `wcode` Skill without requiring a plugin directory in the user's project, merges only recognized JSON/TOML shapes, preserves unrelated servers, repeats without churn, and marks manual-only hosts honestly.
   verification:
-    - kind: test
-      path: tests/unit/integrations/agent/install.rs
-      symbol: dry_run_plans_project_local_merges_without_writing
+    - {kind: test, path: tests/unit/integrations/agent/install.rs, symbol: dry_run_plans_project_local_merges_without_writing}
     - kind: test
       path: tests/unit/integrations/agent/install.rs
       symbol: installer_merges_other_servers_and_is_idempotent

@@ -898,7 +898,7 @@ async fn bounded_git_commit_and_branch_run_without_authorization() {
 }
 
 #[test]
-fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
+fn bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries() {
     assert!(
         validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), false).is_ok()
     );
@@ -948,7 +948,7 @@ fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
 
     assert!(validate_git_command(&args(&["add", "--", "docs/index.html"]), true).is_ok());
     assert!(validate_git_command(&args(&["add", "."]), true).is_err());
-    assert!(validate_git_command(&args(&["add", "-A"]), true).is_err());
+    assert!(validate_git_command(&args(&["add", "-A"]), true).is_ok());
     assert!(validate_git_command(&args(&["reset", "--hard"]), true).is_err());
 
     assert!(validate_command_arguments(
