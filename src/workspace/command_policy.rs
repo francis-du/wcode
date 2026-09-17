@@ -897,5 +897,8 @@ mod polyglot_tests;
 #[path = "../../tests/unit/workspace/policy_relaxed.rs"]
 mod relaxed_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_remote.rs"]
+mod remote_tests;
+#[cfg(test)]
 #[path = "../../tests/unit/workspace/policy.rs"]
 mod tests;
