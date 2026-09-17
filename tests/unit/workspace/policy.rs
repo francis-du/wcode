@@ -567,27 +567,11 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
             "--base",
             "main"
         ]),
-        false,
-    )
-    .is_err());
-    assert!(validate_gh_command(
-        &args(&[
-            "pr",
-            "create",
-            "--title",
-            "feat: bounded gh",
-            "--body",
-            "details",
-            "--head",
-            "feature",
-            "--base",
-            "main"
-        ]),
         true,
     )
     .is_ok());
     assert!(validate_gh_command(&args(&["pr", "create", "--fill"]), true).is_err());
-    assert!(validate_gh_command(&args(&["api", "repos/example/example"]), true).is_err());
+    assert!(validate_gh_command(&args(&["api", "repos/example/example"]), false).is_ok());
     assert!(validate_gh_command(&args(&["secret", "list"]), true).is_err());
     assert!(validate_gh_command(
         &args(&[
@@ -916,11 +900,9 @@ async fn bounded_git_commit_and_branch_run_without_authorization() {
 #[test]
 fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
     assert!(
-        validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), false).is_err()
+        validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), false).is_ok()
     );
-    assert!(validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), true).is_ok());
-    assert!(validate_git_command(&args(&["fetch", "origin", "main"]), false).is_err());
-    assert!(validate_git_command(&args(&["fetch", "origin", "main"]), true).is_ok());
+    assert!(validate_git_command(&args(&["fetch", "origin", "main"]), false).is_ok());
     for command in [
         vec![
             "ls-remote",

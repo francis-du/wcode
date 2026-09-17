@@ -1,6 +1,6 @@
 use super::*;
 
-const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(15);
+pub(super) const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) const PUBLIC_HEALTH_PARALLELISM: usize = 4;
 static PUBLIC_HEALTH_SLOTS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
     std::sync::OnceLock::new();

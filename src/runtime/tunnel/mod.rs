@@ -10,11 +10,15 @@ use url::{Host, Url};
 
 #[path = "health.rs"]
 mod health;
+#[cfg(test)]
+use health::validate_health_response;
 pub(crate) use health::{
     check_public_endpoint, check_public_endpoint_resilient, wait_for_public_endpoint,
 };
 #[cfg(test)]
-use health::{validate_health_response, PUBLIC_HEALTH_PARALLELISM};
+pub(crate) const PUBLIC_HEALTH_PARALLELISM: usize = health::PUBLIC_HEALTH_PARALLELISM;
+#[cfg(test)]
+pub(crate) const PUBLIC_HEALTH_TIMEOUT: Duration = health::PUBLIC_HEALTH_TIMEOUT;
 
 #[path = "cloudflare.rs"]
 mod cloudflare;

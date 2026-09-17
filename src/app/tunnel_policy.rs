@@ -5,7 +5,11 @@ use std::time::{Duration, Instant};
 
 pub(in crate::app) const ENDPOINT_PROBE_INTERVAL: Duration = Duration::from_secs(3);
 pub(in crate::app) const ENDPOINT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
-pub(in crate::app) const ENDPOINT_LEASE_TTL: Duration = Duration::from_secs(45);
+// Four auto providers plus up to eight retained stable aliases can require
+// three bounded probe waves. With a 15s network budget (+1s outer timeout),
+// keep the lease comfortably beyond the ~48s worst-case queue so throttling
+// health probes cannot make a still-verified endpoint expire before its turn.
+pub(in crate::app) const ENDPOINT_LEASE_TTL: Duration = Duration::from_secs(60);
 const ENDPOINT_FAILURE_THRESHOLD: u8 = 2;
 const ENDPOINT_RECOVERY_THRESHOLD: u8 = 2;
 pub(in crate::app) const ENDPOINT_RECOVERY_GRACE: Duration = Duration::from_secs(30);

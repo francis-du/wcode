@@ -8,6 +8,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 
+const MAX_RETAINED_STABLE_ALIASES: usize = 8;
+
 #[path = "tunnel_policy.rs"]
 mod policy;
 pub(super) use policy::{
@@ -89,7 +91,6 @@ impl TunnelControlState {
     }
 
     fn retain_stable_alias(&mut self, provider: TunnelProvider, public_url: &str) -> bool {
-        const MAX_RETAINED_STABLE_ALIASES: usize = 8;
         if !self.retained_stable_aliases.contains_key(public_url)
             && self.retained_stable_aliases.len() >= MAX_RETAINED_STABLE_ALIASES
         {

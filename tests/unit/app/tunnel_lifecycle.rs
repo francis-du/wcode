@@ -517,6 +517,15 @@ fn quarantined_endpoint_revokes_after_failed_recovery_probe() {
 }
 
 #[test]
+fn endpoint_lease_outlives_the_bounded_health_probe_queue() {
+    let max_endpoints = TunnelProvider::auto_candidates().len() + MAX_RETAINED_STABLE_ALIASES;
+    let waves = max_endpoints.div_ceil(crate::tunnel::PUBLIC_HEALTH_PARALLELISM);
+    let worst_case =
+        Duration::from_secs((crate::tunnel::PUBLIC_HEALTH_TIMEOUT.as_secs() + 1) * waves as u64);
+    assert!(ENDPOINT_LEASE_TTL > worst_case);
+}
+
+#[test]
 fn endpoint_health_lease_needs_two_failures_and_expires_without_refresh() {
     let start = Instant::now();
     let mut lease = EndpointHealthLease::verified(start);
