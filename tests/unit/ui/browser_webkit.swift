@@ -67,7 +67,6 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
     }
     func start(){
-        // A detached WKWebView can be throttled or stop delivering animation frames.
         window.makeKeyAndOrderFront(nil)
         let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath)
         web.loadFileURL(root.appendingPathComponent("target/wcode-browser-fixture.html"),allowingReadAccessTo:root)

@@ -11,12 +11,9 @@ permalink: /docs/releases/
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
 
-## Next release
-
-- [v0.7.5](v0.7.5/) — Candidate: generation-bound endpoint trust, TUI shortcut isolation and responsive Observatory layouts. Not yet tagged or published; the exact release commit must pass CI first.
-
 ## 0.7.x
 
+- [v0.7.5](v0.7.5/) — concurrent instance-verified endpoints, generation-safe trust, isolated TUI shortcuts and real-WebKit responsive Observatory layouts.
 - [v0.7.4](v0.7.4/) — Workspace-session command trust, standard MCP image/audio Tool Results, and a current-product docs/UI refresh.
 
 - [v0.7.3](v0.7.3/) — lower-friction autonomous development commands, broader polyglot quality, stronger context/cache correctness, and WebUI/verification reliability.

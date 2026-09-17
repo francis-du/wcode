@@ -228,7 +228,7 @@ pub(in crate::workspace) fn command_requires_workspace_write(
             let command = args[index].as_str();
             let tail = &args[index + 1..];
             match command {
-                "add" | "commit" | "push" | "switch" | "restore" => true,
+                "add" | "commit" | "fetch" | "push" | "switch" | "restore" => true,
                 "branch" => {
                     let list_only = tail.is_empty()
                         || args_equal(tail, &["--show-current"])

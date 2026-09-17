@@ -4,20 +4,21 @@ use clap::ValueEnum;
 use std::process::{Command as StdCommand, Stdio as StdStdio};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout, Duration};
 use url::{Host, Url};
 
-const PUBLIC_HEALTH_INTERVAL: Duration = Duration::from_secs(15);
-const PUBLIC_RECOVERY_HEALTH_INTERVAL: Duration = Duration::from_secs(2);
-const PUBLIC_HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
-const PUBLIC_TRANSIENT_RECHECKS: usize = 2;
-const PUBLIC_TRANSIENT_RECHECK_DELAY: Duration = Duration::from_millis(250);
-const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 4;
-const AUTO_PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(15);
+#[path = "health.rs"]
+mod health;
+pub(crate) use health::{
+    check_public_endpoint, check_public_endpoint_resilient, wait_for_public_endpoint,
+};
+#[cfg(test)]
+use health::{validate_health_response, PUBLIC_HEALTH_PARALLELISM};
 
 #[path = "cloudflare.rs"]
 mod cloudflare;
+pub(crate) use cloudflare::provider_failure_cooldown;
 use cloudflare::{command_succeeds, ensure_cloudflared, start_cloudflared_once};
 #[path = "devtunnel.rs"]
 mod devtunnel;
@@ -77,11 +78,60 @@ impl TunnelProvider {
     }
 }
 
+// Own the process group from spawn, including startup and cancellation paths.
+struct TunnelChild {
+    child: Child,
+    #[cfg(unix)]
+    group: Option<i32>,
+}
+
+impl TunnelChild {
+    fn spawn(command: &mut Command) -> std::io::Result<Self> {
+        command.kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command.spawn()?;
+        Ok(Self {
+            #[cfg(unix)]
+            group: child.id().map(|pid| pid as i32),
+            child,
+        })
+    }
+
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(group) = self.group.take() {
+            // SAFETY: this is the dedicated group of a child we spawned.
+            unsafe { libc::kill(-group, libc::SIGKILL) };
+        }
+        self.child.start_kill()
+    }
+}
+
+impl std::ops::Deref for TunnelChild {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.child
+    }
+}
+
+impl std::ops::DerefMut for TunnelChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.child
+    }
+}
+
+impl Drop for TunnelChild {
+    fn drop(&mut self) {
+        let _ = self.start_kill();
+    }
+}
+
 pub(crate) struct ActiveTunnel {
     // Stable providers can survive a wcode restart independently of the
     // process that originally configured them. Reusing an instance-matched
     // endpoint avoids killing and recreating a healthy funnel during startup.
-    child: Option<Child>,
+    child: Option<TunnelChild>,
     // Captured by the publisher, never borrowed from a later same-URL owner.
     pub(crate) endpoint_epoch: Option<u64>,
     public_url: String,
@@ -117,10 +167,6 @@ impl ActiveTunnel {
         self.connected_at.elapsed() >= duration
     }
 
-    pub(crate) fn connected_for(&self) -> Duration {
-        self.connected_at.elapsed()
-    }
-
     pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
         match self.child.as_mut() {
             Some(child) => child.try_wait(),
@@ -132,19 +178,6 @@ impl ActiveTunnel {
         let Some(child) = self.child.as_mut() else {
             return;
         };
-        // Tunnel providers may wrap themselves in shell scripts (the macOS
-        // tailscale CLI is a #!/bin/sh shim), so killing only the direct
-        // child leaves the real provider binary orphaned. Tunnels spawn in
-        // their own process group; take the whole group down.
-        #[cfg(unix)]
-        if let Some(pid) = child.id() {
-            let _ = StdCommand::new("kill")
-                .args(["-9", &format!("-{pid}")])
-                .stdin(StdStdio::null())
-                .stdout(StdStdio::null())
-                .stderr(StdStdio::null())
-                .status();
-        }
         let _ = child.start_kill();
         let _ = child.wait().await;
     }
@@ -249,17 +282,18 @@ pub(crate) fn spawn_tunnel_supervisor(
                 let mut attempt = 0usize;
                 loop {
                     attempt += 1;
-                    match try_start_provider(
+                    let result = tokio::select! {
+                        _ = result_tx.closed() => return,
+                        result = try_start_provider(
                         provider,
-                        selected,
                         &local_url,
                         &instance_id,
                         allow_install,
                         dev_tunnel_id.as_deref(),
                         &provider_monitor,
-                    )
-                    .await
-                    {
+                    ) => result,
+                    };
+                    let delay = match result {
                         Ok(active) => {
                             let _ = result_tx.send((provider, Ok(active)));
                             return;
@@ -270,27 +304,44 @@ pub(crate) fn spawn_tunnel_supervisor(
                                 let _ = result_tx.send((provider, Err(detail)));
                                 return;
                             }
+                            let delay = provider_retry_delay(provider, attempt)
+                                .max(provider_failure_cooldown(provider, &detail));
+                            provider_monitor.mark_tunnel_retry(
+                                provider.label(),
+                                attempt.min(u32::MAX as usize) as u32,
+                                delay >= Duration::from_secs(300),
+                                delay,
+                                false,
+                            );
                             provider_monitor.operator_message(
                                 OperatorMessageKind::Warning,
                                 "tunnel",
                                 format!(
                                     "{} attempt {attempt} failed · retrying in {}s · {}",
                                     provider.label(),
-                                    provider_retry_delay(provider, attempt).as_secs(),
-                                    truncate_diagnostic(
-                                        detail.lines().next().unwrap_or("unknown error"),
-                                        160
-                                    )
+                                    delay.as_secs(),
+                                    truncate_diagnostic(&detail, 500)
                                 ),
                             );
+                            delay
                         }
+                    };
+                    tokio::select! {
+                        _ = result_tx.closed() => return,
+                        _ = sleep(delay) => {}
                     }
-                    sleep(provider_retry_delay(provider, attempt)).await;
                 }
             });
         }
         drop(result_tx);
-        while let Some((provider, result)) = result_rx.recv().await {
+        loop {
+            let received = tokio::select! {
+                _ = event_tx.closed() => return,
+                received = result_rx.recv() => received,
+            };
+            let Some((provider, result)) = received else {
+                return;
+            };
             let event = match result {
                 Ok(active) => TunnelEvent::Connected(Box::new(active)),
                 Err(error) => TunnelEvent::ReconnectFailed { provider, error },
@@ -307,7 +358,6 @@ pub(crate) fn spawn_tunnel_supervisor(
 
 async fn try_start_provider(
     provider: TunnelProvider,
-    selected: TunnelProvider,
     local_url: &str,
     instance_id: &str,
     allow_install: bool,
@@ -330,24 +380,11 @@ async fn try_start_provider(
             });
         }
     }
-    let start_result = if selected == TunnelProvider::Auto {
-        match timeout(
-            AUTO_PROVIDER_START_TIMEOUT,
-            start_tunnel_provider_once(provider, local_url, allow_install, dev_tunnel_id, monitor),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(anyhow!(
-                "{} startup timed out after {} seconds",
-                provider.label(),
-                AUTO_PROVIDER_START_TIMEOUT.as_secs()
-            )),
-        }
-    } else {
-        start_tunnel_provider_once(provider, local_url, allow_install, dev_tunnel_id, monitor).await
-    };
-    let (mut child, public_url) = start_result?;
+    // Each provider owns its startup deadline and diagnostics. An outer auto
+    // deadline used to cancel Funnel before certificate provisioning finished.
+    let (mut child, public_url) =
+        start_tunnel_provider_once(provider, local_url, allow_install, dev_tunnel_id, monitor)
+            .await?;
     if let Err(error) = verify_tunnel_candidate(&public_url, instance_id).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
@@ -360,173 +397,6 @@ async fn try_start_provider(
         provider,
         connected_at: std::time::Instant::now(),
     })
-}
-
-pub(crate) async fn public_endpoint_health_loop(
-    public_url: String,
-    instance_id: String,
-    monitor: TaskMonitor,
-    mut stop: watch::Receiver<bool>,
-) {
-    loop {
-        if *stop.borrow() {
-            return;
-        }
-        let applied = match check_public_endpoint_resilient(&public_url, &instance_id).await {
-            Ok(()) => monitor.mark_managed_public_url_check(&public_url, true, None),
-            Err(error) => monitor.mark_managed_public_url_check(&public_url, false, Some(error)),
-        };
-        if !applied {
-            return;
-        }
-        let status = monitor.connection_status();
-        let interval = public_health_interval(
-            status.public_url_healthy,
-            status.public_url_consecutive_failures,
-        );
-        tokio::select! {
-            _ = sleep(interval) => {},
-            changed = stop.changed() => {
-                if changed.is_err() || *stop.borrow() {
-                    return;
-                }
-            }
-        }
-    }
-}
-
-fn public_health_interval(healthy: Option<bool>, consecutive_failures: u8) -> Duration {
-    if healthy == Some(true) && consecutive_failures == 0 {
-        PUBLIC_HEALTH_INTERVAL
-    } else {
-        PUBLIC_RECOVERY_HEALTH_INTERVAL
-    }
-}
-
-pub(crate) async fn wait_for_public_endpoint(
-    public_url: &str,
-    instance_id: &str,
-    monitor: &TaskMonitor,
-) -> Result<(), String> {
-    monitor.operator_message(
-        OperatorMessageKind::Info,
-        "endpoint",
-        "verifying this wcode instance",
-    );
-    let mut last_error = String::new();
-    for attempt in 1..=PUBLIC_STARTUP_HEALTH_ATTEMPTS {
-        match check_public_endpoint(public_url, instance_id).await {
-            Ok(()) => {
-                monitor.mark_public_url_check(true, None);
-                monitor.operator_message(
-                    OperatorMessageKind::Success,
-                    "endpoint",
-                    "reachable and instance-matched",
-                );
-                return Ok(());
-            }
-            Err(error) => {
-                last_error = error;
-                monitor.mark_public_url_check(false, Some(last_error.clone()));
-                monitor.operator_message(
-                    OperatorMessageKind::Warning,
-                    "endpoint",
-                    format!(
-                        "attempt {attempt}/{PUBLIC_STARTUP_HEALTH_ATTEMPTS} failed · {}",
-                        truncate_diagnostic(&last_error, 180)
-                    ),
-                );
-                if attempt < PUBLIC_STARTUP_HEALTH_ATTEMPTS {
-                    sleep(Duration::from_secs(attempt.min(3) as u64)).await;
-                }
-            }
-        }
-    }
-    Err(last_error)
-}
-
-pub(crate) async fn check_public_endpoint_resilient(
-    public_url: &str,
-    expected_instance_id: &str,
-) -> Result<(), String> {
-    match check_public_endpoint(public_url, expected_instance_id).await {
-        Ok(()) => Ok(()),
-        Err(mut last_error) => {
-            for _ in 0..PUBLIC_TRANSIENT_RECHECKS {
-                sleep(PUBLIC_TRANSIENT_RECHECK_DELAY).await;
-                match check_public_endpoint(public_url, expected_instance_id).await {
-                    Ok(()) => return Ok(()),
-                    Err(error) => last_error = error,
-                }
-            }
-            Err(last_error)
-        }
-    }
-}
-
-pub(crate) async fn check_public_endpoint(
-    public_url: &str,
-    expected_instance_id: &str,
-) -> Result<(), String> {
-    let health_url = format!("{public_url}/healthz");
-    let mut command = Command::new("curl");
-    command
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--connect-timeout",
-            "2",
-            "--max-time",
-            "3",
-            &health_url,
-        ])
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let output = timeout(PUBLIC_HEALTH_TIMEOUT, command.output())
-        .await
-        .map_err(|_| {
-            format!(
-                "health check timed out after {}s",
-                PUBLIC_HEALTH_TIMEOUT.as_secs()
-            )
-        })?
-        .map_err(|error| format!("curl could not run: {error}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "curl exited with {}{}",
-            output.status,
-            if stderr.trim().is_empty() {
-                String::new()
-            } else {
-                format!(": {}", truncate_diagnostic(stderr.trim(), 180))
-            }
-        ));
-    }
-    validate_health_response(&output.stdout, expected_instance_id)
-}
-
-pub(crate) fn validate_health_response(
-    body: &[u8],
-    expected_instance_id: &str,
-) -> Result<(), String> {
-    let payload: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|error| format!("health endpoint returned invalid JSON: {error}"))?;
-    let actual = payload
-        .get("instance_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "health response is missing instance_id".to_owned())?;
-    if actual != expected_instance_id {
-        return Err(format!(
-            "health response belongs to a different wcode instance ({})",
-            truncate_diagnostic(actual, 12)
-        ));
-    }
-    if payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
-        return Err("health response did not report ok=true".to_owned());
-    }
-    Ok(())
 }
 
 fn truncate_diagnostic(value: &str, max_chars: usize) -> String {
@@ -545,15 +415,19 @@ async fn start_tunnel_provider_once(
     install_missing: bool,
     dev_tunnel_id: Option<&str>,
     monitor: &TaskMonitor,
-) -> Result<(Child, String)> {
+) -> Result<(TunnelChild, String)> {
     match provider {
         TunnelProvider::Auto => bail!("auto is a tunnel selection policy, not a concrete provider"),
         TunnelProvider::Cloudflare => {
-            ensure_cloudflared(install_missing, monitor)?;
+            let dependency_monitor = monitor.clone();
+            run_blocking_tunnel_setup("cloudflared dependency setup", move || {
+                ensure_cloudflared(install_missing, &dependency_monitor)
+            })
+            .await?;
             start_cloudflared_once(local_url).await
         }
         TunnelProvider::LocalhostRun | TunnelProvider::Pinggy => {
-            ensure_ssh()?;
+            run_blocking_tunnel_setup("OpenSSH dependency check", ensure_ssh).await?;
             start_ssh_tunnel_once(provider, local_url).await
         }
         TunnelProvider::Tailscale => {
@@ -562,7 +436,7 @@ async fn start_tunnel_provider_once(
                 "tailscale",
                 "requires CLI installed · `tailscale up` logged in · Funnel enabled",
             );
-            ensure_tailscale()?;
+            run_blocking_tunnel_setup("tailscale dependency check", ensure_tailscale).await?;
             start_tailscale_funnel_once(local_url, monitor).await
         }
         TunnelProvider::DevTunnel => {
@@ -573,10 +447,20 @@ async fn start_tunnel_provider_once(
                         "dev-tunnel requires --dev-tunnel-id with an existing persistent tunnel"
                     )
                 })?;
-            ensure_devtunnel()?;
+            run_blocking_tunnel_setup("devtunnel dependency check", ensure_devtunnel).await?;
             start_devtunnel_once(local_url, tunnel_id, monitor).await
         }
     }
+}
+
+async fn run_blocking_tunnel_setup<T, F>(label: &'static str, operation: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(operation)
+        .await
+        .with_context(|| format!("{label} worker failed"))?
 }
 
 fn ensure_tailscale() -> Result<()> {
@@ -590,10 +474,9 @@ fn ensure_tailscale() -> Result<()> {
 
 async fn start_tailscale_funnel_once(
     local_url: &str,
-    monitor: &TaskMonitor,
-) -> Result<(Child, String)> {
-    let public_url = tailscale_funnel_url()?;
-    reclaim_stale_funnel(local_url, monitor);
+    _monitor: &TaskMonitor,
+) -> Result<(TunnelChild, String)> {
+    let public_url = tailscale_funnel_url().await?;
     let mut command = Command::new("tailscale");
     command
         .args(["funnel", local_url])
@@ -601,11 +484,7 @@ async fn start_tailscale_funnel_once(
         .stdout(StdStdio::piped())
         .stderr(StdStdio::piped())
         .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = command
-        .spawn()
-        .context("failed to start tailscale funnel")?;
+    let mut child = TunnelChild::spawn(&mut command).context("failed to start tailscale funnel")?;
     let recent_logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     // Funnel prints setup guidance (for example the "not enabled" notice and
     // its enable URL) on stdout, so both streams must be drained.
@@ -632,7 +511,8 @@ async fn start_tailscale_funnel_once(
     let log_text = |logs: &[String]| logs.join("\n");
     // Funnel may need a moment to provision its certificate; wait until it
     // serves, exits, or reports that the tailnet has not enabled Funnel.
-    for _ in 0..25 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while tokio::time::Instant::now() < deadline {
         match child.try_wait() {
             Ok(Some(status)) => bail!(
                 "tailscale funnel exited with {status}: {}",
@@ -660,7 +540,11 @@ async fn start_tailscale_funnel_once(
                 .unwrap_or_default();
             bail!("tailscale Funnel is not enabled on your tailnet; enable it at {enable_url}");
         }
-        if funnel_serving(&public_url).await {
+        // The CLI publishes the URL once Serve is configured. The common
+        // instance-health gate then verifies it once with the full cold TLS budget.
+        if logs.iter().any(|line| line.trim().starts_with(&public_url))
+            || funnel_serving(&public_url).await
+        {
             return Ok((child, public_url));
         }
         sleep(Duration::from_secs(1)).await;
@@ -668,13 +552,13 @@ async fn start_tailscale_funnel_once(
     let _ = child.start_kill();
     let _ = child.wait().await;
     bail!(
-        "tailscale funnel did not become reachable within 25 seconds: {}",
+        "tailscale funnel did not become reachable within 60 seconds: {}",
         log_text(&recent_logs.lock().expect("tunnel log lock poisoned"))
     );
 }
 
 async fn funnel_serving(public_url: &str) -> bool {
-    let health_url = format!("{public_url}/healthz");
+    let health_url = format!("{public_url}/healthz/probe");
     let output = Command::new("curl")
         .args([
             "--silent",
@@ -683,7 +567,7 @@ async fn funnel_serving(public_url: &str) -> bool {
             "--write-out",
             "%{http_code}",
             "--max-time",
-            "3",
+            "15",
             &health_url,
         ])
         .stdin(std::process::Stdio::null())
@@ -695,54 +579,22 @@ async fn funnel_serving(public_url: &str) -> bool {
         && String::from_utf8_lossy(&result.stdout).trim() != "000")
 }
 
-/// A hard-killed wcode can leave an orphaned `tailscale funnel` child that
-/// still holds the node's only 443 listener, permanently blocking every
-/// funnel attempt of the next run. Reclaim orphans that forward to this
-/// exact local URL; anything else belongs to another operator process and
-/// must not be touched.
-fn reclaim_stale_funnel(local_url: &str, monitor: &TaskMonitor) {
-    let Ok(output) = StdCommand::new("ps")
-        .args(["-axo", "pid=,ppid=,command="])
-        .stdin(StdStdio::null())
-        .stdout(StdStdio::piped())
-        .stderr(StdStdio::null())
-        .output()
-    else {
-        return;
-    };
-    let processes = String::from_utf8_lossy(&output.stdout);
-    for line in processes.lines() {
-        let mut fields = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
-            continue;
-        };
-        if ppid != "1" || !line.contains("tailscale funnel") || !line.contains(local_url) {
-            continue;
-        }
-        let Ok(pid) = pid.parse::<i32>() else {
-            continue;
-        };
-        monitor.operator_message(
-            OperatorMessageKind::Warning,
-            "tailscale",
-            format!("reclaiming stale funnel process {pid} for {local_url}"),
-        );
-        let _ = StdCommand::new("kill")
-            .arg(pid.to_string())
+async fn tailscale_funnel_url() -> Result<String> {
+    let output = timeout(
+        Duration::from_secs(10),
+        Command::new("tailscale")
+            .args(["status", "--json"])
             .stdin(StdStdio::null())
-            .stdout(StdStdio::null())
             .stderr(StdStdio::null())
-            .status();
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .context("tailscale status timed out")?
+    .context("failed to run `tailscale status`")?;
+    if !output.status.success() {
+        bail!("tailscale status failed: {}", output.status);
     }
-}
-
-fn tailscale_funnel_url() -> Result<String> {
-    let output = StdCommand::new("tailscale")
-        .args(["status", "--json"])
-        .stdin(StdStdio::null())
-        .stderr(StdStdio::null())
-        .output()
-        .context("failed to run `tailscale status`")?;
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).context("tailscale status returned invalid JSON")?;
     let dns_name = payload["Self"]["DNSName"]
@@ -756,10 +608,7 @@ fn tailscale_funnel_url() -> Result<String> {
 }
 
 async fn reusable_tailscale_endpoint(instance_id: &str) -> Option<String> {
-    let public_url = tokio::task::spawn_blocking(tailscale_funnel_url)
-        .await
-        .ok()?
-        .ok()?;
+    let public_url = tailscale_funnel_url().await.ok()?;
     check_public_endpoint_resilient(&public_url, instance_id)
         .await
         .ok()?;
@@ -790,7 +639,7 @@ async fn verify_tunnel_candidate(public_url: &str, instance_id: &str) -> Result<
 async fn start_ssh_tunnel_once(
     provider: TunnelProvider,
     local_url: &str,
-) -> Result<(Child, String)> {
+) -> Result<(TunnelChild, String)> {
     let local = Url::parse(local_url).context("invalid local tunnel target URL")?;
     let host = local
         .host_str()
@@ -842,10 +691,7 @@ async fn start_ssh_tunnel_once(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = command
-        .spawn()
+    let mut child = TunnelChild::spawn(&mut command)
         .with_context(|| format!("failed to start {} SSH tunnel", provider.label()))?;
     let stdout = child
         .stdout

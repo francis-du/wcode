@@ -429,7 +429,7 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
         .find(|tunnel| tunnel["provider"] == "test")
         .unwrap();
     assert_eq!(compact_live["mcp_url"], full_live["mcp_url"]);
-    assert_eq!(compact_live["role"], "standby");
+    assert_eq!(compact_live["role"], "active");
     assert_eq!(compact_live["state"], "verified");
     let retrying = full["tunnels"]
         .as_array()

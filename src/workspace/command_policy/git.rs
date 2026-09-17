@@ -51,6 +51,14 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
         return Ok(());
     }
     match subcommand {
+        "ls-remote" => {
+            validate_git_remote_read(tail)?;
+            require_risky_exec("git ls-remote", allow_risky_exec)?;
+        }
+        "fetch" => {
+            validate_git_fetch(tail)?;
+            require_risky_exec("git fetch", allow_risky_exec)?;
+        }
         "add" => validate_git_add(tail)?,
         "commit" => validate_git_commit(tail)?,
         "push" => validate_git_push(tail)?,
@@ -109,6 +117,62 @@ fn git_inspection_only(command: &str, args: &[String]) -> bool {
         ("remote", ["get-url", remote]) => !remote.is_empty() && !remote.starts_with('-'),
         _ => false,
     }
+}
+
+fn validate_git_remote_read(args: &[String]) -> Result<()> {
+    if args.len() != 2 || !bounded_remote_name(&args[0]) || !bounded_remote_ref(&args[1], false) {
+        bail!("git ls-remote requires one configured remote name and one explicit heads/tags ref");
+    }
+    Ok(())
+}
+
+fn validate_git_fetch(args: &[String]) -> Result<()> {
+    if args.len() != 2 || !bounded_remote_name(&args[0]) || !bounded_remote_ref(&args[1], true) {
+        bail!("git fetch requires one configured remote name and one explicit branch ref");
+    }
+    Ok(())
+}
+
+fn bounded_remote_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+}
+
+fn bounded_remote_ref(value: &str, allow_short_branch: bool) -> bool {
+    if value == "HEAD" {
+        return !allow_short_branch;
+    }
+    let body = if let Some(body) = value.strip_prefix("refs/heads/") {
+        body
+    } else if !allow_short_branch {
+        let Some(body) = value.strip_prefix("refs/tags/") else {
+            return false;
+        };
+        body
+    } else {
+        value
+    };
+    !body.is_empty()
+        && body.len() <= 256
+        && !body.starts_with('-')
+        && !body.contains("..")
+        && !body.contains("//")
+        && !body.contains("@{")
+        && !body.ends_with('/')
+        && body.split('/').all(|component| {
+            !component.is_empty()
+                && !component.starts_with('.')
+                && !component.ends_with('.')
+                && !component.ends_with(".lock")
+                && component
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+        })
 }
 
 fn validate_git_named_operation(command: &str, args: &[String]) -> Result<()> {

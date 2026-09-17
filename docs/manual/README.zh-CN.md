@@ -65,7 +65,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
-- [v0.7.5 发布候选](releases/v0.7.5/) — 入口信任代次校验、TUI 快捷键消歧与观测台响应式布局修复。
+- [v0.7.5 发布说明](releases/v0.7.5/) — 并发验证入口、入口信任代次校验、TUI 快捷键消歧与观测台响应式布局修复。
 - [v0.7.4 发布说明](releases/v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Content，以及按当前产品重做的文档/UI。
 - [v0.7.3 发布说明](releases/v0.7.3/) — 有界开发命令默认自治、更完整的 Deno/Flutter 质量覆盖、更可靠的仓库智能 Cache，以及 WebUI/Verification 稳定性修复。
 - [v0.7.2 发布说明](releases/v0.7.2/) — 更清晰的 Observatory／TUI／Setup 状态、模型高效工具发现、Agent Context 检索遥测与更精确的 Verification Mesh Target。

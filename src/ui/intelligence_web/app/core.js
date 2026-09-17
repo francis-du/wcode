@@ -685,7 +685,7 @@ function cancelTunnelRefresh() {
   controller?.abort();
 }
 function tunnelDashboardUrl(tunnel) {
-  if (!tunnel?.url || tunnel.role !== "primary") return "";
+  if (!tunnel?.url || tunnel.role !== "active") return "";
   try {
     const url = new URL("/intelligence", tunnel.url);
     if (!['http:', 'https:'].includes(url.protocol)) return "";
@@ -703,7 +703,7 @@ async function refreshTunnels() {
   const controller = new AbortController();
   state.tunnelController = controller;
   state.tunnelBusy = true;
-  const deadline = setTimeout(() => controller.abort(), 10000);
+  const deadline = setTimeout(() => controller.abort(), 20000);
   state.tunnelTimer = deadline;
   try {
     // Keep /healthz: the setup projection omits retrying tunnels and diagnostics.
@@ -879,6 +879,39 @@ async function uiJson(path, method = "GET", body, options = {}) {
     clearTimeout(deadline);
     options.signal?.removeEventListener("abort", abort);
   }
+}
+function requestFailureMessage(error) {
+  const status = Number.isInteger(error?.status) ? error.status : null;
+  let message;
+  if (error?.code === "authorization_required" || status === 401) {
+    message = localized("Authorization required. Reopen the current WCode page from the terminal.", "需要重新授权。请从 WCode 终端重新打开当前页面。");
+  } else if (status === 403) {
+    message = localized("Access denied. Review the current session authorization and try again.", "访问被拒绝。请检查当前会话授权后重试。");
+  } else if (error?.code === "timeout" || status === 408 || status === 504) {
+    message = localized("Request timed out. Check WCode logs and try again.", "请求超时。请检查 WCode 日志后重试。");
+  } else if (error?.code === "network" || error?.name === "AbortError") {
+    message = localized("Connection failed. Check that WCode is still running, then retry.", "连接失败。请确认 WCode 仍在运行后重试。");
+  } else if (error?.code === "invalid_response") {
+    message = localized("The server returned an invalid response. Check WCode logs and refresh the page.", "服务端返回了无效响应。请检查 WCode 日志并刷新页面。");
+  } else if (status === 400) {
+    message = localized("Request rejected. Check the entered values and try again.", "请求被拒绝。请检查输入内容后重试。");
+  } else if (status === 404) {
+    message = localized("The requested endpoint is unavailable. Refresh the current WCode page.", "当前接口不可用。请刷新当前 WCode 页面。");
+  } else if (status === 409) {
+    message = localized("State changed while the request was running. Refresh before retrying.", "请求执行期间状态已变化。请先刷新再重试。");
+  } else if (status === 429) {
+    message = localized("WCode is busy. Let the current work settle, then retry.", "WCode 当前繁忙。请等待现有任务缓解后重试。");
+  } else if (status && status >= 500) {
+    message = localized("WCode could not complete the request. Check the logs, then retry.", "WCode 未能完成请求。请检查日志后重试。");
+  } else if (status) {
+    message = state.language === "zh-CN" ? `请求失败（HTTP ${status}）。` : `Request failed (HTTP ${status}).`;
+  } else {
+    message = error?.message || localized("Request failed. Check WCode logs and try again.", "请求失败。请检查 WCode 日志后重试。");
+  }
+  if (error?.uncertain) {
+    message += localized(" The operation may have completed; refresh its state before retrying.", " 操作可能已经完成；重试前请先刷新实际状态。");
+  }
+  return message;
 }
 function authorizationKind(kind) {
   return {

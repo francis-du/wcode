@@ -380,10 +380,11 @@ async function refreshSemantics() {
     }
   } catch (error) {
     if (!observationCurrent(stamp)) return;
-    if (error.message.includes("authorization required")) {
+    console.warn("wcode: semantic refresh failed", error);
+    if (error.code === "authorization_required" || error.message.includes("authorization required")) {
       state.semanticRefreshPending = true; setAccessPanel(true); await loadAccess();
       if (observationCurrent(stamp)) setSync("warn", t("Semantic refresh needs approval"));
-    } else setSync("error", `${t("Refresh failed")} · ${error.message}`);
+    } else setSync("error", `${t("Refresh failed")} · ${requestFailureMessage(error)}`);
   } finally { els.refreshSemantic.disabled = false; }
 }
 function autoEnabled() { return state.autoRefresh && !document.hidden; }

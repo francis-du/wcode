@@ -915,6 +915,38 @@ async fn bounded_git_commit_and_branch_run_without_authorization() {
 
 #[test]
 fn git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries() {
+    assert!(
+        validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), false).is_err()
+    );
+    assert!(validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), true).is_ok());
+    assert!(validate_git_command(&args(&["fetch", "origin", "main"]), false).is_err());
+    assert!(validate_git_command(&args(&["fetch", "origin", "main"]), true).is_ok());
+    for command in [
+        vec![
+            "ls-remote",
+            "https://example.com/repository.git",
+            "refs/heads/main",
+        ],
+        vec!["ls-remote", "origin", "refs/heads/*"],
+        vec!["fetch", "origin", "--all"],
+        vec!["fetch", "origin", "+main:main"],
+        vec!["fetch", "origin", "../main"],
+        vec!["fetch", "origin"],
+    ] {
+        assert!(
+            validate_git_command(&args(&command), true).is_err(),
+            "unsafe remote-read shape was accepted: {command:?}"
+        );
+    }
+    assert!(command_requires_workspace_write(
+        "git",
+        &args(&["fetch", "origin", "main"])
+    ));
+    assert!(!command_requires_workspace_write(
+        "git",
+        &args(&["ls-remote", "origin", "refs/heads/main"])
+    ));
+
     assert!(validate_git_command(&args(&["push", "origin", "main"]), false).is_ok());
     assert!(validate_git_command(&args(&["push", "origin", "main"]), true).is_ok());
     assert!(validate_git_command(&args(&["push"]), false).is_ok());

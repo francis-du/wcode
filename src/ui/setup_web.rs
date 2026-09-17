@@ -125,8 +125,8 @@ function publicEndpoint(value){
 }
 function selectEndpoint(data){
   if(!data||data.ok!==true||data.public_endpoint==='local-only'||data.public_url_healthy===false)return null;
-  var primary=data.public_url_healthy===true?publicEndpoint(data.mcp_url):null;
-  if(primary)return primary;
+  var current=data.public_url_healthy===true?publicEndpoint(data.mcp_url):null;
+  if(current)return current;
   var tunnels=Array.isArray(data.tunnels)?data.tunnels:[];
   for(var i=0;i<Math.min(tunnels.length,8);i++){var endpoint=publicEndpoint(tunnels[i]&&tunnels[i].mcp_url);if(endpoint)return endpoint;}
   return null;

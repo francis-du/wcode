@@ -42,6 +42,39 @@ fn tunnel_runtime_never_writes_directly_to_the_terminal() {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn blocking_tunnel_dependency_setup_does_not_stall_async_runtime() {
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let worker = tokio::spawn(async move {
+        run_blocking_tunnel_setup("test dependency", move || {
+            let _ = started_tx.send(());
+            release_rx
+                .recv_timeout(Duration::from_secs(2))
+                .map_err(|error| anyhow!("test dependency release failed: {error}"))?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    });
+
+    timeout(Duration::from_secs(1), started_rx)
+        .await
+        .expect("blocking worker should start")
+        .expect("blocking worker should report startup");
+    timeout(
+        Duration::from_millis(100),
+        tokio::time::sleep(Duration::from_millis(10)),
+    )
+    .await
+    .expect("a blocking dependency check must not stall the async runtime");
+    release_tx.send(()).unwrap();
+    timeout(Duration::from_secs(1), worker)
+        .await
+        .expect("blocking worker should finish")
+        .expect("blocking worker task should join");
+}
+
 #[tokio::test]
 async fn recovered_stable_tunnel_is_not_treated_as_a_dead_child_process() {
     let mut tunnel = ActiveTunnel {
@@ -75,27 +108,11 @@ fn public_health_response_must_match_the_current_instance() {
 }
 
 #[test]
-fn primary_health_uses_fast_confirmation_after_any_failure_streak() {
-    assert_eq!(PUBLIC_TRANSIENT_RECHECKS, 2);
-    assert_eq!(PUBLIC_TRANSIENT_RECHECK_DELAY, Duration::from_millis(250));
-    assert!(
-        PUBLIC_TRANSIENT_RECHECK_DELAY * PUBLIC_TRANSIENT_RECHECKS as u32 <= Duration::from_secs(1)
-    );
+fn health_probe_parallelism_covers_auto_providers_without_unbounded_alias_fanout() {
     assert_eq!(
-        public_health_interval(Some(true), 0),
-        PUBLIC_HEALTH_INTERVAL
-    );
-    assert_eq!(
-        public_health_interval(Some(true), 1),
-        PUBLIC_RECOVERY_HEALTH_INTERVAL
-    );
-    assert_eq!(
-        public_health_interval(Some(false), 0),
-        PUBLIC_RECOVERY_HEALTH_INTERVAL
-    );
-    assert_eq!(
-        public_health_interval(None, 0),
-        PUBLIC_RECOVERY_HEALTH_INTERVAL
+        PUBLIC_HEALTH_PARALLELISM,
+        TunnelProvider::auto_candidates().len(),
+        "all auto providers may probe concurrently, but retained aliases must queue"
     );
 }
 
@@ -328,4 +345,81 @@ fn parses_persistent_devtunnel_url_for_the_selected_port() {
         ),
         None
     );
+}
+
+#[test]
+fn provisioning_rate_limits_get_a_cooldown_without_delaying_transport_retries() {
+    for error in [
+        "quick tunnel provisioning failed with status 429: error code: 1015",
+        "cloudflared exited before producing a public URL:\nlogs\nerror code: 1015",
+        "Cloudflare provisioning rate limited (HTTP 429 / error 1015)",
+    ] {
+        assert_eq!(
+            provider_failure_cooldown(TunnelProvider::Cloudflare, error),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            provider_failure_cooldown(TunnelProvider::Pinggy, error),
+            Duration::ZERO
+        );
+    }
+    assert_eq!(
+        provider_failure_cooldown(TunnelProvider::Cloudflare, "TLS handshake timeout"),
+        Duration::ZERO
+    );
+    assert_eq!(
+        provider_failure_cooldown(
+            TunnelProvider::Tailscale,
+            "Funnel is not enabled on your tailnet"
+        ),
+        Duration::from_secs(300)
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancelled_tunnel_startup_closes_descendant_pipes_without_touching_other_children() {
+    use tokio::io::AsyncReadExt;
+    let mut unrelated = Command::new("sleep")
+        .arg("30")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let worker = tokio::spawn(async move {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "sleep 30 & echo ready; wait"])
+            .stdout(StdStdio::piped())
+            .stderr(StdStdio::null());
+        let mut child = TunnelChild::spawn(&mut command).unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).await.unwrap();
+        assert_eq!(line.trim(), "ready");
+        ready_tx.send(stdout).unwrap();
+        std::future::pending::<()>().await;
+        drop(child);
+    });
+    let mut stdout = timeout(Duration::from_secs(5), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    worker.abort();
+    let _ = worker.await;
+    let mut remaining = String::new();
+    let closed = timeout(
+        Duration::from_secs(3),
+        stdout.read_to_string(&mut remaining),
+    )
+    .await;
+    assert!(
+        closed.is_ok(),
+        "an orphaned grandchild still holds the pipe open"
+    );
+    assert!(
+        unrelated.try_wait().unwrap().is_none(),
+        "unrelated process was killed"
+    );
+    unrelated.kill().await.unwrap();
 }

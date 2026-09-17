@@ -40,20 +40,12 @@ pub(super) fn render_setup(
         "FIXED ENDPOINT"
     };
     let endpoint_mode = snapshot.public_endpoint.as_deref().unwrap_or("pending");
-    let endpoint_ready = match endpoint_mode {
-        "quick-tunnel" => {
-            snapshot.tunnel_running == Some(true) && snapshot.public_url_healthy != Some(false)
-        }
-        "external" => snapshot.public_url_healthy == Some(true),
-        "local-only" => true,
-        "pending" => false,
-        _ => false,
-    };
+    let endpoint_ready = public_endpoint_ready(snapshot);
     let endpoint_detail = if let Some(error) = snapshot.tunnel_error.as_deref() {
         format!("stopped · {}", truncate_end(error, 28))
     } else {
         match endpoint_mode {
-            "quick-tunnel" | "external" => public_url_health_text(snapshot),
+            "quick-tunnel" | "external" | "concurrent" => public_url_health_text(snapshot),
             "local-only" => "local only".to_owned(),
             _ => snapshot
                 .tunnel_activity
@@ -218,40 +210,25 @@ pub(super) fn render_setup(
     );
 }
 
+pub(super) fn public_endpoint_ready(snapshot: &MonitorSnapshot) -> bool {
+    match snapshot.public_endpoint.as_deref().unwrap_or("pending") {
+        "quick-tunnel" => {
+            snapshot.tunnel_running == Some(true) && snapshot.public_url_healthy != Some(false)
+        }
+        "external" | "concurrent" => snapshot.public_url_healthy == Some(true),
+        "local-only" => true,
+        "pending" => false,
+        _ => false,
+    }
+}
+
 fn tunnel_runtime_summary(snapshot: &MonitorSnapshot) -> String {
-    let primary = snapshot
+    snapshot
         .tunnel_runtime
         .iter()
-        .find(|tunnel| tunnel.role == "primary");
-    let standby = snapshot
-        .tunnel_runtime
-        .iter()
-        .filter(|tunnel| tunnel.role == "standby" && tunnel.state != "quarantined")
-        .count();
-    let retrying = snapshot
-        .tunnel_runtime
-        .iter()
-        .filter(|tunnel| tunnel.role == "retrying" && !tunnel.circuit_open)
-        .count();
-    let circuits = snapshot
-        .tunnel_runtime
-        .iter()
-        .filter(|tunnel| tunnel.circuit_open)
-        .count();
-    let mut parts = Vec::with_capacity(4);
-    if let Some(primary) = primary {
-        parts.push(format!("P {} {}", primary.provider, primary.state));
-    }
-    if standby > 0 {
-        parts.push(format!("S{standby}"));
-    }
-    if retrying > 0 {
-        parts.push(format!("R{retrying}"));
-    }
-    if circuits > 0 {
-        parts.push(format!("C{circuits}"));
-    }
-    parts.join(" · ")
+        .map(|tunnel| format!("{} {}", tunnel.provider, tunnel.state))
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn tunnel_lines(snapshot: &MonitorSnapshot, width: usize) -> Vec<Line<'static>> {
