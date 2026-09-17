@@ -27,7 +27,7 @@ pub(super) async fn start_devtunnel_once(
     local_url: &str,
     tunnel_id: &str,
     monitor: &TaskMonitor,
-) -> Result<(Child, String)> {
+) -> Result<(TunnelChild, String)> {
     validate_devtunnel_id(tunnel_id)?;
     let local = Url::parse(local_url).context("invalid local tunnel target URL")?;
     let port = local
@@ -48,11 +48,8 @@ pub(super) async fn start_devtunnel_once(
         .stdout(StdStdio::piped())
         .stderr(StdStdio::piped())
         .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = command
-        .spawn()
-        .context("failed to start Microsoft Dev Tunnel")?;
+    let mut child =
+        TunnelChild::spawn(&mut command).context("failed to start Microsoft Dev Tunnel")?;
     let stdout = child
         .stdout
         .take()

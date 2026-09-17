@@ -131,6 +131,17 @@ jobs:
           node tests/unit/ui/browser.cjs .
           swift tests/unit/ui/browser_webkit.swift
 
+      - name: Upload WebKit layout diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: webkit-layout-diagnostics
+          path: |
+            target/wcode-browser-audit.json
+            target/wcode-browser-fixture.html
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Validate Windows installer
         if: runner.os == 'Windows'
         shell: pwsh

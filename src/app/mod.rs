@@ -461,8 +461,8 @@ pub async fn run() -> Result<()> {
     let shared_public_url = Arc::new(std::sync::RwLock::new(local_url.clone()));
     let (tunnel_settled_tx, tunnel_settled_rx) = watch::channel(false);
     let (tunnel_event_tx, mut tunnel_event_rx) = tokio::sync::mpsc::channel::<TunnelEvent>(8);
-    let (standby_probe_tx, mut standby_probe_rx) =
-        tokio::sync::mpsc::channel::<tunnel_lifecycle::StandbyProbeEvent>(8);
+    let (endpoint_probe_tx, mut endpoint_probe_rx) =
+        tokio::sync::mpsc::channel::<tunnel_lifecycle::EndpointProbeEvent>(8);
     let mut tunnel_control = tunnel_lifecycle::TunnelControlState::default();
     let mut imessage_sent = std::collections::HashMap::<String, String>::new();
     let tunnel_spawn_context = tunnel_lifecycle::TunnelSpawnContext::new(
@@ -525,11 +525,10 @@ pub async fn run() -> Result<()> {
         }
     }
 
-    let mut primary_runtime = tunnel_lifecycle::PrimaryRuntime::new(
+    let endpoint_display = tunnel_lifecycle::EndpointDisplay::new(
         auth.clone(),
         monitor.clone(),
         shared_public_url.clone(),
-        watch::channel(false).0,
     );
 
     let intelligence_url = format!("{local_url}/intelligence#token={}", auth.ui_token());
@@ -589,7 +588,7 @@ pub async fn run() -> Result<()> {
 
     let monitor_interrupt = renderer.as_ref().map(MonitorRenderer::interrupt_receiver);
     let mut server_task_finished = false;
-    let mut tunnel_maintenance = tokio::time::interval(Duration::from_secs(1));
+    let mut tunnel_maintenance = tokio::time::interval(Duration::from_millis(250));
     tunnel_maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
@@ -621,31 +620,7 @@ pub async fn run() -> Result<()> {
                             active.stop().await;
                             continue;
                         }
-                        if tunnel_control.primary_url.is_none() {
-                            tunnel_control.primary_url = Some(public_url.clone());
-                            let _ = tunnel_settled_tx.send(true);
-                            tunnel_lifecycle::activate_primary(&active, &mut primary_runtime);
-                        } else if tunnel_control.primary_url.as_deref() == Some(public_url.as_str()) {
-                            // Stable endpoints can remain reachable while their provider process
-                            // is recycled. Reattaching the same URL restores provider ownership
-                            // without demoting a still-live primary to standby.
-                            tunnel_lifecycle::activate_primary(&active, &mut primary_runtime);
-                            monitor.operator_message(
-                                OperatorMessageKind::Success,
-                                "tunnel",
-                                format!("{} stable primary process reattached", active.provider_label()),
-                            );
-                        } else {
-                            monitor.operator_message(
-                                OperatorMessageKind::Info,
-                                "tunnel",
-                                format!(
-                                    "{} standby verified · lease {}s",
-                                    active.provider_label(),
-                                    tunnel_lifecycle::STANDBY_LEASE_TTL.as_secs()
-                                ),
-                            );
-                        }
+                        let _ = tunnel_settled_tx.send(true);
                         if let Some(recipient) = args.imessage_to.as_deref() {
                             let provider = active.provider_label();
                             if imessage_sent.get(provider) == Some(&public_url) {
@@ -675,40 +650,37 @@ pub async fn run() -> Result<()> {
                     }
                 }
             },
-            probe = standby_probe_rx.recv() => {
+            probe = endpoint_probe_rx.recv() => {
                 if let Some(probe) = probe {
-                    if tunnel_control.primary_url.as_deref() != Some(probe.public_url.as_str()) {
-                        let public_url = probe.public_url.clone();
-                        let revoked = tunnel_lifecycle::handle_standby_probe(
-                            &mut tunnel_control.standby_leases,
-                            &tunnels,
-                            probe,
-                            &monitor,
-                        );
-                        if revoked {
-                            tunnel_lifecycle::recycle_revoked_standby(
-                                &mut tunnel_control,
-                                &mut tunnels,
-                                &public_url,
-                                &auth,
-                                &monitor,
-                            ).await;
-                        }
+                    let public_url = probe.public_url.clone();
+                    let revoked = tunnel_lifecycle::handle_endpoint_probe(
+                        &mut tunnel_control.endpoint_leases, &tunnels, probe, &monitor,
+                    );
+                    if revoked {
+                        tunnel_lifecycle::recycle_revoked_endpoint(
+                            &mut tunnel_control, &mut tunnels, &public_url, &auth, &monitor,
+                        ).await;
                     }
+                    tunnel_lifecycle::refresh_endpoint_display(
+                        &tunnel_control, &tunnels, &endpoint_display, &local_url,
+                    );
                 }
             },
             _ = tunnel_maintenance.tick() => {
+                if !args.no_tunnel && args.public_url.is_none() {
                 tunnel_lifecycle::maintain_tunnels(
                     &mut tunnel_control,
                     &mut tunnels,
-                    &mut primary_runtime,
+                    &endpoint_display,
                     &tunnel_spawn_context,
-                    &standby_probe_tx,
+                    &endpoint_probe_tx,
                 ).await;
+                }
             },
         }
     }
-    primary_runtime.shutdown().await;
+    drop(endpoint_probe_rx);
+    drop(tunnel_event_rx);
     if let Some(renderer) = renderer {
         renderer.stop().await;
     }

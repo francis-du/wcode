@@ -776,15 +776,13 @@
   id: component:managed-tunnel
   name: Managed Public Tunnel Runtime
   responsibilities:
-    - expose the local MCP runtime through temporary HTTPS providers without binding availability to one vendor
-    - start Cloudflare Quick Tunnel, localhost.run, Pinggy and Tailscale Funnel concurrently in the background so the dashboard never waits for a provider; support an explicitly configured persistent Microsoft Dev Tunnel without adding account-bound providers to zero-config auto; retry unreachable providers with deterministic provider-specific staggering and keep every instance-health-verified tunnel live
-    - keep primary public-health hysteresis in one monitor-owned state so one transient probe cannot kill the endpoint, recheck a failed network probe twice at short bounded intervals before counting one failure, require three confirmed failure observations before failover and two consecutive successes before recovery, and accelerate confirmation probes while suspect or recovering
-    - maintain an independent bounded health lease for each standby, refresh it without touching primary health, bind asynchronous probe results to a monotonic lease epoch, revoke it after repeated failures, expire stale leases, and fail over only to a currently verified standby chosen deterministically by freshest lease then longest uptime
-    - bind managed-primary health results to the still-current primary URL so demoted-tunnel completions cannot alter replacement health, cancel in-flight health work on shutdown, respawn a single dead provider with bounded exponential backoff plus deterministic jitter and a repeated-death circuit breaker, use one half-open instance-verified reconnect attempt per due retry, reset death history only after sustained stable uptime, and fall back to pending/local state when no verified public tunnel remains
-    - keep explicit provider selection and stable --public-url overrides available without weakening OAuth or local health verification, recover instance-verified stable endpoints after restart, retain active Host trust and observable URL across provider-process reconnects when the same stable endpoint still reaches the current instance, support persistent Microsoft Dev Tunnel IDs as stable explicit providers, and make it explicit that quick-tunnel hostnames may change across reconnects while Tailscale/Dev Tunnel/custom endpoints can remain stable
-    - expose bounded per-provider runtime observability through TaskMonitor, /healthz and operator UI with primary/standby/retrying role, health/lease state, failure/death counters, circuit state, retry horizon and uptime while keeping those projections read-only with respect to lifecycle control
-    - route provider attempts, retries, dependency/install diagnostics, stale-process reclamation and connection events through TaskMonitor operator messages; never write directly to the terminal or inherit installer stdio while the runtime may be rendering the TUI
-    - isolate provider lifecycle, dependency checks, URL parsing and health verification from the top-level process bootstrap
+    - run every instance-verified provider as a concurrent active MCP endpoint with independent health and recovery, without primary or standby promotion
+    - use compact instance-matched health probes with a 15-second request budget, a three-second healthy interval, a one-second recovery interval and independent single-flight workers
+    - preserve live processes and URLs through a bounded recovery window, restore health after two successes, and bind completions and trust withdrawal to endpoint ownership epochs
+    - keep stable aliases on their existing bounded lease after process exit, supervise retained URLs independently and never restore trust from historical OAuth resources
+    - own subprocess groups from spawn through cancellation and shutdown; respect provider startup deadlines and a five-minute cooldown for explicit Cloudflare provisioning limits
+    - expose all active URLs and individual health, retry and circuit state in TaskMonitor, health, Setup and Observatory; keep a convenience copy URL without assigning exclusive routing
+    - preserve OAuth, Origin, Workspace and instance-health authorization boundaries across every provider
   depends_on:
     - component:mcp-runtime
   implementation:
@@ -800,6 +798,8 @@
     - kind: symbol
       path: src/runtime/tunnel/mod.rs
       symbol: start_tailscale_funnel_once
+    - kind: file
+      path: src/runtime/tunnel/health.rs
     - kind: file
       path: src/runtime/tunnel/devtunnel.rs
     - kind: file

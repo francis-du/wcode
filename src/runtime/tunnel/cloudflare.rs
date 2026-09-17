@@ -140,7 +140,24 @@ pub(super) fn command_succeeds(program: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(Child, String)> {
+// The CLI does not expose Retry-After. Use a conservative cooldown for an
+// explicit provisioning rate limit; ordinary transport errors keep fast retries.
+pub(crate) fn provider_failure_cooldown(provider: TunnelProvider, error: &str) -> Duration {
+    let error = error.to_ascii_lowercase();
+    if (provider == TunnelProvider::Cloudflare
+        && (error.contains("status 429")
+            || error.contains("http 429")
+            || error.contains("error code: 1015")
+            || error.contains("too many requests")))
+        || (provider == TunnelProvider::Tailscale && error.contains("not enabled"))
+    {
+        Duration::from_secs(300)
+    } else {
+        Duration::ZERO
+    }
+}
+
+pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(TunnelChild, String)> {
     let mut command = Command::new("cloudflared");
     command
         .args([
@@ -155,24 +172,27 @@ pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(Child, St
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = command.spawn().context("failed to start cloudflared")?;
+    let mut child = TunnelChild::spawn(&mut command).context("failed to start cloudflared")?;
     let stderr = child
         .stderr
         .take()
         .context("cloudflared stderr is unavailable")?;
     let (url_sender, url_receiver) = oneshot::channel::<Result<String, String>>();
+    let logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let reader_logs = logs.clone();
     tokio::spawn(async move {
         let mut url_sender = Some(url_sender);
-        let mut recent_logs: Vec<String> = Vec::new();
         let mut lines = BufReader::new(stderr).lines();
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
-                    recent_logs.push(line.clone());
-                    if recent_logs.len() > 12 {
-                        recent_logs.remove(0);
+                    {
+                        let mut recent_logs =
+                            reader_logs.lock().expect("cloudflared log lock poisoned");
+                        recent_logs.push(line.clone());
+                        if recent_logs.len() > 12 {
+                            recent_logs.remove(0);
+                        }
                     }
                     if let Some(url) = extract_cloudflare_tunnel_url(&line) {
                         if let Some(sender) = url_sender.take() {
@@ -185,6 +205,8 @@ pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(Child, St
                 }
                 Ok(None) => {
                     if let Some(sender) = url_sender.take() {
+                        let recent_logs =
+                            reader_logs.lock().expect("cloudflared log lock poisoned");
                         let details = if recent_logs.is_empty() {
                             "cloudflared exited without output".to_owned()
                         } else {
@@ -205,11 +227,14 @@ pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(Child, St
             }
         }
     });
-    let public_url = match timeout(Duration::from_secs(15), url_receiver).await {
+    let public_url = match timeout(Duration::from_secs(30), url_receiver).await {
         Ok(Ok(Ok(url))) => url,
         Ok(Ok(Err(details))) => {
             let _ = child.start_kill();
             let _ = child.wait().await;
+            if provider_failure_cooldown(TunnelProvider::Cloudflare, &details) > Duration::ZERO {
+                bail!("Cloudflare provisioning rate limited (HTTP 429 / error 1015); cooling down before retry:\n{details}");
+            }
             bail!("cloudflared exited before producing a public URL:\n{details}");
         }
         Ok(Err(_)) => {
@@ -220,7 +245,12 @@ pub(super) async fn start_cloudflared_once(local_url: &str) -> Result<(Child, St
         Err(_) => {
             let _ = child.start_kill();
             let _ = child.wait().await;
-            bail!("timed out after 15 seconds waiting for Cloudflare Tunnel URL");
+            bail!(
+                "timed out after 30 seconds waiting for Cloudflare Tunnel URL:\n{}",
+                logs.lock()
+                    .expect("cloudflared log lock poisoned")
+                    .join("\n")
+            );
         }
     };
     Ok((child, public_url))

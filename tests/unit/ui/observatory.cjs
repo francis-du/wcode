@@ -165,24 +165,24 @@ async function run(){
     const covered=s.run('qualityCell(language,"lint")');
     assert.ok(covered.includes('covered'));assert.ok(covered.includes('advisory data'));
   });
-  const healthyTunnel = (provider='fixture') => ({public_url_healthy:true,public_endpoint:'ready',tunnels:[{provider,role:'primary',state:'verified',url:'https://example.test'}]});
-  await test('only the primary tunnel is a dashboard link and it preserves fragment credentials',async()=>{
+  const healthyTunnel = (provider='fixture') => ({public_url_healthy:true,public_endpoint:'ready',tunnels:[{provider,role:'active',state:'verified',url:'https://example.test'}]});
+  await test('every active tunnel is a dashboard link and it preserves fragment credentials',async()=>{
     const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
     const request=s.run('refreshTunnels()');await flush();
     respond(s.requests[0],{public_url_healthy:true,public_endpoint:'ready',tunnels:[
-      {provider:'primary',role:'primary',state:'healthy',url:'https://primary.example'},
-      {provider:'standby',role:'standby',state:'verified',url:'https://standby.example'}
+      {provider:'primary',role:'active',state:'healthy',url:'https://primary.example'},
+      {provider:'standby',role:'active',state:'verified',url:'https://standby.example'}
     ]});await request;
     const html=s.node('#tunnels').innerHTML;
     assert.ok(html.includes('href="https://primary.example/intelligence#token=test-ui&amp;workspace=A"'));
-    assert.ok(html.includes('standby · standby'));
-    assert.ok(!html.includes('href="https://standby.example'));
-    assert.ok(html.includes('title="https://standby.example · standby · verified'));
+    assert.ok(html.includes('standby · active'));
+    assert.ok(html.includes('href="https://standby.example'));
+    assert.ok(html.includes('title="https://standby.example · active · verified'));
   });
   await test('tunnel requests time out and allow a later retry',async()=>{
     const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
     const first=s.run('refreshTunnels()');await flush();
-    const request=s.requests[0],deadline=[...s.timers.values()].find(timer=>timer.ms===10000);
+    const request=s.requests[0],deadline=[...s.timers.values()].find(timer=>timer.ms===20000);
     assert.ok(deadline,'health requests need a bounded deadline');
     request.options.signal.addEventListener('abort',()=>request.reject(new DOMException('aborted','AbortError')),{once:true});
     deadline.fn();await first;
@@ -234,16 +234,16 @@ async function run(){
     const first=s.run('refreshTunnels()');await flush();let complete;
     s.requests[0].resolve({ok:true,status:200,json:()=>new Promise(resolve=>{complete=resolve;})});await flush();
     await s.run('refreshTunnels()');assert.equal(s.requests.length,1);
-    assert.ok([...s.timers.values()].some(timer=>timer.ms===10000));
+    assert.ok([...s.timers.values()].some(timer=>timer.ms===20000));
     complete(healthyTunnel());await first;assert.equal(s.run('state.tunnelBusy'),false);assert.equal(s.timers.size,0);
   });
-  await test('unhealthy primary and unknown approval state are not green',async()=>{
-    const s=sandbox();s.context.fixture=project();s.context.health={...healthyTunnel(),public_url_healthy:false};
+  await test('unhealthy endpoints and unknown approval state are not green',async()=>{
+    const s=sandbox();s.context.fixture=project();s.context.health={...healthyTunnel(),public_url_healthy:false};s.context.health.tunnels[0].state='quarantined';
     s.run('state.project=fixture;state.tunnelSnapshot=health;renderRuntimeTopology();');
     const html=s.node('#runtimeTopology').innerHTML;
     assert.ok(html.includes('runtime-status-card warn"><span>Endpoint'));
     assert.ok(html.includes('runtime-status-card info"><span>OAuth &amp; MCP'));
-    s.run('state.tunnelSnapshot.public_url_healthy=true;renderRuntimeTopology();');
+    s.run('state.tunnelSnapshot.public_url_healthy=true;state.tunnelSnapshot.tunnels[0].state="verified";renderRuntimeTopology();');
     assert.ok(s.node('#runtimeTopology').innerHTML.includes('runtime-status-card good"><span>Endpoint'));
   });
   await test('slow tunnel requests do not delay activity telemetry',async()=>{
@@ -304,6 +304,14 @@ async function run(){
     assert.equal(s.node('#autoRefresh').attrs['aria-label'],'自动刷新：开启');
     s.run('state.autoRefresh=false;applyAutoRefreshControl();');
     assert.equal(s.node('#autoRefresh').attrs['aria-label'],'自动刷新：暂停');
+  });
+  await test('server diagnostics stay in logs instead of access or semantic UI',async()=>{
+    const s=sandbox();
+    s.context.rawServerError=Object.assign(new Error('HTTP 503 · /Users/private/repository panic backtrace'),{status:503});
+    const message=s.run('requestFailureMessage(rawServerError)');
+    assert.ok(!message.includes('/Users/private'));
+    assert.ok(!message.includes('panic backtrace'));
+    assert.ok(message.includes('WCode') || message.includes('日志'));
   });
   await test('initial refresh failure replaces loading with useful guidance without raw diagnostics',async()=>{
     const s=sandbox();s.context.console={...console,warn(){}};

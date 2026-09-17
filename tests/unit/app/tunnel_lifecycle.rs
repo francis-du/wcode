@@ -1,3 +1,4 @@
+use super::policy::ENDPOINT_LEASE_TTL;
 use super::*;
 
 fn registered_fixture(auth: &AuthState, provider: TunnelProvider, url: String) -> ActiveTunnel {
@@ -31,16 +32,16 @@ fn queued_connection_cannot_borrow_a_newer_registration() {
 #[test]
 fn duplicate_probe_completion_is_not_a_second_failure() {
     let url = "https://duplicate.example".to_owned();
-    let mut lease = StandbyHealthLease::verified(Instant::now());
-    lease.begin_probe(Instant::now() + STANDBY_PROBE_INTERVAL);
+    let mut lease = EndpointHealthLease::verified(Instant::now());
+    lease.begin_probe(Instant::now() + ENDPOINT_PROBE_INTERVAL);
     let epoch = lease.epoch();
     let mut leases = HashMap::from([(url.clone(), lease)]);
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     for _ in 0..2 {
-        assert!(!handle_standby_probe(
+        assert!(!handle_endpoint_probe(
             &mut leases,
             &[],
-            StandbyProbeEvent {
+            EndpointProbeEvent {
                 public_url: url.clone(),
                 lease_epoch: epoch,
                 result: Err("same completion".to_owned())
@@ -55,16 +56,16 @@ fn duplicate_probe_completion_is_not_a_second_failure() {
 fn quarantine_invalidates_a_pre_quarantine_success() {
     let url = "https://lease.example".to_owned();
     let now = Instant::now();
-    let mut lease = StandbyHealthLease::verified(now);
-    assert!(lease.begin_probe(now + STANDBY_PROBE_INTERVAL));
+    let mut lease = EndpointHealthLease::verified(now);
+    assert!(lease.begin_probe(now + ENDPOINT_PROBE_INTERVAL));
     let stale_epoch = lease.epoch();
-    lease.quarantine(now + STANDBY_PROBE_INTERVAL);
+    lease.quarantine(now + ENDPOINT_PROBE_INTERVAL);
     let mut leases = HashMap::from([(url.clone(), lease)]);
     let monitor = TaskMonitor::new(["demo".to_owned()]);
-    handle_standby_probe(
+    handle_endpoint_probe(
         &mut leases,
         &[],
-        StandbyProbeEvent {
+        EndpointProbeEvent {
             public_url: url.clone(),
             lease_epoch: stale_epoch,
             result: Ok(()),
@@ -80,11 +81,11 @@ fn quarantine_invalidates_a_pre_quarantine_success() {
 #[test]
 fn probe_epoch_is_unique_for_each_attempt() {
     let now = Instant::now();
-    let mut lease = StandbyHealthLease::verified(now);
-    assert!(lease.begin_probe(now + STANDBY_PROBE_INTERVAL));
+    let mut lease = EndpointHealthLease::verified(now);
+    assert!(lease.begin_probe(now + ENDPOINT_PROBE_INTERVAL));
     let first = lease.epoch();
-    lease.record_failure(now + STANDBY_PROBE_INTERVAL);
-    assert!(lease.begin_probe(now + STANDBY_PROBE_INTERVAL + STANDBY_RETRY_INTERVAL));
+    lease.record_failure(now + ENDPOINT_PROBE_INTERVAL);
+    assert!(lease.begin_probe(now + ENDPOINT_PROBE_INTERVAL + ENDPOINT_RETRY_INTERVAL));
     assert_ne!(
         first,
         lease.epoch(),
@@ -93,7 +94,7 @@ fn probe_epoch_is_unique_for_each_attempt() {
 }
 
 #[test]
-fn advertised_tunnel_is_registered_without_changing_the_primary() {
+fn every_verified_tunnel_is_registered_as_an_active_endpoint() {
     let auth = AuthState::new("http://127.0.0.1:8765".to_owned());
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     publish_verified_endpoint(&auth, &monitor, "tailscale", "https://verified.example");
@@ -107,7 +108,7 @@ fn advertised_tunnel_is_registered_without_changing_the_primary() {
     assert_eq!(auth.request_public_url(&headers).as_deref(), Some(url));
     assert!(auth.origin_allowed(&headers));
     assert_eq!(tunnel.provider, "tailscale");
-    assert_eq!(tunnel.role, "standby");
+    assert_eq!(tunnel.role, "active");
     assert_eq!(tunnel.state, "verified");
     assert_eq!(auth.public_url(), "http://127.0.0.1:8765");
 }
@@ -141,13 +142,12 @@ fn reconnecting_stable_provider_does_not_revoke_a_still_retained_alias() {
 }
 
 #[test]
-fn tunnel_runtime_observability_explains_primary_standby_and_circuit_retry() {
+fn tunnel_runtime_observability_explains_concurrent_endpoints_and_circuit_retry() {
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     monitor.register_tunnel("cloudflare", "https://primary.example");
     monitor.mark_public_url_verified();
-    monitor.mark_tunnel_primary("https://primary.example");
-    monitor.register_tunnel("pinggy", "https://standby.example");
-    monitor.mark_tunnel_standby_probe("https://standby.example", false, 1, false);
+    monitor.register_tunnel("pinggy", "https://endpoint.example");
+    monitor.mark_tunnel_endpoint_probe("https://endpoint.example", false, 1, false);
 
     let live = monitor.connection_status();
     let primary = live
@@ -155,22 +155,22 @@ fn tunnel_runtime_observability_explains_primary_standby_and_circuit_retry() {
         .iter()
         .find(|tunnel| tunnel.provider == "cloudflare")
         .unwrap();
-    let standby = live
+    let endpoint = live
         .tunnels
         .iter()
         .find(|tunnel| tunnel.provider == "pinggy")
         .unwrap();
     assert_eq!(
         (primary.role.as_str(), primary.state.as_str()),
-        ("primary", "healthy")
+        ("active", "verified")
     );
     assert_eq!(
-        (standby.role.as_str(), standby.state.as_str()),
-        ("standby", "suspect")
+        (endpoint.role.as_str(), endpoint.state.as_str()),
+        ("active", "suspect")
     );
-    assert_eq!(standby.consecutive_failures, 1);
+    assert_eq!(endpoint.consecutive_failures, 1);
 
-    monitor.remove_tunnel("https://standby.example");
+    monitor.remove_tunnel("https://endpoint.example");
     monitor.mark_tunnel_retry("pinggy", 4, true, Duration::from_secs(60), false);
     let retry = monitor.connection_status();
     let pinggy = retry
@@ -188,18 +188,24 @@ fn tunnel_runtime_observability_explains_primary_standby_and_circuit_retry() {
 
     monitor.register_tunnel("tailscale", "https://stable.example");
     monitor.mark_public_url_verified();
-    monitor.mark_tunnel_primary("https://stable.example");
+
     monitor.mark_tunnel_retry("tailscale", 1, false, Duration::from_secs(2), true);
     let retained = monitor.connection_status();
-    let tailscale = retained
+    let endpoint = retained
         .tunnels
         .iter()
-        .find(|tunnel| tunnel.provider == "tailscale")
+        .find(|tunnel| tunnel.url.as_deref() == Some("https://stable.example"))
         .unwrap();
-    assert_eq!(tailscale.url.as_deref(), Some("https://stable.example"));
-    assert_eq!(tailscale.role, "primary");
-    assert_eq!(tailscale.state, "healthy");
-    assert_eq!(tailscale.death_count, 1);
+    assert_eq!(endpoint.role, "active");
+    assert_eq!(endpoint.state, "verified");
+    let retry = retained
+        .tunnels
+        .iter()
+        .find(|tunnel| tunnel.provider == "tailscale" && tunnel.url.is_none())
+        .unwrap();
+    assert_eq!(retry.role, "retrying");
+    assert_eq!(retry.state, "reconnecting");
+    assert_eq!(retry.death_count, 1);
 }
 
 #[test]
@@ -218,7 +224,7 @@ fn retained_aliases_are_bounded_and_reconnect_failure_is_not_revocation_evidence
     }
     assert!(!state.retain_stable_alias(TunnelProvider::Tailscale, "https://ninth.example"));
     assert_eq!(state.retained_stable_aliases.len(), 8);
-    assert_eq!(state.standby_leases.len(), 8);
+    assert_eq!(state.endpoint_leases.len(), 8);
     state.reconnect_failed(TunnelProvider::Tailscale, "startup failed", &[], &monitor);
     for index in 0..8 {
         assert!(auth
@@ -242,7 +248,7 @@ fn retained_aliases_are_bounded_and_reconnect_failure_is_not_revocation_evidence
 }
 
 #[tokio::test]
-async fn stale_standby_cleanup_preserves_same_url_replacement_trust() {
+async fn stale_endpoint_cleanup_preserves_same_url_replacement_trust() {
     let auth = AuthState::new("http://127.0.0.1:8765".to_owned());
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     let url = "https://stable.example";
@@ -256,7 +262,7 @@ async fn stale_standby_cleanup_preserves_same_url_replacement_trust() {
     publish_verified_endpoint(&auth, &monitor, "tailscale", url);
     let replacement_epoch = auth.public_url_epoch(url).unwrap();
     assert_ne!(old_epoch, replacement_epoch);
-    assert!(recycle_revoked_standby(&mut state, &mut tunnels, url, &auth, &monitor).await);
+    assert!(recycle_revoked_endpoint(&mut state, &mut tunnels, url, &auth, &monitor).await);
     assert_eq!(auth.public_url_epoch(url), Some(replacement_epoch));
     assert!(monitor
         .connection_status()
@@ -277,26 +283,21 @@ async fn retired_alias_cleanup_does_not_recycle_its_live_replacement_provider() 
         &registered_fixture(&auth, TunnelProvider::Tailscale, old_url.to_owned()),
         &auth,
     );
-    state.primary_url = Some(old_url.to_owned());
+
     assert!(state.retain_stable_alias(TunnelProvider::Tailscale, old_url));
     publish_verified_endpoint(&auth, &monitor, "tailscale", new_url);
     let active = registered_fixture(&auth, TunnelProvider::Tailscale, new_url.to_owned());
     state.connected(&active, &auth);
-    assert!(
-        state.primary_url.is_none(),
-        "old retained primary must not strand the replacement as standby"
-    );
-    assert!(state.standby_leases.contains_key(old_url));
+    assert!(state.endpoint_leases.contains_key(old_url));
     let mut tunnels = vec![active];
-    state.primary_url = Some(new_url.to_owned());
-    assert!(recycle_revoked_standby(&mut state, &mut tunnels, old_url, &auth, &monitor).await);
+    assert!(recycle_revoked_endpoint(&mut state, &mut tunnels, old_url, &auth, &monitor).await);
     assert!(auth.public_url_epoch(old_url).is_none());
     assert!(auth.public_url_epoch(new_url).is_some());
     assert!(!state.retained_stable_aliases.contains_key(old_url));
-    assert!(!state.standby_leases.contains_key(old_url));
+    assert!(!state.endpoint_leases.contains_key(old_url));
     assert!(state.pending_respawns.is_empty());
     assert_eq!(tunnels.len(), 1);
-    assert!(!recycle_revoked_standby(&mut state, &mut tunnels, new_url, &auth, &monitor).await);
+    assert!(auth.public_url_epoch(new_url).is_some());
 }
 
 #[tokio::test]
@@ -304,7 +305,7 @@ async fn retained_aliases_receive_instance_matched_probes_without_a_provider_chi
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let router = axum::Router::new().route(
-        "/healthz",
+        "/healthz/probe",
         axum::routing::get(|| async {
             axum::Json(serde_json::json!({"ok":true,"instance_id":"retained-probe-test"}))
         }),
@@ -312,26 +313,24 @@ async fn retained_aliases_receive_instance_matched_probes_without_a_provider_chi
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let mut state = TunnelControlState::default();
     assert!(state.retain_stable_alias(TunnelProvider::Tailscale, &url));
-    state.standby_leases.insert(
+    state.endpoint_leases.insert(
         url.clone(),
-        StandbyHealthLease::verified(
-            Instant::now() - STANDBY_PROBE_INTERVAL - Duration::from_secs(1),
+        EndpointHealthLease::verified(
+            Instant::now() - ENDPOINT_PROBE_INTERVAL - Duration::from_secs(1),
         ),
     );
     let (tx, mut rx) = mpsc::channel(2);
-    schedule_standby_probes(
-        &mut state.standby_leases,
+    schedule_endpoint_probes(
+        &mut state.endpoint_leases,
         &[],
         &state.retained_stable_aliases,
-        None,
         "retained-probe-test",
         &tx,
     );
-    schedule_standby_probes(
-        &mut state.standby_leases,
+    schedule_endpoint_probes(
+        &mut state.endpoint_leases,
         &[],
         &state.retained_stable_aliases,
-        None,
         "retained-probe-test",
         &tx,
     );
@@ -339,7 +338,7 @@ async fn retained_aliases_receive_instance_matched_probes_without_a_provider_chi
     server.abort();
     let event = result.expect("retained alias probe must finish").unwrap();
     assert_eq!(event.public_url, url);
-    assert_eq!(event.lease_epoch, state.standby_leases[&url].epoch());
+    assert_eq!(event.lease_epoch, state.endpoint_leases[&url].epoch());
     assert!(event.result.is_ok(), "{:?}", event.result);
     assert!(
         rx.try_recv().is_err(),
@@ -348,18 +347,24 @@ async fn retained_aliases_receive_instance_matched_probes_without_a_provider_chi
 }
 
 #[test]
-fn empty_tunnel_set_never_produces_a_dead_index() {
-    assert_eq!(dead_tunnel_index(true, None, 0, |_| true), None);
-    assert_eq!(dead_tunnel_index(false, None, 0, |_| true), None);
-}
+fn retained_alias_keeps_concurrent_runtime_running_without_a_child() {
+    let auth = Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned()));
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    let url_slot = Arc::new(RwLock::new("http://127.0.0.1:8765".to_owned()));
+    let display = EndpointDisplay::new(auth.clone(), monitor.clone(), url_slot.clone());
+    let mut state = TunnelControlState::default();
+    let url = "https://stable.example";
+    publish_verified_endpoint(&auth, &monitor, "tailscale", url);
+    assert!(state.retain_stable_alias(TunnelProvider::Tailscale, url));
 
-#[test]
-fn health_failure_targets_the_explicit_primary_instead_of_vector_order() {
-    assert_eq!(dead_tunnel_index(true, Some(1), 3, |_| false), Some(1));
-    assert_eq!(
-        dead_tunnel_index(false, Some(1), 3, |index| index == 2),
-        Some(2)
-    );
+    refresh_endpoint_display(&state, &[], &display, "http://127.0.0.1:8765");
+
+    let status = monitor.connection_status();
+    assert_eq!(status.public_endpoint.as_deref(), Some("concurrent"));
+    assert_eq!(status.tunnel_running, Some(true));
+    assert_eq!(status.public_url_healthy, Some(true));
+    assert_eq!(auth.public_url(), url);
+    assert_eq!(url_slot.read().unwrap().as_str(), url);
 }
 
 #[test]
@@ -441,54 +446,6 @@ fn reconnect_jitter_is_deterministic_bounded_and_provider_staggered() {
 }
 
 #[test]
-fn standby_selection_prefers_freshest_lease_then_longest_uptime() {
-    assert_eq!(
-        best_standby_score(&[
-            (0, Duration::from_secs(20), Duration::from_secs(500)),
-            (1, Duration::from_secs(2), Duration::from_secs(20)),
-        ]),
-        Some(1)
-    );
-    assert_eq!(
-        best_standby_score(&[
-            (0, Duration::from_secs(2), Duration::from_secs(20)),
-            (1, Duration::from_secs(2), Duration::from_secs(50)),
-        ]),
-        Some(1)
-    );
-    assert_eq!(
-        best_standby_score(&[
-            (2, Duration::from_secs(2), Duration::from_secs(50)),
-            (1, Duration::from_secs(2), Duration::from_secs(50)),
-        ]),
-        Some(1)
-    );
-    assert_eq!(best_standby_score(&[]), None);
-}
-
-#[tokio::test]
-async fn primary_runtime_shutdown_aborts_an_inflight_health_probe() {
-    let auth = Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned()));
-    let monitor = TaskMonitor::new(["demo".to_owned()]);
-    let (stop_tx, stop_rx) = watch::channel(false);
-    let mut runtime = PrimaryRuntime::new(
-        auth,
-        monitor,
-        Arc::new(RwLock::new("http://127.0.0.1:8765".to_owned())),
-        stop_tx,
-    );
-    runtime.health_task = Some(tokio::spawn(async {
-        tokio::time::sleep(Duration::from_secs(60)).await;
-    }));
-
-    tokio::time::timeout(Duration::from_millis(250), runtime.shutdown())
-        .await
-        .expect("shutdown must cancel an in-flight health probe without waiting for its timeout");
-    assert!(*stop_rx.borrow());
-    assert!(runtime.health_task.is_none());
-}
-
-#[test]
 fn provider_retry_due_respects_scheduled_deadline() {
     let now = Instant::now();
     let due = now + Duration::from_secs(60);
@@ -498,12 +455,12 @@ fn provider_retry_due_respects_scheduled_deadline() {
 }
 
 #[test]
-fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
-    let url = "https://standby.example".to_owned();
+fn stale_endpoint_probe_result_cannot_mutate_a_replacement_lease() {
+    let url = "https://endpoint.example".to_owned();
     let start = Instant::now();
-    let old_lease = StandbyHealthLease::verified(start);
+    let old_lease = EndpointHealthLease::verified(start);
     let old_epoch = old_lease.epoch();
-    let replacement = StandbyHealthLease::verified(start + Duration::from_secs(1));
+    let replacement = EndpointHealthLease::verified(start + Duration::from_secs(1));
     let replacement_epoch = replacement.epoch();
     assert_ne!(old_epoch, replacement_epoch);
 
@@ -511,10 +468,10 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     monitor.register_tunnel("pinggy", &url);
 
-    assert!(!handle_standby_probe(
+    assert!(!handle_endpoint_probe(
         &mut leases,
         &[],
-        StandbyProbeEvent {
+        EndpointProbeEvent {
             public_url: url.clone(),
             lease_epoch: old_epoch,
             result: Err("stale probe failure".to_owned()),
@@ -523,10 +480,10 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
     ));
     assert_eq!(leases[&url].failures(), 0);
 
-    assert!(!handle_standby_probe(
+    assert!(!handle_endpoint_probe(
         &mut leases,
         &[],
-        StandbyProbeEvent {
+        EndpointProbeEvent {
             public_url: url.clone(),
             lease_epoch: replacement_epoch,
             result: Err("current probe failure".to_owned()),
@@ -540,16 +497,16 @@ fn stale_standby_probe_result_cannot_mutate_a_replacement_lease() {
 fn quarantined_endpoint_revokes_after_failed_recovery_probe() {
     let url = "https://stuck.example".to_owned();
     let now = Instant::now();
-    let mut lease = StandbyHealthLease::verified(now);
-    lease.quarantine(now);
+    let mut lease = EndpointHealthLease::verified(now);
+    lease.quarantine(now - policy::ENDPOINT_RECOVERY_GRACE);
     let epoch = lease.epoch();
     let mut leases = HashMap::from([(url.clone(), lease)]);
     let monitor = TaskMonitor::new(["demo".to_owned()]);
     monitor.register_tunnel("tailscale", &url);
-    assert!(handle_standby_probe(
+    assert!(handle_endpoint_probe(
         &mut leases,
         &[],
-        StandbyProbeEvent {
+        EndpointProbeEvent {
             public_url: url.clone(),
             lease_epoch: epoch,
             result: Err("endpoint still unreachable".to_owned()),
@@ -560,23 +517,150 @@ fn quarantined_endpoint_revokes_after_failed_recovery_probe() {
 }
 
 #[test]
-fn standby_health_lease_needs_two_failures_and_expires_without_refresh() {
+fn endpoint_health_lease_needs_two_failures_and_expires_without_refresh() {
     let start = Instant::now();
-    let mut lease = StandbyHealthLease::verified(start);
-    assert!(lease.eligible(start + STANDBY_LEASE_TTL - Duration::from_secs(1)));
-    assert!(!lease.begin_probe(start + STANDBY_PROBE_INTERVAL - Duration::from_secs(1)));
-    assert!(lease.begin_probe(start + STANDBY_PROBE_INTERVAL));
-    assert!(!lease.record_failure(start + STANDBY_PROBE_INTERVAL));
+    let mut lease = EndpointHealthLease::verified(start);
+    assert!(lease.eligible(start + ENDPOINT_LEASE_TTL - Duration::from_secs(1)));
+    assert!(!lease.begin_probe(start + ENDPOINT_PROBE_INTERVAL - Duration::from_secs(1)));
+    assert!(lease.begin_probe(start + ENDPOINT_PROBE_INTERVAL));
+    assert!(!lease.record_failure(start + ENDPOINT_PROBE_INTERVAL));
     assert_eq!(lease.failures(), 1);
-    let retry_due = start + STANDBY_PROBE_INTERVAL + STANDBY_RETRY_INTERVAL;
+    let retry_due = start + ENDPOINT_PROBE_INTERVAL + ENDPOINT_RETRY_INTERVAL;
     assert!(lease.eligible(retry_due - Duration::from_secs(1)));
     assert!(!lease.begin_probe(retry_due - Duration::from_secs(1)));
     assert!(lease.begin_probe(retry_due));
-    assert!(lease.record_failure(retry_due));
+    assert!(!lease.record_failure(retry_due));
     assert!(!lease.eligible(retry_due));
 
     let recovered_at = retry_due + Duration::from_secs(1);
+    assert!(!lease.record_success(recovered_at));
+    assert!(!lease.eligible(recovered_at));
+    let recovered_at = recovered_at + ENDPOINT_RETRY_INTERVAL;
     assert!(lease.record_success(recovered_at));
     assert!(lease.eligible(recovered_at));
-    assert!(!lease.eligible(recovered_at + STANDBY_LEASE_TTL + Duration::from_secs(1)));
+    assert!(!lease.eligible(recovered_at + ENDPOINT_LEASE_TTL + Duration::from_secs(1)));
+}
+
+#[test]
+fn quarantine_keeps_the_url_for_bounded_recovery_and_resets_interrupted_successes() {
+    let now = Instant::now();
+    let mut lease = EndpointHealthLease::verified(now);
+    lease.quarantine(now);
+    assert!(!lease.record_failure(now + policy::ENDPOINT_RECOVERY_GRACE - Duration::from_secs(1)));
+    assert!(!lease.eligible(now));
+    assert!(!lease.record_success(now + Duration::from_secs(2)));
+    assert!(!lease.record_failure(now + Duration::from_secs(3)));
+    assert!(!lease.record_success(now + Duration::from_secs(4)));
+    assert!(!lease.eligible(now + Duration::from_secs(4)));
+    assert!(lease.record_success(now + Duration::from_secs(5)));
+    assert!(lease.eligible(now + Duration::from_secs(5)));
+    lease.quarantine(now + Duration::from_secs(10));
+    assert!(!lease.record_failure(now + policy::ENDPOINT_RECOVERY_GRACE));
+    assert!(lease.record_failure(now + Duration::from_secs(10) + policy::ENDPOINT_RECOVERY_GRACE));
+}
+
+#[test]
+fn endpoint_observability_does_not_claim_recovery_on_the_first_success() {
+    let now = Instant::now();
+    let url = "https://recovering.example".to_owned();
+    let mut lease = EndpointHealthLease::verified(now);
+    lease.quarantine(now);
+    let mut leases = HashMap::from([(url.clone(), lease)]);
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    monitor.register_tunnel("cloudflare", &url);
+    for (expected_eligible, expected_state) in [(false, "quarantined"), (true, "verified")] {
+        let epoch = leases[&url].epoch();
+        assert!(!handle_endpoint_probe(
+            &mut leases,
+            &[],
+            EndpointProbeEvent {
+                public_url: url.clone(),
+                lease_epoch: epoch,
+                result: Ok(()),
+            },
+            &monitor
+        ));
+        assert_eq!(leases[&url].eligible(Instant::now()), expected_eligible);
+        assert_eq!(monitor.connection_status().tunnels[0].state, expected_state);
+    }
+}
+
+#[test]
+fn reconnect_rate_limit_preserves_multiline_diagnostics_and_cooldown() {
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    let mut state = TunnelControlState::default();
+    let before = Instant::now();
+    state.reconnect_failed(TunnelProvider::Cloudflare,
+        "cloudflared exited before producing a public URL:\nquick tunnel provisioning failed with status 429: error code: 1015",
+        &[], &monitor);
+    assert_eq!(state.pending_respawns.len(), 1);
+    assert!(state.pending_respawns[0].1 >= before + Duration::from_secs(300));
+    let status = monitor.connection_status();
+    let retry = &status.tunnels[0];
+    assert!(retry.circuit_open);
+    assert_eq!(retry.role, "retrying");
+    assert!(retry.retry_in_seconds.unwrap() >= 299);
+}
+
+#[tokio::test]
+async fn concurrent_endpoints_probe_independently_and_slow_health_can_recover() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let router = axum::Router::new()
+        .route(
+            "/fast/healthz/probe",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+            }),
+        )
+        .route(
+            "/slow/healthz/probe",
+            axum::routing::get(|| async {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let urls = [format!("{origin}/slow"), format!("{origin}/fast")];
+    let mut state = TunnelControlState::default();
+    let auth = AuthState::new(origin.clone());
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    let tunnels = urls
+        .iter()
+        .map(|url| {
+            publish_verified_endpoint(&auth, &monitor, "test", url);
+            let tunnel = registered_fixture(&auth, TunnelProvider::Cloudflare, url.clone());
+            state.connected(&tunnel, &auth);
+            state.endpoint_leases.insert(
+                url.clone(),
+                EndpointHealthLease::verified(Instant::now() - ENDPOINT_PROBE_INTERVAL),
+            );
+            tunnel
+        })
+        .collect::<Vec<_>>();
+    let (tx, mut rx) = mpsc::channel(4);
+    schedule_endpoint_probes(
+        &mut state.endpoint_leases,
+        &tunnels,
+        &HashMap::new(),
+        "parallel",
+        &tx,
+    );
+    let fast = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fast.public_url, urls[1]);
+    assert!(fast.result.is_ok(), "{:?}", fast.result);
+    let slow = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(slow.public_url, urls[0]);
+    assert!(
+        slow.result.is_ok(),
+        "a healthy endpoint slower than 3s must pass: {:?}",
+        slow.result
+    );
+    server.abort();
 }

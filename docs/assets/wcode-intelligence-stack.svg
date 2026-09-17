@@ -1,67 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="960" viewBox="0 0 1600 960" role="img" aria-labelledby="title desc">
-  <title id="title">wcode Repository Intelligence stack</title>
-  <desc id="desc">Layered diagram of repository inputs, graph and semantics, decision surfaces, guarded execution, proof, convergence, and operator surfaces.</desc>
+  <title id="title">How coding agents read a repository with and without wcode</title>
+  <desc id="desc">A side-by-side comparison between text-search repository discovery and wcode's task-aware syntax and semantic repository reading path.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a0810"/><stop offset="1" stop-color="#181120"/></linearGradient>
-    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9d83ff"/><stop offset=".52" stop-color="#d68bff"/><stop offset="1" stop-color="#ff79b7"/></linearGradient>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8d7aaa"/></marker>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9d83ff"/><stop offset="1" stop-color="#ff79b7"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8f80aa"/></marker>
     <style>
-      .title{font:700 52px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#f7f2ff;letter-spacing:-1px}
-      .sub{font:400 21px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#afa6ba}
-      .k{font:700 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#ccbfff;letter-spacing:2px}
-      .h{font:700 23px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
-      .t{font:500 16px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#c5bdcc}
-      .mono{font:600 14px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#e7ddf3}
-      .small{font:500 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#92899d}
+      .eyebrow{font:700 15px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#cdbfff;letter-spacing:2px}
+      .title{font:750 48px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#faf7ff;letter-spacing:-1px}
+      .sub{font:400 21px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b5acbf}
+      .lane{font:700 24px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .node{font:700 20px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .copy{font:400 16px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#c8c0d0}
+      .small{font:500 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#9f96aa}
+      .chip{font:650 14px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#e9e1f3}
     </style>
   </defs>
   <rect width="1600" height="960" rx="36" fill="url(#bg)"/>
-  <circle cx="1500" cy="30" r="300" fill="#9e77ff" opacity=".07"/>
-  <text x="80" y="86" class="k">REPOSITORY INTELLIGENCE · CURRENT SYSTEM MODEL</text>
-  <text x="80" y="146" class="title">One repository model, many engineering decisions.</text>
-  <text x="80" y="184" class="sub">Desired state, source structure, semantic relationships, Git changes, and proof converge into one provenance-bearing stack.</text>
+  <circle cx="1480" cy="60" r="280" fill="#9e77ff" opacity=".07"/>
+  <text x="80" y="82" class="eyebrow">HOW THE MODEL READS THE REPOSITORY</text>
+  <text x="80" y="142" class="title">Search is useful. Reconstructing the system from snippets is the expensive part.</text>
+  <text x="80" y="181" class="sub">wcode keeps cheap text discovery, then adds structure and semantics only when the question needs them.</text>
 
-  <g>
-    <text x="80" y="244" class="k">01 · INPUTS</text>
-    <rect x="80" y="264" width="272" height="96" rx="20" fill="#17121f" stroke="#382d47"/><text x="104" y="300" class="h">Design State</text><text x="104" y="329" class="t">requirements · components</text><text x="104" y="350" class="small">constraints · acceptance</text>
-    <rect x="370" y="264" width="272" height="96" rx="20" fill="#17121f" stroke="#382d47"/><text x="394" y="300" class="h">Git Actual State</text><text x="394" y="329" class="t">worktree · revision</text><text x="394" y="350" class="small">current change set</text>
-    <rect x="660" y="264" width="272" height="96" rx="20" fill="#17121f" stroke="#382d47"/><text x="684" y="300" class="h">Tree-sitter</text><text x="684" y="329" class="t">22-language syntax</text><text x="684" y="350" class="small">fast localization</text>
-    <rect x="950" y="264" width="272" height="96" rx="20" fill="#17121f" stroke="#382d47"/><text x="974" y="300" class="h">Warm LSP</text><text x="974" y="329" class="t">references · callers</text><text x="974" y="350" class="small">implementations · hover</text>
-    <rect x="1240" y="264" width="280" height="96" rx="20" fill="#17121f" stroke="#382d47"/><text x="1264" y="300" class="h">External Providers</text><text x="1264" y="329" class="t">SCIP · compiler · runtime</text><text x="1264" y="350" class="small">provider + precision + revision</text>
-  </g>
+  <rect x="70" y="230" width="700" height="620" rx="28" fill="#15111c" stroke="#352c40"/>
+  <rect x="830" y="230" width="700" height="620" rx="28" fill="#191326" stroke="#574269"/>
+  <rect x="830" y="230" width="700" height="6" rx="3" fill="url(#accent)"/>
 
-  <path d="M216 370V405M506 370V405M796 370V405M1086 370V405M1380 370V405" stroke="#756486" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="110" y="278" class="eyebrow">COMMON TEXT-DISCOVERY LOOP</text>
+  <text x="110" y="318" class="lane">Fast localization, then the model rebuilds relationships</text>
+  <rect x="110" y="360" width="620" height="84" rx="18" fill="#201927" stroke="#3d3248"/>
+  <text x="138" y="394" class="node">1 · Task</text><text x="138" y="420" class="copy">“Who calls this?” · “What breaks if I rename it?”</text>
+  <path d="M420 448V478" stroke="#776a84" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <rect x="110" y="486" width="620" height="98" rx="18" fill="#201927" stroke="#3d3248"/>
+  <text x="138" y="520" class="node">2 · grep / ripgrep / file slices</text><text x="138" y="547" class="copy">Great at finding text, filenames, obvious symbols</text><text x="138" y="570" class="small">Result: matching snippets, not guaranteed program relationships</text>
+  <path d="M420 588V618" stroke="#776a84" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <rect x="110" y="626" width="620" height="112" rx="18" fill="#201927" stroke="#3d3248"/>
+  <text x="138" y="660" class="node">3 · Model reconstructs the codebase</text><text x="138" y="688" class="copy">definition? caller? implementation? affected test?</text><text x="138" y="714" class="copy">same name or same symbol? text match or real relationship?</text>
+  <rect x="110" y="766" width="620" height="52" rx="16" fill="#261d2c"/><text x="138" y="798" class="small">The larger the repository, the more reconstruction competes for context.</text>
 
-  <g>
-    <rect x="80" y="414" width="1440" height="134" rx="26" fill="#1b1426" stroke="#4b3a61"/>
-    <rect x="80" y="414" width="1440" height="5" rx="3" fill="url(#bar)"/>
-    <text x="112" y="454" class="k">02 · NORMALIZED INTELLIGENCE</text>
-    <text x="112" y="494" class="h">Software Graph + Semantic Registry + Traceability</text>
-    <text x="112" y="524" class="t">Stable nodes and edges retain provider, precision, freshness, source revision, design ownership, and verification relationships.</text>
-    <rect x="1118" y="452" width="168" height="32" rx="16" fill="#2b2140"/><text x="1202" y="473" text-anchor="middle" class="mono">graph_history</text>
-    <rect x="1298" y="452" width="186" height="32" rx="16" fill="#2b2140"/><text x="1391" y="473" text-anchor="middle" class="mono">semantic_query</text>
-    <rect x="1118" y="493" width="168" height="32" rx="16" fill="#2b2140"/><text x="1202" y="514" text-anchor="middle" class="mono">traceability</text>
-    <rect x="1298" y="493" width="186" height="32" rx="16" fill="#2b2140"/><text x="1391" y="514" text-anchor="middle" class="mono">graph_query</text>
-  </g>
+  <text x="870" y="278" class="eyebrow">WCODE REPOSITORY-READING PATH</text>
+  <text x="870" y="318" class="lane">Use the cheapest precise source, then upgrade only when needed</text>
+  <rect x="870" y="360" width="620" height="84" rx="18" fill="#241a31" stroke="#59446d"/>
+  <text x="898" y="394" class="node">1 · Task-aware localization</text><text x="898" y="420" class="copy">Search stays the default for simple “where is X?” questions</text>
+  <path d="M1180 448V478" stroke="#9b83bc" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <rect x="870" y="486" width="620" height="112" rx="18" fill="#241a31" stroke="#59446d"/>
+  <text x="898" y="520" class="node">2 · Structure + semantic relationships when needed</text><text x="898" y="548" class="copy">Tree-sitter: symbols, ranges, syntax structure</text><text x="898" y="574" class="copy">Warm LSP: references, callers, implementations, hover</text>
+  <path d="M1180 602V632" stroke="#9b83bc" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <rect x="870" y="640" width="620" height="118" rx="18" fill="#241a31" stroke="#59446d"/>
+  <text x="898" y="674" class="node">3 · Task-ready repository evidence</text><text x="898" y="702" class="copy">code + tests + Git change + Design State + graph relationships</text><text x="898" y="728" class="copy">each fact keeps provider · precision · freshness · revision</text>
+  <rect x="870" y="782" width="196" height="34" rx="17" fill="#322442"/><text x="968" y="804" text-anchor="middle" class="chip">agent_context</text>
+  <rect x="1078" y="782" width="196" height="34" rx="17" fill="#322442"/><text x="1176" y="804" text-anchor="middle" class="chip">semantic_navigation</text>
+  <rect x="1286" y="782" width="204" height="34" rx="17" fill="#322442"/><text x="1388" y="804" text-anchor="middle" class="chip">impact / verification</text>
 
-  <path d="M800 558V598" stroke="#756486" stroke-width="2.5" marker-end="url(#arrow)"/>
-
-  <g>
-    <text x="80" y="620" class="k">03 · DECIDE</text>
-    <rect x="80" y="642" width="270" height="112" rx="22" fill="#17121f" stroke="#382d47"/><text x="106" y="680" class="h">agent_context</text><text x="106" y="709" class="t">task-ready context</text><text x="106" y="733" class="small">readiness · next actions</text>
-    <rect x="370" y="642" width="270" height="112" rx="22" fill="#17121f" stroke="#382d47"/><text x="396" y="680" class="h">Impact</text><text x="396" y="709" class="t">changed paths → callers</text><text x="396" y="733" class="small">API · security · scopes</text>
-    <rect x="660" y="642" width="270" height="112" rx="22" fill="#17121f" stroke="#382d47"/><text x="686" y="680" class="h">Drift</text><text x="686" y="709" class="t">desired ↔ actual</text><text x="686" y="733" class="small">implementation + design gaps</text>
-    <rect x="950" y="642" width="270" height="112" rx="22" fill="#17121f" stroke="#382d47"/><text x="976" y="680" class="h">Risk</text><text x="976" y="709" class="t">adaptive verification depth</text><text x="976" y="733" class="small">multi-dimensional evidence</text>
-    <rect x="1240" y="642" width="280" height="112" rx="22" fill="#17121f" stroke="#382d47"/><text x="1266" y="680" class="h">Reconciliation</text><text x="1266" y="709" class="t">dependency-aware tasks</text><text x="1266" y="733" class="small">convergence plan</text>
-  </g>
-
-  <path d="M215 764V802M505 764V802M795 764V802M1085 764V802M1380 764V802" stroke="#756486" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <g>
-    <rect x="80" y="810" width="454" height="92" rx="22" fill="#1a1522" stroke="#3a3045"/><text x="106" y="845" class="k">04 · EXECUTE</text><text x="106" y="878" class="h">Guarded Workspace + quality providers</text>
-    <rect x="573" y="810" width="454" height="92" rx="22" fill="#1a1522" stroke="#3a3045"/><text x="599" y="845" class="k">05 · PROVE</text><text x="599" y="878" class="h">Verification Plan + durable Evidence</text>
-    <rect x="1066" y="810" width="454" height="92" rx="22" fill="#1a1522" stroke="#3a3045"/><text x="1092" y="845" class="k">06 · SURFACE</text><text x="1092" y="878" class="h">MCP · TUI · Engineering Observatory</text>
-  </g>
-
-  <text x="80" y="934" class="small">Fresh semantic/runtime facts strengthen decisions; stale or unavailable providers fall back explicitly instead of being presented as compiler-level truth.</text>
+  <text x="80" y="900" class="small">wcode does not replace grep. It makes the precision boundary explicit: text for localization, syntax for structure, semantic providers for relationships, verification for proof.</text>
 </svg>

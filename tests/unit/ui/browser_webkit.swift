@@ -35,7 +35,19 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');
       }
-      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors};
+      const geometry=el=>{
+        const box=r(el),style=getComputedStyle(el),parent=el.parentElement,parentBox=parent?r(parent):null;
+        return {element:el.id?`#${el.id}`:el.className,parent:parent?(parent.id?`#${parent.id}`:parent.className):null,
+          left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height,
+          scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,display:style.display,position:style.position,
+          minWidth:style.minWidth,maxWidth:style.maxWidth,gridTemplateColumns:style.gridTemplateColumns,
+          gridTemplateRows:style.gridTemplateRows,overflow:style.overflow,overflowX:style.overflowX,
+          overflowY:style.overflowY,transform:style.transform,parentGeometry:parentBox?{
+            left:parentBox.left,right:parentBox.right,top:parentBox.top,bottom:parentBox.bottom,
+            width:parentBox.width,height:parentBox.height,scrollWidth:parent.scrollWidth,clientWidth:parent.clientWidth}:null};
+      };
+      const boxes=[...document.querySelectorAll('.global-bar,.global-controls,.proof-main-grid,.evidence-ledger-card,.evidence-inspector-card')].filter(visible).map(geometry);
+      return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors,boxes};
     })()
     """#
     override init(){
@@ -54,17 +66,24 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
             try! data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"));print(String(data:data,encoding:.utf8)!);exit(failures==0 ? 0:1)
         }
         let (width,lang,theme,tab)=scenarios[index];index+=1
-        web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
+        web.setFrameSize(NSSize(width:width,height:900));web.needsLayout = true;web.layoutSubtreeIfNeeded()
         let setup="state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);"
         web.evaluateJavaScript(setup){_,error in
             if let error {fputs("\(error)\n",stderr);exit(2)}
-            DispatchQueue.main.asyncAfter(deadline:.now()+0.12){self.web.evaluateJavaScript(self.check){value,error in
+            self.inspectSettledLayout()
+        }
+    }
+    func inspectSettledLayout() {
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.15) {
+            self.web.evaluateJavaScript(self.check) { value,error in
                 guard error==nil,let report=value as? [String:Any] else {fputs("browser check failed\n",stderr);exit(2)}
+                // A single bounded settle follows the explicit native layout pass.
+                // Persistent overflow is recorded immediately instead of timing out in retries.
                 self.reports.append(report);self.next()
-            }}
+            }
         }
     }
 }
 let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
-let audit=BrowserAudit();DispatchQueue.main.asyncAfter(deadline:.now()+90){fputs("browser audit timed out\n",stderr);exit(2)}
+let audit=BrowserAudit();DispatchQueue.main.asyncAfter(deadline:.now()+180){fputs("browser audit timed out\n",stderr);exit(2)}
 audit.start();app.run()

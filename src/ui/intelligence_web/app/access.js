@@ -65,7 +65,8 @@ async function mutateAccess(message, work) {
         state.authorizations = [];
         renderAccess(true);
       }
-      accessMessage(message, `${t("Unable to update access")}: ${error.message}`);
+      console.warn("wcode: access mutation failed", error);
+      accessMessage(message, `${t("Unable to update access")}: ${requestFailureMessage(error)}`);
     }
     return null;
   } finally {
@@ -107,7 +108,8 @@ async function loadAccess() {
       state.access = null;
       state.workspaceAccess = null;
       renderAccess(true);
-      accessMessage(els.authorizationMessage, `${t("Unable to update access")}: ${error.message}`);
+      console.warn("wcode: access refresh failed", error);
+      accessMessage(els.authorizationMessage, `${t("Unable to update access")}: ${requestFailureMessage(error)}`);
       return false;
     } finally {
       if (state.accessRead === read) state.accessRead = null;

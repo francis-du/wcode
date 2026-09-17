@@ -14,7 +14,7 @@ const cargo = filter => ({program:'cargo',args:['test','--locked','--quiet','--l
 const node = (file, scenario) => ({program:process.execPath,args:[file,'.',...(scenario?[scenario]:[])],kind:'json'});
 const swift = file => ({program:'swift',args:[file],kind:'json'});
 const rustRounds = [
-  ['Same-URL cleanup cannot revoke replacement trust','stale_standby_cleanup_preserves_same_url_replacement_trust'],
+  ['Same-URL cleanup cannot revoke replacement trust','stale_endpoint_cleanup_preserves_same_url_replacement_trust'],
   ['Queued Connected cannot borrow a newer registration','queued_connection_cannot_borrow_a_newer_registration'],
   ['Pre-quarantine success cannot undo quarantine','quarantine_invalidates_a_pre_quarantine_success'],
   ['Duplicate completion is not a second failure','duplicate_probe_completion_is_not_a_second_failure'],
@@ -24,9 +24,9 @@ const rustRounds = [
   ['Retired alias cleanup preserves its live provider','retired_alias_cleanup_does_not_recycle_its_live_replacement_provider'],
   ['Host and Origin parsing rejects spoofing and duplicates','auth_origin::tests'],
   ['Historical OAuth resources cannot reactivate a Host','old_tunnel_resource_does_not_make_old_host_active_after_restart'],
-  ['Late primary health cannot poison a promoted endpoint','stale_managed_primary_health_result_cannot_poison_a_promoted_tunnel'],
+  ['Late endpoint health cannot poison a replacement lease','stale_endpoint_probe_result_cannot_mutate_a_replacement_lease'],
   ['Health hysteresis requires real failure/recovery sequences','public_url_health_requires_three_failures_and_two_successes_to_recover'],
-  ['Shutdown cancels in-flight health without waiting','primary_runtime_shutdown_aborts_an_inflight_health_probe'],
+  ['Cancelled tunnel startup cleans descendants without collateral kills','cancelled_tunnel_startup_closes_descendant_pipes_without_touching_other_children'],
   ['Author and bulk authorization keys stay disjoint','author_and_bulk_authorization_never_share_a_key'],
   ['Modified chords cannot trigger plain-key grants','modified_keys_cannot_trigger_unmodified_permissions_or_navigation'],
   ['Invisible command panels cannot toggle permissions','invisible_command_panel_cannot_toggle_permissions'],

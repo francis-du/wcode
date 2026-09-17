@@ -1,6 +1,13 @@
 /* Observatory responsive contract: one global bar, one active tab workspace, no overlapping labels. */
+/* Explicit inline sizing prevents WebKit's intrinsic grid sizing from widening the full-bleed bar. */
+.global-bar{min-width:0;width:calc(100% + var(--page-gutter-x) + var(--page-gutter-x));}
+.proof-main-grid{min-width:0;grid-auto-rows:max-content;}
+.proof-main-grid>*{min-width:0;max-width:100%;}
 @media (max-width:1680px){
   :root{--page-gutter-x:28px;}
+  /* Keep the inspector in normal flow when the ledger cannot share a wide row. */
+  .proof-main-grid{grid-template-columns:minmax(0,1fr);}
+  .evidence-inspector-card{position:static;top:auto;max-height:none;}
   .global-bar{grid-template-columns:326px minmax(0,1fr);gap:16px;}
   .brand-lockup{grid-column:1;grid-row:1;}.global-controls{grid-column:2;grid-row:1;}.project-navigator{grid-column:1/-1;grid-row:2;}
   html{scroll-padding-top:140px;}

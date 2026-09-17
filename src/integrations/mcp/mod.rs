@@ -126,6 +126,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(setup_page))
         .route("/healthz", get(health))
+        .route("/healthz/probe", get(health_probe))
         .route("/setup/status", get(setup_status))
         .route("/intelligence", get(intelligence_page))
         .route("/intelligence/app.css", get(intelligence_styles))
@@ -192,6 +193,10 @@ async fn mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Resp
         "Use Streamable HTTP POST at /mcp; legacy clients can connect to /sse",
     )
         .into_response()
+}
+
+async fn health_probe(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(json!({"ok": true, "instance_id": state.auth.instance_id()}))
 }
 
 async fn health(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<Value> {
