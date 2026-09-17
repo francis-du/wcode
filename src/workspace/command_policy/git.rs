@@ -51,14 +51,8 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
         return Ok(());
     }
     match subcommand {
-        "ls-remote" => {
-            validate_git_remote_read(tail)?;
-            require_risky_exec("git ls-remote", allow_risky_exec)?;
-        }
-        "fetch" => {
-            validate_git_fetch(tail)?;
-            require_risky_exec("git fetch", allow_risky_exec)?;
-        }
+        "ls-remote" => validate_git_remote_read(tail)?,
+        "fetch" => validate_git_fetch(tail)?,
         "add" => validate_git_add(tail)?,
         "commit" => validate_git_commit(tail)?,
         "push" => validate_git_push(tail)?,
@@ -70,8 +64,9 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
     }
     // Bounded Git lifecycle operations are the repository's publication path,
     // not an escape hatch. Their dangerous variants are rejected above, so
-    // normal add/commit/branch/switch/tag/stage-restore/push can participate in
-    // autonomous verified iteration without per-operation approval.
+    // normal remote inspection/sync, add/commit/branch/switch/tag/stage-restore
+    // and non-force push participate in autonomous verified iteration without
+    // per-operation approval.
     Ok(())
 }
 
@@ -213,6 +208,9 @@ fn validate_git_named_operation(command: &str, args: &[String]) -> Result<()> {
 }
 
 fn validate_git_add(args: &[String]) -> Result<()> {
+    if matches!(args, [mode] if matches!(mode.as_str(), "-A" | "--all")) {
+        return Ok(());
+    }
     let mut path_count = 0usize;
     for arg in args {
         if arg == "--" {
@@ -284,7 +282,7 @@ fn validate_git_push(args: &[String]) -> Result<()> {
         if arg.starts_with('-') {
             bail!("git push option is blocked; force/delete/mirror/all/tag pushes are permanently unavailable: {arg}");
         }
-        if arg.starts_with('+') || arg.ends_with(':') {
+        if arg.starts_with('+') || arg.starts_with(':') || arg.ends_with(':') {
             bail!("git push force/delete refspecs are permanently blocked: {arg}");
         }
         positional += 1;

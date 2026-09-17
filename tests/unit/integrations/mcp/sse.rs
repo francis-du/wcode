@@ -131,6 +131,68 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
 }
 
 #[tokio::test]
+async fn legacy_sse_backpressure_rejects_work_before_dispatch() {
+    let (state, _root) = test_state();
+    let headers = request_headers("client-one", "127.0.0.1:8765");
+    let public_url = state.auth.request_public_url(&headers).unwrap();
+    let owner = state
+        .auth
+        .authorized_client_fingerprint_for(&headers, &public_url)
+        .unwrap();
+    let session_id = format!("backpressure-{}", uuid::Uuid::new_v4());
+    let (sender, _receiver) = mpsc::channel(CHANNEL_CAPACITY);
+    for _ in 0..CHANNEL_CAPACITY {
+        sender
+            .try_send(Event::default().event("message").data("occupied"))
+            .unwrap();
+    }
+    sessions()
+        .lock()
+        .expect("legacy SSE session lock poisoned")
+        .insert(
+            session_id.clone(),
+            Session {
+                owner,
+                public_url,
+                sender,
+            },
+        );
+    let notification = post_message(
+        State(state.clone()),
+        Query(MessageQuery {
+            session_id: session_id.clone(),
+        }),
+        headers.clone(),
+        Json(json!({"jsonrpc":"2.0","method":"notifications/initialized"})),
+    )
+    .await;
+    assert_eq!(notification.status(), StatusCode::ACCEPTED);
+
+    let before = state.monitor.connection_status().peak_active_tasks;
+    let response = post_message(
+        State(state.clone()),
+        Query(MessageQuery {
+            session_id: session_id.clone(),
+        }),
+        headers,
+        Json(json!({
+            "jsonrpc":"2.0",
+            "id":9,
+            "method":"tools/call",
+            "params":{"name":"read_file","arguments":{"path":"note.txt"}}
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(state.monitor.connection_status().peak_active_tasks, before);
+
+    sessions()
+        .lock()
+        .expect("legacy SSE session lock poisoned")
+        .remove(&session_id);
+}
+
+#[tokio::test]
 async fn legacy_sse_rejects_missing_auth_and_cross_origin_requests() {
     let (state, _root) = test_state();
     let mut missing_auth = request_headers("client-one", "127.0.0.1:8765");

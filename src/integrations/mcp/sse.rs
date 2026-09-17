@@ -152,12 +152,14 @@ async fn post_message(
     let Some(sender) = sender else {
         return (StatusCode::NOT_FOUND, "unknown legacy MCP SSE session").into_response();
     };
-
-    state.monitor.mark_mcp_seen();
-    if let Some(value) = dispatch_mcp_payload(state, payload, PROTOCOL_VERSION, &owner).await {
-        let event = Event::default().event("message").data(value.to_string());
-        match sender.try_send(event) {
-            Ok(()) => {}
+    // Reserve response capacity before starting request work. A stalled legacy
+    // client must not keep executing reads or writes whose responses cannot be
+    // delivered. Plain notifications have no response and therefore do not
+    // consume response capacity.
+    let may_respond = payload.is_array() || payload.get("id").is_some();
+    let permit = if may_respond {
+        match sender.try_reserve_owned() {
+            Ok(permit) => Some(permit),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 return (
                     StatusCode::TOO_MANY_REQUESTS,
@@ -172,6 +174,16 @@ async fn post_message(
                     .remove(&query.session_id);
                 return (StatusCode::GONE, "legacy MCP SSE session is closed").into_response();
             }
+        }
+    } else {
+        None
+    };
+
+    state.monitor.mark_mcp_seen();
+    if let Some(value) = dispatch_mcp_payload(state, payload, PROTOCOL_VERSION, &owner).await {
+        let event = Event::default().event("message").data(value.to_string());
+        if let Some(permit) = permit {
+            permit.send(event);
         }
     }
     StatusCode::ACCEPTED.into_response()

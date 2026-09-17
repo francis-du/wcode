@@ -16,10 +16,12 @@ pub(super) fn validate_gh_command(args: &[String], allow_risky_exec: bool) -> Re
     if group == "status" {
         return Ok(());
     }
+    if group == "api" {
+        return validate_gh_api_read(&args[1..]);
+    }
     if matches!(
         group,
         "auth"
-            | "api"
             | "alias"
             | "config"
             | "extension"
@@ -60,7 +62,22 @@ pub(super) fn validate_gh_command(args: &[String], allow_risky_exec: bool) -> Re
         ("run", action @ ("rerun" | "cancel")) => validate_gh_run_mutation(action, &args[2..])?,
         _ => bail!("gh {group} {action} is blocked by the bounded GitHub policy"),
     }
-    require_risky_exec("GitHub remote mutation", allow_risky_exec)
+    let _ = allow_risky_exec;
+    Ok(())
+}
+
+fn validate_gh_api_read(args: &[String]) -> Result<()> {
+    let endpoint = args
+        .first()
+        .ok_or_else(|| anyhow!("gh api requires an explicit endpoint"))?;
+    if endpoint.starts_with('-')
+        || endpoint.contains("://")
+        || endpoint.contains("..")
+        || endpoint.contains(['\0', '\n', '\r'])
+    {
+        bail!("gh api must use one bounded GitHub API endpoint on the selected host");
+    }
+    validate_exact_options(args, 1, &[], &["--jq"], &[], "gh api GET")
 }
 
 fn validate_gh_pr_create(args: &[String]) -> Result<()> {
