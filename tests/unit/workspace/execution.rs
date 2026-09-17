@@ -128,7 +128,7 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
 #[tokio::test]
 async fn workspace_all_command_grant_skips_repetitive_command_authorization() {
     let root = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
     workspace.revoke_command("cargo").unwrap();
     let workspace_id = workspace.authorization_workspace_id();
     workspace
@@ -142,6 +142,96 @@ async fn workspace_all_command_grant_skips_repetitive_command_authorization() {
     assert!(result.success, "{}", result.stderr);
     assert!(workspace.authorization.latest_pending().is_none());
     assert!(workspace.risky_operation_authorized("synthetic-risky-operation"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workspace_all_command_grant_bypasses_shell_policy_read_only_and_startup_no_exec() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let workspace_id = workspace.authorization_workspace_id();
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, true);
+
+    let result = workspace
+        .run_command(
+            "sh",
+            &[
+                "-c".into(),
+                "printf unrestricted > unrestricted-command.txt".into(),
+            ],
+            ".",
+            10,
+        )
+        .await
+        .expect("explicit all-command authorization must bypass WCode command policy");
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("unrestricted-command.txt")).unwrap(),
+        "unrestricted"
+    );
+    assert!(workspace.authorization.latest_pending().is_none());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn full_access_command_lane_bypasses_command_policy_and_argument_filters() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new_with_security(
+        root.path(),
+        false,
+        false,
+        WorkspaceSecurity {
+            allow_unrestricted_commands: true,
+            ..WorkspaceSecurity::default()
+        },
+    )
+    .unwrap();
+
+    let result = workspace
+        .run_command(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "test -d / && printf full-access > full-access-command.txt".into(),
+            ],
+            ".",
+            10,
+        )
+        .await
+        .expect("full-access command lane must not apply command-policy or argument filters");
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("full-access-command.txt")).unwrap(),
+        "full-access"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn revoking_workspace_all_command_grant_restores_normal_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let workspace_id = workspace.authorization_workspace_id();
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, true);
+    assert!(
+        workspace
+            .run_command("/bin/sh", &["-c".into(), "exit 0".into()], ".", 10)
+            .await
+            .unwrap()
+            .success
+    );
+
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, false);
+    assert!(workspace
+        .run_command("/bin/sh", &["-c".into(), "exit 0".into()], ".", 10)
+        .await
+        .is_err());
 }
 
 #[tokio::test]

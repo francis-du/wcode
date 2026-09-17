@@ -109,7 +109,7 @@
 - schema_version: 1
   id: AC-WORKSPACE-001
   title: Workspace coding primitives remain transactional and guarded
-  statement: Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain workspace-bound, argument-bound, and deny-safe, while an explicit current-runtime Workspace all-command grant may suppress repetitive CommandAccess/RiskyExecution prompts until revoked without changing destructive-delete semantics or permanently blocked command shapes. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string; malformed routing never silently selects the default Workspace.
+  statement: "Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain workspace-bound, argument-bound, and deny-safe by default. An explicit current-runtime Workspace all-command grant switches direct run_command execution to an unrestricted lane: executable allowlists, command-shape/argument filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain independent. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string; malformed routing never silently selects the default Workspace."
   verification:
     - kind: test
       path: tests/unit/workspace/mod.rs
@@ -122,7 +122,7 @@
       symbol: revoked_catalog_command_becomes_selectively_authorizable
     - kind: test
       path: tests/unit/workspace/policy.rs
-      symbol: git_mutations_require_exact_risky_authorization_and_keep_hard_boundaries
+      symbol: bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries
     - kind: test
       path: tests/unit/workspace/policy.rs
       symbol: ordinary_git_lifecycle_is_autonomous_while_destructive_variants_stay_blocked
@@ -140,7 +140,7 @@
       symbol: normal_command_output_and_exit_status_remain_compatible
     - kind: test
       path: tests/unit/workspace/execution.rs
-      symbol: workspace_all_command_grant_skips_repetitive_command_authorization
+      symbol: workspace_all_command_grant_bypasses_shell_policy_read_only_and_startup_no_exec
     - kind: test
       path: tests/unit/workspace/execution.rs
       symbol: large_command_streams_stay_bounded_and_do_not_deadlock
@@ -249,7 +249,7 @@
 - schema_version: 1
   id: AC-AUTH-001
   title: Human approval remains operation client and challenge bound
-  statement: A destructive authorization applies only to the approved operation fingerprint and its one-shot grant cannot be reused. Bounded read-only Git repository inspection, exact configured-remote synchronization, the bounded Git/GitHub publication lifecycle, and hardened local developer toolchains for all 22 indexed languages — including test/check/lint/build/format, workspace scripts, code generation, dependency sync and repository-declared verification executors — run without repetitive human approval. Inline or interactive eval, compiler/plugin/agent injection, force/delete/history rewriting, credential/authentication surfaces, arbitrary API mutation or host redirection, host-wide configuration and destructive infrastructure mutation remain blocked or explicitly authorized. Modern MCP authorization returns input_required only to clients that advertise form elicitation, rejects a retry from a different MCP owner or invalid challenge, and executes only after an accepted human response. Legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a Workspace-scoped current-runtime all-command authorization that can be enabled or revoked, resolves pending CommandAccess/RiskyExecution requests, does not authorize DestructiveDelete, and does not bypass permanently blocked command shapes. Full Access may add the current user Home and otherwise-authorizable runtime capabilities, but filesystem-root exposure and protected-path/symlink/hard-link/no-shell boundaries remain enforced; failed transitions leave previous permissions untouched.
+  statement: "Exact destructive file authorization remains operation-fingerprinted and one-shot. The bounded Git/GitHub and local developer lifecycle stays autonomous by default, with risky command shapes otherwise using explicit authorization. Modern MCP authorization remains owner/challenge-bound and legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a current-runtime Workspace all-command authorization that can be enabled or revoked. Once explicitly enabled, it is authoritative for direct command execution: WCode does not reject a command because of executable family, shell usage, argument/path shape, credential/API/publish/destructive command policy, read-only command classification, or startup no-exec, and it does not inject Git policy overrides or scrub command environment. Full Access enables the same unrestricted command lane and may add current-user Home. Resource/process/timeout/output controls remain bounded, while protected-path/symlink/hard-link/SHA/file-delete rules for WCode file primitives remain separate."
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
@@ -295,8 +295,8 @@
       path: tests/unit/workspace/access.rs
       symbol: full_access_preparation_failures_leave_policy_unchanged
     - kind: test
-      path: tests/unit/workspace/access.rs
-      symbol: full_access_preserves_shared_locks_and_command_revocations
+      path: tests/unit/workspace/execution.rs
+      symbol: full_access_command_lane_bypasses_command_policy_and_argument_filters
     - kind: test
       path: tests/unit/workspace/access.rs
       symbol: full_access_at_capacity_reuses_registered_home

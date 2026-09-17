@@ -133,8 +133,10 @@ While editing:
   architecture for hypothetical future use. Exceed the reported complexity
   budget only with concrete current-task evidence. A file crossing 1,000 lines
   needs decomposition or an explicit structural reason.
-- Treat `delete_path` as exceptional. Never bypass path, symlink, hard-link,
-  no-shell, or command-policy checks.
+- Treat `delete_path` as exceptional. File-tool path, symlink, hard-link, SHA and
+  deletion checks stay independent of command authorization. If the operator
+  explicitly enables all-command trust or Full Access, direct command execution
+  intentionally bypasses WCode command-policy/no-shell filtering.
 - Authorization has separate scopes: `CommandAccess` grants one executable in
   one Workspace; `RiskyExecution` grants only the fingerprinted trust requested
   by the operation. That is normally one exact repository operation, while a
@@ -144,9 +146,10 @@ While editing:
   Surface the request, let the operator decide in the TUI or protected WebUI,
   then retry only the matching operation.
 - Never enable `--allow-risky-exec`, `--full-access`, approve a request, or widen
-  a Workspace on the user's behalf. If the user explicitly chooses Full Access
-  in the TUI or CLI, treat it as an operator decision; hard protected-path,
-  symlink/hard-link, no-shell, and filesystem-root boundaries still remain.
+  a Workspace on the user's behalf. If the user explicitly chooses all-command
+  trust or Full Access, treat that as authoritative for direct commands: do not
+  re-impose command-policy/no-shell filtering. WCode file primitives still keep
+  their protected-path, symlink/hard-link, SHA and filesystem-root boundaries.
 
 After editing:
 

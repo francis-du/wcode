@@ -24,15 +24,19 @@ impl Workspace {
         cwd: &str,
         timeout_seconds: u64,
     ) -> Result<CommandResult> {
-        if !self.allow_exec {
-            bail!("command execution is disabled; restart without --no-exec");
+        let unrestricted_commands =
+            self.security.allow_unrestricted_commands || self.workspace_commands_granted();
+        if !self.allow_exec && !unrestricted_commands {
+            bail!("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace");
         }
-        validate_authorizable_program(program)?;
-        // Reject malformed/unavailable operations before creating an approval
-        // request, so the operator never approves something that cannot run.
-        let mut admissible = self.security;
-        admissible.allow_risky_exec = true;
-        validate_command_policy(program, args, admissible)?;
+        if !unrestricted_commands {
+            validate_authorizable_program(program)?;
+            // Reject malformed/unavailable operations before creating an approval
+            // request, so the operator never approves something that cannot run.
+            let mut admissible = self.security;
+            admissible.allow_risky_exec = true;
+            validate_command_policy(program, args, admissible)?;
+        }
         let development_program = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
         let mut safe_development = self.security;
         // Repository development tools are intentionally autonomous. Give
@@ -42,19 +46,20 @@ impl Workspace {
         // rejections (shell interpreters, protected/escaping paths, credential
         // flows, and explicitly blocked host operations) still fail closed.
         safe_development.allow_risky_exec = development_program;
-        let autonomous_development =
-            validate_command_policy(program, args, safe_development).is_ok();
+        let autonomous_development = unrestricted_commands
+            || validate_command_policy(program, args, safe_development).is_ok();
         let cwd_path = self.existing_path(cwd)?;
         if !cwd_path.is_dir() {
             bail!("cwd is not a directory");
         }
-        if !self.allow_write
+        if !unrestricted_commands
+            && !self.allow_write
             && command_requires_workspace_write(program, args)
             && validate_verification_command_shape(program, args).is_err()
         {
             bail!("command modifies repository state and is blocked in a read-only workspace");
         }
-        if !self.workspace_commands_granted()
+        if !unrestricted_commands
             && !self
                 .commands
                 .read()
@@ -70,10 +75,11 @@ impl Workspace {
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
-        if self.workspace_commands_granted() || (autonomous_development && development_program) {
+        if unrestricted_commands || (autonomous_development && development_program) {
             effective_security.allow_risky_exec = true;
         }
-        if !effective_security.allow_risky_exec
+        if !unrestricted_commands
+            && !effective_security.allow_risky_exec
             && !autonomous_development
             && validate_command_policy(program, args, effective_security).is_err()
         {
@@ -92,7 +98,9 @@ impl Workspace {
                 effective_security = elevated;
             }
         }
-        validate_command_policy(program, args, effective_security)?;
+        if !unrestricted_commands {
+            validate_command_policy(program, args, effective_security)?;
+        }
         let cwd = self.existing_path(cwd)?;
         if !cwd.is_dir() {
             bail!("cwd is not a directory");
@@ -104,7 +112,11 @@ impl Workspace {
             governor.acquire_child_with_wait().await
         }
         .map_err(anyhow::Error::msg)?;
-        let effective_args = hardened_command_args(program, args);
+        let effective_args = if unrestricted_commands {
+            args.to_vec()
+        } else {
+            hardened_command_args(program, args)
+        };
         let mut command = Command::new(program);
         command
             .args(&effective_args)
@@ -113,18 +125,21 @@ impl Workspace {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        scrub_sensitive_environment(
-            &mut command,
-            program,
-            args,
-            effective_security.allow_risky_exec || (program == "git" && is_git_push_command(args)),
-        );
-        crate::resource::apply_child_limits(&mut command);
-        if program == "git" {
-            command
-                .env("GIT_CEILING_DIRECTORIES", &self.root)
-                .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "0");
+        if !unrestricted_commands {
+            scrub_sensitive_environment(
+                &mut command,
+                program,
+                args,
+                effective_security.allow_risky_exec
+                    || (program == "git" && is_git_push_command(args)),
+            );
+            if program == "git" {
+                command
+                    .env("GIT_CEILING_DIRECTORIES", &self.root)
+                    .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "0");
+            }
         }
+        crate::resource::apply_child_limits(&mut command);
 
         let child = command.spawn().context("failed to start command")?;
         collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await

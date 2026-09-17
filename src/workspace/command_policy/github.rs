@@ -50,6 +50,7 @@ pub(super) fn validate_gh_command(args: &[String], allow_risky_exec: bool) -> Re
             | ("search", "prs" | "issues" | "repos" | "code" | "commits")
     );
     if read_only {
+        validate_gh_read_target(group, action, &args[2..])?;
         return Ok(());
     }
     match (group, action) {
@@ -66,16 +67,39 @@ pub(super) fn validate_gh_command(args: &[String], allow_risky_exec: bool) -> Re
     Ok(())
 }
 
+fn validate_gh_read_target(group: &str, action: &str, args: &[String]) -> Result<()> {
+    if matches!((group, action), ("repo", "view")) && !args.is_empty() {
+        bail!("gh repo view must use the selected workspace repository");
+    }
+    if matches!((group, action), ("pr", "view" | "diff") | ("issue", "view")) {
+        if let Some(target) = args.first() {
+            if target.contains("://") || target.starts_with("git@") || target.contains('/') {
+                bail!("gh {group} {action} target must stay in the selected workspace repository");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_gh_api_read(args: &[String]) -> Result<()> {
     let endpoint = args
         .first()
         .ok_or_else(|| anyhow!("gh api requires an explicit endpoint"))?;
-    if endpoint.starts_with('-')
+    let endpoint = endpoint.strip_prefix('/').unwrap_or(endpoint);
+    let repository_root = "repos/{owner}/{repo}";
+    let repository_scoped = endpoint == repository_root
+        || endpoint.starts_with(&format!("{repository_root}/"))
+        || endpoint.starts_with(&format!("{repository_root}?"));
+    if endpoint.is_empty()
+        || endpoint.starts_with('-')
         || endpoint.contains("://")
         || endpoint.contains("..")
+        || endpoint.contains('%')
+        || endpoint.contains('\\')
         || endpoint.contains(['\0', '\n', '\r'])
+        || !repository_scoped
     {
-        bail!("gh api must use one bounded GitHub API endpoint on the selected host");
+        bail!("gh api GET must stay under repos/{{owner}}/{{repo}} for the selected workspace repository");
     }
     validate_exact_options(args, 1, &[], &["--jq"], &[], "gh api GET")
 }
@@ -109,8 +133,8 @@ fn validate_gh_comment(args: &[String]) -> Result<()> {
     let target = args
         .first()
         .ok_or_else(|| anyhow!("gh comment requires an explicit PR/issue target"))?;
-    if target.starts_with('-') {
-        bail!("gh comment requires an explicit PR/issue target before options");
+    if target.starts_with('-') || target.contains("://") || target.starts_with("git@") {
+        bail!("gh comment requires a local PR/issue target in the selected repository");
     }
     if !has_option_value(args, "--body") {
         bail!("gh comment requires an explicit --body");
@@ -156,9 +180,13 @@ fn validate_gh_release_create(args: &[String]) -> Result<()> {
 fn validate_gh_pr_merge(args: &[String]) -> Result<()> {
     let target = args
         .first()
-        .ok_or_else(|| anyhow!("gh pr merge requires an explicit PR number or URL"))?;
-    if target.starts_with('-') {
-        bail!("gh pr merge requires an explicit PR target before options");
+        .ok_or_else(|| anyhow!("gh pr merge requires an explicit PR number"))?;
+    if target.starts_with('-')
+        || target.contains("://")
+        || target.starts_with("git@")
+        || !target.chars().all(|ch| ch.is_ascii_digit())
+    {
+        bail!("gh pr merge requires an explicit PR number in the selected repository");
     }
     let method_count = ["--merge", "--squash", "--rebase"]
         .into_iter()

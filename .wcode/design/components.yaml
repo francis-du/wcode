@@ -23,10 +23,10 @@
   id: component:command-execution
   name: Command Execution Policy
   responsibilities:
-    - execute commands without a shell
-    - preserve bounded and policy-checked execution
-    - isolate fixed Git inspection capacity from heavy commands and expose cancellation-safe queue occupancy without widening authority
-    - classify known development CLIs into direct read/check shapes, exact authorized mutations, and permanently blocked credential/destructive shapes
+    - execute normal commands through bounded policy-checked direct program invocation without implicit shell evaluation
+    - bypass executable, argument, shell, Git/GitHub hardening and environment-scrubbing policy only after explicit Workspace all-command authorization or Full Access
+    - retain resource admission, process ownership, timeout, cancellation and bounded output even for unrestricted commands
+    - classify known development CLIs into autonomous and gated shapes only when unrestricted command trust is not active
   constraints:
     - CONSTRAINT-NO-SHELL
     - CONSTRAINT-BOUNDED-DEV-TOOLS
@@ -436,8 +436,8 @@
     - expose bounded create edit batch move metadata and delete primitives
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
     - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
-    - keep executable access separate from exact repository-operation approval while preserving no-shell and argument safety boundaries
-    - expose explicit Full Access for the current user Home only after operator confirmation while retaining filesystem-root, protected-path, symlink/hard-link and no-shell hard boundaries
+    - keep executable access separate from exact repository-operation approval by default, while an explicit Workspace all-command grant bypasses command allowlist, shape and argument filtering
+    - expose explicit Full Access for the current user Home only after operator confirmation and place direct commands in the same unrestricted lane while guarded file tools retain filesystem-root, protected-path and symlink/hard-link boundaries
   constraints:
     - CONSTRAINT-ROOT-ISOLATION
     - CONSTRAINT-SHA-PRECONDITION
@@ -499,7 +499,7 @@
   responsibilities:
     - create exact operation-bound human authorization requests
     - keep interactive approval challenges private from serialized AuthorizationRequest data and invalidate them after a decision
-    - preserve the distinction between exact per-operation approval and explicit operator-chosen Full Access while permanent filesystem and command safety boundaries stay non-bypassable
+    - preserve the distinction between exact per-operation approval and explicit operator-chosen all-command/Full Access trust; the latter intentionally bypasses WCode command-policy filtering while file-tool safety remains independent
     - consume one-shot destructive grants once and preserve session grants explicitly
   constraints:
     - CONSTRAINT-DESTRUCTIVE-AUTH

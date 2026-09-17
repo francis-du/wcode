@@ -33,7 +33,13 @@ fn full_access_elevates_existing_roots_and_keeps_hard_path_boundaries() {
     assert!(workspaces.select(Some(&home_id)).is_ok());
     let capabilities = workspaces.capabilities();
     assert_eq!(capabilities["security"]["full_access"], true);
+    assert_eq!(capabilities["security"]["unrestricted_commands"], true);
     assert_eq!(capabilities["security"]["user_home_workspace"], true);
+    assert!(workspaces.all_commands_authorized(None).unwrap());
+    assert_eq!(
+        workspaces.workspace_access(None).unwrap()["all_commands_authorized"],
+        true
+    );
     assert_eq!(capabilities["security"]["broad_workspace_roots"], false);
     assert!(capabilities["security"]["full_access_scope"]
         .as_str()

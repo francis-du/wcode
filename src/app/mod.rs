@@ -171,7 +171,7 @@ struct Args {
     #[arg(long = "no-semantic", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Safety")]
     allow_semantic: bool,
 
-    /// Allow approved tools to work across your Home directory. Filesystem root, credentials, symlinks/hard-links, and shell execution remain blocked.
+    /// Allow approved tools to work across your Home directory and run commands without WCode command-policy filtering. Filesystem tools still keep their path-integrity boundaries.
     #[arg(long, global = true, conflicts_with_all = ["allow_write", "allow_exec", "allow_semantic"], help_heading = "Safety")]
     full_access: bool,
 
@@ -317,6 +317,7 @@ pub async fn run() -> Result<()> {
     let allow_semantic = args.allow_semantic || args.full_access;
     let security = WorkspaceSecurity {
         allow_risky_exec: args.allow_risky_exec || args.full_access,
+        allow_unrestricted_commands: args.full_access,
         allow_semantic_exec: allow_semantic,
         allow_destructive_writes: args.allow_destructive_writes || args.full_access,
         allow_overlapping_workspaces: args.allow_overlapping_workspaces || args.full_access,

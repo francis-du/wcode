@@ -309,6 +309,13 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     assert!(agent_context["inputSchema"]["properties"]
         .get("budget")
         .is_none());
+    let run_command = first
+        .iter()
+        .find(|tool| tool["name"] == "run_command")
+        .unwrap();
+    assert!(run_command["inputSchema"]["properties"]["program"]
+        .get("maxLength")
+        .is_none());
     assert!(names.contains("agent_context"));
     assert!(names.contains("semantic_navigation"));
     assert!(names.contains("verify_project"));

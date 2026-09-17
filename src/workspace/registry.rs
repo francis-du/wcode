@@ -150,6 +150,7 @@ impl Workspaces {
     fn full_access_security(&self) -> WorkspaceSecurity {
         WorkspaceSecurity {
             allow_risky_exec: true,
+            allow_unrestricted_commands: true,
             allow_semantic_exec: true,
             allow_destructive_writes: true,
             allow_overlapping_workspaces: true,
@@ -354,15 +355,17 @@ impl Workspaces {
             "root": workspace.root(),
             "write_enabled": workspace.write_enabled(),
             "exec_enabled": workspace.exec_enabled(),
-            "all_commands_authorized": self.authorization.workspace_commands_granted(&id),
+            "all_commands_authorized": workspace.security.allow_unrestricted_commands
+                || self.authorization.workspace_commands_granted(&id),
             "allowed_commands": workspace.allowed_commands(),
             "available_commands": workspace.available_commands(),
         }))
     }
 
     pub fn all_commands_authorized(&self, id: Option<&str>) -> Result<bool> {
-        let (id, _) = self.select(id)?;
-        Ok(self.authorization.workspace_commands_granted(&id))
+        let (id, workspace) = self.select(id)?;
+        Ok(workspace.security.allow_unrestricted_commands
+            || self.authorization.workspace_commands_granted(&id))
     }
 
     pub fn set_all_commands_authorized(
@@ -504,11 +507,12 @@ impl Workspaces {
                 "symlink_paths": "blocked",
                 "protected_paths": "blocked",
                 "full_access": self.full_access_enabled(),
-                "full_access_scope": "current-user-home; filesystem root and hard protected-path/symlink/hard-link/no-shell boundaries remain",
+                "full_access_scope": "current-user-home workspace, not filesystem root; command-policy filtering disabled; filesystem tools retain protected-path/symlink/hard-link/root boundaries",
                 "overlapping_workspaces": security.allow_overlapping_workspaces,
                 "user_home_workspace": security.allow_user_home_workspace,
                 "broad_workspace_roots": security.allow_broad_workspace,
                 "risky_exec_enabled": security.allow_risky_exec,
+                "unrestricted_commands": security.allow_unrestricted_commands,
                 "semantic_exec_enabled": (self.allow_exec || self.full_access_enabled()) && security.allow_semantic_exec,
                 "dynamic_authorization": true,
                 "pending_authorizations": self.authorization.requests(MAX_WORKSPACES).iter().filter(|request| matches!(request.status, crate::authorization::AuthorizationStatus::Pending)).count(),

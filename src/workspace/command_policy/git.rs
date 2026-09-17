@@ -53,6 +53,7 @@ pub(super) fn validate_git_command(args: &[String], allow_risky_exec: bool) -> R
     match subcommand {
         "ls-remote" => validate_git_remote_read(tail)?,
         "fetch" => validate_git_fetch(tail)?,
+        "pull" => validate_git_pull(tail)?,
         "add" => validate_git_add(tail)?,
         "commit" => validate_git_commit(tail)?,
         "push" => validate_git_push(tail)?,
@@ -124,6 +125,19 @@ fn validate_git_remote_read(args: &[String]) -> Result<()> {
 fn validate_git_fetch(args: &[String]) -> Result<()> {
     if args.len() != 2 || !bounded_remote_name(&args[0]) || !bounded_remote_ref(&args[1], true) {
         bail!("git fetch requires one configured remote name and one explicit branch ref");
+    }
+    Ok(())
+}
+
+fn validate_git_pull(args: &[String]) -> Result<()> {
+    if args.len() != 3
+        || args[0] != "--ff-only"
+        || !bounded_remote_name(&args[1])
+        || !bounded_remote_ref(&args[2], true)
+    {
+        bail!(
+            "git pull requires --ff-only, one configured remote name, and one explicit branch ref"
+        );
     }
     Ok(())
 }
@@ -222,9 +236,6 @@ fn validate_git_add(args: &[String]) -> Result<()> {
         if arg.starts_with(':') {
             bail!("git add magic pathspecs are blocked: {arg}");
         }
-        if matches!(arg.as_str(), "." | "./") {
-            bail!("git add requires explicit files/directories; broad dot pathspecs are blocked");
-        }
         path_count += 1;
     }
     if path_count == 0 {
@@ -272,7 +283,7 @@ fn validate_git_push(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Ok(());
     }
-    let mut positional = 0usize;
+    let mut positional = Vec::with_capacity(2);
     let mut set_upstream = false;
     for arg in args {
         if matches!(arg.as_str(), "-u" | "--set-upstream") {
@@ -285,23 +296,29 @@ fn validate_git_push(args: &[String]) -> Result<()> {
         if arg.starts_with('+') || arg.starts_with(':') || arg.ends_with(':') {
             bail!("git push force/delete refspecs are permanently blocked: {arg}");
         }
-        positional += 1;
-        if positional > 2 {
+        positional.push(arg.as_str());
+        if positional.len() > 2 {
             bail!("git push accepts either the current upstream or an explicit remote and one refspec");
         }
     }
-    if positional != 2 {
+    if positional.len() != 2 {
         bail!(
             "git push accepts either no arguments or an explicit remote and one explicit refspec"
         );
     }
-    if set_upstream && positional != 2 {
+    if !bounded_remote_name(positional[0]) {
+        bail!("git push requires a configured remote name, not a URL or filesystem target");
+    }
+    if !bounded_remote_ref(positional[1], true) {
+        bail!("git push requires one bounded explicit branch ref");
+    }
+    if set_upstream && positional.len() != 2 {
         bail!("git push --set-upstream requires an explicit remote and refspec");
     }
     Ok(())
 }
 
-fn validate_git_lfs(args: &[String], allow_risky_exec: bool) -> Result<()> {
+fn validate_git_lfs(args: &[String], _allow_risky_exec: bool) -> Result<()> {
     let action = args
         .first()
         .map(String::as_str)
@@ -309,23 +326,47 @@ fn validate_git_lfs(args: &[String], allow_risky_exec: bool) -> Result<()> {
     match action {
         "status" | "ls-files" | "version" => Ok(()),
         "env" => bail!("git lfs env is blocked because remote/config output can contain sensitive endpoint information"),
-        "fetch" | "pull" => require_risky_exec(&format!("git lfs {action}"), allow_risky_exec),
-        "push" => {
-            if args.iter().any(|arg| matches!(arg.as_str(), "--all" | "--object-id" | "--stdin")) {
-                bail!("git lfs push broad/object-id/stdin modes are blocked; push one explicit remote/ref");
-            }
-            let positional = args[1..].iter().filter(|arg| !arg.starts_with('-')).count();
-            if positional != 2 {
-                bail!("git lfs push requires one explicit remote and one explicit ref");
-            }
-            require_risky_exec("git lfs push", allow_risky_exec)
-        }
-        "track" | "untrack" | "checkout" => {
-            require_risky_exec(&format!("git lfs {action}"), allow_risky_exec)
-        }
+        "fetch" => validate_git_lfs_fetch(&args[1..]),
+        "pull" => validate_git_lfs_pull(&args[1..]),
+        "push" => validate_git_lfs_push(&args[1..]),
+        "track" | "untrack" | "checkout" => Ok(()),
         "prune" | "migrate" | "uninstall" | "install" => {
             bail!("git lfs {action} is blocked by the bounded repository policy")
         }
         _ => bail!("git lfs action is blocked by the bounded repository policy: {action}"),
     }
+}
+
+fn validate_git_lfs_fetch(args: &[String]) -> Result<()> {
+    let Some((remote, refs)) = args.split_first() else {
+        bail!("git lfs fetch requires one configured remote and at least one explicit ref");
+    };
+    if !bounded_remote_name(remote)
+        || refs.is_empty()
+        || refs
+            .iter()
+            .any(|reference| !bounded_remote_ref(reference, true))
+    {
+        bail!("git lfs fetch requires one configured remote and bounded explicit refs");
+    }
+    Ok(())
+}
+
+fn validate_git_lfs_pull(args: &[String]) -> Result<()> {
+    if args.is_empty() || matches!(args, [remote] if bounded_remote_name(remote)) {
+        Ok(())
+    } else {
+        bail!("git lfs pull accepts only the current upstream or one configured remote name")
+    }
+}
+
+fn validate_git_lfs_push(args: &[String]) -> Result<()> {
+    if args.len() != 2
+        || args.iter().any(|arg| arg.starts_with('-'))
+        || !bounded_remote_name(&args[0])
+        || !bounded_remote_ref(&args[1], true)
+    {
+        bail!("git lfs push requires one configured remote and one bounded explicit ref");
+    }
+    Ok(())
 }

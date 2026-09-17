@@ -59,11 +59,11 @@ N      deny
 
 The command view also uses **F** to toggle the Workspace-wide session grant. The protected WebUI exposes the same switch, and stdio elicitation offers `exact`, `all_commands`, or `deny` when the client supports forms.
 
-Command authorization therefore has two human-selected modes. **Exact authorization** keeps executable access and one fingerprinted repository operation separate. **All commands for this Workspace session** resolves pending executable/RiskyExecution requests for that Workspace and lets later otherwise-authorizable command shapes proceed without another prompt until the grant is revoked or the runtime exits. It does not spill into another Workspace. Destructive file deletion remains exact and one-shot, and command shapes that are permanently blocked by policy remain blocked.
+Command authorization therefore has two human-selected modes. **Exact authorization** keeps executable access and one fingerprinted repository operation separate. **All commands for this Workspace session** is intentionally unrestricted for direct command execution: once the operator enables it, WCode stops rejecting executables, shells, argument shapes, Git/GitHub operations, credential/publish commands, or other command families for that Workspace until the grant is revoked or the runtime exits. It also supersedes startup `--read-only` / `--no-exec` for direct commands. Resource limits, timeout/cancellation ownership and bounded output remain active. WCode file tools keep their separate Workspace/path/SHA/delete protections.
 
 `RiskyExecution` remains the fingerprint-scoped trust mechanism for exact approval. The Workspace-wide grant is a separate runtime-only operator choice layered above those otherwise-authorizable command requests. For non-automatic LSP servers, exact mode continues to bind Workspace + server + current binary identity; all-command mode intentionally suppresses repeated command/RiskyExecution prompts only inside the selected Workspace.
 
-Neither exact nor session-wide command approval disables Workspace isolation.
+Exact approval keeps command inspection enabled. Session-wide all-command trust is deliberately different: a command itself may access whatever the host OS/user account permits, while WCode's own file primitives remain Workspace-isolated.
 
 ## OAuth and remote MCP
 

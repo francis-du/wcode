@@ -58,11 +58,11 @@ N      拒绝
 
 命令视图中还可以按 **F** 开关 Workspace 级全部授权。受保护 WebUI 提供同一开关；支持 Form Elicitation 的 stdio 客户端会看到 `exact`、`all_commands`、`deny` 三种选择。
 
-因此命令授权有两种人工选择的模式。**精确授权**继续把可执行程序访问和一组参数 Fingerprint 分开；**当前 Workspace 本次运行全部授权**会一次性处理该 Workspace 已经待处理的 CommandAccess / RiskyExecution 请求，并让之后原本属于“可授权”范围的命令不再重复弹窗，直到用户关闭或 Runtime 退出。它不会扩散到另一个 Workspace。文件删除仍保持一次一条的一次性精确授权；策略永久阻断的命令形态也不会因为全部授权而变成可执行。
+因此命令授权有两种人工选择的模式。**精确授权**继续保留可执行程序和参数 Fingerprint 检查；**当前 Workspace 本次运行全部授权**则是真正的命令全授权：用户显式开启后，直到关闭或 Runtime 退出，WCode 不再因为可执行程序、Shell、参数/路径形态、Git/GitHub 操作、凭据/发布命令或其他命令策略拒绝 `run_command`。它也会覆盖启动时的 `--read-only` / `--no-exec` 对直接命令的限制。CPU/内存/子进程、超时、取消回收与输出上限仍保留；WCode 自己的文件工具继续使用独立的 Workspace/路径/SHA/删除保护。
 
 `RiskyExecution` 在精确模式下仍然是 Fingerprint-scoped Trust。Workspace 级全部授权是另一层仅存在于当前 Runtime 的 Operator 选择。对未进入 Automatic Profile 的 LSP Server，精确模式继续绑定 Workspace + Server + 当前 Binary Identity；全部授权模式只在选定 Workspace 内有意消除重复的 Command/RiskyExecution 授权提示。
 
-无论精确授权还是全部授权，都不会关闭 Workspace 隔离。
+精确授权仍保持命令检查；全部命令授权则明确允许命令本身使用当前 OS 用户拥有的能力，但 WCode 自己的文件工具仍保持 Workspace 隔离。
 
 ## OAuth 与远程 MCP
 

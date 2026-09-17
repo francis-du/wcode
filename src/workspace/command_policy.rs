@@ -76,6 +76,9 @@ pub(super) fn validate_command_policy(
     args: &[String],
     security: WorkspaceSecurity,
 ) -> Result<()> {
+    if security.allow_unrestricted_commands {
+        return Ok(());
+    }
     validate_authorizable_program(program)?;
     validate_command_arguments(program, args)?;
     if matches!(args, [flag] if matches!(flag.as_str(), "--version" | "-V" | "version")) {

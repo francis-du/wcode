@@ -21,15 +21,15 @@
 
 - schema_version: 1
   id: CONSTRAINT-NO-SHELL
-  title: Command execution never invokes a shell
-  statement: Model-facing command execution must launch allowlisted programs directly with argument arrays and must not evaluate shell syntax.
+  title: Command policy is bypassed only by explicit all-command trust
+  statement: Normal model-facing command execution must launch policy-checked programs directly with argument arrays and must not evaluate shell syntax. An explicit Workspace all-command grant or Full Access intentionally bypasses command-policy, executable, argument, shell, hardening and environment-scrubbing restrictions while retaining resource admission, process ownership, timeout, cancellation, bounded output and Workspace cwd selection.
   applies_to:
     - component:command-execution
 
 - schema_version: 1
   id: CONSTRAINT-BOUNDED-DEV-TOOLS
   title: Common development CLIs remain command-bounded
-  statement: Known developer CLIs for every indexed language must default bounded local test/check/lint/build/format/codegen/dependency and workspace-script workflows to the hardened autonomous development lane, while tool-specific policy permanently blocks shell evaluation, inline/interactive interpreter escape where unsafe, compiler/plugin/agent injection, credential or filesystem redirection, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command.
+  statement: Without explicit all-command trust, known developer CLIs for every indexed language must default bounded local test/check/lint/build/format/codegen/dependency and workspace-script workflows to the hardened autonomous development lane, while tool-specific policy blocks shell evaluation, inline/interactive interpreter escape where unsafe, compiler/plugin/agent injection, credential or filesystem redirection, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command. Explicit all-command trust bypasses these command-policy restrictions by operator choice.
   applies_to:
     - component:command-execution
 

@@ -571,7 +571,7 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     )
     .is_ok());
     assert!(validate_gh_command(&args(&["pr", "create", "--fill"]), true).is_err());
-    assert!(validate_gh_command(&args(&["api", "repos/example/example"]), false).is_ok());
+    assert!(validate_gh_command(&args(&["api", "repos/{owner}/{repo}"]), false).is_ok());
     assert!(validate_gh_command(&args(&["secret", "list"]), true).is_err());
     assert!(validate_gh_command(
         &args(&[
@@ -694,7 +694,9 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_cargo_command(&args(&["nextest", "run", "name(test)"]), false).is_ok());
     assert!(validate_cargo_command(&args(&["nextest", "archive"]), false).is_ok());
     assert!(validate_git_command(&args(&["lfs", "status"]), false).is_ok());
-    assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_err());
+    assert!(validate_git_command(&args(&["lfs", "fetch", "origin", "main"]), false).is_ok());
+    assert!(validate_git_command(&args(&["lfs", "pull", "origin"]), false).is_ok());
+    assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_ok());
     assert!(validate_package_command("npm", &args(&["test"]), false).is_ok());
     assert!(validate_package_command("npm", &args(&["ci"]), false).is_ok());
     assert!(
@@ -726,6 +728,19 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
     assert!(validate_go_command(&args(&["env", "-w", "GOTOOLCHAIN=auto"]), true).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), true).is_ok());
     assert!(validate_git_command(&args(&["lfs", "push", "--all", "origin"]), true).is_err());
+    assert!(validate_git_command(&args(&["lfs", "push", "origin", "main"]), false).is_ok());
+    assert!(command_requires_workspace_write(
+        "git",
+        &args(&["lfs", "fetch", "origin", "main"])
+    ));
+    assert!(command_requires_workspace_write(
+        "git",
+        &args(&["lfs", "push", "origin", "main"])
+    ));
+    assert!(!command_requires_workspace_write(
+        "git",
+        &args(&["lfs", "status"])
+    ));
 }
 
 #[test]
@@ -903,6 +918,7 @@ fn bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries() {
         validate_git_command(&args(&["ls-remote", "origin", "refs/heads/main"]), false).is_ok()
     );
     assert!(validate_git_command(&args(&["fetch", "origin", "main"]), false).is_ok());
+    assert!(validate_git_command(&args(&["pull", "--ff-only", "origin", "main"]), false).is_ok());
     for command in [
         vec![
             "ls-remote",
@@ -947,7 +963,7 @@ fn bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries() {
     assert!(validate_git_command(&args(&["commit"]), true).is_err());
 
     assert!(validate_git_command(&args(&["add", "--", "docs/index.html"]), true).is_ok());
-    assert!(validate_git_command(&args(&["add", "."]), true).is_err());
+    assert!(validate_git_command(&args(&["add", "."]), true).is_ok());
     assert!(validate_git_command(&args(&["add", "-A"]), true).is_ok());
     assert!(validate_git_command(&args(&["reset", "--hard"]), true).is_err());
 
