@@ -500,6 +500,24 @@ async fn verification_command_flights_separate_revisions() {
 }
 
 #[tokio::test]
+async fn workspace_relative_verification_executable_resolves_from_workspace_root() {
+    let (root, workspace, program) = verification_count_fixture();
+    assert!(!std::path::Path::new(&program).is_absolute());
+    let workspace_id = workspace.authorization_workspace_id();
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, true);
+
+    let result = workspace.run_command(&program, &[], ".", 30).await.unwrap();
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "1",
+        "workspace-relative executables must resolve from the workspace root on every platform"
+    );
+}
+
+#[tokio::test]
 async fn direct_run_command_revision_flights_coalesce_verification_shape() {
     let (root, workspace, program) = verification_count_fixture();
     let workspace_id = workspace.authorization_workspace_id();

@@ -379,19 +379,23 @@ impl CodeIndex {
         Ok(flight)
     }
 
+    fn parse_tree(&self, config: &LanguageConfig, content: &str) -> Result<Tree> {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&config.language)
+            .with_context(|| format!("failed to load {} parser", config.id.as_str()))?;
+        parser
+            .parse(content.as_bytes(), None)
+            .ok_or_else(|| anyhow!("Tree-sitter parsing was cancelled"))
+    }
+
     pub(super) fn parse_source(
         &self,
         root: &Path,
         config: &LanguageConfig,
         source: SourceDocument,
     ) -> Result<ParsedFile> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&config.language)
-            .with_context(|| format!("failed to load {} parser", config.id.as_str()))?;
-        let tree = parser
-            .parse(source.content.as_bytes(), None)
-            .ok_or_else(|| anyhow!("Tree-sitter parsing was cancelled"))?;
+        let tree = self.parse_tree(config, &source.content)?;
         let parse_errors = tree.root_node().has_error();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(
@@ -725,13 +729,17 @@ impl CodeIndex {
         let mut matches = files
             .par_iter()
             .filter_map(|path| {
-                self.config_for_path(path)?;
+                let config = self.config_for_path(path)?;
                 if found.load(Ordering::Relaxed) >= max_results as u64 {
                     stopped.store(true, Ordering::Relaxed);
                     return None;
                 }
+                // Syntax search can outlive the bounded shared AST LRU while
+                // many files are scanned in parallel. Require a fresh symbol
+                // record, but treat the AST as an optional acceleration only;
+                // a cache miss is reconstructed locally below.
                 let ensured = self
-                    .ensure_indexed(workspace, path, true)
+                    .ensure_indexed(workspace, path, false)
                     .inspect_err(|_| {
                         failed_files.fetch_add(1, Ordering::Relaxed);
                     })
@@ -759,9 +767,15 @@ impl CodeIndex {
                     .get(&key)
                     .filter(|ast| ast.hash == source.sha256)
                     .map(|ast| ast.tree.clone());
-                let Some(tree) = tree else {
-                    failed_files.fetch_add(1, Ordering::Relaxed);
-                    return None;
+                let tree = match tree {
+                    Some(tree) => tree,
+                    None => match self.parse_tree(&config, &source.content) {
+                        Ok(tree) => tree,
+                        Err(_) => {
+                            failed_files.fetch_add(1, Ordering::Relaxed);
+                            return None;
+                        }
+                    },
                 };
                 let mut local = Vec::new();
                 let mut stack = vec![tree.root_node()];

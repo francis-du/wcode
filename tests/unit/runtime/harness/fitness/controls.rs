@@ -1,13 +1,22 @@
 use super::corpus::{base_case, Identity};
 use super::scoring::{digest, score};
-use crate::code_index::CodeIndex;
+use crate::code_index::{CodeIndex, SyntaxSearchRequest};
 use crate::graph::{EdgeKind, GraphPrecision};
 use crate::harness::ToolHarness;
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, Workspaces};
 use anyhow::{ensure, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, fs, sync::Barrier, thread};
+use std::{
+    collections::BTreeSet,
+    fs,
+    process::Command,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Barrier,
+    },
+    thread,
+};
 
 #[derive(Debug, Serialize)]
 pub(super) struct Control {
@@ -237,6 +246,156 @@ fn bounded_graph() -> Result<Value> {
     )
 }
 
+fn syntax_cache_pressure_coverage() -> Result<Value> {
+    const FILES: usize = 96;
+    let root = tempfile::tempdir()?;
+    for index in 0..FILES {
+        fs::write(
+            root.path().join(format!("file_{index:03}.go")),
+            format!("package fixture\nfunc value_{index}() int {{ return {index} }}\n"),
+        )?;
+    }
+    let workspace = Workspace::new(root.path(), false, false)?;
+    let index = CodeIndex::new()?;
+    for file in 0..FILES {
+        index.file_outline(
+            "fitness-cache-pressure",
+            &workspace,
+            &format!("file_{file:03}.go"),
+            8,
+        )?;
+    }
+
+    let stop = AtomicBool::new(false);
+    let trims = AtomicUsize::new(0);
+    let barrier = Barrier::new(2);
+    let result = thread::scope(|scope| {
+        let trimmer = index.clone();
+        let stop = &stop;
+        let trims = &trims;
+        let barrier = &barrier;
+        let worker = scope.spawn(move || {
+            barrier.wait();
+            while !stop.load(Ordering::Acquire) {
+                trimmer.trim_memory(false);
+                trims.fetch_add(1, Ordering::Relaxed);
+                thread::yield_now();
+            }
+        });
+        barrier.wait();
+        let request = SyntaxSearchRequest {
+            path: ".".into(),
+            node_kinds: vec!["function_declaration".into()],
+            text_regex: None,
+            include_comments: false,
+            bug_patterns: Vec::new(),
+            max_files: 1_000,
+            max_results: 1_000,
+        };
+        let result = index.search_ast_nodes("fitness-cache-pressure", &workspace, &request);
+        stop.store(true, Ordering::Release);
+        ensure!(worker.join().is_ok(), "AST pressure worker panicked");
+        result
+    })?;
+    ensure!(
+        trims.load(Ordering::Relaxed) > 0,
+        "AST pressure did not run"
+    );
+    ensure!(
+        result["files_considered"].as_u64() == Some(FILES as u64),
+        "syntax pressure skipped files: {result}"
+    );
+    ensure!(
+        result["count"].as_u64() == Some(FILES as u64),
+        "syntax pressure lost matches: {result}"
+    );
+    ensure!(
+        result["files_failed"].as_u64() == Some(0),
+        "AST cache eviction was misreported as source failure: {result}"
+    );
+    ensure!(
+        result["coverage_complete"].as_bool() == Some(true),
+        "complete syntax scan was downgraded under cache pressure: {result}"
+    );
+    Ok(json!({
+        "files": FILES,
+        "matches": result["count"],
+        "cache_trims": trims.load(Ordering::Relaxed),
+        "files_failed": result["files_failed"],
+        "coverage_complete": result["coverage_complete"]
+    }))
+}
+
+fn workspace_relative_verification_flight() -> Result<Value> {
+    let root = tempfile::tempdir()?;
+    let fixture = r#"use std::{fs::OpenOptions, io::Write, thread, time::Duration};
+fn main() {
+    let mut file = OpenOptions::new().create(true).append(true).open("fitness-command-count.txt").unwrap();
+    file.write_all(b"1").unwrap();
+    file.flush().unwrap();
+    thread::sleep(Duration::from_millis(100));
+}
+"#;
+    fs::write(root.path().join("fixture.rs"), fixture)?;
+    let built = root
+        .path()
+        .join(format!("fitness-fixture{}", std::env::consts::EXE_SUFFIX));
+    let output = Command::new("rustc")
+        .arg("fixture.rs")
+        .arg("-o")
+        .arg(&built)
+        .current_dir(root.path())
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "fitness verification fixture did not compile: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::create_dir_all(root.path().join("vendor/bin"))?;
+    fs::copy(&built, root.path().join("vendor/bin/phpunit"))?;
+
+    let workspaces = Workspaces::new([root.path()], false, true)?;
+    workspaces.set_all_commands_authorized(None, true)?;
+    let (_, workspace) = workspaces.select(None)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let args = Vec::new();
+    let (left, right) = runtime.block_on(async {
+        tokio::join!(
+            workspace.run_command_at_revision(
+                "vendor/bin/phpunit",
+                &args,
+                ".",
+                30,
+                "fitness-relative-program"
+            ),
+            workspace.run_command_at_revision(
+                "vendor/bin/phpunit",
+                &args,
+                ".",
+                30,
+                "fitness-relative-program"
+            )
+        )
+    });
+    let left = left?;
+    let right = right?;
+    ensure!(left.success && right.success, "verification flight failed");
+    let executions = fs::read_to_string(root.path().join("fitness-command-count.txt"))?;
+    ensure!(
+        executions == "1",
+        "revision flight spawned duplicate workspace-relative executables: {executions:?}"
+    );
+    Ok(json!({
+        "platform": std::env::consts::OS,
+        "workspace_relative_program": "vendor/bin/phpunit",
+        "callers": 2,
+        "underlying_executions": 1,
+        "both_successful": true
+    }))
+}
+
 pub(super) fn run_controls() -> Vec<Control> {
     let mut controls = Vec::new();
     for language in ["rust", "go", "typescript", "python"] {
@@ -253,6 +412,14 @@ pub(super) fn run_controls() -> Vec<Control> {
     controls.push(record("concurrent-same-sha-edits", concurrent_edits()));
     controls.push(record("workspace-boundary", workspace_boundary()));
     controls.push(record("partial-graph-honesty", bounded_graph()));
+    controls.push(record(
+        "syntax-cache-pressure-coverage",
+        syntax_cache_pressure_coverage(),
+    ));
+    controls.push(record(
+        "workspace-relative-verification-flight",
+        workspace_relative_verification_flight(),
+    ));
     controls
 }
 

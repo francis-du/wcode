@@ -1,5 +1,8 @@
 use super::*;
-use std::sync::Barrier;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Barrier,
+};
 
 #[test]
 fn syntax_search_limit_and_failures_are_explicit() {
@@ -38,6 +41,71 @@ fn syntax_search_limit_and_failures_are_explicit() {
     let failed = index.search_ast_nodes("test", &workspace, &query).unwrap();
     assert_eq!(failed["files_failed"], 1);
     assert_eq!(failed["coverage_complete"], false);
+}
+
+#[test]
+fn syntax_search_cache_eviction_is_not_reported_as_file_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let file_count = 96;
+    for index in 0..file_count {
+        fs::write(
+            root.path().join(format!("file_{index:03}.go")),
+            format!("package demo\nvar value_{index} = {index}\n"),
+        )
+        .unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    for file in 0..file_count {
+        index
+            .ensure_indexed(&workspace, &format!("file_{file:03}.go"), false)
+            .unwrap();
+    }
+
+    let stop = AtomicBool::new(false);
+    let clears = AtomicUsize::new(0);
+    let barrier = Barrier::new(2);
+    let result = std::thread::scope(|scope| {
+        let index_for_evictor = index.clone();
+        let stop = &stop;
+        let clears = &clears;
+        let barrier = &barrier;
+        let evictor = scope.spawn(move || {
+            barrier.wait();
+            while !stop.load(Ordering::Acquire) {
+                index_for_evictor
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .ast_cache
+                    .clear();
+                clears.fetch_add(1, Ordering::Relaxed);
+                std::thread::yield_now();
+            }
+        });
+        barrier.wait();
+        let query = SyntaxSearchRequest {
+            path: ".".into(),
+            node_kinds: vec!["var_declaration".into()],
+            text_regex: None,
+            include_comments: false,
+            bug_patterns: Vec::new(),
+            max_files: 1_000,
+            max_results: 1_000,
+        };
+        let result = index.search_ast_nodes("test", &workspace, &query);
+        stop.store(true, Ordering::Release);
+        evictor.join().unwrap();
+        result.unwrap()
+    });
+
+    assert!(clears.load(Ordering::Relaxed) > 0);
+    assert_eq!(result["files_considered"], file_count);
+    assert_eq!(result["count"], file_count);
+    assert_eq!(result["files_failed"], 0);
+    assert_eq!(result["scan_truncated"], false);
+    assert_eq!(result["results_truncated"], false);
+    assert_eq!(result["coverage_complete"], true);
 }
 
 #[test]

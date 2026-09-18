@@ -476,7 +476,18 @@ fn engineering_fitness_live_controls_preserve_safety_and_precision() {
         "FITNESS_CONTROLS {}",
         serde_json::to_string(&controls).unwrap()
     );
-    assert_eq!(controls.len(), 9);
+    assert_eq!(controls.len(), 11);
+    for id in [
+        "syntax-cache-pressure-coverage",
+        "workspace-relative-verification-flight",
+    ] {
+        assert!(
+            controls
+                .iter()
+                .any(|control| control.id == id && control.passed),
+            "missing or failed operational resilience control {id}: {controls:#?}"
+        );
+    }
     assert!(
         controls.iter().all(|control| control.passed),
         "{controls:#?}"

@@ -323,7 +323,16 @@ impl Workspace {
         } else {
             hardened_command_args(program, args)
         };
-        let mut command = Command::new(program);
+        let executable = if Path::new(program).is_absolute() {
+            PathBuf::from(program)
+        } else if program.contains(['/', '\\']) {
+            let executable = self.existing_path(program)?;
+            ensure_workspace_executable(&executable)?;
+            executable
+        } else {
+            PathBuf::from(program)
+        };
+        let mut command = Command::new(executable);
         command
             .args(&effective_args)
             .current_dir(cwd)
