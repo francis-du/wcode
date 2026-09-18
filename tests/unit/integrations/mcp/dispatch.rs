@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace::WorkspaceSecurity;
 use serde_json::json;
 
 #[path = "admission.rs"]
@@ -117,6 +118,82 @@ async fn strict_command_rejects_invalid_optional_settings() {
         accepted.is_ok(),
         "1800-second command timeout must be accepted"
     );
+    assert!(state.workspaces.authorization_requests(10).is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn full_access_mcp_command_lane_bypasses_shell_and_git_shape_filters() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("tracked.txt"), "base\n").unwrap();
+    std::fs::write(
+        root.path().join("syntax.sh"),
+        "if true; then\n  echo ok\nfi\n",
+    )
+    .unwrap();
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["add", "tracked.txt", "syntax.sh"],
+        vec![
+            "-c",
+            "user.name=wcode-test",
+            "-c",
+            "user.email=wcode@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ],
+    ] {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output);
+    }
+    std::fs::write(root.path().join("untracked.txt"), "new\n").unwrap();
+
+    let workspaces = Workspaces::new_with_security(
+        [root.path()],
+        false,
+        false,
+        WorkspaceSecurity {
+            allow_risky_exec: true,
+            allow_unrestricted_commands: true,
+            ..WorkspaceSecurity::default()
+        },
+    )
+    .unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+
+    for (program, args) in [
+        ("git", json!(["add", "-A"])),
+        ("git", json!(["describe", "--always"])),
+        ("git", json!(["tag"])),
+        ("sh", json!(["-n", "syntax.sh"])),
+    ] {
+        let response = call_tool(
+            &state,
+            json!({"name":"run_command","arguments":{"program":program,"args":args}}),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{program} Full Access command was blocked: {error}"));
+        assert_eq!(
+            response["isError"], false,
+            "{program} should run through the MCP Full Access lane: {response}"
+        );
+        assert_eq!(response["structuredContent"]["success"], true);
+    }
     assert!(state.workspaces.authorization_requests(10).is_empty());
 }
 

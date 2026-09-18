@@ -4,6 +4,26 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
+fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let audit = fs::read_to_string(root.join("tests/release_audit.cjs")).unwrap();
+    let webkit = fs::read_to_string(root.join("tests/unit/ui/browser_webkit.swift")).unwrap();
+    let workflow = fs::read_to_string(root.join(".github/workflows/adversarial.yml")).unwrap();
+
+    assert!(audit.contains("--rounds="));
+    assert!(audit.contains("release-adversarial-30"));
+    assert!(audit.contains("wcode-adversarial-30.json"));
+    assert!(webkit.contains("--cases="));
+    assert!(webkit.contains("\"total_cases\":96"));
+    assert!(workflow.contains("node tests/release_audit.cjs"));
+    assert!(workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
+    assert!(
+        !workflow.contains("--rounds=") && !workflow.contains("--cases="),
+        "CI must keep the complete unsharded release audit"
+    );
+}
+
+#[test]
 fn release_windows_packaging_stops_after_each_native_failure() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow: serde_yaml::Value = serde_yaml::from_str(

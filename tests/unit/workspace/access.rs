@@ -41,10 +41,15 @@ fn full_access_elevates_existing_roots_and_keeps_hard_path_boundaries() {
         true
     );
     assert_eq!(capabilities["security"]["broad_workspace_roots"], false);
-    assert!(capabilities["security"]["full_access_scope"]
+    let full_access_scope = capabilities["security"]["full_access_scope"]
         .as_str()
-        .unwrap()
-        .contains("filesystem root"));
+        .unwrap();
+    assert!(full_access_scope.contains("filesystem root"));
+    assert!(full_access_scope.contains("command-policy filtering disabled"));
+    assert!(
+        !full_access_scope.contains("no-shell"),
+        "Full Access must not advertise a command-policy shell restriction"
+    );
     assert!(workspaces
         .select(Some(&home_id))
         .unwrap()

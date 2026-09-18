@@ -57,6 +57,7 @@ pub(super) async fn call(
             let mut info = state.workspaces.capabilities();
             info["harness"] = state.harness.capabilities();
             info["mcp"] = json!({
+                "server_version": env!("CARGO_PKG_VERSION"),
                 "transports": ["stdio", "streamable-http", "legacy-sse"],
                 "modern_protocol": MODERN_PROTOCOL_VERSION,
                 "legacy_protocols": LEGACY_PROTOCOL_VERSIONS,

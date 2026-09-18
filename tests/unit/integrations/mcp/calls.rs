@@ -190,6 +190,7 @@ async fn workspace_info_exposes_parallel_scheduling_guidance() {
     assert_eq!(info["scheduling"]["max_parallel"], 16);
     assert_eq!(info["scheduling"]["semantics"], "global-cap-not-target");
     assert_eq!(info["scheduling"]["fanout_tool"], "parallel_tools");
+    assert_eq!(info["mcp"]["server_version"], env!("CARGO_PKG_VERSION"));
     assert!(info["mcp"]["transports"]
         .as_array()
         .unwrap()

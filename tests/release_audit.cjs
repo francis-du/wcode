@@ -47,6 +47,18 @@ rounds.push(
 );
 assert.equal(rounds.length,30);
 assert.equal(new Set(rounds.map(r=>r.round)).size,30);
+
+function selectedRounds() {
+  const option=process.argv.find(value=>value.startsWith('--rounds='));
+  if(!option) return rounds;
+  const match=/^--rounds=(\d+)-(\d+)$/.exec(option);
+  assert.ok(match,'--rounds must use START-END');
+  const start=Number(match[1]), end=Number(match[2]);
+  assert.ok(Number.isInteger(start)&&Number.isInteger(end)&&start>=1&&end<=30&&start<=end,'--rounds must stay within 1-30');
+  const selected=rounds.filter(round=>round.round>=start&&round.round<=end);
+  assert.equal(selected.length,end-start+1,'selected release-audit range must be contiguous');
+  return selected;
+}
 function digest() {
   const hash=crypto.createHash('sha256');
   let count=0;
@@ -85,10 +97,11 @@ async function check(step) {
 }
 async function main() {
   assert.equal(process.platform,'darwin','This complete audit requires macOS WebKit; other CI platforms run the portable cargo suite');
+  const selected=selectedRounds();
   const before=digest(), started_at=new Date().toISOString(), results=[];
   // Rust compilation is serialized; the independent browser/JS lane runs concurrently.
   await Promise.all(['rust','web'].map(async lane=>{
-    for(const round of rounds.filter(r=>r.lane===lane)) {
+    for(const round of selected.filter(r=>r.lane===lane)) {
       const result={round:round.round,name:round.name,passed:false,steps:[]};
       try {for(const step of round.steps) result.steps.push(await check(step));result.passed=true;}
       catch(error) {result.error=String(error.message);result.diagnostics=String(error.stderr||error.stdout||'').slice(-6000);}
@@ -97,11 +110,18 @@ async function main() {
   }));
   results.sort((a,b)=>a.round-b.round);
   const after=digest(), stable=before.sha256===after.sha256;
-  const report={suite:'release-adversarial-30',started_at,finished_at:new Date().toISOString(),input:before,stable_inputs:stable,rounds:results.length,passed:results.every(r=>r.passed)&&stable,results};
+  const start=selected[0].round, end=selected[selected.length-1].round;
+  const complete=selected.length===rounds.length;
+  const report={
+    suite:complete?'release-adversarial-30':'release-adversarial-shard',
+    started_at,finished_at:new Date().toISOString(),input:before,stable_inputs:stable,
+    rounds:results.length,total_rounds:rounds.length,selected_rounds:{start,end},
+    passed:results.every(r=>r.passed)&&stable,results
+  };
   const target=path.join(root,'target');
   if(!fs.existsSync(target)) fs.mkdirSync(target);
   assert.ok(fs.lstatSync(target).isDirectory()&&!fs.lstatSync(target).isSymbolicLink());
-  const filename=path.join(target,'wcode-adversarial-30.json');
+  const filename=path.join(target,complete?'wcode-adversarial-30.json':`wcode-adversarial-${start}-${end}.json`);
   if(fs.existsSync(filename)) {const st=fs.lstatSync(filename);assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.nlink===1);}
   fs.writeFileSync(filename,JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));

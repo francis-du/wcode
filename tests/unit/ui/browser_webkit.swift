@@ -65,6 +65,18 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         window.contentView=web
         web.autoresizingMask=[.width,.height]
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
+        if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--cases=")}) {
+            let value=String(option.dropFirst("--cases=".count))
+            let parts=value.split(separator:"-",omittingEmptySubsequences:false)
+            guard parts.count==2,
+                  let start=Int(parts[0]),let end=Int(parts[1]),
+                  start>=1,end<=scenarios.count,start<=end
+            else {
+                fputs("--cases must use START-END within 1-\(scenarios.count)\n",stderr)
+                exit(2)
+            }
+            scenarios=Array(scenarios[(start-1)..<end])
+        }
     }
     func start(){
         window.makeKeyAndOrderFront(nil)
@@ -78,7 +90,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         guard !finished else{return};finished=true
         let failures=reports.reduce(0){$0+(($1["errors"] as? [String])?.count ?? 1)} + (reason == nil && reports.count == scenarios.count ? 0:1)
         let failedCases=reports.filter{!(($0["errors"] as? [String])?.isEmpty ?? false)}.count
-        let report:[String:Any]=["suite":"full-browser-adversarial","failures":failures,"failed_cases":failedCases,"cases":reports.count,"expected_cases":scenarios.count,"results":reports,"runner_error":reason ?? ""]
+        let sharded=CommandLine.arguments.contains(where:{$0.hasPrefix("--cases=")})
+        let report:[String:Any]=["suite":sharded ? "full-browser-adversarial-shard" : "full-browser-adversarial","failures":failures,"failed_cases":failedCases,"cases":reports.count,"expected_cases":scenarios.count,"total_cases":96,"results":reports,"runner_error":reason ?? ""]
         do {
             let data=try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys])
             try data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"),options:.atomic)

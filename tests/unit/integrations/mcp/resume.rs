@@ -222,7 +222,7 @@ async fn verification_task_reconnects_without_rerunning_checks_and_preserves_fai
             Duration::from_secs(3),
             crate::mcp::handle_message_isolated(
                 state.clone(),
-                request(json!({"level": "full"}), true),
+                request(json!({"level": "full", "timeout_seconds": 1800}), true),
                 crate::mcp::MODERN_PROTOCOL_VERSION,
                 &owner,
             ),
