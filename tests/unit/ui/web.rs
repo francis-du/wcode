@@ -538,6 +538,18 @@ fn observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable() {
 }
 
 #[test]
+fn observatory_narrow_layout_stacks_global_bar_and_page_scrolls_proof_inspector() {
+    for rule in [
+        ".global-bar{grid-template-columns:minmax(0,1fr);align-items:stretch;gap:8px;}",
+        ".project-navigator{grid-column:1;grid-row:2;width:100%;min-width:0;max-width:100%;}",
+        ".global-controls{grid-column:1;grid-row:3;grid-template-columns:minmax(0,1fr) 58px repeat(3,44px);width:100%;min-width:0;max-width:100%;gap:4px;}",
+        ".evidence-inspector-card{position:static;top:auto;width:100%;min-width:0;max-width:100%;max-height:none;overflow:visible;scrollbar-gutter:auto;overscroll-behavior:auto;align-self:start;}",
+    ] {
+        assert!(INTELLIGENCE_CSS.contains(rule), "missing narrow responsive contract: {rule}");
+    }
+}
+
+#[test]
 fn observatory_exposes_file_structure_and_largest_files() {
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"fileTree\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"largeFiles\""));
