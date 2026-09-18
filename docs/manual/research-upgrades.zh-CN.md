@@ -9,6 +9,78 @@ permalink: /zh/docs/research-upgrades/
 
 # 论文驱动的改进
 
+## 2026-09-17：从真实源码生成反例候选（工作树）
+
+可选的 `review_changes(adversarial=true)` 现在通过 `candidate_search` 补充源码候选：最多检查六个不同的变更源码文件，以受控元信息筛选不超过 256 KiB 的文件，每文件最多匹配 32 个 AST 节点，最终最多推荐三个变异。复用真实 Tree-sitter 索引，不把注释和字符串里的文本当成代码。当前支持布尔字面值翻转和限定形状的简单比较运算符变异；例如 `count < 8` 还会生成符号绑定值 `7`、`8`、`9`，但变量是否对应输入参数、真实类型和值域仍需验证。边界生成使用检查算术，不会在有符号 64 位整数端点溢出。
+
+每个候选保留源码 SHA、精确原文和替换文本、字节范围、行号及 `proposed-not-typechecked` 状态。安全信号明确指向的文件优先，其次使用静态成本启发式和稳定的路径／字节顺序；这不是实测缺陷概率或延迟预测。重复文件和输入顺序变化不会改变候选选择。范围是变更文件，不限于 diff 中改动的行；缺失、受限、过大、不支持、解析失败和所有输出截断均保持可见。无 AST 命中时还会核对文件级解析状态，不把空结果伪装成成功分析。Workspace、符号链接、脱敏和旧 SHA 保护继续保留。AST 工作在阻塞线程上持有真实工具配额，普通 Review 不扫描候选；非布尔值的 `adversarial` 参数直接拒绝，不再静默关闭对抗审查。
+
+[Hypothesis 状态测试](https://hypothesis.readthedocs.io/en/latest/stateful.html) 将动作生成、前置条件和独立模型／不变量分开；[cargo-mutants](https://mutants.rs/) 通过变异寻找测试缺口。本实现借鉴这些边界，但不是新增自动执行引擎：始终明确 `executed=false`、`oracle_required=true` 和 syntax 精度。变异只能在隔离副本中、非空基线通过后进行类型检查；编译失败、零测试和超时不是成功杀死变异，存活变异仍须检查可达性与等价性。没有候选或杀死一个变异，都不能证明整体正确或关闭无关 QA 问题。
+
+运行 `cargo test --locked --lib harness_quality -- --nocapture` 及 `review_changes_adversarial_mode_attaches_non_evidence_questions` 测试。冻结的 Rust 样例实际编译并运行一项通过的基线测试，再使用生成的边界值与独立预期值表让 `<` 改为 `<=` 的变异失败，原源码 Workspace 保持不变。这不等于在用户项目上自动执行了 Mutation Stage。Rust／Go／TypeScript／Python 四语言回归验证 AST 候选提取，不代表四语言编译通过。任意参数合成、类型和值域推断、并发交错生成及自动实验裁决不在本批实现范围内。
+
+## 2026-09-17：把对抗 QA 做成可证伪协议，而不是自我信心（工作树）
+
+本次工作树为 `review_changes` 增加 `adversarial=true` 模式：它复用同一次确定性变更审查，生成有界、无模型的反向质疑层。核心规则很简单：问题可以揭露假设，但不能由提出问题的一方自行“证明关闭”。OpenAI 的 [Harness engineering](https://openai.com/index/harness-engineering/) 把额外 Agent Review 与反馈闭环视为工程基础设施，而不是相信第一次输出的理由；[Codex Security](https://openai.com/index/why-codex-security-doesnt-include-sast/) 强调验证代码里的防线是否真的保证系统依赖的安全性质，而不只是识别熟悉的代码形状。Self-Refine 说明反馈/修订在部分任务上可能改善模型输出，但 [How Much LLM Does a Self-Revising Agent Actually Need?](https://arxiv.org/abs/2604.07236) 也提醒：增加 LLM 修订并不会单调提高结果。因此 wcode 把质疑协议外置，并把证明留在 Critique Loop 之外。
+
+该工具最多生成十二个唯一的可证伪问题。基础问题会反问产品验收、隐藏影响面、当前 Revision 的证据新鲜度和负路径；源码与测试一起修改时会质疑测试是否过拟合；source-without-test、安全敏感、Manifest、删除测试、生成物、超大变更、未跟踪文件和 Review 截断等确定性信号会触发更针对性的问题。每个问题都包含正在被质疑的 Claim、反例问题、当前确定性 Signal、关闭它所需的 Evidence，以及可用于取证的 wcode 工具。
+
+整个包明确标记为 `challenge-packet-not-evidence`。它不会被持久化成 Pass，不会抬高语义精度，也不能覆盖确定性失败。每个问题还会带一个有界 `counterexample_experiment`：实验类型、相关变更目标、可证伪假设、具体失败条件、可执行该实验的工具或 Verification Stage，以及真正能关闭问题的证据类型。这些只是可执行假设，不代表 Mutation／Property／Fuzz／Runtime 已经运行。对于确实需要模型审查的变更，它只桥接到现有 Verification Mesh：创建 Verification Plan，再以 `adversarial` 角色领取独立盲审任务。该审查仍是独立 Evidence Producer；确定性 Verification、Property/Mutation/Fuzz/Runtime Stage 和 HumanApproval 继续遵循原有 fail-closed 规则。工作树干净时不生成问题，避免把“无限自我反思”变成每次任务都必须执行的固定循环。
+
+可运行 `cargo test --locked --lib adversarial_qa_ -- --nocapture`。确定性回归检查 Non-Evidence 契约、基础质疑类别、Review Finding 的针对性问题、去重、硬上限和干净工作树静默。它们只衡量质疑协议本身，不代表模型一定能正确回答所有问题，也不宣称重复 Critique 能在编码任务上超过 Kimi、Claude Code 或 Codex。
+
+## 2026-09-17：诊断格式直接进入安全编辑（工作树）
+
+现有 `agent_context` 查询现在可识别 Python 的 `File "src/worker file.py", line 37`、编译器的 `src/worker.ts(23,7)` / `src/service.cs(23,7)`，以及 PHP 风格的 `in src/handler.php on line 29`。带引号的路径保留空格与 Unicode，也支持括号包住整条带引号的 `file:line:column`。这是复用现有源码/SHA 入口的输入归一化，不新增工具，也不把堆栈位置当作已经证明的根因。
+
+行号标记只绑定同一物理诊断行；重复位置在原有四个锚点上限之前去重。已识别格式中的非法坐标保持无效，不再静默读取第一行；URL、未闭合引号和超长引用片段不会再产生本地文件名后缀。没有 URL 解码、Shell 执行或权限放宽。Workspace 边界、受保护路径、符号链接拒绝、源码脱敏与旧 SHA 拒绝继续执行。解析器只覆盖说明中的有界格式，不宣称兼容所有语言的堆栈语法；未知格式仍需提供明确位置。
+
+可运行 `cargo test --locked --lib trace_format_ -- --nocapture`。独立测试位于 `tests/unit/runtime/harness/diagnostic_formats.rs`，12 项回归覆盖 72 种 Python 帧组合、编译器/PHP 格式、引号/括号嵌套、非法坐标、去重/上限及路径边界。本地 Harness 样例分别在 1,000/1,400/4,000 预算下只调用一次 `agent_context`，拿到第 37 行和源码 SHA，从该响应直接执行安全编辑，再确认旧 SHA 被拒绝。这验证检索到编辑的协议，不是实际运行 Python，也不是远程 MCP 延迟或模型编码能力排名。
+
+## 2026-09-17：全局图预算与构建开销（工作树）
+
+2026-08-03 提交的 [DyRetriever](https://arxiv.org/abs/2608.01927) 提供按需获取依赖、避免每次构建完整静态图的参考；[Agent Retrieval Bench](https://arxiv.org/abs/2607.24882) 将仓库检索与补丁成功率分开评估。本次保留 wcode 确定性的语法图和现有预算，不引入论文中的模型驱动构图，也不移用其加速数字。
+
+两项回归先复现了逐文件优先级的缺陷：第一个优先文件的无关定义会耗尽预算，挤掉后续文件的精确目标；同文件里位于目标之前的大量调用者也会挤掉目标定义。现在先在整个图中为精确目标分配预算，再选择直接调用者，最后补充其他定义。测试覆盖不同文件顺序、6,200 个干扰定义与 5,000 符号图预算，以及目标数量超过预算的情况。上限不变，被省略的定义仍明确标记为截断。
+
+内部语法构建器直接追加已经去重的关系，在返回前统一验证完整图，避免每加入一条边就遍历不断增长的关系列表。通用图插入 API 保持原有校验。补图合并使用包含端点、关系类型和完整来源信息的临时集合，保留顺序与独立证据，拒绝重叠节点的来源版本冲突，并在返回前继续检查非法端点和自环。这只保证重叠源码不混用版本，不保证全仓原子快照。
+
+手动复现：`cargo test --release --locked --lib graph_build_release_cost -- --ignored --nocapture`。样本包含 500／5,000 个定义，预热两次后保留十一组暖缓存数据；序列化在计时外完成，每组输出均与首组逐字节核对。报告中位数、p95、图尺寸和关系数量，不代表模型推理、冷启动全仓发现、MCP 网络延迟或补丁成功率；耗时不作为 CI 成败阈值。`tests/unit/graph/budget_perf.md` 保存本地前后记录：5,000 定义构图的 p50／p95 从 82.281／83.585 毫秒变为 10.629／12.263 毫秒，节点／关系数量与序列化字节数一致。两次测量使用共享工作树上的不同构建，不是同进程交替执行的配对实验。
+
+## 2026-09-17：精确目标排序与图复用（工作树）
+
+本节是尚未发布的源码工作。[Aider 仓库地图](https://aider.chat/docs/repomap.html) 提供图排序与有界上下文的参考；[SWE-Explore](https://arxiv.org/abs/2606.07297) 在固定行数预算下评估相关代码区域的排序；[Agent Retrieval Bench](https://arxiv.org/abs/2607.24882) 将上下文获取与补丁成功率分开评估。因此本轮分别检查排序、覆盖和开销，不宣称复现这些论文的数据集，也不宣称模型基准分数提升。
+
+一个 14 符号星形调用图复现了问题：被多处调用的辅助函数排在查询明确指定的函数之前。现在精确目标明确优先于图中心性，其余排序保留已有分数、直接检索种子优先级、限定名和路径，并用规范符号 ID 稳定决胜。评审／报错帧中已经给出的文件仍在选择前排除。采用 [Rust 标准库选择算法](https://doc.rust-lang.org/std/primitive.slice.html#method.select_nth_unstable_by)，先划出前 K 项，再只排序这一小段，将选择工作从全量排序降为 O(n + k log k)。回归测试逐项对照同一修正后规则的全排序结果，覆盖空集合、同分、逆序及数量边界。
+
+无须补充关系图时直接借用原始快照，仅真正补图时才创建可修改的图。上游指纹、新鲜度检查和截断报告均保留；指针一致性测试防止这条路径再次退化为全图复制。
+
+复现命令为 `cargo test --release --locked --lib repo_rank_release_cost_comparison -- --ignored --nocapture`。基准预热 3 次，保留 31 次采样；候选缓冲区在计时外准备，交替执行两种选择算法并核对返回 ID 顺序。两种算法使用相同的修正后比较规则，隔离算法开销与排序质量变化。2026-09-17 的本地样本环境为 Rust 1.98.1、aarch64-apple-darwin：
+
+| 候选数量；保留 16 项 | 全排序 p50／p95（微秒） | Top-K p50／p95（微秒） |
+| --- | --- | --- |
+| 128 | 34.833／35.625 | 15.750／16.709 |
+| 6,000 | 1,306.583／2,205.125 | 299.875／546.083 |
+| 12,000 | 2,066.041／2,219.583 | 471.917／505.417 |
+
+另一个完整图样本包含 5,000 个节点：原复制开销 p50 为 1,230.417 微秒、p95 为 1,298.084 微秒；无须补图的路径返回原快照。样本按实际符号上限生成，并断言没有截断，不通过关闭必要恢复来制造免复制结果。超过运行时图上限的候选数量仅测试选择器，不承诺运行时交付同等数量符号。这些是本地阶段级测量，不是 Agent 端到端延迟、网络性能、内存分配统计、代码生成质量或 Kimi／Claude／Codex 排名；耗时不作为 CI 成败阈值。
+
+## 2026-09-17：对照主流 Coding Agent 的代码读写优化（工作树）
+
+本节是源码工作，不代表已经发布。需要用新构建启动运行时并刷新工具目录；当前连接中的旧进程可能仍声明精确子串搜索 Schema。
+
+对比以能力为依据：[Kimi 官方工具](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/tools.html) 提供基于 ripgrep 的正则搜索、输出模式、分页与陈旧读取保护；[Claude Code 子代理](https://code.claude.com/docs/en/sub-agents) 隔离探索上下文；[Codex 提示指南](https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide) 强调批量读取已知文件和明确的补丁接口。这些是官方工具／流程属性，不是同题、同预算实测的模型正确率或生成速度排名。
+
+`search_code` 接受字符串或最多 32 项查询数组。单字符串默认自动模式：精确匹配没有命中时才采用 token-AND 回退；数组默认精确匹配。精确与回退候选在一次遍历中读取同一份文件字节，不再重扫。显式模式保留 `regex`、`tokens_all`、`tokens_any`。`search_many` 默认精确、`scan_patterns` 默认正则，不会静默对数组启用 auto。正则按行匹配并保留行首／行尾语义；本轮没有加入跨行正则或通用 glob 过滤。
+
+搜索按匹配行去重，保留 `queries` 来源、原文件 `sha256`、逐模式匹配行数，以及独立的 `scan_truncated`、`results_truncated`、`failed_files`、`skipped_files`、`coverage_complete`。计数是命中行数，不是正则出现次数，也不是已证明的 Bug 数量。结果优先保留每个模式的代表样本，再按路径／行号补齐。`offset` 与 `next_offset` 分页读取当前文件，跨请求发生修改可能改变结果，因此不宣称仓库原子快照。预算用尽且没有可继续位置时，必须缩小范围，不能声称全仓已经排除问题。
+
+`output_mode` 支持 `content`、`files_with_matches`、`count_matches`；后两种不返回源码正文，均保留路径、SHA 和匹配行数。`scan_patterns` 将重叠上下文合并到文件级 `context_lines`。搜索结果的 SHA 可以直接作为现有安全编辑工具的前置条件，减少为了取 SHA 再读文件的调用；这不免除判断修改所需的上下文检查。脱敏或裁剪正文不能当作完整原文使用。扫描沿用受保护路径与源码读取检查，并保留文件数量、字节量、正则编译、结果保留和响应预算。
+
+多处编辑在校验所有原始范围后，一次拼接输出缓冲区，不再每替换一处就搬移后续正文。唯一锚点、原始行范围、重叠拒绝、输出尺寸与陈旧 SHA 拒绝均保留。AST 搜索也附带源码 SHA，并显式报告提前结束与读取失败，避免伪报完整覆盖。
+
+可通过 `cargo test --release --locked --lib competitive_io_benchmark -- --ignored --nocapture` 复现本地基准，需要已安装 `rg`。基准使用 768 文件、三个模式，与 ripgrep 实际返回的路径／行号集合逐项对照；比较批量与逐条查询，记录正文／仅文件结果的 JSON 字节数，并在同一份约 1 MiB 文档上比较 128 处编辑。搜索采样 15 次、编辑采样 31 次，交替执行顺序，报告暖缓存中位数与 p95。普通测试套件默认忽略这个环境相关基准，显式运行才构成独立的实测记录。它不测模型推理、远程 MCP 延迟或任务通过率；两者的安全检查和输出格式不同，因此原生 ripgrep 用时只是参照，不是完全相同工作量的比较。
+
 ## 状态与范围
 
 本页改动已纳入 [v0.6.2 发布准备](../releases/v0.6.2/)，不代表 v0.6.1 自动获得这些能力。需要使用新构建启动运行时并刷新工具 Schema。尤其不能向没有声明 `dry_run` 的旧运行时发送这个字段：忽略未知参数不等于安全预览。
@@ -51,6 +123,12 @@ v0.7.2 继续保持控制面 Model-neutral，但会主动优化当前 Coding Mod
 同一轮还收紧 Advanced Stage 的真实性：内置 Property Discovery 现在要求框架声明 + 对应语言源码真实使用；JS/TS fast-check 使用固定 Vitest/Jest Runner，任意 `test`、`mutation`、`mutate` Package Script 都不能生成 Advanced Evidence。由于 JS/TS Stryker 的 Repository Config 本身可以执行 JavaScript，它保持显式 Executor 配置。这里刻意选择“真实 Gap”，而不是宽泛但不可证明的绿色 Coverage。
 
 ## 诊断上下文
+
+2026-09-17 的源码更新识别定位点周围的明确中文标点，例如 `修复：src/worker.rs:120，检查：src/model.rs#L9`。诊断片段与直接符号片段统一保留原始 UTF-8 前缀和实际返回行号；截断通过元数据表达，不再插入省略号。未脱敏的 `read_file` 片段保留内部 LF、CRLF 与混合换行，仍沿用省略最后一个行终止符的既有约定。脱敏内容继续携带 `redacted: true`，不得当作原始字节直接编辑。
+
+即使预算很小，保留的片段仍包含路径、已有符号 ID、SHA、精度来源、行号和脱敏状态。可编辑状态要求非空、未脱敏的正文与直接目标及可写文件 SHA 对应；无关或陈旧正文不能单独让目标变成 ready。多目标只交付部分正文时明确给出提醒，不宣称覆盖全部目标。这些改进不授予权限、不证明报错根因、不自动修复测试失败，也不代替最终验证。
+
+使用 `cargo test --locked --lib diagnostic_context_ -- --nocapture` 复现确定性回归：包括标点与路径边界、小预算元数据、脱敏、LF/CRLF/混合换行/EOF，以及把返回的诊断片段直接用于 SHA 保护编辑后拒绝旧 SHA。这是本地正确性测试，不是模型对跑或端到端延迟测量。
 
 在现有 `agent_context` 查询中包含明确位置，例如 `error[E0308] at src/runtime/harness/context_budget.rs:33:9`。支持 `file:line`、`file:line:column`、`file#Lline`，以及支持的源码、配置、文档文件名。接受反斜杠分隔的相对路径和无空白的引用标记；这不是覆盖所有语言堆栈语法的完整解析器。
 

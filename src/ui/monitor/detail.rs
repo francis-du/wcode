@@ -617,6 +617,27 @@ pub(super) fn open_external_url(url: &str) -> io::Result<()> {
         .map(|_| ())
 }
 
+pub(super) fn wide_footer_project_text(
+    config: &MonitorConfig,
+    language: UiLanguage,
+    width: u16,
+) -> String {
+    let project = config
+        .project_url
+        .strip_prefix("https://")
+        .unwrap_or(&config.project_url)
+        .trim_end_matches('/');
+    let fixed_width = Span::raw("  wcode  ").width()
+        + Span::raw("  by  ").width()
+        + Span::raw(&config.author_handle).width()
+        + Span::raw(format!("   {} ", language.tr("Pairing code"))).width()
+        + Span::raw(&config.pairing_code).width();
+    truncate_middle(
+        project,
+        usize::from(width).saturating_sub(fixed_width).max(8),
+    )
+}
+
 pub(super) fn render_footer(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -633,17 +654,13 @@ pub(super) fn render_footer(
         .iter()
         .filter(|request| request.status == AuthorizationStatus::Pending)
         .count();
-    let project = config
-        .project_url
-        .strip_prefix("https://")
-        .unwrap_or(&config.project_url)
-        .trim_end_matches('/');
-
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
         .split(area);
+
     if area.width >= 124 {
+        let project = wide_footer_project_text(config, language, area.width);
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(
@@ -651,7 +668,7 @@ pub(super) fn render_footer(
                     Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    project.to_owned(),
+                    project,
                     Style::default().fg(LINK).add_modifier(Modifier::UNDERLINED),
                 ),
                 Span::styled("  by  ", Style::default().fg(TEXT_DIM)),
@@ -661,63 +678,18 @@ pub(super) fn render_footer(
                         .fg(SECONDARY)
                         .add_modifier(Modifier::UNDERLINED),
                 ),
+                Span::styled(
+                    format!("   {} ", language.tr("Pairing code")),
+                    Style::default().fg(TEXT_DIM),
+                ),
+                Span::styled(
+                    config.pairing_code.clone(),
+                    Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+                ),
             ])),
             rows[0],
         );
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                keycap("←/→"),
-                Span::styled(
-                    format!(" {}  ", language.tr("workspace")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                keycap("O"),
-                Span::styled(
-                    format!(" {}  ", language.tr("setup")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                keycap("W"),
-                Span::styled(
-                    format!(" {}  ", language.tr("web")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                keycap("I"),
-                Span::raw(" "),
-                keycap("C"),
-                Span::raw(" "),
-                keycap("L"),
-                Span::styled(
-                    format!(" {}  ", language.name()),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                keycap("+"),
-                Span::raw(" "),
-                keycap("Y/N"),
-                Span::styled(
-                    if pending_authorizations > 0 {
-                        format!(" {pending_authorizations} ")
-                    } else {
-                        " ".to_owned()
-                    },
-                    Style::default().fg(if pending_authorizations > 0 {
-                        WARNING
-                    } else {
-                        TEXT_MUTED
-                    }),
-                ),
-                keycap("?"),
-                Span::raw(" "),
-                keycap("^C"),
-            ]))
-            .alignment(ratatui::layout::Alignment::Right),
-            rows[1],
-        );
-        return;
-    }
-
-    let line = if area.width >= 78 {
-        Line::from(vec![
-            Span::raw(" "),
+        let mut controls = vec![
             keycap("←/→"),
             Span::styled(
                 format!(" {}  ", language.tr("workspace")),
@@ -737,30 +709,61 @@ pub(super) fn render_footer(
             Span::raw(" "),
             keycap("C"),
             Span::raw(" "),
-            keycap("L"),
+            keycap("A"),
             Span::styled(
-                format!(" {}  ", language.name()),
+                format!(" {}  ", language.tr("all")),
+                Style::default().fg(WARNING),
+            ),
+        ];
+        controls.push(if pending_authorizations > 0 {
+            keycap("Y/N")
+        } else {
+            keycap_muted("Y/N")
+        });
+        controls.push(Span::styled(
+            if pending_authorizations > 0 {
+                format!(" {pending_authorizations} ")
+            } else {
+                " ".to_owned()
+            },
+            Style::default().fg(if pending_authorizations > 0 {
+                WARNING
+            } else {
+                TEXT_MUTED
+            }),
+        ));
+        controls.extend([keycap("?"), Span::raw(" "), keycap("^C")]);
+        frame.render_widget(
+            Paragraph::new(Line::from(controls)).alignment(ratatui::layout::Alignment::Right),
+            rows[1],
+        );
+        return;
+    }
+
+    let mut controls = if area.width >= 78 {
+        vec![
+            Span::raw(" "),
+            keycap("←/→"),
+            Span::styled(
+                format!(" {}  ", language.tr("workspace")),
                 Style::default().fg(TEXT_MUTED),
             ),
-            keycap("Y/N"),
+            keycap("O"),
+            Span::raw(" "),
+            keycap("W"),
+            Span::raw(" "),
+            keycap("I"),
+            Span::raw(" "),
+            keycap("C"),
+            Span::raw(" "),
+            keycap("A"),
             Span::styled(
-                if pending_authorizations > 0 {
-                    format!(" {pending_authorizations}  ")
-                } else {
-                    "  ".to_owned()
-                },
-                Style::default().fg(if pending_authorizations > 0 {
-                    WARNING
-                } else {
-                    TEXT_MUTED
-                }),
+                format!(" {}  ", language.tr("all")),
+                Style::default().fg(WARNING),
             ),
-            keycap("?"),
-            Span::raw("  "),
-            keycap("^C"),
-        ])
+        ]
     } else {
-        Line::from(vec![
+        vec![
             Span::raw(" "),
             keycap("←/→"),
             Span::raw(" "),
@@ -772,12 +775,31 @@ pub(super) fn render_footer(
             Span::raw(" "),
             keycap("C"),
             Span::raw(" "),
-            keycap("L"),
-            Span::raw(" "),
-            keycap("Y/N"),
-            Span::raw(if pending_authorizations > 0 { " !" } else { "" }),
-        ])
+            keycap("A"),
+        ]
     };
+    controls.push(Span::raw(" "));
+    controls.push(if pending_authorizations > 0 {
+        keycap("Y/N")
+    } else {
+        keycap_muted("Y/N")
+    });
+    controls.push(Span::styled(
+        if pending_authorizations > 0 {
+            format!(" {pending_authorizations}")
+        } else {
+            " ".to_owned()
+        },
+        Style::default().fg(if pending_authorizations > 0 {
+            WARNING
+        } else {
+            TEXT_MUTED
+        }),
+    ));
+    if area.width >= 78 {
+        controls.extend([Span::raw("  "), keycap("?"), Span::raw(" "), keycap("^C")]);
+    }
+    let line = Line::from(controls);
     let pairing_area = if area.width < 78 {
         // Keep help and exit visible even when the complete shortcut row cannot fit.
         let columns = Layout::default()
@@ -819,6 +841,13 @@ pub(super) fn keycap(key: &str) -> Span<'static> {
             .fg(TEXT)
             .bg(SURFACE_RAISED)
             .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn keycap_muted(key: &str) -> Span<'static> {
+    Span::styled(
+        format!(" {key} "),
+        Style::default().fg(TEXT_DIM).bg(SURFACE_RAISED),
     )
 }
 

@@ -1,0 +1,26 @@
+schema_version: 1
+id: component:bounded-code-io
+name: Bounded code retrieval and original-revision edit assembly
+responsibilities:
+  - batch exact, regex and token searches through one guarded traversal and report honest coverage
+  - return unique matching lines with query provenance, file SHA and bounded context
+  - retain rare-pattern representatives and deterministic continuation without claiming an atomic repository snapshot
+  - separate source-body output from files-only and matched-line count output
+  - merge overlapping grouped context without silently hiding failed or skipped reads
+  - assemble validated original-byte edit ranges once while retaining stale SHA and overlap rejection
+  - report AST early termination and read failures without promoting syntax into semantic proof
+  - keep reproducible local microbenchmarks separate from model capability rankings
+depends_on:
+  - component:workspace-security
+  - component:workspace-operations
+  - component:software-graph
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+implementation:
+  - {kind: symbol, path: src/workspace/search.rs, symbol: 'Workspace::search_report'}
+  - {kind: symbol, path: src/workspace/fs_safety.rs, symbol: apply_text_edits}
+  - {kind: symbol, path: src/integrations/mcp/dispatch/workspace.rs, symbol: search_request}
+  - {kind: symbol, path: src/graph/code_index/indexing.rs, symbol: 'CodeIndex::search_ast_nodes'}
+  - {kind: file, path: src/integrations/mcp/tools.rs}

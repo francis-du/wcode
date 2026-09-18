@@ -545,6 +545,13 @@ fn role_guidance(role: ReviewerRole) -> Vec<String> {
             "Prefer parallel orchestration for genuinely independent work and atomic flows for related state updates when that simplifies reasoning.".to_owned(),
             "Prioritize a small number of high-conviction structural findings over cosmetic nits.".to_owned(),
         ],
+        ReviewerRole::Adversarial => vec![
+            "Start from the strongest plausible claim that the change is correct, then try to falsify it with one concrete counterexample at a time; do not reward repeated restatement or confidence.".to_owned(),
+            "Probe negative paths, stale state, malformed input, cancellation, concurrency, privilege boundaries, cross-file consumers, and test-overfit assumptions that can survive happy-path tests.".to_owned(),
+            "Keep first-pass judgment independent from other reviewers and do not majority-vote away a reproducible contradiction.".to_owned(),
+            "A Fail verdict must name an observable counterexample or violated invariant. A Pass requires revision-bound evidence rather than the reviewer's own explanation, and unresolved specification questions are Inconclusive.".to_owned(),
+            "Treat suggested fixes as counterfactual experiments, not proof. Prefer a focused regression, mutation/property result, runtime observation, or other externally checkable evidence.".to_owned(),
+        ],
         _ => Vec::new(),
     }
 }

@@ -13,6 +13,7 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## 0.7.x
 
+- [v0.7.6](v0.7.6/) — model-free Engineering Fitness, edit-ready 1K context, multi-target retrieval and stronger adversarial verification.
 - [v0.7.5](v0.7.5/) — concurrent instance-verified endpoints, generation-safe trust, isolated TUI shortcuts and real-WebKit responsive Observatory layouts.
 - [v0.7.4](v0.7.4/) — Workspace-session command trust, standard MCP image/audio Tool Results, and a current-product docs/UI refresh.
 

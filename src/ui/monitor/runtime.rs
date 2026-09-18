@@ -25,6 +25,8 @@ enum DashboardAction {
     AddWorkspace,
     GrantAllCommands,
     ToggleCommandTrust,
+    ShowAuthorization,
+    NoPendingAuthorization,
     Approve,
     Deny,
     CommandsUp,
@@ -79,6 +81,7 @@ fn dashboard_action(
         };
     }
     let authorization = ui.authorization_visible(area);
+    let has_authorization = !ui.pending_authorizations.is_empty();
     let commands = ui.commands_open
         && !ui.help_open
         && !ui.intelligence_open
@@ -109,10 +112,12 @@ fn dashboard_action(
         KeyCode::Char('g') => Some(Project),
         KeyCode::Char('b') => Some(Author),
         KeyCode::Char('+') => Some(AddWorkspace),
-        KeyCode::Char('a') if authorization => Some(GrantAllCommands),
+        KeyCode::Char('a') => Some(GrantAllCommands),
         KeyCode::Char('f') if commands => Some(ToggleCommandTrust),
         KeyCode::Char('y') if authorization => Some(Approve),
         KeyCode::Char('n') if authorization => Some(Deny),
+        KeyCode::Char('y' | 'n') if has_authorization => Some(ShowAuthorization),
+        KeyCode::Char('y' | 'n') => Some(NoPendingAuthorization),
         KeyCode::Up if commands => Some(CommandsUp),
         KeyCode::Down if commands => Some(CommandsDown),
         KeyCode::PageUp if commands => Some(CommandsPageUp),
@@ -161,6 +166,22 @@ pub(super) fn focused_workspace_id(config: &MonitorConfig, focus: usize) -> Opti
         .map(|workspace| workspace.0.clone())
 }
 
+fn open_dashboard_url(ui: &mut DashboardState, url: &str) -> bool {
+    match open_external_url(url) {
+        Ok(()) => {
+            ui.workspace_message = None;
+            true
+        }
+        Err(error) => {
+            ui.workspace_message = Some(format!(
+                "{}: {error}",
+                ui.language.tr("unable to open link")
+            ));
+            false
+        }
+    }
+}
+
 pub(super) fn run_dashboard(
     monitor: TaskMonitor,
     config: MonitorConfig,
@@ -170,6 +191,8 @@ pub(super) fn run_dashboard(
     let mut session = TerminalSession::enter()?;
     let mut tick = 0usize;
     let mut ui = DashboardState::default();
+    let mut status_snapshot: Option<String> = None;
+    let mut status_deadline: Option<Instant> = None;
     if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
         request_intelligence_refresh(&monitor, &config, workspace_id);
     }
@@ -179,11 +202,49 @@ pub(super) fn run_dashboard(
             break;
         }
 
+        if ui.workspace_message != status_snapshot {
+            status_snapshot = ui.workspace_message.clone();
+            status_deadline = ui
+                .workspace_message
+                .as_ref()
+                .map(|_| Instant::now() + STATUS_MESSAGE_TTL);
+        }
+        if status_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            ui.workspace_message = None;
+            status_snapshot = None;
+            status_deadline = None;
+        }
+
         let size = session.terminal.size()?;
         let area = Rect::new(0, 0, size.width, size.height);
+        if ui.full_access_confirm && !full_access_overlay_visible(area) {
+            ui.full_access_confirm = false;
+            ui.workspace_message = Some(
+                ui.language
+                    .tr("full access dialog requires a larger terminal")
+                    .to_owned(),
+            );
+        }
+        if ui.workspace_input.is_some() && !workspace_input_overlay_visible(area) {
+            ui.workspace_input = None;
+            ui.workspace_message = Some(
+                ui.language
+                    .tr("workspace input requires a larger terminal")
+                    .to_owned(),
+            );
+        }
         let workspace_count = config.workspaces.roots().len();
         let visible = workspace_column_count(size.width, workspace_count);
         ui.clamp(workspace_count, visible);
+        if ui.commands_open && !commands_overlay_visible(area) {
+            ui.commands_open = false;
+            ui.command_offset = 0;
+            ui.workspace_message = Some(
+                ui.language
+                    .tr("command view requires a larger terminal")
+                    .to_owned(),
+            );
+        }
         // Render and decide against the same request IDs, even if the queue changes
         // while waiting for keyboard input.
         let previous_request = ui
@@ -351,33 +412,59 @@ pub(super) fn run_dashboard(
                             }
                         }
                         DashboardAction::Commands => {
-                            ui.commands_open = !ui.commands_open;
-                            ui.command_offset = 0;
+                            if ui.commands_open {
+                                ui.commands_open = false;
+                                ui.command_offset = 0;
+                            } else if commands_overlay_visible(area) {
+                                ui.commands_open = true;
+                                ui.command_offset = 0;
+                                ui.workspace_message = None;
+                            } else {
+                                ui.workspace_message = Some(
+                                    ui.language
+                                        .tr("command view requires a larger terminal")
+                                        .to_owned(),
+                                );
+                            }
                             ui.help_open = false;
                             ui.intelligence_open = false;
                         }
                         DashboardAction::FullAccess => {
+                            ui.help_open = false;
+                            ui.intelligence_open = false;
+                            ui.commands_open = false;
                             if config.workspaces.full_access_enabled() {
                                 ui.workspace_message =
                                     Some(ui.language.tr("full access already enabled").to_owned());
+                            } else if !full_access_overlay_visible(area) {
+                                ui.workspace_message = Some(
+                                    ui.language
+                                        .tr("full access dialog requires a larger terminal")
+                                        .to_owned(),
+                                );
                             } else {
                                 ui.full_access_confirm = true;
                                 ui.workspace_message = None;
-                                ui.help_open = false;
-                                ui.intelligence_open = false;
-                                ui.commands_open = false;
                             }
                         }
                         DashboardAction::Language => {
                             ui.language = ui.language.toggle();
-                            ui.workspace_message = Some(format!(
-                                "{}: {}",
-                                ui.language.tr("LANGUAGE"),
-                                ui.language.name()
-                            ));
+                            if ui.help_open || ui.intelligence_open {
+                                ui.workspace_message = None;
+                            } else {
+                                ui.workspace_message = Some(format!(
+                                    "{}: {}",
+                                    ui.language.tr("LANGUAGE"),
+                                    ui.language.name()
+                                ));
+                            }
                         }
                         DashboardAction::Setup => {
-                            let _ = open_external_url(&config.setup_url());
+                            if !open_dashboard_url(&mut ui, &config.setup_url()) {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                                ui.commands_open = false;
+                            }
                         }
                         DashboardAction::Observatory => {
                             let workspaces = configured_workspaces(&config);
@@ -390,52 +477,100 @@ pub(super) fn run_dashboard(
                                     )
                                 })
                                 .unwrap_or_else(|| config.intelligence_url.clone());
-                            let _ = open_external_url(&url);
-                        }
-                        DashboardAction::Project => {
-                            let _ = open_external_url(&config.project_url);
-                        }
-                        DashboardAction::GrantAllCommands => {
-                            if let Some(request) =
-                                ui.pending_authorizations.get(ui.authorization_focus)
-                            {
-                                if request.kind
-                                    == crate::authorization::AuthorizationKind::DestructiveDelete
-                                {
-                                    ui.workspace_message = Some(
-                                        ui.language
-                                            .tr("all command authorization does not include delete")
-                                            .to_owned(),
-                                    );
-                                } else {
-                                    let result = config.workspaces.set_all_commands_authorized(
-                                        Some(&request.workspace),
-                                        true,
-                                    );
-                                    ui.workspace_message = Some(match result {
-                                        Ok(_) => format!(
-                                            "{} {}",
-                                            ui.language.tr("all commands authorized"),
-                                            request.workspace
-                                        ),
-                                        Err(error) => format!(
-                                            "{}: {error}",
-                                            ui.language.tr("all command authorization failed")
-                                        ),
-                                    });
-                                }
-                                ui.clamp_authorizations(pending_authorizations(&config).len());
+                            if !open_dashboard_url(&mut ui, &url) {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                                ui.commands_open = false;
                             }
                         }
+                        DashboardAction::Project => {
+                            if !open_dashboard_url(&mut ui, &config.project_url) {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                                ui.commands_open = false;
+                            }
+                        }
+                        DashboardAction::GrantAllCommands => {
+                            if !ui.commands_open {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                            }
+                            let request_target = ui
+                                .pending_authorizations
+                                .get(ui.authorization_focus)
+                                .filter(|_| ui.authorization_visible(area))
+                                .map(|request| {
+                                    (
+                                        request.workspace.clone(),
+                                        request.kind
+                                            == crate::authorization::AuthorizationKind::DestructiveDelete,
+                                    )
+                                });
+                            if request_target
+                                .as_ref()
+                                .map(|(_, destructive)| *destructive)
+                                .unwrap_or(false)
+                            {
+                                ui.workspace_message = Some(
+                                    ui.language
+                                        .tr("all command authorization does not include delete")
+                                        .to_owned(),
+                                );
+                            } else {
+                                let workspace_id = request_target
+                                    .map(|(workspace, _)| workspace)
+                                    .or_else(|| focused_workspace_id(&config, ui.workspace_focus));
+                                ui.workspace_message = Some(match workspace_id {
+                                    Some(workspace_id) => match config
+                                        .workspaces
+                                        .all_commands_authorized(Some(&workspace_id))
+                                    {
+                                        Ok(true) => format!(
+                                            "{} {}",
+                                            ui.language.tr("all commands already authorized"),
+                                            workspace_id
+                                        ),
+                                        _ => match config
+                                            .workspaces
+                                            .set_all_commands_authorized(Some(&workspace_id), true)
+                                        {
+                                            Ok(_) => format!(
+                                                "{} {}",
+                                                ui.language.tr("all commands authorized"),
+                                                workspace_id
+                                            ),
+                                            Err(error) => format!(
+                                                "{}: {error}",
+                                                ui.language.tr("all command authorization failed")
+                                            ),
+                                        },
+                                    },
+                                    None => ui.language.tr("no workspace selected").to_owned(),
+                                });
+                            }
+                            ui.clamp_authorizations(pending_authorizations(&config).len());
+                        }
                         DashboardAction::Author => {
-                            let _ = open_external_url(&config.author_url);
+                            if !open_dashboard_url(&mut ui, &config.author_url) {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                                ui.commands_open = false;
+                            }
                         }
                         DashboardAction::AddWorkspace => {
-                            ui.workspace_input = Some(String::new());
-                            ui.workspace_message = None;
                             ui.help_open = false;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
+                            if workspace_input_overlay_visible(area) {
+                                ui.workspace_input = Some(String::new());
+                                ui.workspace_message = None;
+                            } else {
+                                ui.workspace_message = Some(
+                                    ui.language
+                                        .tr("workspace input requires a larger terminal")
+                                        .to_owned(),
+                                );
+                            }
                         }
                         DashboardAction::ToggleCommandTrust => {
                             if let Some(workspace_id) =
@@ -465,6 +600,29 @@ pub(super) fn run_dashboard(
                                     },
                                 );
                             }
+                        }
+                        DashboardAction::ShowAuthorization => {
+                            ui.help_open = false;
+                            ui.intelligence_open = false;
+                            ui.commands_open = false;
+                            if authorization_overlay_visible(area) {
+                                ui.workspace_message = None;
+                                ui.authorization_scroll = 0;
+                            } else {
+                                ui.workspace_message = Some(
+                                    ui.language
+                                        .tr("authorization view requires a larger terminal")
+                                        .to_owned(),
+                                );
+                            }
+                        }
+                        DashboardAction::NoPendingAuthorization => {
+                            if !ui.commands_open {
+                                ui.help_open = false;
+                                ui.intelligence_open = false;
+                            }
+                            ui.workspace_message =
+                                Some(ui.language.tr("no pending authorization").to_owned());
                         }
                         DashboardAction::Approve => {
                             if let Some(request) =
@@ -607,7 +765,9 @@ pub(super) fn run_dashboard(
                     if let Some(url) =
                         dashboard_link_at(&mouse, size.width, size.height, &ui, &config)
                     {
-                        let _ = open_external_url(&url);
+                        if !open_dashboard_url(&mut ui, &url) {
+                            ui.help_open = false;
+                        }
                     }
                 }
                 Event::Resize(_, _) => {}
@@ -650,13 +810,16 @@ pub(super) fn dashboard_link_at(
     if width >= 124 && mouse.row >= height.saturating_sub(2) {
         let links_row = Rect::new(0, height.saturating_sub(2), width, 1);
         let controls_row = Rect::new(0, height.saturating_sub(1), width, 1);
-        let project = config
-            .project_url
-            .strip_prefix("https://")
-            .unwrap_or(&config.project_url)
-            .trim_end_matches('/');
-        let project_x = links_row.x.saturating_add("  wcode  ".len() as u16);
-        let project_rect = Rect::new(project_x, links_row.y, Span::raw(project).width() as u16, 1);
+        let project = wide_footer_project_text(config, ui.language, width);
+        let project_x = links_row
+            .x
+            .saturating_add(Span::raw("  wcode  ").width() as u16);
+        let project_rect = Rect::new(
+            project_x,
+            links_row.y,
+            Span::raw(&project).width() as u16,
+            1,
+        );
         if point_in_rect(point, project_rect) {
             return Some(config.project_url.clone());
         }
@@ -682,11 +845,12 @@ pub(super) fn dashboard_link_at(
             .count();
         let key_width = |key: &str| Span::raw(key).width() as u16 + 2;
         let label_width = |label: &str| Span::raw(label).width() as u16 + 3;
-        let pending_width = if pending_authorizations > 0 {
-            pending_authorizations.to_string().chars().count() as u16 + 2
-        } else {
-            1
-        };
+        let pending_width = key_width("Y/N")
+            + if pending_authorizations > 0 {
+                pending_authorizations.to_string().chars().count() as u16 + 2
+            } else {
+                1
+            };
         let shortcuts_width = key_width("←/→")
             + label_width(ui.language.tr("workspace"))
             + key_width("O")
@@ -697,11 +861,8 @@ pub(super) fn dashboard_link_at(
             + 1
             + key_width("C")
             + 1
-            + key_width("L")
-            + label_width(ui.language.name())
-            + key_width("+")
-            + 1
-            + key_width("Y/N")
+            + key_width("A")
+            + label_width(ui.language.tr("all"))
             + pending_width
             + key_width("?")
             + 1

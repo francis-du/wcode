@@ -31,19 +31,28 @@ fn automatic_fingerprint_tracks_workspace_configuration_inputs() {
 
 #[test]
 fn automatic_sources_are_grouped_before_provider_resolution() {
-    let groups = automatic_source_groups(vec![
-        ("src/one.rs".to_owned(), (10, 100)),
-        ("src/two.rs".to_owned(), (20, 200)),
-        ("web/app.ts".to_owned(), (30, 300)),
-        ("README.md".to_owned(), (40, 400)),
-    ]);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("web")).unwrap();
+    let paths = ["src/one.rs", "src/two.rs", "web/app.ts", "README.md"];
+    for path in paths {
+        std::fs::write(dir.path().join(path), format!("// fixture {path}\n")).unwrap();
+    }
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    // Use real stamps so platform-specific identity fields are preserved,
+    // rather than manufacturing the obsolete (length, mtime) tuple.
+    let inputs = paths
+        .iter()
+        .map(|path| {
+            (
+                (*path).to_owned(),
+                workspace.source_metadata_stamp(path).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = inputs[..2].to_vec();
+    let groups = automatic_source_groups(inputs);
 
     assert_eq!(groups.len(), 1);
-    assert_eq!(
-        groups.get(&SemanticLanguage::Rust),
-        Some(&vec![
-            ("src/one.rs".to_owned(), (10, 100)),
-            ("src/two.rs".to_owned(), (20, 200)),
-        ])
-    );
+    assert_eq!(groups.get(&SemanticLanguage::Rust), Some(&expected));
 }

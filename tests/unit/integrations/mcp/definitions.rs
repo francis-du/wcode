@@ -246,6 +246,8 @@ fn tool_catalog_exposes_model_neutral_agent_hints() {
     let core = [
         "agent_context",
         "search_many",
+        "scan_patterns",
+        "search_syntax",
         "read_files",
         "apply_file_edits",
         "review_changes",
@@ -320,4 +322,11 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     assert!(names.contains("semantic_navigation"));
     assert!(names.contains("verify_project"));
     assert!(names.contains("apply_file_edits"));
+    let review = first
+        .iter()
+        .find(|tool| tool["name"] == "review_changes")
+        .unwrap();
+    assert!(review["inputSchema"]["properties"]
+        .get("adversarial")
+        .is_some());
 }

@@ -99,6 +99,120 @@ fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones()
 }
 
 #[test]
+fn compact_help_and_tiny_dashboard_keep_recovery_controls_visible() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    let help = DashboardState {
+        help_open: true,
+        ..DashboardState::default()
+    };
+    let help_text = monitor_test_text(&monitor, &config, 70, 18, &help);
+    assert!(help_text.contains("L / + / P"));
+    assert!(help_text.contains("G Project:"));
+    assert!(help_text.contains("Health:"));
+
+    let tiny = monitor_test_text(&monitor, &config, 40, 10, &DashboardState::default());
+    assert!(tiny.contains(&config.pairing_code));
+    assert!(tiny.contains(" ? "));
+    assert!(tiny.contains(" ^C "));
+}
+
+#[test]
+fn modal_visibility_matches_the_minimum_renderable_terminal() {
+    let input = DashboardState {
+        workspace_input: Some(String::new()),
+        ..DashboardState::default()
+    };
+    assert!(input.workspace_input_visible(Rect::new(0, 0, 36, 5)));
+    assert!(!input.workspace_input_visible(Rect::new(0, 0, 35, 5)));
+    assert!(!input.workspace_input_visible(Rect::new(0, 0, 36, 4)));
+
+    let access = DashboardState {
+        full_access_confirm: true,
+        ..DashboardState::default()
+    };
+    assert!(access.full_access_visible(Rect::new(0, 0, 48, 12)));
+    assert!(!access.full_access_visible(Rect::new(0, 0, 47, 12)));
+    assert!(!access.full_access_visible(Rect::new(0, 0, 48, 11)));
+
+    assert!(authorization_overlay_visible(Rect::new(0, 0, 40, 10)));
+    assert!(!authorization_overlay_visible(Rect::new(0, 0, 39, 10)));
+    assert!(!authorization_overlay_visible(Rect::new(0, 0, 40, 9)));
+}
+
+#[test]
+fn connected_dashboard_keeps_pairing_code_in_one_persistent_place() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.mark_mcp_initialized();
+    for (width, height) in [(80, 20), (140, 32)] {
+        let text = monitor_test_text(&monitor, &config, width, height, &DashboardState::default());
+        assert_eq!(
+            text.matches(&config.pairing_code).count(),
+            1,
+            "pairing code duplicated at {width}x{height}"
+        );
+        assert!(!text.contains("VERIFY CODE"));
+    }
+}
+
+#[test]
+fn long_project_footer_reserves_pairing_code_and_keeps_project_clickable() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let mut config = monitor_test_config(workspaces);
+    config.project_url = format!("https://example.test/{}", "very-long-project/".repeat(12));
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.mark_mcp_initialized();
+    let width = 124;
+    let height = 24;
+    let text = monitor_test_text(&monitor, &config, width, height, &DashboardState::default());
+    let project = wide_footer_project_text(&config, UiLanguage::En, width);
+    assert!(text.contains(&config.pairing_code));
+    assert!(text.contains(&project));
+    assert!(Span::raw(&project).width() < Span::raw(&config.project_url).width());
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: Span::raw("  wcode  ").width() as u16 + 1,
+        row: height - 2,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(
+        dashboard_link_at(&click, width, height, &DashboardState::default(), &config),
+        Some(config.project_url.clone())
+    );
+}
+
+#[test]
+fn command_overlay_keeps_action_feedback_inside_the_surface() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            render_commands_overlay(
+                frame,
+                frame.area(),
+                &workspaces,
+                "backend",
+                0,
+                Some("authorization updated"),
+                UiLanguage::En,
+            )
+        })
+        .unwrap();
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("STATUS"));
+    assert!(text.contains("authorization updated"));
+}
+
+#[test]
 fn engineering_console_groups_architecture_and_proof_instead_of_flat_intelligence_rows() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = monitor_test_config(workspaces);

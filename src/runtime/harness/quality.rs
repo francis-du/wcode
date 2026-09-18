@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "quality/adversarial.rs"]
+mod adversarial;
+#[path = "quality/counterexamples.rs"]
+pub(super) mod counterexamples;
 #[path = "quality/verification_run.rs"]
 mod verification_run;
 
@@ -73,11 +77,10 @@ impl ToolHarness {
                     workspace.source_files_background_with_stamps(".", MAX_OBSERVATORY_FILES)?;
                 let mut hasher = Sha256::new();
                 hasher.update(b"workspace-metadata-v1");
-                for (path, (len, modified_nanos)) in files {
+                for (path, stamp) in files {
                     hasher.update([0]);
                     hasher.update(path.as_bytes());
-                    hasher.update(len.to_le_bytes());
-                    hasher.update(modified_nanos.to_le_bytes());
+                    stamp.update_sha256(&mut hasher);
                 }
                 Ok(ObservatoryRevisionSignal {
                     fingerprint: Some(format!("{:x}", hasher.finalize())),
@@ -128,9 +131,8 @@ impl ToolHarness {
         for path in changed.keys() {
             hasher.update([0]);
             hasher.update(path.as_bytes());
-            if let Ok((len, modified_nanos)) = workspace.source_metadata_stamp(path) {
-                hasher.update(len.to_le_bytes());
-                hasher.update(modified_nanos.to_le_bytes());
+            if let Ok(stamp) = workspace.source_metadata_stamp(path) {
+                stamp.update_sha256(&mut hasher);
             }
         }
         Ok(ObservatoryRevisionSignal {

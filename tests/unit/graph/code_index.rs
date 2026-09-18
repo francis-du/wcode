@@ -1,6 +1,10 @@
 use super::*;
 use std::fs;
 
+#[path = "budget.rs"]
+mod budget;
+#[path = "calls.rs"]
+mod calls;
 #[path = "consistency.rs"]
 mod consistency;
 #[path = "flights.rs"]
@@ -96,7 +100,7 @@ fn symbol_search_supports_multiple_languages_and_context() {
     let search = index
         .find_symbol("demo", &workspace, "execute", ".", None, 20)
         .unwrap();
-    assert_eq!(search["result_count"], 2);
+    assert_eq!(search["result_count"], 2, "search={search}");
     let python = search["results"]
         .as_array()
         .unwrap()
@@ -181,6 +185,238 @@ fn multi_query_symbol_search_preserves_later_exact_queries_under_global_limit() 
     assert!(search["truncated"].as_bool().unwrap());
     assert!(names.contains(&"run"));
     assert!(names.contains(&"critical_target"));
+}
+
+#[test]
+fn cached_exact_symbol_seed_revalidates_external_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("target.rs"),
+        "pub fn target_feature() -> usize { 7 }\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("noise.rs"), "pub fn unrelated() {}\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    index
+        .ensure_indexed(&workspace, "target.rs", false)
+        .unwrap();
+    index.ensure_indexed(&workspace, "noise.rs", false).unwrap();
+
+    let query = vec!["target_feature".to_owned()];
+    let cached = index
+        .cached_exact_symbols_many(&workspace, &query, None, 10)
+        .unwrap();
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0]["qualified_name"], "target_feature");
+
+    fs::write(
+        dir.path().join("target.rs"),
+        "pub fn renamed_feature() -> usize { 9 }\n",
+    )
+    .unwrap();
+    let stale = index
+        .cached_exact_symbols_many(&workspace, &query, None, 10)
+        .unwrap();
+    assert!(
+        stale.is_empty(),
+        "stale exact candidates must be revalidated"
+    );
+
+    let renamed = vec!["renamed_feature".to_owned()];
+    let refreshed = index
+        .cached_exact_symbols_many(&workspace, &renamed, None, 10)
+        .unwrap();
+    assert_eq!(refreshed.len(), 1);
+    assert_eq!(refreshed[0]["qualified_name"], "renamed_feature");
+}
+
+#[test]
+fn cached_exact_symbol_seed_uses_reverse_index_and_drops_invalidated_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("target.rs"),
+        "pub fn target_feature() -> usize { 7 }\n",
+    )
+    .unwrap();
+    for index in 0..32 {
+        fs::write(
+            dir.path().join(format!("noise_{index}.rs")),
+            format!("pub fn unrelated_{index}() {{}}\n"),
+        )
+        .unwrap();
+    }
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    index
+        .ensure_indexed(&workspace, "target.rs", false)
+        .unwrap();
+    for file in 0..32 {
+        index
+            .ensure_indexed(&workspace, &format!("noise_{file}.rs"), false)
+            .unwrap();
+    }
+
+    let key = "target_feature".to_owned();
+    {
+        let state = index.state.lock().unwrap();
+        let files = state.exact_symbol_files.get(&key).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files.iter().any(|file| file.path == "target.rs"));
+    }
+    let cached = index
+        .cached_exact_symbols_many(&workspace, std::slice::from_ref(&key), None, 10)
+        .unwrap();
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0]["qualified_name"], "target_feature");
+
+    index.invalidate(workspace.root(), "target.rs");
+    let state = index.state.lock().unwrap();
+    assert!(!state.exact_symbol_files.contains_key(&key));
+}
+
+#[test]
+fn cached_exact_symbol_seed_preserves_multiple_queries_across_files() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("entry.rs"),
+        "pub fn feature_entry() -> usize { 1 }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("worker.rs"),
+        "pub fn batch_worker() -> usize { 2 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    index.ensure_indexed(&workspace, "entry.rs", false).unwrap();
+    index
+        .ensure_indexed(&workspace, "worker.rs", false)
+        .unwrap();
+
+    let queries = vec!["feature_entry".to_owned(), "batch_worker".to_owned()];
+    let cached = index
+        .cached_exact_symbols_many(&workspace, &queries, None, 10)
+        .unwrap();
+    let names = cached
+        .iter()
+        .filter_map(|symbol| symbol["qualified_name"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["feature_entry", "batch_worker"]);
+}
+
+#[test]
+fn software_graph_resolves_rust_qualified_calls_without_guessing_ambiguous_bare_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("alpha.rs"), "pub fn helper() -> u8 { 1 }\n").unwrap();
+    fs::write(dir.path().join("beta.rs"), "pub fn helper() -> u8 { 2 }\n").unwrap();
+    fs::write(
+        dir.path().join("main.rs"),
+        "pub fn choose() -> u8 { alpha::helper() }\npub fn ambiguous() -> u8 { helper() }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+
+    let snapshot = index
+        .software_graph("demo", &workspace, ".", 100, 100)
+        .unwrap();
+    let choose = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "choose")
+        .unwrap();
+    let ambiguous = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "ambiguous")
+        .unwrap();
+    let alpha_helper = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "helper" && node.attributes["path"].as_str() == Some("alpha.rs"))
+        .unwrap();
+
+    let qualified_edge = snapshot
+        .graph
+        .edges
+        .iter()
+        .find(|edge| {
+            edge.kind == EdgeKind::Calls && edge.from == choose.id && edge.to == alpha_helper.id
+        })
+        .expect("qualified Rust path should resolve the duplicate function name");
+    assert_eq!(
+        qualified_edge.provenance.provider,
+        "tree-sitter/rust-path-resolution"
+    );
+    assert!(!snapshot
+        .graph
+        .edges
+        .iter()
+        .any(|edge| { edge.kind == EdgeKind::Calls && edge.from == ambiguous.id }));
+}
+
+#[test]
+fn software_graph_uses_rust_imports_to_disambiguate_bare_cross_file_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("alpha.rs"), "pub fn helper() -> u8 { 1 }\n").unwrap();
+    fs::write(dir.path().join("beta.rs"), "pub fn helper() -> u8 { 2 }\n").unwrap();
+    fs::write(
+        dir.path().join("main.rs"),
+        "use alpha::helper;\npub fn choose() -> u8 { helper() }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("other.rs"),
+        "pub fn ambiguous() -> u8 { helper() }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+
+    let snapshot = index
+        .software_graph("demo", &workspace, ".", 100, 100)
+        .unwrap();
+    let choose = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "choose")
+        .unwrap();
+    let ambiguous = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "ambiguous")
+        .unwrap();
+    let alpha_helper = snapshot
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label == "helper" && node.attributes["path"].as_str() == Some("alpha.rs"))
+        .unwrap();
+
+    let imported_edge = snapshot
+        .graph
+        .edges
+        .iter()
+        .find(|edge| {
+            edge.kind == EdgeKind::Calls && edge.from == choose.id && edge.to == alpha_helper.id
+        })
+        .expect("explicit Rust use should disambiguate the bare call");
+    assert_eq!(
+        imported_edge.provenance.provider,
+        "tree-sitter/rust-import-resolution"
+    );
+    assert!(!snapshot
+        .graph
+        .edges
+        .iter()
+        .any(|edge| { edge.kind == EdgeKind::Calls && edge.from == ambiguous.id }));
 }
 
 #[test]
@@ -571,98 +807,6 @@ fn scan_failure_count_is_not_limited_by_diagnostic_sample() {
     assert_eq!(result["files_failed"], 10);
     assert_eq!(result["failures"].as_array().unwrap().len(), 8);
     assert_eq!(result["failures_truncated"], true);
-}
-
-#[test]
-fn software_graph_reuses_indexed_symbols_and_marks_syntax_precision() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("engine.rs"),
-        "fn helper() -> u8 { 1 }\nfn compute() -> u8 { helper() }\n",
-    )
-    .unwrap();
-    let workspace = Workspace::new(dir.path(), false, false).unwrap();
-    let index = CodeIndex::new().unwrap();
-
-    let snapshot = index
-        .software_graph("demo", &workspace, ".", 100, 100)
-        .unwrap();
-    assert_eq!(snapshot.provider, "tree-sitter");
-    assert_eq!(snapshot.precision, GraphPrecision::Syntax);
-    assert_eq!(snapshot.files_indexed, 1);
-    assert!(!snapshot.truncated);
-
-    let file = snapshot
-        .graph
-        .nodes
-        .values()
-        .find(|node| node.kind == NodeKind::File)
-        .unwrap();
-    let helper = snapshot
-        .graph
-        .nodes
-        .values()
-        .find(|node| node.label == "helper")
-        .unwrap();
-    let compute = snapshot
-        .graph
-        .nodes
-        .values()
-        .find(|node| node.label == "compute")
-        .unwrap();
-    assert_eq!(helper.provenance.precision, GraphPrecision::Syntax);
-    assert!(snapshot.graph.edges.iter().any(|edge| {
-        edge.kind == EdgeKind::Defines && edge.from == file.id && edge.to == helper.id
-    }));
-    assert!(snapshot.graph.edges.iter().any(|edge| {
-        edge.kind == EdgeKind::Calls && edge.from == compute.id && edge.to == helper.id
-    }));
-}
-
-#[test]
-fn software_graph_resolves_unique_cross_file_calls_at_syntax_precision() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("helper.rs"),
-        "pub fn helper() -> u8 { 1 }\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("main.rs"),
-        "fn compute() -> u8 { helper() }\n",
-    )
-    .unwrap();
-    let workspace = Workspace::new(dir.path(), false, false).unwrap();
-    let index = CodeIndex::new().unwrap();
-
-    let snapshot = index
-        .software_graph("demo", &workspace, ".", 100, 100)
-        .unwrap();
-    let helper = snapshot
-        .graph
-        .nodes
-        .values()
-        .find(|node| node.label == "helper")
-        .unwrap();
-    let compute = snapshot
-        .graph
-        .nodes
-        .values()
-        .find(|node| node.label == "compute")
-        .unwrap();
-    let edge = snapshot
-        .graph
-        .edges
-        .iter()
-        .find(|edge| {
-            edge.kind == EdgeKind::Calls && edge.from == compute.id && edge.to == helper.id
-        })
-        .expect("unique cross-file call edge");
-    assert_eq!(edge.provenance.precision, GraphPrecision::Syntax);
-    assert_eq!(
-        edge.provenance.provider,
-        "tree-sitter/global-name-resolution"
-    );
 }
 
 #[test]

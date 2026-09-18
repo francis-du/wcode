@@ -77,6 +77,8 @@ const PARALLEL_READ_TOOLS: &[&str] = &[
     "list_files",
     "search_code",
     "search_many",
+    "scan_patterns",
+    "search_syntax",
     "file_outline",
     "find_symbol",
     "symbol_context",

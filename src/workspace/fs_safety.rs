@@ -331,18 +331,19 @@ pub(super) fn apply_text_edits(content: &str, edits: &[TextEdit]) -> Result<Stri
             )?,
             _ => bail!("edit start_line and end_line must be supplied together"),
         };
-        let matches = content[search_start..search_end]
+        let mut matches = content[search_start..search_end]
             .match_indices(&edit.old_text)
-            .map(|(offset, _)| search_start + offset)
-            .collect::<Vec<_>>();
-        if matches.len() != 1 {
+            .map(|(offset, _)| search_start + offset);
+        let first = matches.next();
+        let count = usize::from(first.is_some()) + matches.count();
+        if count != 1 {
             bail!(
                 "edit {} old_text must occur exactly once in the original selected range; found {} matches",
                 index + 1,
-                matches.len()
+                count
             );
         }
-        let start = matches[0];
+        let start = first.expect("exactly one original match was validated");
         ranges.push((start, start + edit.old_text.len(), index));
     }
     ranges.sort_unstable_by_key(|range| range.0);
@@ -356,10 +357,26 @@ pub(super) fn apply_text_edits(content: &str, edits: &[TextEdit]) -> Result<Stri
         }
     }
 
-    let mut updated = content.to_owned();
-    for (start, end, index) in ranges.into_iter().rev() {
-        updated.replace_range(start..end, &edits[index].new_text);
+    let final_len = ranges
+        .iter()
+        .try_fold(content.len(), |len, (start, end, index)| {
+            len.checked_sub(end - start)
+                .and_then(|len| len.checked_add(edits[*index].new_text.len()))
+                .ok_or_else(|| anyhow!("edited content size overflow"))
+        })?;
+    if final_len > MAX_WRITE_BYTES {
+        bail!("edited content exceeds the {MAX_WRITE_BYTES}-byte write limit");
     }
+    // All anchors refer to the original bytes. Stitch once instead of moving
+    // the remaining document for each replacement; no fuzzy anchor matching.
+    let mut updated = String::with_capacity(final_len);
+    let mut copied_until = 0;
+    for (start, end, index) in ranges {
+        updated.push_str(&content[copied_until..start]);
+        updated.push_str(&edits[index].new_text);
+        copied_until = end;
+    }
+    updated.push_str(&content[copied_until..]);
     Ok(updated)
 }
 

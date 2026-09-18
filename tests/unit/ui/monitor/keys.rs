@@ -42,7 +42,7 @@ fn action(c: char, ui: &DashboardState) -> Option<DashboardAction> {
 #[test]
 fn author_and_bulk_authorization_never_share_a_key() {
     let mut ui = DashboardState::default();
-    assert_eq!(action('a', &ui), None);
+    assert_eq!(action('a', &ui), Some(DashboardAction::GrantAllCommands));
     assert_eq!(action('b', &ui), Some(DashboardAction::Author));
     assert_eq!(
         action(AUTHOR_SHORTCUT.chars().next().unwrap(), &ui),
@@ -52,9 +52,14 @@ fn author_and_bulk_authorization_never_share_a_key() {
     assert_eq!(action('A', &ui), Some(DashboardAction::GrantAllCommands));
     assert_eq!(action('B', &ui), Some(DashboardAction::Author));
     ui.help_open = true;
-    assert_eq!(action('a', &ui), None);
-    assert_eq!(action('y', &ui), None);
-    assert_eq!(action('n', &ui), None);
+    assert_eq!(action('a', &ui), Some(DashboardAction::GrantAllCommands));
+    assert_eq!(action('y', &ui), Some(DashboardAction::ShowAuthorization));
+    assert_eq!(action('n', &ui), Some(DashboardAction::ShowAuthorization));
+    let empty = DashboardState::default();
+    assert_eq!(
+        action('y', &empty),
+        Some(DashboardAction::NoPendingAuthorization)
+    );
 }
 
 #[test]

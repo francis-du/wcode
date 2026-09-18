@@ -1,8 +1,8 @@
 use super::symbols::{
     assign_containers, contains_case_insensitive, inclusive_end_line, line_excerpt,
-    matching_symbols, matching_symbols_many, node_range, normalize_symbol_kind, prune_ast_cache,
-    prune_ast_cache_to, prune_file_cache, remove_file_record, semantic_extent, symbol_id,
-    symbol_query_leaf, syntactic_container_hint,
+    matching_symbols, matching_symbols_many, node_range, normalize_symbol_kind, path_symbol_score,
+    prune_ast_cache, prune_ast_cache_to, prune_file_cache, remove_file_record, semantic_extent,
+    symbol_id, symbol_query_leaf, syntactic_container_hint,
 };
 use super::*;
 
@@ -158,9 +158,10 @@ impl CodeIndex {
         }
         let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
         let source = workspace.load_source_at_stamp(path, &stamp)?;
-        let could_match = queries
-            .iter()
-            .any(|query| contains_case_insensitive(&source.content, symbol_query_leaf(query)));
+        let could_match = queries.iter().any(|query| {
+            contains_case_insensitive(&source.content, symbol_query_leaf(query))
+                || path_symbol_score(path, query).is_some()
+        });
         if !could_match {
             self.invalidate(workspace.root(), path);
             return Ok(FileMultiSearchOutcome {
@@ -444,6 +445,18 @@ impl CodeIndex {
         let record = Arc::new(parsed.record);
         for symbol in &record.symbols {
             state.symbol_files.insert(symbol.id.clone(), key.clone());
+            if symbol.is_definition {
+                state
+                    .exact_symbol_files
+                    .entry(symbol.name.to_ascii_lowercase())
+                    .or_default()
+                    .insert(key.clone());
+                state
+                    .exact_symbol_files
+                    .entry(symbol.qualified_name.to_ascii_lowercase())
+                    .or_default()
+                    .insert(key.clone());
+            }
         }
         state.files.insert(key.clone(), record.clone());
         state.access_tick = state.access_tick.saturating_add(1);
@@ -481,6 +494,139 @@ impl CodeIndex {
         Ok(true)
     }
 
+    pub(crate) fn search_ast_nodes(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        request: &SyntaxSearchRequest,
+    ) -> Result<Value> {
+        if request.node_kinds.is_empty() || request.node_kinds.len() > 32 {
+            bail!("node_kinds must contain between 1 and 32 Tree-sitter node kinds");
+        }
+        let kinds = request
+            .node_kinds
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        let text_regex = request
+            .text_regex
+            .as_deref()
+            .map(regex::Regex::new)
+            .transpose()
+            .map_err(|error| anyhow!("invalid syntax text_regex: {error}"))?;
+        let max_files = request.max_files.clamp(1, 5_000);
+        let max_results = request.max_results.clamp(1, 2_000);
+        let (files, scan_truncated) = workspace.source_files(&request.path, max_files)?;
+        let found = AtomicU64::new(0);
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        let failed_files = AtomicU64::new(0);
+        let root = workspace.root();
+        let mut matches = files
+            .par_iter()
+            .filter_map(|path| {
+                self.config_for_path(path)?;
+                if found.load(Ordering::Relaxed) >= max_results as u64 {
+                    stopped.store(true, Ordering::Relaxed);
+                    return None;
+                }
+                let ensured = self
+                    .ensure_indexed(workspace, path, true)
+                    .inspect_err(|_| {
+                        failed_files.fetch_add(1, Ordering::Relaxed);
+                    })
+                    .ok()?;
+                let source = workspace
+                    .load_source(path)
+                    .inspect_err(|_| {
+                        failed_files.fetch_add(1, Ordering::Relaxed);
+                    })
+                    .ok()?;
+                if source.sha256 != ensured.record.sha256 {
+                    self.invalidate(root, path);
+                    failed_files.fetch_add(1, Ordering::Relaxed);
+                    return None;
+                }
+                let key = FileKey::new(root, path.clone());
+                let tree = self
+                    .state
+                    .lock()
+                    .inspect_err(|_| {
+                        failed_files.fetch_add(1, Ordering::Relaxed);
+                    })
+                    .ok()?
+                    .ast_cache
+                    .get(&key)
+                    .filter(|ast| ast.hash == source.sha256)
+                    .map(|ast| ast.tree.clone());
+                let Some(tree) = tree else {
+                    failed_files.fetch_add(1, Ordering::Relaxed);
+                    return None;
+                };
+                let mut local = Vec::new();
+                let mut stack = vec![tree.root_node()];
+                while let Some(node) = stack.pop() {
+                    if found.load(Ordering::Relaxed) >= max_results as u64 {
+                        stopped.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                    if node.is_named() && kinds.contains(node.kind()) {
+                        let raw = source.content.get(node.byte_range()).unwrap_or_default();
+                        if text_regex.as_ref().is_none_or(|regex| regex.is_match(raw)) {
+                            let slot = found.fetch_add(1, Ordering::Relaxed);
+                            if slot < max_results as u64 {
+                                let excerpt = raw.chars().take(500).collect::<String>();
+                                let (text, redacted) = redact_sensitive_text(excerpt.trim());
+                                local.push(json!({
+                                    "path": path,
+                                    "sha256": source.sha256,
+                                    "language": ensured.record.language.as_str(),
+                                    "node_kind": node.kind(),
+                                    "range": node_range(node),
+                                    "text": text,
+                                    "text_truncated": raw.chars().count() > 500,
+                                    "redacted": redacted,
+                                    "parse_errors": ensured.record.parse_errors,
+                                }));
+                            }
+                        }
+                    }
+                    let mut cursor = node.walk();
+                    let children = node.children(&mut cursor).collect::<Vec<_>>();
+                    stack.extend(children.into_iter().rev());
+                }
+                (!local.is_empty()).then_some(local)
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        matches.sort_unstable_by(|left, right| {
+            left["path"]
+                .as_str()
+                .cmp(&right["path"].as_str())
+                .then_with(|| {
+                    left["range"]["start_line"]
+                        .as_u64()
+                        .cmp(&right["range"]["start_line"].as_u64())
+                })
+        });
+        matches.truncate(max_results);
+        Ok(json!({
+            "workspace": workspace_id,
+            "provider": "tree-sitter",
+            "precision": "syntax",
+            "path": request.path,
+            "node_kinds": request.node_kinds,
+            "text_regex": text_regex.as_ref().map(regex::Regex::as_str),
+            "files_considered": files.len(),
+            "count": matches.len(),
+            "matches": matches,
+            "files_failed": failed_files.load(Ordering::Relaxed),
+            "scan_truncated": scan_truncated,
+            "results_truncated": stopped.load(Ordering::Relaxed) || found.load(Ordering::Relaxed) > matches.len() as u64,
+            "coverage_complete": !scan_truncated && !stopped.load(Ordering::Relaxed) && failed_files.load(Ordering::Relaxed) == 0 && found.load(Ordering::Relaxed) == matches.len() as u64,
+            "truncated": scan_truncated || stopped.load(Ordering::Relaxed) || failed_files.load(Ordering::Relaxed) > 0 || found.load(Ordering::Relaxed) > matches.len() as u64,
+        }))
+    }
+
     pub(super) fn ast_info(&self, key: &FileKey, expected_hash: &str) -> Value {
         let Ok(state) = self.state.lock() else {
             return json!({"cached": false});
@@ -513,6 +659,7 @@ impl CodeIndex {
             state.files.clear();
             state.file_access.clear();
             state.symbol_files.clear();
+            state.exact_symbol_files.clear();
         } else {
             let limits = crate::resource::limits();
             prune_ast_cache_to(

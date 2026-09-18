@@ -2,9 +2,26 @@ use super::*;
 
 pub(super) fn remove_file_record(state: &mut IndexState, key: &FileKey) {
     if let Some(record) = state.files.remove(key) {
+        let mut exact_keys = HashSet::new();
         for symbol in &record.symbols {
             if state.symbol_files.get(&symbol.id) == Some(key) {
                 state.symbol_files.remove(&symbol.id);
+            }
+            if symbol.is_definition {
+                exact_keys.insert(symbol.name.to_ascii_lowercase());
+                exact_keys.insert(symbol.qualified_name.to_ascii_lowercase());
+            }
+        }
+        for exact_key in exact_keys {
+            let remove_entry = state
+                .exact_symbol_files
+                .get_mut(&exact_key)
+                .is_some_and(|files| {
+                    files.remove(key);
+                    files.is_empty()
+                });
+            if remove_entry {
+                state.exact_symbol_files.remove(&exact_key);
             }
         }
     }
@@ -107,7 +124,9 @@ pub(super) fn matching_symbols_many(
                 .iter()
                 .enumerate()
                 .filter_map(|(index, query)| {
-                    symbol_score(symbol, query).map(|score| (score.saturating_sub(1), index, score))
+                    symbol_score(symbol, query)
+                        .or_else(|| path_symbol_score(&record.path, query))
+                        .map(|score| (score.saturating_sub(1), index, score))
                 })
                 .min()
                 .map(|(_, index, score)| (index, score, symbol.clone()))
@@ -125,8 +144,22 @@ pub(super) fn matching_symbols(
         .iter()
         .filter(|symbol| symbol.is_definition)
         .filter(|symbol| kind.is_none_or(|kind| symbol.kind.eq_ignore_ascii_case(kind)))
-        .filter_map(|symbol| symbol_score(symbol, query).map(|score| (score, symbol.clone())))
+        .filter_map(|symbol| {
+            symbol_score(symbol, query)
+                .filter(|score| *score < 4)
+                .map(|score| (score, symbol.clone()))
+        })
         .collect()
+}
+
+pub(super) fn path_symbol_score(path: &str, query: &str) -> Option<u8> {
+    let leaf = symbol_query_leaf(query).trim();
+    if leaf.chars().count() < 3 {
+        return None;
+    }
+    path.split(['/', '\\', '.', '_', '-'])
+        .any(|part| part.eq_ignore_ascii_case(leaf))
+        .then_some(5)
 }
 
 pub(super) fn symbol_score(symbol: &CodeSymbol, query: &str) -> Option<u8> {
@@ -149,18 +182,24 @@ pub(super) fn symbol_score(symbol: &CodeSymbol, query: &str) -> Option<u8> {
         {
             return Some(3);
         }
+        if contains_ascii_case_insensitive(symbol.signature.as_bytes(), query.as_bytes()) {
+            return Some(4);
+        }
         return None;
     }
 
     let query = query.to_lowercase();
     let name = symbol.name.to_lowercase();
     let qualified = symbol.qualified_name.to_lowercase();
+    let signature = symbol.signature.to_lowercase();
     if name == query || qualified == query {
         Some(1)
     } else if name.starts_with(&query) || qualified.starts_with(&query) {
         Some(2)
     } else if name.contains(&query) || qualified.contains(&query) {
         Some(3)
+    } else if signature.contains(&query) {
+        Some(4)
     } else {
         None
     }

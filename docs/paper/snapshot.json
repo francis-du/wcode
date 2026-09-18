@@ -1,0 +1,49 @@
+{
+  "artifact_kind": "manually_checked_selected_fields_not_full_raw_report",
+  "source_report": "target/engineering-fitness-1789665000441866000-37653.json",
+  "source_report_sha256": "b117266f8c33cebcef26cb2fc9d56a5bf50b48f604d67ffab1944a16b4807ffc",
+  "source_report_bytes": 597957,
+  "report_time_jst": "2026-09-18T02:10:00.441866+09:00",
+  "metadata": {
+    "wcode_version": "0.7.5",
+    "git_head": "181ec689f1db21840038ab2fe179dd3f567ba899",
+    "worktree_dirty": true,
+    "profile": "debug",
+    "os": "macos",
+    "arch": "aarch64",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "available_parallelism": 10,
+    "harness_slots": 4,
+    "contract_version": 3,
+    "case_count": 60,
+    "samples_per_case_budget_phase": 1,
+    "completed_query_attempts": 360,
+    "model_calls": 0,
+    "query_errors": 0,
+    "warmup_errors": 0,
+    "source_stable_during_run": true,
+    "corpus_sha256": "83cc3eb2b0ddeb2386f0ead9703f0e546688d0f0d9e8c171f9db6633a6c0461e",
+    "evaluator_sha256": "a0cf6c25d2fe982bc84994a89ccd18f913c2b90e7dda97dc3c51dcf3fe18c0ca",
+    "test_binary_sha256": "5a6ed3688d8b4ada0945462ee5783d5f3416b29e13acb5197df27295211b5d2c",
+    "source_snapshot_before": "14d646e7ad0286482292b618047a07944935ada25f6c9850f699dab245ac91cd",
+    "source_snapshot_after": "14d646e7ad0286482292b618047a07944935ada25f6c9850f699dab245ac91cd"
+  },
+  "denominators_per_group": {"attempts":60,"required_gold_count":98,"ranking_attempts":59,"edit_input_eligible":58},
+  "summary_selected_fields": [
+    {"budget":1000,"phase":"cold","required_hits":85,"complete_body_hits":67,"fresh_sha_hits_derived":97,"all_required_edit_inputs_count":28,"mean_response_bytes":3753.866666666667,"latency_p50_us":22411.0,"latency_p95_us":36513,"mean_non_gold_symbol_fraction":0.1101694915254237,"mean_ndcg_at_10":0.8230446893393597,"errors":0,"over_budget":0},
+    {"budget":1000,"phase":"warm","required_hits":85,"complete_body_hits":67,"fresh_sha_hits_derived":97,"all_required_edit_inputs_count":28,"mean_response_bytes":3751.7166666666667,"latency_p50_us":13238.0,"latency_p95_us":23617,"mean_non_gold_symbol_fraction":0.1101694915254237,"mean_ndcg_at_10":0.8230446893393597,"errors":0,"over_budget":0},
+    {"budget":2000,"phase":"cold","required_hits":98,"complete_body_hits":98,"fresh_sha_hits_derived":98,"all_required_edit_inputs_count":58,"mean_response_bytes":7330.116666666667,"latency_p50_us":18627.0,"latency_p95_us":34209,"mean_non_gold_symbol_fraction":0.20282485875706213,"mean_ndcg_at_10":0.9427203233462317,"errors":0,"over_budget":0},
+    {"budget":2000,"phase":"warm","required_hits":98,"complete_body_hits":98,"fresh_sha_hits_derived":98,"all_required_edit_inputs_count":58,"mean_response_bytes":7327.2,"latency_p50_us":10505.0,"latency_p95_us":13608,"mean_non_gold_symbol_fraction":0.20282485875706213,"mean_ndcg_at_10":0.9427203233462317,"errors":0,"over_budget":0},
+    {"budget":4000,"phase":"cold","required_hits":98,"complete_body_hits":98,"fresh_sha_hits_derived":98,"all_required_edit_inputs_count":58,"mean_response_bytes":12045.266666666666,"latency_p50_us":14568.0,"latency_p95_us":29280,"mean_non_gold_symbol_fraction":0.20875706214689266,"mean_ndcg_at_10":0.9427203233462317,"errors":0,"over_budget":0},
+    {"budget":4000,"phase":"warm","required_hits":98,"complete_body_hits":98,"fresh_sha_hits_derived":98,"all_required_edit_inputs_count":58,"mean_response_bytes":12042.333333333334,"latency_p50_us":6656.0,"latency_p95_us":8217,"mean_non_gold_symbol_fraction":0.20875706214689266,"mean_ndcg_at_10":0.9427203233462317,"errors":0,"over_budget":0}
+  ],
+  "caveats": [
+    "Synthetic development corpus, not independent real repositories or a hidden holdout",
+    "One sample per cell; pooled latency quantiles describe different tasks",
+    "Cold does not clear OS caches or process-global language configuration",
+    "Budget is ceil(serialized JSON bytes / 4), not a model tokenizer",
+    "Edit inputs do not imply verification or patch correctness",
+    "Full raw report and immutable source artifact are required for independent replay",
+    "Zero model calls refers to Fitness measurement, not writing or development"
+  ]
+}

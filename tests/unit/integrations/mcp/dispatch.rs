@@ -390,6 +390,127 @@ async fn partial_bulk_write_blocks_successors_but_preserves_independent_work() {
     assert!(!root.path().join("moved.txt").exists());
 }
 
+#[tokio::test]
+async fn review_changes_adversarial_mode_attaches_non_evidence_questions() {
+    let root = tempfile::tempdir().unwrap();
+    let initialized = std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(root.path())
+        .status()
+        .unwrap();
+    assert!(initialized.success());
+    std::fs::create_dir_all(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname='adversarial-fixture'\nversion='0.1.0'\nedition='2021'\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn target() -> bool { true }\n",
+    )
+    .unwrap();
+    let committed = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=wcode-test",
+            "-c",
+            "user.email=wcode@example.invalid",
+            "add",
+            ".",
+        ])
+        .current_dir(root.path())
+        .status()
+        .unwrap();
+    assert!(committed.success());
+    let committed = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=wcode-test",
+            "-c",
+            "user.email=wcode@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ])
+        .current_dir(root.path())
+        .status()
+        .unwrap();
+    assert!(committed.success());
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn target() -> bool { false }\n",
+    )
+    .unwrap();
+    let workspaces = Workspaces::new([root.path()], true, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+
+    let plain = call_tool(&state, json!({"name":"review_changes","arguments":{}}))
+        .await
+        .unwrap();
+    assert_eq!(plain["isError"], false);
+    assert!(plain["structuredContent"].get("adversarial").is_none());
+
+    let challenged = call_tool(
+        &state,
+        json!({"name":"review_changes","arguments":{"adversarial":true}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(challenged["isError"], false);
+    let packet = &challenged["structuredContent"]["adversarial"];
+    assert_eq!(packet["policy"], "challenge-packet-not-evidence");
+    assert_eq!(packet["reviewer_role"], "adversarial");
+    let candidates = &packet["candidate_search"];
+    assert_eq!(candidates["precision"], "syntax");
+    assert_eq!(candidates["executed"], false);
+    assert_eq!(candidates["oracle_required"], true);
+    assert_eq!(candidates["files_scanned"], 1);
+    assert_eq!(candidates["candidates"][0]["original"], "false");
+    assert_eq!(candidates["candidates"][0]["replacement"], "true");
+    assert_eq!(
+        candidates["candidates"][0]["status"],
+        "proposed-not-typechecked"
+    );
+    for invalid in [json!(null), json!("true"), json!(1), json!({}), json!([])] {
+        let error = call_tool(
+            &state,
+            json!({"name":"review_changes","arguments":{"adversarial":invalid}}),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("adversarial must be a boolean"));
+    }
+    assert!(packet["questions"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty()));
+    assert!(packet["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|question| {
+            question["required_evidence"]
+                .as_array()
+                .is_some_and(|evidence| !evidence.is_empty())
+                && question["counterexample_experiment"]["kind"]
+                    .as_str()
+                    .is_some_and(|kind| !kind.is_empty())
+                && question["counterexample_experiment"]["closes_with"]
+                    .as_array()
+                    .is_some_and(|evidence| !evidence.is_empty())
+        }));
+}
+
 #[cfg(test)]
 mod agent_context_enrichment_tests {
     use super::*;

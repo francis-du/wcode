@@ -276,6 +276,7 @@ impl SoftwareIntelligenceRuntime {
                 &mut risks,
             );
         }
+        let bug_patterns = crate::risk::scan_bug_patterns(workspace)?;
         self.state
             .lock()
             .map_err(|_| anyhow!("software intelligence state poisoned"))?
@@ -286,6 +287,7 @@ impl SoftwareIntelligenceRuntime {
             level,
             profile,
             risks,
+            bug_patterns,
             drift,
             traceability,
         })

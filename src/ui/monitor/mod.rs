@@ -30,6 +30,7 @@ const MAX_TRAFFIC_EVENTS: usize = 4096;
 const TRAFFIC_WINDOW: Duration = Duration::from_secs(60);
 const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(4);
 const ESTIMATED_BYTES_PER_TOKEN: f64 = 4.0;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -420,12 +421,15 @@ impl DashboardState {
             && !self.commands_open
             && !self.full_access_confirm
             && self.workspace_input.is_none()
-            && area.width >= 40
-            && area.height >= 10
+            && authorization_overlay_visible(area)
     }
 
     fn full_access_visible(&self, area: Rect) -> bool {
-        self.full_access_confirm && area.width >= 48 && area.height >= 12
+        self.full_access_confirm && full_access_overlay_visible(area)
+    }
+
+    fn workspace_input_visible(&self, area: Rect) -> bool {
+        self.workspace_input.is_some() && workspace_input_overlay_visible(area)
     }
 
     fn clamp(&mut self, total: usize, visible: usize) {

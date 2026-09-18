@@ -94,6 +94,57 @@ fn correctness_jobs_carry_contract_first_rubric() {
 }
 
 #[test]
+fn adversarial_jobs_carry_falsification_first_rubric() {
+    let mut state = VerificationState::default();
+    state
+        .create_plan(
+            "VP-adversarial".into(),
+            "demo".into(),
+            "change:adversarial".into(),
+            VerificationPlanBinding {
+                revision: Revision {
+                    design: Some("sha256:design".into()),
+                    code: "sha256:adversarial".into(),
+                },
+                stage_targets: vec!["language:rust".into()],
+                automation_gaps: vec![],
+            },
+            RiskLevel::High,
+            [
+                "VJ-correctness".into(),
+                "VJ-maintainability".into(),
+                "VJ-architecture".into(),
+                "VJ-security".into(),
+                "VJ-adversarial".into(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+    let capabilities = BTreeSet::from(["adversarial_review".to_owned()]);
+    let job = state
+        .claim(
+            "demo",
+            "reviewer-adversarial",
+            &capabilities,
+            Some(ReviewerRole::Adversarial),
+        )
+        .unwrap();
+    assert!(job.guidance.iter().any(|item| item.contains("falsify")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("majority-vote")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("revision-bound evidence")));
+    assert!(job
+        .guidance
+        .iter()
+        .any(|item| item.contains("counterfactual")));
+}
+
+#[test]
 fn blind_jobs_are_claimed_by_capability_and_do_not_expose_other_submissions() {
     let mut state = VerificationState::default();
     let plan = state

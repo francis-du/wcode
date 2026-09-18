@@ -37,6 +37,64 @@ pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {
     }
 }
 
+fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRequest, String> {
+    let key = match name {
+        "search_code" => "query",
+        "search_many" => "queries",
+        _ => "patterns",
+    };
+    let queries = if name == "search_code" && args.get(key).is_some_and(Value::is_string) {
+        vec![required_string(args, key)?.to_owned()]
+    } else {
+        string_array_arg(args, key, 32)?
+    };
+    let text = |key: &str, default: &str| -> Result<String, String> {
+        match args.get(key) {
+            None => Ok(default.to_owned()),
+            Some(value) => value
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| format!("{key} must be a non-empty string")),
+        }
+    };
+    let number = |key: &str, default: usize, min: usize, max: usize| -> Result<usize, String> {
+        match args.get(key) {
+            None => Ok(default),
+            Some(value) => value
+                .as_u64()
+                .and_then(|v| usize::try_from(v).ok())
+                .filter(|v| (min..=max).contains(v))
+                .ok_or_else(|| format!("{key} must be an integer between {min} and {max}")),
+        }
+    };
+    let default_mode = match name {
+        "scan_patterns" => "regex",
+        "search_code" if queries.len() == 1 => "auto",
+        _ => "exact",
+    };
+    Ok(crate::workspace::SearchRequest {
+        queries,
+        path: text("path", ".")?,
+        mode: crate::workspace::SearchMode::parse(&text("mode", default_mode)?)
+            .map_err(|e| e.to_string())?,
+        context_lines: number(
+            "context_lines",
+            if name == "scan_patterns" { 2 } else { 0 },
+            0,
+            20,
+        )?,
+        max_results: number(
+            "max_results",
+            if name == "scan_patterns" { 500 } else { 100 },
+            1,
+            2000,
+        )?,
+        offset: number("offset", 0, 0, 10_000)?,
+        output_mode: text("output_mode", "content")?,
+    })
+}
+
 pub(super) async fn call(
     state: &AppState,
     name: &str,
@@ -64,29 +122,33 @@ pub(super) async fn call(
             })
             .await
         }
-        "search_code" => {
+        "search_code" | "search_many" | "scan_patterns" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let query = required_string(args, "query")?.to_owned();
-            let path = string_arg(args, "path").unwrap_or(".").to_owned();
-            let limit = usize_arg(args, "max_results").unwrap_or(100);
+            let request = search_request(name, args)?;
+            let grouped = name == "scan_patterns";
             run_blocking(move || {
-                workspace.search(&query, &path, limit).map(|matches| {
-                    json!({"workspace": workspace_id, "matches": matches, "count": matches.len()})
-                })
+                workspace
+                    .search_report(&request)
+                    .map(|report| report.into_value(&workspace_id, &request, grouped))
             })
             .await
         }
-        "search_many" => {
+        "search_syntax" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let queries = string_array_arg(args, "queries", 32)?;
+            let node_kinds = string_array_arg(args, "node_kinds", 32)?;
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
-            let limit = usize_arg(args, "max_results").unwrap_or(200);
-            run_blocking(move || {
-                workspace.search_many(&queries, &path, limit).map(|matches| {
-                    json!({"workspace": workspace_id, "matches": matches, "count": matches.len()})
-                })
-            })
-            .await
+            let text_regex = string_arg(args, "text_regex").map(str::to_owned);
+            let max_files = usize_arg(args, "max_files").unwrap_or(1_000);
+            let max_results = usize_arg(args, "max_results").unwrap_or(200);
+            let harness = state.harness.clone();
+            let request = crate::code_index::SyntaxSearchRequest {
+                path,
+                node_kinds,
+                text_regex,
+                max_files,
+                max_results,
+            };
+            run_blocking(move || harness.search_syntax(&workspace_id, &workspace, request)).await
         }
         "file_outline" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;

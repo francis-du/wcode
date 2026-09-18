@@ -21,6 +21,9 @@ use agent_readiness::{
 #[path = "../../../tests/unit/runtime/harness/context_budget.rs"]
 mod tests;
 use context_budget::{serialized_json_bytes, trim_agent_context_from_tokens};
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/fast_context.rs"]
+mod fast_context_tests;
 
 const MIN_AGENT_CONTEXT_BUDGET: usize = 1_000;
 const MAX_AGENT_CONTEXT_BUDGET: usize = 12_000;
@@ -132,8 +135,43 @@ impl ToolHarness {
             .take(MAX_AGENT_TARGETS)
             .map(compact_symbol)
             .collect::<Vec<_>>();
-        let hot_source_items = if budget >= 3_000 { 2 } else { 1 };
-        let hot_source_chars = budget.saturating_mul(4).saturating_div(3).clamp(900, 3_200);
+        let explicit_ids = explicit_hot_source_ids(&context.symbols, query);
+        // Prepare a small relevant pair even at 1K. Selection is bounded here;
+        // the final byte-aware packer decides what fits, not a 2K cliff.
+        let hot_source_items = explicit_ids.len().max(2);
+        let mut hot_source_ids = explicit_ids.clone();
+        // Bodies are an edit/debugging resource, so executable/type definitions
+        // should consume the tiny Hot Source budget before module/import wrappers.
+        // Keep retrieval identity order unchanged; this only chooses which already
+        // discovered symbols receive source bodies.
+        for prefer_module in [false, true] {
+            for symbol in &context.symbols {
+                if hot_source_ids.len() >= hot_source_items {
+                    break;
+                }
+                let is_module = symbol["kind"].as_str() == Some("module");
+                if is_module != prefer_module {
+                    continue;
+                }
+                let Some(id) = symbol["id"].as_str() else {
+                    continue;
+                };
+                if !hot_source_ids.iter().any(|existing| existing == id) {
+                    hot_source_ids.push(id.to_owned());
+                }
+            }
+        }
+        if !anchors.is_empty() {
+            hot_source_ids.clear();
+        }
+        // Share a bounded body allowance instead of multiplying the payload by
+        // the number of targets. Small explicit functions can all fit at once.
+        let hot_source_chars = budget
+            .saturating_mul(4)
+            .saturating_div(3)
+            .clamp(900, 3_200)
+            .saturating_mul(2)
+            .saturating_div(hot_source_items.max(2));
         // RepoMap ranking and direct Hot Source expansion share only immutable
         // context. CodeIndex parse flights already coalesce any overlapping file
         // parse, so these two retrieval lanes can safely make forward progress
@@ -147,32 +185,72 @@ impl ToolHarness {
                     query,
                     &context,
                     anchors.is_empty(),
+                    MAX_AGENT_REPO_MAP,
                 )
             },
-            || {
-                context
-                    .symbols
-                    .iter()
-                    .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
-                    .take(if anchors.is_empty() {
-                        hot_source_items
-                    } else {
-                        0
-                    })
-                    .filter_map(|symbol_id| {
-                        self.symbol_context(
-                            workspace_id.clone(),
-                            workspace,
-                            symbol_id,
-                            MAX_AGENT_HOT_SOURCE_LINES,
-                        )
-                        .ok()
-                    })
-                    .map(|source| compact_hot_source(&source, hot_source_chars))
-                    .collect::<Vec<_>>()
+            || -> Result<Vec<Value>> {
+                let mut sources = Vec::new();
+                for batch in hot_source_ids.chunks(self.max_parallel.max(1)) {
+                    let loaded = crate::resource::parallel_io(batch, |symbol_id| {
+                        let source = self
+                            .code_index
+                            .symbol_hot_context(
+                                &workspace_id,
+                                workspace,
+                                symbol_id,
+                                MAX_AGENT_HOT_SOURCE_LINES,
+                            )
+                            .ok()?;
+                        let mut source = compact_hot_source(&source, hot_source_chars);
+                        source["selection"] = json!(if explicit_ids.contains(symbol_id) {
+                            "explicit"
+                        } else {
+                            "ranked"
+                        });
+                        Some(source)
+                    })?;
+                    sources.extend(loaded.into_iter().flatten());
+                }
+                Ok(sources)
             },
         );
         let repo_map = repo_map?;
+        let mut hot_source = hot_source?;
+        if anchors.is_empty() && hot_source.len() < 4 && query_needs_semantic_relationships(query) {
+            // Search past already delivered relationships. Finding one cached
+            // body must not suppress the next unseen caller/callee.
+            let existing = hot_source
+                .iter()
+                .filter_map(|source| source.get("id").and_then(Value::as_str))
+                .collect::<BTreeSet<_>>();
+            let related = repo_map
+                .get("items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|item| {
+                    item.get("relationships")
+                        .and_then(Value::as_array)
+                        .is_some_and(|relations| !relations.is_empty())
+                })
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .filter_map(|id| id.strip_prefix("symbol:"))
+                .find(|id| !existing.contains(id));
+            if let Some(symbol_id) = related {
+                if let Ok(source) = self.code_index.symbol_hot_context(
+                    &workspace_id,
+                    workspace,
+                    symbol_id,
+                    MAX_AGENT_HOT_SOURCE_LINES,
+                ) {
+                    // Append below existing targets; budget trimming, not a
+                    // relationship lookup, decides which lower-priority body yields.
+                    let mut source = compact_hot_source(&source, hot_source_chars);
+                    source["selection"] = json!("related");
+                    hot_source.push(source);
+                }
+            }
+        }
 
         let mut paths = BTreeMap::<String, BTreeSet<String>>::new();
         for target in &targets {
@@ -501,12 +579,12 @@ fn compact_symbol(symbol: &Value) -> Value {
 }
 
 fn compact_hot_source(source: &Value, max_chars: usize) -> Value {
-    let body = source.get("body").cloned().unwrap_or(Value::Null);
+    let mut body = source.get("body").cloned().unwrap_or(Value::Null);
+    truncate_source_body(&mut body, max_chars);
     let content = body
         .get("content")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let (content, content_truncated) = short_text_with_truncation(content, max_chars);
     let calls = source
         .get("syntax_calls")
         .and_then(Value::as_array)
@@ -531,10 +609,53 @@ fn compact_hot_source(source: &Value, max_chars: usize) -> Value {
             "end_line": body.get("end_line").cloned().unwrap_or(Value::Null),
             "content": content,
             "redacted": body.get("redacted").cloned().unwrap_or(Value::Bool(false)),
-            "truncated": body.get("truncated").and_then(Value::as_bool).unwrap_or(false) || content_truncated,
+            "truncated": body.get("truncated").and_then(Value::as_bool).unwrap_or(false),
         },
         "calls": calls,
     })
+}
+
+fn explicit_hot_source_ids(symbols: &[Value], query: &str) -> Vec<String> {
+    let literals = crate::intelligence::code_query_literals(query)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    symbols
+        .iter()
+        .filter(|symbol| {
+            ["name", "qualified_name"].iter().any(|key| {
+                symbol[*key]
+                    .as_str()
+                    .is_some_and(|name| literals.contains(&name.to_ascii_lowercase()))
+            })
+        })
+        .filter_map(|symbol| symbol["id"].as_str())
+        .filter(|id| seen.insert((*id).to_owned()))
+        .take(4)
+        .map(str::to_owned)
+        .collect()
+}
+
+// Code is not prose: keep an original UTF-8 prefix, prefer whole lines, and
+// report only the lines actually included. Truncation is metadata, not an
+// invented ellipsis that could be pasted into a guarded edit.
+fn truncate_source_body(body: &mut Value, max_chars: usize) -> bool {
+    let Some(content) = body.get("content").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some((limit, _)) = content.char_indices().nth(max_chars) else {
+        return false;
+    };
+    let end = content[..limit]
+        .rfind('\n')
+        .map_or(limit, |position| position + 1);
+    let excerpt = content[..end].to_owned();
+    let lines = excerpt.lines().count() as u64;
+    let start = body.get("start_line").and_then(Value::as_u64).unwrap_or(1);
+    body["end_line"] = json!(start.saturating_add(lines).saturating_sub(1));
+    body["content"] = json!(excerpt);
+    body["truncated"] = json!(true);
+    true
 }
 
 fn trace_target_path(target: &str) -> Option<String> {
@@ -645,8 +766,20 @@ fn finalize_agent_context(
         value["context_reduction_percent"] = json!(reduction_percent);
 
         let current_tokens = serialized_json_bytes(value)?.div_ceil(4);
-        if current_tokens > budget {
-            trim_agent_context_from_tokens(value, budget, current_tokens)?;
+        // The query is needed for explicit-target/readiness routing during
+        // trimming, but is removed from the delivered pack below. Do not evict
+        // source to pay for this temporary echo. Round the allowance DOWN so
+        // removing it still proves the original serialized byte cap.
+        let query_allowance = value
+            .get("query")
+            .map(|query| {
+                serialized_json_bytes(query).map(|bytes| (bytes + "\"query\":".len() + 1) / 4)
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let packing_budget = budget.saturating_add(query_allowance);
+        if current_tokens > packing_budget {
+            trim_agent_context_from_tokens(value, packing_budget, current_tokens)?;
             update_agent_readiness(value);
             continue;
         }

@@ -1,31 +1,89 @@
 use super::*;
 
 fn literal_symbol_queries(query: &str) -> Vec<String> {
+    let code_literals = crate::intelligence::code_query_literals(query);
+    if !code_literals.is_empty() {
+        return code_literals.into_iter().take(4).collect();
+    }
     query
         .split(|ch: char| !ch.is_alphanumeric() && !matches!(ch, '_' | ':' | '.'))
         .map(|word| word.trim_matches([':', '.']))
-        .filter(|word| {
-            !word.is_empty()
-                && (word.contains('_')
-                    || word.contains("::")
-                    || word.contains('.')
-                    || *word == query.trim())
-        })
-        .take(4)
+        .filter(|word| !word.is_empty() && *word == query.trim())
+        .take(1)
         .map(str::to_ascii_lowercase)
         .collect()
+}
+
+fn is_context_symbol_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "find"
+            | "where"
+            | "which"
+            | "show"
+            | "please"
+            | "check"
+            | "inspect"
+            | "understand"
+            | "explain"
+            | "code"
+            | "function"
+            | "method"
+            | "class"
+            | "file"
+            | "module"
+            | "behavior"
+            | "logic"
+            | "implementation"
+            | "implement"
+            | "change"
+            | "modify"
+            | "update"
+            | "fix"
+            | "issue"
+            | "bug"
+            | "performance"
+            | "optimize"
+            | "fast"
+            | "faster"
+            | "call"
+            | "calls"
+            | "caller"
+            | "callee"
+            | "reference"
+            | "references"
+            | "usage"
+            | "impact"
+    )
 }
 
 fn context_symbol_rank(
     symbol: &serde_json::Value,
     literals: &[String],
     queries: &[String],
-) -> (u8, usize) {
+    prefer_test_symbols: bool,
+) -> (u8, usize, usize, usize) {
     let name = symbol["name"].as_str().unwrap_or("").to_ascii_lowercase();
     let qualified = symbol["qualified_name"]
         .as_str()
         .unwrap_or("")
         .to_ascii_lowercase();
+    let path = symbol["path"].as_str().unwrap_or("").to_ascii_lowercase();
+    let signature = symbol["signature"]
+        .as_str()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let query_hits = queries
+        .iter()
+        .filter(|term| {
+            name.contains(term.as_str())
+                || qualified.contains(term.as_str())
+                || signature.contains(term.as_str())
+                || path.contains(term.as_str())
+        })
+        .count();
+    let test_penalty = usize::from(!prefer_test_symbols && context_symbol_test_path(&path));
+    let coverage_rank = usize::MAX.saturating_sub(query_hits);
     for (class, terms, exact) in [
         (0, literals, true),
         (1, queries, true),
@@ -36,13 +94,42 @@ fn context_symbol_rank(
             if exact {
                 name == *term || qualified == *term
             } else {
-                name.contains(term.as_str()) || qualified.contains(term.as_str())
+                name.contains(term.as_str())
+                    || qualified.contains(term.as_str())
+                    || signature.contains(term.as_str())
+                    || path.contains(term.as_str())
             }
         }) {
-            return (class, index);
+            return (class, test_penalty, coverage_rank, index);
         }
     }
-    (4, usize::MAX)
+    (4, test_penalty, coverage_rank, usize::MAX)
+}
+
+fn context_symbol_test_path(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    path.starts_with("tests/")
+        || path.starts_with("test/")
+        || path.starts_with("__tests__/")
+        || path.contains("/tests/")
+        || path.contains("/__tests__/")
+}
+
+fn context_query_prefers_tests(tokens: &[String]) -> bool {
+    tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "test"
+                | "tests"
+                | "testing"
+                | "regression"
+                | "verify"
+                | "verification"
+                | "测试"
+                | "回归"
+                | "验证"
+        )
+    })
 }
 
 impl SoftwareIntelligenceRuntime {
@@ -190,14 +277,34 @@ impl SoftwareIntelligenceRuntime {
 
         let symbol_cap = item_cap.min(24);
         let mut symbols = seeded_symbols.unwrap_or_default().to_vec();
-        let mut symbol_ids = HashSet::new();
+        let mut symbol_ids = symbols
+            .iter()
+            .map(|symbol| {
+                symbol
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| symbol.to_string())
+            })
+            .collect::<HashSet<_>>();
+        let literals = literal_symbol_queries(query);
+        let literal_parts = literals
+            .iter()
+            .flat_map(|literal| literal.split(['_', ':', '.']))
+            .filter(|part| part.chars().count() >= 2)
+            .map(str::to_owned)
+            .collect::<HashSet<_>>();
         let mut symbol_queries = tokens
             .iter()
             .filter(|token| token.len() >= 3)
-            .take(4)
+            .filter(|token| !is_context_symbol_stopword(token))
+            .filter(|token| !literal_parts.contains(token.as_str()))
+            // The final symbol query budget is already capped at eight below.
+            // Keep enough natural-language terms for shorter module/path words
+            // such as `session` to survive longer symptom words.
+            .take(8)
             .cloned()
             .collect::<Vec<_>>();
-        let literals = literal_symbol_queries(query);
         symbol_queries.splice(0..0, literals.iter().cloned());
         let mut seen_queries = HashSet::new();
         symbol_queries.retain(|term| seen_queries.insert(term.clone()));
@@ -205,7 +312,48 @@ impl SoftwareIntelligenceRuntime {
         if symbol_queries.is_empty() {
             symbol_queries.push(query.to_owned());
         }
-        let source_roots = if seeded_symbols.is_some() {
+        let cached_exact_hit =
+            if seeded_symbols.is_none() && requested_scopes.is_empty() && !literals.is_empty() {
+                let candidates =
+                    code_index.cached_exact_symbols_many(workspace, &literals, None, symbol_cap)?;
+                // A warm first target must not hide another requested target. Only
+                // skip discovery when every literal has a revalidated exact hit;
+                // partial seeds still participate in the normal deduplicated merge.
+                let complete = literals.iter().all(|literal| {
+                    candidates.iter().any(|symbol| {
+                        ["name", "qualified_name"].iter().any(|field| {
+                            symbol
+                                .get(*field)
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|name| name.eq_ignore_ascii_case(literal))
+                        })
+                    })
+                });
+                for symbol in candidates {
+                    let key = symbol
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| symbol.to_string());
+                    if symbol_ids.insert(key) {
+                        symbols.push(symbol);
+                    }
+                }
+                // Exact-cache hits are sufficient only for a genuinely explicit
+                // identifier lookup. Natural-language qualifiers such as a module,
+                // path, lifecycle or domain term may have contributed additional
+                // cold candidates; skipping discovery in that case makes warm
+                // context strictly poorer than cold context.
+                complete
+                    && symbol_queries.iter().all(|query| {
+                        literals
+                            .iter()
+                            .any(|literal| literal.eq_ignore_ascii_case(query))
+                    })
+            } else {
+                false
+            };
+        let source_roots = if seeded_symbols.is_some() || cached_exact_hit {
             Vec::new()
         } else {
             scopes::source_roots_for(&requested_scopes)
@@ -259,9 +407,46 @@ impl SoftwareIntelligenceRuntime {
         }
         // Merge bounded candidates from every scope before truncating: an
         // earlier directory's helpers must not evict a later exact definition.
-        if seeded_symbols.is_none() {
-            symbols.sort_by_key(|symbol| context_symbol_rank(symbol, &literals, &symbol_queries));
+        // Re-rank warm exact-cache candidates too. Cache insertion order is an
+        // implementation detail and must not change Hot Source/body selection
+        // relative to a cold discovery of the same unchanged revision.
+        let prefer_test_symbols = context_query_prefers_tests(&tokens);
+        symbols.sort_by_key(|symbol| {
+            context_symbol_rank(symbol, &literals, &symbol_queries, prefer_test_symbols)
+        });
+        // Reserve one definition for each requested literal before duplicate
+        // matches consume the bounded candidate slots. Prefer an implementation
+        // over its same-named module declaration; module-only requests still
+        // reserve the module. Stable ordering retains the existing test intent.
+        let prefer_module = query.split_whitespace().any(|word| {
+            matches!(
+                word.to_ascii_lowercase().as_str(),
+                "module" | "modules" | "namespace" | "模块"
+            )
+        });
+        let mut representatives = HashSet::new();
+        for literal in &literals {
+            if let Some(symbol) = symbols
+                .iter()
+                .filter(|symbol| {
+                    ["name", "qualified_name"].iter().any(|field| {
+                        symbol[*field]
+                            .as_str()
+                            .is_some_and(|name| name.eq_ignore_ascii_case(literal))
+                    })
+                })
+                .min_by_key(|symbol| (symbol["kind"].as_str() == Some("module")) != prefer_module)
+            {
+                if let Some(id) = symbol["id"].as_str() {
+                    representatives.insert(id.to_owned());
+                }
+            }
         }
+        symbols.sort_by_key(|symbol| {
+            !symbol["id"]
+                .as_str()
+                .is_some_and(|id| representatives.contains(id))
+        });
         symbols.truncate(symbol_cap);
         // Provider overlays and Design traceability are independent after the
         // symbol candidates are fixed. Run them together so a cold graph-store

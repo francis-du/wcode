@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "wcode"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -2098,6 +2098,7 @@ dependencies = [
  "memchr",
  "ratatui",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

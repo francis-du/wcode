@@ -259,6 +259,8 @@ fn chinese_footer_setup_hitbox_uses_display_columns() {
             .draw(|frame| render_footer(frame, Rect::new(0, 30, 140, 2), &config, language))
             .unwrap();
         let row = &terminal.backend().buffer().content[140 * 31..140 * 32];
+        let row_text = row.iter().map(|cell| cell.symbol()).collect::<String>();
+        assert!(row_text.contains(" A ") && row_text.contains("Y/N"));
         let column = row.iter().position(|cell| cell.symbol() == "O").unwrap() as u16;
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -776,7 +778,7 @@ fn help_and_footer_render_project_and_author_links() {
     assert!(text.contains("@francis-du"));
     assert!(text.contains("SLOTS 2 / 8"));
     assert!(text.contains("PEAK 2"));
-    assert!(text.contains("VERIFY CODE 123456"));
+    assert!(text.contains("Pairing code 123456"));
     assert!(text.contains("INSTANCE"));
     assert!(text.contains("127.0.0.1:8765"));
     assert!(!text.contains("OVERVIEW"));
@@ -806,10 +808,7 @@ fn help_and_footer_render_project_and_author_links() {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>();
-    assert!(text.contains("Project:"));
-    assert!(text.contains("Author:"));
-    assert!(text.contains("Setup:"));
-    assert!(text.contains("Health:"));
+    assert!(text.contains("add workspace"));
     assert!(text.contains("127.0.0.1:8765/healthz"));
 }
 
@@ -843,7 +842,7 @@ fn authorization_overlay_shows_selectable_requests_and_actions() {
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
         .draw(|frame| {
-            render_authorization_overlay(frame, frame.area(), &requests, 1, 0, UiLanguage::En)
+            render_authorization_overlay(frame, frame.area(), &requests, 1, 0, None, UiLanguage::En)
         })
         .expect("authorization overlay renders");
     let text = terminal
@@ -883,6 +882,7 @@ fn command_overlay_shows_the_complete_catalog_and_two_authorization_layers() {
                     &workspaces,
                     "backend",
                     offset,
+                    None,
                     UiLanguage::En,
                 )
             })
@@ -994,7 +994,7 @@ fn connection_stages_and_setup_collapse_render() {
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(
-        text.contains("VERIFY CODE 123456"),
+        text.contains("123456") && !text.contains("VERIFY CODE"),
         "the pairing code must remain visible after OAuth and MCP connect"
     );
 }

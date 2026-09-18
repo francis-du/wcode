@@ -1,7 +1,97 @@
 use crate::graph::NodeId;
+use crate::workspace::{SearchMode, Workspace};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 pub type RiskId = String;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BugPatternFinding {
+    pub pattern: String,
+    pub summary: String,
+    pub confidence: &'static str,
+    pub path: String,
+    pub line: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BugPatternStatus {
+    pub precision: &'static str,
+    pub patterns_scanned: usize,
+    pub matches: usize,
+    pub files: usize,
+    pub findings: Vec<BugPatternFinding>,
+    pub truncated: bool,
+}
+
+const BUG_PATTERNS: &[(&str, &str, &str, &str)] = &[
+    (
+        "deref-call-result",
+        r"\*\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*\([^;\n]*\)\.[A-Za-z_][A-Za-z0-9_]*",
+        "A call result is dereferenced and a field/method is accessed in the same expression; verify the call cannot return nil/null before dereference.",
+        "medium",
+    ),
+    (
+        "json-decode-immediate-deref",
+        r"json_decode\s*\([^;\n]*\)\s*(?:->|\[)",
+        "json_decode is immediately dereferenced/indexed; verify decode failure/null is checked before access.",
+        "medium",
+    ),
+];
+
+pub(crate) fn scan_bug_patterns(workspace: &Workspace) -> Result<BugPatternStatus> {
+    const LIMIT: usize = 128;
+    let patterns = BUG_PATTERNS
+        .iter()
+        .map(|(_, pattern, _, _)| (*pattern).to_owned())
+        .collect::<Vec<_>>();
+    let matches =
+        workspace.search_many_with_options(&patterns, ".", LIMIT, SearchMode::Regex, 0)?;
+    let mut files = BTreeSet::new();
+    let mut findings = Vec::with_capacity(matches.len());
+    for item in &matches {
+        let Some(pattern) = item.get("query").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some((name, _, summary, confidence)) = BUG_PATTERNS
+            .iter()
+            .find(|(_, candidate, _, _)| *candidate == pattern)
+        else {
+            continue;
+        };
+        let path = item
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        files.insert(path.clone());
+        findings.push(BugPatternFinding {
+            pattern: (*name).to_owned(),
+            summary: (*summary).to_owned(),
+            confidence,
+            path,
+            line: item
+                .get("line")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_default(),
+            text: item
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        });
+    }
+    Ok(BugPatternStatus {
+        precision: "heuristic-regex-candidate",
+        patterns_scanned: BUG_PATTERNS.len(),
+        matches: findings.len(),
+        files: files.len(),
+        findings,
+        truncated: matches.len() >= LIMIT,
+    })
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]

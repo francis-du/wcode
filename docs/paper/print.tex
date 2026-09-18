@@ -1,0 +1,32 @@
+% Paper-only formatting, embedded by Pandoc into the standalone TeX output.
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{titling}
+\usepackage{needspace}
+\usepackage{xurl}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\sffamily wcode}
+\fancyhead[R]{\footnotesize\sffamily Evidence-Driven Engineering}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}\renewcommand{\headrulewidth}{0pt}}
+\setlength{\droptitle}{-1.2cm}
+\pretitle{\begin{center}\LARGE\bfseries}
+\posttitle{\par\end{center}\vskip 0.2em}
+\predate{\begin{center}\small\sffamily}
+\postdate{\par\end{center}\vskip 0.4em}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{13pt plus 2pt minus 1pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt plus 2pt minus 1pt}{4pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt plus 1pt minus 0.5pt}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.13}
+\setlength{\LTpre}{4pt}
+\setlength{\LTpost}{5pt}
+\widowpenalty=10000
+\clubpenalty=10000
+\emergencystretch=2em
+\raggedbottom

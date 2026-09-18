@@ -2,7 +2,6 @@ use crate::authorization::{
     AuthorizationKind, AuthorizationManager, AuthorizationRequest, AuthorizationRequired,
 };
 use anyhow::{anyhow, bail, Context, Result};
-use memchr::memmem;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,7 +10,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
@@ -347,7 +348,35 @@ struct RootIdentity {
     canonical: PathBuf,
 }
 
-pub(crate) type SourceMetadataStamp = (u64, u128);
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct SourceMetadataStamp {
+    len: u64,
+    modified_nanos: u128,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(unix)]
+    changed_nanos: i128,
+}
+
+impl SourceMetadataStamp {
+    pub(crate) fn len(self) -> u64 {
+        self.len
+    }
+
+    pub(crate) fn update_sha256(self, hasher: &mut Sha256) {
+        hasher.update(self.len.to_le_bytes());
+        hasher.update(self.modified_nanos.to_le_bytes());
+        #[cfg(unix)]
+        {
+            hasher.update(self.device.to_le_bytes());
+            hasher.update(self.inode.to_le_bytes());
+            hasher.update(self.changed_nanos.to_le_bytes());
+        }
+    }
+}
+
 pub(crate) type StampedSourcePath = (String, SourceMetadataStamp);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -360,6 +389,21 @@ pub(crate) struct SourceStamp {
     inode: u64,
     #[cfg(unix)]
     changed_nanos: i128,
+}
+
+impl SourceStamp {
+    fn metadata_stamp(&self) -> SourceMetadataStamp {
+        SourceMetadataStamp {
+            len: self.len,
+            modified_nanos: self.modified_nanos,
+            #[cfg(unix)]
+            device: self.device,
+            #[cfg(unix)]
+            inode: self.inode,
+            #[cfg(unix)]
+            changed_nanos: self.changed_nanos,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -477,6 +521,9 @@ mod media;
 mod registry;
 #[path = "roots.rs"]
 mod roots;
+#[path = "search.rs"]
+mod search;
+pub(crate) use search::{SearchMode, SearchReport, SearchRequest};
 
 impl Workspace {
     pub fn list_files(&self, path: &str, max_entries: usize) -> Result<Vec<String>> {
@@ -513,140 +560,6 @@ impl Workspace {
         }
         files.sort();
         Ok(files)
-    }
-
-    pub fn search(
-        &self,
-        query: &str,
-        path: &str,
-        max_results: usize,
-    ) -> Result<Vec<serde_json::Value>> {
-        if query.is_empty() {
-            bail!("query must not be empty");
-        }
-        self.search_queries(&[query.to_owned()], path, max_results.clamp(1, 500), false)
-    }
-
-    pub fn search_many(
-        &self,
-        queries: &[String],
-        path: &str,
-        max_results: usize,
-    ) -> Result<Vec<serde_json::Value>> {
-        if queries.is_empty() {
-            bail!("queries must not be empty");
-        }
-        if queries.len() > MAX_SEARCH_QUERIES {
-            bail!("queries must contain at most {MAX_SEARCH_QUERIES} strings");
-        }
-        if queries.iter().any(|query| query.is_empty()) {
-            bail!("queries must not contain empty strings");
-        }
-        self.search_queries(queries, path, max_results.clamp(1, 1000), true)
-    }
-
-    fn search_queries(
-        &self,
-        queries: &[String],
-        path: &str,
-        limit: usize,
-        include_query: bool,
-    ) -> Result<Vec<serde_json::Value>> {
-        let start = self.existing_path(path)?;
-        let finders = queries
-            .iter()
-            .map(|query| memmem::Finder::new(query.as_bytes()))
-            .collect::<Vec<_>>();
-        let found = AtomicUsize::new(0);
-        let root = &self.root;
-        let mut results = WalkDir::new(start)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(visible_entry)
-            .filter_map(|entry| entry.ok())
-            .par_bridge()
-            .filter_map(|entry| {
-                if found.load(Ordering::Relaxed) >= limit || !entry.file_type().is_file() {
-                    return None;
-                }
-                let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-                let file = entry.path();
-                let reader = fs::File::open(file).ok()?;
-                let metadata = reader.metadata().ok()?;
-                if metadata.len() > MAX_READ_BYTES {
-                    return None;
-                }
-                let capacity = usize::try_from(metadata.len().min(MAX_READ_BYTES)).ok()?;
-                let mut bytes = Vec::with_capacity(capacity);
-                let mut limited = reader.take(MAX_READ_BYTES.saturating_add(1));
-                limited.read_to_end(&mut bytes).ok()?;
-                if bytes.len() as u64 > MAX_READ_BYTES {
-                    return None;
-                }
-                let matching_queries =
-                    finders
-                        .iter()
-                        .enumerate()
-                        .fold(0u32, |mask, (index, finder)| {
-                            if finder.find(&bytes).is_some() {
-                                mask | (1u32 << index)
-                            } else {
-                                mask
-                            }
-                        });
-                if matching_queries == 0 {
-                    return None;
-                }
-                let content = std::str::from_utf8(&bytes).ok()?;
-                let relative = portable_relative_path(file.strip_prefix(root).ok()?);
-                let mut local = Vec::new();
-                'lines: for (index, line) in content.lines().enumerate() {
-                    let mut mask = matching_queries;
-                    while mask != 0 {
-                        let query_index = mask.trailing_zeros() as usize;
-                        mask &= mask - 1;
-                        let query = &queries[query_index];
-                        if finders[query_index].find(line.as_bytes()).is_none() {
-                            continue;
-                        }
-                        let slot = found.fetch_add(1, Ordering::Relaxed);
-                        if slot >= limit {
-                            break 'lines;
-                        }
-                        let (safe_line, redacted) = redact_sensitive_line(line);
-                        if include_query {
-                            local.push(serde_json::json!({
-                                "query": query,
-                                "path": relative,
-                                "line": index + 1,
-                                "text": safe_line,
-                                "redacted": redacted,
-                            }));
-                        } else {
-                            local.push(serde_json::json!({
-                                "path": relative,
-                                "line": index + 1,
-                                "text": safe_line,
-                                "redacted": redacted,
-                            }));
-                        }
-                    }
-                }
-                (!local.is_empty()).then_some(local)
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-
-        results.sort_unstable_by(|left, right| {
-            let left_path = left["path"].as_str().unwrap_or_default();
-            let right_path = right["path"].as_str().unwrap_or_default();
-            left_path
-                .cmp(right_path)
-                .then_with(|| left["line"].as_u64().cmp(&right["line"].as_u64()))
-                .then_with(|| left["query"].as_str().cmp(&right["query"].as_str()))
-        });
-        results.truncate(limit);
-        Ok(results)
     }
 
     pub fn read_files(
@@ -704,21 +617,26 @@ impl Workspace {
             requested_end.min(start.saturating_add(MAX_MODEL_READ_LINES.saturating_sub(1)));
         let mut total = 0usize;
         let mut selected = String::new();
-        let mut selected_lines = 0usize;
-        for (index, line) in content.lines().enumerate() {
+        for (index, line) in content.split_inclusive('\n').enumerate() {
             let line_number = index + 1;
             total = line_number;
             if line_number < start || line_number > bounded_end {
                 continue;
             }
-            if selected_lines > 0 {
-                selected.push('\n');
-            }
             selected.push_str(line);
-            selected_lines = selected_lines.saturating_add(1);
+        }
+        // Keep the legacy final-line terminator convention, but never
+        // normalize separators inside the selected original-byte window.
+        if selected.ends_with("\r\n") {
+            selected.truncate(selected.len() - 2);
+        } else if selected.ends_with('\n') {
+            selected.pop();
         }
         let end = bounded_end.min(total).max(start.saturating_sub(1));
-        let (selected, redacted) = redact_sensitive_text(&selected);
+        let (safe, redacted) = redact_sensitive_text(&selected);
+        // The redactor normalizes lines. Its sanitized output is mandatory
+        // whenever it changed sensitive text; unchanged source keeps its bytes.
+        let selected = if redacted { safe } else { selected };
         Ok(FileView {
             path: portable_relative_path(file.strip_prefix(&self.root)?),
             sha256: hash,

@@ -3,6 +3,81 @@ use super::*;
 use std::fs;
 
 #[tokio::test]
+async fn competitive_search_and_edit_flow_uses_sha_without_extra_read() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.go"),
+        "package demo\n// alpha beta\n// alpha\n",
+    )
+    .unwrap();
+    let workspaces = Workspaces::new([dir.path()], true, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+    let found = call_tool(
+        &state,
+        json!({"name":"search_code","arguments":{
+            "query":["alpha","beta"],"context_lines":1
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(found["isError"], false);
+    let data = &found["structuredContent"];
+    assert_eq!(data["count"], 2);
+    assert_eq!(data["traversals"], 1);
+    assert_eq!(data["coverage_complete"], true);
+    assert_eq!(data["matches"][0]["queries"], json!(["alpha", "beta"]));
+    let row = &data["matches"][0];
+    let edited = call_tool(
+        &state,
+        json!({"name":"apply_edits","arguments":{
+            "path":"main.go","expected_sha256":row["sha256"],
+            "edits":[{"old_text":"// alpha beta","new_text":"// fixed","start_line":2,"end_line":2}]
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(edited["isError"], false);
+    let stale = call_tool(&state, json!({"name":"replace_text","arguments":{
+        "path":"main.go","expected_sha256":row["sha256"],"old_text":"// fixed","new_text":"// stale"
+    }})).await.unwrap();
+    assert_eq!(stale["isError"], true);
+    let grouped = call_tool(
+        &state,
+        json!({"name":"scan_patterns","arguments":{
+            "patterns":["fixed","alpha"],"context_lines":1
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(grouped["isError"], false);
+    assert_eq!(
+        grouped["structuredContent"]["files"][0]["context_lines"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    for argument in [
+        json!({"mode":false}),
+        json!({"offset":-1}),
+        json!({"context_lines":"3"}),
+        json!({"output_mode":"invalid"}),
+    ] {
+        let mut args = argument;
+        args["query"] = json!("alpha");
+        let invalid = call_tool(&state, json!({"name":"search_code","arguments":args})).await;
+        assert!(invalid.is_err() || invalid.as_ref().is_ok_and(|v| v["isError"] == true));
+    }
+}
+
+#[tokio::test]
 async fn prompt_and_resource_catalog_flow_through_modern_mcp() {
     let dir = tempfile::tempdir().unwrap();
     let workspaces = Workspaces::new([dir.path()], false, false).unwrap();
@@ -484,6 +559,26 @@ async fn syntax_index_tools_flow_through_mcp() {
         .iter()
         .any(|symbol| symbol["qualified_name"] == "Service::run"));
 
+    let syntax = call_tool(
+        &state,
+        json!({
+            "name": "search_syntax",
+            "arguments": {"node_kinds": ["call_expression"], "text_regex": "helper"}
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(syntax["isError"], false);
+    assert_eq!(syntax["structuredContent"]["precision"], "syntax");
+    assert!(syntax["structuredContent"]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["node_kind"] == "call_expression"
+            && item["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("helper"))));
+
     let search = call_tool(
         &state,
         json!({
@@ -515,6 +610,16 @@ async fn syntax_index_tools_flow_through_mcp() {
         .unwrap()
         .iter()
         .any(|call| call["name"] == "helper"));
+    assert!(context["structuredContent"]["same_file_related_context"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item["relation"] == "callee"
+                && item["body"]["content"]
+                    .as_str()
+                    .is_some_and(|body| body.contains("fn helper"))
+        }));
 
     let navigation = call_tool(
         &state,
@@ -529,8 +634,13 @@ async fn syntax_index_tools_flow_through_mcp() {
     assert_eq!(navigation["structuredContent"]["precision"], "syntax");
     assert_eq!(
         navigation["structuredContent"]["routing"],
-        "tree_sitter_fallback"
+        "degraded_syntax_and_keyword_search"
     );
+    assert_eq!(navigation["structuredContent"]["degraded"], true);
+    assert!(navigation["structuredContent"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("degraded explicitly"));
     assert!(
         navigation["structuredContent"]["syntax_context"]["body"]["content"]
             .as_str()
@@ -783,6 +893,8 @@ fn tool_list_exposes_bulk_index_and_positive_harness_tools() {
         "move_paths",
         "delete_path",
         "search_many",
+        "scan_patterns",
+        "search_syntax",
         "file_outline",
         "find_symbol",
         "symbol_context",

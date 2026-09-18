@@ -33,7 +33,13 @@ const RUST: &[SemanticLanguage] = &[SemanticLanguage::Rust];
 const SWIFT: &[SemanticLanguage] = &[SemanticLanguage::Swift];
 
 pub(super) fn automatic_provider(provider: ProviderCandidate) -> bool {
-    provider.id == "rust-analyzer"
+    // This allowlist is intentionally narrower than the provider registry. These
+    // servers are launched directly (never through a shell), from binaries that
+    // resolve outside the Workspace, with sensitive environment variables scrubbed.
+    // The automatic semantic surface is read-only: definition/hover/references/
+    // call hierarchy/document symbols only. Future rename/format/write LSP methods
+    // must use a separate authorization path and must not inherit this trust.
+    matches!(provider.id, "rust-analyzer" | "gopls")
 }
 
 pub(super) const PROVIDERS: &[ProviderCandidate] = &[

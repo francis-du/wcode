@@ -61,10 +61,14 @@ permalink: /zh/docs/
 
 ## 参考、运维与开发
 
+- [工程适应度评估](engineering-fitness/) — 不依赖模型的检索、上下文、编辑就绪与安全评估，区分正确性门禁与描述性性能测量。
+- [技术论文](paper/) — 英文正文、中文原稿、指标定义、诊断结果与复现边界。
+
 - [CLI 与 MCP 参考手册](reference/) — 命令、操作入口、传输方式与工具族的统一参考。
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.7.6 发布说明](releases/v0.7.6/) — 不依赖模型的 Engineering Fitness、1K 编辑就绪上下文、多目标检索与对抗式发布验证。
 - [v0.7.5 发布说明](releases/v0.7.5/) — 并发验证入口、入口信任代次校验、TUI 快捷键消歧与观测台响应式布局修复。
 - [v0.7.4 发布说明](releases/v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Content，以及按当前产品重做的文档/UI。
 - [v0.7.3 发布说明](releases/v0.7.3/) — 有界开发命令默认自治、更完整的 Deno/Flutter 质量覆盖、更可靠的仓库智能 Cache，以及 WebUI/Verification 稳定性修复。

@@ -1,7 +1,7 @@
 use crate::design::{DesignDiagnostic, Priority};
 use crate::evidence::Evidence;
 use crate::graph::{EdgeKind, GraphPrecision, NodeKind};
-use crate::risk::{Risk, RiskLevel, VerificationProfile};
+use crate::risk::{BugPatternStatus, Risk, RiskLevel, VerificationProfile};
 use crate::semantic::{SemanticFact, SemanticMatch};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -146,6 +146,7 @@ pub struct RiskStatus {
     pub level: RiskLevel,
     pub profile: VerificationProfile,
     pub risks: Vec<Risk>,
+    pub bug_patterns: BugPatternStatus,
     pub drift: DriftStatus,
     pub traceability: TraceabilityStatus,
 }

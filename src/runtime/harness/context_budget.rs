@@ -26,6 +26,13 @@ pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
 
 fn shrink_hot_source_body(value: &mut Value, budget: usize, current_tokens: usize) -> bool {
     let excess_bytes = current_tokens.saturating_sub(budget).saturating_mul(4);
+    if let Some(source) = value["hot_source"]
+        .as_array()
+        .and_then(|items| items.first())
+        .cloned()
+    {
+        restore_target_range(value, &source);
+    }
     let Some(body) = value
         .get_mut("hot_source")
         .and_then(Value::as_array_mut)
@@ -51,9 +58,7 @@ fn shrink_hot_source_body(value: &mut Value, budget: usize, current_tokens: usiz
     if target >= chars {
         return false;
     }
-    body["content"] = json!(short_text(&content, target));
-    body["truncated"] = json!(true);
-    true
+    truncate_source_body(body, target)
 }
 
 fn pop_array(value: &mut Value, key: &str, minimum: usize) -> bool {
@@ -149,6 +154,8 @@ fn compact_readiness_explanation(value: &mut Value) -> bool {
             "instruction",
             "serialize_only",
             "parallel_tools",
+            "fallback_tool",
+            "lane_targets",
         ] {
             changed |= parallelism.remove(key).is_some();
         }
@@ -278,7 +285,12 @@ fn compact_provenance_explanation(value: &mut Value) -> bool {
         return false;
     };
     let mut changed = false;
-    for entry in defaults.values_mut() {
+    for (name, entry) in defaults.iter_mut() {
+        // Target records can inherit this provider after source-backed
+        // compaction. Do not delete the sole remaining provenance value.
+        if name == "targets" {
+            continue;
+        }
         if let Some(object) = entry.as_object_mut() {
             changed |= object.remove("provider").is_some();
         }
@@ -318,6 +330,313 @@ fn compact_source_policy_metadata(value: &mut Value) -> bool {
     changed
 }
 
+fn compact_semantic_hint_explanations(value: &mut Value) -> bool {
+    let mut changed = false;
+    for hint in value
+        .get_mut("semantic_provider_hints")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(object) = hint.as_object_mut() {
+            // Keep language/provider/action/discovery and executable identity.
+            // Repeated explanatory prose must yield before edit-critical data.
+            changed |= object.remove("reason").is_some();
+        }
+    }
+    changed
+}
+
+fn compact_hot_source_metadata(value: &mut Value) -> bool {
+    let mut changed = false;
+    for source in value
+        .get_mut("hot_source")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(object) = source.as_object_mut() {
+            // Signature/call summaries duplicate source or graph evidence.
+            // Keep every body's identity, provenance, selection and SHA intact.
+            changed |= object.remove("signature").is_some();
+            changed |= object.remove("calls").is_some();
+        }
+    }
+    changed
+}
+
+pub(super) fn compact_duplicate_symbol_metadata(value: &mut Value) -> bool {
+    let complete = value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|source| {
+            source["body"]["truncated"] == false
+                && source["body"]["redacted"] == false
+                && source["body"]["content"]
+                    .as_str()
+                    .is_some_and(|text| !text.is_empty())
+        })
+        .filter(|source| {
+            value["files"].as_array().into_iter().flatten().any(|file| {
+                source["sha256"].as_str().is_some()
+                    && file["path"] == source["path"]
+                    && file["sha256"] == source["sha256"]
+            })
+        })
+        .filter_map(|source| {
+            Some((
+                source["path"].as_str()?.to_owned(),
+                source["id"].as_str()?.to_owned(),
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    let mut changed = false;
+    for pointer in ["/targets", "/repo_map/items"] {
+        for item in value
+            .pointer_mut(pointer)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            let covered =
+                item["path"]
+                    .as_str()
+                    .zip(item["id"].as_str())
+                    .is_some_and(|(path, id)| {
+                        complete.contains(&(
+                            path.to_owned(),
+                            id.strip_prefix("symbol:").unwrap_or(id).to_owned(),
+                        ))
+                    });
+            if let Some(object) = item.as_object_mut() {
+                if covered {
+                    changed |= object.remove("signature").is_some();
+                }
+                // Scores explain ordering; they are not relationship evidence.
+                changed |= object.remove("score").is_some();
+                changed |= object.remove("degree").is_some();
+            }
+        }
+    }
+    for file in value
+        .get_mut("files")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(object) = file.as_object_mut() {
+            changed |= object.remove("size").is_some();
+            changed |= object.remove("reasons").is_some();
+        }
+    }
+    changed
+}
+
+pub(super) fn compact_source_backed_targets(value: &mut Value) -> bool {
+    let defaults = value["provenance_defaults"]["targets"].clone();
+    let backed = value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|source| {
+            source["body"]["truncated"] == false && source["body"]["redacted"] == false
+        })
+        .filter(|source| {
+            source["body"]["content"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty())
+        })
+        .filter(|source| {
+            value["files"].as_array().into_iter().flatten().any(|file| {
+                source["sha256"].as_str().is_some_and(|sha| {
+                    sha.len() == 64 && sha.as_bytes().iter().all(u8::is_ascii_hexdigit)
+                }) && file["path"] == source["path"]
+                    && file["sha256"] == source["sha256"]
+            })
+        })
+        .filter_map(|source| {
+            Some((
+                (
+                    source["path"].as_str()?.to_owned(),
+                    source["id"].as_str()?.to_owned(),
+                ),
+                (
+                    source["body"]["start_line"].as_u64()?,
+                    source["body"]["end_line"].as_u64()?,
+                ),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut changed = false;
+    for target in value
+        .get_mut("targets")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let range = target["path"]
+            .as_str()
+            .zip(target["id"].as_str())
+            .and_then(|(path, id)| backed.get(&(path.to_owned(), id.to_owned())))
+            .copied();
+        let Some((start, end)) = range else { continue };
+        if start == 0
+            || end < start
+            || target["start_line"].as_u64() != Some(start)
+            || target["end_line"].as_u64() != Some(end)
+        {
+            continue;
+        }
+        let Some(object) = target.as_object_mut() else {
+            continue;
+        };
+        // Full source retains the exact range and file identity. Under pressure,
+        // reconstructible summaries yield before another requested source body.
+        for key in ["kind", "language", "start_line", "end_line"] {
+            changed |= object.remove(key).is_some();
+        }
+        for key in ["provider", "precision"] {
+            if defaults[key].as_str().is_some() && object.get(key) == Some(&defaults[key]) {
+                changed |= object.remove(key).is_some();
+            }
+        }
+    }
+    changed
+}
+
+fn compact_empty_explanations(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    for key in [
+        "guidance",
+        "workflow",
+        "risks",
+        "design",
+        "semantic_provider_hints",
+        "worklist",
+    ] {
+        if object
+            .get(key)
+            .is_some_and(|entry| entry.is_null() || entry.as_array().is_some_and(Vec::is_empty))
+        {
+            changed |= object.remove(key).is_some();
+        }
+    }
+    changed
+}
+
+fn pop_unreferenced_file(value: &mut Value) -> bool {
+    let source_paths = value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|source| source["path"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    let Some(files) = value.get_mut("files").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    if files.len() <= 1 {
+        return false;
+    }
+    let Some(index) = files.iter().rposition(|file| {
+        !file["path"]
+            .as_str()
+            .is_some_and(|path| source_paths.contains(path))
+    }) else {
+        return false;
+    };
+    files.remove(index);
+    true
+}
+
+fn compact_selection_explanation(value: &mut Value) -> bool {
+    let mut changed = false;
+    for source in value
+        .get_mut("hot_source")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(object) = source.as_object_mut() {
+            // Order remains authoritative; this label is only an explanation.
+            changed |= object.remove("selection").is_some();
+        }
+    }
+    if value["relations"].as_object().is_some_and(|object| {
+        object.len() == 2
+            && ["nodes", "edges"].iter().all(|key| {
+                object
+                    .get(*key)
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+            })
+    }) {
+        changed |= drop_key(value, "relations");
+    }
+    if let Some(items) = value
+        .pointer_mut("/repo_map/items")
+        .and_then(Value::as_array_mut)
+    {
+        for item in items {
+            if let Some(object) = item.as_object_mut() {
+                changed |= object.remove("reason").is_some();
+            }
+        }
+    }
+    changed
+}
+
+fn restore_target_range(value: &mut Value, source: &Value) {
+    if source["body"]["truncated"] != false
+        || source["body"]["redacted"] != false
+        || !value["files"].as_array().into_iter().flatten().any(|file| {
+            source["sha256"].as_str().is_some_and(|sha| !sha.is_empty())
+                && file["path"] == source["path"]
+                && file["sha256"] == source["sha256"]
+        })
+    {
+        return;
+    }
+    for target in value
+        .get_mut("targets")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if source["id"].as_str().is_some()
+            && target["id"] == source["id"]
+            && target["path"] == source["path"]
+        {
+            if let Some(object) = target.as_object_mut() {
+                for key in ["start_line", "end_line"] {
+                    if source["body"][key].as_u64().is_some() {
+                        object
+                            .entry(key)
+                            .or_insert_with(|| source["body"][key].clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn pop_secondary_source(value: &mut Value) -> bool {
+    let Some(items) = value.get_mut("hot_source").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    if items.len() <= 1 {
+        return false;
+    }
+    let source = items.pop().expect("secondary source exists");
+    // Metadata was compacted only while a matching full body existed. If that
+    // body must yield, keep its original coordinates for a follow-up read.
+    restore_target_range(value, &source);
+    true
+}
+
 fn compact_primary_hot_source(value: &mut Value) -> bool {
     let Some(source) = value
         .get_mut("hot_source")
@@ -327,27 +646,27 @@ fn compact_primary_hot_source(value: &mut Value) -> bool {
     else {
         return false;
     };
-    let already_compact = source.len() <= 3
-        && source.contains_key("qualified_name")
-        && source.contains_key("sha256")
-        && source.contains_key("body");
-    if already_compact {
-        return false;
-    }
-    let qualified_name = source.get("qualified_name").cloned().unwrap_or(Value::Null);
-    let sha256 = source.get("sha256").cloned().unwrap_or(Value::Null);
-    let body = source.get("body").cloned().unwrap_or(Value::Null);
-    let compact_body = json!({
-        "start_line": body.get("start_line").cloned().unwrap_or(Value::Null),
-        "content": body.get("content").cloned().unwrap_or_else(|| json!("")),
-        "truncated": body.get("truncated").cloned().unwrap_or(Value::Bool(false)),
+    // Identity, provenance, line bounds and redaction are edit-safety data,
+    // not optional explanation. Never lose them while shrinking a payload.
+    let previous_len = source.len();
+    source.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "id" | "path" | "qualified_name" | "sha256" | "body" | "provider" | "precision"
+        )
     });
-    *source = serde_json::Map::from_iter([
-        ("qualified_name".to_owned(), qualified_name),
-        ("sha256".to_owned(), sha256),
-        ("body".to_owned(), compact_body),
-    ]);
-    true
+    let mut changed = source.len() != previous_len;
+    if let Some(body) = source.get_mut("body").and_then(Value::as_object_mut) {
+        let previous_len = body.len();
+        body.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "start_line" | "end_line" | "content" | "redacted" | "truncated"
+            )
+        });
+        changed |= body.len() != previous_len;
+    }
+    changed
 }
 
 #[cfg(test)]
@@ -362,6 +681,23 @@ pub(super) fn trim_agent_context_from_tokens(
     mut current_tokens: usize,
 ) -> Result<()> {
     let mut truncated = value["truncated"].as_bool().unwrap_or(false);
+    let explicit_target_min = value
+        .get("query")
+        .and_then(Value::as_str)
+        .map(crate::intelligence::code_query_literals)
+        .map(|literals| {
+            let literals = literals.into_iter().take(4).collect::<HashSet<_>>();
+            value
+                .get("targets")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|target| target.get("qualified_name").and_then(Value::as_str))
+                .filter(|name| literals.contains(&name.to_ascii_lowercase()))
+                .count()
+        })
+        .unwrap_or(0)
+        .max(1);
     while current_tokens > budget {
         let changed = pop_array(value, "risks", 0)
             || pop_nested_array(value, "relations", "edges", 0)
@@ -376,8 +712,12 @@ pub(super) fn trim_agent_context_from_tokens(
             || compact_source_policy_metadata(value)
             || compact_readiness_explanation(value)
             || compact_project_explanation(value)
+            || compact_source_backed_targets(value)
             || compact_provenance_explanation(value)
             || compact_timing_explanation(value)
+            || compact_semantic_hint_explanations(value)
+            || compact_hot_source_metadata(value)
+            || compact_duplicate_symbol_metadata(value)
             // Under extreme budgets preserve the ranked item itself, but remove
             // cache/build/experience/routing metadata that can be reconstructed
             // by a broader follow-up query. Exact diagnostic source and SHA win.
@@ -398,18 +738,22 @@ pub(super) fn trim_agent_context_from_tokens(
             || pop_nested_array(value, "worklist", "items", 0)
             || pop_nested_array(value, "worklist", "runnable", 0)
             || compact_worklist_summary(value)
+            || compact_empty_explanations(value)
             || pop_nested_array(value, "repo_map", "items", 1)
             || pop_array(value, "design", 1)
             || pop_array(value, "checks", 1)
             || pop_array(value, "semantic_provider_hints", 1)
             || pop_array(value, "tests", 1)
             || pop_nested_array(value, "retrieval", "anchors", 1)
-            || pop_array(value, "targets", 1)
-            || pop_array(value, "files", 1)
+            || pop_array(value, "targets", explicit_target_min)
+            // A retained body and its file SHA/readonly precondition are one
+            // edit unit. Drop unrelated file metadata first, never orphan a body.
+            || pop_unreferenced_file(value)
             // Hot Source is relevance-ranked. Drop secondary bodies before
             // shrinking the strongest direct body so tight budgets preserve
             // the most useful edit context for as long as possible.
-            || pop_array(value, "hot_source", 1)
+            || compact_selection_explanation(value)
+            || pop_secondary_source(value)
             || compact_primary_hot_source(value)
             || shrink_hot_source_body(value, budget, current_tokens);
         if !changed {

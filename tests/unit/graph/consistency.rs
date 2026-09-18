@@ -2,6 +2,43 @@ use super::*;
 use std::sync::Barrier;
 
 #[test]
+fn syntax_search_limit_and_failures_are_explicit() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("a.go"),
+        "package demo\nfunc first() {}\nfunc second() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let mut query = SyntaxSearchRequest {
+        path: "a.go".into(),
+        node_kinds: vec!["function_declaration".into()],
+        text_regex: None,
+        max_files: 100,
+        max_results: 1,
+    };
+    let partial = index.search_ast_nodes("test", &workspace, &query).unwrap();
+    assert_eq!(partial["count"], 1);
+    assert_eq!(partial["truncated"], true);
+    assert_eq!(partial["results_truncated"], true);
+    assert_eq!(partial["coverage_complete"], false);
+    assert_eq!(
+        partial["matches"][0]["sha256"],
+        workspace.read_file("a.go", 1, None).unwrap().sha256
+    );
+    query.max_results = 100;
+    let complete = index.search_ast_nodes("test", &workspace, &query).unwrap();
+    assert_eq!(complete["count"], 2);
+    assert_eq!(complete["coverage_complete"], true);
+    fs::write(root.path().join("bad.go"), [0xff, 0xfe]).unwrap();
+    query.path = ".".into();
+    let failed = index.search_ast_nodes("test", &workspace, &query).unwrap();
+    assert_eq!(failed["files_failed"], 1);
+    assert_eq!(failed["coverage_complete"], false);
+}
+
+#[test]
 fn concurrent_cold_queries_share_one_parse_across_entrypoints() {
     let root = tempfile::tempdir().unwrap();
     let source = (0..4_000)

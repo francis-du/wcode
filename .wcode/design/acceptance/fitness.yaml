@@ -1,0 +1,44 @@
+schema_version: 1
+id: AC-FITNESS-001
+title: Fitness measurements cannot promote missing or stale evidence into success
+statement: >-
+  A frozen 60-case development corpus covers four language variants, exact/single-target/natural-language retrieval, caller and call-chain context, path and impact queries, path disambiguation, four direct targets, Unicode/CRLF, missing anchors, read-only state, ten distinct removed/changed ownership-guard evidence cases and 640 distractors. Delivery identities are deduplicated by path and qualified symbol. Required source is credited only when original bytes, line ranges, current SHA and redaction status match the authored Gold fragment. Empty precision-like denominators are undefined, not perfect. Scorer controls reject wrong paths, stale or missing SHAs, redaction, invented source and incomplete delivery. Real controls exercise four syntax call graphs plus stale edits, cache invalidation, read-only access, same-SHA concurrent writes, workspace boundaries and explicit graph truncation. The 1000/2000/4000-budget cold/warm matrix records every attempt including rejected requests; successful outputs must stay within the independently requested experiment budget and report that exact limit. Contract v3 includes failed answerable queries in NDCG denominators and renders undefined percentages as N/A. Separate counterexamples preserve nine real callers, reject disconnected high-degree filler, retain unanchored exploration, test graph membership under reordered inputs, and check per-Gold cold/warm body preservation without changing the frozen corpus. Opt-in trials retain seven samples per cell, separately record warmups, and create versioned JSON/Markdown reports. Failures reduce recall instead of disappearing from denominators. Timing is descriptive and cannot block CI; model success, live LSP, network latency and unobserved resource costs remain unmeasured.
+  Additive delivery diagnostics distinguish final missing identities, absent complete bodies, current SHA and write conditions without claiming internal retrieval failure. Language/category/target-count partitions reuse failure-inclusive aggregation. Full verified Gold bytes use per-file interval unions, original UTF-8 and current SHA; duplicate/nested spans cannot inflate density. Source-only byte lower bounds can prove overflow but never prove feasibility. Independent 1K counterexamples preserve short multi-file bodies and SHA, explicit modules, source/test name distinctions and escaped-query caps while marking long source truncated.
+  Delivery v2 partitions required identities into complete, absent, verified partial-original and unusable body states; failed queries remain separately unobserved. Partial source requires current SHA, original bytes, correct bounds, overlap and explicit non-redaction, and cannot earn complete-body credit. Independent module-name collisions and four-language three-stage chains test multi-target delivery outside the frozen corpus.
+verification:
+  - {kind: test, path: tests/unit/runtime/harness/fitness/checks.rs, symbol: engineering_fitness_validates_frozen_gold_corpus}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/checks.rs, symbol: engineering_fitness_rejects_wrong_path_same_symbol}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/checks.rs, symbol: engineering_fitness_requires_each_current_sha_and_complete_source}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/checks.rs, symbol: engineering_fitness_live_controls_preserve_safety_and_precision}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/report.rs, symbol: engineering_fitness_failures_stay_in_quality_denominators}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/report.rs, symbol: engineering_fitness_matrix_records_every_case_budget_and_phase}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/challenges.rs, symbol: engineering_fitness_challenge_warm_preserves_delivered_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/challenges.rs, symbol: engineering_fitness_challenge_no_disconnected_filler}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/challenges.rs, symbol: engineering_fitness_challenge_nine_real_callers_are_not_six}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/graph_checks.rs, symbol: engineering_fitness_challenge_graph_membership_is_order_independent}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/graph_checks.rs, symbol: engineering_fitness_challenge_unanchored_exploration_stays_available}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/report_checks.rs, symbol: engineering_fitness_challenge_budget_cannot_be_raised}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/report_checks.rs, symbol: engineering_fitness_challenge_failed_ranking_stays_in_denominator}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/report_checks.rs, symbol: engineering_fitness_challenge_unknown_is_not_zero}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_2k_includes_cross_file_caller_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_readonly_keeps_evidence_not_write_permission}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_2k_warm_preserves_each_gold_body}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_related_expansion_keeps_ranked_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_tight_source_keeps_matching_file_sha}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_deduplicates_bytes_and_penalizes_repeated_payload}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_uses_original_unicode_crlf_bytes_and_union}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_rejects_stale_redacted_or_invented_body_credit}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_separates_missing_identity_body_sha_and_permissions}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_raw_bound_is_not_a_feasibility_claim}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_three_short_bodies_keep_source_and_sha}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_one_k_caller_pair_is_edit_ready}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_explicit_module_is_not_filtered_out}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_escaped_query_never_buys_extra_delivered_bytes}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_same_named_source_and_test_remain_distinct}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_long_primary_stays_honestly_truncated}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/multitarget.rs, symbol: engineering_fitness_multitarget_three_stage_chain_keeps_every_requested_body}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/multitarget.rs, symbol: engineering_fitness_multitarget_four_files_keep_each_body_and_sha}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/multitarget.rs, symbol: engineering_fitness_multitarget_explicit_module_wins_its_name_collision}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_body_states_partition_required_targets}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/delivery_checks.rs, symbol: engineering_fitness_delivery_duplicate_partial_does_not_hide_full_body}
+  - {kind: check, id: rust-test}

@@ -363,11 +363,16 @@ fn provider_revision_changes_only_when_index_inputs_change() {
 }
 
 #[test]
-fn automatic_semantics_only_trust_the_hardened_rust_provider() {
+fn automatic_semantics_trust_only_hardened_read_only_providers() {
     let rust = PROVIDERS
         .iter()
         .copied()
         .find(|provider| provider.id == "rust-analyzer")
+        .unwrap();
+    let gopls = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "gopls")
         .unwrap();
     let clangd = PROVIDERS
         .iter()
@@ -375,6 +380,7 @@ fn automatic_semantics_only_trust_the_hardened_rust_provider() {
         .find(|provider| provider.id == "clangd")
         .unwrap();
     assert!(automatic_provider(rust));
+    assert!(automatic_provider(gopls));
     assert!(!automatic_provider(clangd));
     let options = client::initialization_options("rust-analyzer");
     assert_eq!(
@@ -403,7 +409,7 @@ fn gopls_discovery_includes_standard_go_install_locations() {
 }
 
 #[test]
-fn external_gopls_needs_provider_identity_approval_not_home_workspace_access() {
+fn external_gopls_read_only_session_does_not_request_risky_execution() {
     let workspace_dir = tempfile::tempdir().unwrap();
     let tools_dir = tempfile::tempdir().unwrap();
     let gopls = tools_dir.path().join(executable_name("gopls"));
@@ -418,17 +424,8 @@ fn external_gopls_needs_provider_identity_approval_not_home_workspace_access() {
         .find(|provider| provider.id == "gopls")
         .unwrap();
 
-    let error = authorize_provider_session(&workspace, provider, &gopls).unwrap_err();
-    assert!(error.to_string().contains("authorization required"));
-    let request = workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::RiskyExecution);
-    assert!(request.summary.contains("gopls"));
-    assert!(!workspaces.full_access_enabled());
-
-    assert!(workspaces.approve_authorization_session(&request.id));
     authorize_provider_session(&workspace, provider, &gopls).unwrap();
-    let operation = provider_session_operation(&workspace, provider, &gopls).unwrap();
-    assert!(workspace.risky_operation_authorized(&operation));
+    assert!(workspaces.latest_pending_authorization().is_none());
     assert!(!workspaces.full_access_enabled());
 }
 

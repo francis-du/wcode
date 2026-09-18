@@ -170,3 +170,235 @@ fn qualified_symbol_in_prose_is_kept_whole() {
         "Worker::parallel_tools"
     );
 }
+
+#[test]
+fn mixed_cjk_prose_extracts_embedded_snake_case_symbol() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/context.rs"),
+        "pub fn agent_context_fast_path() -> usize { 11 }\npub fn unrelated_context() -> usize { 3 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "继续优化agent_context_fast_path让它更快",
+            0,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(
+        pack["targets"][0]["qualified_name"],
+        "agent_context_fast_path"
+    );
+    assert_eq!(
+        pack["hot_source"][0]["qualified_name"],
+        "agent_context_fast_path"
+    );
+    assert_eq!(pack["files"][0]["path"], "src/context.rs");
+}
+
+#[test]
+fn mixed_cjk_prose_extracts_embedded_camel_case_symbol() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/context.rs"),
+        "pub struct AgentContextPlanner;\npub struct ContextPlannerNoise;\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "请检查AgentContextPlanner调用链",
+            0,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(pack["targets"][0]["qualified_name"], "AgentContextPlanner");
+    assert_eq!(
+        pack["hot_source"][0]["qualified_name"],
+        "AgentContextPlanner"
+    );
+}
+
+#[test]
+fn natural_language_prefers_symbols_covering_more_query_terms() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/workspace.rs"),
+        "pub fn workspace_aaa_metrics() {}\npub fn workspace_command_guard() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "find workspace command guard behavior",
+            0,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(
+        pack["targets"][0]["qualified_name"],
+        "workspace_command_guard"
+    );
+    assert_eq!(
+        pack["hot_source"][0]["qualified_name"],
+        "workspace_command_guard"
+    );
+}
+
+#[test]
+fn natural_language_can_retrieve_business_terms_from_symbol_signature() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/guard.rs"),
+        "pub fn enforce(workspace_command_policy: usize) -> bool { workspace_command_policy > 0 }\npub fn workspace_noise() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "where is workspace command policy enforced",
+            0,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(pack["targets"][0]["qualified_name"], "enforce");
+    assert_eq!(pack["hot_source"][0]["qualified_name"], "enforce");
+}
+
+#[test]
+fn task_words_do_not_outrank_domain_terms_during_symbol_retrieval() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/context.rs"),
+        "pub fn behavior_find_where_check() {}\npub fn workspace_command_guard() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "find where check workspace command behavior",
+            0,
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(
+        pack["targets"][0]["qualified_name"],
+        "workspace_command_guard"
+    );
+    assert_eq!(
+        pack["hot_source"][0]["qualified_name"],
+        "workspace_command_guard"
+    );
+}
+
+#[test]
+fn natural_language_behavior_lookup_prefers_production_over_test_name_overlap() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::create_dir_all(root.path().join("tests")).unwrap();
+    fs::write(
+        root.path().join("src/session.rs"),
+        "pub fn cleanup_if_owner(old: u64, current: u64) -> bool { old == current }\npub fn refresh_session(old: u64, current: u64) -> bool { cleanup_if_owner(old, current) }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("tests/session.rs"),
+        "#[test]\nfn replacement_keeps_new_owner() { assert!(true); }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "Find the ownership check that prevents an old session from cleaning up its replacement",
+            4_000,
+            &[],
+        )
+        .unwrap();
+
+    let targets = pack["targets"].as_array().unwrap();
+    assert_eq!(targets[0]["path"], "src/session.rs");
+    assert!(
+        targets
+            .iter()
+            .any(|target| target["qualified_name"] == "cleanup_if_owner"),
+        "targets={targets:#?}"
+    );
+    assert!(
+        targets
+            .iter()
+            .any(|target| target["qualified_name"] == "refresh_session"),
+        "targets={targets:#?}"
+    );
+}
+
+#[test]
+fn relationship_queries_expand_the_top_graph_neighbor_body() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/target.rs"),
+        "pub fn target_feature() -> usize { 7 }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("src/caller.rs"),
+        "pub fn invoke_target() -> usize {\n    target_feature()\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "show callers of target_feature",
+            4_000,
+            &[],
+        )
+        .unwrap();
+
+    let hot = pack["hot_source"].as_array().unwrap();
+    assert_eq!(hot[0]["qualified_name"], "target_feature");
+    assert!(hot
+        .iter()
+        .any(|source| source["qualified_name"] == "invoke_target"));
+    assert!(
+        pack["repo_map"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["reason"] == "caller_of_direct"),
+        "repo_map={}",
+        pack["repo_map"]
+    );
+}

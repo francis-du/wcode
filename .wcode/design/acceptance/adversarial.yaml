@@ -1,0 +1,29 @@
+schema_version: 1
+id: AC-ADVERSARIAL-QA-001
+title: Adversarial QA challenges change claims without becoming evidence
+statement: >-
+  The review_changes adversarial mode reuses the same deterministic current change review and generates at most twelve unique falsification questions without a second Git scan. It challenges acceptance, hidden impact, current-revision evidence freshness and negative paths by default; test-overfit, source-without-test, security, dependency/build metadata, deleted tests, generated-output freshness, large changes, untracked files and truncated review signals add targeted questions when present. Every question names the claim being challenged, the counterexample to seek, the current deterministic signal, the evidence needed to close it and suggested wcode tools. Each question also carries a bounded counterexample experiment with an experiment kind, relevant changed targets, a falsifiable hypothesis, the concrete failure condition, execution tools/stages and the evidence class that can close the question. Experiment suggestions are plans only: they never imply a stage executed or an Evidence result exists. A clean tree produces no questions. The packet is labeled challenge-packet-not-evidence, cannot raise semantic precision or clear a deterministic failure, and may only point higher-risk work into the existing Verification Mesh where an independently claimed adversarial reviewer remains a separate Evidence producer.
+  Experiment targets are finding-attributed where available, deduplicated and stable under input permutation; target counts describe observed input and truncation propagates. Saturating review counters never panic. Optional AST candidate search inspects at most six distinct changed source files with a 256 KiB admission limit and 32 matching nodes per file, returning at most three security-first deterministic proposals. Real boolean and simple comparison nodes yield source-SHA-bound original/replacement bytes and optional checked integer boundary bindings, never fabricated parameter types, outputs or defect probabilities. Missing, protected, symlink, oversized, unsupported, malformed, redacted and truncated inputs cannot become complete source evidence. Empty AST results retain file-level parse checks. Candidate extraction neither edits source nor executes experiments nor writes Evidence; it keeps executed=false, oracle_required=true and proposed-not-typechecked. Normal review does not scan candidates, malformed opt-in flags fail before review, and opt-in AST work stays inside real tool accounting on blocking workers. An isolated frozen Rust fixture demonstrates a nonempty passing baseline and a killed off-by-one mutant without mutating its source Workspace; this is not a production Mutation stage receipt.
+verification:
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_partial_review_is_never_complete}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_security_targets_do_not_follow_alphabetical_fillers}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_targets_are_unique_and_order_independent}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_large_line_counts_do_not_overflow}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_ignore_comments_strings_and_keep_real_boundary}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_support_four_languages_without_claiming_type_resolution}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_keep_unicode_crlf_bytes_and_reject_old_sha_edits}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_rank_security_first_and_bound_deduplicated_work}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_do_not_mutate_or_execute_readonly_sources}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_keep_workspace_boundaries_and_skip_deleted_binary_files}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_report_oversized_unsupported_and_invalid_source}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_clean_tree_and_node_limits_are_honest}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_proposals_do_not_guess_unsupported_expressions_or_overflow}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_generated_mutation_is_killed_by_isolated_fixture_oracle}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_byte_mapping_rejects_non_utf8_boundaries}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_reject_corrupted_redacted_or_truncated_node_evidence}
+  - {kind: test, path: tests/unit/runtime/harness/counterexamples.rs, symbol: syntax_candidates_reject_symlink_sources_without_reading_external_bytes}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_challenges_success_claims_without_becoming_evidence}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_turns_deterministic_review_findings_into_targeted_questions}
+  - {kind: test, path: tests/unit/runtime/harness/adversarial.rs, symbol: adversarial_qa_is_bounded_unique_and_quiet_for_a_clean_tree}
+  - {kind: test, path: tests/unit/integrations/mcp/dispatch.rs, symbol: review_changes_adversarial_mode_attaches_non_evidence_questions}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: tool_catalog_is_deterministic_compact_and_unique}

@@ -10,6 +10,14 @@ mod history;
 mod revision;
 mod verification;
 
+#[test]
+fn code_query_literals_preserve_multiple_explicit_identifiers() {
+    assert_eq!(
+        code_query_literals("feature_entry batch_worker"),
+        vec!["feature_entry", "batch_worker"]
+    );
+}
+
 fn observatory_file_snapshot(
     entries: impl IntoIterator<Item = (String, usize)>,
 ) -> crate::graph::SoftwareGraphSnapshot {
@@ -51,6 +59,55 @@ fn observatory_file_snapshot(
         failures: Vec::new(),
         graph,
     }
+}
+
+#[test]
+fn software_context_preserves_multiple_explicit_identifiers() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src/entry")).unwrap();
+    fs::create_dir_all(dir.path().join("src/worker")).unwrap();
+    fs::write(
+        dir.path().join("src/entry/mod.rs"),
+        "pub fn feature_entry() -> usize { 1 }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/worker/mod.rs"),
+        "pub fn batch_worker() -> usize { 2 }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let index = CodeIndex::new().unwrap();
+    let context = runtime
+        .software_context(
+            "demo",
+            &workspace,
+            &index,
+            &HashSet::new(),
+            &SoftwareContextRequest {
+                query: "feature_entry batch_worker".into(),
+                intent: "implementation".into(),
+                budget: 4_000,
+                scopes: Vec::new(),
+            },
+        )
+        .unwrap();
+    let names = context
+        .symbols
+        .iter()
+        .filter_map(|symbol| symbol["qualified_name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.contains(&"feature_entry"),
+        "symbols={:?}",
+        context.symbols
+    );
+    assert!(
+        names.contains(&"batch_worker"),
+        "symbols={:?}",
+        context.symbols
+    );
 }
 
 #[test]

@@ -98,6 +98,12 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .iter()
         .any(|provider| provider.get("action").and_then(Value::as_str) == Some("install_lsp"));
 
+    let usable_sources = value["targets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|target| target_has_usable_source(value, target, &files))
+        .count();
     let edit = if !write_enabled {
         "read_only_workspace"
     } else if targets == 0 {
@@ -106,7 +112,7 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "read_only_target"
     } else if editable_files == 0 {
         "needs_sha"
-    } else if hot_source == 0 {
+    } else if usable_sources == 0 {
         "needs_source"
     } else {
         "ready"
@@ -159,8 +165,18 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     if semantic_provider_missing {
         advisories.push("lsp_install_required");
     }
-    if hot_source == 0 && targets > 0 {
+    if usable_sources == 0 && targets > 0 {
         advisories.push("source_body_not_in_pack");
+    } else if usable_sources < targets {
+        advisories.push("target_source_coverage_incomplete");
+    }
+    if value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|source| source.pointer("/body/redacted").and_then(Value::as_bool) == Some(true))
+    {
+        advisories.push("source_body_redacted");
     }
     if tests.is_empty() {
         advisories.push("no_verification_mapping");
@@ -398,6 +414,49 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     }
 }
 
+// A body somewhere in the pack is not evidence that a direct target is
+// editable. Bind its identity and revision to that target's writable file.
+fn target_has_usable_source(value: &Value, target: &Value, files: &[Value]) -> bool {
+    let Some(path) = target.get("path").and_then(Value::as_str) else {
+        return false;
+    };
+    value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|source| {
+            if source.get("path").and_then(Value::as_str) != Some(path)
+                || source.pointer("/body/redacted").and_then(Value::as_bool) == Some(true)
+                || !source
+                    .pointer("/body/content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.is_empty())
+            {
+                return false;
+            }
+            let same_target = match (
+                target.get("id").and_then(Value::as_str),
+                source.get("id").and_then(Value::as_str),
+            ) {
+                (Some(expected), Some(actual)) => expected == actual,
+                (None, _) => target.get("kind").and_then(Value::as_str) == Some("file"),
+                _ => false,
+            };
+            same_target
+                && source
+                    .get("sha256")
+                    .and_then(Value::as_str)
+                    .is_some_and(|sha| {
+                        !sha.is_empty()
+                            && files.iter().any(|file| {
+                                file.get("path").and_then(Value::as_str) == Some(path)
+                                    && file.get("sha256").and_then(Value::as_str) == Some(sha)
+                                    && file.get("readonly").and_then(Value::as_bool) != Some(true)
+                            })
+                    })
+        })
+}
+
 pub(super) fn query_requests_architecture_change(query: &str) -> bool {
     let query = query.to_ascii_lowercase();
     [
@@ -416,34 +475,7 @@ pub(super) fn query_requests_architecture_change(query: &str) -> bool {
 }
 
 pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
-    let query = query.to_ascii_lowercase();
-    [
-        "reference",
-        "references",
-        "caller",
-        "callers",
-        "callee",
-        "callees",
-        "implementation",
-        "implementations",
-        "implementor",
-        "usages",
-        "rename",
-        "call site",
-        "cross-file",
-        "cross file",
-        "impact",
-        "引用",
-        "调用方",
-        "被调用",
-        "实现",
-        "重命名",
-        "调用点",
-        "跨文件",
-        "影响范围",
-    ]
-    .iter()
-    .any(|needle| query.contains(needle))
+    super::super::harness_retrieval::query_needs_semantic_relationships(query)
 }
 
 pub(super) fn covered_repo_map_precision(value: &Value) -> &'static str {

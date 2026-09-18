@@ -50,6 +50,7 @@ use tokio::task::JoinSet;
 
 const MAX_PARALLEL_TOOLS: usize = 256;
 pub(crate) const REPO_MAP_MAX_FILES: usize = 600;
+pub(crate) const REPO_MAP_MAX_SYMBOLS: usize = 5_000;
 const MAX_OBSERVATORY_FILES: usize = 1_500;
 const MAX_GUIDANCE_LINES_PER_FILE: usize = 160;
 const MAX_GUIDANCE_CHARS_PER_FILE: usize = 12_000;
@@ -490,6 +491,48 @@ pub struct ReviewFinding {
     pub code: String,
     pub message: String,
     pub paths: Vec<String>,
+}
+
+pub use harness_quality::counterexamples::CounterexampleSearch;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CounterexampleExperiment {
+    pub kind: String,
+    pub targets: Vec<String>,
+    pub targets_total: usize,
+    pub targets_truncated: bool,
+    pub hypothesis: String,
+    pub falsifying_condition: String,
+    pub execution: Vec<String>,
+    pub closes_with: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AdversarialQuestion {
+    pub id: String,
+    pub category: String,
+    pub claim: String,
+    pub challenge: String,
+    pub current_signal: String,
+    pub required_evidence: Vec<String>,
+    pub suggested_tools: Vec<String>,
+    pub counterexample_experiment: CounterexampleExperiment,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AdversarialReviewReport {
+    pub workspace: String,
+    pub provider: &'static str,
+    pub precision: &'static str,
+    pub policy: &'static str,
+    pub review_risk_level: String,
+    pub questions: Vec<AdversarialQuestion>,
+    pub truncated: bool,
+    pub recommended_next_actions: Vec<String>,
+    pub reviewer_role: &'static str,
+    pub reviewer_bridge: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_search: Option<CounterexampleSearch>,
 }
 
 #[derive(Debug, Serialize)]

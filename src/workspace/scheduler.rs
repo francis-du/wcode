@@ -291,7 +291,8 @@ pub fn resource_model(
                 )?;
             }
         }
-        "list_files" | "search_code" | "search_many" | "find_symbol" => {
+        "list_files" | "search_code" | "search_many" | "scan_patterns" | "search_syntax"
+        | "find_symbol" => {
             push(
                 &mut resources.reads,
                 args.get("path").and_then(Value::as_str).unwrap_or("."),

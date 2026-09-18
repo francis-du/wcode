@@ -218,11 +218,11 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
     let scopes: &[ProductScope] = match name {
         "workspace_info" | "scope_status" => &[Runtime, Workspace, Integrations],
         "project_context" | "convention_status" | "worklist_status" | "worklist_update"
-        | "list_files" | "search_code" | "search_many" | "read_file" | "read_files"
-        | "read_media" | "path_info" | "replace_text" | "apply_edits" | "write_file"
-        | "create_directory" | "create_file" | "create_files" | "apply_file_edits"
-        | "move_path" | "move_paths" | "delete_path" | "run_command" | "parallel_tools"
-        | "review_changes" => &[Workspace],
+        | "list_files" | "search_code" | "search_many" | "scan_patterns" | "read_file"
+        | "read_files" | "read_media" | "path_info" | "replace_text" | "apply_edits"
+        | "write_file" | "create_directory" | "create_file" | "create_files"
+        | "apply_file_edits" | "move_path" | "move_paths" | "delete_path" | "run_command"
+        | "parallel_tools" | "review_changes" => &[Workspace],
         "design_init" | "design_status" => &[Design],
         "software_graph"
         | "graph_provider_import"
@@ -230,6 +230,7 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         | "graph_history"
         | "graph_query"
         | "graph_diff"
+        | "search_syntax"
         | "file_outline"
         | "find_symbol"
         | "symbol_context" => &[Graph],

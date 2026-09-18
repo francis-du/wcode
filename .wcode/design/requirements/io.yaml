@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-CODE-IO-001
+title: Fast code retrieval and edits preserve coverage and original-byte identity
+intent: >-
+  Coding agents must be able to search known patterns in one bounded repository traversal, obtain source identity and actionable context without redundant reads, and apply multiple original-revision edits without repeated whole-tail movement. Exact, regex and token matching remain explicit; automatic single-query fallback collects exact and token evidence from the same file bytes. Regex line anchors must never be lost by a whole-document prefilter. Duplicate patterns and common matches must not crowd out the first representative of a rare pattern within the retained-result budget. Search responses expose matched-line counts, deterministic current-file pagination, per-file SHA, skipped and failed files, scan and result truncation, and bounded text or files-only output. Partial coverage or zero returned rows must not be represented as proof of absence. AST results retain syntax precision and report early-stop and failure conditions. Edit anchors are unique, non-overlapping and pinned to the original SHA; faster assembly must not weaken stale-write or workspace boundaries. Local retrieval and edit benchmarks must distinguish tool microbenchmarks from model end-to-end coding ability.
+priority: high
+implemented_by:
+  - component:bounded-code-io
+acceptance:
+  - AC-CODE-IO-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET
+risk:
+  reliability: high
+  performance: high
+  compatibility: high

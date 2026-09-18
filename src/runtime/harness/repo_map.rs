@@ -2,15 +2,16 @@ use super::harness_retrieval::{
     classify_repo_map_intent, design_boost as retrieval_design_boost,
     direct_seed_boost as retrieval_direct_seed_boost,
     exact_query_match as repo_map_exact_query_match,
-    experience_boost as retrieval_experience_boost,
-    relationship_boost as retrieval_relationship_boost, routing_value as retrieval_routing_value,
-    test_boost as retrieval_test_boost, test_path as repo_map_test_path, RepoMapIntent,
+    experience_boost as retrieval_experience_boost, query_needs_semantic_relationships,
+    relationship_boost as retrieval_relationship_boost, retain_repo_candidates_with_task_evidence,
+    routing_value as retrieval_routing_value, select_repo_candidates,
+    test_boost as retrieval_test_boost, test_path as repo_map_test_path, RepoMapCandidate,
+    RepoMapIntent,
 };
 use super::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::Ordering;
 
-const REPO_MAP_MAX_SYMBOLS: usize = 6_000;
 const REPO_MAP_MAX_ITEMS: usize = 16;
 const REPO_MAP_ITERATIONS: usize = 6;
 const REPO_MAP_RESTART: f64 = 0.28;
@@ -26,9 +27,23 @@ impl ToolHarness {
     ) -> Result<Value> {
         let max_items = max_items.clamp(1, REPO_MAP_MAX_ITEMS);
         let started = Instant::now();
-        let scope_path = repo_map_scope_path(context);
-        let (graph, cache_hit) = self.repo_map_graph(workspace_id, workspace, &scope_path)?;
         let routing = classify_repo_map_intent(query);
+        let scope_path = if routing.reason == "no_specific_retrieval_signal"
+            && !query_needs_semantic_relationships(query)
+        {
+            repo_map_scope_path(context)
+        } else {
+            ".".to_owned()
+        };
+        let (graph, cache_hit) = self.repo_map_graph(workspace_id, workspace, &scope_path)?;
+        let graph = harness_retrieval::augment_relationship_graph(
+            self,
+            workspace_id,
+            workspace,
+            query,
+            context,
+            graph.as_ref(),
+        )?;
         let query_tokens = repo_map_tokens(query);
         let direct_ids = context
             .symbols
@@ -108,10 +123,7 @@ impl ToolHarness {
                 let experience_weight = experience.weights.get(&path).copied().unwrap_or_default();
                 let exact_direct =
                     direct && repo_map_exact_query_match(&name, &qualified_name, &query_tokens);
-                // Software Context seeds are intentionally recall-oriented, so
-                // not every `direct` seed is an exact task target. Keep exact
-                // symbol matches strongest, while allowing bounded task intent
-                // priors to order broader retrieval seeds beneath them.
+                // Recall-oriented seeds stay below exact task targets.
                 let relevance = if exact_direct {
                     140.0
                 } else if direct {
@@ -216,7 +228,7 @@ impl ToolHarness {
             }
             neighbors[from].push(to);
             neighbors[to].push(from);
-            if direct_ids.contains(&edge.from) && !direct_ids.contains(&edge.to) {
+            if precision_targets.contains(&edge.from) && !precision_targets.contains(&edge.to) {
                 direct_relations
                     .entry(edge.to.clone())
                     .or_default()
@@ -228,7 +240,7 @@ impl ToolHarness {
                         edge.provenance.precision,
                     ));
             }
-            if direct_ids.contains(&edge.to) && !direct_ids.contains(&edge.from) {
+            if precision_targets.contains(&edge.to) && !precision_targets.contains(&edge.from) {
                 direct_relations
                     .entry(edge.from.clone())
                     .or_default()
@@ -285,7 +297,9 @@ impl ToolHarness {
                 neighbors[from].push(to);
                 neighbors[to].push(from);
                 let boost = provider_precision_boost(stored.import.precision);
-                if candidates[from].direct && !candidates[to].direct {
+                if precision_targets.contains(&candidates[from].id)
+                    && !precision_targets.contains(&candidates[to].id)
+                {
                     candidates[to].relevance += boost;
                     direct_relations
                         .entry(candidates[to].id.clone())
@@ -298,7 +312,9 @@ impl ToolHarness {
                             stored.import.precision,
                         ));
                 }
-                if candidates[to].direct && !candidates[from].direct {
+                if precision_targets.contains(&candidates[to].id)
+                    && !precision_targets.contains(&candidates[from].id)
+                {
                     candidates[from].relevance += boost;
                     direct_relations
                         .entry(candidates[from].id.clone())
@@ -359,32 +375,26 @@ impl ToolHarness {
             let centrality = (candidate.degree as f64 + 1.0).ln();
             candidate.rank = score * 1_000.0 + candidate.relevance * 1.6 + centrality * 8.0;
         }
-        candidates.sort_by(|left, right| {
-            right
-                .rank
-                .total_cmp(&left.rank)
-                .then_with(|| right.direct.cmp(&left.direct))
-                .then_with(|| left.qualified_name.cmp(&right.qualified_name))
-                .then_with(|| left.path.cmp(&right.path))
-        });
+        retain_repo_candidates_with_task_evidence(&mut candidates, &neighbors);
         if matches!(
             routing.intent,
             RepoMapIntent::CommentToContext | RepoMapIntent::FailureTraceToCode
         ) {
             candidates.retain(|candidate| !given_context_paths.contains(&candidate.path));
         }
-        candidates.truncate(max_items);
+        let eligible_candidates = candidates.len();
+        select_repo_candidates(&mut candidates, max_items);
         drop(rank_cpu);
 
-        let metadata = candidates
-            .iter()
-            .filter_map(|candidate| {
-                self.code_index
-                    .symbol_metadata(workspace, &candidate.id)
-                    .ok()
-                    .map(|metadata| (candidate.id.clone(), metadata))
-            })
-            .collect::<HashMap<_, _>>();
+        let metadata = crate::resource::parallel_io(&candidates, |candidate| {
+            self.code_index
+                .symbol_metadata(workspace, &candidate.id)
+                .ok()
+                .map(|metadata| (candidate.id.clone(), metadata))
+        })?
+        .into_iter()
+        .flatten()
+        .collect::<HashMap<_, _>>();
         let items = candidates
             .iter()
             .map(|candidate| {
@@ -409,6 +419,8 @@ impl ToolHarness {
             "scope_path": scope_path,
             "routing": retrieval_routing_value(routing),
             "candidates": index_by_id.len(),
+            "eligible_candidates": eligible_candidates,
+            "filtered_candidates": index_by_id.len().saturating_sub(eligible_candidates),
             "files_indexed": graph.files_indexed,
             "graph_edges": graph.edge_count,
             "cache_hit": cache_hit,
@@ -435,7 +447,7 @@ impl ToolHarness {
             },
             "scan_truncated": graph.scan_truncated,
             "graph_truncated": graph.truncated,
-            "truncated": graph.truncated || graph.scan_truncated || index_by_id.len() > max_items,
+            "truncated": graph.truncated || graph.scan_truncated || eligible_candidates > max_items,
         }))
     }
 
@@ -504,14 +516,17 @@ impl ToolHarness {
         // the next request recomputes this fingerprint and invalidates on any
         // added, removed, or modified source. A second full-tree scan after the
         // build only duplicated work without making the returned snapshot newer.
-        let snapshot = Arc::new(self.code_index.software_graph_from_paths(
-            workspace_id.to_owned(),
+        let mut snapshot = self.code_index.software_graph_from_paths(
             workspace,
-            path,
             paths,
             scan_truncated,
             REPO_MAP_MAX_SYMBOLS,
-        )?);
+            &HashSet::new(),
+            &HashSet::new(),
+        )?;
+        snapshot.workspace = workspace_id.to_owned();
+        snapshot.path = path.to_owned();
+        let snapshot = Arc::new(snapshot);
         if !validation.is_current() {
             bail!("repo map invalidated while building; retry the request");
         }
@@ -547,24 +562,31 @@ impl ToolHarness {
 }
 
 fn repo_map_scope_path(context: &SoftwareContext) -> String {
-    let source_paths = context
+    let direct_paths = context
         .symbols
         .iter()
-        .filter_map(|symbol| {
-            symbol
-                .get("path")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .chain(
-            context
-                .coverage
-                .requirements
-                .iter()
-                .flat_map(|requirement| requirement.implementation.iter())
-                .filter_map(|reference| repo_map_target_path(&reference.target)),
-        )
+        .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
         .collect::<Vec<_>>();
+    // Local lookup stays narrow; relationship queries select a broader graph
+    // before reaching here. Broad Design ownership must not widen localization.
+    let source_paths = if direct_paths.is_empty() {
+        context
+            .coverage
+            .requirements
+            .iter()
+            .flat_map(|requirement| requirement.implementation.iter())
+            .filter_map(|reference| repo_map_target_path(&reference.target))
+            .collect::<Vec<_>>()
+    } else {
+        direct_paths
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    repo_map_common_scope(&source_paths)
+}
+
+pub(super) fn repo_map_common_scope(source_paths: &[String]) -> String {
     let mut directories = source_paths
         .iter()
         .filter_map(|path| repo_map_parent_path(path))
@@ -633,23 +655,6 @@ fn repo_map_fingerprint(workspace: &Workspace, path: &str) -> Result<(u64, Vec<S
     Ok((hasher.finish(), paths, truncated))
 }
 
-#[derive(Clone, Debug)]
-struct RepoMapCandidate {
-    id: String,
-    path: String,
-    name: String,
-    qualified_name: String,
-    kind: String,
-    relevance: f64,
-    direct: bool,
-    exact_direct: bool,
-    design_path: bool,
-    query_hits: usize,
-    experience_weight: u16,
-    degree: usize,
-    rank: f64,
-}
-
 fn repo_map_symbol_node(kind: NodeKind) -> bool {
     matches!(
         kind,
@@ -678,6 +683,10 @@ fn repo_map_edge(kind: EdgeKind) -> bool {
 }
 
 fn repo_map_tokens(query: &str) -> Vec<String> {
+    let code_tokens = crate::intelligence::code_query_tokens(query);
+    if !code_tokens.is_empty() {
+        return code_tokens;
+    }
     query
         .split(|character: char| !character.is_alphanumeric() && character != '_')
         .map(str::trim)
@@ -709,9 +718,7 @@ fn repo_map_precision_targets(
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
 
-    // Retrieval seeds intentionally favor recall and may include broad lexical
-    // matches. Without a Design-backed target, only exact symbol tokens are
-    // strong enough to participate in readiness precision claims.
+    // Only exact lexical targets may back readiness precision without Design.
     if targets.is_empty() {
         let exact_tokens = query_tokens
             .iter()

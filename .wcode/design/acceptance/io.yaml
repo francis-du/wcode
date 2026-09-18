@@ -1,0 +1,22 @@
+schema_version: 1
+id: AC-CODE-IO-001
+title: Batched search and edit acceleration does not sacrifice recall or safety
+statement: >-
+  Interior-line regex anchors, duplicate queries, rare patterns after common matches, exact-over-fallback priority, Unicode/CRLF/EOF, deterministic pagination, merged context, files-only output, failed reads, oversized files and protected paths have deterministic regressions. Auto search reports one traversal and reads every scanned file once. An MCP search result can directly supply the SHA to a precise edit, while an old SHA is rejected after mutation. Multi-edit assembly preserves original line anchors across generated Unicode/CRLF cases and rejects overlap, missing anchors and excessive output growth. AST result limits and failures explicitly prevent complete-coverage claims. Invalid optional search argument types fail instead of silently changing the request. An explicitly invoked release-profile benchmark compares batched and repeated searches and edit assembly on the same fixtures; its ripgrep comparison asserts path-and-line result equality, not model coding superiority. The benchmark remains separate from required deterministic checks and is not mislabeled as fuzz or mutation evidence.
+verification:
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_regex_anchors_match_interior_lines}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_duplicate_patterns_do_not_consume_result_budget}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_auto_uses_one_traversal_and_one_read_per_file}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_batch_keeps_rare_patterns_and_reports_real_totals}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_pagination_is_deterministic_without_duplicate_or_missing_rows}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_grouped_context_merges_overlapping_windows_and_query_hits}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_sha_allows_precise_edit_and_rejects_external_change}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_file_and_count_modes_do_not_return_source_bodies}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_partial_io_and_oversized_files_never_claim_complete_coverage}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_regex_and_original_lines_preserve_unicode_crlf_and_eof}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: search_invalid_and_excessive_regex_is_rejected_before_path_access}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: batch_edit_stitching_preserves_original_anchors_unicode_and_crlf}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: batch_edit_stitching_rejects_growth_overlap_and_missing_anchor}
+  - {kind: test, path: tests/unit/integrations/mcp/calls.rs, symbol: competitive_search_and_edit_flow_uses_sha_without_extra_read}
+  - {kind: test, path: tests/unit/graph/consistency.rs, symbol: syntax_search_limit_and_failures_are_explicit}
+  - {kind: check, id: rust-test}

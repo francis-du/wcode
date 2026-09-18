@@ -2,6 +2,9 @@ use super::*;
 use crate::evidence::{Confidence, Evidence, EvidenceKind, EvidenceResult, Revision};
 use crate::harness::harness_cost::VerificationCostEvaluation;
 
+#[path = "engineering_fitness.rs"]
+mod engineering_fitness;
+
 fn check(id: &str, phase: u8) -> CheckSpec {
     CheckSpec {
         id: id.to_owned(),

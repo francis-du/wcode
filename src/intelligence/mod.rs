@@ -703,6 +703,63 @@ fn provider_graph_context(
     })
 }
 
+pub(crate) fn code_query_literals(query: &str) -> Vec<String> {
+    let whole_query = query.trim();
+    let mut literals = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = String::new();
+    let flush = |current: &mut String, literals: &mut Vec<String>, seen: &mut HashSet<String>| {
+        let raw = current.trim_matches(['_', ':', '.']);
+        if raw.chars().count() >= 2 {
+            let has_separator = raw.contains('_') || raw.contains("::") || raw.contains('.');
+            let has_camel_transition = raw
+                .as_bytes()
+                .windows(2)
+                .any(|pair| pair[0].is_ascii_lowercase() && pair[1].is_ascii_uppercase());
+            let exact_query = raw == whole_query;
+            if has_separator || has_camel_transition || exact_query {
+                let normalized = raw.to_ascii_lowercase();
+                if seen.insert(normalized.clone()) {
+                    literals.push(normalized);
+                }
+            }
+        }
+        current.clear();
+    };
+    for character in query.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | ':' | '.') {
+            current.push(character);
+        } else {
+            flush(&mut current, &mut literals, &mut seen);
+        }
+    }
+    flush(&mut current, &mut literals, &mut seen);
+    literals.truncate(8);
+    literals
+}
+
+pub(crate) fn code_query_tokens(query: &str) -> Vec<String> {
+    let literals = code_query_literals(query);
+    let mut tokens = Vec::new();
+    let mut seen = HashSet::new();
+    for literal in literals {
+        if seen.insert(literal.clone()) {
+            tokens.push(literal.clone());
+        }
+        for part in literal
+            .split(['_', ':', '.'])
+            .filter(|part| part.chars().count() >= 2)
+        {
+            let part = part.to_owned();
+            if seen.insert(part.clone()) {
+                tokens.push(part);
+            }
+        }
+    }
+    tokens.truncate(16);
+    tokens
+}
+
 fn context_tokens(query: &str) -> Vec<String> {
     let mut tokens = query
         .split(|character: char| !character.is_alphanumeric())

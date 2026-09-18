@@ -23,6 +23,7 @@ pub(super) fn draw_dashboard(
                 &config.workspaces,
                 &workspace_id,
                 ui.command_offset,
+                ui.workspace_message.as_deref(),
                 ui.language,
             );
         }
@@ -38,24 +39,31 @@ pub(super) fn draw_dashboard(
     } else if ui.help_open {
         render_help_overlay(frame, area, config, ui.language);
     }
-    // Status messages must not cover a pending request or its approval controls.
+    let authorization_visible = ui.authorization_visible(area);
+    // Authorization feedback lives inside the authorization surface so it cannot
+    // be painted underneath the very controls that triggered it.
     if let Some(message) = ui.workspace_message.as_deref() {
-        render_status_message(frame, area, message, ui.language);
+        if !authorization_visible && !ui.commands_open && !ui.help_open && !ui.intelligence_open {
+            render_status_message(frame, area, message, ui.language);
+        }
     }
-    if ui.full_access_confirm {
+    if ui.full_access_visible(area) {
         render_full_access_overlay(frame, area, ui.language);
-    } else if ui.authorization_visible(area) {
+    } else if authorization_visible {
         render_authorization_overlay(
             frame,
             area,
             &ui.pending_authorizations,
             ui.authorization_focus,
             ui.authorization_scroll,
+            ui.workspace_message.as_deref(),
             ui.language,
         );
     }
-    if let Some(input) = ui.workspace_input.as_deref() {
-        render_workspace_input_overlay(frame, area, input, ui.language);
+    if ui.workspace_input_visible(area) {
+        if let Some(input) = ui.workspace_input.as_deref() {
+            render_workspace_input_overlay(frame, area, input, ui.language);
+        }
     }
 }
 
@@ -342,6 +350,28 @@ fn render_too_small(
                 language.tr("resize the window to restore the live dashboard"),
                 Style::default().fg(TEXT_DIM),
             )),
+            Line::from(vec![
+                Span::styled(
+                    format!("{}  ", language.tr("Pairing code")),
+                    Style::default().fg(TEXT_DIM),
+                ),
+                Span::styled(
+                    config.pairing_code.clone(),
+                    Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                keycap("?"),
+                Span::styled(
+                    format!(" {}   ", language.tr("help")),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+                keycap("^C"),
+                Span::styled(
+                    format!(" {}", language.tr("stop")),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ]),
         ])
         .alignment(ratatui::layout::Alignment::Center)
         .block(block),
@@ -519,11 +549,8 @@ fn render_header(
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("VERIFY CODE ", Style::default().fg(TEXT_DIM)),
-                    Span::styled(
-                        config.pairing_code.clone(),
-                        Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("CPU ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(cpu_text.clone(), Style::default().fg(cpu_color)),
                     Span::styled(
                         format!("  MEM {memory_text}"),
                         Style::default().fg(memory_color),
@@ -590,10 +617,12 @@ fn render_header(
                 Span::styled(cpu_text.clone(), Style::default().fg(cpu_color)),
             ]),
             Line::from(vec![
-                Span::styled("VERIFY CODE ", Style::default().fg(TEXT_DIM)),
+                Span::styled("WAIT ", Style::default().fg(TEXT_DIM)),
+                Span::styled(totals.queued.to_string(), Style::default().fg(WARNING)),
+                Span::styled("   FAIL ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
-                    config.pairing_code.clone(),
-                    Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+                    totals.failed.to_string(),
+                    Style::default().fg(if totals.failed > 0 { DANGER } else { TEXT_DIM }),
                 ),
                 Span::styled("   MEM ", Style::default().fg(TEXT_DIM)),
                 Span::styled(memory_text.clone(), Style::default().fg(memory_color)),
@@ -673,10 +702,12 @@ fn render_header(
             ])
             .right_aligned(),
             Line::from(vec![
-                Span::styled("VERIFY CODE ", Style::default().fg(TEXT_DIM)),
+                Span::styled("WAIT ", Style::default().fg(TEXT_DIM)),
+                Span::styled(totals.queued.to_string(), Style::default().fg(WARNING)),
+                Span::styled("   FAIL ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
-                    config.pairing_code.clone(),
-                    Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+                    totals.failed.to_string(),
+                    Style::default().fg(if totals.failed > 0 { DANGER } else { TEXT_DIM }),
                 ),
             ])
             .right_aligned(),

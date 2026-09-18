@@ -1,4 +1,98 @@
+use crate::graph::{NodeKind, SoftwareGraphSnapshot};
+use crate::intelligence::SoftwareContext;
+use crate::workspace::{SearchMode, SearchReport, SearchRequest, Workspace};
+use anyhow::Result;
 use serde_json::{json, Value};
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::collections::HashSet;
+
+#[derive(Clone, Debug)]
+pub(super) struct RepoMapCandidate {
+    pub(super) id: String,
+    pub(super) path: String,
+    pub(super) name: String,
+    pub(super) qualified_name: String,
+    pub(super) kind: String,
+    pub(super) relevance: f64,
+    pub(super) direct: bool,
+    pub(super) exact_direct: bool,
+    pub(super) design_path: bool,
+    pub(super) query_hits: usize,
+    pub(super) experience_weight: u16,
+    pub(super) degree: usize,
+    pub(super) rank: f64,
+}
+
+pub(super) fn compare_repo_candidates(
+    left: &RepoMapCandidate,
+    right: &RepoMapCandidate,
+) -> Ordering {
+    // Graph popularity cannot evict the symbol explicitly named by the task.
+    right
+        .exact_direct
+        .cmp(&left.exact_direct)
+        .then_with(|| right.rank.total_cmp(&left.rank))
+        .then_with(|| right.direct.cmp(&left.direct))
+        .then_with(|| left.qualified_name.cmp(&right.qualified_name))
+        .then_with(|| left.path.cmp(&right.path))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
+pub(super) fn select_repo_candidates(candidates: &mut Vec<RepoMapCandidate>, limit: usize) {
+    if limit == 0 {
+        candidates.clear();
+        return;
+    }
+    // Partition all candidates in linear time; sort only the returned prefix.
+    // The canonical ID tie-break preserves deterministic membership and order.
+    if candidates.len() > limit {
+        candidates.select_nth_unstable_by(limit, compare_repo_candidates);
+        candidates.truncate(limit);
+    }
+    candidates.sort_unstable_by(compare_repo_candidates);
+}
+
+pub(super) fn retain_repo_candidates_with_task_evidence(
+    candidates: &mut Vec<RepoMapCandidate>,
+    neighbors: &[Vec<usize>],
+) {
+    // Keep graph reachability from actual task evidence, not degree alone: an
+    // unrelated component can be highly connected without helping this task.
+    // Neighbors refer to the original candidate order, before any retention.
+    let mut supported = candidates
+        .iter()
+        .map(|candidate| {
+            candidate.direct
+                || candidate.query_hits > 0
+                || candidate.design_path
+                || candidate.experience_weight > 0
+        })
+        .collect::<Vec<_>>();
+    let mut pending = supported
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &keep)| keep.then_some(index))
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        // With no task anchor, retain the bounded exploratory repository map.
+        return;
+    }
+    while let Some(index) = pending.pop() {
+        for &neighbor in &neighbors[index] {
+            if !supported[neighbor] {
+                supported[neighbor] = true;
+                pending.push(neighbor);
+            }
+        }
+    }
+    let mut index = 0;
+    candidates.retain(|_| {
+        let keep = supported[index];
+        index += 1;
+        keep
+    });
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RepoMapIntent {
@@ -30,8 +124,34 @@ impl RepoMapRouting {
     }
 }
 
+// Keep code identifiers available to retrieval, but do not interpret their
+// embedded words (for example `get_latest_snapshot`) as natural-language intent.
+fn intent_query(query: &str) -> String {
+    let separator = |ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '_' | ':' | '.');
+    let mut result = String::with_capacity(query.len());
+    for chunk in query.split_inclusive(separator) {
+        let word = chunk.trim_end_matches(separator);
+        let identifier = word.trim_matches([':', '.']);
+        let code_shaped = identifier.contains('_')
+            || identifier.contains("::")
+            || identifier.contains('.')
+            || identifier
+                .as_bytes()
+                .windows(2)
+                .any(|pair| pair[0].is_ascii_lowercase() && pair[1].is_ascii_uppercase());
+        if code_shaped {
+            result.push(' ');
+        } else {
+            result.push_str(&word.to_ascii_lowercase());
+        }
+        result.push_str(&chunk[word.len()..]);
+    }
+    result
+}
+
 pub(super) fn classify_repo_map_intent(query: &str) -> RepoMapRouting {
-    let query = query.to_ascii_lowercase();
+    let evidence = query.to_ascii_lowercase();
+    let query = intent_query(query);
     let trace = contains_any(
         &query,
         &[
@@ -62,8 +182,8 @@ pub(super) fn classify_repo_map_intent(query: &str) -> RepoMapRouting {
             "覆盖",
         ],
     );
-    let comment_context = comment_context_signal(&query);
-    let failure_trace = failure_trace_signal(&query);
+    let comment_context = comment_context_signal(&evidence);
+    let failure_trace = failure_trace_signal(&evidence);
     let ripple = contains_any(
         &query,
         &[
@@ -123,6 +243,243 @@ pub(super) fn classify_repo_map_intent(query: &str) -> RepoMapRouting {
             reason: "ambiguous_retrieval_signals",
         },
     }
+}
+
+pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
+    let query = intent_query(query);
+    [
+        "reference",
+        "references",
+        "caller",
+        "callers",
+        "callee",
+        "callees",
+        "implementation",
+        "implementations",
+        "implementor",
+        "usages",
+        "rename",
+        "call site",
+        "call graph",
+        "call hierarchy",
+        "cross-file",
+        "cross file",
+        "impact",
+        "引用",
+        "调用方",
+        "被调用",
+        "实现",
+        "重命名",
+        "调用点",
+        "调用链",
+        "调用关系",
+        "跨文件",
+        "影响范围",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle))
+}
+
+pub(super) fn augment_relationship_graph<'a>(
+    harness: &super::ToolHarness,
+    workspace_id: &str,
+    workspace: &Workspace,
+    query: &str,
+    context: &SoftwareContext,
+    base: &'a SoftwareGraphSnapshot,
+) -> Result<Cow<'a, SoftwareGraphSnapshot>> {
+    let routing = classify_repo_map_intent(query);
+    let targeted_scan =
+        base.scan_truncated && (query_needs_semantic_relationships(query) || routing.specialized);
+    let priority_recovery = base.truncated;
+    if !targeted_scan && !priority_recovery {
+        return Ok(Cow::Borrowed(base));
+    }
+
+    let literals = crate::intelligence::code_query_literals(query);
+    let priority_symbols = context
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            let name = symbol
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let qualified = symbol
+                .get("qualified_name")
+                .and_then(Value::as_str)
+                .unwrap_or(name);
+            literals.is_empty()
+                || literals.iter().any(|literal| {
+                    name.eq_ignore_ascii_case(literal) || qualified.eq_ignore_ascii_case(literal)
+                })
+        })
+        .take(4)
+        .collect::<Vec<_>>();
+    let priority_symbol_ids = priority_symbols
+        .iter()
+        .filter_map(|symbol| symbol.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+    let priority_symbol_names = priority_symbols
+        .iter()
+        .filter_map(|symbol| symbol.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+    let mut supplemental_paths = Vec::new();
+    let mut seen_paths = HashSet::new();
+    for path in context
+        .symbols
+        .iter()
+        .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
+    {
+        if seen_paths.insert(path.to_owned()) {
+            supplemental_paths.push(path.to_owned());
+        }
+    }
+
+    let mut supplemental_scan_truncated = false;
+    if targeted_scan {
+        let mut relation_queries = context
+            .symbols
+            .iter()
+            .filter_map(|symbol| {
+                let name = symbol.get("name").and_then(Value::as_str)?;
+                let qualified = symbol
+                    .get("qualified_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(name);
+                (literals.is_empty()
+                    || literals.iter().any(|literal| {
+                        name.eq_ignore_ascii_case(literal)
+                            || qualified.eq_ignore_ascii_case(literal)
+                    }))
+                .then(|| name.to_owned())
+            })
+            .collect::<Vec<_>>();
+        if relation_queries.is_empty() {
+            relation_queries.extend(
+                context
+                    .symbols
+                    .iter()
+                    .filter_map(|symbol| symbol.get("name").and_then(Value::as_str))
+                    .take(2)
+                    .map(str::to_owned),
+            );
+        }
+        let mut seen_queries = HashSet::new();
+        relation_queries.retain(|name| seen_queries.insert(name.to_ascii_lowercase()));
+        relation_queries.truncate(4);
+        if !relation_queries.is_empty() {
+            let request = SearchRequest {
+                queries: relation_queries,
+                path: ".".to_owned(),
+                mode: SearchMode::Exact,
+                context_lines: 0,
+                max_results: super::REPO_MAP_MAX_FILES,
+                offset: 0,
+                output_mode: "files_with_matches".to_owned(),
+            };
+            let report: SearchReport = workspace.search_report(&request)?;
+            let report = report.into_value(workspace_id, &request, false);
+            supplemental_scan_truncated = report["truncated"].as_bool().unwrap_or(false);
+            for path in report["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|file| file.get("path").and_then(Value::as_str))
+            {
+                if seen_paths.insert(path.to_owned()) {
+                    supplemental_paths.push(path.to_owned());
+                }
+            }
+        }
+    }
+
+    supplemental_paths.truncate(super::REPO_MAP_MAX_FILES.saturating_add(4));
+    if supplemental_paths.is_empty() {
+        return Ok(Cow::Borrowed(base));
+    }
+
+    let mut supplemental = harness.code_index.software_graph_from_paths(
+        workspace,
+        supplemental_paths,
+        supplemental_scan_truncated,
+        super::REPO_MAP_MAX_SYMBOLS,
+        &priority_symbol_ids,
+        &priority_symbol_names,
+    )?;
+    supplemental.workspace = workspace_id.to_owned();
+    supplemental.path = ".".to_owned();
+    merge_relationship_graph(base, supplemental).map(Cow::Owned)
+}
+
+pub(super) fn merge_relationship_graph(
+    base: &SoftwareGraphSnapshot,
+    supplemental: SoftwareGraphSnapshot,
+) -> Result<SoftwareGraphSnapshot> {
+    let mut graph = base.clone();
+    for (id, node) in supplemental.graph.nodes {
+        match graph.graph.nodes.entry(id) {
+            std::collections::btree_map::Entry::Occupied(existing) => {
+                if existing.get().provenance != node.provenance {
+                    anyhow::bail!(
+                        "source changed during repository graph augmentation; retry the request"
+                    );
+                }
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(node);
+            }
+        }
+    }
+    // Borrow canonical keys during the merge, then append only genuinely new
+    // edges. Identity includes full provenance, not just the endpoints/kind.
+    let mut seen = graph
+        .graph
+        .edges
+        .iter()
+        .map(|edge| {
+            (
+                edge.from.as_str(),
+                edge.to.as_str(),
+                edge.kind,
+                edge.provenance.provider.as_str(),
+                edge.provenance.precision,
+                edge.provenance.revision.as_str(),
+            )
+        })
+        .collect::<HashSet<_>>();
+    let additions = supplemental
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| {
+            seen.insert((
+                edge.from.as_str(),
+                edge.to.as_str(),
+                edge.kind,
+                edge.provenance.provider.as_str(),
+                edge.provenance.precision,
+                edge.provenance.revision.as_str(),
+            ))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    drop(seen);
+    graph.graph.edges.extend(additions);
+    graph.files_indexed = graph
+        .graph
+        .nodes
+        .values()
+        .filter(|node| node.kind == NodeKind::File)
+        .count();
+    graph.node_count = graph.graph.nodes.len();
+    graph.edge_count = graph.graph.edges.len();
+    graph.scan_truncated |= supplemental.scan_truncated;
+    graph.truncated |= supplemental.truncated;
+    graph.graph.validate()?;
+    Ok(graph)
 }
 
 pub(super) fn routing_value(routing: RepoMapRouting) -> Value {
@@ -313,4 +670,16 @@ fn comment_context_signal(query: &str) -> bool {
 
 fn contains_any(query: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| query.contains(needle))
+}
+
+impl super::ToolHarness {
+    pub fn search_syntax(
+        &self,
+        workspace_id: &str,
+        workspace: &crate::workspace::Workspace,
+        request: crate::code_index::SyntaxSearchRequest,
+    ) -> anyhow::Result<Value> {
+        self.code_index
+            .search_ast_nodes(workspace_id, workspace, &request)
+    }
 }

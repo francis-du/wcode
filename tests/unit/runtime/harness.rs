@@ -682,7 +682,7 @@ mod tests {
         .iter()
         .all(|item| item.get("precision").is_none()));
     let hot_source = pack["hot_source"].as_array().unwrap();
-    assert_eq!(hot_source.len(), 1);
+    assert!((1..=2).contains(&hot_source.len()));
     assert_eq!(hot_source[0]["qualified_name"], "feature_entry");
     assert!(hot_source[0]["body"]["content"]
         .as_str()

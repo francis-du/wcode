@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -42,6 +42,18 @@ const C_CALLS_QUERY: &str = r#"
 (call_expression
   function: (field_expression
     field: (field_identifier) @name)) @reference.call
+"#;
+
+const RUST_CALLS_QUERY: &str = r#"
+(call_expression
+  function: (scoped_identifier
+    name: (identifier) @name)) @reference.call
+"#;
+
+const RUST_IMPORTS_QUERY: &str = r#"
+(use_declaration
+  argument: (scoped_identifier
+    name: (identifier) @name) @reference.import)
 "#;
 
 const CSS_TAGS_QUERY: &str = r#"
@@ -130,6 +142,14 @@ const OCAML_INTERFACE_TAGS_QUERY: &str = r#"
 "#;
 
 type LanguageConfigs = HashMap<LanguageId, Arc<LanguageConfig>>;
+
+pub(crate) struct SyntaxSearchRequest {
+    pub(crate) path: String,
+    pub(crate) node_kinds: Vec<String>,
+    pub(crate) text_regex: Option<String>,
+    pub(crate) max_files: usize,
+    pub(crate) max_results: usize,
+}
 
 #[derive(Clone)]
 pub struct CodeIndex {
@@ -261,6 +281,7 @@ struct IndexState {
     files: HashMap<FileKey, Arc<FileRecord>>,
     file_access: HashMap<FileKey, u64>,
     symbol_files: HashMap<String, FileKey>,
+    exact_symbol_files: HashMap<String, HashSet<FileKey>>,
     ast_cache: HashMap<FileKey, AstEntry>,
     access_tick: u64,
 }
@@ -355,6 +376,7 @@ pub(crate) struct SymbolResolution {
 }
 
 mod api;
+mod context;
 #[path = "graph.rs"]
 mod graph_build;
 mod indexing;

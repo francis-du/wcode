@@ -13,7 +13,15 @@ fn audit_narrow_authorization_keeps_approve_and_deny_visible() {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
                 .draw(|frame| {
-                    render_authorization_overlay(frame, frame.area(), &requests, 0, 0, language)
+                    render_authorization_overlay(
+                        frame,
+                        frame.area(),
+                        &requests,
+                        0,
+                        0,
+                        None,
+                        language,
+                    )
                 })
                 .unwrap();
             let rows = terminal

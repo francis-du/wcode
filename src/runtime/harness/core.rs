@@ -34,6 +34,8 @@ impl ToolHarness {
             "context_cache": true,
             "review_changes": true,
             "parallel_change_review": true,
+            "adversarial_review": true,
+            "adversarial_review_policy": "challenge-packet-not-evidence",
             "verify_project": true,
             "phased_parallel_verification": true,
             "verification_exec_without_risky_flag": true,
@@ -369,19 +371,37 @@ impl ToolHarness {
         if semantic_provider::language_for_path(path).is_none() {
             bail!("semantic navigation does not support this source language");
         }
-        if !semantic_provider::provider_available_for_path(workspace, path) {
+        let degraded = |reason: String| {
             let syntax_context = resolved.as_ref().and_then(|symbol| {
                 self.code_index
                     .symbol_context(workspace_id, workspace, &symbol.id, 120)
                     .ok()
             });
-            return Ok(json!({
+            let keyword_matches = request
+                .symbol
+                .as_deref()
+                .and_then(|symbol| workspace.search(symbol, ".", request.max_results).ok())
+                .unwrap_or_default();
+            let syntax_calls = resolved.as_ref().and_then(|symbol| {
+                self.code_index
+                    .syntax_call_navigation_from_matches(
+                        workspace,
+                        symbol,
+                        &keyword_matches,
+                        request.max_results,
+                    )
+                    .ok()
+            });
+            json!({
                 "workspace": workspace_id,
                 "path": path,
-                "provider": "tree-sitter",
+                "provider": "tree-sitter+search",
                 "precision": "syntax",
-                "routing": "tree_sitter_fallback",
-                "reason": "no trusted LSP server is available; using Tree-sitter syntax only. Use find_symbol/search_code for localization and treat cross-file relationships conservatively",
+                "routing": "degraded_syntax_and_keyword_search",
+                "degraded": true,
+                "degraded_from": "lsp",
+                "reason": reason,
+                "fallback_capabilities": ["tree_sitter_symbol_context", "syntax_call_graph", "exact_keyword_search"],
                 "selector": resolved.as_ref().map(|symbol| json!({
                     "name": symbol.name,
                     "qualified_name": symbol.qualified_name,
@@ -391,9 +411,17 @@ impl ToolHarness {
                     "revision": symbol.revision,
                 })),
                 "syntax_context": syntax_context,
-            }));
+                "syntax_calls": syntax_calls,
+                "keyword_matches": keyword_matches,
+            })
+        };
+        if !semantic_provider::provider_available_for_path(workspace, path) {
+            return Ok(degraded(
+                "LSP semantic navigation is unavailable; degraded explicitly to Tree-sitter syntax, bounded syntax call-graph evidence, and exact keyword search."
+                    .to_owned(),
+            ));
         }
-        let navigation = semantic_provider::navigate(
+        let navigation = match semantic_provider::navigate(
             &self.semantic_sessions,
             workspace,
             path,
@@ -402,7 +430,15 @@ impl ToolHarness {
             request.intent,
             request.max_results,
         )
-        .await?;
+        .await
+        {
+            Ok(navigation) => navigation,
+            Err(error) => {
+                return Ok(degraded(format!(
+                    "LSP semantic navigation failed ({error}); degraded explicitly to Tree-sitter syntax, bounded syntax call-graph evidence, and exact keyword search."
+                )));
+            }
+        };
         let mut value = serde_json::to_value(navigation)?;
         value["workspace"] = json!(workspace_id);
         if let Some(symbol) = resolved {

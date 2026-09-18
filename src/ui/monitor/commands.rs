@@ -17,6 +17,7 @@ pub(super) fn render_commands_overlay(
     workspaces: &Workspaces,
     workspace_id: &str,
     offset: usize,
+    status_message: Option<&str>,
     language: UiLanguage,
 ) {
     if !commands_overlay_visible(area) {
@@ -120,7 +121,20 @@ pub(super) fn render_commands_overlay(
             Style::default().fg(TEXT_MUTED),
         ),
     ]));
-    lines.push(Line::from(""));
+    if let Some(message) = status_message {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{}  ", language.tr("STATUS")),
+                Style::default().fg(TEXT_DIM),
+            ),
+            Span::styled(
+                truncate_end(message, inner.width.saturating_sub(10) as usize),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    } else {
+        lines.push(Line::from(""));
+    }
 
     for row in 0..rows {
         let mut spans = Vec::with_capacity(columns);

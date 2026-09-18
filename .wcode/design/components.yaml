@@ -72,12 +72,22 @@
     - temporally replay the learned cost frontier against the canonical phased baseline and fail back to the static plan after four evaluable holdout revisions unless net time savings are positive with zero outcome mismatches; cold-start exploration remains explicit
     - prioritize at most one direct Design-owned and syntax-resolved Rust, Python or Go Acceptance test during quick verification through an exact same-island runner shape, after static checks and without removing or narrowing the full verification plan
     - reuse only short-lived allowlisted static verification passes when code revision, Design revision, exact check shape, execution policy, environment and executable identity all match; behavioral tests, failures, stale/partial revisions and changed inputs always execute again, reuse stays explicit in reports, and reused checks never mint duplicate Evidence
+    - generate bounded model-free adversarial QA from current change-review facts so acceptance, impact, negative paths, test overfit, security, compatibility, minimality, reproducibility and evidence freshness are challenged before completion claims; questions remain non-Evidence until independently proven
   constraints:
     - CONSTRAINT-BOUNDED-VERIFICATION
   implementation:
     - kind: symbol
       path: src/runtime/harness/quality/verification_run.rs
       symbol: ToolHarness::verify_project
+    - kind: symbol
+      path: src/runtime/harness/quality/adversarial.rs
+      symbol: ToolHarness::adversarial_review
+    - kind: symbol
+      path: src/runtime/harness/quality/adversarial.rs
+      symbol: ToolHarness::adversarial_review_with_candidates
+    - kind: symbol
+      path: src/runtime/harness/quality/counterexamples.rs
+      symbol: build
     - kind: symbol
       path: src/runtime/harness/cost.rs
       symbol: apply_historical_cost_model
@@ -104,6 +114,12 @@
     - kind: symbol
       path: src/graph/code_index/indexing.rs
       symbol: CodeIndex::cached_record_if_fresh
+    - kind: symbol
+      path: src/graph/code_index/context.rs
+      symbol: CodeIndex::symbol_context
+    - kind: symbol
+      path: src/graph/code_index/context.rs
+      symbol: CodeIndex::symbol_hot_context
 
 - schema_version: 1
   id: component:design-state

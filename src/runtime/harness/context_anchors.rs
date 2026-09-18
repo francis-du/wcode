@@ -17,53 +17,183 @@ struct Anchor {
 // or proof that the named stack frame is the root cause of a failure.
 fn query_anchors(query: &str) -> Vec<Anchor> {
     let mut seen = BTreeSet::new();
-    query
-        .split_whitespace()
-        .filter_map(|word| {
-            let word = word.trim_matches(['`', '\'', '"', '(', ')', '[', ']', ',', ';']);
-            if word.contains("://") || word.len() > 512 {
-                return None;
-            }
-            let word = word.trim_end_matches(':');
-            let (path, line) = if let Some((path, line)) = word.split_once("#L") {
-                (path, Some(line.parse::<usize>().unwrap_or(0)))
-            } else {
-                let mut path = word;
-                let mut numbers = Vec::new();
-                for _ in 0..2 {
-                    let Some((prefix, suffix)) = path.rsplit_once(':') else {
-                        break;
-                    };
-                    if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
-                        break;
-                    }
-                    numbers.push(suffix.parse::<usize>().unwrap_or(0));
-                    path = prefix;
-                }
-                (path, numbers.last().copied())
+    let mut anchors = Vec::new();
+    // Structured line markers belong to this physical diagnostic line, never
+    // to a later stack frame or an unrelated path elsewhere in the prompt.
+    for line in query.lines() {
+        let words = anchor_words(line);
+        for (index, word) in words.iter().enumerate() {
+            let Some(mut anchor) = parse_anchor_word(word) else {
+                continue;
             };
-            let path = path.replace('\\', "/");
-            let filename = path.rsplit('/').next()?;
-            let extension = filename
-                .rsplit_once('.')
-                .map(|(_, extension)| extension.to_ascii_lowercase())
-                .unwrap_or_default();
-            let canonical_source = crate::semantic_provider::language_for_path(&path).is_some();
-            let auxiliary_source_or_config = [
-                "kt", "kts", "scala", "vue", "svelte", "json", "jsonc", "toml", "yaml", "yml",
-                "md", "txt", "env", "ini", "cfg", "xml", "sql", "proto", "graphql", "gql",
-            ]
-            .contains(&extension.as_str());
-            if !canonical_source && !auxiliary_source_or_config {
-                return None;
+            let following = |offset| {
+                words
+                    .get(index + offset)
+                    .copied()
+                    .unwrap_or("")
+                    .trim_matches([',', ';', ':'])
+            };
+            let line_offset = if index > 0 && words[index - 1] == "File" && following(1) == "line" {
+                Some(2)
+            } else if following(1) == "on" && following(2) == "line" {
+                Some(3)
+            } else {
+                None
+            };
+            if let Some(offset) = line_offset {
+                // A recognized but invalid location stays invalid; it must not
+                // silently become a valid line-one inspection.
+                anchor.line = Some(location_number(following(offset)));
             }
-            if !seen.insert((path.clone(), line)) {
-                return None;
+            if seen.insert((anchor.path.clone(), anchor.line)) {
+                anchors.push(anchor);
+                if anchors.len() == MAX_ANCHORS {
+                    return anchors;
+                }
             }
-            Some(Anchor { path, line })
-        })
-        .take(MAX_ANCHORS)
-        .collect()
+        }
+    }
+    anchors
+}
+
+// Keep quoted paths (including whitespace) as one token. Do not decode escapes,
+// URLs or shell syntax. Malformed quotes are discarded as a whole so a URL or
+// out-of-scope path cannot be reinterpreted as a local filename suffix.
+fn anchor_words(line: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut quote_allowed = true;
+    for (index, character) in line.char_indices() {
+        if let Some(delimiter) = quote {
+            if character == delimiter {
+                quote = None;
+            }
+        } else if character.is_whitespace()
+            || matches!(
+                character,
+                '，' | '。'
+                    | '；'
+                    | '、'
+                    | '：'
+                    | '（'
+                    | '）'
+                    | '【'
+                    | '】'
+                    | '「'
+                    | '」'
+                    | '“'
+                    | '”'
+            )
+        {
+            if start < index {
+                words.push(&line[start..index]);
+            }
+            start = index + character.len_utf8();
+            quote_allowed = true;
+        } else if quote_allowed && matches!(character, '\"' | '\'' | '`') {
+            quote = Some(character);
+            quote_allowed = false;
+        } else if !matches!(character, '(' | '[') {
+            quote_allowed = false;
+        }
+    }
+    if start < line.len() && quote.is_none() {
+        words.push(&line[start..]);
+    }
+    words
+}
+
+fn unquote_location(value: &str) -> &str {
+    for quote in ['\"', '\'', '`'] {
+        if let Some(inner) = value
+            .strip_prefix(quote)
+            .and_then(|rest| rest.strip_suffix(quote))
+        {
+            return inner;
+        }
+    }
+    value
+}
+
+fn location_number(value: &str) -> usize {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return 0;
+    }
+    value.parse().unwrap_or(0)
+}
+
+fn parse_anchor_word(word: &str) -> Option<Anchor> {
+    let mut word = word.trim_end_matches([',', ';', ':']);
+    // Strip balanced presentation wrappers before unquoting, but retain the
+    // compiler's trailing (line,column) because that is part of the location.
+    loop {
+        let inner = [('(', ')'), ('[', ']')]
+            .into_iter()
+            .find_map(|(open, close)| {
+                word.strip_prefix(open)
+                    .and_then(|rest| rest.strip_suffix(close))
+            });
+        match inner {
+            Some(inner) => word = inner,
+            None => break,
+        }
+    }
+    let word = word
+        .trim_start_matches(['(', '['])
+        .trim_end_matches([']', ',', ';', ':']);
+    if word.contains("://") || word.len() > 512 || word.chars().any(char::is_control) {
+        return None;
+    }
+    let word = unquote_location(word);
+    let (path, line) = if let Some((path, point)) = word
+        .rsplit_once('(')
+        .filter(|(_, point)| point.ends_with(')'))
+    {
+        let coordinates = point.trim_end_matches(')').split(',').collect::<Vec<_>>();
+        let valid =
+            coordinates.len() <= 2 && coordinates.iter().all(|number| location_number(number) > 0);
+        (
+            path,
+            Some(if valid {
+                location_number(coordinates[0])
+            } else {
+                0
+            }),
+        )
+    } else {
+        let word = word.trim_end_matches(')');
+        if let Some((path, line)) = word.split_once("#L") {
+            (path, Some(location_number(line)))
+        } else {
+            let mut path = word;
+            let mut numbers = Vec::new();
+            for _ in 0..2 {
+                let Some((prefix, suffix)) = path.rsplit_once(':') else {
+                    break;
+                };
+                if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+                    break;
+                }
+                numbers.push(location_number(suffix));
+                path = prefix;
+            }
+            (path, numbers.last().copied())
+        }
+    };
+    let path = unquote_location(path).replace('\\', "/");
+    let filename = path.rsplit('/').next()?;
+    let extension = filename
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+    let canonical_source = crate::semantic_provider::language_for_path(&path).is_some();
+    let auxiliary_source_or_config = [
+        "kt", "kts", "scala", "vue", "svelte", "json", "jsonc", "toml", "yaml", "yml", "md", "txt",
+        "env", "ini", "cfg", "xml", "sql", "proto", "graphql", "gql",
+    ]
+    .contains(&extension.as_str());
+    (canonical_source || auxiliary_source_or_config).then_some(Anchor { path, line })
 }
 
 fn relative_anchor(workspace: &Workspace, path: &str) -> Option<String> {
@@ -138,6 +268,7 @@ pub(super) fn repo_map(
     query: &str,
     context: &SoftwareContext,
     no_anchors: bool,
+    max_items: usize,
 ) -> Result<Value> {
     if no_anchors
         || !context.scopes.is_empty()
@@ -146,13 +277,7 @@ pub(super) fn repo_map(
         || query_requests_comment_context(query)
         || query_contains_failure_trace(query)
     {
-        return harness.ranked_repo_map(
-            workspace_id,
-            workspace,
-            query,
-            context,
-            MAX_AGENT_REPO_MAP,
-        );
+        return harness.ranked_repo_map(workspace_id, workspace, query, context, max_items);
     }
     Ok(json!({
         "provider": "tree-sitter", "precision": "syntax", "items": [],
@@ -259,18 +384,20 @@ fn retrieve(
             "size": info.size, "readonly": info.readonly,
             "reasons": ["explicit-location"],
         });
+        let mut body = json!({
+            "start_line": view.start_line, "end_line": view.end_line,
+            "content": view.content, "redacted": view.redacted,
+            "truncated": view.end_line < view.total_lines,
+        });
+        // Diagnostic excerpts are source, not prose. Reuse the same original-
+        // prefix/line-range contract as direct symbol context.
+        truncate_source_body(&mut body, MAX_ANCHOR_CHARS);
         record["source"] = json!({
             "id": target["id"], "path": view.path,
             "qualified_name": target["qualified_name"], "signature": target["signature"],
             "provider": "workspace", "precision": "deterministic",
             "sha256": view.sha256,
-            "body": {
-                "start_line": view.start_line, "end_line": view.end_line,
-                "content": short_text(&view.content, MAX_ANCHOR_CHARS),
-                "redacted": view.redacted,
-                "truncated": view.end_line < view.total_lines
-                    || view.content.chars().count() > MAX_ANCHOR_CHARS,
-            },
+            "body": body,
             "calls": [],
         });
         records.push(record);
@@ -321,3 +448,7 @@ pub(super) fn merge(pack: &mut Value, mut records: Vec<Value>) {
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/context_anchors.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/diagnostic_formats.rs"]
+mod diagnostic_formats;

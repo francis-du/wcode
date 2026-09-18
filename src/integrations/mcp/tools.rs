@@ -20,14 +20,14 @@ fn build_tools() -> Vec<Value> {
         tool("semantic_provider_status", "Auto-detect source languages and LSP servers for every indexed language. Reports the selected server, discovery source, install/authorization/initialization action, readiness, and explicit Tree-sitter-only fallback.", schema(json!({}), &[]), true, false),
         tool("language_quality_status", "Inspect the per-language capability matrix across syntax, LSP semantics, repository-declared formatter/linter/type/static/test/security providers, and advanced Property/Mutation/Fuzz/Runtime stages. Support is reported by dimension and explicit gaps rather than one boolean.", schema(json!({}), &[]), true, false),
         tool("language_quality_run", "Run one repository-declared, available, check-only language quality provider through wcode's trusted runtime authorization boundary and persist current-revision Evidence. This lane never invokes formatter fix/write modes.", schema(json!({"language":{"type":"string","enum":["bash","c","cpp","c-sharp","css","dart","elixir","go","html","java","java-script","lua","ocaml","ocaml-interface","php","python","r","ruby","rust","swift","type-script","tsx"]},"provider_id":{"type":"string","minLength":1,"maxLength":160},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &["language","provider_id"]), false, false),
-        tool("semantic_provider_refresh", "Refresh first-party LSP semantics and persist real symbols/relationships. Installed alternates may recover initialization failures. Non-automatic servers require exact RiskyExecution trust; --no-semantic disables LSP execution.", schema(json!({"path":{"type":"string","default":"."},"max_files":{"type":"integer","minimum":1,"maximum":256,"default":128},"max_symbols":{"type":"integer","minimum":1,"maximum":2000,"default":1000}}), &[]), false, false),
-        tool("semantic_navigation", "Use the warm LSP session for cross-file references, calls, implementations, impact, or hover. Prefer find_symbol/search_code for localization; Tree-sitter fallback and LSP failures remain explicit.", schema(json!({"path":{"type":"string"},"symbol":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"character":{"type":"integer","minimum":1},"intent":{"type":"string","enum":["inspect","definition","hover","references","incoming_calls","outgoing_calls","calls","implementations","impact"],"default":"inspect"},"max_results":{"type":"integer","minimum":1,"maximum":100,"default":50}}), &["path"]), true, false),
+        tool("semantic_provider_refresh", "Refresh first-party read-only LSP semantics and persist real symbols/relationships. Hardened automatic providers (currently rust-analyzer and gopls) launch without RiskyExecution prompts; other servers require exact binary-bound trust. LSP write operations are not part of this path; --no-semantic disables LSP execution.", schema(json!({"path":{"type":"string","default":"."},"max_files":{"type":"integer","minimum":1,"maximum":256,"default":128},"max_symbols":{"type":"integer","minimum":1,"maximum":2000,"default":1000}}), &[]), false, false),
+        tool("semantic_navigation", "Use the warm read-only LSP session for cross-file references, calls, implementations, impact, or hover. Hardened automatic providers do not require RiskyExecution approval. On missing/blocked/failed LSP startup the result explicitly reports degraded=true and returns Tree-sitter context plus keyword matches instead of failing silently.", schema(json!({"path":{"type":"string"},"symbol":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"character":{"type":"integer","minimum":1},"intent":{"type":"string","enum":["inspect","definition","hover","references","incoming_calls","outgoing_calls","calls","implementations","impact"],"default":"inspect"},"max_results":{"type":"integer","minimum":1,"maximum":100,"default":50}}), &["path"]), true, false),
         tool("graph_history", "List bounded persisted composite Software Graph snapshots. Identical graph content is deduplicated, so history represents meaningful graph revisions rather than read frequency.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":64,"default":20}}), &[]), true, false),
         tool("graph_query", "Query a persisted Software Graph snapshot by node id/kind/label or by incoming/outgoing relationship. Omit snapshot_id to query the latest snapshot; results remain bounded and include the snapshot/provider precision metadata.", schema(json!({"query":{"type":"object","properties":{"snapshot_id":{"type":"string","minLength":1,"maxLength":160},"node_id":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["product","requirement","acceptance_criterion","constraint","decision","component","package","module","file","symbol","function","struct","trait","class","interface","api","database","queue","config","test","verification","risk","evidence"]},"label_contains":{"type":"string","minLength":1,"maxLength":500},"related_to":{"type":"string","minLength":1,"maxLength":512},"edge_kind":{"type":"string","enum":["contains","defines","references","calls","imports","depends_on","implements","extends","implements_requirement","constrained_by","tested_by","verified_by","guards_against","produces_evidence","runtime_calls","conflicts_with"]},"direction":{"type":"string","enum":["incoming","outgoing","both"]},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}},"additionalProperties":false}}), &["query"]), true, false),
         tool("graph_diff", "Compare two persisted Software Graph revisions without treating provenance revision churn as delete/add noise. Node IDs and stable edge identities are aligned first; true additions/removals and changed attributes/provenance are returned separately with bounded counts. Omit IDs to compare the latest two meaningful graph snapshots.", schema(json!({"diff":{"type":"object","properties":{"from_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"to_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"limit":{"type":"integer","minimum":1,"maximum":200,"default":50}},"additionalProperties":false}}), &[]), true, false),
         tool("traceability_status", "Resolve Requirement → Component → implementation and Acceptance Criterion → verification mapping chains from structured Design State. This reports mapping coverage, not execution or pass status: Engineering Observatory Proof reports acceptance Mapped, Executed, Passed, and Fresh separately. File existence is deterministic; symbol/test resolution uses Tree-sitter syntax precision; Harness check references resolve only when present in the inferred project verification profile.", schema(json!({}), &[]), true, false),
         tool("drift_status", "Compare the current Git change set with Design State traceability and report bounded implementation drift and design drift findings. The result distinguishes desired-state changes that are not reflected in Actual State from design-mapped implementation changes that have no corresponding Design State change.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
-        tool("risk_status", "Assess the current change set, traceability gaps, and drift findings into structured Risk records and a risk-adaptive verification profile. Risk is multi-dimensional evidence for verification depth, not a single quality score.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
+        tool("risk_status", "Assess the current change set, traceability gaps, drift findings, and bounded repository-wide bug-pattern candidates into structured risk evidence and a risk-adaptive verification profile. Bug patterns are reported separately with heuristic precision and do not silently raise the overall risk level.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
         tool("software_context", "Retrieve bounded task-oriented repository intelligence: matching requirements, components, constraints, scoped confirmed semantics, syntax-level symbols, known risks, and traceability coverage. Optional scopes accept canonical wcode Product Scopes (design, graph, semantics, traceability, risk, verification, evidence, reconciliation, workspace, integrations, runtime, experience) or freeform business scopes; recognized product scopes narrow source navigation to the relevant subsystem.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
         tool("agent_context", "Start coding: source, SHA, checks, worklist. Supports file:line or file#Lline; adaptive budget. Omit workspace: choose deepest subspace named by ID/basename in query. Read gaps, edit, verify.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
@@ -58,8 +58,8 @@ fn build_tools() -> Vec<Value> {
         tool("project_context", "Read repository-wide guidance and quality configuration only when agent_context leaves a specific gap. Not a second mandatory startup call; use scoped source tools for implementation details.", schema(json!({}), &[]), true, false),
         tool(
             "review_changes",
-            "Review the current Git change set before verification. Runs bounded Git status, diff-check, and numstat probes in parallel; classifies changed files; adds maintainability signals for 1k-line threshold crossings, concentrated source growth, and cross-Product-Scope churn; and recommends quick or full verification.",
-            schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]),
+            "Review the current Git change set before verification. Set adversarial=true to attach bounded counterexample QA; questions are not Evidence and require independent proof.",
+            schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30},"adversarial":{"type":"boolean","description":"Attach bounded falsification questions without treating them as Evidence."}}), &[]),
             true,
             false,
         ),
@@ -89,8 +89,10 @@ fn build_tools() -> Vec<Value> {
         ),
         tool("verify_project", "Run quick/full checks; fail_fast=false collects all failures. Tasks-capable modern clients get a durable taskId: poll tasks/get, never rerun to poll. Other clients receive synchronous results.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"fail_fast":{"type":"boolean"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &[]), false, false),
         tool("list_files", "Fast recursive file listing inside one workspace root. All regular files are visible except protected credential, repository-control, and wcode-internal paths; symlinks are not followed.", schema(json!({"path":{"type":"string"},"max_entries":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}), &[]), true, false),
-        tool("search_code", "Fast exact-substring search in one workspace. File scanning runs off the async runtime and uses parallel workers.", schema(json!({"query":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":500}}), &["query"]), true, false),
-        tool("search_many", "Search up to 32 exact substrings in one filesystem traversal. Prefer this over repeated search_code calls when looking for several symbols.", schema(json!({"queries":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":1000}}), &["queries"]), true, false),
+        tool("search_code", "Search a string or query array. Single-query auto resolves exact then token-AND in one scan; arrays default exact. Regex and token modes are explicit. Returns SHA, coverage, counts and pagination; output_mode can omit source bodies.", search_schema("query"), true, false),
+        tool("search_many", "Batch up to 32 patterns in one scan. Exact by default; regex/token modes explicit. Deduplicates matching lines, retains query provenance and rare-pattern samples, reports coverage and SHA. Use output_mode for files/counts only; offset continues current-file results.", search_schema("queries"), true, false),
+        tool("scan_patterns", "Scan up to 32 regex patterns together; group hits and deduplicated context by file. Exact/token modes available. Includes per-pattern counts, SHA and explicit partial coverage; findings are text candidates, not proven bugs.", search_schema("patterns"), true, false),
+        tool("search_syntax", "Search real Tree-sitter AST node kinds across the repository, optionally filtering node text with a regex. Returns syntax-precision ranges and bounded excerpts; use this when text grep is too weak for structural bug hunting.", schema(json!({"node_kinds":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"path":{"type":"string"},"text_regex":{"type":"string"},"max_files":{"type":"integer","minimum":1,"maximum":5000,"default":1000},"max_results":{"type":"integer","minimum":1,"maximum":2000,"default":200}}), &["node_kinds"]), true, false),
         tool(
             "file_outline",
             "Inspect definitions and exact ranges in one known source file without loading bodies. Returns syntax-level symbol IDs for symbol_context; use find_symbol when the file is unknown.",
@@ -115,7 +117,7 @@ fn build_tools() -> Vec<Value> {
         ),
         tool(
             "symbol_context",
-            "Read a symbol body and syntax links from a find_symbol/file_outline ID. Preserves original source formatting and line bounds. Skip this when agent_context already includes the needed body.",
+            "Read a symbol body plus bounded same-file caller/callee bodies. Related bodies are syntax-name-match precision and reduce follow-up read_file calls. Skip when agent_context already has the body.",
             schema(json!({
                 "symbol_id": {"type": "string"},
                 "max_body_lines": {"type": "integer", "minimum": 1, "maximum": 1000}
@@ -266,11 +268,30 @@ fn strip_model_tuning_args(value: &mut Value) {
     }
 }
 
+fn search_schema(key: &str) -> Value {
+    let mut properties = json!({
+        "path":{"type":"string"},
+        "mode":{"type":"string","enum":["exact","regex","tokens_all","tokens_any"]},
+        "context_lines":{"type":"integer","minimum":0,"maximum":20},
+        "max_results":{"type":"integer","minimum":1,"maximum":2000},
+        "offset":{"type":"integer","minimum":0,"maximum":10000},
+        "output_mode":{"type":"string","enum":["content","files_with_matches","count_matches"]}
+    });
+    properties[key] = json!({"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}});
+    if key == "query" {
+        properties[key]["type"] = json!(["string", "array"]);
+        properties["mode"]["enum"] = json!(["auto", "exact", "regex", "tokens_all", "tokens_any"]);
+    }
+    schema(properties, &[key])
+}
+
 fn preload_recommended(name: &str) -> bool {
     matches!(
         name,
         "agent_context"
             | "search_many"
+            | "scan_patterns"
+            | "search_syntax"
             | "read_files"
             | "apply_file_edits"
             | "review_changes"
@@ -633,15 +654,35 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
             usize_arg(args, "max_entries").unwrap_or(2_000)
         ),
         "search_code" => format!(
-            "{} · query {} chars · limit {}",
+            "{} · {} · query {} chars · context {} · limit {}",
             path(),
+            string_arg(args, "mode").unwrap_or("auto"),
             string_arg(args, "query").map(str::len).unwrap_or(0),
+            usize_arg(args, "context_lines").unwrap_or(0),
             usize_arg(args, "max_results").unwrap_or(100)
         ),
         "search_many" => format!(
-            "{} · {} queries · limit {}",
+            "{} · {} · {} queries · context {} · limit {}",
             path(),
+            string_arg(args, "mode").unwrap_or("exact"),
             array_len(args, "queries"),
+            usize_arg(args, "context_lines").unwrap_or(0),
+            usize_arg(args, "max_results").unwrap_or(200)
+        ),
+        "scan_patterns" => format!(
+            "{} · {} · {} patterns · context {} · limit {}",
+            path(),
+            string_arg(args, "mode").unwrap_or("regex"),
+            array_len(args, "patterns"),
+            usize_arg(args, "context_lines").unwrap_or(2),
+            usize_arg(args, "max_results").unwrap_or(500)
+        ),
+        "search_syntax" => format!(
+            "{} · {} AST kinds · regex {} chars · files {} · limit {}",
+            path(),
+            array_len(args, "node_kinds"),
+            string_arg(args, "text_regex").map(str::len).unwrap_or(0),
+            usize_arg(args, "max_files").unwrap_or(1_000),
             usize_arg(args, "max_results").unwrap_or(200)
         ),
         "file_outline" => format!(

@@ -475,6 +475,11 @@ pub(super) fn estimated_context_bytes_avoided(
 }
 
 async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, String> {
+    let adversarial = match args.get("adversarial") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err("adversarial must be a boolean when provided".to_owned()),
+    };
     let (workspace_id, workspace) = selected_workspace(state, args)?;
     let timeout_seconds = args
         .get("timeout_seconds")
@@ -485,9 +490,25 @@ async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, St
         .review_changes(workspace_id, &workspace, timeout_seconds, &state.monitor)
         .await
     {
-        Ok(report) => serde_json::to_value(report)
-            .map(|value| tool_result(value, false))
-            .map_err(|error| error.to_string()),
+        Ok(report) => {
+            let mut value = serde_json::to_value(&report).map_err(|error| error.to_string())?;
+            if adversarial {
+                let harness = state.harness.clone();
+                let permit = Arc::new(harness.acquire_tool(false).await?);
+                let packet = super::mcp_tools::BLOCKING_PERMIT
+                    .scope(
+                        permit,
+                        run_blocking(move || {
+                            Ok(harness.adversarial_review_with_candidates(&workspace, &report))
+                        }),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                value["adversarial"] =
+                    serde_json::to_value(packet).map_err(|error| error.to_string())?;
+            }
+            Ok(tool_result(value, false))
+        }
         Err(error) => Ok(tool_result(json!({"error": error.to_string()}), true)),
     }
 }

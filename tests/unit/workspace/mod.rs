@@ -4,6 +4,8 @@ use super::*;
 mod access;
 #[path = "files.rs"]
 mod files;
+#[path = "search.rs"]
+mod search;
 #[test]
 fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
     let dir = tempfile::tempdir().unwrap();

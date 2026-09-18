@@ -1,11 +1,26 @@
 use super::*;
 
+pub(super) fn workspace_input_overlay_visible(area: Rect) -> bool {
+    area.width >= 36 && area.height >= 5
+}
+
+pub(super) fn full_access_overlay_visible(area: Rect) -> bool {
+    area.width >= 48 && area.height >= 12
+}
+
+pub(super) fn authorization_overlay_visible(area: Rect) -> bool {
+    area.width >= 40 && area.height >= 10
+}
+
 pub(super) fn render_workspace_input_overlay(
     frame: &mut Frame<'_>,
     area: Rect,
     input: &str,
     language: UiLanguage,
 ) {
+    if !workspace_input_overlay_visible(area) {
+        return;
+    }
     let width = area.width.saturating_sub(8).clamp(36, 88).min(area.width);
     let height = area.height.saturating_sub(2).clamp(3, 7).min(area.height);
     let popup = Rect::new(
@@ -47,7 +62,7 @@ pub(super) fn render_workspace_input_overlay(
 }
 
 pub(super) fn render_full_access_overlay(frame: &mut Frame<'_>, area: Rect, language: UiLanguage) {
-    if area.width < 48 || area.height < 12 {
+    if !full_access_overlay_visible(area) {
         return;
     }
     let width = area.width.saturating_sub(10).clamp(46, 96);
@@ -109,9 +124,10 @@ pub(super) fn render_authorization_overlay(
     requests: &[AuthorizationRequest],
     focus: usize,
     detail_scroll: usize,
+    status_message: Option<&str>,
     language: UiLanguage,
 ) {
-    if requests.is_empty() || area.width < 40 || area.height < 10 {
+    if requests.is_empty() || !authorization_overlay_visible(area) {
         return;
     }
     let focus = focus.min(requests.len() - 1);
@@ -200,7 +216,15 @@ pub(super) fn render_authorization_overlay(
     }
     let wide_controls = inner.width >= 64;
     let control_rows = if wide_controls { 2 } else { 1 };
-    let detail_rows = usize::from(inner.height).saturating_sub(visible + 1 + control_rows);
+    let status_rows = usize::from(status_message.is_some());
+    let detail_rows =
+        usize::from(inner.height).saturating_sub(visible + 1 + control_rows + status_rows);
+    if let Some(message) = status_message {
+        lines.push(Line::from(Span::styled(
+            truncate_end(message, usize::from(inner.width)),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )));
+    }
     if detail_rows > 0 {
         lines.push(Line::styled(
             if language == UiLanguage::ZhCn {
@@ -228,7 +252,10 @@ pub(super) fn render_authorization_overlay(
         lines.push(Line::from(vec![
             keycap("A"),
             Span::styled(
-                format!(" {}", language.tr("authorize all commands")),
+                format!(
+                    " {}",
+                    language.tr("authorize commands for request workspace")
+                ),
                 Style::default().fg(WARNING),
             ),
         ]));
@@ -372,8 +399,10 @@ pub(super) fn render_help_overlay(
                 help_hint_line("C", language.tr("show supported commands")),
                 help_hint_line("O", language.tr("open Connector setup")),
                 help_hint_line("W", language.tr("open Engineering Observatory")),
-                help_hint_line("L", language.tr("toggle language")),
-                help_hint_line("P", language.tr("grant full user access")),
+                help_hint_line(
+                    "L / + / P",
+                    language.tr("language / add workspace / full access"),
+                ),
                 help_hint_line(
                     "A / ↑↓ Y/N",
                     language.tr("all / select / approve / deny authorization"),
@@ -381,7 +410,11 @@ pub(super) fn render_help_overlay(
                 help_hint_line("? / Esc", language.tr("open or close help")),
                 help_hint_line("^C", language.tr("stop wcode")),
                 pairing_code_line(config, language),
-                help_link_line(language.tr("Project"), &config.project_url, inner.width),
+                help_link_line(
+                    &format!("G {}", language.tr("Project")),
+                    &config.project_url,
+                    inner.width,
+                ),
                 help_link_line(
                     &format!(
                         "{} {}",
@@ -420,10 +453,11 @@ pub(super) fn render_help_overlay(
             help_hint_line("I", language.tr("show repository intelligence")),
             help_hint_line("C", language.tr("show supported commands")),
             help_hint_line("L", language.tr("toggle language")),
+            help_hint_line("+", language.tr("add workspace")),
             help_hint_line("P", language.tr("grant full user access")),
             help_hint_line(
                 "A",
-                language.tr("authorize all commands for selected workspace"),
+                language.tr("authorize all commands for focused workspace"),
             ),
             help_hint_line(
                 "F",
@@ -487,7 +521,7 @@ pub(super) fn render_help_overlay(
             Line::from(""),
             pairing_code_line(config, language),
             help_link_line(
-                language.tr("Project"),
+                &format!("G {}", language.tr("Project")),
                 &config.project_url,
                 columns[1].width,
             ),
@@ -533,10 +567,10 @@ pub(super) fn help_link_at(
             point,
             inner,
             &[
-                (10, config.project_url.as_str()),
-                (11, config.author_url.as_str()),
-                (12, setup_url.as_str()),
-                (13, config.local_health_url.as_str()),
+                (9, config.project_url.as_str()),
+                (10, config.author_url.as_str()),
+                (11, setup_url.as_str()),
+                (12, config.local_health_url.as_str()),
             ],
         );
     }

@@ -1,0 +1,33 @@
+schema_version: 1
+id: component:engineering-fitness
+name: Model-free Engineering Fitness development checks and trials
+responsibilities:
+  - freeze authored source fixtures and path-qualified Gold evidence outside the measured workspace
+  - distinguish delivered symbols from independently checked current SHA and full original source bodies
+  - measure syntax relationships and deterministic edit and workspace controls without invoking models
+  - preserve rejected requests and missing evidence in explicit result accounting
+  - emit create-only JSON and Markdown trial reports with samples and revision provenance
+  - keep local cost measurements and unmeasured capabilities separate from model coding success
+implementation:
+  - {kind: file, path: tests/unit/runtime/harness/engineering_fitness.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/corpus.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/scoring.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/controls.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/report.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/challenges.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/packing.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/graph_checks.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/report_checks.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/delivery.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/delivery_checks.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/breakdown.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/tight.rs}
+  - {kind: file, path: tests/unit/runtime/harness/fitness/multitarget.rs}
+depends_on:
+  - component:agent-context
+  - component:software-graph
+  - component:workspace-security
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-CONTEXT-BUDGET

@@ -1,4 +1,6 @@
-use super::graph_build::{append_cross_file_call_edges, append_file_graph, definition_count};
+use super::graph_build::{
+    append_cross_file_call_edges, append_file_graph, definition_count, select_graph_definitions,
+};
 use super::symbols::remove_file_record;
 use super::*;
 
@@ -15,6 +17,12 @@ fn build_language_configs() -> Result<Arc<LanguageConfigs>> {
     );
     let c_tags = format!("{}\n{}", tree_sitter_c::TAGS_QUERY, C_CALLS_QUERY);
     let cpp_tags = format!("{}\n{}", tree_sitter_cpp::TAGS_QUERY, C_CALLS_QUERY);
+    let rust_tags = format!(
+        "{}\n{}\n{}",
+        tree_sitter_rust::TAGS_QUERY,
+        RUST_CALLS_QUERY,
+        RUST_IMPORTS_QUERY
+    );
     let ocaml_interface_tags = format!(
         "{}\n{}",
         tree_sitter_ocaml::TAGS_QUERY,
@@ -106,7 +114,7 @@ fn build_language_configs() -> Result<Arc<LanguageConfigs>> {
         LanguageConfig::new(
             LanguageId::Rust,
             tree_sitter_rust::LANGUAGE.into(),
-            tree_sitter_rust::TAGS_QUERY,
+            &rust_tags,
         )?,
         LanguageConfig::new(
             LanguageId::Swift,
@@ -238,24 +246,27 @@ impl CodeIndex {
     ) -> Result<SoftwareGraphSnapshot> {
         let max_files = max_files.clamp(1, MAX_GRAPH_FILES);
         let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
-        self.software_graph_from_paths(
-            workspace_id.into(),
+        let mut snapshot = self.software_graph_from_paths(
             workspace,
-            path,
             paths,
             scan_truncated,
             max_symbols,
-        )
+            &HashSet::new(),
+            &HashSet::new(),
+        )?;
+        snapshot.workspace = workspace_id.into();
+        snapshot.path = path.to_owned();
+        Ok(snapshot)
     }
 
     pub(crate) fn software_graph_from_paths(
         &self,
-        workspace_id: String,
         workspace: &Workspace,
-        path: &str,
         paths: Vec<String>,
         scan_truncated: bool,
         max_symbols: usize,
+        priority_symbol_ids: &HashSet<String>,
+        priority_symbol_names: &HashSet<String>,
     ) -> Result<SoftwareGraphSnapshot> {
         let max_symbols = max_symbols.clamp(1, MAX_GRAPH_SYMBOLS);
         let supported = paths
@@ -268,25 +279,14 @@ impl CodeIndex {
             .collect::<Vec<_>>();
 
         let mut graph = SoftwareGraph::default();
-        let mut files_indexed = 0usize;
         let mut files_failed = 0usize;
         let mut failures = Vec::new();
-        let mut symbols_added = 0usize;
         let mut graph_truncated = false;
         let mut indexed_records = Vec::new();
 
         for (path, outcome) in supported.iter().zip(outcomes) {
             match outcome {
-                Ok(ensured) => {
-                    files_indexed = files_indexed.saturating_add(1);
-                    let remaining = max_symbols.saturating_sub(symbols_added);
-                    let appended = append_file_graph(&mut graph, &ensured.record, remaining)?;
-                    symbols_added = symbols_added.saturating_add(appended);
-                    if appended < definition_count(&ensured.record) {
-                        graph_truncated = true;
-                    }
-                    indexed_records.push(ensured.record);
-                }
+                Ok(ensured) => indexed_records.push(ensured.record),
                 Err(error) => {
                     files_failed = files_failed.saturating_add(1);
                     if failures.len() < MAX_REPORTED_SCAN_ERRORS {
@@ -298,13 +298,26 @@ impl CodeIndex {
                 }
             }
         }
+        let selected = select_graph_definitions(
+            &indexed_records,
+            max_symbols,
+            priority_symbol_ids,
+            priority_symbol_names,
+        );
+        let files_indexed = indexed_records.len();
+        for (record, selection) in indexed_records.iter().zip(&selected) {
+            let appended = append_file_graph(&mut graph, record, selection)?;
+            if appended < definition_count(record) {
+                graph_truncated = true;
+            }
+        }
         append_cross_file_call_edges(&mut graph, &indexed_records)?;
         graph.validate()?;
         let node_count = graph.nodes.len();
         let edge_count = graph.edges.len();
         Ok(SoftwareGraphSnapshot {
-            workspace: workspace_id,
-            path: path.to_owned(),
+            workspace: String::new(),
+            path: String::new(),
             provider: "tree-sitter".to_owned(),
             precision: GraphPrecision::Syntax,
             files_considered: supported.len(),
@@ -676,6 +689,84 @@ impl CodeIndex {
         }))
     }
 
+    /// Fast, bounded seed lookup for agent context when the caller already has
+    /// a code-shaped exact identifier. This is intentionally not the public
+    /// exhaustive symbol search: cached candidates are revalidated against the
+    /// filesystem, and an empty result tells the caller to use the normal scan.
+    pub(crate) fn cached_exact_symbols_many(
+        &self,
+        workspace: &Workspace,
+        queries: &[String],
+        kind: Option<&str>,
+        max_results: usize,
+    ) -> Result<Vec<Value>> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let max_results = max_results.clamp(1, MAX_SYMBOL_RESULTS);
+        let candidate_paths = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("code index state poisoned"))?;
+            let mut paths = BTreeSet::new();
+            for query in queries {
+                let exact_key = query.to_ascii_lowercase();
+                if let Some(files) = state.exact_symbol_files.get(&exact_key) {
+                    paths.extend(
+                        files
+                            .iter()
+                            .filter(|key| key.root == workspace.root())
+                            .map(|key| key.path.clone()),
+                    );
+                }
+            }
+            paths.into_iter().collect::<Vec<_>>()
+        };
+        if candidate_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut matches = Vec::new();
+        for path in candidate_paths {
+            let ensured = match self.ensure_indexed(workspace, &path, false) {
+                Ok(ensured) => ensured,
+                Err(_) => return Ok(Vec::new()),
+            };
+            for symbol in ensured
+                .record
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.is_definition)
+            {
+                if !kind.is_none_or(|kind| symbol.kind.eq_ignore_ascii_case(kind)) {
+                    continue;
+                }
+                let Some(query_index) = queries.iter().position(|query| {
+                    symbol.name.eq_ignore_ascii_case(query)
+                        || symbol.qualified_name.eq_ignore_ascii_case(query)
+                }) else {
+                    continue;
+                };
+                matches.push((query_index, symbol.clone()));
+            }
+        }
+        matches.sort_by(|(left_query, left), (right_query, right)| {
+            left_query
+                .cmp(right_query)
+                .then_with(|| left.qualified_name.cmp(&right.qualified_name))
+                .then_with(|| left.path.cmp(&right.path))
+                .then_with(|| left.start_byte.cmp(&right.start_byte))
+        });
+        let mut seen = HashSet::new();
+        Ok(matches
+            .into_iter()
+            .filter(|(_, symbol)| seen.insert(symbol.id.clone()))
+            .take(max_results)
+            .filter_map(|(_, symbol)| serde_json::to_value(symbol).ok())
+            .collect())
+    }
+
     pub(crate) fn symbol_metadata(
         &self,
         workspace: &Workspace,
@@ -711,150 +802,5 @@ impl CodeIndex {
             "provider": symbol.provider,
             "precision": symbol.precision,
         }))
-    }
-
-    pub fn symbol_context(
-        &self,
-        workspace_id: impl Into<String>,
-        workspace: &Workspace,
-        symbol_id: &str,
-        max_body_lines: usize,
-    ) -> Result<Value> {
-        let workspace_id = workspace_id.into();
-        let key = {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| anyhow!("code index state poisoned"))?;
-            state
-                .symbol_files
-                .get(symbol_id)
-                .filter(|key| key.root == workspace.root())
-                .cloned()
-        }
-        .ok_or_else(|| anyhow!("unknown symbol_id; call find_symbol or file_outline first"))?;
-
-        for _ in 0..2 {
-            if let Some(context) = self.symbol_context_snapshot(
-                &workspace_id,
-                workspace,
-                &key,
-                symbol_id,
-                max_body_lines,
-            )? {
-                return Ok(context);
-            }
-        }
-        bail!("source changed repeatedly while reading symbol context; retry after edits settle")
-    }
-
-    fn symbol_context_snapshot(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        key: &FileKey,
-        symbol_id: &str,
-        max_body_lines: usize,
-    ) -> Result<Option<Value>> {
-        let ensured = self.ensure_indexed(workspace, &key.path, true)?;
-        let symbol = ensured
-            .record
-            .symbols
-            .iter()
-            .find(|symbol| symbol.id == symbol_id)
-            .cloned()
-            .ok_or_else(|| anyhow!("symbol changed since it was indexed; run find_symbol again"))?;
-
-        let max_body_lines = max_body_lines.clamp(1, MAX_CONTEXT_BODY_LINES);
-        let start_line = symbol.range.start_line;
-        let requested_end = start_line
-            .saturating_add(max_body_lines.saturating_sub(1))
-            .min(symbol.body_end_line.max(start_line));
-        let body = workspace.read_file(&symbol.path, start_line, Some(requested_end))?;
-        if body.sha256 != ensured.record.sha256 {
-            // Metadata is a cache hint, not proof of content identity. Never
-            // attach old ranges, signatures or call relations to a new body.
-            self.invalidate(workspace.root(), &key.path);
-            return Ok(None);
-        }
-        let body_truncated = requested_end < symbol.body_end_line;
-
-        let mut calls = ensured
-            .record
-            .symbols
-            .iter()
-            .filter(|candidate| {
-                !candidate.is_definition
-                    && candidate.kind == "call"
-                    && candidate.start_byte >= symbol.start_byte
-                    && candidate.end_byte <= symbol.end_byte
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        calls.sort_by(|left, right| {
-            left.start_byte
-                .cmp(&right.start_byte)
-                .then_with(|| left.name.cmp(&right.name))
-        });
-        let mut seen_calls = HashSet::new();
-        calls.retain(|call| seen_calls.insert((call.name.clone(), call.range.start_line)));
-        calls.truncate(100);
-
-        let mut nested_symbols = ensured
-            .record
-            .symbols
-            .iter()
-            .filter(|candidate| {
-                candidate.is_definition
-                    && candidate.id != symbol.id
-                    && candidate.start_byte >= symbol.start_byte
-                    && candidate.end_byte <= symbol.end_byte
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        nested_symbols.sort_by_key(|candidate| candidate.start_byte);
-        nested_symbols.truncate(100);
-
-        let call_names = calls
-            .iter()
-            .map(|call| call.name.as_str())
-            .collect::<HashSet<_>>();
-        let mut local_definitions = ensured
-            .record
-            .symbols
-            .iter()
-            .filter(|candidate| {
-                candidate.is_definition && call_names.contains(candidate.name.as_str())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        local_definitions.sort_by(|left, right| left.name.cmp(&right.name));
-        local_definitions.dedup_by(|left, right| left.id == right.id);
-        local_definitions.truncate(50);
-
-        let ast = self.ast_info(key, &ensured.record.sha256);
-        Ok(Some(json!({
-            "workspace": workspace_id,
-            "symbol": symbol,
-            "provider": "tree-sitter",
-            "precision": "syntax",
-            "symbol_cache_hit": ensured.symbol_cache_hit,
-            "ast_cache_hit": ensured.ast_cache_hit,
-            "parse_errors": ensured.record.parse_errors,
-            "sha256": body.sha256,
-            "source_bytes": ensured.record.source_bytes,
-            "body": {
-                "start_line": body.start_line,
-                "end_line": body.end_line,
-                "total_lines": body.total_lines,
-                "content": body.content,
-                "redacted": body.redacted,
-                "truncated": body_truncated,
-            },
-            "syntax_calls": calls,
-            "same_file_call_targets": local_definitions,
-            "nested_symbols": nested_symbols,
-            "ast": ast,
-        })))
     }
 }

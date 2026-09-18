@@ -1,0 +1,53 @@
+schema_version: 1
+id: AC-FAST-CONTEXT-001
+title: Direct edit context is complete when it fits and remains source-faithful
+statement: >-
+  A bounded fast context path prioritizes up to four explicitly named direct symbols ahead of recall-only seeds and related bodies. Four short direct bodies and their matching file SHA preconditions fit the tested adaptive and fixed budgets without follow-up body reads. A requested caller/callee expansion cannot replace another explicit target or an already selected ranked body. At the minimum 1000-token budget, bounded preparation may include two ranked bodies and one unseen related body; the final serialized cap decides delivery rather than a preparation threshold. Relationship expansion skips already delivered bodies before choosing an unseen candidate. Under budget pressure, redundant signature and call-summary metadata across all bodies yields before source or file SHA preconditions; identity, source bytes, provenance and redaction remain intact. Hot Source shares the normal symbol freshness and Workspace checks but does not construct related bodies or rebuild an evicted AST that its consumer would discard. Any abbreviated code is an original UTF-8 prefix, with the actual returned line range and sticky truncation metadata instead of invented ellipses. Graph symbol budgets reserve explicit targets across all files before their callers and unrelated fillers; a large early file or many earlier callers cannot starve a later exact definition while budget is available. Bulk graph construction retains final validation, and supplemental merging deduplicates full-provenance edges without repeated full-list scans or mixing conflicting source revisions. Tiny budgets remain hard caps and preserve path, symbol identity, source precision, SHA, line bounds and redaction state. Diagnostic anchors recognize explicit CJK punctuation boundaries without granting path authority; their snippets obey the same original-prefix contract. Structured diagnostics resolve Python File/line, compiler path(line,column), and on-line markers on the same physical line. Quoted paths preserve spaces and Unicode without decoding URLs or shell syntax; duplicate frames are removed before the four-location cap. Recognized invalid coordinates remain invalid rather than silently reading line one. Quoted traversal, external absolute paths and symlinks retain the existing Workspace checks. Unredacted file reads preserve interior LF/CRLF/mixed separators and the existing omitted-final-terminator convention. A diagnostic snippet can directly drive a guarded edit, while reusing its old SHA after mutation is rejected. Unrelated, stale, empty or redacted source cannot alone mark a direct target edit-ready; incomplete target coverage remains advisory rather than a claim of full delivery. Benchmarks report local Harness invocations, body coverage, response bytes and observed latency separately; they are not model-accuracy rankings or fuzz/mutation evidence.
+  Compaction preserves file SHA and readonly entries for retained bodies. Duplicate signatures may yield only to same-ID, same-file-revision complete source. Reconstructible lane targets and fallback explanations yield before evidence; query echoes removed from output are excluded with a downward-rounded allowance while preserving the original delivered byte cap.
+  Bounded candidate slots reserve one definition per explicit literal before duplicate name matches. Implementation requests prefer definitions over same-named module wrappers; explicit module requests preserve the module. Source-backed target summaries may inherit matching provenance defaults and omit redundant ranges only when a complete same-ID/current-SHA body retains them. If that body is removed or shortened, original coordinates are restored for follow-up reads; stale/redacted/partial evidence cannot justify compaction.
+verification:
+  - {kind: test, path: tests/unit/graph/budget.rs, symbol: graph_budget_reserves_priority_across_files}
+  - {kind: test, path: tests/unit/graph/budget.rs, symbol: graph_budget_keeps_exact_target_ahead_of_many_callers}
+  - {kind: test, path: tests/unit/graph/budget.rs, symbol: graph_budget_preserves_unprioritized_order_and_hard_limit}
+  - {kind: test, path: tests/unit/runtime/harness/repo_merge.rs, symbol: repo_merge_matches_legacy_order_and_full_provenance_identity}
+  - {kind: test, path: tests/unit/runtime/harness/repo_merge.rs, symbol: repo_merge_rejects_mixed_source_revisions}
+  - {kind: test, path: tests/unit/runtime/harness/repo_merge.rs, symbol: repo_merge_still_validates_endpoints_and_self_edges}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_covers_every_explicit_target_without_followup_reads}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_does_not_replace_explicit_body_with_related_helper}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_compaction_keeps_original_prefix_and_actual_line_bounds}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_unicode_prefix_matrix_preserves_bounds_and_truncation}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_tiny_budgets_keep_original_source_prefixes}
+  - {kind: test, path: tests/unit/graph/context.rs, symbol: hot_context_skips_unused_related_bodies_and_ast_reconstruction}
+  - {kind: test, path: tests/unit/graph/context.rs, symbol: hot_context_rejects_cross_workspace_ids_and_refreshes_equal_length_edits}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_cjk_separators_preserve_real_paths}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_relative_paths_keep_leading_dots}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_anchor_snippets_keep_exact_prefix_and_range}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_report_to_guarded_edit_preserves_original_newlines}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_read_windows_match_original_bytes_at_eof}
+  - {kind: test, path: tests/unit/runtime/harness/context_anchors.rs, symbol: diagnostic_context_redacted_excerpt_never_becomes_edit_ready}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: diagnostic_context_compaction_preserves_edit_identity_and_redaction}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: diagnostic_context_readiness_rejects_unusable_target_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_python_frames_keep_line_and_quoted_spaces}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_compilers_keep_parenthesized_line_and_column}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_php_keeps_on_line_location}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_quoted_locations_preserve_whole_path}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_wrappers_preserve_quoted_locations}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_matrix_keeps_duplicate_frames_bounded_and_line_scoped}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_invalid_frame_lines_do_not_fall_back_to_file_start}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_invalid_locations_never_read_existing_file}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_quoted_paths_keep_workspace_boundaries}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_url_frames_are_not_reinterpreted_as_local_suffixes}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_malformed_or_oversized_quotes_do_not_emit_local_suffixes}
+  - {kind: test, path: tests/unit/runtime/harness/diagnostic_formats.rs, symbol: trace_format_single_context_call_supplies_exact_line_for_guarded_edit}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: context_packing_compacts_body_metadata_before_losing_sha}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_2k_includes_cross_file_caller_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_related_expansion_keeps_ranked_bodies}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/packing.rs, symbol: engineering_fitness_packing_tight_source_keeps_matching_file_sha}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: context_packing_duplicate_signatures_require_matching_identity_and_revision}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_escaped_query_never_buys_extra_delivered_bytes}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/tight.rs, symbol: engineering_fitness_tight_three_short_bodies_keep_source_and_sha}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: context_packing_source_backed_metadata_is_revision_bound}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: context_packing_evicted_body_restores_followup_coordinates}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/multitarget.rs, symbol: engineering_fitness_multitarget_four_files_keep_each_body_and_sha}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/multitarget.rs, symbol: engineering_fitness_multitarget_explicit_module_wins_its_name_collision}
+  - {kind: check, id: rust-test}

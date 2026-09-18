@@ -58,16 +58,14 @@ pub(crate) fn state(workspace: &Workspace, max_files: usize) -> Result<SemanticA
     let file_count = inputs.len();
     let mut hasher = Sha256::new();
     let mut first = true;
-    for (path, (len, modified_nanos)) in &inputs {
+    for (path, stamp) in &inputs {
         if !first {
             hasher.update(b"\n");
         }
         first = false;
         hasher.update(path.as_bytes());
         hasher.update(b":");
-        hasher.update(len.to_string().as_bytes());
-        hasher.update(b":");
-        hasher.update(modified_nanos.to_string().as_bytes());
+        stamp.update_sha256(&mut hasher);
     }
     for (provider, executable) in &providers {
         let metadata = std::fs::metadata(executable).ok();

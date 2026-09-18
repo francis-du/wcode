@@ -222,7 +222,7 @@ impl Workspace {
             bail!("path is not a file");
         }
         let stamp = source_stamp(&metadata);
-        Ok((stamp.len, stamp.modified_nanos))
+        Ok(stamp.metadata_stamp())
     }
 
     pub(crate) fn load_source(&self, path: &str) -> Result<SourceDocument> {
@@ -367,7 +367,7 @@ impl Workspace {
             let stamps = if capture_stamps {
                 let metadata = fs::metadata(&start)?;
                 let stamp = source_stamp(&metadata);
-                Some(vec![(stamp.len, stamp.modified_nanos)])
+                Some(vec![stamp.metadata_stamp()])
             } else {
                 None
             };
@@ -389,6 +389,7 @@ impl Workspace {
         let mut cpu_slice = Some(crate::resource::cpu_work(work_class));
         for entry in WalkDir::new(start)
             .follow_links(false)
+            .sort_by_file_name()
             .into_iter()
             .filter_entry(visible_entry)
             .filter_map(|entry| entry.ok())
@@ -430,7 +431,7 @@ impl Workspace {
             ));
             if let (Some(stamps), Some(metadata)) = (stamps.as_mut(), metadata.as_ref()) {
                 let stamp = source_stamp(metadata);
-                stamps.push((stamp.len, stamp.modified_nanos));
+                stamps.push(stamp.metadata_stamp());
             }
         }
         if let Some(stamps) = stamps.as_mut() {
