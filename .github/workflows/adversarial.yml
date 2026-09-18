@@ -76,7 +76,7 @@ jobs:
       - name: Run all 30 rounds against stable inputs
         run: |
           git rev-parse HEAD > target/wcode-audit-revision.txt
-          node tests/release_audit.cjs
+          node tests/release_audit.cjs --require-clean
       - name: Retain revision-bound audit results
         if: always()
         uses: actions/upload-artifact@v7

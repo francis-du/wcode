@@ -1,0 +1,32 @@
+schema_version: 1
+id: AC-CLI-001
+title: CLI exposes a compact stable catalog one-command setup and verified self-update
+statement: Default help presents the explicit runtime command contract with setup/update/mcp-stdio/intelligence/verification and the discoverable help-all reference entry, omits the redundant generated help command and low-frequency advanced flags, keeps only agent-plugin as a hidden advanced export control, rejects removed restart/stop commands, and exposes update without requiring Workspace initialization. Foreground lifecycle is Ctrl-C/SIGTERM owned and stdio lifecycle is MCP-Host owned with no separate runtime-control route/state file. Setup provides the safe Global-first / Current-project Agent host installer while local MCP configuration remains path-free and current-directory scoped. Self-update targets the running installation unless explicitly overridden and preserves checksum, staged smoke-test and replace-after-success behavior on Unix and Windows. Performance presets preserve default budgets and explicit override precedence; configuration previews have no startup or authorization side effects, common flags work after subcommands, contradictory restrictions fail before startup and setup never silently ignores extra roots. Setup validates overrides before writes, saves the selected performance and restrictive runtime arguments consistently across supported Host formats, reports the planned launch, and applies the reviewed global plan with its original SHA preconditions.
+verification:
+  - {kind: test, path: tests/cli.rs, symbol: help_exposes_the_stable_agent_and_transport_commands}
+  - {kind: test, path: tests/cli.rs, symbol: complete_help_exposes_hidden_options_without_starting_the_runtime}
+  - {kind: test, path: tests/cli.rs, symbol: complete_help_targets_a_command_without_executing_it}
+  - {kind: test, path: tests/cli.rs, symbol: complete_help_json_is_declarative_and_scoped}
+  - {kind: test, path: tests/cli.rs, symbol: complete_help_rejects_invalid_paths_without_running_commands}
+  - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_covers_every_declared_command_and_argument}
+  - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_preserves_the_original_parser_and_compact_help}
+  - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_inherits_globals_and_retains_value_and_alias_metadata}
+  - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_recurses_into_hidden_nested_commands}
+  - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_output_handles_closed_pipes_but_not_other_io_failures}
+  - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_presets_keep_defaults_and_explicit_overrides}
+  - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_preview_reports_effective_limits_and_origins_without_activation}
+  - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_rejects_invalid_overrides_and_contradictory_modes}
+  - {kind: test, path: tests/unit/app/setup.rs, symbol: setup_scope_retries_invalid_choices_and_eof_never_means_consent}
+  - {kind: test, path: tests/cli.rs, symbol: configuration_preview_is_pure_and_global_options_work_after_subcommands}
+  - {kind: test, path: tests/cli.rs, symbol: setup_rejects_multiple_roots_instead_of_silently_selecting_the_first}
+  - {kind: test, path: tests/cli.rs, symbol: contradictory_safety_and_connection_flags_fail_before_startup}
+  - {kind: test, path: tests/cli.rs, symbol: setup_saves_selected_runtime_options_across_host_formats}
+  - {kind: test, path: tests/cli.rs, symbol: setup_validates_resource_overrides_before_writing_configuration}
+  - {kind: test, path: tests/unit/app/resources.rs, symbol: setup_launch_options_round_trip_without_persisting_authority}
+  - {kind: test, path: tests/unit/integrations/agent/install.rs, symbol: configured_global_setup_uses_reviewed_launch_options_and_file_versions}
+  - {kind: test, path: tests/cli.rs, symbol: update_help_is_stable_and_hidden_agent_plugin_remains_compatible}
+  - {kind: test, path: tests/cli.rs, symbol: setup_dry_run_is_structured_and_does_not_write}
+  - {kind: test, path: tests/unit/app/update.rs, symbol: update_targets_the_running_binary_directory_unless_explicitly_overridden}
+  - {kind: test, path: tests/unit/app/update.rs, symbol: embedded_unix_installer_keeps_checksum_smoke_and_atomic_replace_contract}
+  - {kind: test, path: tests/release_contract.rs, symbol: windows_installer_stages_and_smoke_tests_before_replacement}
+  - {kind: check, id: rust-test}

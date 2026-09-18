@@ -74,6 +74,28 @@ fn seed_engineering_state(monitor: &TaskMonitor, workspace: &str) {
 }
 
 #[test]
+fn wide_dashboard_puts_activity_and_engineering_control_rail_side_by_side() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.mark_mcp_initialized();
+    seed_engineering_state(&monitor, "backend");
+    let mut task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
+    task.start();
+
+    let text = monitor_test_text(&monitor, &config, 120, 34, &DashboardState::default());
+    let row = text
+        .lines()
+        .find(|line| line.contains("WORKSPACE ACTIVITY"))
+        .expect("wide dashboard must render the activity title");
+    assert!(
+        row.contains("ENGINEERING PULSE"),
+        "engineering pulse should live in the right control rail, not above activity: {row}"
+    );
+    assert!(text.contains("read_file"));
+}
+
+#[test]
 fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = monitor_test_config(workspaces);
@@ -88,10 +110,15 @@ fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones()
     assert!(roomy.contains('╭'));
     assert!(roomy.contains('╰'));
     assert!(roomy.contains("ARCH"));
+    assert!(roomy.contains("DRIFT"));
     assert!(roomy.contains("PROOF"));
-    assert!(roomy.contains("POLICY"));
-    assert!(roomy.contains("1 errors · 2 warnings"));
+    assert!(roomy.contains("MODEL"));
+    assert!(roomy.contains("policy 1/2"));
     assert!(roomy.contains("read_file"));
+
+    let medium = monitor_test_text(&monitor, &config, 100, 32, &DashboardState::default());
+    assert!(!medium.contains("ENGINEERING PULSE"));
+    assert!(medium.contains("read_file"));
 
     let compact = monitor_test_text(&monitor, &config, 80, 20, &DashboardState::default());
     assert!(!compact.contains("ENGINEERING PULSE"));

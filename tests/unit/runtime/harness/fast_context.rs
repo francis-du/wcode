@@ -69,6 +69,43 @@ fn fast_context_covers_every_explicit_target_without_followup_reads() {
 }
 
 #[test]
+fn fast_context_exposes_advisory_decision_plane_when_budget_allows() {
+    let (_root, workspace) = fixture();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context(
+            "demo",
+            &workspace,
+            "feature_entry callers and references",
+            12_000,
+            &[],
+        )
+        .unwrap();
+
+    let decisions = &pack["decision_plane"];
+    assert_eq!(decisions["schema_version"], "0.1.0");
+    assert_eq!(decisions["policy"]["authority"], "advisory_only");
+    assert_eq!(decisions["policy"]["can_reduce_safety"], false);
+    assert_eq!(
+        decisions["policy"]["deterministic_verification_floor"],
+        true
+    );
+    assert!(decisions["signals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|signal| { signal["id"] == "next_action" && signal["mode"] == "assist" }));
+    assert!(decisions["signals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|signal| {
+            signal["id"] == "semantic_navigation_value"
+                && signal["recommendation"] == "prefer_semantic_navigation"
+        }));
+}
+
+#[test]
 fn fast_context_does_not_replace_explicit_body_with_related_helper() {
     let (_root, workspace) = fixture();
     let harness = ToolHarness::new(4).unwrap();

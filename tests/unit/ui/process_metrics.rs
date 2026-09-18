@@ -19,7 +19,7 @@ fn process_queue_labels_separate_occupancy_from_waiters() {
     };
     assert_eq!(
         process_queue_text(&resources),
-        "PROC 2/2 · GIT 1/4 · Q 5 · WAIT 41ms"
+        "PROC 2/2 · GIT 1/4 · Q 5 · PEAK 41ms"
     );
 }
 

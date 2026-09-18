@@ -1,11 +1,23 @@
 use super::*;
 use std::time::Duration;
 
+#[test]
+fn execution_admission_tracks_process_capacity_without_collapsing_tool_capacity() {
+    assert_eq!(ToolHarness::execution_limit_for(32, 4), 4);
+    assert_eq!(ToolHarness::execution_limit_for(16, 4), 4);
+    assert_eq!(ToolHarness::execution_limit_for(4, 4), 3);
+    assert_eq!(ToolHarness::execution_limit_for(1, 4), 1);
+}
+
 #[tokio::test]
 async fn execution_headroom_keeps_total_cap_and_single_slot_compatibility() {
     for total in [1, 2, 4, 8, 32, 256] {
         let harness = ToolHarness::new(total).unwrap();
         let limit = ToolHarness::execution_limit(total);
+        let outer_limit = total.saturating_sub(total.div_ceil(8).min(4)).max(1);
+        let process_queue_limit = crate::resource::limits().child_processes.max(1);
+        assert_eq!(limit, outer_limit.min(process_queue_limit));
+        assert!(limit <= process_queue_limit);
         let mut commands = Vec::new();
         for _ in 0..limit {
             commands.push(harness.acquire_tool(true).await.unwrap());
@@ -44,5 +56,21 @@ async fn execution_waiters_keep_fifo_order_and_cancel_without_leaks() {
     drop(second);
     drop((first, held));
     assert_eq!(harness.slots.available_permits(), 4);
-    assert_eq!(harness.execution_slots.available_permits(), 3);
+
+    let execution_limit = ToolHarness::execution_limit(4);
+    let mut recovered = Vec::new();
+    for _ in 0..execution_limit {
+        recovered.push(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                harness.execution_slots.clone().acquire_owned(),
+            )
+            .await
+            .expect("cancelled waiter must not strand execution capacity")
+            .expect("execution semaphore stays open"),
+        );
+    }
+    assert_eq!(harness.execution_slots.available_permits(), 0);
+    drop(recovered);
+    assert_eq!(harness.execution_slots.available_permits(), execution_limit);
 }

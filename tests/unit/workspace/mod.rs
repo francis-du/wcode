@@ -4,13 +4,20 @@ use super::*;
 mod access;
 #[path = "files.rs"]
 mod files;
+#[path = "ignore.rs"]
+mod ignore;
 #[path = "search.rs"]
 mod search;
 #[test]
-fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
+fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join(".idea")).unwrap();
     fs::write(dir.path().join(".idea/workspace.xml"), "private IDE state").unwrap();
+    fs::create_dir(dir.path().join("target")).unwrap();
+    fs::write(dir.path().join("target/cache.bin"), "generated").unwrap();
+    fs::create_dir(dir.path().join("generated")).unwrap();
+    fs::write(dir.path().join("generated/output.rs"), "ignored").unwrap();
+    fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap();
     fs::write(dir.path().join(".env"), "TOKEN=secret").unwrap();
     fs::write(dir.path().join("server.log"), "noise").unwrap();
     fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
@@ -18,7 +25,7 @@ fn list_files_exposes_workspace_files_but_search_skips_noise_and_secrets() {
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     assert_eq!(
         workspace.list_files(".", 100).unwrap(),
-        vec![".idea/workspace.xml", "main.rs", "server.log"]
+        vec![".gitignore", "main.rs"]
     );
     assert!(workspace.search("secret", ".", 100).unwrap().is_empty());
 }

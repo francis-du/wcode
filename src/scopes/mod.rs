@@ -103,6 +103,8 @@ impl ProductScope {
                 "src/intelligence/mod.rs",
                 "src/intelligence/analysis.rs",
                 "src/intelligence/context.rs",
+                "src/intelligence/decision.rs",
+                "src/intelligence/runtime_drift.rs",
                 "src/intelligence/observatory.rs",
                 "src/intelligence/observatory/",
                 "src/intelligence/release_gate.rs",

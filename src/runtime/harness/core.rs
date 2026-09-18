@@ -12,11 +12,13 @@ impl ToolHarness {
             project_cache: Default::default(),
             project_flights: Default::default(),
             observatory_cache: Default::default(),
+            observatory_refreshes: Default::default(),
             convention_cache: Default::default(),
             convention_flights: Default::default(),
             repo_map_cache: Default::default(),
             repo_map_flights: Default::default(),
             verification_cache: Default::default(),
+            verification_run_flights: Default::default(),
             code_index: CodeIndex::new()?,
             semantic_sessions: SemanticSessionPool::default(),
             intelligence: SoftwareIntelligenceRuntime::default(),
@@ -25,76 +27,6 @@ impl ToolHarness {
 
     pub fn max_parallel(&self) -> usize {
         self.max_parallel
-    }
-
-    pub fn capabilities(&self) -> Value {
-        json!({
-            "tools": QUALITY_HARNESS_TOOLS,
-            "project_context": true,
-            "context_cache": true,
-            "review_changes": true,
-            "parallel_change_review": true,
-            "adversarial_review": true,
-            "adversarial_review_policy": "challenge-packet-not-evidence",
-            "verify_project": true,
-            "phased_parallel_verification": true,
-            "verification_exec_without_risky_flag": true,
-            "verification_levels": ["quick", "full"],
-            "max_verification_checks": MAX_VERIFICATION_CHECKS,
-            "max_review_files": MAX_REVIEW_FILES,
-            "max_parallel_tools": self.max_parallel,
-            "execution_admission": {
-                "limit": Self::execution_limit(self.max_parallel),
-                "read_headroom": self.max_parallel - Self::execution_limit(self.max_parallel),
-                "total_limit": self.max_parallel,
-            },
-            "resource_governor": crate::resource::capabilities(),
-            "software_intelligence": {
-                "design_state": true,
-                "software_graph": "composite-declared-syntax-external",
-                "graph_history": graph_store::capabilities(),
-                "graph_providers": graph_provider_store::capabilities(),
-                "semantic_providers": {
-                    "languages": 22,
-                    "adapter": "warm-lsp-session-document-symbol-navigation",
-                    "precision": "semantic-when-lsp-is-live-syntax-otherwise",
-                    "mode": "automatic-hardened-lsp-with-explicit-trust-for-others",
-                    "default_enabled": true,
-                    "opt_out": "--no-semantic",
-                    "requires_risky_exec": "non-automatic-providers-only",
-                    "warm_sessions": true,
-                    "incremental_document_sync": true,
-                    "navigation": ["definition", "references", "implementations", "incoming_calls", "outgoing_calls", "hover"],
-                    "routing": "tree-sitter-for-localization-lsp-for-cross-file-relations",
-                    "session_pool": self.semantic_sessions.status()
-                },
-                "traceability": true,
-                "software_context": true,
-                "drift": true,
-                "impact_analysis": true,
-                "risk": true,
-                "reconciliation_plan": true,
-                "verification_mesh": verification_store::capabilities(),
-                "migration_audit": crate::migration_audit::capabilities(),
-                "stage_executors": {
-                    "builtin_discovery": true,
-                    "config": ".wcode/executors.yaml",
-                    "no_shell": true,
-                    "languages": 22,
-                    "stages": ["property", "mutation", "fuzz", "runtime_canary"],
-                    "execution_policy": "bounded-no-shell-repository-executors-autonomous",
-                    "requires_risky_exec": false
-                },
-                "evidence": evidence_store::capabilities(),
-                "experience": crate::experience_store::capabilities(),
-                "semantics": semantic_store::capabilities(),
-                "reconciliation": reconciliation_store::capabilities(),
-                "reconciliation_execution": reconciliation_execution_store::capabilities(),
-                "persistent_store": ["verification-state", "evidence", "experience", "semantics", "graph-providers", "graph-history", "reconciliation-plans", "reconciliation-execution"],
-                "automatic_reconciliation": "orchestrated-safe-task-execution"
-            },
-            "code_index": self.code_index.capabilities(),
-        })
     }
 
     pub fn design_status(
@@ -190,52 +122,6 @@ impl ToolHarness {
             max_symbols,
             load.as_ref(),
         )
-    }
-
-    pub fn graph_provider_import(
-        &self,
-        workspace: &Workspace,
-        import: GraphProviderImport,
-    ) -> Result<StoredGraphProvider> {
-        graph_provider_store::persist(workspace, &import)
-    }
-
-    pub fn graph_provider_status(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Vec<GraphProviderSummary>> {
-        graph_provider_store::summaries(workspace)
-    }
-
-    pub fn graph_history(
-        &self,
-        workspace: &Workspace,
-        limit: usize,
-    ) -> Result<Vec<GraphHistoryEntry>> {
-        graph_store::history(workspace, limit)
-    }
-
-    pub(crate) fn observatory_graph_signal(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Option<(String, String)>> {
-        graph_store::change_signal(workspace)
-    }
-
-    pub fn graph_query(
-        &self,
-        workspace: &Workspace,
-        input: &GraphQueryInput,
-    ) -> Result<GraphQueryResult> {
-        graph_store::query(workspace, input)
-    }
-
-    pub fn graph_diff(
-        &self,
-        workspace: &Workspace,
-        input: &GraphDiffInput,
-    ) -> Result<GraphDiffResult> {
-        graph_store::diff(workspace, input)
     }
 
     pub fn traceability_status(

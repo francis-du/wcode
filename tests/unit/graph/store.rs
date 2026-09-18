@@ -56,6 +56,186 @@ fn graph_history_round_trips_and_queries_nodes() {
 }
 
 #[test]
+fn graph_chain_traces_calls_and_keeps_precision_provenance() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let syntax = crate::graph::GraphProvenance {
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        revision: "syntax:1".into(),
+    };
+    let semantic = crate::graph::GraphProvenance {
+        provider: "lsp:rust-analyzer".into(),
+        precision: GraphPrecision::Semantic,
+        revision: "semantic:1".into(),
+    };
+    let declared = crate::graph::GraphProvenance {
+        provider: "wcode-design".into(),
+        precision: GraphPrecision::Declared,
+        revision: "design:1".into(),
+    };
+    let mut graph = SoftwareGraph::default();
+    for (id, kind, label, provenance) in [
+        (
+            "function:caller2",
+            NodeKind::Function,
+            "caller2",
+            syntax.clone(),
+        ),
+        (
+            "function:caller",
+            NodeKind::Function,
+            "caller",
+            syntax.clone(),
+        ),
+        (
+            "function:target",
+            NodeKind::Function,
+            "target_feature",
+            syntax.clone(),
+        ),
+        (
+            "function:callee",
+            NodeKind::Function,
+            "callee",
+            semantic.clone(),
+        ),
+        (
+            "function:callee2",
+            NodeKind::Function,
+            "callee2",
+            semantic.clone(),
+        ),
+        (
+            "component:runtime",
+            NodeKind::Component,
+            "Runtime",
+            declared.clone(),
+        ),
+        (
+            "REQ-RUNTIME",
+            NodeKind::Requirement,
+            "Runtime requirement",
+            declared.clone(),
+        ),
+    ] {
+        graph
+            .add_node(GraphNode {
+                id: id.into(),
+                kind,
+                label: label.into(),
+                attributes: BTreeMap::new(),
+                provenance,
+            })
+            .unwrap();
+    }
+    for edge in [
+        GraphEdge {
+            from: "function:caller2".into(),
+            to: "function:caller".into(),
+            kind: EdgeKind::Calls,
+            provenance: syntax.clone(),
+        },
+        GraphEdge {
+            from: "function:caller".into(),
+            to: "function:target".into(),
+            kind: EdgeKind::Calls,
+            provenance: syntax.clone(),
+        },
+        GraphEdge {
+            from: "function:target".into(),
+            to: "function:callee".into(),
+            kind: EdgeKind::Calls,
+            provenance: semantic.clone(),
+        },
+        GraphEdge {
+            from: "function:callee".into(),
+            to: "function:callee2".into(),
+            kind: EdgeKind::Calls,
+            provenance: semantic.clone(),
+        },
+        GraphEdge {
+            from: "component:runtime".into(),
+            to: "function:target".into(),
+            kind: EdgeKind::Implements,
+            provenance: declared.clone(),
+        },
+        GraphEdge {
+            from: "component:runtime".into(),
+            to: "REQ-RUNTIME".into(),
+            kind: EdgeKind::ImplementsRequirement,
+            provenance: declared.clone(),
+        },
+    ] {
+        graph.add_edge(edge).unwrap();
+    }
+    let snapshot = SoftwareGraphSnapshot {
+        workspace: "demo".into(),
+        path: ".".into(),
+        provider: "wcode-composite".into(),
+        precision: GraphPrecision::Mixed,
+        files_considered: 1,
+        files_indexed: 1,
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: graph.nodes.len(),
+        edge_count: graph.edges.len(),
+        failures: vec![],
+        graph,
+    };
+    persist(&workspace, &snapshot).unwrap();
+
+    let calls = chain(
+        &workspace,
+        &GraphChainInput {
+            snapshot_id: None,
+            node_id: None,
+            label_contains: Some("target_feature".into()),
+            depth: 2,
+            limit: 64,
+            mode: GraphChainMode::Calls,
+        },
+    )
+    .unwrap();
+    assert_eq!(calls.root_ids, vec!["function:target"]);
+    assert_eq!(calls.nodes.len(), 5);
+    assert_eq!(calls.edges.len(), 4);
+    assert_eq!(calls.upstream_nodes, 2);
+    assert_eq!(calls.downstream_nodes, 2);
+    assert_eq!(calls.precision_counts["syntax"], 2);
+    assert_eq!(calls.precision_counts["semantic"], 2);
+    let caller2 = calls
+        .nodes
+        .iter()
+        .find(|node| node.node.id == "function:caller2")
+        .unwrap();
+    assert!(caller2.upstream && !caller2.downstream);
+    let callee2 = calls
+        .nodes
+        .iter()
+        .find(|node| node.node.id == "function:callee2")
+        .unwrap();
+    assert!(callee2.downstream && !callee2.upstream);
+
+    let all = chain(
+        &workspace,
+        &GraphChainInput {
+            snapshot_id: None,
+            node_id: Some("function:target".into()),
+            label_contains: None,
+            depth: 2,
+            limit: 64,
+            mode: GraphChainMode::All,
+        },
+    )
+    .unwrap();
+    assert!(all.nodes.iter().any(|node| node.node.id == "REQ-RUNTIME"));
+    assert!(all.precision_counts["declared"] >= 2);
+    assert!(!all.truncated);
+}
+
+#[test]
 fn graph_change_signal_uses_metadata_without_reading_snapshot_content() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();

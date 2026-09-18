@@ -1,6 +1,11 @@
 use super::*;
 use crate::design::{CodeRef, VerificationRef};
 
+const MISSING_TRACE_MESSAGE: &str =
+    "Declared requirement has no complete implementation/verification trace.";
+const PARTIAL_TRACE_MESSAGE: &str =
+    "Declared requirement has unresolved implementation or verification references.";
+
 pub(super) fn build_drift_status(
     workspace: String,
     state: &design::DesignState,
@@ -15,7 +20,7 @@ pub(super) fn build_drift_status(
         .map(|file| file.path.clone())
         .collect::<BTreeSet<_>>();
     let implementation_changed = !changed_actual_paths.is_empty();
-    let mut findings = Vec::new();
+    let mut findings = runtime_drift::findings(state);
 
     for requirement in traceability
         .requirements
@@ -33,12 +38,8 @@ pub(super) fn build_drift_status(
             .collect::<Vec<_>>();
         paths.truncate(16);
         let message = match requirement.status {
-            RequirementTraceStatus::Missing => {
-                "Declared requirement has no complete implementation/verification trace."
-            }
-            RequirementTraceStatus::Partial => {
-                "Declared requirement has unresolved implementation or verification references."
-            }
+            RequirementTraceStatus::Missing => MISSING_TRACE_MESSAGE,
+            RequirementTraceStatus::Partial => PARTIAL_TRACE_MESSAGE,
             RequirementTraceStatus::Complete => continue,
         };
         findings.push(DriftFinding {
@@ -49,6 +50,7 @@ pub(super) fn build_drift_status(
             message: message.to_owned(),
             affected_requirements: vec![requirement.id.clone()],
             paths,
+            deviation: None,
         });
         if findings.len() >= MAX_DRIFT_FINDINGS {
             break;
@@ -72,6 +74,7 @@ pub(super) fn build_drift_status(
                 .take(16)
                 .map(|file| file.path.clone())
                 .collect(),
+            deviation: None,
         });
     }
 
@@ -100,6 +103,7 @@ pub(super) fn build_drift_status(
                 message: "Design-mapped Actual State changed without a corresponding Design State change; confirm this is an implementation-only refactor or update the design intent.".into(),
                 affected_requirements: requirements,
                 paths: vec![path.clone()],
+                deviation: None,
             });
             if findings.len() >= MAX_DRIFT_FINDINGS {
                 break;
@@ -107,14 +111,7 @@ pub(super) fn build_drift_status(
         }
     }
 
-    let implementation_drift = findings
-        .iter()
-        .filter(|finding| finding.kind == DriftKind::ImplementationDrift)
-        .count();
-    let design_drift = findings
-        .iter()
-        .filter(|finding| finding.kind == DriftKind::DesignDrift)
-        .count();
+    let (implementation_drift, design_drift, runtime_drift) = runtime_drift::counts(&findings);
     let truncated = findings.len() >= MAX_DRIFT_FINDINGS
         || traceability.requirements_total > traceability.requirements_returned;
 
@@ -124,6 +121,7 @@ pub(super) fn build_drift_status(
         implementation_changed,
         implementation_drift,
         design_drift,
+        runtime_drift,
         findings,
         truncated,
     }
@@ -180,10 +178,12 @@ pub(super) fn assess_risk(
         let category = match finding.kind {
             DriftKind::ImplementationDrift => RiskCategory::VerificationGap,
             DriftKind::DesignDrift => RiskCategory::Architecture,
+            DriftKind::RuntimeDrift => RiskCategory::Performance,
         };
         let mut signals = vec![match finding.kind {
             DriftKind::ImplementationDrift => "implementation-drift".to_owned(),
             DriftKind::DesignDrift => "design-drift".to_owned(),
+            DriftKind::RuntimeDrift => "runtime-drift".to_owned(),
         }];
         signals.extend(
             finding

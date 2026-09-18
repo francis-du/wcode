@@ -272,7 +272,9 @@ evidence_status
 | Tool | 用途 |
 | --- | --- |
 | `file_outline` / `find_symbol` / `symbol_context` | Tree-sitter 定义导航，明确保持 syntax precision。 |
-| `search_code` / `search_many` | 精确仓库搜索；已知多个查询时优先批量形式。 |
+| `search_code` / `search_many` | 精确仓库搜索；已知多个查询时优先批量形式。`auto_page=true` 可把单次有界结果预算提升到 2,000。 |
+| `scan_patterns` | 批量文本 Pattern 并默认过滤纯注释；也可用 `preset=go_common_bugs` / 单个 `pattern` 获取 AST 验证的 Go Bug 候选。 |
+| `search_syntax` | Tree-sitter 结构搜索，单次默认覆盖最多 50,000 文件，并支持正则、注释开关、守卫证据与 Bug Pattern 过滤。 |
 | `read_file` / `read_files` | 保留源码原格式的 UTF-8 读取，并返回 SHA-256；每个文件 / 调用最多返回 1,000 行。 |
 | `read_media` | Metadata-first 媒体检查；二进制内容需要客户端显式声明能力。 |
 | `parallel_tools` | 完成驱动的路径资源批次；后续任务就绪即启动，失败依赖跳过，排队子任务归父任务管理。父子空间别名共享依赖身份。 |

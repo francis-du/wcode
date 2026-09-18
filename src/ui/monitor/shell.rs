@@ -75,9 +75,13 @@ fn render_dashboard_body(
     tick: usize,
     ui: &DashboardState,
 ) {
+    if area.width >= 104 && area.height >= 24 {
+        render_wide_dashboard_body(frame, area, snapshot, config, tick, ui);
+        return;
+    }
     let compact = area.width < 92;
     let dense = area.height < 28;
-    let header_height = if dense { 6 } else { 8 };
+    let header_height = 6;
     // The base heights fit one tunnel link row; every additional live tunnel
     // needs its own row or the last provider gets clipped.
     let extra_tunnel_rows =
@@ -91,16 +95,11 @@ fn render_dashboard_body(
     } else {
         8 + extra_tunnel_rows
     };
-    // Outer and inner card borders consume four rows; reserve actual task rows too.
+    // Medium and narrow terminals keep the task canvas dominant. Engineering
+    // details stay one key away in the I overlay instead of stacking another
+    // permanent panel above live work.
     let minimum_activity_height = 6;
-    let base_fixed_height = header_height + setup_height + minimum_activity_height + 2;
-    let engineering_pulse_height =
-        if !compact && !dense && area.height >= base_fixed_height.saturating_add(6) {
-            5
-        } else {
-            0
-        };
-    let fixed_height = base_fixed_height.saturating_add(engineering_pulse_height);
+    let fixed_height = header_height + setup_height + minimum_activity_height + 2;
 
     if area.width < 40 || area.height < fixed_height {
         render_too_small(frame, area, config, ui.language);
@@ -117,9 +116,6 @@ fn render_dashboard_body(
     let mut constraints = vec![Constraint::Length(header_height)];
     if setup_height > 0 {
         constraints.push(Constraint::Length(setup_height));
-    }
-    if engineering_pulse_height > 0 {
-        constraints.push(Constraint::Length(engineering_pulse_height));
     }
     constraints.push(Constraint::Min(minimum_activity_height));
     if throughput_height > 0 {
@@ -146,17 +142,6 @@ fn render_dashboard_body(
         render_setup(frame, rows[row], snapshot, config, compact, ui.language);
         row += 1;
     }
-    if engineering_pulse_height > 0 {
-        render_engineering_pulse(
-            frame,
-            rows[row],
-            snapshot,
-            config,
-            ui.workspace_focus,
-            ui.language,
-        );
-        row += 1;
-    }
     render_workspace_activity(frame, rows[row], snapshot, config, tick, ui);
     row += 1;
     if throughput_height > 0 {
@@ -164,6 +149,77 @@ fn render_dashboard_body(
         row += 1;
     }
     render_footer(frame, rows[row], config, ui.language);
+}
+
+fn render_wide_dashboard_body(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    snapshot: &MonitorSnapshot,
+    config: &MonitorConfig,
+    tick: usize,
+    ui: &DashboardState,
+) {
+    const HEADER_HEIGHT: u16 = 6;
+    const FOOTER_HEIGHT: u16 = 2;
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(HEADER_HEIGHT),
+            Constraint::Min(14),
+            Constraint::Length(FOOTER_HEIGHT),
+        ])
+        .split(area);
+    render_header(frame, rows[0], snapshot, config, tick, true, ui.language);
+
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .spacing(1)
+        .split(rows[1]);
+    render_workspace_activity(frame, columns[0], snapshot, config, tick, ui);
+
+    let recent_requests = window_totals(snapshot, Duration::from_secs(30)).0;
+    let extra_tunnel_rows = u16::try_from(snapshot.tunnels.len().saturating_sub(1))
+        .unwrap_or(6)
+        .min(6);
+    let setup_height = if snapshot.chatgpt_connected {
+        0
+    } else {
+        7_u16.saturating_add(extra_tunnel_rows)
+    };
+    let show_throughput =
+        recent_requests > 0 && columns[1].height >= setup_height.saturating_add(12);
+    let mut rail_constraints = Vec::new();
+    if setup_height > 0 {
+        rail_constraints.push(Constraint::Length(setup_height));
+    }
+    rail_constraints.push(Constraint::Min(6));
+    if show_throughput {
+        rail_constraints.push(Constraint::Length(5));
+    }
+    let rail = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(rail_constraints)
+        .spacing(1)
+        .split(columns[1]);
+    let mut rail_row = 0usize;
+    if setup_height > 0 {
+        render_setup(frame, rail[rail_row], snapshot, config, true, ui.language);
+        rail_row += 1;
+    }
+    render_engineering_pulse(
+        frame,
+        rail[rail_row],
+        snapshot,
+        config,
+        ui.workspace_focus,
+        ui.language,
+    );
+    rail_row += 1;
+    if show_throughput {
+        render_throughput(frame, rail[rail_row], snapshot, config, ui.language);
+    }
+    render_footer(frame, rows[2], config, ui.language);
 }
 
 fn render_engineering_pulse(
@@ -177,7 +233,7 @@ fn render_engineering_pulse(
     let workspace_id =
         focused_workspace_id(config, focus).unwrap_or_else(|| "workspace".to_owned());
     let stats = snapshot.intelligence.get(&workspace_id);
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(OUTLINE))
@@ -189,14 +245,16 @@ fn render_engineering_pulse(
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {workspace_id} "), Style::default().fg(TEXT)),
-        ]))
-        .title(
+        ]));
+    if area.width >= 52 {
+        block = block.title(
             Line::from(Span::styled(
                 format!(" {} ", language.tr("engineering console")),
                 Style::default().fg(TEXT_DIM),
             ))
             .right_aligned(),
         );
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let Some(stats) = stats.filter(|stats| stats.updated_at.is_some()) else {
@@ -230,7 +288,7 @@ fn render_engineering_pulse(
             .unwrap_or_else(|| "—".to_owned())
     );
     let drift = format!(
-        "{} · {} drift",
+        "{} · {} findings",
         stats.risk_level.as_deref().unwrap_or("unassessed"),
         stats.drift_findings
     );
@@ -244,67 +302,67 @@ fn render_engineering_pulse(
         stats.evidence_disagreed
     );
     let model = format!(
-        "{} · {} nodes / {} edges",
+        "policy {}/{} · {} · {}n/{}e · {}",
+        stats.policy_errors,
+        stats.policy_warnings,
         stats.graph_precision.as_deref().unwrap_or("syntax"),
         stats.graph_nodes,
-        stats.graph_edges
+        stats.graph_edges,
+        last_seen_text(stats.updated_at)
     );
-    let line_width = inner.width.saturating_sub(1) as usize;
-    let first = format!(
-        "{}  {}    {}  {}",
-        language.tr("ARCH"),
-        architecture,
-        language.tr("DRIFT"),
-        drift
-    );
-    let second = format!(
-        "{}  {}    {}  {}",
-        language.tr("PROOF"),
-        proof,
-        language.tr("MODEL"),
-        model
-    );
+    let drift_tone = if matches!(stats.risk_level.as_deref(), Some("critical" | "high")) {
+        DANGER
+    } else if stats.drift_findings > 0 {
+        WARNING
+    } else {
+        SUCCESS
+    };
+    let proof_tone = if stats.evidence_failed > 0 {
+        DANGER
+    } else if stats.evidence_disagreed > 0 || stats.verification_ready == Some(false) {
+        WARNING
+    } else if stats.verification_ready == Some(true) {
+        SUCCESS
+    } else {
+        TEXT_MUTED
+    };
+    let model_tone = if stats.policy_errors > 0 {
+        DANGER
+    } else if stats.policy_warnings > 0 {
+        WARNING
+    } else if matches!(
+        stats.graph_precision.as_deref(),
+        Some("semantic" | "runtime" | "deterministic")
+    ) {
+        ACCENT
+    } else {
+        TEXT_MUTED
+    };
+    let line_width = inner.width as usize;
+    let signal_line = |label: &str, value: &str, tone| {
+        let prefix = format!("{label:<6}");
+        let prefix_width = Span::raw(prefix.as_str()).width();
+        Line::from(vec![
+            Span::styled(
+                prefix,
+                Style::default().fg(TEXT_DIM).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                truncate_end(value, line_width.saturating_sub(prefix_width)),
+                Style::default().fg(tone),
+            ),
+        ])
+    };
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from(Span::styled(
-                truncate_end(&first, line_width),
-                Style::default().fg(if design_ok { TEXT_MUTED } else { WARNING }),
-            )),
-            Line::from(Span::styled(
-                truncate_end(&second, line_width),
-                Style::default().fg(if stats.evidence_failed > 0 {
-                    DANGER
-                } else {
-                    TEXT_MUTED
-                }),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    format!("{}  ", language.tr("POLICY")),
-                    Style::default().fg(TEXT_DIM),
-                ),
-                Span::styled(
-                    format!(
-                        "{} errors · {} warnings",
-                        stats.policy_errors, stats.policy_warnings
-                    ),
-                    Style::default().fg(if stats.policy_errors > 0 {
-                        DANGER
-                    } else if stats.policy_warnings > 0 {
-                        WARNING
-                    } else {
-                        SUCCESS
-                    }),
-                ),
-                Span::styled(
-                    format!(
-                        "    {} · {}",
-                        language.tr("updated"),
-                        last_seen_text(stats.updated_at)
-                    ),
-                    Style::default().fg(TEXT_DIM),
-                ),
-            ]),
+            signal_line(
+                language.tr("ARCH"),
+                &architecture,
+                if design_ok { SUCCESS } else { WARNING },
+            ),
+            signal_line(language.tr("DRIFT"), &drift, drift_tone),
+            signal_line(language.tr("PROOF"), &proof, proof_tone),
+            signal_line(language.tr("MODEL"), &model, model_tone),
         ]),
         inner,
     );
@@ -528,9 +586,20 @@ fn render_header(
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("MCP  ", Style::default().fg(TEXT_DIM)),
+                    Span::styled("LOCAL ", Style::default().fg(TEXT_DIM)),
                     Span::styled(
-                        truncate_middle(&config.mcp_url(), inner.width.saturating_sub(5) as usize),
+                        truncate_middle(
+                            local_home,
+                            inner.width.saturating_div(2).saturating_sub(8) as usize,
+                        ),
+                        Style::default().fg(LINK),
+                    ),
+                    Span::styled("   MCP ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(
+                        truncate_middle(
+                            &config.mcp_url(),
+                            inner.width.saturating_div(2).saturating_sub(8) as usize,
+                        ),
                         Style::default().fg(LINK),
                     ),
                 ]),
@@ -538,6 +607,10 @@ fn render_header(
                     Span::styled(
                         format!("SLOTS {} / {}", totals.active, config.max_parallel),
                         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  PEAK {}", snapshot.peak_active),
+                        Style::default().fg(SECONDARY),
                     ),
                     Span::styled(
                         format!("  WAIT {}", totals.queued),
@@ -552,8 +625,20 @@ fn render_header(
                     Span::styled("CPU ", Style::default().fg(TEXT_DIM)),
                     Span::styled(cpu_text.clone(), Style::default().fg(cpu_color)),
                     Span::styled(
-                        format!("  MEM {memory_text}"),
+                        format!("  MEM {memory_text}  "),
                         Style::default().fg(memory_color),
+                    ),
+                    Span::styled(
+                        process_text.clone(),
+                        Style::default().fg(
+                            if resources.child_queue.waiting > 0
+                                || resources.probe_queue.waiting > 0
+                            {
+                                WARNING
+                            } else {
+                                TEXT_MUTED
+                            },
+                        ),
                     ),
                 ]),
             ]),

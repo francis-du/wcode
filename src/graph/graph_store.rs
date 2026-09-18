@@ -6,7 +6,7 @@ use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -78,6 +78,66 @@ pub struct GraphQueryResult {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
     pub truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphChainMode {
+    Calls,
+    Impact,
+    #[default]
+    All,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphChainInput {
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub label_contains: Option<String>,
+    #[serde(default = "default_chain_depth")]
+    pub depth: usize,
+    #[serde(default = "default_chain_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub mode: GraphChainMode,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct GraphChainNode {
+    pub node: GraphNode,
+    pub distance: usize,
+    pub upstream: bool,
+    pub downstream: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct GraphChainResult {
+    pub snapshot_id: String,
+    pub captured_at_ms: u64,
+    pub provider: String,
+    pub precision: GraphPrecision,
+    pub query: String,
+    pub mode: &'static str,
+    pub depth: usize,
+    pub root_ids: Vec<String>,
+    pub nodes: Vec<GraphChainNode>,
+    pub edges: Vec<GraphEdge>,
+    pub precision_counts: BTreeMap<String, usize>,
+    pub upstream_nodes: usize,
+    pub downstream_nodes: usize,
+    pub truncated: bool,
+}
+
+const fn default_chain_depth() -> usize {
+    2
+}
+
+const fn default_chain_limit() -> usize {
+    120
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -322,6 +382,10 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<Gr
         edges,
         truncated,
     })
+}
+
+pub(crate) fn chain(workspace: &Workspace, input: &GraphChainInput) -> Result<GraphChainResult> {
+    crate::graph_chain::query(workspace, input)
 }
 
 pub(crate) fn diff(workspace: &Workspace, input: &GraphDiffInput) -> Result<GraphDiffResult> {
@@ -586,7 +650,10 @@ pub(crate) fn capabilities() -> serde_json::Value {
     })
 }
 
-fn load_selected(workspace: &Workspace, id: Option<&str>) -> Result<Option<StoredGraphSnapshot>> {
+pub(crate) fn load_selected(
+    workspace: &Workspace,
+    id: Option<&str>,
+) -> Result<Option<StoredGraphSnapshot>> {
     let directory = graph_directory(workspace)?;
     if !directory.exists() {
         return Ok(None);

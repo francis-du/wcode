@@ -699,7 +699,11 @@ pub(super) fn trim_agent_context_from_tokens(
         .unwrap_or(0)
         .max(1);
     while current_tokens > budget {
-        let changed = pop_array(value, "risks", 0)
+        // Decision Plane output is derived advisory observability. Under a
+        // tight budget it yields before original risk/evidence and before
+        // edit-critical SHA/source/test data.
+        let changed = drop_key(value, "decision_plane")
+            || pop_array(value, "risks", 0)
             || pop_nested_array(value, "relations", "edges", 0)
             || pop_nested_array(value, "relations", "nodes", 0)
             || pop_array(value, "guidance", 0)

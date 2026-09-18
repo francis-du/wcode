@@ -214,6 +214,8 @@ fn inspect(
                 .map(str::to_owned)
                 .collect(),
                 text_regex: None,
+                include_comments: false,
+                bug_patterns: Vec::new(),
                 max_files: 1,
                 max_results: MAX_NODES_PER_FILE,
             },

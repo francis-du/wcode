@@ -37,6 +37,40 @@ pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {
     }
 }
 
+fn bug_pattern_selection(args: &Value) -> Result<Option<(String, Vec<String>)>, String> {
+    const GO_COMMON_BUGS: &[&str] = &[
+        "nil_deref",
+        "err_swallowed",
+        "index_mismatch",
+        "empty_test",
+        "unguarded_subscript",
+    ];
+    let preset = string_arg(args, "preset");
+    let pattern = string_arg(args, "pattern");
+    if preset.is_some() && pattern.is_some() {
+        return Err("preset and pattern are mutually exclusive".to_owned());
+    }
+    if let Some(preset) = preset {
+        if preset != "go_common_bugs" {
+            return Err("preset must be go_common_bugs".to_owned());
+        }
+        return Ok(Some((
+            preset.to_owned(),
+            GO_COMMON_BUGS
+                .iter()
+                .map(|pattern| (*pattern).to_owned())
+                .collect(),
+        )));
+    }
+    if let Some(pattern) = pattern {
+        if !GO_COMMON_BUGS.contains(&pattern) {
+            return Err(format!("unsupported bug pattern: {pattern}"));
+        }
+        return Ok(Some((pattern.to_owned(), vec![pattern.to_owned()])));
+    }
+    Ok(None)
+}
+
 fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRequest, String> {
     let key = match name {
         "search_code" => "query",
@@ -73,6 +107,34 @@ fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRe
         "search_code" if queries.len() == 1 => "auto",
         _ => "exact",
     };
+    let auto_page = match args.get("auto_page") {
+        None => false,
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| "auto_page must be a boolean".to_owned())?,
+    };
+    let default_max_results = if auto_page {
+        2_000
+    } else if name == "scan_patterns" {
+        500
+    } else {
+        100
+    };
+    let max_results = if auto_page {
+        2_000
+    } else {
+        number("max_results", default_max_results, 1, 2_000)?
+    };
+    let include_comments = if name == "scan_patterns" {
+        match args.get("include_comments") {
+            None => false,
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| "include_comments must be a boolean".to_owned())?,
+        }
+    } else {
+        true
+    };
     Ok(crate::workspace::SearchRequest {
         queries,
         path: text("path", ".")?,
@@ -84,12 +146,8 @@ fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRe
             0,
             20,
         )?,
-        max_results: number(
-            "max_results",
-            if name == "scan_patterns" { 500 } else { 100 },
-            1,
-            2000,
-        )?,
+        include_comments,
+        max_results,
         offset: number("offset", 0, 0, 10_000)?,
         output_mode: text("output_mode", "content")?,
     })
@@ -124,27 +182,100 @@ pub(super) async fn call(
         }
         "search_code" | "search_many" | "scan_patterns" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let request = search_request(name, args)?;
-            let grouped = name == "scan_patterns";
-            run_blocking(move || {
-                workspace
-                    .search_report(&request)
-                    .map(|report| report.into_value(&workspace_id, &request, grouped))
-            })
-            .await
+            let bug_selection = if name == "scan_patterns" {
+                bug_pattern_selection(args)?
+            } else {
+                None
+            };
+            if let Some((selection, bug_patterns)) = bug_selection {
+                if args.get("patterns").is_some() {
+                    return Err("patterns cannot be combined with preset or pattern".to_owned());
+                }
+                let path = string_arg(args, "path").unwrap_or(".").to_owned();
+                let auto_page = match args.get("auto_page") {
+                    None => false,
+                    Some(value) => value
+                        .as_bool()
+                        .ok_or_else(|| "auto_page must be a boolean".to_owned())?,
+                };
+                let max_results = if auto_page {
+                    2_000
+                } else {
+                    usize_arg(args, "max_results")
+                        .unwrap_or(500)
+                        .clamp(1, 2_000)
+                };
+                let harness = state.harness.clone();
+                let request = crate::code_index::SyntaxSearchRequest {
+                    path,
+                    node_kinds: vec![
+                        "index_expression".to_owned(),
+                        "unary_expression".to_owned(),
+                        "assignment_statement".to_owned(),
+                        "call_expression".to_owned(),
+                    ],
+                    text_regex: None,
+                    include_comments: false,
+                    bug_patterns: bug_patterns.clone(),
+                    max_files: 50_000,
+                    max_results,
+                };
+                run_blocking(move || {
+                    harness
+                        .search_syntax(&workspace_id, &workspace, request)
+                        .map(|mut value| {
+                            let mut counts = std::collections::BTreeMap::<String, usize>::new();
+                            if let Some(matches) = value.get("matches").and_then(Value::as_array) {
+                                for row in matches {
+                                    if let Some(patterns) =
+                                        row.get("bug_patterns").and_then(Value::as_array)
+                                    {
+                                        for pattern in patterns.iter().filter_map(Value::as_str) {
+                                            *counts.entry(pattern.to_owned()).or_default() += 1;
+                                        }
+                                    }
+                                }
+                            }
+                            value["preset"] = json!(selection);
+                            value["pattern_counts"] = json!(counts);
+                            value["provider"] = json!("tree-sitter-bug-patterns");
+                            value["precision"] = json!("syntax+guard");
+                            value
+                        })
+                })
+                .await
+            } else {
+                let request = search_request(name, args)?;
+                let grouped = name == "scan_patterns";
+                run_blocking(move || {
+                    workspace
+                        .search_report(&request)
+                        .map(|report| report.into_value(&workspace_id, &request, grouped))
+                })
+                .await
+            }
         }
         "search_syntax" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let node_kinds = string_array_arg(args, "node_kinds", 32)?;
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
             let text_regex = string_arg(args, "text_regex").map(str::to_owned);
-            let max_files = usize_arg(args, "max_files").unwrap_or(1_000);
+            let include_comments = match args.get("include_comments") {
+                None => false,
+                Some(value) => value
+                    .as_bool()
+                    .ok_or_else(|| "include_comments must be a boolean".to_owned())?,
+            };
+            let bug_patterns = optional_string_array_arg(args, "bug_patterns", 5)?;
+            let max_files = usize_arg(args, "max_files").unwrap_or(50_000);
             let max_results = usize_arg(args, "max_results").unwrap_or(200);
             let harness = state.harness.clone();
             let request = crate::code_index::SyntaxSearchRequest {
                 path,
                 node_kinds,
                 text_regex,
+                include_comments,
+                bug_patterns,
                 max_files,
                 max_results,
             };
@@ -426,14 +557,38 @@ pub(super) async fn call(
                     .filter(|seconds| (1..=1800).contains(seconds))
                     .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
             };
-            workspace
-                .run_command(&program, &command_args, cwd, timeout_seconds)
-                .await
-                .and_then(|result| {
-                    let mut value = serde_json::to_value(result)?;
-                    value["workspace"] = json!(workspace_id);
-                    Ok(value)
-                })
+            let revision_key =
+                if workspace.verification_command_shape_allowed(&program, &command_args) {
+                    state
+                        .harness
+                        .current_workspace_revision_key(&workspace)
+                        .map_err(|error| error.to_string())?
+                } else {
+                    None
+                };
+            let result = match revision_key.as_deref() {
+                Some(revision) => {
+                    workspace
+                        .run_command_at_revision(
+                            &program,
+                            &command_args,
+                            cwd,
+                            timeout_seconds,
+                            revision,
+                        )
+                        .await
+                }
+                None => {
+                    workspace
+                        .run_command(&program, &command_args, cwd, timeout_seconds)
+                        .await
+                }
+            };
+            result.and_then(|result| {
+                let mut value = serde_json::to_value(result)?;
+                value["workspace"] = json!(workspace_id);
+                Ok(value)
+            })
         }
         _ => Err(anyhow!("unknown workspace tool: {name}")),
     };

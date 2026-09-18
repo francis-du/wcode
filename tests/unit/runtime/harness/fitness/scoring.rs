@@ -1,4 +1,9 @@
 use super::corpus::{Case, Gold, Identity};
+use crate::decision::{
+    agent_context_decisions, calibration_brier_million, compare_decision_batches,
+    evaluate_agent_context_provider, probability_milli, DecisionBatch, DecisionProvider,
+    DecisionShadowComparison, CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI,
+};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -16,17 +21,55 @@ pub(super) struct Score {
     pub ndcg_at_10: Option<f64>,
     pub delivered_identities: usize,
     pub non_gold_symbol_fraction: Option<f64>,
+    pub non_gold_identities: Vec<Identity>,
     pub fresh_sha_hits: usize,
     pub complete_body_hits: usize,
     pub complete_body_recall: Option<f64>,
     pub all_required_edit_inputs: bool,
+    pub gold_context_sufficient: bool,
+    pub unique_patch_precondition_hits: usize,
+    pub all_required_unique_patch_preconditions: bool,
     pub reported_edit_ready: bool,
+    pub decision_plane_exposed: bool,
+    pub context_sufficient_milli: Option<u16>,
+    pub context_sufficient_brier_million: Option<u32>,
     pub abstained: Option<bool>,
     pub response_bytes: usize,
     pub estimated_tokens: usize,
     pub budget_tokens: Option<usize>,
     pub within_budget: bool,
     pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct ProviderContextCalibration {
+    pub provider: String,
+    pub probability_milli: Option<u16>,
+    pub brier_million: Option<u32>,
+    pub predicted_stop: Option<bool>,
+    pub gold_context_sufficient: bool,
+    pub comparison: DecisionShadowComparison,
+}
+
+pub(super) fn provider_context_calibration(
+    pack: &Value,
+    case: &Case,
+    provider: &dyn DecisionProvider,
+) -> ProviderContextCalibration {
+    let gold_context_sufficient = score(pack, case).gold_context_sufficient;
+    let baseline = agent_context_decisions(pack, &case.query);
+    let candidate = evaluate_agent_context_provider(provider, pack, &case.query);
+    let probability_milli = probability_milli(&candidate, "context_sufficient");
+    ProviderContextCalibration {
+        provider: candidate.provider.clone(),
+        probability_milli,
+        brier_million: probability_milli
+            .map(|probability| calibration_brier_million(probability, gold_context_sufficient)),
+        predicted_stop: probability_milli
+            .map(|probability| probability >= CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI),
+        gold_context_sufficient,
+        comparison: compare_decision_batches(&baseline, &candidate),
+    }
 }
 
 pub(super) fn digest(bytes: &[u8]) -> String {
@@ -110,6 +153,42 @@ pub(super) fn complete_body(pack: &Value, case: &Case, gold: &Gold) -> bool {
         })
 }
 
+fn unique_patch_precondition(pack: &Value, case: &Case, gold: &Gold) -> bool {
+    let Some(original) = case.files.get(&gold.identity.path) else {
+        return false;
+    };
+    let sha = digest(original.as_bytes());
+    let fragment = gold.fragment.trim_end_matches(['\r', '\n']);
+    pack["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            identity(item).as_ref() == Some(&gold.identity)
+                && item["sha256"].as_str() == Some(sha.as_str())
+                && item["body"]["redacted"].as_bool() == Some(false)
+        })
+        .any(|item| {
+            let body = &item["body"];
+            let (Some(start), Some(end), Some(content)) = (
+                body["start_line"].as_u64(),
+                body["end_line"].as_u64(),
+                body["content"].as_str(),
+            ) else {
+                return false;
+            };
+            if start == 0 || end < start || content.is_empty() || !content.contains(fragment) {
+                return false;
+            }
+            let Some(offset) = line_offset(original, start as usize) else {
+                return false;
+            };
+            original[offset..].starts_with(content)
+                && end == start + content.lines().count() as u64 - 1
+                && original.match_indices(content).nth(1).is_none()
+        })
+}
+
 fn line_offset(source: &str, line: usize) -> Option<usize> {
     if line == 1 {
         return Some(0);
@@ -173,18 +252,32 @@ pub(super) fn score(pack: &Value, case: &Case) -> Score {
         .iter()
         .filter(|gold| complete_body(pack, case, gold))
         .count();
+    let patch_hits = unique_gold
+        .iter()
+        .filter(|gold| unique_patch_precondition(pack, case, gold))
+        .count();
     let bytes = serde_json::to_vec(pack).unwrap().len();
     let budget = pack["budget"].as_u64().map(|n| n as usize);
-    let all_edit_inputs = !required.is_empty()
+    let gold_context_sufficient = !required.is_empty()
         && hits == required.len()
         && sha_hits == required.len()
         && body_hits == required.len()
-        && case.writable
+        && case.writable;
+    let all_edit_inputs = gold_context_sufficient
         && pack["project"]["write_enabled"].as_bool() == Some(true)
         && unique_gold.iter().all(|gold| {
             current_file(pack, case, gold)
                 .is_some_and(|file| file["readonly"].as_bool() == Some(false))
         });
+    let exposed_batch = serde_json::from_value::<DecisionBatch>(
+        pack.get("decision_plane").cloned().unwrap_or(Value::Null),
+    )
+    .ok();
+    let decision_plane_exposed = exposed_batch.is_some();
+    let shadow_batch = agent_context_decisions(pack, &case.query);
+    let context_sufficient_milli = probability_milli(&shadow_batch, "context_sufficient");
+    let context_sufficient_brier_million = context_sufficient_milli
+        .map(|probability| calibration_brier_million(probability, gold_context_sufficient));
     Score {
         delivery: super::delivery::inspect(pack, case),
         required_count: required.len(),
@@ -213,11 +306,18 @@ pub(super) fn score(pack: &Value, case: &Case) -> Score {
         ndcg_at_10: ndcg(&ordered, &required, &useful),
         delivered_identities: ordered.len(),
         non_gold_symbol_fraction: ratio(observed.difference(&relevant).count(), observed.len()),
+        non_gold_identities: observed.difference(&relevant).cloned().collect(),
         fresh_sha_hits: sha_hits,
         complete_body_hits: body_hits,
         complete_body_recall: ratio(body_hits, required.len()),
         all_required_edit_inputs: all_edit_inputs,
+        gold_context_sufficient,
+        unique_patch_precondition_hits: patch_hits,
+        all_required_unique_patch_preconditions: all_edit_inputs && patch_hits == required.len(),
         reported_edit_ready: pack["readiness"]["edit"].as_str() == Some("ready"),
+        decision_plane_exposed,
+        context_sufficient_milli,
+        context_sufficient_brier_million,
         abstained: case.no_answer.then_some(observed.is_empty()),
         response_bytes: bytes,
         estimated_tokens: bytes.div_ceil(4),

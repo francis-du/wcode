@@ -38,3 +38,15 @@
     - component:agent-context
     - component:mcp-runtime
     - component:workspace-operations
+
+- schema_version: 1
+  id: ADR-005-ADVISORY-DECISION-PLANE
+  title: Fast decisions are advisory and cannot weaken deterministic safety
+  status: accepted
+  decision: A provider-neutral Decision Plane may emit bounded probability, choice and score signals for Agent strategy, but those signals cannot reduce authorization, SHA preconditions, evidence requirements, risk-derived verification profiles, deterministic checks, or human approval. The deterministic provider remains behavioral authority during provider evaluation. Any future model-backed provider first runs as a shadow candidate on the identical request; comparison records disagreement and policy violations but cannot alter routing or verification until separately promoted by an explicit design change.
+  rationale: Lightweight decisions can reduce unnecessary retrieval and improve routing only if probabilistic confidence never becomes a bypass around wcode's deterministic trust boundary. Provider quality must be judged against independent evidence where available; context sufficiency therefore uses authored Engineering Fitness Gold edit inputs rather than the provider's own readiness labels, so external, local or deterministic providers can be compared on the same Brier and false-stop/false-continue basis. Separating shadow comparison from behavioral authority permits safe A/B evaluation before any network-backed provider is enabled.
+  affects:
+    - REQ-DECISION-001
+    - component:decision-plane
+    - component:agent-context
+    - component:verification-harness

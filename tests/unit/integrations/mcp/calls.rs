@@ -7,7 +7,7 @@ async fn competitive_search_and_edit_flow_uses_sha_without_extra_read() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("main.go"),
-        "package demo\n// alpha beta\n// alpha\n",
+        "package demo\nvar alphaBeta = \"alpha beta\"\nvar alphaValue = \"alpha\"\n",
     )
     .unwrap();
     let workspaces = Workspaces::new([dir.path()], true, false).unwrap();
@@ -38,14 +38,14 @@ async fn competitive_search_and_edit_flow_uses_sha_without_extra_read() {
         &state,
         json!({"name":"apply_edits","arguments":{
             "path":"main.go","expected_sha256":row["sha256"],
-            "edits":[{"old_text":"// alpha beta","new_text":"// fixed","start_line":2,"end_line":2}]
+            "edits":[{"old_text":"var alphaBeta = \"alpha beta\"","new_text":"var fixed = \"fixed\"","start_line":2,"end_line":2}]
         }}),
     )
     .await
     .unwrap();
     assert_eq!(edited["isError"], false);
     let stale = call_tool(&state, json!({"name":"replace_text","arguments":{
-        "path":"main.go","expected_sha256":row["sha256"],"old_text":"// fixed","new_text":"// stale"
+        "path":"main.go","expected_sha256":row["sha256"],"old_text":"var fixed = \"fixed\"","new_text":"var stale = \"stale\""
     }})).await.unwrap();
     assert_eq!(stale["isError"], true);
     let grouped = call_tool(
@@ -57,17 +57,28 @@ async fn competitive_search_and_edit_flow_uses_sha_without_extra_read() {
     .await
     .unwrap();
     assert_eq!(grouped["isError"], false);
-    assert_eq!(
-        grouped["structuredContent"]["files"][0]["context_lines"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
-    );
+    let grouped_data = &grouped["structuredContent"];
+    let context_lines = grouped_data["files"][0]["context_lines"]
+        .as_array()
+        .unwrap_or_else(|| panic!("missing grouped context lines: {grouped_data}"));
+    assert_eq!(context_lines.len(), 3);
+    fs::write(dir.path().join("many.go"), "hit\n".repeat(102)).unwrap();
+    let auto_page = call_tool(
+        &state,
+        json!({"name":"search_many","arguments":{
+            "queries":["hit"],"auto_page":true
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(auto_page["isError"], false);
+    assert_eq!(auto_page["structuredContent"]["count"], 102);
+    assert_eq!(auto_page["structuredContent"]["next_offset"], Value::Null);
     for argument in [
         json!({"mode":false}),
         json!({"offset":-1}),
         json!({"context_lines":"3"}),
+        json!({"auto_page":"yes"}),
         json!({"output_mode":"invalid"}),
     ] {
         let mut args = argument;
@@ -75,6 +86,58 @@ async fn competitive_search_and_edit_flow_uses_sha_without_extra_read() {
         let invalid = call_tool(&state, json!({"name":"search_code","arguments":args})).await;
         assert!(invalid.is_err() || invalid.as_ref().is_ok_and(|v| v["isError"] == true));
     }
+}
+
+#[tokio::test]
+async fn syntax_search_defaults_cover_more_than_one_thousand_files_and_skip_comments() {
+    let dir = tempfile::tempdir().unwrap();
+    for index in 0..1_005 {
+        fs::write(
+            dir.path().join(format!("file_{index:04}.go")),
+            "package demo\nvar value = 1\n// comment marker\n",
+        )
+        .unwrap();
+    }
+    let workspaces = Workspaces::new([dir.path()], false, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+    let syntax = call_tool(
+        &state,
+        json!({"name":"search_syntax","arguments":{
+            "node_kinds":["var_declaration"],"max_results":2000
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(syntax["isError"], false);
+    assert_eq!(syntax["structuredContent"]["files_considered"], 1_005);
+    assert_eq!(syntax["structuredContent"]["scan_truncated"], false);
+    assert_eq!(syntax["structuredContent"]["coverage_complete"], true);
+
+    let comments = call_tool(
+        &state,
+        json!({"name":"search_syntax","arguments":{
+            "path":"file_0000.go","node_kinds":["comment"]
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(comments["structuredContent"]["count"], 0);
+    let comments = call_tool(
+        &state,
+        json!({"name":"search_syntax","arguments":{
+            "path":"file_0000.go","node_kinds":["comment"],"include_comments":true
+        }}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(comments["structuredContent"]["count"], 1);
 }
 
 #[tokio::test]

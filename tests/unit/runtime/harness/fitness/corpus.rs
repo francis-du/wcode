@@ -125,7 +125,16 @@ pub(super) fn base_case(language: &str) -> Case {
                 fragment: refresh.into(),
             },
         ],
-        useful: vec![Identity::new(&path, "observe_epoch")],
+        useful: {
+            let mut useful = vec![Identity::new(&path, "observe_epoch")];
+            if language == "rust" {
+                useful.push(Identity::new(
+                    "tests/session.rs",
+                    "replacement_keeps_new_owner",
+                ));
+            }
+            useful
+        },
         writable: true,
         no_answer: false,
     };
@@ -135,7 +144,6 @@ pub(super) fn base_case(language: &str) -> Case {
 
 fn language_variants(exact: &Case) -> Vec<Case> {
     let language = exact.language.as_str();
-    let path = exact.required[0].identity.path.clone();
     let mut variants = Vec::new();
     for (suffix, category, query, required) in [
         (
@@ -195,7 +203,17 @@ fn language_variants(exact: &Case) -> Vec<Case> {
             .into_iter()
             .map(|index| exact.required[index].clone())
             .collect();
-        case.useful = vec![Identity::new(&path, "observe_epoch")];
+        case.useful = exact.useful.clone();
+        for gold in &exact.required {
+            if !case
+                .required
+                .iter()
+                .any(|required| required.identity == gold.identity)
+                && !case.useful.contains(&gold.identity)
+            {
+                case.useful.push(gold.identity.clone());
+            }
+        }
         variants.push(case);
     }
     variants

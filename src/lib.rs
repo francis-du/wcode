@@ -12,6 +12,8 @@ mod authorization;
 mod code_index;
 #[path = "workspace/conventions.rs"]
 mod conventions;
+#[path = "intelligence/decision.rs"]
+pub mod decision;
 #[path = "design/mod.rs"]
 pub mod design;
 #[path = "evidence/journal.rs"]
@@ -24,6 +26,8 @@ mod evidence_store;
 mod experience_store;
 #[path = "graph/mod.rs"]
 pub mod graph;
+#[path = "graph/chain.rs"]
+mod graph_chain;
 #[path = "graph/provider_store.rs"]
 mod graph_provider_store;
 #[path = "graph/graph_store.rs"]

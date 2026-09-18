@@ -68,6 +68,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.8.0 发布说明](releases/v0.8.0/) — Engineering Digital Twin、有界代码图谱与时间旅行、更快 Observatory、Ignore 感知扫描、可校准 Decision Plane 与任务优先 TUI。
 - [v0.7.6 发布说明](releases/v0.7.6/) — 不依赖模型的 Engineering Fitness、1K 编辑就绪上下文、多目标检索与对抗式发布验证。
 - [v0.7.5 发布说明](releases/v0.7.5/) — 并发验证入口、入口信任代次校验、TUI 快捷键消歧与观测台响应式布局修复。
 - [v0.7.4 发布说明](releases/v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Content，以及按当前产品重做的文档/UI。

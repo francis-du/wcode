@@ -1,15 +1,60 @@
 use super::*;
 
 impl ToolHarness {
+    pub(crate) fn begin_observatory_refresh(
+        &self,
+        workspace: &Workspace,
+    ) -> Option<ObservatoryRefreshGuard> {
+        let root = workspace.root().to_path_buf();
+        let mut refreshes = self.observatory_refreshes.lock().ok()?;
+        if !refreshes.insert(root.clone()) {
+            return None;
+        }
+        Some(ObservatoryRefreshGuard {
+            refreshes: self.observatory_refreshes.clone(),
+            root,
+        })
+    }
+
+    pub(crate) fn observatory_refreshing(&self, workspace: &Workspace) -> bool {
+        self.observatory_refreshes
+            .lock()
+            .is_ok_and(|refreshes| refreshes.contains(workspace.root()))
+    }
+
     pub fn cached_project_observatory(
         &self,
         workspace: &Workspace,
     ) -> Option<crate::intelligence_types::ProjectObservatory> {
+        self.cached_project_observatory_state(workspace)
+            .map(|(snapshot, _)| snapshot)
+    }
+
+    pub(crate) fn cached_project_observatory_state(
+        &self,
+        workspace: &Workspace,
+    ) -> Option<(
+        crate::intelligence_types::ProjectObservatory,
+        Option<String>,
+    )> {
         let root = workspace.root().to_path_buf();
         let mut cache = self.observatory_cache.lock().ok()?;
         let cached = cache.get_mut(&root)?;
         cached.last_used = Instant::now();
-        Some(cached.snapshot.as_ref().clone())
+        Some((
+            cached.snapshot.as_ref().clone(),
+            cached.revision_key.clone(),
+        ))
+    }
+
+    pub(crate) fn mark_observatory_revision(&self, workspace: &Workspace, revision_key: String) {
+        let root = workspace.root().to_path_buf();
+        if let Ok(mut cache) = self.observatory_cache.lock() {
+            if let Some(cached) = cache.get_mut(&root) {
+                cached.revision_key = Some(revision_key);
+                cached.last_used = Instant::now();
+            }
+        }
     }
 
     fn cache_project_observatory(
@@ -36,6 +81,7 @@ impl ToolHarness {
             CachedProjectObservatory {
                 last_used: Instant::now(),
                 snapshot: Arc::new(snapshot.clone()),
+                revision_key: None,
             },
         );
     }

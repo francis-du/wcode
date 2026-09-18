@@ -1,11 +1,34 @@
 use super::*;
 
+impl ToolHarness {
+    pub(crate) fn current_workspace_revision_key(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Option<String>> {
+        let revision = self.intelligence.current_revision(workspace)?;
+        if revision.code.ends_with(":partial")
+            || revision
+                .design
+                .as_deref()
+                .is_some_and(|value| value.ends_with(":partial"))
+        {
+            return Ok(None);
+        }
+        Ok(Some(format!(
+            "code={};design={}",
+            revision.code,
+            revision.design.as_deref().unwrap_or("none")
+        )))
+    }
+}
+
 pub(super) async fn run_verification_check(
     harness: ToolHarness,
     monitor: TaskMonitor,
     workspace_id: String,
     workspace: Workspace,
     check: CheckSpec,
+    revision_key: Option<String>,
     timeout_seconds: u64,
 ) -> VerificationCheck {
     let command = verification_command_text(&check);
@@ -23,15 +46,31 @@ pub(super) async fn run_verification_check(
     task.start();
     let started = Instant::now();
 
-    match workspace
-        .run_verification_command(
-            &check.program,
-            &check.args,
-            &check.cwd,
-            timeout_seconds.clamp(1, 1800),
-        )
-        .await
-    {
+    let result = match revision_key.as_deref() {
+        Some(revision) => {
+            workspace
+                .run_verification_command_at_revision(
+                    &check.program,
+                    &check.args,
+                    &check.cwd,
+                    timeout_seconds.clamp(1, 1800),
+                    revision,
+                )
+                .await
+        }
+        None => {
+            workspace
+                .run_verification_command(
+                    &check.program,
+                    &check.args,
+                    &check.cwd,
+                    timeout_seconds.clamp(1, 1800),
+                )
+                .await
+        }
+    };
+
+    match result {
         Ok(result) => {
             let success = result.success;
             let response_bytes = result.stdout.len().saturating_add(result.stderr.len()) as u64;

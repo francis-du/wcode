@@ -1,6 +1,153 @@
 use super::*;
 use std::sync::OnceLock;
 
+#[test]
+fn command_queue_wait_is_bounded_independently_from_execution_timeout() {
+    assert_eq!(
+        process_queue_wait(Duration::from_secs(1_800)),
+        crate::resource::PROCESS_QUEUE_WAIT_CAP
+    );
+    assert_eq!(
+        process_queue_wait(Duration::from_secs(2)),
+        Duration::from_secs(2)
+    );
+}
+
+#[test]
+fn cargo_contention_wait_is_bounded_separately_from_execution_timeout() {
+    assert_eq!(
+        cargo_contention_wait(Duration::from_secs(2)),
+        Duration::from_secs(5)
+    );
+    assert_eq!(
+        cargo_contention_wait(Duration::from_secs(20)),
+        Duration::from_secs(20)
+    );
+    assert_eq!(
+        cargo_contention_wait(Duration::from_secs(1_800)),
+        Duration::from_secs(30)
+    );
+}
+
+#[test]
+fn cargo_contention_classification_separates_registry_and_workspace_locks() {
+    assert_eq!(
+        cargo_contention_lane("cargo", &["info".into(), "serde".into()]),
+        Some(CargoContentionLane::Registry)
+    );
+    assert_eq!(
+        cargo_contention_lane(
+            "cargo",
+            &[
+                "--color".into(),
+                "always".into(),
+                "test".into(),
+                "--quiet".into()
+            ]
+        ),
+        Some(CargoContentionLane::Workspace)
+    );
+    assert_eq!(
+        cargo_contention_lane(
+            "cargo",
+            &["+nightly".into(), "search".into(), "serde".into()]
+        ),
+        Some(CargoContentionLane::Registry)
+    );
+    assert_eq!(
+        cargo_contention_lane("cargo", &["fmt".into(), "--check".into()]),
+        None
+    );
+    assert_eq!(cargo_contention_lane("rustc", &["--version".into()]), None);
+}
+
+#[tokio::test]
+async fn cargo_workspace_gate_serializes_before_child_process_admission() {
+    let root = tempfile::tempdir().unwrap();
+    let first = acquire_cargo_contention_gate(
+        "cargo",
+        &["test".into()],
+        root.path(),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap()
+    .expect("workspace cargo command must acquire a contention permit");
+
+    let blocked = acquire_cargo_contention_gate(
+        "cargo",
+        &["check".into()],
+        root.path(),
+        Duration::from_millis(40),
+    )
+    .await;
+    assert!(
+        blocked.is_err(),
+        "same-workspace cargo command must queue before spawning"
+    );
+    drop(first);
+
+    let resumed = acquire_cargo_contention_gate(
+        "cargo",
+        &["check".into()],
+        root.path(),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    assert!(resumed.is_some());
+}
+
+#[tokio::test]
+async fn cargo_registry_gate_is_global_but_workspace_gates_are_independent() {
+    let left = tempfile::tempdir().unwrap();
+    let right = tempfile::tempdir().unwrap();
+    let registry = acquire_cargo_contention_gate(
+        "cargo",
+        &["info".into(), "serde".into()],
+        left.path(),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap()
+    .expect("cargo info must use the global registry lane");
+    let blocked = acquire_cargo_contention_gate(
+        "cargo",
+        &["search".into(), "tokio".into()],
+        right.path(),
+        Duration::from_millis(40),
+    )
+    .await;
+    assert!(
+        blocked.is_err(),
+        "registry cargo commands must serialize across workspaces"
+    );
+    drop(registry);
+
+    let workspace = acquire_cargo_contention_gate(
+        "cargo",
+        &["test".into()],
+        left.path(),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap()
+    .expect("build/test cargo commands use a workspace lane");
+    let independent = acquire_cargo_contention_gate(
+        "cargo",
+        &["check".into()],
+        right.path(),
+        Duration::from_millis(40),
+    )
+    .await
+    .unwrap();
+    assert!(
+        independent.is_some(),
+        "different workspaces must not share build/test cargo locks"
+    );
+    drop((workspace, independent));
+}
+
 fn command_fixture() -> (tempfile::TempDir, Workspace, String) {
     static BUILT: OnceLock<tempfile::TempDir> = OnceLock::new();
     let built = BUILT.get_or_init(|| {
@@ -42,9 +189,36 @@ fn main() {
             io::stdout().flush().unwrap();
             std::thread::sleep(std::time::Duration::from_secs(30));
         }
+        Some("count") => {
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("verification-count.txt")
+                .unwrap();
+            file.write_all(b"1").unwrap();
+            file.flush().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            println!("counted");
+        }
         _ => {
-            println!("normal-output");
-            eprintln!("normal-diagnostic");
+            let verification_counter = std::env::current_exe()
+                .ok()
+                .and_then(|path| path.file_stem().and_then(|name| name.to_str()).map(str::to_owned))
+                .is_some_and(|name| matches!(name.as_str(), "phpunit" | "psalm"));
+            if verification_counter {
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("verification-count.txt")
+                    .unwrap();
+                file.write_all(b"1").unwrap();
+                file.flush().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                println!("counted");
+            } else {
+                println!("normal-output");
+                eprintln!("normal-diagnostic");
+            }
         }
     }
 }
@@ -83,6 +257,23 @@ fn main() {
     (root, workspace, program)
 }
 
+fn verification_count_fixture() -> (tempfile::TempDir, Workspace, String) {
+    let (root, _trusted, fixture) = command_fixture();
+    std::fs::create_dir_all(root.path().join("vendor/bin")).unwrap();
+    std::fs::copy(
+        root.path().join(&fixture),
+        root.path().join("vendor/bin/phpunit"),
+    )
+    .unwrap();
+    std::fs::copy(
+        root.path().join(fixture),
+        root.path().join("vendor/bin/psalm"),
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    (root, workspace, "vendor/bin/phpunit".to_owned())
+}
+
 #[tokio::test]
 async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects() {
     let (root, _workspace, program) = command_fixture();
@@ -105,9 +296,15 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
     .await
     .expect("timeout fixture must flush diagnostics before the timed collection begins");
 
-    let result = collect_command_result(child, &program, &["timeout".into()], 1, 0)
-        .await
-        .expect("timeout must preserve a failed command result and its captured diagnostics");
+    let result = collect_command_result(
+        child,
+        &program,
+        &["timeout".into()],
+        tokio::time::Instant::now() + Duration::from_secs(1),
+        0,
+    )
+    .await
+    .expect("timeout must preserve a failed command result and its captured diagnostics");
     assert!(!result.success);
     assert!(result.stdout.contains("stdout-before-timeout"));
     assert!(result.stderr.contains("stderr-before-timeout"));
@@ -254,21 +451,181 @@ async fn normal_command_output_and_exit_status_remain_compatible() {
 
 #[tokio::test]
 async fn exact_workspace_verification_executable_runs_without_runtime_authorization() {
-    let (root, _trusted, fixture) = command_fixture();
-    std::fs::create_dir_all(root.path().join("vendor/bin")).unwrap();
-    std::fs::copy(
-        root.path().join(fixture),
-        root.path().join("vendor/bin/phpunit"),
-    )
-    .unwrap();
-    let workspace = Workspace::new(root.path(), false, true).unwrap();
-    assert!(workspace.workspace_program_available("vendor/bin/phpunit"));
+    let (_root, workspace, program) = verification_count_fixture();
+    assert!(workspace.workspace_program_available(&program));
     let result = workspace
-        .run_verification_command("vendor/bin/phpunit", &[], ".", 30)
+        .run_verification_command(&program, &[], ".", 30)
         .await
         .expect("exact workspace-local verification executable should run autonomously");
     assert!(result.success, "{}", result.stderr);
     assert!(workspace.authorization.requests(10).is_empty());
+}
+
+#[tokio::test]
+async fn exact_revision_verification_commands_coalesce_one_underlying_process() {
+    let (root, workspace, program) = verification_count_fixture();
+    let first = workspace.clone();
+    let second = workspace.clone();
+    let args = Vec::new();
+    let (left, right) = tokio::join!(
+        first.run_verification_command_at_revision(&program, &args, ".", 30, "rev-a"),
+        second.run_verification_command_at_revision(&program, &args, ".", 30, "rev-a")
+    );
+    assert!(left.unwrap().success);
+    assert!(right.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "1",
+        "followers must reuse the leader instead of spawning a duplicate process"
+    );
+}
+
+#[tokio::test]
+async fn verification_command_flights_separate_revisions() {
+    let (root, workspace, program) = verification_count_fixture();
+    let first = workspace.clone();
+    let second = workspace.clone();
+    let args = Vec::new();
+    let (left, right) = tokio::join!(
+        first.run_verification_command_at_revision(&program, &args, ".", 30, "rev-a"),
+        second.run_verification_command_at_revision(&program, &args, ".", 30, "rev-b")
+    );
+    assert!(left.unwrap().success);
+    assert!(right.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "11",
+        "different revisions must execute independently"
+    );
+}
+
+#[tokio::test]
+async fn direct_run_command_revision_flights_coalesce_verification_shape() {
+    let (root, workspace, program) = verification_count_fixture();
+    let workspace_id = workspace.authorization_workspace_id();
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace_id, true);
+    let first = workspace.clone();
+    let second = workspace.clone();
+    let args = Vec::new();
+    let (left, right) = tokio::join!(
+        first.run_command_at_revision(&program, &args, ".", 30, "rev-direct"),
+        second.run_command_at_revision(&program, &args, ".", 30, "rev-direct")
+    );
+    assert!(left.unwrap().success);
+    assert!(right.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "1"
+    );
+}
+
+#[tokio::test]
+async fn verification_command_flights_do_not_cross_workspaces() {
+    let (left_root, left_workspace, left_program) = verification_count_fixture();
+    let (right_root, right_workspace, right_program) = verification_count_fixture();
+    let args = Vec::new();
+    let (left, right) = tokio::join!(
+        left_workspace.run_verification_command_at_revision(
+            &left_program,
+            &args,
+            ".",
+            30,
+            "same-revision"
+        ),
+        right_workspace.run_verification_command_at_revision(
+            &right_program,
+            &args,
+            ".",
+            30,
+            "same-revision"
+        )
+    );
+    assert!(left.unwrap().success);
+    assert!(right.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(left_root.path().join("verification-count.txt")).unwrap(),
+        "1"
+    );
+    assert_eq!(
+        std::fs::read_to_string(right_root.path().join("verification-count.txt")).unwrap(),
+        "1"
+    );
+}
+
+#[tokio::test]
+async fn verification_command_flights_separate_commands_and_timeouts() {
+    let (root, workspace, phpunit) = verification_count_fixture();
+    let empty = Vec::new();
+    let psalm = "vendor/bin/psalm".to_owned();
+    let psalm_args = vec!["--output-format=json".to_owned()];
+    let (first, second) = tokio::join!(
+        workspace.run_verification_command_at_revision(&phpunit, &empty, ".", 30, "rev-command"),
+        workspace.run_verification_command_at_revision(&psalm, &psalm_args, ".", 30, "rev-command")
+    );
+    assert!(first.unwrap().success);
+    assert!(second.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "11",
+        "different commands must not share a flight"
+    );
+
+    std::fs::remove_file(root.path().join("verification-count.txt")).unwrap();
+    let (first, second) = tokio::join!(
+        workspace.run_verification_command_at_revision(&phpunit, &empty, ".", 30, "rev-timeout"),
+        workspace.run_verification_command_at_revision(&phpunit, &empty, ".", 31, "rev-timeout")
+    );
+    assert!(first.unwrap().success);
+    assert!(second.unwrap().success);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("verification-count.txt")).unwrap(),
+        "11",
+        "different timeout contracts must not share a flight"
+    );
+}
+
+#[tokio::test]
+async fn cancelled_verification_leader_releases_followers_and_allows_retry() {
+    let (root, workspace, program) = verification_count_fixture();
+    let leader_workspace = workspace.clone();
+    let leader_program = program.clone();
+    let leader = tokio::spawn(async move {
+        leader_workspace
+            .run_verification_command_at_revision(&leader_program, &[], ".", 30, "rev-cancel")
+            .await
+    });
+    let count = root.path().join("verification-count.txt");
+    timeout(Duration::from_secs(10), async {
+        while !count.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("leader must start before follower joins");
+
+    let follower_workspace = workspace.clone();
+    let follower_program = program.clone();
+    let follower = tokio::spawn(async move {
+        follower_workspace
+            .run_verification_command_at_revision(&follower_program, &[], ".", 30, "rev-cancel")
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    leader.abort();
+    let follower_result = timeout(Duration::from_secs(2), follower)
+        .await
+        .expect("follower must be released when its leader is cancelled")
+        .unwrap();
+    assert!(follower_result.is_err());
+
+    let retry = workspace
+        .run_verification_command_at_revision(&program, &[], ".", 30, "rev-cancel")
+        .await
+        .expect("a cancelled flight must not block a fresh retry");
+    assert!(retry.success);
+    assert_eq!(std::fs::read_to_string(count).unwrap(), "11");
 }
 
 #[cfg(unix)]

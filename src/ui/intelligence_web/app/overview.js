@@ -70,6 +70,11 @@ function renderStats() {
   ];
   setHtml("stats", els.stats, items.join(""), () => bindSummaryActions(els.stats));
 }
+function runtimeDriftSummary(project = state.project) {
+  const findings = (project?.risk?.drift?.findings || []).filter(item => item.kind === "runtime_drift");
+  const maxDeviation = findings.reduce((value, item) => Math.max(value, Number(item.deviation?.deviation_percent || 0)), 0);
+  return { findings, count: findings.length, maxDeviation };
+}
 function attentionSignals() {
   const p = state.project, items = [];
   if (!p) return items;
@@ -81,6 +86,8 @@ function attentionSignals() {
   if (oversized) add("bad", localized(`${num(oversized)} source files violate the hard line limit`, `${num(oversized)} 个源文件违反硬性行数限制`), localized(`Core policy blocks verification and further growth above ${num(lineLimit)} lines until those modules are decomposed by responsibility.`, `核心策略会阻断验证，并禁止超过 ${num(lineLimit)} 行的模块继续增长；请先按职责拆分。`), "filesSection");
   if (proof.current_failed) add("bad", localized("Failure evidence recorded", "存在失败证据"), localized(`${num(proof.current_failed)} records for this version. Inspect the latest verification, not the count alone.`, `当前版本有 ${num(proof.current_failed)} 条失败记录，请核对最新验证结果。`), "proofSection");
   if (p.architecture?.blocking_drift_edges) add("bad", localized("Confirmed architecture drift", "已确认架构偏离"), localized(`${num(p.architecture.blocking_drift_edges)} dependencies have strong drift evidence.`, `${num(p.architecture.blocking_drift_edges)} 条依赖具有强证据偏离。`), "architectureSection");
+  const runtimeDrift = runtimeDriftSummary(p);
+  if (runtimeDrift.count) add("warn", localized(`${num(runtimeDrift.count)} runtime drift signals`, `${num(runtimeDrift.count)} 项运行时偏离`), localized(`Peak observed deviation is ${num(runtimeDrift.maxDeviation)}%. Runtime observations are shown separately from structural dependency drift.`, `观测到的最大偏离为 ${num(runtimeDrift.maxDeviation)}%。运行时偏离与结构依赖偏离分开计算。`), "diagnosticsSection");
   if (pending) add("warn", localized(`${num(pending)} requests need approval`, `${num(pending)} 项请求等待批准`), localized("Review the exact operation before allowing it.", "检查具体操作后再决定批准或拒绝。"), "access");
   if (proof.current_verification_blocked) add("warn", localized("Verification plans are blocked", "验证计划尚未就绪"), localized(`${num(proof.current_verification_blocked)} current plans still have gates to satisfy.`, `${num(proof.current_verification_blocked)} 个当前计划仍有门禁未满足。`), "proofSection");
   if (!proof.current_evidence) add("info", localized("This version is not verified yet", "当前版本尚未验证"), localized("No current-version evidence was returned. Historical passes and mapped tests are not proof.", "没有返回当前版本证据。历史通过和测试映射都不能代替本次验证。"), "proofSection");
@@ -195,6 +202,10 @@ function renderActivity() {
   const limits = snapshot?.resources?.limits;
   const queue = (value, name) => value ? `<div><strong>${num(value.active)} / ${num(value.limit)}</strong><span>${esc(name)} · ${num(value.waiting)} ${esc(localized("waiting", "排队"))}</span></div>` : "";
   const resources = limits ? `<header class="resource-telemetry-head"><strong>${esc(localized("Runtime capacity", "运行时容量"))}</strong><span>${esc(localized("Shared by all workspaces · reserved permits are not CPU-running tasks", "全部项目共享 · 占用额度不等于正在使用 CPU"))}</span></header><div class="proof-counts resource-counts">${queue(limits.child_queue, localized("Heavy processes", "重型进程"))}${queue(limits.probe_queue, localized("Git probes", "Git 检查"))}<div><strong>${typeof limits.resident_memory_bytes === "number" && Number.isFinite(limits.resident_memory_bytes) && limits.resident_memory_bytes >= 0 ? `${Math.round(limits.resident_memory_bytes / 1048576)} MiB` : "—"}</strong><span>${esc(localized("Resident memory", "进程驻留内存"))}</span></div></div>` : `<div class="empty">${esc(localized("Resource telemetry requires the updated runtime.", "资源遥测需要更新后的运行时。"))}</div>`;
+  const harness = snapshot?.harness || {}, intelligence = harness.software_intelligence || {},
+    twin = intelligence.engineering_digital_twin, decision = intelligence.decision_plane,
+    scan = harness.repository_scanning, observatory = harness.observatory;
+  const v08Capabilities = twin || decision || scan || observatory ? `<section class="agent-context-efficiency"><header class="resource-telemetry-head"><strong>${esc(localized("WCode 0.8 control plane", "WCode 0.8 控制平面"))}</strong><span>${esc(localized("Runtime-declared capabilities, not hard-coded UI promises", "来自运行时声明的能力，不是前端写死的宣传文案"))}</span></header><div class="proof-counts resource-counts">${twin ? `<div><strong>${esc(localized("Digital Twin", "工程数字孪生"))}</strong><span>${esc(localized(`${(twin.modes || []).join(" / ")} · depth ${twin.max_depth || "—"}`, `${(twin.modes || []).join(" / ")} · 深度 ${twin.max_depth || "—"}`))}</span></div>` : ""}${decision ? `<div><strong>${esc(localized("Decision Plane", "决策平面"))}</strong><span>${esc(localized(`${decision.authority || "advisory"} · Shadow A/B ${decision.shadow_ab ? "on" : "off"}`, `${decision.authority || "advisory"} · Shadow A/B ${decision.shadow_ab ? "已启用" : "关闭"}`))}</span></div>` : ""}${scan ? `<div><strong>${esc(localized("Ignore-aware scan", "Ignore 感知扫描"))}</strong><span>${esc(localized(scan.gitignore && scan.dot_ignore ? ".gitignore + .ignore + generated pruning" : "bounded repository scan", scan.gitignore && scan.dot_ignore ? ".gitignore + .ignore + 生成目录剪枝" : "有界仓库扫描"))}</span></div>` : ""}${observatory ? `<div><strong>${esc(localized("Observatory refresh", "观测台刷新"))}</strong><span>${esc(localized(observatory.background_single_flight_refresh ? "cached · background single-flight" : "bounded refresh", observatory.background_single_flight_refresh ? "缓存 · 后台单飞刷新" : "有界刷新"))}</span></div>` : ""}</div></section>` : "";
   const agent = activity.agent_context || {}, agentCalls = Number(agent.calls || 0),
     candidates = Number(agent.repo_map_candidates || 0), delivered = Number(agent.repo_map_delivered || 0),
     selection = candidates > 0 ? `${Math.round((delivered / candidates) * 100)}%` : "—",
@@ -208,5 +219,5 @@ function renderActivity() {
   else if (limits?.child_queue?.waiting) bottleneck = localized("Commands are waiting for heavy-process capacity.", "命令正在等待重型进程名额。");
   else if (limits?.probe_queue?.waiting) bottleneck = localized("Git inspections are waiting for probe capacity.", "Git 查询正在等待检查名额。");
   else if (activity.queued) bottleneck = localized("Tasks are queued; the exact waiting reason is not tracked here.", "有任务排队；此处尚未追踪每项任务的具体等待原因。");
-  setHtml("resourceStatus", els.resourceStatus, resources + agentEfficiency + (bottleneck ? `<p class="risk medium">${esc(bottleneck)}</p>` : ""));
+  setHtml("resourceStatus", els.resourceStatus, resources + v08Capabilities + agentEfficiency + (bottleneck ? `<p class="risk medium">${esc(bottleneck)}</p>` : ""));
 }

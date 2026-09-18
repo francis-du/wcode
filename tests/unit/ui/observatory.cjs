@@ -53,6 +53,7 @@ async function run(){
   await test('runtime fixture strips bootstrap after CRLF checkout',async()=>{const source='function ready(){}\r\napplyTheme();\r\napplyLanguage();\r\nstartObservatory();';assert.equal(stripRuntimeBootstrap(source),'function ready(){}');});
   await test('storage denial cannot blank the dashboard',async()=>{const s=sandbox(true);assert.ok(s.run('state.language'));});
   await test('missing proof and unavailable Git are not green success',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;renderStats();renderAttention();');assert.ok(!s.node('#attention').innerHTML.includes('attention-item good'),'no evidence must not produce all-clear');assert.ok(!s.node('#stats').innerHTML.includes('>clean<'),'unavailable review must not look clean');assert.equal(s.run('architectureData().evidence_coverage_percent'),0,'empty architecture evidence must remain zero rather than a fake 100%');});
+  await test('runtime drift stays separate from structural drift and exposes deviation percent',async()=>{const s=sandbox();s.context.fixture={...project(),risk:{drift:{findings:[{kind:'runtime_drift',deviation:{deviation_percent:722.1}}]}}};s.run('state.project=fixture;');assert.equal(s.run('runtimeDriftSummary(fixture).maxDeviation'),722.1);const signals=JSON.parse(s.run('JSON.stringify(attentionSignals())'));assert.ok(signals.some(item=>item.title.includes('runtime drift')&&item.detail.includes('722')));assert.equal(s.run('architectureData().observed_drift_percent'),0,'runtime drift must not be folded into dependency drift');});
   await test('failed refresh does not acknowledge the new revision',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;state.revisionKey="old|graph|proof|";renderProject=()=>{};renderAttention=()=>{};');const first=s.run('pollRevision()');await flush();respond(s.requests[0],{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof',pending_authorizations:0});await flush();const req=s.requests.find(r=>r.url==='/intelligence/project');assert.ok(req);respond(req,{error:'offline'},false);await first;assert.equal(s.run('state.revisionKey'),'old|graph|proof|');const second=s.run('pollRevision()');await flush();respond(s.requests.at(-1),{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof'});await flush();assert.equal(s.requests.at(-1).url,'/intelligence/project');respond(s.requests.at(-1),project());await second;});
   await test('out-of-order workspace response never replaces the selected project',async()=>{const s=sandbox();s.run('renderProject=()=>{};renderAttention=()=>{};');const a=s.run('refreshProject({workspace:"A",reason:"manual"})');await flush();const b=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();for(const req of s.requests.filter(r=>r.url==='/intelligence/revision'))respond(req,{workspace:req.options.headers['X-Wcode-Workspace'],fingerprint:'r'});await flush();const pending=s.requests.filter(r=>r.url==='/intelligence/project');for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='B'))respond(req,project('B'));await flush();for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='A'))respond(req,project('A'));await Promise.all([a,b]);assert.equal(s.run('state.current'),'B');assert.equal(s.run('state.project.workspace'),'B');});
   await test('old access results do not cross workspace boundaries',async()=>{const s=sandbox();const access=s.run('loadAccess()');await flush();s.run('state.current="B";state.accessLoaded=false;');for(const req of s.requests)respond(req,req.url.endsWith('authorizations')?{pending:[{id:'AUTH-A',workspace:'A'}]}:{allowed_commands:['private-A']});await access;assert.equal(s.run('state.accessLoaded'),false);assert.equal(s.run('state.authorizations.length'),0);});
@@ -82,7 +83,7 @@ async function run(){
     for(const response of [{workspace:'A',snapshot_pending:true},{...project(),snapshot_cache:'stale-while-revalidate'}]){
       const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
       const old=s.run('refreshProject({reason:"manual",revision:{fingerprint:"old"}})');await flush();respond(s.requests[0],response);await old;
-      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
       const current=s.run('refreshProject({reason:"manual",revision:{fingerprint:"current"}})');await flush();
       const request=s.requests.at(-1),count=s.requests.length;deferred.fn();await flush();
       assert.equal(s.requests.length,count,'old callback must not start another project request');
@@ -93,7 +94,7 @@ async function run(){
   await test('hidden pages do not start delayed snapshot rebuilds',async()=>{
     const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
     const old=s.run('refreshProject({reason:"manual",revision:{fingerprint:"old"}})');await flush();respond(s.requests[0],{workspace:'A',snapshot_pending:true});await old;
-    const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+    const deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
     s.context.document.hidden=true;deferred.fn();await flush();assert.equal(s.requests.length,1);
   });
   await test('paused auto refresh cannot start deferred snapshot rebuilds',async()=>{
@@ -101,7 +102,7 @@ async function run(){
       const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
       const refresh=s.run('refreshProject({reason:"auto",preferCached:true})');await flush();
       respond(s.requests[0],response);await refresh;
-      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
       s.run('state.autoRefresh=false;');deferred.fn();await flush();
       assert.equal(s.requests.length,1,'pausing auto refresh must suppress its queued rebuild');
     }
@@ -112,7 +113,7 @@ async function run(){
       s.context.refreshReason=reason;
       const refresh=s.run('refreshProject({reason:refreshReason,preferCached:true})');await flush();
       respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
-      const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      const deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
       deferred.fn();await flush();assert.equal(s.requests.length,2);
       respond(s.requests[1],project());await flush();assert.equal(s.run('state.inFlight'),false);
     }
@@ -123,7 +124,7 @@ async function run(){
       const refresh=s.run('refreshProject({reason:"initial",preferCached:true})');await flush();
       respond(s.requests[0],response);await refresh;
       assert.equal(s.run('state.current'),'A');
-      const epoch=s.run('state.workspaceEpoch'),deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+      const epoch=s.run('state.workspaceEpoch'),deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
       deferred.fn();await flush();assert.equal(s.requests.length,2);
       assert.equal(s.requests[1].options.headers['X-Wcode-Workspace'],'A');
       assert.equal(s.run('state.workspaceEpoch'),epoch,'resolving the default must not switch back to an empty workspace');
@@ -134,7 +135,7 @@ async function run(){
     const s=sandbox(false,true,{fakeTimers:true});s.run('state.current="";renderProject=()=>{};renderAttention=()=>{};');
     const refresh=s.run('refreshProject({reason:"initial",preferCached:true})');await flush();
     respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
-    const deferred=[...s.timers.values()].find(timer=>timer.ms===0);assert.ok(deferred);
+    const deferred=[...s.timers.values()].find(timer=>timer.ms===900);assert.ok(deferred);
     const current=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();
     const request=s.requests.at(-1),count=s.requests.length;deferred.fn();await flush();
     assert.equal(s.requests.length,count);assert.equal(request.options.signal.aborted,false);
@@ -150,7 +151,7 @@ async function run(){
     const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
     const refresh=s.run('refreshProject({reason:"manual",revision:{fingerprint:"new"}})');await flush();
     respond(s.requests[0],{...project(),snapshot_cache:'stale-while-revalidate'});await refresh;
-    assert.equal(s.run('state.revisionKey'),null);assert.ok([...s.timers.values()].some(timer=>timer.ms===0));
+    assert.equal(s.run('state.revisionKey'),null);assert.ok([...s.timers.values()].some(timer=>timer.ms===900));
   });
   await test('language quality coverage requires a runnable provider',async()=>{
     const s=sandbox();s.context.language={providers:[

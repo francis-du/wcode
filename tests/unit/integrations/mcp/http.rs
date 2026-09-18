@@ -1,5 +1,6 @@
 use super::*;
 use crate::authorization::AuthorizationKind;
+use crate::graph_store::GraphChainMode;
 use crate::workspace::WorkspaceSecurity;
 use axum::body::to_bytes;
 use axum::extract::State;
@@ -156,8 +157,107 @@ async fn observatory_project_serves_cached_snapshot_before_heavy_refresh() {
         .unwrap()
         .contains("snapshot-cache"));
     let cached = response_json(cached).await;
-    assert_eq!(cached["snapshot_cache"], "stale-while-revalidate");
+    assert_eq!(cached["snapshot_cache"], "cached");
+    assert_eq!(cached["snapshot_refreshing"], false);
     assert_eq!(cached["git_review"]["reason"], "cached_snapshot");
+}
+
+#[tokio::test]
+async fn observatory_revision_stamp_is_server_bound_and_changes_with_source_inputs() {
+    let (state, root) = origin_test_state();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "fn first() {}\n").unwrap();
+
+    let before = super::web::web_status::revision_state(&state.harness, &workspace_id, &workspace)
+        .await
+        .unwrap();
+    fs::write(root.path().join("src/lib.rs"), "fn second() {}\n").unwrap();
+    let after = super::web::web_status::revision_state(&state.harness, &workspace_id, &workspace)
+        .await
+        .unwrap();
+    assert_ne!(before.stable_inputs_key, after.stable_inputs_key);
+
+    let full =
+        intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace_id)).await;
+    assert_eq!(full.status(), StatusCode::OK);
+    let _ = response_json(full).await;
+
+    let mut forged = ui_headers(&state, &workspace_id);
+    forged.insert("x-wcode-prefer-cached", "1".parse().unwrap());
+    forged.insert(
+        "x-wcode-observed-revision",
+        "client-forged-revision".parse().unwrap(),
+    );
+    let cached = response_json(intelligence_web_project(State(state.clone()), forged).await).await;
+    assert_ne!(cached["snapshot_revision"], "client-forged-revision");
+}
+
+#[tokio::test]
+async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() {
+    let (state, root) = origin_test_state();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "fn callee() {}\nfn target_feature() { callee(); }\nfn caller() { target_feature(); }\n",
+    )
+    .unwrap();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let graph = state
+        .harness
+        .software_graph(workspace_id.clone(), &workspace, ".", 100, 500)
+        .unwrap();
+    assert!(!graph.graph.edges.is_empty());
+    let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
+        .id
+        .clone();
+
+    let unauthorized = intelligence_web_code_graph(
+        State(state.clone()),
+        HeaderMap::new(),
+        Query(IntelligenceCodeGraphQuery {
+            q: Some("target_feature".into()),
+            node_id: None,
+            snapshot_id: None,
+            depth: Some(2),
+            limit: Some(64),
+            mode: Some(GraphChainMode::Calls),
+        }),
+    )
+    .await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            q: Some("target_feature".into()),
+            node_id: None,
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: Some(2),
+            limit: Some(64),
+            mode: Some(GraphChainMode::Calls),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let value = response_json(response).await;
+    assert_eq!(value["workspace"], workspace_id);
+    assert_eq!(value["graph"]["mode"], "calls");
+    assert_eq!(value["graph"]["snapshot_id"], snapshot_id);
+    assert_eq!(value["graph"]["depth"], 2);
+    assert!(value["graph"]["nodes"].as_array().unwrap().len() <= 64);
+    assert!(value["graph"]["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|edge| {
+            edge["provenance"]["provider"].as_str().is_some()
+                && edge["provenance"]["precision"].as_str().is_some()
+        }));
 }
 
 #[tokio::test]

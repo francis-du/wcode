@@ -305,3 +305,98 @@ fn mixed_run_does_not_remint_acceptance_for_only_reused_check() {
         .iter()
         .any(|item| item.subject == "verification:rust-test"));
 }
+
+#[tokio::test]
+async fn exact_revision_verification_runs_share_one_in_flight_result() {
+    let (_root, workspace, harness) = workspace_fixture();
+    let revision = harness.intelligence.current_revision(&workspace).unwrap();
+    let context = harness_verification_cache::VerificationReuseContext::new(
+        &workspace, &revision, "quick", true, 30,
+    );
+    let mut leader = match harness.claim_verification_run(&workspace, &context) {
+        harness_verification_cache::VerificationRunClaim::Leader(leader) => leader,
+        harness_verification_cache::VerificationRunClaim::Follower(_) => {
+            panic!("first exact-revision caller must lead")
+        }
+    };
+    let follower = match harness.claim_verification_run(&workspace, &context) {
+        harness_verification_cache::VerificationRunClaim::Follower(flight) => flight,
+        harness_verification_cache::VerificationRunClaim::Leader(_) => {
+            panic!("second exact-revision caller must coalesce")
+        }
+    };
+
+    let spec = static_check("rust-check", &["check", "--locked"]);
+    let expected = report(check_result(&spec, true), true);
+    let result: Result<VerificationReport> = Ok(expected.clone());
+    leader.complete(&result);
+
+    let observed = follower.wait().await.unwrap();
+    assert!(observed.passed);
+    assert_eq!(observed.checks.len(), 1);
+    assert_eq!(observed.checks[0].command, expected.checks[0].command);
+}
+
+#[test]
+fn changed_revision_does_not_join_an_existing_verification_flight() {
+    let (root, workspace, harness) = workspace_fixture();
+    let first_revision = harness.intelligence.current_revision(&workspace).unwrap();
+    let first_context = harness_verification_cache::VerificationReuseContext::new(
+        &workspace,
+        &first_revision,
+        "quick",
+        true,
+        30,
+    );
+    let _first_leader = match harness.claim_verification_run(&workspace, &first_context) {
+        harness_verification_cache::VerificationRunClaim::Leader(leader) => leader,
+        harness_verification_cache::VerificationRunClaim::Follower(_) => {
+            panic!("unexpected follower")
+        }
+    };
+
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> usize { 2 }\n",
+    )
+    .unwrap();
+    let second_revision = harness.intelligence.current_revision(&workspace).unwrap();
+    assert_ne!(first_revision.code, second_revision.code);
+    let second_context = harness_verification_cache::VerificationReuseContext::new(
+        &workspace,
+        &second_revision,
+        "quick",
+        true,
+        30,
+    );
+    assert!(matches!(
+        harness.claim_verification_run(&workspace, &second_context),
+        harness_verification_cache::VerificationRunClaim::Leader(_)
+    ));
+}
+
+#[tokio::test]
+async fn cancelled_verification_leader_releases_followers_with_an_error() {
+    let (_root, workspace, harness) = workspace_fixture();
+    let revision = harness.intelligence.current_revision(&workspace).unwrap();
+    let context = harness_verification_cache::VerificationReuseContext::new(
+        &workspace, &revision, "quick", true, 30,
+    );
+    let leader = match harness.claim_verification_run(&workspace, &context) {
+        harness_verification_cache::VerificationRunClaim::Leader(leader) => leader,
+        harness_verification_cache::VerificationRunClaim::Follower(_) => {
+            panic!("unexpected follower")
+        }
+    };
+    let follower = match harness.claim_verification_run(&workspace, &context) {
+        harness_verification_cache::VerificationRunClaim::Follower(flight) => flight,
+        harness_verification_cache::VerificationRunClaim::Leader(_) => panic!("expected follower"),
+    };
+
+    drop(leader);
+    let error = tokio::time::timeout(std::time::Duration::from_secs(1), follower.wait())
+        .await
+        .expect("follower must not hang after leader cancellation")
+        .unwrap_err();
+    assert!(error.to_string().contains("leader ended"), "{error}");
+}

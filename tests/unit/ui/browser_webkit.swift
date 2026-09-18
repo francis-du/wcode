@@ -5,12 +5,13 @@ import WebKit
 
 final class BrowserAudit: NSObject, WKNavigationDelegate {
     let web: WKWebView
-    let window: NSWindow
     let widths = [320,375,720,900,1024,1240,1280,1440,1461,1597,1676,1920]
     var scenarios: [(Int,String,String,String)] = []
     var reports: [[String:Any]] = []
     var index = 0
     var finished = false
+    var phase = "initializing"
+    var timeoutSeconds: Double = 90
     let check = #"""
     (()=>{
       const errors=[], diagnostics=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
@@ -59,12 +60,12 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         let frame=NSRect(x:0,y:0,width:1597,height:900)
         web=WKWebView(frame:frame,configuration:config)
-        window=NSWindow(contentRect:frame,styleMask:[.borderless],backing:.buffered,defer:false)
         super.init();web.navigationDelegate=self
-        window.isReleasedWhenClosed=false
-        window.contentView=web
-        web.autoresizingMask=[.width,.height]
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
+        if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--timeout=")}) {
+            let value=String(option.dropFirst("--timeout=".count))
+            if let seconds=Double(value),seconds>=1 { timeoutSeconds=seconds }
+        }
         if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--cases=")}) {
             let value=String(option.dropFirst("--cases=".count))
             let parts=value.split(separator:"-",omittingEmptySubsequences:false)
@@ -79,11 +80,13 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         }
     }
     func start(){
-        window.makeKeyAndOrderFront(nil)
+        phase="navigation"
         let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath)
-        web.loadFileURL(root.appendingPathComponent("target/wcode-browser-fixture.html"),allowingReadAccessTo:root)
+        let fixture=root.appendingPathComponent("target/wcode-browser-fixture.html")
+        guard FileManager.default.fileExists(atPath:fixture.path) else {fputs("Run browser.cjs first\n",stderr);exit(2)}
+        web.loadFileURL(fixture,allowingReadAccessTo:fixture.deletingLastPathComponent())
     }
-    func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){next()}
+    func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){phase="scenario";next()}
     func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){finish("Navigation failed: \(error)")}
     func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){finish("Initial navigation failed: \(error)")}
     func finish(_ reason:String? = nil){
@@ -97,25 +100,24 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
             try data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"),options:.atomic)
             print(String(data:data,encoding:.utf8)!)
         } catch {fputs("Cannot persist browser audit: \(error)\n",stderr);exit(2)}
-        window.close();exit(failures==0 ? 0:1)
+        exit(failures==0 ? 0:1)
     }
     func next(){
         guard !finished else{return}
         guard index<scenarios.count else{finish();return}
         let (width,lang,theme,tab)=scenarios[index];index+=1
+        phase="setup-\(index)"
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
-        window.setContentSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
+        web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);
-        await document.fonts.ready;
-        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-        return innerWidth;
+        (()=>{state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);return innerWidth;})()
         """
-        web.callAsyncJavaScript(setup,arguments:[:],in:nil,in:.page){result in
-            switch result {
-            case .failure(let error):self.finish("Browser setup failed: \(error)")
-            case .success(let value):
-                guard let actual=value as? NSNumber,actual.intValue==width else{self.finish("Requested viewport \(width), received \(value)");return}
+        web.evaluateJavaScript(setup){value,error in
+            if let error {self.finish("Browser setup failed: \(error)");return}
+            guard let actual=value as? NSNumber,actual.intValue==width else{self.finish("Requested viewport \(width), received \(String(describing:value))");return}
+            self.web.layoutSubtreeIfNeeded()
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.15){
+                self.phase="check-\(self.index)"
                 self.web.evaluateJavaScript(self.check){value,error in
                     guard error==nil,let report=value as? [String:Any] else{self.finish("Browser check failed: \(String(describing:error))");return}
                     self.reports.append(report);self.next()
@@ -124,7 +126,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         }
     }
 }
-let app=NSApplication.shared;app.setActivationPolicy(.accessory)
+let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
 let audit=BrowserAudit()
-DispatchQueue.main.asyncAfter(deadline:.now()+90){audit.finish("Browser audit timed out after \(audit.reports.count)/\(audit.scenarios.count) cases")}
+DispatchQueue.main.asyncAfter(deadline:.now()+audit.timeoutSeconds){audit.finish("Browser audit timed out in \(audit.phase) after \(audit.reports.count)/\(audit.scenarios.count) cases")}
 audit.start();app.run()

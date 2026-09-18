@@ -296,7 +296,9 @@ evidence_status
 | Tool | Use it for |
 | --- | --- |
 | `file_outline` / `find_symbol` / `symbol_context` | Tree-sitter definition navigation with explicit syntax precision. |
-| `search_code` / `search_many` | Exact repository discovery; prefer the bulk form when queries are known together. |
+| `search_code` / `search_many` | Exact repository discovery; prefer the bulk form when queries are known together. `auto_page=true` raises the bounded one-call result budget to 2,000. |
+| `scan_patterns` | Batch text patterns with comment filtering, or `preset=go_common_bugs` / one `pattern` for AST-validated Go bug candidates. |
+| `search_syntax` | Tree-sitter node search across up to 50,000 files with optional regex, comment inclusion, guard evidence, and bug-pattern filters. |
 | `read_file` / `read_files` | Original-format UTF-8 reads with SHA-256 edit preconditions, bounded to at most 1,000 source lines per file/call. |
 | `read_media` | Metadata-first bounded media inspection; binary content requires explicit client capability. |
 | `parallel_tools` | Completion-driven path-resource batches; successors start when ready, failed dependencies skip, and queued children remain parent-owned. Parent/subspace aliases share dependency identity. |

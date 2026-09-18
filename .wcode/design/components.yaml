@@ -25,11 +25,12 @@
   responsibilities:
     - execute normal commands through bounded policy-checked direct program invocation without implicit shell evaluation
     - bypass executable, argument, shell, Git/GitHub hardening and environment-scrubbing policy only after explicit Workspace all-command authorization or Full Access
-    - retain resource admission, process ownership, timeout, cancellation and bounded output even for unrestricted commands
+    - retain resource admission, process ownership, cancellation and bounded output even for unrestricted commands; process admission wait is capped at five seconds independently from execution timeout, outer heavy-command admission tracks child-process capacity, and Cargo registry/workspace contention gates queue lock-sharing Cargo commands before they consume scarce child-process slots; Cargo contention wait has its own bounded queue budget and command execution timeout begins only after the Cargo gate is acquired
     - classify known development CLIs into autonomous and gated shapes only when unrestricted command trust is not active
   constraints:
     - CONSTRAINT-NO-SHELL
     - CONSTRAINT-BOUNDED-DEV-TOOLS
+    - CONSTRAINT-PARALLEL-FIRST
   implementation:
     - kind: symbol
       path: src/workspace/operations/execution.rs
@@ -39,6 +40,9 @@
       symbol: validate_command_policy
     - kind: file
       path: src/runtime/resource/queue.rs
+    - kind: symbol
+      path: src/runtime/harness/mod.rs
+      symbol: ToolHarness::execution_limit
 
 - schema_version: 1
   id: component:mcp-runtime
@@ -104,6 +108,8 @@
   responsibilities:
     - project indexed source into a provider-neutral software graph
     - keep precision and provenance explicit
+    - expose bounded directional graph-chain queries for calls, impact and all-evidence exploration with symbol-root search, upstream/downstream distance and hard node/depth limits
+    - preserve Design ownership, test/proof, semantic-provider and runtime-provider edges so Engineering Digital Twin views can explain why nodes are related without inventing certainty
     - invalidate cached syntax facts when source content changes even if size and mtime are replayed
   constraints:
     - CONSTRAINT-EXPLICIT-PRECISION
@@ -120,6 +126,9 @@
     - kind: symbol
       path: src/graph/code_index/context.rs
       symbol: CodeIndex::symbol_hot_context
+    - kind: symbol
+      path: src/graph/chain.rs
+      symbol: query
 
 - schema_version: 1
   id: component:design-state
@@ -336,13 +345,15 @@
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
     - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
     - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
-    - serve bounded per-Workspace cached project snapshots immediately on first paint or Workspace switch, then revalidate revision and Git-heavy project state asynchronously without blanking an available view
+    - serve bounded per-Workspace revision-stamped cached project snapshots immediately on first paint or Workspace switch, then revalidate Git-heavy project state through one server-side single-flight background refresh while browsers use lightweight cache probes and never create a heavy refresh storm
     - project existing bounded task activity into a realtime Understand → Change → Prove → Learn → Observe engineering flow and explain each Vibe Coding change through Files → Components → Requirements → Verification → confirmed Drift without creating a second mutable control-state source
     - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
     - compare the complete declared component architecture with code-derived dependency edges, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
+    - expose Code Graph as an internal Architecture workbench mode rather than an eighth top-level workspace; provide bounded upstream/downstream call, reference, dependency, test, requirement and proof exploration with per-edge provider/precision and a why-related inspector
     - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
     - keep Observatory, Setup Hub, OAuth and TUI on the canonical Logo/homepage brand palette; use rounded frosted/liquid-glass primary workbenches, 20–28px outer curvature, softer nested radii, compact controls, touch-safe narrow layouts and progressive disclosure, while keeping the architecture canvas continuous and preventing square card/panel stacks from becoming the primary visual structure
-    - keep the TUI visually compact, automatically load the focused Workspace engineering model, show an Engineering Pulse on roomy terminals without displacing real task rows on constrained terminals, expose a grouped Engineering Console for Architecture and Proof/Runtime drill-down, retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard
+    - "apply one observability visual grammar across Overview, Architecture/Digital Twin, Task Activity, Verification Evidence, Current Changes, Requirements and Runtime: first-glance pulse/state, second-glance metrics and relations, third-glance inspectors/evidence; supporting metadata stays at least 12px and stale/unknown/inconclusive state never receives success styling"
+    - "keep the TUI visually compact and task-first: wide terminals render live Workspace Activity beside a right-side Engineering/connection control rail, medium and narrow terminals remove permanent engineering panels so real task rows dominate, and the I Engineering Console remains the drill-down for Architecture and Proof/Runtime; retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard"
     - expose W as the discoverable TUI shortcut for the protected Engineering Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
     - expose prompt-free Verified Experience evaluation with explicit temporal-holdout method, heuristic precision, raw denominators, cold-start/unavailable distinction and independent coverage, hit-rate, precision@K and recall@K metrics rather than an opaque self-score
@@ -449,7 +460,7 @@
   id: component:workspace-operations
   name: Transactional Workspace Operations
   responsibilities:
-    - expose bounded create edit batch move metadata and delete primitives
+    - expose bounded ignore-aware list create edit batch move metadata and delete primitives; model-facing root listings reuse the repository walker so gitignored/generated directories such as target never become source-tree noise, while an explicitly addressed ignored/generated directory remains browsable instead of being silently hidden
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
     - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
     - keep executable access separate from exact repository-operation approval by default, while an explicit Workspace all-command grant bypasses command allowlist, shape and argument filtering
@@ -468,6 +479,11 @@
     - kind: symbol
       path: src/workspace/edits.rs
       symbol: Workspace::create_files
+    - kind: symbol
+      path: src/workspace/mod.rs
+      symbol: Workspace::list_files
+    - kind: file
+      path: src/workspace/ignore.rs
     - kind: symbol
       path: src/workspace/mod.rs
       symbol: Workspace::move_paths
@@ -745,6 +761,7 @@
     - CONSTRAINT-EXPLICIT-PRECISION
     - CONSTRAINT-PARALLEL-FIRST
   depends_on:
+    - component:decision-plane
     - component:traceability-drift
     - component:software-graph
     - component:workspace-operations

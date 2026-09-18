@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {execFile} = require('node:child_process');
+const {execFile, execFileSync} = require('node:child_process');
 const {promisify} = require('node:util');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
@@ -59,6 +59,16 @@ function selectedRounds() {
   assert.equal(selected.length,end-start+1,'selected release-audit range must be contiguous');
   return selected;
 }
+function gitState() {
+  const head=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  const status=execFileSync('git',['status','--porcelain=v1','--untracked-files=all'],{cwd:root,encoding:'utf8'}).trim();
+  return {
+    head,
+    clean:status.length===0,
+    changed_entries:status?status.split(/\r?\n/).length:0,
+    status_sha256:crypto.createHash('sha256').update(status).digest('hex'),
+  };
+}
 function digest() {
   const hash=crypto.createHash('sha256');
   let count=0;
@@ -98,6 +108,9 @@ async function check(step) {
 async function main() {
   assert.equal(process.platform,'darwin','This complete audit requires macOS WebKit; other CI platforms run the portable cargo suite');
   const selected=selectedRounds();
+  const requireClean=process.argv.includes('--require-clean');
+  const git_before=gitState();
+  if(requireClean) assert.ok(git_before.clean,'Final release audit requires a clean worktree');
   const before=digest(), started_at=new Date().toISOString(), results=[];
   // Rust compilation is serialized; the independent browser/JS lane runs concurrently.
   await Promise.all(['rust','web'].map(async lane=>{
@@ -109,12 +122,17 @@ async function main() {
     }
   }));
   results.sort((a,b)=>a.round-b.round);
-  const after=digest(), stable=before.sha256===after.sha256;
+  const after=digest(), git_after=gitState();
+  const stable=before.sha256===after.sha256
+    && git_before.head===git_after.head
+    && git_before.status_sha256===git_after.status_sha256;
   const start=selected[0].round, end=selected[selected.length-1].round;
   const complete=selected.length===rounds.length;
   const report={
     suite:complete?'release-adversarial-30':'release-adversarial-shard',
-    started_at,finished_at:new Date().toISOString(),input:before,stable_inputs:stable,
+    started_at,finished_at:new Date().toISOString(),
+    git:{before:git_before,after:git_after,require_clean:requireClean},
+    input:before,stable_inputs:stable,
     rounds:results.length,total_rounds:rounds.length,selected_rounds:{start,end},
     passed:results.every(r=>r.passed)&&stable,results
   };
@@ -125,6 +143,6 @@ async function main() {
   if(fs.existsSync(filename)) {const st=fs.lstatSync(filename);assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.nlink===1);}
   fs.writeFileSync(filename,JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));
-  assert.ok(report.passed,'Adversarial audit failed or source changed during the run');
+  assert.ok(report.passed,'Adversarial audit failed, Git state changed, or source changed during the run');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,6 +1,60 @@
 use super::*;
 
 impl ToolHarness {
+    pub fn graph_provider_import(
+        &self,
+        workspace: &Workspace,
+        import: GraphProviderImport,
+    ) -> Result<StoredGraphProvider> {
+        graph_provider_store::persist(workspace, &import)
+    }
+
+    pub fn graph_provider_status(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Vec<GraphProviderSummary>> {
+        graph_provider_store::summaries(workspace)
+    }
+
+    pub fn graph_history(
+        &self,
+        workspace: &Workspace,
+        limit: usize,
+    ) -> Result<Vec<GraphHistoryEntry>> {
+        graph_store::history(workspace, limit)
+    }
+
+    pub(crate) fn observatory_graph_signal(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Option<(String, String)>> {
+        graph_store::change_signal(workspace)
+    }
+
+    pub fn graph_query(
+        &self,
+        workspace: &Workspace,
+        input: &GraphQueryInput,
+    ) -> Result<GraphQueryResult> {
+        graph_store::query(workspace, input)
+    }
+
+    pub fn graph_chain(
+        &self,
+        workspace: &Workspace,
+        input: &GraphChainInput,
+    ) -> Result<GraphChainResult> {
+        graph_store::chain(workspace, input)
+    }
+
+    pub fn graph_diff(
+        &self,
+        workspace: &Workspace,
+        input: &GraphDiffInput,
+    ) -> Result<GraphDiffResult> {
+        graph_store::diff(workspace, input)
+    }
+
     pub(super) fn software_graph_from_design(
         &self,
         workspace_id: impl Into<String>,

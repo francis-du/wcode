@@ -823,7 +823,12 @@ fn print_setup_guide(
     println!("│  Local      {local_url}");
     println!("│  Dashboard  {intelligence_url}");
     println!("│  Verify code  {pairing_code}");
-    println!("│  Slots cap  {max_parallel_tools} concurrent tool bodies");
+    let resources = resource::snapshot();
+    let execution_limit = ToolHarness::execution_limit(max_parallel_tools);
+    println!(
+        "│  Capacity   TOOL {max_parallel_tools} · EXEC {execution_limit} · PROC {} · GIT {}",
+        resources.child_queue.limit, resources.probe_queue.limit
+    );
     println!("│  Resources  BG {max_cpu_percent:.1}% CPU target · burst-friendly · {max_memory_mb} MiB soft RSS");
     println!("│  Token EST  ~4 bytes/token · ${input_token_price_per_million_usd:.2}/M input");
     println!(

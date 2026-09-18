@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Clone, Debug)]
 pub(super) struct RepoMapCandidate {
@@ -56,41 +56,74 @@ pub(super) fn select_repo_candidates(candidates: &mut Vec<RepoMapCandidate>, lim
 pub(super) fn retain_repo_candidates_with_task_evidence(
     candidates: &mut Vec<RepoMapCandidate>,
     neighbors: &[Vec<usize>],
+    intent: RepoMapIntent,
 ) {
-    // Keep graph reachability from actual task evidence, not degree alone: an
-    // unrelated component can be highly connected without helping this task.
-    // Neighbors refer to the original candidate order, before any retention.
-    let mut supported = candidates
-        .iter()
-        .map(|candidate| {
-            candidate.direct
-                || candidate.query_hits > 0
-                || candidate.design_path
-                || candidate.experience_weight > 0
-        })
-        .collect::<Vec<_>>();
-    let mut pending = supported
-        .iter()
-        .enumerate()
-        .filter_map(|(index, &keep)| keep.then_some(index))
-        .collect::<Vec<_>>();
+    // Keep only bounded graph reachability from actual task evidence. Walking
+    // the full connected component turns one relevant symbol into arbitrary
+    // transitive noise and lets graph popularity consume a tight context.
+    // Relationship-oriented tasks need one extra hop for wrappers/adapters;
+    // ordinary context/test discovery stays on the immediate neighborhood.
+    let max_hops = match intent {
+        RepoMapIntent::TraceToCode
+        | RepoMapIntent::CommentToContext
+        | RepoMapIntent::FailureTraceToCode
+        | RepoMapIntent::EditToRipple => 2,
+        RepoMapIntent::CodeToTest | RepoMapIntent::Context => 1,
+    };
+    let has_exact_direct = candidates.iter().any(|candidate| candidate.exact_direct);
+    let mut distance = vec![usize::MAX; candidates.len()];
+    let mut pending = VecDeque::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        let direct_anchor = candidate.exact_direct || (!has_exact_direct && candidate.direct);
+        let routing_anchor =
+            intent == RepoMapIntent::CodeToTest && test_path(&candidate.path, &candidate.kind);
+        // Once the task has an exact symbol anchor, fuzzy/query-term matches
+        // remain ranking evidence only. Promoting them to fresh zero-hop seeds
+        // would reset graph distance and admit transitive noise beyond the
+        // bounded relationship horizon. Without an exact target, query hits
+        // still provide the exploratory anchors natural-language tasks need.
+        let query_anchor = !has_exact_direct && candidate.query_hits > 0;
+        if direct_anchor
+            || routing_anchor
+            || query_anchor
+            || candidate.design_path
+            || candidate.experience_weight > 0
+        {
+            distance[index] = 0;
+            pending.push_back(index);
+        }
+    }
     if pending.is_empty() {
         // With no task anchor, retain the bounded exploratory repository map.
         return;
     }
-    while let Some(index) = pending.pop() {
+    while let Some(index) = pending.pop_front() {
+        let next_distance = distance[index].saturating_add(1);
+        if next_distance > max_hops {
+            continue;
+        }
         for &neighbor in &neighbors[index] {
-            if !supported[neighbor] {
-                supported[neighbor] = true;
-                pending.push(neighbor);
+            if neighbor < distance.len() && next_distance < distance[neighbor] {
+                distance[neighbor] = next_distance;
+                pending.push_back(neighbor);
             }
         }
     }
     let mut index = 0;
     candidates.retain(|_| {
-        let keep = supported[index];
+        let keep = distance[index] <= max_hops;
         index += 1;
         keep
+    });
+}
+
+pub(super) fn retain_returnable_repo_candidates(candidates: &mut Vec<RepoMapCandidate>) {
+    candidates.retain(|candidate| {
+        candidate.kind != "module"
+            || candidate.direct
+            || candidate.query_hits > 0
+            || candidate.design_path
+            || candidate.experience_weight > 0
     });
 }
 
@@ -245,6 +278,31 @@ pub(super) fn classify_repo_map_intent(query: &str) -> RepoMapRouting {
     }
 }
 
+pub(super) fn explicit_query_paths(context: &SoftwareContext, query: &str) -> Vec<String> {
+    let literals = crate::intelligence::code_query_literals(query)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if literals.is_empty() {
+        return Vec::new();
+    }
+    context
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            let name = symbol["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let qualified = symbol["qualified_name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            literals.contains(&name) || literals.contains(&qualified)
+        })
+        .filter_map(|symbol| symbol["path"].as_str().map(str::to_owned))
+        .collect()
+}
+
 pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
     let query = intent_query(query);
     [
@@ -289,8 +347,14 @@ pub(super) fn augment_relationship_graph<'a>(
     base: &'a SoftwareGraphSnapshot,
 ) -> Result<Cow<'a, SoftwareGraphSnapshot>> {
     let routing = classify_repo_map_intent(query);
-    let targeted_scan =
-        base.scan_truncated && (query_needs_semantic_relationships(query) || routing.specialized);
+    let relationship_requested = query_needs_semantic_relationships(query) || routing.specialized;
+    // Code-to-test relationships commonly cross from a localized source scope
+    // into top-level tests/. Always run the bounded exact-text supplement for
+    // that intent, even when the base graph itself looks complete. Other
+    // relationship intents only need the supplement when the base graph was
+    // narrowed or its source scan was truncated.
+    let targeted_scan = relationship_requested
+        && (routing.intent == RepoMapIntent::CodeToTest || base.path != "." || base.scan_truncated);
     let priority_recovery = base.truncated;
     if !targeted_scan && !priority_recovery {
         return Ok(Cow::Borrowed(base));
@@ -376,6 +440,7 @@ pub(super) fn augment_relationship_graph<'a>(
                 path: ".".to_owned(),
                 mode: SearchMode::Exact,
                 context_lines: 0,
+                include_comments: true,
                 max_results: super::REPO_MAP_MAX_FILES,
                 offset: 0,
                 output_mode: "files_with_matches".to_owned(),

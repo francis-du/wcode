@@ -36,11 +36,47 @@ impl ToolHarness {
         }
 
         let workspace_id = workspace_id.into();
-        let started = Instant::now();
         let design = self.intelligence.design_load(workspace)?;
         let revision = self
             .intelligence
             .current_revision_from_load(workspace, design.as_ref())?;
+        let reuse_context = harness_verification_cache::VerificationReuseContext::new(
+            workspace,
+            &revision,
+            level,
+            fail_fast,
+            timeout_seconds,
+        );
+        let command_revision_key = (!revision.code.ends_with(":partial")
+            && !revision
+                .design
+                .as_deref()
+                .is_some_and(|value| value.ends_with(":partial")))
+        .then(|| {
+            format!(
+                "code={};design={}",
+                revision.code,
+                revision.design.as_deref().unwrap_or("none")
+            )
+        });
+        let flight_started = Instant::now();
+        let mut leader = match self.claim_verification_run(workspace, &reuse_context) {
+            harness_verification_cache::VerificationRunClaim::Leader(leader) => leader,
+            harness_verification_cache::VerificationRunClaim::Follower(flight) => {
+                let mut report = flight.wait().await?;
+                report.elapsed_ms = flight_started.elapsed().as_millis();
+                if !report.execution.contains("in-flight-coalesced") {
+                    report.execution = format!("{}+in-flight-coalesced", report.execution);
+                }
+                report.summary = format!(
+                    "Coalesced with an in-flight exact-revision verification; no duplicate checks were started. {}",
+                    report.summary
+                );
+                return Ok(report);
+            }
+        };
+        let result = async {
+        let started = Instant::now();
         // Freeze the observable change set before checks run. Experience is
         // learned only if this exact revision later passes verification.
         let experience_snapshot = self.worktree_status_snapshot(workspace).await.ok();
@@ -194,13 +230,6 @@ impl ToolHarness {
         }
         let (plan, cost_model) =
             harness_cost::apply_historical_cost_model(workspace, &plan, fail_fast);
-        let reuse_context = harness_verification_cache::VerificationReuseContext::new(
-            workspace,
-            &revision,
-            level,
-            fail_fast,
-            timeout_seconds,
-        );
         let mut phases_run = usize::from(migration_audit.is_some());
         let mut skipped_checks = Vec::new();
         let mut checks = Vec::with_capacity(plan.len() + usize::from(migration_audit.is_some()));
@@ -230,6 +259,7 @@ impl ToolHarness {
                 let monitor = monitor.clone();
                 let workspace = workspace.clone();
                 let workspace_id = workspace_id.clone();
+                let revision_key = command_revision_key.clone();
                 tasks.spawn(async move {
                     run_verification_check(
                         harness,
@@ -237,6 +267,7 @@ impl ToolHarness {
                         workspace_id,
                         workspace,
                         check,
+                        revision_key,
                         timeout_seconds,
                     )
                     .await
@@ -353,5 +384,9 @@ impl ToolHarness {
             }
         }
         Ok(report)
+        }
+        .await;
+        leader.complete(&result);
+        result
     }
 }

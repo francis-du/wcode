@@ -1,4 +1,5 @@
 .architecture-stage{min-width:0;}
+.architecture-workspace-switch{display:flex;gap:6px;align-items:center;margin:0 0 12px;padding:4px;border:1px solid var(--line);border-radius:14px;background:color-mix(in srgb,var(--surface) 88%,transparent);width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}.architecture-workspace-switch::-webkit-scrollbar{display:none}.architecture-workspace-switch button{min-height:36px;padding:7px 12px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap}.architecture-workspace-switch button.active{background:var(--surface-raised);color:var(--text);box-shadow:inset 0 0 0 1px var(--glass-line)}
 .architecture-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,31%);gap:18px;align-items:start;}
 .architecture-layout:not(:has(.component-inspector.open)){grid-template-columns:minmax(0,1fr);}
 .architecture-layout.full-map{grid-template-columns:minmax(0,1fr);}

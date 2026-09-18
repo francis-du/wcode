@@ -62,6 +62,32 @@ async fn independent_process_queues_keep_compiler_and_probe_limits() {
 }
 
 #[tokio::test]
+async fn bounded_child_wait_expires_without_leaking_capacity_or_waiters() {
+    let limits = ResourceLimits::new(10.0, 512, 32).unwrap();
+    let slots = limits.child_processes;
+    let governor = ResourceGovernor::new(limits);
+    let mut held = Vec::new();
+    for _ in 0..slots {
+        held.push(governor.acquire_child().await.unwrap());
+    }
+
+    let started = Instant::now();
+    let error = governor
+        .acquire_child_with_wait_timeout(Duration::from_millis(25))
+        .await
+        .unwrap_err();
+    assert!(error.contains("command was not started"), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let snapshot = governor.snapshot();
+    assert_eq!(snapshot.child_queue.active, slots);
+    assert_eq!(snapshot.child_queue.waiting, 0);
+
+    drop(held);
+    assert_eq!(governor.snapshot().child_queue.active, 0);
+    assert!(governor.acquire_child().await.is_ok());
+}
+
+#[tokio::test]
 async fn inspection_queue_still_obeys_resource_pressure_admission() {
     let governor = ResourceGovernor::new(ResourceLimits::new(10.0, 512, 32).unwrap());
     {

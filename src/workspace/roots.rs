@@ -387,11 +387,9 @@ impl Workspace {
         let mut truncated = false;
         let mut visited = 0usize;
         let mut cpu_slice = Some(crate::resource::cpu_work(work_class));
-        for entry in WalkDir::new(start)
-            .follow_links(false)
-            .sort_by_file_name()
-            .into_iter()
-            .filter_entry(visible_entry)
+        let honor_parent_ignores = start == self.root;
+        for entry in repository_walk_builder(&start, honor_parent_ignores)
+            .build()
             .filter_map(|entry| entry.ok())
         {
             visited = visited.saturating_add(1);
@@ -399,7 +397,7 @@ impl Workspace {
                 drop(cpu_slice.take());
                 cpu_slice = Some(crate::resource::cpu_work(work_class));
             }
-            if !entry.file_type().is_file() {
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
             let metadata = if readable_only || capture_stamps {

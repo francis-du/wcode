@@ -70,7 +70,7 @@ cargo test --release --locked --lib engineering_fitness_trial -- --ignored --noc
 | 已实现指标 | 含义 |
 | --- | --- |
 | Required Recall、Recall@5/@10、NDCG@10 | 路径与限定符号匹配；排序为 targets、repo-map、hot source 的去重交付流，不是内部候选排名 |
-| Non-Gold Symbol Fraction | 已交付符号中，不在该任务 required/useful 集合的比例；不是整个上下文的噪声 token 占比 |
+| Non-Gold Symbol Fraction | 已交付身份中，不在该任务人工标注的 required/useful 集合内的比例。`required` 表示完成任务必须交付的证据；`useful` 表示与任务直接相关但不是必需的邻接证据，例如 caller/callee 对中的另一端，或验证该行为的回归测试。其余身份仍按 Non-Gold 计量；通用模块/重导出 filler 不会为了美化分数被提升为 useful。它不是整个上下文的无关 token 占比。 |
 | Complete Body Recall | Gold 所需完整源码是否以原始字节交付，且 SHA、路径、行号、redacted 状态正确 |
 | All Required Edit Inputs | 所有必要目标、当前 SHA、完整源码与可写条件同时具备；不包含独立验证映射或执行成功 |
 | Reported Edit Ready | 工具自报状态，单独保留，不充当上一个指标的裁判 |
@@ -95,7 +95,7 @@ cargo test --release --locked --lib engineering_fitness_trial -- --ignored --noc
 
 将明确目标的 RepoMap 上限从 12 缩到 6 未通过九调用者反例，因此保留原有有界容量，改为按任务证据和图可达性筛选。查询还有自然语言限定词时，精确缓存命中不足以跳过检索。上述检查仅说明对应样例的行为，不证明任意仓库都能完整检索。
 
-第三版契约以评测请求的预算为准，禁止通过工具自行报告更高上限绕过验收。失败的可回答任务在 NDCG 平均值中记零；`ranking_attempts` 与 `noise_response_samples` 明确不同分母。未定义的百分比在 Markdown 中显示 `N/A`，对应 JSON 的 `null`。非 Gold 符号可能是尚未标注的相关测试或传递证据，不能直接称为无关代码。JSON 容器结构仍为第二版，测量契约版本与评测器指纹标明评分口径变化；旧报告含失败样本时，应重算 NDCG 后再对比。
+第三版契约以评测请求的预算为准，禁止通过工具自行报告更高上限绕过验收。失败的可回答任务在 NDCG 平均值中记零；`ranking_attempts` 与 `noise_response_samples` 明确不同分母。未定义的百分比在 Markdown 中显示 `N/A`，对应 JSON 的 `null`。60 个 case 的成员集合和 required Gold 保持冻结；useful 由评测器独立人工标注并通过回归测试锁定，使直接任务关系和行为专项测试不会被误判为噪声，同时无关 wrapper/re-export 仍保持 Non-Gold。这个比例因此是相对于标注集的指标，仍不能直接叫“无关 token 比例”。JSON row 保留精确 `non_gold_identities`，Markdown 的逐 case 表同时展示 NDCG@10 与 Non-Gold 便于诊断。JSON 容器结构仍为第二版，测量契约版本与评测器指纹标明评分口径变化；只要 evaluator 标注或失败分母发生变化，旧报告都应重新评分后再数值对比。
 
 ## 紧预算正文交付
 

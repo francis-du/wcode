@@ -5,8 +5,18 @@ const {project}=require('./observatory.cjs');
 const root=path.resolve(process.argv[2]||'.');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const base='src/ui/intelligence_web/';
-const styles=['theme','shell','features','data','architecture','engineering','structure','responsive'].map(n=>read(base+'styles/'+n+'.css')).join('\n');
-const bundle=['core','access','overview','architecture','engineering','features','quality','structure','runtime'].map(n=>read(base+'app/'+n+'.js')).join('\n').replace(/\r\n?/g,'\n');
+const manifest=read('src/ui/intelligence_web.rs');
+function manifestFiles(constant){
+  const start=`pub(crate) const ${constant}: &str = concat!(`, from=manifest.indexOf(start);
+  assert.ok(from>=0,`missing ${constant} manifest`);
+  const to=manifest.indexOf('\n);',from);
+  assert.ok(to>from,`unterminated ${constant} manifest`);
+  const files=[...manifest.slice(from,to).matchAll(/include_str!\("([^"]+)"\)/g)].map(match=>path.join('src/ui',match[1]));
+  assert.ok(files.length>0,`empty ${constant} manifest`);
+  return files;
+}
+const styles=manifestFiles('INTELLIGENCE_CSS').map(read).join('\n');
+const bundle=manifestFiles('INTELLIGENCE_JS').map(read).join('\n').replace(/\r\n?/g,'\n');
 const marker='\napplyTheme();\napplyLanguage();\nstartObservatory();';
 assert.ok(bundle.includes(marker));
 const long='long_unbroken_test_identifier_'.repeat(12);

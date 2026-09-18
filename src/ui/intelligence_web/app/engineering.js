@@ -287,8 +287,11 @@ function renderArchitectureBlueprint() {
     if (first) state.selectedComponent = first.id;
   }
   const project = state.project || {}, systemName = project.product || project.project || project.workspace || "Project";
+  const runtimeDrift = (project.risk?.drift?.findings || []).filter(item => item.kind === "runtime_drift"),
+    runtimeDeviation = runtimeDrift.reduce((value, item) => Math.max(value, Number(item.deviation?.deviation_percent || 0)), 0),
+    structuralDrift = Number(a.blocking_drift_edges || 0), hasDrift = structuralDrift > 0 || runtimeDrift.length > 0;
   const tiers = systemMapTiers(subsystems);
-  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span></div></div>${pill(Number(a.blocking_drift_edges || 0) ? localized("Needs attention", "需要处理") : localized("Healthy", "健康"), Number(a.blocking_drift_edges || 0) ? "bad" : "good")}</div><div class="root-branch" aria-hidden="true"></div>`;
+  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span>${runtimeDrift.length ? `<span>${uiIcon("chart")} ${num(runtimeDeviation)}% ${esc(localized("runtime drift", "运行时偏离"))}</span>` : ""}</div></div>${pill(hasDrift ? localized("Needs attention", "需要处理") : localized("Healthy", "健康"), hasDrift ? (structuralDrift ? "bad" : "warn") : "good")}</div><div class="root-branch" aria-hidden="true"></div>`;
   const tierHtml = tiers.map((tier, tierIndex) => {
     const cards = [...tier.items].sort((left, right) => Number(right.layer || 0) - Number(left.layer || 0) || left.title.localeCompare(right.title)).map(subsystem => {
       const [status, tone] = subsystemToneLabel(subsystem), selected = subsystem.id === state.selectedSubsystem;
@@ -473,17 +476,25 @@ function renderArchitecture() {
   renderChangeStory();
   renderEngineeringTimeline();
   renderRuntimeTopology();
-  const view = ["blueprint", "components", "graph"].includes(state.architectureView) ? state.architectureView : "blueprint";
+  const view = ["blueprint", "components", "graph", "codegraph"].includes(state.architectureView) ? state.architectureView : "blueprint";
   state.architectureView = view;
-  const blueprint = view === "blueprint", components = view === "components", graph = view === "graph";
+  const blueprint = view === "blueprint", components = view === "components", graph = view === "graph", codegraph = view === "codegraph";
   if (!blueprint && state.systemMapFull) setSystemMapFull(false);
+  document.querySelectorAll("[data-architecture-view]").forEach(button => {
+    const active = button.dataset.architectureView === view;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  els.architectureLayout?.classList.toggle("hidden", codegraph);
+  els.codeGraphSection?.classList.toggle("hidden", !codegraph);
   document.querySelector(".system-map-controls")?.classList.toggle("hidden", !blueprint);
   els.architectureBlueprint.classList.toggle("hidden", !blueprint);
   els.componentToolbar.classList.toggle("hidden", !components);
   els.componentCards.classList.toggle("hidden", !components);
   els.architectureGraph.closest(".architecture-graph-shell")?.classList.toggle("hidden", !graph);
-  if (blueprint) renderArchitectureBlueprint();
+  if (codegraph) maybeLoadCodeGraph();
+  else if (blueprint) renderArchitectureBlueprint();
   else if (graph) renderArchitectureGraph();
   else renderComponentCards();
-  renderArchitectureInspector();
+  if (!codegraph) renderArchitectureInspector();
 }

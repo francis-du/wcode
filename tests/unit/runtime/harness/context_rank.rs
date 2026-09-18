@@ -126,18 +126,17 @@ fn code_to_test_routing_prefers_tests_without_outranking_the_exact_source_target
     let test_index = items
         .iter()
         .position(|item| item["qualified_name"] == "target_feature_regression")
-        .unwrap();
+        .unwrap_or_else(|| panic!("missing regression test candidate: {items:#?}"));
     let helper_index = items
         .iter()
-        .position(|item| item["qualified_name"] == "target_feature_helper")
-        .unwrap();
+        .position(|item| item["qualified_name"] == "target_feature_helper");
     assert!(
         target_index < test_index,
         "exact target must remain strongest"
     );
     assert!(
-        test_index < helper_index,
-        "test intent should prefer the regression test over a lexical helper"
+        helper_index.is_none_or(|helper_index| test_index < helper_index),
+        "test intent should prefer the regression test and may prune a lexical helper"
     );
 }
 

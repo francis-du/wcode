@@ -710,14 +710,12 @@ fn discover_subspaces(parent: &Workspace) -> Vec<DiscoveredSubspace> {
     let mut cpu_slice = Some(crate::resource::cpu_work(
         crate::resource::WorkClass::Interactive,
     ));
-    for entry in WalkDir::new(parent.root())
-        .min_depth(1)
-        .max_depth(MAX_SUBSPACE_SCAN_DEPTH)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(visible_entry)
-        .filter_map(|entry| entry.ok())
-    {
+    let mut builder = repository_walk_builder(parent.root(), true);
+    builder.max_depth(Some(MAX_SUBSPACE_SCAN_DEPTH));
+    for entry in builder.build().filter_map(|entry| entry.ok()) {
+        if entry.depth() == 0 {
+            continue;
+        }
         visited = visited.saturating_add(1);
         if visited.is_multiple_of(64) {
             drop(cpu_slice.take());
@@ -725,7 +723,7 @@ fn discover_subspaces(parent: &Workspace) -> Vec<DiscoveredSubspace> {
                 crate::resource::WorkClass::Interactive,
             ));
         }
-        if !entry.file_type().is_dir() {
+        if !entry.file_type().is_some_and(|kind| kind.is_dir()) {
             continue;
         }
         let root = entry.path();

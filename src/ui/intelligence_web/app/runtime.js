@@ -10,10 +10,12 @@ function renderProject(force = false) {
   renderWorkspaceOptions();
   renderLive(); renderStats(); renderAttention(); renderArchitecture(); renderTraceabilityMap(); renderChangeConvergenceMap(); renderProjectNavigator();
   renderRequirements(); renderDetail(); renderVerificationImpact(); renderChanges(); renderProjectStructure();
+  if (state.codeGraph) renderCodeGraph();
   renderCodeStats(); renderRevisions(); renderLanguageQuality(); renderActivity(); renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
 }
 const workspaceTabForSection = {
   architectureSection: "architecture",
+  codeGraphSection: "architecture",
   overviewSection: "overview",
   activitySection: "activity",
   proofSection: "proof",
@@ -27,7 +29,7 @@ const workspaceTabForSection = {
 function renderWorkspaceHero(tab) {
   const copy = {
     overview: [localized("ENGINEERING OBSERVATORY", "工程观测台"), localized("System overview", "系统总览"), localized("Current project health, engineering signals, diagnostics and language quality in one operational summary.", "把当前项目健康度、工程信号、诊断与语言质量汇总在一个运行视图中。")],
-    architecture: [localized("SYSTEM ARCHITECTURE", "系统架构"), localized("Engineering architecture", "工程架构"), localized("A hierarchical view of the software system, from high-level orchestration to foundational infrastructure.", "从高层编排到底层基础设施，按层次理解整个软件系统。")],
+    architecture: [localized("SYSTEM ARCHITECTURE", "系统架构"), localized("Engineering architecture", "工程架构"), localized("Read the system from semantic architecture down to the bounded code graph, callers, dependencies and proof context.", "从语义架构深入到有界代码图谱、调用关系、依赖与证明上下文。")],
     activity: [localized("LIVE WORK", "实时工作"), localized("Task activity", "任务活动"), localized("Running work, queue pressure and execution time without mixing waiting time into runtime.", "区分排队与执行时间，查看实时工作与资源压力。")],
     proof: [localized("REVISION-BOUND PROOF", "版本绑定证据"), localized("Verification evidence", "验证证据"), localized("Current-revision evidence, verification readiness and adaptive checks kept separate from historical passes.", "当前版本证据、验证就绪度与自适应检查，与历史通过记录分开呈现。")],
     requirements: [localized("DESIRED STATE", "目标状态"), localized("Requirements", "需求"), localized("Trace intent through implementation, acceptance evidence and convergence.", "把需求意图追踪到实现、验收证据与收敛状态。")],
@@ -58,7 +60,7 @@ function activateWorkspaceTab(tab, { scroll = false } = {}) {
   document.querySelector(".drawer-stack")?.classList.toggle("hidden", next === "architecture");
   if (next !== "architecture" && els.componentInspector?.classList.contains("open")) {
     els.componentInspector.classList.remove("open");
-  } else if (next === "architecture" && !state.systemMapFull) {
+  } else if (next === "architecture" && state.architectureView !== "codegraph" && !state.systemMapFull) {
     const hasSelection = state.architectureView === "blueprint" ? state.selectedSubsystem : state.selectedComponent;
     if (hasSelection) els.componentInspector?.classList.add("open");
   }
@@ -67,6 +69,7 @@ function activateWorkspaceTab(tab, { scroll = false } = {}) {
 function revealSection(id) {
   const section = document.getElementById(id);
   if (!section) return;
+  if (id === "codeGraphSection") state.architectureView = "codegraph";
   activateWorkspaceTab(workspaceTabForSection[id] || state.workspaceTab);
   section.scrollIntoView({ behavior: "smooth", block: "start" });
   section.focus({ preventScroll: true });
@@ -178,6 +181,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
+  state.codeGraphController?.abort(); state.codeGraph = null; state.codeGraphWorkspace = ""; state.codeGraphError = ""; state.selectedCodeNode = "";
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;
   state.activitySnapshot = null; state.activityUpdated = 0; state.activityError = false;
@@ -189,6 +193,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessLoaded = false; state.accessEpoch++; state.semanticRefreshPending = false;
   els.search.value = ""; els.componentSearch.value = "";
   if (els.fileSearch) els.fileSearch.value = "";
+  if (els.codeGraphSearch) els.codeGraphSearch.value = "";
   if (els.fileSearchStatus) els.fileSearchStatus.textContent = "";
   state.activityController?.abort(); state.pollController?.abort();
   if (!preserveDom) {
@@ -221,17 +226,31 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   const continuationReason = reason === "manual" || reason === "initial" ? reason : "background";
   const previousSnapshot = { project: state.project, revisionKey: state.revisionKey, lastUpdated: state.lastUpdated, lastChecked: state.lastChecked };
   let phase = "request";
-  const options = {
-    workspace: selectedWorkspace,
-    signal: controller.signal,
-    // Full snapshots include a Git review with its own 30-second budget,
-    // followed by graph/proof assembly. Keep a separate bounded deadline.
-    timeout: preferCached ? 30000 : 120000,
-    headers: preferCached ? { "X-Wcode-Prefer-Cached": "1" } : undefined,
-  };
   // Only acknowledge a revision observed before this project request. A
   // parallel/late signal can describe edits that this snapshot never included.
   const observedKey = revision ? revisionKey(revision) : state.revisionKey;
+  const options = {
+    workspace: selectedWorkspace,
+    signal: controller.signal,
+    timeout: preferCached ? 15000 : 120000,
+    headers: preferCached ? {
+      "X-Wcode-Prefer-Cached": "1",
+      "X-Wcode-Background-Refresh": "1",
+    } : undefined,
+  };
+  const scheduleSnapshotProbe = () => {
+    setTimeout(() => {
+      if (current() && !controller.signal.aborted && !document.hidden &&
+          (state.autoRefresh || continuationReason !== "background")) {
+        void refreshProject({
+          workspace: stamp.workspace,
+          reason: "background",
+          revision,
+          preferCached: true,
+        });
+      }
+    }, 900);
+  };
   setSync("loading", t("Refreshing project state…"));
   try {
     const data = await uiJson("/intelligence/project", "GET", undefined, options);
@@ -247,34 +266,26 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     observePending(data.pending_authorizations, stamp);
     if (data.snapshot_pending === true) {
       setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
-      setTimeout(() => {
-        if (current() && !controller.signal.aborted && !document.hidden &&
-            (state.autoRefresh || continuationReason !== "background")) {
-          void refreshProject({ workspace: stamp.workspace, reason: continuationReason, force: true });
-        }
-      }, 0);
+      scheduleSnapshotProbe();
       return true;
     }
     data.pending_authorizations = state.pendingValue;
-    const cachedResponse = data.snapshot_cache === "stale-while-revalidate";
+    const cachedResponse = typeof data.snapshot_cache === "string";
+    const snapshotRevision = typeof data.snapshot_revision === "string"
+      ? data.snapshot_revision
+      : null;
+    const snapshotRefreshing = data.snapshot_refreshing === true;
     phase = "render";
     state.project = data; state.current = data.workspace;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
     state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false; state.syncFailure = null;
-    // Render immediately. Without an earlier baseline, the next revision poll
-    // conservatively rebuilds once; a cached response never certifies freshness.
-    state.revisionKey = cachedResponse ? null : observedKey;
+    state.revisionKey = snapshotRevision || (!cachedResponse ? observedKey : null);
     if (state.selected && !data.requirements?.some(r => r.id === state.selected)) state.selected = "";
     renderProject(force);
     cacheWorkspaceSnapshot();
-    if (cachedResponse) {
+    if (snapshotRefreshing || (cachedResponse && !snapshotRevision)) {
       setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
-      setTimeout(() => {
-        if (current() && !controller.signal.aborted && !document.hidden &&
-            (state.autoRefresh || continuationReason !== "background")) {
-          void refreshProject({ workspace: stamp.workspace, reason: continuationReason, force: true });
-        }
-      }, 0);
+      scheduleSnapshotProbe();
     } else {
       setSync("ok", localized("Snapshot up to date", "快照已更新"));
     }
@@ -310,7 +321,7 @@ async function pollRevision() {
       renderStats(); renderAttention();
     }
     if (!state.project || state.syncError || revision.full_refresh_required || revisionKey(revision) !== state.revisionKey) {
-      await refreshProject({ reason: "auto", revision });
+      await refreshProject({ reason: "auto", revision, preferCached: true });
     } else {
       state.lastChecked = Date.now(); renderLive();
       setSync("ok", localized("Snapshot up to date", "快照已更新"));
@@ -446,7 +457,11 @@ els.commandCandidate.addEventListener("keydown", event => { if (event.key === "E
 els.authorizeOperation.addEventListener("click", authorizeOperationFromUi);
 els.operationArgs.addEventListener("keydown", event => { if (event.key === "Enter") authorizeOperationFromUi(); });
 els.refresh.addEventListener("click", async () => {
-  await Promise.all([refreshProject({ reason: "manual", force: true }), refreshActivity(), refreshTunnels()]);
+  let revision = null;
+  try {
+    revision = await uiJson("/intelligence/revision", "GET", undefined, { workspace: state.current });
+  } catch {}
+  await Promise.all([refreshProject({ reason: "manual", force: true, revision, preferCached: true }), refreshActivity(), refreshTunnels()]);
   schedule(); if (accessPanelOpen()) await loadAccess();
 });
 els.refreshSemantic.addEventListener("click", refreshSemantics);
@@ -498,6 +513,10 @@ document.querySelectorAll(".arch-mode").forEach(button => button.addEventListene
 document.querySelectorAll("[data-arch-back]").forEach(button => button.addEventListener("click", () => {
   state.architectureView = button.dataset.archBack || "blueprint"; renderArchitecture();
 }));
+document.querySelectorAll("[data-architecture-view]").forEach(button => button.addEventListener("click", () => {
+  state.architectureView = button.dataset.architectureView || "blueprint";
+  renderArchitecture();
+}));
 els.systemMapFit?.addEventListener("click", fitSystemMap);
 els.systemMapZoomOut?.addEventListener("click", () => setSystemMapScale(state.systemMapScale - .1));
 els.systemMapZoomIn?.addEventListener("click", () => setSystemMapScale(state.systemMapScale + .1));
@@ -544,6 +563,7 @@ document.addEventListener("visibilitychange", () => {
 function startObservatory() {
   if (state.started) return;
   state.started = true;
+  if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(state.workspaceTab);
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();

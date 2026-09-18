@@ -86,13 +86,62 @@ pub(super) fn render_throughput(
         );
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let agent_context = if totals.agent_context_calls > 0 {
+        let budget_use = if totals.agent_context_budget_tokens == 0 {
+            0
+        } else {
+            totals
+                .agent_context_model_tokens
+                .saturating_mul(100)
+                .saturating_div(totals.agent_context_budget_tokens)
+                .min(100)
+        };
+        format!(
+            "CTX {}/{} · BUD {}% · HIT {}/{} · {}ms",
+            totals.agent_repo_map_delivered,
+            totals.agent_repo_map_candidates,
+            budget_use,
+            totals.agent_repo_map_cache_hits,
+            totals.agent_context_calls,
+            totals.agent_context_build_ms / totals.agent_context_calls,
+        )
+    } else {
+        "SLOT UTILIZATION".to_owned()
+    };
+    if inner.width < 100 {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled("REQ ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(sparkline.clone(), Style::default().fg(ACCENT)),
+                    Span::styled(format!(" {req_rate:.1}/s"), Style::default().fg(TEXT)),
+                    Span::styled("  RX ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(short_bytes(rx), Style::default().fg(LINK)),
+                    Span::styled("  TX ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(short_bytes(tx), Style::default().fg(SECONDARY)),
+                ]),
+                Line::from(Span::styled(agent_context, Style::default().fg(TEXT_MUTED))),
+                Line::from(vec![
+                    Span::styled("SAVED ~", Style::default().fg(TEXT_DIM)),
+                    Span::styled(short_tokens(saved_tokens_30s), Style::default().fg(SUCCESS)),
+                    Span::styled(" · SLOTS ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(
+                        format!("{}/{}", totals.active, config.max_parallel),
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" · PEAK {}", snapshot.peak_active),
+                        Style::default().fg(SECONDARY),
+                    ),
+                ]),
+            ]),
+            inner,
+        );
+        return;
+    }
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(if inner.width < 100 {
-            [Constraint::Percentage(100), Constraint::Percentage(0)]
-        } else {
-            [Constraint::Percentage(58), Constraint::Percentage(42)]
-        })
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(inner);
 
     frame.render_widget(
@@ -129,28 +178,6 @@ pub(super) fn render_throughput(
 
     let bar_width = columns[1].width.saturating_sub(23).clamp(6, 18) as usize;
     let (filled, empty, color) = slot_bar(totals.active, config.max_parallel as u64, bar_width);
-    let agent_context = if totals.agent_context_calls > 0 {
-        let budget_use = if totals.agent_context_budget_tokens == 0 {
-            0
-        } else {
-            totals
-                .agent_context_model_tokens
-                .saturating_mul(100)
-                .saturating_div(totals.agent_context_budget_tokens)
-                .min(100)
-        };
-        format!(
-            "CTX {}/{} · BUD {}% · HIT {}/{} · {}ms",
-            totals.agent_repo_map_delivered,
-            totals.agent_repo_map_candidates,
-            budget_use,
-            totals.agent_repo_map_cache_hits,
-            totals.agent_context_calls,
-            totals.agent_context_build_ms / totals.agent_context_calls,
-        )
-    } else {
-        "SLOT UTILIZATION".to_owned()
-    };
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(agent_context, Style::default().fg(TEXT_DIM))).right_aligned(),
@@ -184,7 +211,7 @@ pub(super) fn process_queue_text(resources: &crate::resource::ResourceSnapshot) 
         .max_wait_ms
         .max(resources.probe_queue.max_wait_ms);
     let wait = if max_wait_ms > 0 {
-        format!(" · WAIT {max_wait_ms}ms")
+        format!(" · PEAK {max_wait_ms}ms")
     } else {
         String::new()
     };

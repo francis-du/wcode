@@ -1,0 +1,16 @@
+schema_version: 1
+id: REQ-DECISION-001
+title: Calibrated advisory Decision Plane
+intent: >-
+  wcode must expose a provider-neutral structured Decision Plane with probability, choice and score primitives for bounded Agent strategy. Decision quality must be measurable against independent task truth rather than self-labeled state: Engineering Fitness grades context_sufficient against authored Gold edit inputs and reports Brier, false-stop and false-continue outcomes by budget and cold/warm phase. Multiple providers must be comparable in shadow mode on the exact same DecisionRequest, including signal overlap, probability/score deltas, choice disagreements, shape mismatches and safety-policy violations; a candidate provider can never control execution or weaken deterministic authority while being evaluated. The initial deterministic provider may recommend retrieval, semantic navigation, edit progression and verification escalation, but every signal is advisory: it may increase work and verification depth and must never reduce authorization, deterministic checks, risk-derived verification floors, human approval, SHA preconditions, or evidence requirements. Decision outputs must carry explicit confidence and evidence codes, remain bounded enough to fit Agent Context budgets, and support provider-neutral calibration without claiming hidden reasoning quality.
+priority: high
+implemented_by:
+  - component:decision-plane
+acceptance:
+  - AC-DECISION-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-CONTEXT-BUDGET
+risk:
+  reliability: high
+  performance: medium

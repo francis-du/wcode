@@ -115,6 +115,7 @@ pub(super) fn append_file_graph(
         attributes.insert("path".to_owned(), json!(symbol.path));
         attributes.insert("name".to_owned(), json!(symbol.name));
         attributes.insert("qualified_name".to_owned(), json!(symbol.qualified_name));
+        attributes.insert("signature".to_owned(), json!(symbol.signature));
         attributes.insert("symbol_kind".to_owned(), json!(symbol.kind));
         attributes.insert("language".to_owned(), json!(symbol.language));
         attributes.insert("range".to_owned(), serde_json::to_value(&symbol.range)?);

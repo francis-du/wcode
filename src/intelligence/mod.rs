@@ -137,6 +137,8 @@ mod observatory;
 mod observatory_architecture;
 #[path = "observatory/files.rs"]
 mod observatory_files;
+#[path = "runtime_drift.rs"]
+mod runtime_drift;
 use analysis::*;
 use context::*;
 pub(crate) use observatory::{build_project_observatory, ObservatoryInput};

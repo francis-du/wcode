@@ -40,6 +40,34 @@ fn rust_outline_keeps_ast_and_qualifies_impl_methods() {
 }
 
 #[test]
+fn rust_module_reexport_shell_is_indexed_as_module() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "mod session;\npub use session::*;\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("session.rs"),
+        "pub fn cleanup_if_owner() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let outline = index
+        .file_outline("demo", &workspace, "lib.rs", 100)
+        .unwrap();
+    let session = outline["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|symbol| symbol["qualified_name"] == "session")
+        .expect("mod declaration should be indexed");
+    println!("MODULE_REEXPORT_SHELL {session}");
+    assert_eq!(session["kind"], "module");
+}
+
+#[test]
 fn batch_symbol_resolution_matches_single_file_resolution_semantics() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(

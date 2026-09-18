@@ -198,7 +198,11 @@ fn repo_map_localization_and_relationship_costs_stay_separate() {
                 &[],
             )
             .unwrap();
-        assert_eq!(related["repo_map"]["files_indexed"], 502);
+        assert!(
+            related["repo_map"]["files_indexed"].as_u64().unwrap_or(u64::MAX) <= 3,
+            "relationship lookup should parse the localized target plus exact-match supplements, not 500 noise files: {}",
+            related["repo_map"]
+        );
         let caller = related["repo_map"]["items"]
             .as_array()
             .unwrap()
@@ -212,7 +216,10 @@ fn repo_map_localization_and_relationship_costs_stay_separate() {
             .any(|relation| relation["relation"] == "caller_of_direct"));
         assert_eq!(related["repo_map"]["precision"], "syntax");
         assert_eq!(local["repo_map"]["cache_hit"], pass > 0);
-        assert_eq!(related["repo_map"]["cache_hit"], pass > 0);
+        assert_eq!(
+            related["repo_map"]["cache_hit"], true,
+            "relationship lookup should reuse the localized graph built by the direct lookup"
+        );
         println!("repo-map-fixture pass={pass} local_files={} relation_files={} local_build_ms={} relation_build_ms={}", local["repo_map"]["files_indexed"], related["repo_map"]["files_indexed"], local["repo_map"]["build_ms"], related["repo_map"]["build_ms"]);
     }
     fs::write(
@@ -229,7 +236,10 @@ fn repo_map_localization_and_relationship_costs_stay_separate() {
             &[],
         )
         .unwrap();
-    assert_eq!(changed["repo_map"]["cache_hit"], false);
+    assert_eq!(
+        changed["repo_map"]["cache_hit"], true,
+        "the unchanged localized target graph should stay reusable"
+    );
     assert!(
         !changed["repo_map"]["items"]
             .as_array()
@@ -247,6 +257,7 @@ fn repo_map_localization_and_relationship_costs_stay_separate() {
 fn relationship_queries_recover_callers_beyond_the_base_repo_map_file_cap() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("src/a_noise")).unwrap();
+    fs::create_dir_all(root.path().join("src/adapter")).unwrap();
     fs::create_dir_all(root.path().join("src/z_domain")).unwrap();
     for index in 0..650 {
         fs::write(
@@ -261,7 +272,7 @@ fn relationship_queries_recover_callers_beyond_the_base_repo_map_file_cap() {
     )
     .unwrap();
     fs::write(
-        root.path().join("src/z_domain/caller.rs"),
+        root.path().join("src/adapter/caller.rs"),
         "pub fn invoke_target() -> usize { target_feature() }\n",
     )
     .unwrap();
@@ -277,10 +288,10 @@ fn relationship_queries_recover_callers_beyond_the_base_repo_map_file_cap() {
             &[],
         )
         .unwrap();
-    assert_eq!(pack["repo_map"]["scan_truncated"], true);
+    assert_eq!(pack["repo_map"]["scan_truncated"], false);
     assert!(
-        pack["repo_map"]["files_indexed"].as_u64().unwrap_or(0) > 600,
-        "the targeted supplemental graph must add files beyond the truncated base graph: {}",
+        pack["repo_map"]["files_indexed"].as_u64().unwrap_or(u64::MAX) <= 3,
+        "relationship retrieval should avoid parsing the 650-file noise prefix while still recovering the cross-directory caller: {}",
         pack["repo_map"]
     );
     let caller = pack["repo_map"]["items"]
@@ -435,9 +446,16 @@ fn code_to_test_recovers_tests_beyond_the_base_file_cap() {
             &[],
         )
         .unwrap();
-    assert_eq!(pack["repo_map"]["scan_truncated"], true);
+    let repo_map = &pack["repo_map"];
     assert!(
-        pack["repo_map"]["items"]
+        repo_map["scan_truncated"].as_bool().unwrap_or(false)
+            || repo_map["scope_path"]
+                .as_str()
+                .is_some_and(|path| path != "."),
+        "large-repository recovery must either report base truncation or narrow the repo-map scope: {repo_map}"
+    );
+    assert!(
+        repo_map["items"]
             .as_array()
             .unwrap()
             .iter()

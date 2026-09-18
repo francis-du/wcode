@@ -20,6 +20,8 @@ async fn queue_capacity_and_wait_metrics_remain_bounded() {
         assert_eq!(snapshot.waits, 1);
         assert!(snapshot.total_wait_ms >= 20);
         assert!(snapshot.max_wait_ms <= snapshot.total_wait_ms);
+        assert!(snapshot.last_wait_ms >= 20);
+        assert!(snapshot.last_wait_age_ms.is_some_and(|age| age < 1_000));
         drop(held);
         assert_eq!(queue.snapshot().active, 0);
         assert!(queue.acquire().await.is_ok());

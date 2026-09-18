@@ -493,6 +493,8 @@ impl ToolHarness {
         }
         context_anchors::merge(&mut pack, anchors);
         update_agent_readiness(&mut pack);
+        pack["decision_plane"] =
+            serde_json::to_value(crate::decision::agent_context_decisions(&pack, query))?;
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
         finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
         Ok(pack)

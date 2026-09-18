@@ -189,3 +189,197 @@ fn engineering_fitness_challenge_nine_real_callers_are_not_six() {
         );
     }
 }
+
+#[test]
+fn engineering_fitness_rust_module_shell_stays_out_of_delivery() {
+    let case = super::corpus::base_case("rust");
+    let (_root, workspace) = case.instantiate();
+    let pack = ToolHarness::new(4)
+        .unwrap()
+        .agent_context("fitness", &workspace, &case.query, 4_000, &[])
+        .unwrap();
+    let shell = pack["repo_map"]["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|item| item["path"] == "src/lib.rs" && item["qualified_name"] == "session");
+    assert!(
+        shell.is_none(),
+        "generic module/re-export filler must remain Non-Gold and stay out of delivery: {}",
+        selection(&pack)
+    );
+    let delivered = delivered(&pack);
+    assert!(delivered.contains(&case.required[0].identity));
+    assert!(delivered.contains(&case.required[1].identity));
+}
+
+#[test]
+fn engineering_fitness_challenge_exact_name_prefers_production_over_test_duplicate() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("src")).unwrap();
+    std::fs::create_dir_all(root.path().join("tests")).unwrap();
+    std::fs::write(
+        root.path().join("src/owner.rs"),
+        "pub fn cleanup_if_owner(old: u64, current: u64) -> bool { old == current }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("tests/owner.rs"),
+        "#[test]\nfn cleanup_if_owner() { assert!(true); }\n",
+    )
+    .unwrap();
+    let workspace = crate::workspace::Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+
+    for budget in [1_000, 2_000] {
+        let pack = harness
+            .agent_context(
+                "fitness",
+                &workspace,
+                "inspect cleanup_if_owner implementation",
+                budget,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            pack["hot_source"][0]["path"],
+            "src/owner.rs",
+            "generic implementation lookup must not let a test duplicate outrank production: {}",
+            selection(&pack)
+        );
+    }
+}
+
+#[test]
+fn engineering_fitness_challenge_large_fixture_never_displaces_required_body() {
+    let target =
+        "pub fn cleanup_if_owner(old: u64, current: u64) -> bool {\n    old == current\n}\n";
+    let mut fixture =
+        String::from("#[test]\nfn cleanup_if_owner_fixture() {\n    let mut total = 0usize;\n");
+    for index in 0..320 {
+        fixture.push_str(&format!(
+            "    total += {index}; // stale ownership replacement cleanup guard fixture\n"
+        ));
+    }
+    fixture.push_str("    assert!(total > 0);\n}\n");
+    let case = Case {
+        id: "large-fixture-counterexample".into(),
+        language: "rust".into(),
+        category: "counterexample".into(),
+        query: "Find the ownership guard that prevents stale replacement cleanup".into(),
+        files: BTreeMap::from([
+            ("src/owner.rs".into(), target.into()),
+            ("tests/fixtures/owner.rs".into(), fixture),
+        ]),
+        required: vec![Gold {
+            identity: Identity::new("src/owner.rs", "cleanup_if_owner"),
+            fragment: target.into(),
+        }],
+        useful: vec![],
+        writable: true,
+        no_answer: false,
+    };
+    let (_root, workspace) = case.instantiate();
+    let harness = ToolHarness::new(4).unwrap();
+
+    for budget in [1_000, 2_000] {
+        let pack = harness
+            .agent_context("fitness", &workspace, &case.query, budget, &[])
+            .unwrap();
+        assert!(
+            complete_body(&pack, &case, &case.required[0]),
+            "budget={budget}: large lexical fixture displaced required production body: {}",
+            selection(&pack)
+        );
+        let hot = pack["hot_source"].as_array().unwrap();
+        let source = hot
+            .iter()
+            .position(|item| item["path"] == "src/owner.rs")
+            .expect("required source must be delivered");
+        if let Some(fixture) = hot
+            .iter()
+            .position(|item| item["path"] == "tests/fixtures/owner.rs")
+        {
+            assert!(
+                source < fixture,
+                "budget={budget}: fixture body outranked production body: {}",
+                selection(&pack)
+            );
+        }
+    }
+}
+
+#[test]
+fn engineering_fitness_challenge_relationship_context_stops_after_two_hops() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join("src/chain.rs"),
+        "pub fn target_feature() -> usize { 7 }\n\
+         pub fn direct_caller() -> usize { target_feature() }\n\
+         pub fn second_hop() -> usize { direct_caller() }\n\
+         pub fn third_hop_noise() -> usize { second_hop() }\n",
+    )
+    .unwrap();
+    let workspace = crate::workspace::Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+
+    let pack = harness
+        .agent_context(
+            "fitness",
+            &workspace,
+            "show callers of target_feature",
+            4_000,
+            &[],
+        )
+        .unwrap();
+    let items = pack["repo_map"]["items"].as_array().unwrap();
+    let names = items
+        .iter()
+        .filter_map(|item| item["qualified_name"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        names.contains("target_feature"),
+        "repo_map={}",
+        pack["repo_map"]
+    );
+    assert!(
+        names.contains("direct_caller"),
+        "repo_map={}",
+        pack["repo_map"]
+    );
+    assert!(
+        names.contains("second_hop"),
+        "repo_map={}",
+        pack["repo_map"]
+    );
+    assert!(
+        !names.contains("third_hop_noise"),
+        "three-hop transitive noise must not consume relationship context: {}",
+        pack["repo_map"]
+    );
+}
+
+#[test]
+fn engineering_fitness_challenge_natural_refresh_prefers_requested_refresh_target() {
+    let case = corpus()
+        .into_iter()
+        .find(|case| case.id == "rust-refresh-natural")
+        .expect("frozen corpus must include rust-refresh-natural");
+    let expected = case.required[0].identity.clone();
+    let (_root, workspace) = case.instantiate();
+    let harness = ToolHarness::new(4).unwrap();
+
+    for budget in [1_000, 4_000] {
+        let pack = harness
+            .agent_context("fitness", &workspace, &case.query, budget, &[])
+            .unwrap();
+        let identities = delivered(&pack);
+        assert_eq!(
+            identities.first(),
+            Some(&expected),
+            "budget={budget}: natural-language refresh target must outrank related/test noise: {}",
+            selection(&pack)
+        );
+    }
+}

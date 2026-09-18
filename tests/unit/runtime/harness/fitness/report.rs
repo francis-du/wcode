@@ -1,6 +1,10 @@
 use super::controls::{report_workspace, run_controls, Control};
 use super::corpus::{corpus, Case};
 use super::scoring::{digest, score, Score};
+use crate::decision::{
+    probability_calibration_summary, ProbabilityCalibrationSample,
+    CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI,
+};
 use crate::harness::ToolHarness;
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -158,6 +162,16 @@ fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
     (denominator > 0).then(|| numerator as f64 / denominator as f64)
 }
 
+fn extend_json_object(target: &mut Value, fields: Value) {
+    let fields = fields
+        .as_object()
+        .expect("fitness summary fields must be an object");
+    target
+        .as_object_mut()
+        .expect("fitness summary must be an object")
+        .extend(fields.clone());
+}
+
 pub(super) fn summarize(rows: &[Row]) -> Vec<Value> {
     summarize_selected(rows.iter())
 }
@@ -172,14 +186,18 @@ fn summarize_selected<'a>(rows: impl IntoIterator<Item = &'a Row>) -> Vec<Value>
     }
     groups.into_iter().map(|((budget, phase), rows)| {
         let (mut required, mut hits, mut bodies, mut errors, mut count) = (0, 0, 0, 0, 0);
-        let (mut editable, mut ready, mut bytes, mut received, mut over_budget) = (0, 0, 0, 0, 0);
+        let (mut editable, mut ready, mut patch_ready, mut bytes, mut received, mut over_budget) =
+            (0, 0, 0, 0, 0, 0);
         let (mut no_answer_count, mut abstained) = (0, 0);
         let (mut noise_sum, mut noise_samples, mut ndcg_sum, mut ndcg_samples) = (0.0, 0, 0.0, 0);
         let (mut bug_required, mut bug_hits, mut bug_bodies) = (0, 0, 0);
+        let (mut bug_noise_sum, mut bug_noise_samples) = (0.0, 0);
         let (mut sha_hits, mut body_gaps, mut write_gaps) = (0, 0, 0);
         let (mut absent_bodies, mut partial_bodies, mut unusable_bodies, mut unobserved_bodies) = (0, 0, 0, 0);
         let (mut gold_bytes, mut density_bytes, mut density_samples) = (0, 0, 0);
         let (mut raw_bound_samples, mut raw_bound_exceeds_budget) = (0, 0);
+        let mut decision_samples = Vec::new();
+        let mut decision_exposed = 0_usize;
         let mut times = Vec::new();
         let mut returned_tokens = Vec::new();
         for row in &rows {
@@ -214,11 +232,19 @@ fn summarize_selected<'a>(rows: impl IntoIterator<Item = &'a Row>) -> Vec<Value>
                             raw_bound_exceeds_budget += usize::from(value > budget.saturating_mul(4));
                         }
                         ready += usize::from(score.all_required_edit_inputs);
+                        patch_ready += usize::from(score.all_required_unique_patch_preconditions);
                         bytes += score.response_bytes;
                         received += 1;
                         over_budget += usize::from(!score.within_budget);
                         abstained += usize::from(score.abstained == Some(true));
                         returned_tokens.push(score.estimated_tokens as u64);
+                        decision_exposed += usize::from(score.decision_plane_exposed);
+                        if let Some(probability) = score.context_sufficient_milli {
+                            decision_samples.push(ProbabilityCalibrationSample::new(
+                                probability,
+                                score.gold_context_sufficient,
+                            ));
+                        }
                         if let Some(noise) = score.non_gold_symbol_fraction {
                             noise_sum += noise;
                             noise_samples += 1;
@@ -229,36 +255,68 @@ fn summarize_selected<'a>(rows: impl IntoIterator<Item = &'a Row>) -> Vec<Value>
                         if row.category == "bug-relevant-evidence" {
                             bug_hits += score.required_hits;
                             bug_bodies += score.complete_body_hits;
+                            if let Some(noise) = score.non_gold_symbol_fraction {
+                                bug_noise_sum += noise;
+                                bug_noise_samples += 1;
+                            }
                         }
                     }
                     None => { errors += 1; unobserved_bodies += row.required_count; },
                 }
             }
         }
+        let decision_calibration = probability_calibration_summary(
+            &decision_samples,
+            CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI,
+        );
         let mut summary = json!({"budget":budget,"phase":phase,"cases":rows.len(),"attempts":count,"errors":errors,
             "warmup_errors":rows.iter().filter(|row|row.warmup_error.is_some()).count(),
             "required_gold_count":required,"required_hits":hits,"complete_body_hits":bodies,
-            "required_recall":ratio(hits,required),"complete_body_recall":ratio(bodies,required),
+            "required_recall":ratio(hits,required),"complete_body_recall":ratio(bodies,required)
+        });
+        extend_json_object(&mut summary, json!({
             "fresh_sha_recall":ratio(sha_hits,required),"missing_identity_count":required.saturating_sub(hits),
             "identified_without_complete_body_count":body_gaps,"missing_current_sha_count":required.saturating_sub(sha_hits),
             "unavailable_write_input_count":write_gaps,
             "complete_gold_source_bytes":gold_bytes,"complete_gold_density":ratio(gold_bytes,density_bytes),
             "density_response_bytes":density_bytes,"density_response_samples":density_samples,
             "complete_bodies_per_1k_budget_tokens":ratio(bodies.saturating_mul(1000),ndcg_samples.saturating_mul(budget)),
-            "raw_bound_samples":raw_bound_samples,"raw_source_exceeds_budget_samples":raw_bound_exceeds_budget,
+            "raw_bound_samples":raw_bound_samples,"raw_source_exceeds_budget_samples":raw_bound_exceeds_budget
+        }));
+        extend_json_object(&mut summary, json!({
             "mean_non_gold_symbol_fraction":(noise_samples > 0).then(|| noise_sum / noise_samples as f64),
             "noise_response_samples":noise_samples,"ranking_attempts":ndcg_samples,
             "mean_ndcg_at_10":(ndcg_samples > 0).then(|| ndcg_sum / ndcg_samples as f64),
             "bug_relevant_required_recall":ratio(bug_hits,bug_required),
             "bug_relevant_complete_body_recall":ratio(bug_bodies,bug_required),
+            "bug_relevant_mean_non_gold_symbol_fraction":
+                (bug_noise_samples > 0).then(|| bug_noise_sum / bug_noise_samples as f64),
+            "bug_relevant_symbol_precision":
+                (bug_noise_samples > 0).then(|| 1.0 - bug_noise_sum / bug_noise_samples as f64),
             "edit_input_eligible":editable,"all_required_edit_inputs_count":ready,
             "all_required_edit_inputs_rate":ratio(ready,editable),
+            "all_required_unique_patch_preconditions_count":patch_ready,
+            "all_required_unique_patch_preconditions_rate":ratio(patch_ready,editable)
+        }));
+        extend_json_object(&mut summary, json!({
+            "decision_context_observations":decision_calibration.samples,
+            "decision_context_coverage":ratio(decision_calibration.samples,received),
+            "decision_context_exposed_count":decision_exposed,
+            "decision_context_exposed_coverage":ratio(decision_exposed,received),
+            "decision_context_threshold_milli":decision_calibration.threshold_milli,
+            "decision_context_mean_brier":decision_calibration
+                .mean_brier_million
+                .map(|value| f64::from(value) / 1_000_000.0),
+            "decision_context_true_stop_count":decision_calibration.correct_stop,
+            "decision_context_false_stop_count":decision_calibration.false_stop,
+            "decision_context_true_continue_count":decision_calibration.correct_continue,
+            "decision_context_false_continue_count":decision_calibration.false_continue,
             "no_answer_attempts":no_answer_count,"abstained":abstained,
             "over_budget":over_budget,"response_samples":received,
             "mean_response_bytes":ratio(bytes,received),
             "latency_across_tasks":distribution(&times),
-            "median_estimated_tokens":distribution(&returned_tokens)["p50_us"]})
-        ;
+            "median_estimated_tokens":distribution(&returned_tokens)["p50_us"]
+        }));
         summary["absent_body_count"] = json!(absent_bodies);
         summary["partial_original_body_count"] = json!(partial_bodies);
         summary["unusable_body_count"] = json!(unusable_bodies);
@@ -428,6 +486,21 @@ pub(super) fn markdown(report: &Report) -> String {
             group["errors"]
         ));
     }
+    out.push_str("\n## Decision calibration\n\n`context_sufficient` is shadow-scored out-of-band against independently authored Gold context sufficiency (required identities + current SHA + complete original bodies + fixture writability), not WCode's own runtime readiness flags. Shadow calibration does not consume Agent Context bytes; exposed coverage separately reports whether the serialized `decision_plane` survived budget compaction. A false stop means the Decision Plane would prefer editing before Gold context is sufficient; a false continue means it would keep retrieving despite sufficient Gold context.\n\n| Budget | Phase | Shadow coverage | Exposed coverage | Brier | True stop | False stop | True continue | False continue |\n| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    for group in &report.summary {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            group["budget"],
+            group["phase"].as_str().unwrap_or("?"),
+            percent(&group["decision_context_coverage"]),
+            percent(&group["decision_context_exposed_coverage"]),
+            group["decision_context_mean_brier"],
+            group["decision_context_true_stop_count"],
+            group["decision_context_false_stop_count"],
+            group["decision_context_true_continue_count"],
+            group["decision_context_false_continue_count"]
+        ));
+    }
     out.push_str("\n## Body delivery partition\n\nCounts use required identities per attempt. Errors are unobserved, not successful absences. Partial original source is not complete-body credit.\n\n| Budget | Phase | Complete | Absent | Partial original | Unusable | Unobserved (error) |\n| ---: | --- | ---: | ---: | ---: | ---: | ---: |\n");
     for group in &report.summary {
         out.push_str(&format!(
@@ -454,7 +527,7 @@ pub(super) fn markdown(report: &Report) -> String {
             }
         ));
     }
-    out.push_str("\n## Per-case results\n\n| Case | Budget | Phase | Gold recall | Source recall | p50 us | p95 us |\n| --- | ---: | --- | ---: | ---: | ---: | ---: |\n");
+    out.push_str("\n## Per-case results\n\n| Case | Budget | Phase | Gold recall | Source recall | NDCG@10 | Non-Gold | p50 us | p95 us |\n| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
     for row in &report.rows {
         let count = row.required_count * row.samples.len();
         let hits: usize = row
@@ -474,13 +547,39 @@ pub(super) fn markdown(report: &Report) -> String {
                 .map(|v| format!("{:.1}%", v * 100.0))
                 .unwrap_or_else(|| "N/A".into())
         };
+        let ndcg = (row.required_count > 0).then(|| {
+            row.samples
+                .iter()
+                .filter_map(|sample| sample.score.as_ref().and_then(|score| score.ndcg_at_10))
+                .sum::<f64>()
+                / row.samples.len() as f64
+        });
+        let noise = row
+            .samples
+            .iter()
+            .filter_map(|sample| {
+                sample
+                    .score
+                    .as_ref()
+                    .and_then(|score| score.non_gold_symbol_fraction)
+            })
+            .collect::<Vec<_>>();
+        let mean_noise =
+            (!noise.is_empty()).then(|| noise.iter().sum::<f64>() / noise.len() as f64);
+        let percent_value = |value: Option<f64>| {
+            value
+                .map(|value| format!("{:.1}%", value * 100.0))
+                .unwrap_or_else(|| "N/A".into())
+        };
         out.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             row.case_id,
             row.budget,
             row.phase,
             percentage(hits),
             percentage(bodies),
+            percent_value(ndcg),
+            percent_value(mean_noise),
             row.latency["p50_us"],
             row.latency["p95_us"]
         ));
@@ -580,15 +679,57 @@ fn engineering_fitness_matrix_records_every_case_budget_and_phase() {
     assert_eq!(report.rows.len(), 60 * BUDGETS.len() * 2);
     assert_eq!(report.summary.len(), 6);
     assert!(report.rows.iter().all(|row| row.samples.len() == 1));
+    assert!(report.summary.iter().all(|group| {
+        group.get("decision_context_observations").is_some()
+            && group.get("decision_context_exposed_coverage").is_some()
+            && group.get("decision_context_mean_brier").is_some()
+            && group.get("decision_context_false_stop_count").is_some()
+            && group.get("decision_context_false_continue_count").is_some()
+    }));
     println!(
         "FITNESS_MATRIX {}",
         serde_json::to_string(&report.summary).unwrap()
     );
+    assert!(markdown(&report)
+        .contains("| Case | Budget | Phase | Gold recall | Source recall | NDCG@10 | Non-Gold |"));
     let query_failures: Vec<_> = report.rows.iter().filter(|row| row.samples.iter().any(|s| s.error.is_some()))
         .map(|row| json!({"case":row.case_id,"budget":row.budget,"phase":row.phase,"samples":row.samples})).collect();
     println!(
         "FITNESS_QUERY_FAILURES {}",
         serde_json::to_string(&query_failures).unwrap()
+    );
+    let mut decision_mistakes = BTreeMap::new();
+    for row in &report.rows {
+        for sample in &row.samples {
+            let Some(score) = sample.score.as_ref() else {
+                continue;
+            };
+            let Some(probability) = score.context_sufficient_milli else {
+                continue;
+            };
+            let predicted_stop = probability >= CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI;
+            if predicted_stop != score.gold_context_sufficient {
+                decision_mistakes
+                    .entry(row.case_id.clone())
+                    .or_insert_with(|| {
+                        json!({
+                            "category": row.category,
+                            "first_budget": row.budget,
+                            "first_phase": row.phase,
+                            "probability_milli": probability,
+                            "gold_context_sufficient": score.gold_context_sufficient,
+                            "reported_edit_ready": score.reported_edit_ready,
+                            "required_hits": score.required_hits,
+                            "complete_body_hits": score.complete_body_hits,
+                            "fresh_sha_hits": score.fresh_sha_hits
+                        })
+                    });
+            }
+        }
+    }
+    println!(
+        "FITNESS_DECISION_MISTAKES {}",
+        serde_json::to_string(&decision_mistakes).unwrap()
     );
     // Measurement correctness is not a requirement that the measured tool score 100%.
     // Rejected requests remain errors and contribute zero hits in the denominator.
@@ -597,6 +738,77 @@ fn engineering_fitness_matrix_records_every_case_budget_and_phase() {
         .iter()
         .flat_map(|row| &row.samples)
         .all(valid_observation));
+}
+
+#[test]
+fn engineering_fitness_noise_snapshot() {
+    let report = collect(1).unwrap();
+    let summary = report
+        .summary
+        .iter()
+        .map(|group| {
+            json!({
+                "budget": group["budget"],
+                "phase": group["phase"],
+                "required_recall": group["required_recall"],
+                "complete_body_recall": group["complete_body_recall"],
+                "mean_ndcg_at_10": group["mean_ndcg_at_10"],
+                "mean_non_gold_symbol_fraction": group["mean_non_gold_symbol_fraction"],
+                "query_errors": group["errors"],
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut counts = BTreeMap::<String, usize>::new();
+    for row in &report.rows {
+        for sample in &row.samples {
+            let Some(score) = sample.score.as_ref() else {
+                continue;
+            };
+            for identity in &score.non_gold_identities {
+                let key = format!("{}::{}", identity.path, identity.symbol);
+                *counts.entry(key).or_default() += 1;
+            }
+        }
+    }
+    let mut dominant = counts.into_iter().collect::<Vec<_>>();
+    dominant.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    dominant.truncate(12);
+    println!(
+        "FITNESS_NOISE_BASELINE {}",
+        json!({"summary": summary, "dominant_non_gold": dominant})
+    );
+    assert!(report.summary.iter().all(|group| group["errors"] == 0));
+    assert!(report
+        .summary
+        .iter()
+        .all(|group| group["required_recall"] == 1.0));
+}
+
+#[test]
+fn engineering_fitness_decision_calibration_snapshot() {
+    let report = collect(1).unwrap();
+    let compact = report
+        .summary
+        .iter()
+        .map(|group| {
+            json!({
+                "budget": group["budget"],
+                "phase": group["phase"],
+                "shadow_coverage": group["decision_context_coverage"],
+                "exposed_coverage": group["decision_context_exposed_coverage"],
+                "brier": group["decision_context_mean_brier"],
+                "false_stop": group["decision_context_false_stop_count"],
+                "false_continue": group["decision_context_false_continue_count"],
+                "query_errors": group["errors"],
+            })
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "FITNESS_DECISION_CALIBRATION {}",
+        serde_json::to_string(&compact).unwrap()
+    );
+    assert!(compact.iter().all(|group| group["shadow_coverage"] == 1.0));
+    assert!(compact.iter().all(|group| group["query_errors"] == 0));
 }
 
 #[test]

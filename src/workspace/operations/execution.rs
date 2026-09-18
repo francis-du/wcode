@@ -1,8 +1,204 @@
 use super::*;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 #[cfg(test)]
 #[path = "../../../tests/unit/workspace/execution.rs"]
 mod tests;
+
+fn process_queue_wait(command_timeout: Duration) -> Duration {
+    command_timeout.min(crate::resource::PROCESS_QUEUE_WAIT_CAP)
+}
+
+const CARGO_CONTENTION_WAIT_CAP: Duration = Duration::from_secs(30);
+
+fn cargo_contention_wait(command_timeout: Duration) -> Duration {
+    command_timeout
+        .min(CARGO_CONTENTION_WAIT_CAP)
+        .max(crate::resource::PROCESS_QUEUE_WAIT_CAP)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CargoContentionLane {
+    Registry,
+    Workspace,
+}
+
+fn cargo_contention_lane(program: &str, args: &[String]) -> Option<CargoContentionLane> {
+    if program != "cargo" {
+        return None;
+    }
+    for arg in args {
+        if matches!(arg.as_str(), "info" | "search" | "fetch" | "update") {
+            return Some(CargoContentionLane::Registry);
+        }
+        if matches!(
+            arg.as_str(),
+            "build"
+                | "check"
+                | "test"
+                | "clippy"
+                | "bench"
+                | "doc"
+                | "fix"
+                | "run"
+                | "rustc"
+                | "rustdoc"
+        ) {
+            return Some(CargoContentionLane::Workspace);
+        }
+    }
+    None
+}
+
+fn cargo_registry_gate() -> &'static Arc<Semaphore> {
+    static GATE: std::sync::OnceLock<Arc<Semaphore>> = std::sync::OnceLock::new();
+    GATE.get_or_init(|| Arc::new(Semaphore::new(1)))
+}
+
+fn cargo_workspace_gates() -> &'static Mutex<HashMap<PathBuf, Weak<Semaphore>>> {
+    static GATES: std::sync::OnceLock<Mutex<HashMap<PathBuf, Weak<Semaphore>>>> =
+        std::sync::OnceLock::new();
+    GATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cargo_workspace_gate(root: &Path) -> Arc<Semaphore> {
+    let mut gates = cargo_workspace_gates()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    gates.retain(|_, gate| gate.strong_count() > 0);
+    if let Some(gate) = gates.get(root).and_then(Weak::upgrade) {
+        return gate;
+    }
+    let gate = Arc::new(Semaphore::new(1));
+    gates.insert(root.to_path_buf(), Arc::downgrade(&gate));
+    gate
+}
+
+async fn acquire_cargo_contention_gate(
+    program: &str,
+    args: &[String],
+    workspace_root: &Path,
+    wait_timeout: Duration,
+) -> Result<Option<OwnedSemaphorePermit>> {
+    let gate = match cargo_contention_lane(program, args) {
+        Some(CargoContentionLane::Registry) => Arc::clone(cargo_registry_gate()),
+        Some(CargoContentionLane::Workspace) => cargo_workspace_gate(workspace_root),
+        None => return Ok(None),
+    };
+    tokio::time::timeout(wait_timeout, gate.acquire_owned())
+        .await
+        .map_err(|_| anyhow!("cargo contention gate remained busy for the bounded queue wait"))?
+        .map(Some)
+        .map_err(|_| anyhow!("cargo contention gate is shutting down"))
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct VerificationCommandFlightKey {
+    workspace_root: PathBuf,
+    cwd: PathBuf,
+    program: String,
+    args: Vec<String>,
+    revision: String,
+    timeout_seconds: u64,
+    lane: &'static str,
+}
+
+struct VerificationCommandFlight {
+    result: Mutex<Option<std::result::Result<CommandResult, String>>>,
+    notify: tokio::sync::Notify,
+}
+
+enum VerificationCommandFlightClaim {
+    Leader(VerificationCommandFlightLeader),
+    Follower(Arc<VerificationCommandFlight>),
+}
+
+struct VerificationCommandFlightLeader {
+    flight: Arc<VerificationCommandFlight>,
+    completed: bool,
+}
+
+impl VerificationCommandFlight {
+    fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    fn publish(&self, result: std::result::Result<CommandResult, String>) {
+        let mut slot = self
+            .result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(result);
+            drop(slot);
+            self.notify.notify_waiters();
+        }
+    }
+
+    async fn wait(&self) -> Result<CommandResult> {
+        loop {
+            let notified = self.notify.notified();
+            if let Some(result) = self
+                .result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+            {
+                return result.map_err(anyhow::Error::msg);
+            }
+            notified.await;
+        }
+    }
+}
+
+impl VerificationCommandFlightLeader {
+    fn complete(&mut self, result: &Result<CommandResult>) {
+        self.flight.publish(match result {
+            Ok(result) => Ok(result.clone()),
+            Err(error) => Err(error.to_string()),
+        });
+        self.completed = true;
+    }
+}
+
+impl Drop for VerificationCommandFlightLeader {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.flight.publish(Err(
+                "in-flight verification command leader ended before publishing a result".to_owned(),
+            ));
+        }
+    }
+}
+
+fn verification_command_flights(
+) -> &'static Mutex<HashMap<VerificationCommandFlightKey, Weak<VerificationCommandFlight>>> {
+    static FLIGHTS: std::sync::OnceLock<
+        Mutex<HashMap<VerificationCommandFlightKey, Weak<VerificationCommandFlight>>>,
+    > = std::sync::OnceLock::new();
+    FLIGHTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn claim_verification_command_flight(
+    key: VerificationCommandFlightKey,
+) -> VerificationCommandFlightClaim {
+    let mut flights = verification_command_flights()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    flights.retain(|_, flight| flight.strong_count() > 0);
+    if let Some(flight) = flights.get(&key).and_then(Weak::upgrade) {
+        return VerificationCommandFlightClaim::Follower(flight);
+    }
+    let flight = Arc::new(VerificationCommandFlight::new());
+    flights.insert(key, Arc::downgrade(&flight));
+    VerificationCommandFlightClaim::Leader(VerificationCommandFlightLeader {
+        flight,
+        completed: false,
+    })
+}
 
 fn ensure_workspace_executable(path: &Path) -> Result<()> {
     ensure_single_link_file(path)?;
@@ -105,11 +301,21 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("cwd is not a directory");
         }
+        let command_timeout = Duration::from_secs(timeout_seconds.clamp(1, 1800));
+        let _cargo_contention_permit = acquire_cargo_contention_gate(
+            program,
+            args,
+            &self.root,
+            cargo_contention_wait(command_timeout),
+        )
+        .await?;
+        let deadline = tokio::time::Instant::now() + command_timeout;
+        let queue_wait = process_queue_wait(command_timeout);
         let governor = crate::resource::global();
         let (_child_permit, process_queue_wait_ms) = if is_inspection_probe(program, args) {
-            governor.acquire_probe_with_wait().await
+            governor.acquire_probe_with_wait_timeout(queue_wait).await
         } else {
-            governor.acquire_child_with_wait().await
+            governor.acquire_child_with_wait_timeout(queue_wait).await
         }
         .map_err(anyhow::Error::msg)?;
         let effective_args = if unrestricted_commands {
@@ -142,7 +348,7 @@ impl Workspace {
         crate::resource::apply_child_limits(&mut command);
 
         let child = command.spawn().context("failed to start command")?;
-        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
+        collect_command_result(child, program, args, deadline, process_queue_wait_ms).await
     }
 
     pub(crate) fn verification_command_shape_allowed(
@@ -166,17 +372,99 @@ impl Workspace {
         cwd: &str,
         timeout_seconds: u64,
     ) -> Result<CommandResult> {
-        validate_verification_command_shape(program, args)?;
         if program.contains(['/', '\\']) {
             return self
                 .run_workspace_verification_executable(program, args, cwd, timeout_seconds)
                 .await;
         }
+        validate_verification_command_shape(program, args)?;
         let mut verification_workspace = self.clone();
         verification_workspace.security.allow_risky_exec = true;
         verification_workspace
             .run_command(program, args, cwd, timeout_seconds)
             .await
+    }
+
+    fn verification_command_flight_key(
+        &self,
+        lane: &'static str,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+        revision: &str,
+    ) -> Result<VerificationCommandFlightKey> {
+        if revision.trim().is_empty() || revision.ends_with(":partial") {
+            bail!("verification command coalescing requires a complete revision");
+        }
+        let cwd = self.existing_path(cwd)?;
+        if !cwd.is_dir() {
+            bail!("cwd is not a directory");
+        }
+        Ok(VerificationCommandFlightKey {
+            workspace_root: self.root().to_path_buf(),
+            cwd,
+            program: program.to_owned(),
+            args: args.to_vec(),
+            revision: revision.to_owned(),
+            timeout_seconds: timeout_seconds.clamp(1, 1800),
+            lane,
+        })
+    }
+
+    pub(crate) async fn run_command_at_revision(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+        revision: &str,
+    ) -> Result<CommandResult> {
+        validate_verification_command_shape(program, args)?;
+        let key = self.verification_command_flight_key(
+            "run-command",
+            program,
+            args,
+            cwd,
+            timeout_seconds,
+            revision,
+        )?;
+        match claim_verification_command_flight(key) {
+            VerificationCommandFlightClaim::Follower(flight) => flight.wait().await,
+            VerificationCommandFlightClaim::Leader(mut leader) => {
+                let result = self.run_command(program, args, cwd, timeout_seconds).await;
+                leader.complete(&result);
+                result
+            }
+        }
+    }
+
+    pub(crate) async fn run_verification_command_at_revision(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+        revision: &str,
+    ) -> Result<CommandResult> {
+        let key = self.verification_command_flight_key(
+            "verification",
+            program,
+            args,
+            cwd,
+            timeout_seconds,
+            revision,
+        )?;
+        match claim_verification_command_flight(key) {
+            VerificationCommandFlightClaim::Follower(flight) => flight.wait().await,
+            VerificationCommandFlightClaim::Leader(mut leader) => {
+                let result = self
+                    .run_verification_command(program, args, cwd, timeout_seconds)
+                    .await;
+                leader.complete(&result);
+                result
+            }
+        }
     }
 
     pub(crate) fn workspace_program_available(&self, program: &str) -> bool {
@@ -204,8 +492,10 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("cwd is not a directory");
         }
+        let command_timeout = Duration::from_secs(timeout_seconds.clamp(1, 1800));
+        let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
-            .acquire_child_with_wait()
+            .acquire_child_with_wait_timeout(process_queue_wait(command_timeout))
             .await
             .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);
@@ -221,7 +511,7 @@ impl Workspace {
         let child = command
             .spawn()
             .context("failed to start workspace verification executable")?;
-        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
+        collect_command_result(child, program, args, deadline, process_queue_wait_ms).await
     }
 
     pub(crate) async fn run_trusted_runtime_command(
@@ -260,8 +550,17 @@ impl Workspace {
         if !cwd.is_dir() {
             bail!("runtime executor cwd is not a directory");
         }
+        let command_timeout = Duration::from_secs(timeout_seconds.clamp(1, 1800));
+        let _cargo_contention_permit = acquire_cargo_contention_gate(
+            program,
+            args,
+            &self.root,
+            cargo_contention_wait(command_timeout),
+        )
+        .await?;
+        let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
-            .acquire_child_with_wait()
+            .acquire_child_with_wait_timeout(process_queue_wait(command_timeout))
             .await
             .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);
@@ -277,7 +576,7 @@ impl Workspace {
         let child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
-        collect_command_result(child, program, args, timeout_seconds, process_queue_wait_ms).await
+        collect_command_result(child, program, args, deadline, process_queue_wait_ms).await
     }
 }
 
@@ -287,7 +586,7 @@ async fn collect_command_result(
     mut child: tokio::process::Child,
     program: &str,
     args: &[String],
-    timeout_seconds: u64,
+    deadline: tokio::time::Instant,
     process_queue_wait_ms: u64,
 ) -> Result<CommandResult> {
     let mut group = crate::resource::supervise_child(&child);
@@ -303,8 +602,7 @@ async fn collect_command_result(
     let mut readers = tokio::task::JoinSet::new();
     readers.spawn(async move { (true, read_bounded_stream(stdout).await) });
     readers.spawn(async move { (false, read_bounded_stream(stderr).await) });
-    let seconds = timeout_seconds.clamp(1, 1800);
-    let waited = timeout(Duration::from_secs(seconds), child.wait()).await;
+    let waited = tokio::time::timeout_at(deadline, child.wait()).await;
     let timed_out = waited.is_err();
     let wait_failed = matches!(&waited, Ok(Err(_)));
     let mut status = waited.ok().and_then(std::result::Result::ok);

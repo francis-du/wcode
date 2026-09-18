@@ -6,6 +6,78 @@ const STATIC_REUSE_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 
 pub(super) type VerificationCacheKey = (PathBuf, String, String, String);
 pub(super) type VerificationCache = HashMap<VerificationCacheKey, CachedVerificationCheck>;
+pub(super) type VerificationRunFlights = HashMap<String, Weak<VerificationRunFlight>>;
+
+pub(super) struct VerificationRunFlight {
+    result: Mutex<Option<std::result::Result<VerificationReport, String>>>,
+    notify: tokio::sync::Notify,
+}
+
+pub(super) enum VerificationRunClaim {
+    Leader(VerificationRunLeader),
+    Follower(Arc<VerificationRunFlight>),
+}
+
+pub(super) struct VerificationRunLeader {
+    flight: Arc<VerificationRunFlight>,
+    completed: bool,
+}
+
+impl VerificationRunFlight {
+    fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    fn publish(&self, result: std::result::Result<VerificationReport, String>) {
+        let mut slot = self
+            .result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(result);
+            drop(slot);
+            self.notify.notify_waiters();
+        }
+    }
+
+    pub(super) async fn wait(&self) -> Result<VerificationReport> {
+        loop {
+            let notified = self.notify.notified();
+            if let Some(result) = self
+                .result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+            {
+                return result.map_err(anyhow::Error::msg);
+            }
+            notified.await;
+        }
+    }
+}
+
+impl VerificationRunLeader {
+    pub(super) fn complete(&mut self, result: &Result<VerificationReport>) {
+        self.flight.publish(match result {
+            Ok(report) => Ok(report.clone()),
+            Err(error) => Err(error.to_string()),
+        });
+        self.completed = true;
+    }
+}
+
+impl Drop for VerificationRunLeader {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.flight.publish(Err(
+                "in-flight verification leader ended before publishing a result".to_owned(),
+            ));
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct CachedVerificationCheck {
@@ -81,6 +153,28 @@ pub(super) fn reusable_static_check(check: &CheckSpec) -> bool {
 }
 
 impl ToolHarness {
+    pub(super) fn claim_verification_run(
+        &self,
+        workspace: &Workspace,
+        context: &VerificationReuseContext,
+    ) -> VerificationRunClaim {
+        let key = verification_run_signature(workspace, context);
+        let mut flights = self
+            .verification_run_flights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        flights.retain(|_, flight| flight.strong_count() > 0);
+        if let Some(flight) = flights.get(&key).and_then(Weak::upgrade) {
+            return VerificationRunClaim::Follower(flight);
+        }
+        let flight = Arc::new(VerificationRunFlight::new());
+        flights.insert(key, Arc::downgrade(&flight));
+        VerificationRunClaim::Leader(VerificationRunLeader {
+            flight,
+            completed: false,
+        })
+    }
+
     pub(super) fn cached_verification_check(
         &self,
         workspace: &Workspace,
@@ -166,6 +260,53 @@ impl ToolHarness {
             );
         }
     }
+}
+
+fn verification_run_signature(workspace: &Workspace, context: &VerificationReuseContext) -> String {
+    let mut hasher = Sha256::new();
+    hash_field(&mut hasher, "wcode-verification-run-flight-v1");
+    hash_field(&mut hasher, &workspace.root().to_string_lossy());
+    hash_field(&mut hasher, &context.revision.code);
+    hash_field(
+        &mut hasher,
+        context.revision.design.as_deref().unwrap_or("none"),
+    );
+    hash_field(&mut hasher, &context.level);
+    hash_field(
+        &mut hasher,
+        if context.fail_fast {
+            "fail-fast"
+        } else {
+            "diagnostic"
+        },
+    );
+    hash_field(&mut hasher, &context.timeout_seconds.to_string());
+    hash_field(&mut hasher, &context.environment);
+    hash_field(
+        &mut hasher,
+        if context.exec_enabled {
+            "exec"
+        } else {
+            "no-exec"
+        },
+    );
+    hash_field(
+        &mut hasher,
+        if context.risky_exec_enabled {
+            "risky-exec"
+        } else {
+            "bounded-exec"
+        },
+    );
+    hash_field(
+        &mut hasher,
+        if context.semantic_exec_enabled {
+            "semantic-exec"
+        } else {
+            "no-semantic-exec"
+        },
+    );
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 fn cache_key(

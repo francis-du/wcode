@@ -1,5 +1,48 @@
 use super::*;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ObservatoryRevisionState {
+    pub stable_inputs_key: String,
+    pub full_snapshot_key: String,
+}
+
+pub(crate) async fn revision_state(
+    harness: &ToolHarness,
+    workspace_id: &str,
+    workspace: &Workspace,
+) -> AnyResult<ObservatoryRevisionState> {
+    let source = harness.observatory_revision_signal(workspace).await?;
+    if source.full_refresh_required || source.truncated {
+        anyhow::bail!("observatory revision inputs are truncated");
+    }
+    let harness = harness.clone();
+    let workspace = workspace.clone();
+    let workspace_id = workspace_id.to_owned();
+    let (graph, proof, engineering) = mcp_tools::run_blocking(move || -> AnyResult<_> {
+        let (graph, (proof, engineering)) = rayon::join(
+            || harness.observatory_graph_signal(&workspace),
+            || {
+                rayon::join(
+                    || harness.observatory_proof_signal(&workspace_id, &workspace),
+                    || harness.observatory_engineering_signal(&workspace),
+                )
+            },
+        );
+        Ok((graph?, proof?, engineering?))
+    })
+    .await?;
+    let source_key = source.fingerprint.unwrap_or_else(|| "full".to_owned());
+    let stable_inputs_key = format!("{source_key}|{proof}|{engineering}");
+    let graph_key = graph
+        .map(|(revision, signal)| if signal.is_empty() { revision } else { signal })
+        .unwrap_or_default();
+    let full_snapshot_key = format!("{source_key}|{graph_key}|{proof}|{engineering}");
+    Ok(ObservatoryRevisionState {
+        stable_inputs_key,
+        full_snapshot_key,
+    })
+}
+
 pub(super) fn snapshot(
     harness: &ToolHarness,
     workspace_id: &str,

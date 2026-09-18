@@ -202,6 +202,23 @@ fn engineering_fitness_delivery_separates_missing_identity_body_sha_and_permissi
 }
 
 #[test]
+fn engineering_fitness_patch_precondition_requires_unique_original_body() {
+    let mut case = base_case("rust");
+    case.required.truncate(1);
+    let gold = case.required[0].clone();
+    let source = case.files.get_mut(&gold.identity.path).unwrap();
+    source.push('\n');
+    source.push_str(gold.fragment.trim_end_matches(['\r', '\n']));
+    source.push('\n');
+
+    let output = pack(&case);
+    let result = super::scoring::score(&output, &case);
+    assert!(result.all_required_edit_inputs);
+    assert_eq!(result.unique_patch_precondition_hits, 0);
+    assert!(!result.all_required_unique_patch_preconditions);
+}
+
+#[test]
 fn engineering_fitness_delivery_raw_bound_is_not_a_feasibility_claim() {
     let mut case = base_case("rust");
     let text = format!(

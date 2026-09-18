@@ -8,7 +8,8 @@ use crate::graph::{
 };
 use crate::graph_provider_store::{self, GraphProviderSummary, StoredGraphProvider};
 use crate::graph_store::{
-    self, GraphDiffInput, GraphDiffResult, GraphHistoryEntry, GraphQueryInput, GraphQueryResult,
+    self, GraphChainInput, GraphChainResult, GraphDiffInput, GraphDiffResult, GraphHistoryEntry,
+    GraphQueryInput, GraphQueryResult,
 };
 use crate::intelligence::{
     DesignStatus, DriftStatus, EvidenceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
@@ -142,11 +143,13 @@ pub struct ToolHarness {
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
     project_flights: Arc<Mutex<ValidationFlights<PathBuf>>>,
     observatory_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectObservatory>>>,
+    observatory_refreshes: Arc<Mutex<HashSet<PathBuf>>>,
     convention_cache: Arc<Mutex<HashMap<PathBuf, CachedConventionReport>>>,
     convention_flights: Arc<Mutex<ValidationFlights<PathBuf>>>,
     repo_map_cache: Arc<Mutex<RepoMapCache>>,
     repo_map_flights: Arc<Mutex<ValidationFlights<RepoMapCacheKey>>>,
     verification_cache: Arc<Mutex<harness_verification_cache::VerificationCache>>,
+    verification_run_flights: Arc<Mutex<harness_verification_cache::VerificationRunFlights>>,
     code_index: CodeIndex,
     semantic_sessions: SemanticSessionPool,
     intelligence: SoftwareIntelligenceRuntime,
@@ -169,10 +172,16 @@ impl From<OwnedSemaphorePermit> for ToolPermit {
 }
 
 impl ToolHarness {
-    fn execution_limit(max_parallel: usize) -> usize {
-        max_parallel
+    fn execution_limit_for(max_parallel: usize, process_capacity: usize) -> usize {
+        let outer_limit = max_parallel
             .saturating_sub(max_parallel.div_ceil(8).min(4))
-            .max(1)
+            .max(1);
+        let process_queue_limit = process_capacity.max(1);
+        outer_limit.min(process_queue_limit)
+    }
+
+    pub(crate) fn execution_limit(max_parallel: usize) -> usize {
+        Self::execution_limit_for(max_parallel, crate::resource::limits().child_processes)
     }
 
     pub(crate) async fn acquire_tool(&self, executes_process: bool) -> Result<ToolPermit, String> {
@@ -215,10 +224,24 @@ struct CachedProjectProfile {
     profile: Arc<ProjectProfile>,
 }
 
+pub(crate) struct ObservatoryRefreshGuard {
+    refreshes: Arc<Mutex<HashSet<PathBuf>>>,
+    root: PathBuf,
+}
+
+impl Drop for ObservatoryRefreshGuard {
+    fn drop(&mut self) {
+        if let Ok(mut refreshes) = self.refreshes.lock() {
+            refreshes.remove(&self.root);
+        }
+    }
+}
+
 #[derive(Clone)]
 struct CachedProjectObservatory {
     last_used: Instant,
     snapshot: Arc<crate::intelligence_types::ProjectObservatory>,
+    revision_key: Option<String>,
 }
 
 #[derive(Clone)]
@@ -578,6 +601,8 @@ struct ChangedFileBuilder {
     binary: bool,
 }
 
+#[path = "capabilities.rs"]
+mod harness_capabilities;
 #[path = "core.rs"]
 mod harness_core;
 #[path = "semantic_provider.rs"]

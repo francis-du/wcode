@@ -46,6 +46,7 @@ pub(crate) struct SearchRequest {
     pub path: String,
     pub mode: SearchMode,
     pub context_lines: usize,
+    pub include_comments: bool,
     pub max_results: usize,
     pub offset: usize,
     pub output_mode: String,
@@ -149,6 +150,164 @@ impl LineMatches {
         }
         self.seen |= mask;
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct CommentStyle {
+    slash_line: bool,
+    hash_line: bool,
+    dash_line: bool,
+    c_block: bool,
+    html_block: bool,
+    ocaml_block: bool,
+}
+
+impl CommentStyle {
+    fn for_path(path: &str) -> Self {
+        let path = std::path::Path::new(path);
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        let slash_line = matches!(
+            extension.as_str(),
+            "c" | "h"
+                | "cc"
+                | "cpp"
+                | "cxx"
+                | "hpp"
+                | "cs"
+                | "dart"
+                | "go"
+                | "java"
+                | "js"
+                | "jsx"
+                | "mjs"
+                | "cjs"
+                | "php"
+                | "rs"
+                | "swift"
+                | "ts"
+                | "tsx"
+                | "mts"
+                | "cts"
+        );
+        let hash_line = matches!(
+            extension.as_str(),
+            "py" | "pyi"
+                | "rb"
+                | "rake"
+                | "gemspec"
+                | "sh"
+                | "bash"
+                | "zsh"
+                | "ksh"
+                | "yaml"
+                | "yml"
+                | "toml"
+                | "r"
+                | "ex"
+                | "exs"
+                | "php"
+        ) || matches!(
+            file_name.as_str(),
+            ".bashrc"
+                | ".bash_profile"
+                | ".bash_login"
+                | ".profile"
+                | ".zshrc"
+                | ".zprofile"
+                | ".zshenv"
+                | ".zlogin"
+                | "makefile"
+                | "dockerfile"
+        );
+        let c_block = matches!(
+            extension.as_str(),
+            "c" | "h"
+                | "cc"
+                | "cpp"
+                | "cxx"
+                | "hpp"
+                | "cs"
+                | "css"
+                | "dart"
+                | "go"
+                | "java"
+                | "js"
+                | "jsx"
+                | "mjs"
+                | "cjs"
+                | "php"
+                | "rs"
+                | "swift"
+                | "ts"
+                | "tsx"
+                | "mts"
+                | "cts"
+        );
+
+        Self {
+            slash_line,
+            hash_line,
+            dash_line: extension == "lua",
+            c_block,
+            html_block: matches!(extension.as_str(), "html" | "htm" | "xhtml"),
+            ocaml_block: matches!(extension.as_str(), "ml" | "mli"),
+        }
+    }
+}
+
+#[derive(Default)]
+struct CommentState {
+    block_end: Option<&'static str>,
+}
+
+fn comment_only_line(style: CommentStyle, line: &str, state: &mut CommentState) -> bool {
+    let mut rest = line.trim_start();
+    if rest.is_empty() {
+        return false;
+    }
+    if let Some(end) = state.block_end {
+        let Some(index) = rest.find(end) else {
+            return true;
+        };
+        state.block_end = None;
+        rest = rest[index + end.len()..].trim_start();
+        if rest.is_empty() {
+            return true;
+        }
+    }
+    if style.slash_line && rest.starts_with("//") {
+        return true;
+    }
+    if style.hash_line && rest.starts_with('#') {
+        return true;
+    }
+    if style.dash_line && rest.starts_with("--") {
+        return true;
+    }
+    for (enabled, start, end) in [
+        (style.html_block, "<!--", "-->"),
+        (style.c_block, "/*", "*/"),
+        (style.ocaml_block, "(*", "*)"),
+    ] {
+        if enabled && rest.starts_with(start) {
+            if let Some(index) = rest.find(end) {
+                return rest[index + end.len()..].trim().is_empty();
+            }
+            state.block_end = Some(end);
+            return true;
+        }
+    }
+    false
 }
 
 struct ScannedFile {
@@ -331,6 +490,7 @@ impl SearchReport {
         let mut value = json!({
             "workspace":workspace,"path":request.path,"provider":"workspace-search",
             "precision":"text","requested_mode":self.requested_mode.as_str(),"mode":self.mode.as_str(),
+            "include_comments":request.include_comments,
             "output_mode":request.output_mode,"matching_unit":"line","count":count,
             "total_matches":self.matches.total,"file_count":self.matches.files.len(),
             "pattern_count":self.queries.len(),"query_counts":query_counts,
@@ -393,6 +553,7 @@ impl Workspace {
             path: path.to_owned(),
             mode,
             context_lines,
+            include_comments: true,
             max_results: max_results.clamp(1, 500),
             offset: 0,
             output_mode: "content".into(),
@@ -415,6 +576,7 @@ impl Workspace {
             path: path.to_owned(),
             mode,
             context_lines,
+            include_comments: true,
             max_results: max_results.clamp(1, 2000),
             offset: 0,
             output_mode: "content".into(),
@@ -479,12 +641,8 @@ impl Workspace {
         };
         let mut paths = Vec::new();
         let mut planned_bytes = 0u64;
-        for entry in WalkDir::new(start)
-            .follow_links(false)
-            .sort_by_file_name()
-            .into_iter()
-            .filter_entry(visible_entry)
-        {
+        let honor_parent_ignores = start == self.root;
+        for entry in repository_walk_builder(&start, honor_parent_ignores).build() {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(_) => {
@@ -492,7 +650,7 @@ impl Workspace {
                     continue;
                 }
             };
-            if !entry.file_type().is_file() {
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
             report.files_considered += 1;
@@ -523,43 +681,61 @@ impl Workspace {
             .saturating_add(request.max_results)
             .saturating_add(1);
         let mut fallback_matches = Matches::default();
-        // Bounded batches retain at most eight raw documents at once. Auto exact
-        // and fallback evidence is gathered from the SAME bytes in ONE traversal.
+        let files_only_exact = request.mode == SearchMode::Exact
+            && request.output_mode == "files_with_matches"
+            && fallback.is_none();
+        // Bounded batches retain at most eight raw documents at once. Exact
+        // files-only discovery is I/O-shaped: keep it on the bounded I/O pool
+        // instead of charging one interactive CPU-governor acquisition per file.
+        // Content/regex/token modes retain the CPU-governed parsing lane.
         for batch in paths.chunks(8) {
             if report.bytes_read > MAX_SCAN_BYTES {
                 report.scan_truncated = true;
                 break;
             }
-            let outcomes = batch
-                .par_iter()
-                .map(|path| -> Result<ScannedFile> {
-                    let _cpu = crate::resource::cpu_work(crate::resource::WorkClass::Interactive);
-                    let source = self.load_source(path)?;
-                    let mut found = LineMatches::default();
-                    let mut alternative = LineMatches::default();
-                    let want_primary = primary.file_may_match(&source.content);
-                    let want_fallback = fallback
-                        .as_ref()
-                        .is_some_and(|p| p.file_may_match(&source.content));
-                    if want_primary || want_fallback {
-                        for (line, text) in source.content.lines().enumerate() {
-                            if want_primary {
-                                found.add(line, primary.mask(text), capacity);
-                            }
-                            if want_fallback {
-                                if let Some(plan) = &fallback {
-                                    alternative.add(line, plan.mask(text), capacity);
-                                }
+            let scan = |path: &String, account_cpu: bool| -> Result<ScannedFile> {
+                let _cpu = account_cpu
+                    .then(|| crate::resource::cpu_work(crate::resource::WorkClass::Interactive));
+                let source = self.load_source(path)?;
+                let mut found = LineMatches::default();
+                let mut alternative = LineMatches::default();
+                let want_primary = primary.file_may_match(&source.content);
+                let want_fallback = fallback
+                    .as_ref()
+                    .is_some_and(|p| p.file_may_match(&source.content));
+                if want_primary || want_fallback {
+                    let comment_style = CommentStyle::for_path(path);
+                    let mut comment_state = CommentState::default();
+                    for (line, text) in source.content.lines().enumerate() {
+                        let comment_only =
+                            comment_only_line(comment_style, text, &mut comment_state);
+                        if !request.include_comments && comment_only {
+                            continue;
+                        }
+                        if want_primary {
+                            found.add(line, primary.mask(text), capacity);
+                        }
+                        if want_fallback {
+                            if let Some(plan) = &fallback {
+                                alternative.add(line, plan.mask(text), capacity);
                             }
                         }
                     }
-                    Ok(ScannedFile {
-                        source,
-                        primary: found,
-                        fallback: alternative,
-                    })
+                }
+                Ok(ScannedFile {
+                    source,
+                    primary: found,
+                    fallback: alternative,
                 })
-                .collect::<Vec<_>>();
+            };
+            let outcomes = if files_only_exact {
+                crate::resource::parallel_io(batch, |path| scan(path, false))?
+            } else {
+                batch
+                    .par_iter()
+                    .map(|path| scan(path, true))
+                    .collect::<Vec<_>>()
+            };
             for (path, outcome) in batch.iter().zip(outcomes) {
                 match outcome {
                     Ok(scanned) => {

@@ -94,6 +94,44 @@ fn repo_rank_no_supplement_reuses_the_original_graph() {
 }
 
 #[test]
+fn direct_relationship_evidence_outranks_a_high_degree_second_hop() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    let mut source = String::from(
+        "pub fn target_feature() {}\npub fn direct_caller() { target_feature(); hub(); }\npub fn hub() {}\n",
+    );
+    for index in 0..500 {
+        source.push_str(&format!("pub fn helper_{index}() {{ hub(); }}\n"));
+    }
+    fs::write(root.path().join("src/lib.rs"), source).unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let pack = ToolHarness::new(4)
+        .unwrap()
+        .agent_context(
+            "demo",
+            &workspace,
+            "show callers of target_feature",
+            4_000,
+            &[],
+        )
+        .unwrap();
+    let items = pack["repo_map"]["items"].as_array().unwrap();
+    let caller = items
+        .iter()
+        .position(|item| item["qualified_name"] == "direct_caller")
+        .expect("direct caller must be returned");
+    let hub = items
+        .iter()
+        .position(|item| item["qualified_name"] == "hub")
+        .expect("second-hop hub must be returned");
+    assert!(
+        caller < hub,
+        "direct relationship evidence must outrank graph-central second-hop nodes: {}",
+        pack["repo_map"]
+    );
+}
+
+#[test]
 fn exact_repo_target_stays_ahead_of_a_high_degree_helper() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("src")).unwrap();

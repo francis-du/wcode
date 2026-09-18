@@ -299,38 +299,50 @@ fn syntax_candidates_generated_mutation_is_killed_by_isolated_fixture_oracle() {
     assert_eq!(values, &["7", "8", "9"]);
     // The oracle is independently supplied by this frozen test contract, not
     // inferred by the production generator from the implementation expression.
-    let assertions: String = values
-        .iter()
-        .zip([true, false, false])
-        .map(|(value, expected)| format!("assert_eq!(accepts({value}), {expected});"))
-        .collect();
-    let test = format!("#[test] fn independent_contract() {{ {assertions} }}\n");
-    let run = |source: &str| {
-        fs::write(root.path().join("trial.rs"), format!("{source}{test}")).unwrap();
-        let executable = root
-            .path()
-            .join(if cfg!(windows) { "trial.exe" } else { "trial" });
-        let compilation = std::process::Command::new("rustc")
-            .args(["--edition=2021", "--test", "trial.rs", "-o"])
-            .arg(&executable)
-            .current_dir(root.path())
-            .output()
-            .unwrap();
-        assert!(
-            compilation.status.success(),
-            "{}",
-            String::from_utf8_lossy(&compilation.stderr)
-        );
+    // Compile baseline and mutant together once, then execute their independent
+    // contracts separately. This preserves mutation-kill semantics while avoiding
+    // two expensive rustc startups when the full suite is under process pressure.
+    let assertions = |module: &str| {
+        values
+            .iter()
+            .zip([true, false, false])
+            .map(|(value, expected)| format!("assert_eq!({module}::accepts({value}), {expected});"))
+            .collect::<String>()
+    };
+    let changed = code.replacen(&candidate.original, &candidate.replacement, 1);
+    let trial = format!(
+        "mod baseline {{ {code} }}\nmod mutant {{ {changed} }}\n\
+         #[test] fn baseline_contract() {{ {} }}\n\
+         #[test] fn mutant_contract() {{ {} }}\n",
+        assertions("baseline"),
+        assertions("mutant"),
+    );
+    fs::write(root.path().join("trial.rs"), trial).unwrap();
+    let executable = root
+        .path()
+        .join(if cfg!(windows) { "trial.exe" } else { "trial" });
+    let compilation = std::process::Command::new("rustc")
+        .args(["--edition=2021", "--test", "trial.rs", "-o"])
+        .arg(&executable)
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let run = |filter: &str| {
         std::process::Command::new(&executable)
+            .args([filter, "--exact"])
             .current_dir(root.path())
             .output()
             .unwrap()
     };
-    let baseline = run(code);
+    let baseline = run("baseline_contract");
     assert!(baseline.status.success());
     assert!(String::from_utf8_lossy(&baseline.stdout).contains("1 passed"));
-    let changed = code.replacen(&candidate.original, &candidate.replacement, 1);
-    let failed = run(&changed);
+    let failed = run("mutant_contract");
     assert!(!failed.status.success());
     assert!(String::from_utf8_lossy(&failed.stdout).contains("1 failed"));
     assert_eq!(

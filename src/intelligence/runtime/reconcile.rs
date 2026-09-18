@@ -79,7 +79,6 @@ fn context_symbol_rank(
             name.contains(term.as_str())
                 || qualified.contains(term.as_str())
                 || signature.contains(term.as_str())
-                || path.contains(term.as_str())
         })
         .count();
     let test_penalty = usize::from(!prefer_test_symbols && context_symbol_test_path(&path));
@@ -100,6 +99,11 @@ fn context_symbol_rank(
                     || path.contains(term.as_str())
             }
         }) {
+            let class = if literals.is_empty() && matches!(class, 1 | 3) {
+                1
+            } else {
+                class
+            };
             return (class, test_penalty, coverage_rank, index);
         }
     }
@@ -599,6 +603,13 @@ impl SoftwareIntelligenceRuntime {
                     ChangeIntent::UpdateDesign {
                         subject: finding.subject.clone(),
                         reason: finding.message.clone(),
+                    },
+                ),
+                DriftKind::RuntimeDrift => (
+                    ReconciliationTaskKind::Verification,
+                    ChangeIntent::AddVerification {
+                        subject: finding.subject.clone(),
+                        verification_kind: "runtime-capacity-regression".into(),
                     },
                 ),
             };

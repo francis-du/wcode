@@ -6,6 +6,188 @@ use super::symbols::{
 };
 use super::*;
 
+fn compact_go_code(text: &str) -> String {
+    text.chars().filter(|ch| !ch.is_whitespace()).collect()
+}
+
+fn redacted_guard_excerpt(text: &str) -> String {
+    let excerpt = text.chars().take(240).collect::<String>();
+    redact_sensitive_text(excerpt.trim()).0
+}
+
+fn early_exit_guard(prefix: &str, condition: &str) -> bool {
+    let Some(position) = prefix.rfind(condition) else {
+        return false;
+    };
+    prefix[position + condition.len()..]
+        .chars()
+        .take(240)
+        .collect::<String>()
+        .contains("{return")
+}
+
+fn go_structural_analysis(node: Node<'_>, source: &str) -> Option<Value> {
+    let raw = source.get(node.byte_range()).unwrap_or_default();
+    if node.kind() == "index_expression" {
+        let open = raw.rfind('[')?;
+        let close = raw[open + 1..].find(']')? + open + 1;
+        let base = raw[..open].trim();
+        let index = raw[open + 1..close].trim().parse::<usize>().ok()?;
+        if base.is_empty() {
+            return None;
+        }
+        let required_len = index.saturating_add(1);
+        let base_compact = compact_go_code(base);
+        let len_expr = format!("len({base_compact})");
+        let mut guarded = false;
+        let mut saw_guard = false;
+        let mut evidence = Vec::new();
+        let mut function_start = 0usize;
+        let mut ancestor = node.parent();
+        while let Some(parent) = ancestor {
+            if parent.kind() == "if_statement" {
+                if let Some(condition) = parent.child_by_field_name("condition") {
+                    let condition_text = source.get(condition.byte_range()).unwrap_or_default();
+                    let compact = compact_go_code(condition_text);
+                    if compact.contains(&len_expr) {
+                        saw_guard = true;
+                        if compact.contains(&format!("{len_expr}>{index}"))
+                            || compact.contains(&format!("{len_expr}>={required_len}"))
+                            || compact.contains(&format!("{required_len}<={len_expr}"))
+                            || compact.contains(&format!("{index}<{len_expr}"))
+                        {
+                            guarded = true;
+                        }
+                        evidence.push(redacted_guard_excerpt(condition_text));
+                    }
+                }
+            }
+            if matches!(
+                parent.kind(),
+                "function_declaration" | "method_declaration" | "func_literal"
+            ) {
+                function_start = parent.start_byte();
+                break;
+            }
+            ancestor = parent.parent();
+        }
+        let prefix = source
+            .get(function_start..node.start_byte())
+            .map(compact_go_code)
+            .unwrap_or_default();
+        if prefix.contains(&len_expr) {
+            saw_guard = true;
+            let safe_conditions = [
+                format!("if{len_expr}<{required_len}"),
+                format!("if{len_expr}<={index}"),
+            ];
+            if safe_conditions
+                .iter()
+                .any(|condition| early_exit_guard(&prefix, condition))
+                || (required_len == 1 && early_exit_guard(&prefix, &format!("if{len_expr}==0")))
+            {
+                guarded = true;
+            }
+        }
+        let guard_mismatch = saw_guard && !guarded;
+        let mut patterns = Vec::new();
+        if guard_mismatch {
+            patterns.push("index_mismatch");
+        }
+        if !guarded && base.contains('.') {
+            patterns.push("unguarded_subscript");
+        }
+        return Some(json!({
+            "guarded": guarded,
+            "guard_kind": "length",
+            "guard_mismatch": guard_mismatch,
+            "required_len": required_len,
+            "guard_evidence": evidence,
+            "bug_patterns": patterns,
+            "pattern_propagation": {"node_kind":"index_expression","required_len":required_len}
+        }));
+    }
+    if node.kind() == "unary_expression" && raw.trim_start().starts_with('*') {
+        let operand = raw.trim().trim_start_matches('*').trim();
+        if operand.is_empty() {
+            return None;
+        }
+        let operand_compact = compact_go_code(operand);
+        let mut guarded = false;
+        let mut evidence = Vec::new();
+        let mut function_start = 0usize;
+        let mut ancestor = node.parent();
+        while let Some(parent) = ancestor {
+            if parent.kind() == "if_statement" {
+                if let Some(condition) = parent.child_by_field_name("condition") {
+                    let condition_text = source.get(condition.byte_range()).unwrap_or_default();
+                    let compact = compact_go_code(condition_text);
+                    if compact.contains(&format!("{operand_compact}!=nil")) {
+                        guarded = true;
+                        evidence.push(redacted_guard_excerpt(condition_text));
+                    }
+                }
+            }
+            if matches!(
+                parent.kind(),
+                "function_declaration" | "method_declaration" | "func_literal"
+            ) {
+                function_start = parent.start_byte();
+                break;
+            }
+            ancestor = parent.parent();
+        }
+        let prefix = source
+            .get(function_start..node.start_byte())
+            .map(compact_go_code)
+            .unwrap_or_default();
+        if early_exit_guard(&prefix, &format!("if{operand_compact}==nil")) {
+            guarded = true;
+        }
+        return Some(json!({
+            "guarded": guarded,
+            "guard_kind": "nil",
+            "bug_patterns": if guarded { Vec::<&str>::new() } else { vec!["nil_deref"] },
+            "guard_evidence": evidence
+        }));
+    }
+    if node.kind() == "assignment_statement" {
+        let compact = compact_go_code(raw);
+        if compact.starts_with("_=") && raw.contains('(') {
+            return Some(json!({
+                "guarded": false,
+                "bug_patterns": ["err_swallowed"],
+                "pattern_confidence": "heuristic",
+                "pattern_propagation": {"node_kind":"assignment_statement","pattern":"err_swallowed"}
+            }));
+        }
+    }
+    if node.kind() == "call_expression"
+        && raw.contains(".Run(")
+        && raw.contains("func(")
+        && ![
+            "assert.",
+            "require.",
+            ".Error(",
+            ".Errorf(",
+            ".Fatal(",
+            ".Fatalf(",
+            ".Fail(",
+            ".FailNow(",
+        ]
+        .iter()
+        .any(|marker| raw.contains(marker))
+    {
+        return Some(json!({
+            "guarded": false,
+            "bug_patterns": ["empty_test"],
+            "pattern_confidence": "heuristic",
+            "pattern_propagation": {"node_kind":"call_expression","pattern":"empty_test"}
+        }));
+    }
+    None
+}
+
 impl CodeIndex {
     pub(super) fn search_file(
         &self,
@@ -508,13 +690,32 @@ impl CodeIndex {
             .iter()
             .map(String::as_str)
             .collect::<HashSet<_>>();
+        const SUPPORTED_BUG_PATTERNS: &[&str] = &[
+            "nil_deref",
+            "err_swallowed",
+            "index_mismatch",
+            "empty_test",
+            "unguarded_subscript",
+        ];
+        if request
+            .bug_patterns
+            .iter()
+            .any(|pattern| !SUPPORTED_BUG_PATTERNS.contains(&pattern.as_str()))
+        {
+            bail!("unsupported bug pattern; expected nil_deref, err_swallowed, index_mismatch, empty_test, or unguarded_subscript");
+        }
+        let requested_bug_patterns = request
+            .bug_patterns
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
         let text_regex = request
             .text_regex
             .as_deref()
             .map(regex::Regex::new)
             .transpose()
             .map_err(|error| anyhow!("invalid syntax text_regex: {error}"))?;
-        let max_files = request.max_files.clamp(1, 5_000);
+        let max_files = request.max_files.clamp(1, 50_000);
         let max_results = request.max_results.clamp(1, 2_000);
         let (files, scan_truncated) = workspace.source_files(&request.path, max_files)?;
         let found = AtomicU64::new(0);
@@ -569,14 +770,39 @@ impl CodeIndex {
                         stopped.store(true, Ordering::Relaxed);
                         break;
                     }
-                    if node.is_named() && kinds.contains(node.kind()) {
+                    if node.is_named()
+                        && kinds.contains(node.kind())
+                        && (request.include_comments || node.kind() != "comment")
+                    {
                         let raw = source.content.get(node.byte_range()).unwrap_or_default();
                         if text_regex.as_ref().is_none_or(|regex| regex.is_match(raw)) {
+                            let analysis = (ensured.record.language == LanguageId::Go)
+                                .then(|| go_structural_analysis(node, &source.content))
+                                .flatten();
+                            if !requested_bug_patterns.is_empty() {
+                                let matches_requested_pattern = analysis
+                                    .as_ref()
+                                    .and_then(|value| value.get("bug_patterns"))
+                                    .and_then(Value::as_array)
+                                    .is_some_and(|patterns| {
+                                        patterns.iter().any(|pattern| {
+                                            pattern.as_str().is_some_and(|pattern| {
+                                                requested_bug_patterns.contains(pattern)
+                                            })
+                                        })
+                                    });
+                                if !matches_requested_pattern {
+                                    let mut cursor = node.walk();
+                                    let children = node.children(&mut cursor).collect::<Vec<_>>();
+                                    stack.extend(children.into_iter().rev());
+                                    continue;
+                                }
+                            }
                             let slot = found.fetch_add(1, Ordering::Relaxed);
                             if slot < max_results as u64 {
                                 let excerpt = raw.chars().take(500).collect::<String>();
                                 let (text, redacted) = redact_sensitive_text(excerpt.trim());
-                                local.push(json!({
+                                let mut row = json!({
                                     "path": path,
                                     "sha256": source.sha256,
                                     "language": ensured.record.language.as_str(),
@@ -586,7 +812,15 @@ impl CodeIndex {
                                     "text_truncated": raw.chars().count() > 500,
                                     "redacted": redacted,
                                     "parse_errors": ensured.record.parse_errors,
-                                }));
+                                });
+                                if let Some(analysis) = analysis {
+                                    if let Some(fields) = analysis.as_object() {
+                                        for (key, value) in fields {
+                                            row[key] = value.clone();
+                                        }
+                                    }
+                                }
+                                local.push(row);
                             }
                         }
                     }
@@ -616,6 +850,8 @@ impl CodeIndex {
             "path": request.path,
             "node_kinds": request.node_kinds,
             "text_regex": text_regex.as_ref().map(regex::Regex::as_str),
+            "include_comments": request.include_comments,
+            "bug_patterns": request.bug_patterns,
             "files_considered": files.len(),
             "count": matches.len(),
             "matches": matches,

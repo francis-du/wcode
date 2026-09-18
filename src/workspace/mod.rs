@@ -18,7 +18,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 use uuid::Uuid;
-use walkdir::{DirEntry, WalkDir};
 
 const MAX_WORKSPACES: usize = 32;
 const MAX_LIST_ENTRIES: usize = 10_000;
@@ -517,6 +516,9 @@ pub use models::{CommandResult, FileView};
 mod edits;
 #[path = "media.rs"]
 mod media;
+#[path = "ignore.rs"]
+mod walk_ignore;
+pub(crate) use walk_ignore::{repository_ignore_builder, repository_walk_builder};
 #[path = "registry.rs"]
 mod registry;
 #[path = "roots.rs"]
@@ -537,11 +539,10 @@ impl Workspace {
         let mut cpu_slice = Some(crate::resource::cpu_work(
             crate::resource::WorkClass::Interactive,
         ));
-        for entry in WalkDir::new(start)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(listable_entry)
-            .filter_map(|entry| entry.ok())
+        let honor_parent_ignores = start == self.root;
+        for entry in repository_walk_builder(&start, honor_parent_ignores)
+            .build()
+            .filter_map(std::result::Result::ok)
         {
             visited = visited.saturating_add(1);
             if visited.is_multiple_of(64) {
@@ -550,7 +551,7 @@ impl Workspace {
                     crate::resource::WorkClass::Interactive,
                 ));
             }
-            if entry.file_type().is_file() {
+            if entry.file_type().is_some_and(|kind| kind.is_file()) {
                 let relative = portable_relative_path(entry.path().strip_prefix(&self.root)?);
                 files.push(relative);
                 if files.len() >= max_entries {
@@ -839,10 +840,10 @@ impl Workspace {
 mod fs_safety;
 use fs_safety::{
     apply_text_edits, atomic_create_new, atomic_write, ensure_single_link_file, hard_link_count,
-    listable_entry, operation_fingerprint, reject_destructive_replacement, reject_protected_path,
-    root_identity, sha256, sha256_file, source_stamp, validate_batch_paths,
-    validate_independent_moves, validate_movable_directory, validate_source_metadata,
-    validate_workspace_root, validate_write_content, visible_entry, workspace_id,
+    operation_fingerprint, reject_destructive_replacement, reject_protected_path, root_identity,
+    sha256, sha256_file, source_stamp, validate_batch_paths, validate_independent_moves,
+    validate_movable_directory, validate_source_metadata, validate_workspace_root,
+    validate_write_content, workspace_id,
 };
 
 #[path = "command_policy.rs"]

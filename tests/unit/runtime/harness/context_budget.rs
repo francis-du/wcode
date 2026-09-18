@@ -114,6 +114,27 @@ fn context_packing_compacts_body_metadata_before_losing_sha() {
 }
 
 #[test]
+fn tight_context_drops_advisory_decision_before_original_risk_evidence() {
+    let risk_summary = "risk-evidence-".repeat(64);
+    let mut pack = json!({
+        "truncated": false,
+        "decision_plane": {"advisory": "derived-signal-".repeat(192)},
+        "risks": [{
+            "level": "high",
+            "category": "runtime",
+            "summary": risk_summary,
+        }],
+    });
+
+    context_budget::trim_agent_context(&mut pack, 350).unwrap();
+
+    assert!(pack.get("decision_plane").is_none());
+    assert_eq!(pack["risks"].as_array().unwrap().len(), 1);
+    assert_eq!(pack["risks"][0]["summary"], risk_summary);
+    assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 350);
+}
+
+#[test]
 fn tight_context_compacts_provider_prose_before_source() {
     let original = "pub fn target() -> bool {\n    true\n}";
     let mut pack = json!({

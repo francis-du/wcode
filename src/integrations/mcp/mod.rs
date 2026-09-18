@@ -21,7 +21,7 @@ use crate::workspace::{
 };
 use crate::{AUTHOR_URL, PROJECT_URL};
 use anyhow::{anyhow, Result as AnyResult};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -137,6 +137,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence/project", get(intelligence_web_project))
         .route("/intelligence/revision", get(intelligence_web_revision))
         .route("/intelligence/activity", get(intelligence_web_activity))
+        .route("/intelligence/code-graph", get(intelligence_web_code_graph))
         .route(
             "/intelligence/semantic-refresh",
             post(intelligence_web_refresh_semantics),
@@ -853,6 +854,9 @@ pub(crate) fn jsonrpc_error(id: Value, code: i64, message: impl Into<String>) ->
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
 }
 
+#[cfg(test)]
+#[path = "../../../tests/unit/integrations/mcp/bug_patterns.rs"]
+mod bug_pattern_tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/integrations/mcp/protocol.rs"]
 mod protocol_tests;

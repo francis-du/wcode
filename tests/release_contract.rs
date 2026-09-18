@@ -15,12 +15,48 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     assert!(audit.contains("wcode-adversarial-30.json"));
     assert!(webkit.contains("--cases="));
     assert!(webkit.contains("\"total_cases\":96"));
-    assert!(workflow.contains("node tests/release_audit.cjs"));
+    assert!(workflow.contains("node tests/release_audit.cjs --require-clean"));
     assert!(workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
     assert!(
         !workflow.contains("--rounds=") && !workflow.contains("--cases="),
         "CI must keep the complete unsharded release audit"
     );
+}
+
+#[test]
+fn release_metadata_versions_match_the_cargo_package() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let package = cargo.split("[dependencies]").next().unwrap();
+    let version = package
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("version = \"")?.strip_suffix('"'))
+        .expect("package version");
+
+    let lock = fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    assert!(
+        lock.contains(&format!(
+            "[[package]]\nname = \"wcode\"\nversion = \"{version}\""
+        )),
+        "Cargo.lock wcode package must match Cargo.toml"
+    );
+
+    for (path, pointer) in [
+        ("marketplace.json", "/plugins/0/version"),
+        ("plugin/marketplace.json", "/plugins/0/version"),
+        ("plugin/plugin.json", "/version"),
+        ("plugin/.claude-plugin/plugin.json", "/version"),
+        ("plugin/.codex-plugin/plugin.json", "/version"),
+        ("plugin/.zcode-plugin/plugin.json", "/version"),
+    ] {
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join(path)).unwrap()).unwrap();
+        assert_eq!(
+            value.pointer(pointer).and_then(serde_json::Value::as_str),
+            Some(version),
+            "{path} must match Cargo.toml package version"
+        );
+    }
 }
 
 #[test]

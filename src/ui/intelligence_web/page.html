@@ -121,6 +121,12 @@
       </div>
     </section>
     <section id="architectureSection" class="architecture-stage workspace-panel" data-workspace-panel="architecture" role="tabpanel" aria-labelledby="tabArchitecture" tabindex="-1">
+      <div class="architecture-workspace-switch" role="group" aria-label="Architecture workbench view">
+        <button type="button" class="active" data-architecture-view="blueprint" aria-pressed="true">System map</button>
+        <button type="button" data-architecture-view="components" aria-pressed="false">Components</button>
+        <button type="button" data-architecture-view="graph" aria-pressed="false">Dependencies</button>
+        <button type="button" data-architecture-view="codegraph" aria-pressed="false">Code graph</button>
+      </div>
       <div class="architecture-layout">
         <div id="architectureDrilldown" class="architecture-workbench stage-surface">
           <header class="architecture-panel-head">
@@ -162,6 +168,38 @@
         </div>
         <aside id="componentInspector" class="component-inspector architecture-inspector" aria-label="Architecture inspector"></aside>
       </div>
+
+      <section id="codeGraphSection" class="code-graph-stage hidden" aria-label="Code graph observatory">
+      <header class="code-graph-toolbar">
+        <div class="code-graph-heading">
+          <span class="section-kicker">ENGINEERING DIGITAL TWIN</span>
+          <strong>Code graph observatory</strong>
+          <span>Trace callers, callees, dependency paths, design ownership and proof context without opening an editor.</span>
+        </div>
+        <div class="code-graph-controls">
+          <input id="codeGraphSearch" class="code-graph-search" type="search" placeholder="Function, class, module or file…" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search code graph">
+          <div class="code-graph-mode" role="group" aria-label="Code graph relation mode">
+            <button type="button" data-code-graph-mode="calls">Calls</button>
+            <button type="button" data-code-graph-mode="impact">Impact</button>
+            <button type="button" class="active" data-code-graph-mode="all">All evidence</button>
+          </div>
+          <select id="codeGraphSnapshot" class="code-graph-depth" aria-label="Code graph revision"><option value="">Latest graph</option></select>
+          <select id="codeGraphDepth" class="code-graph-depth" aria-label="Code graph depth">
+            <option value="1">1 hop</option>
+            <option value="2" selected>2 hops</option>
+            <option value="3">3 hops</option>
+            <option value="4">4 hops</option>
+          </select>
+        </div>
+      </header>
+      <div class="code-graph-layout">
+        <section class="code-graph-canvas">
+          <div id="codeGraphSummary" class="code-graph-summary"></div>
+          <div id="codeGraphMap"></div>
+        </section>
+        <aside id="codeGraphInspector" class="code-graph-inspector" aria-label="Code graph inspector"></aside>
+      </div>
+      </section>
     </section>
 
     <section id="overviewSection" class="overview-workspace workspace-panel hidden" data-workspace-panel="overview" role="tabpanel" aria-labelledby="tabOverview" tabindex="-1">

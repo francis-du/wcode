@@ -15,6 +15,8 @@ fn syntax_search_limit_and_failures_are_explicit() {
         path: "a.go".into(),
         node_kinds: vec!["function_declaration".into()],
         text_regex: None,
+        include_comments: false,
+        bug_patterns: Vec::new(),
         max_files: 100,
         max_results: 1,
     };
@@ -36,6 +38,142 @@ fn syntax_search_limit_and_failures_are_explicit() {
     let failed = index.search_ast_nodes("test", &workspace, &query).unwrap();
     assert_eq!(failed["files_failed"], 1);
     assert_eq!(failed["coverage_complete"], false);
+}
+
+#[test]
+fn go_syntax_search_marks_guard_mismatches_and_empty_tests() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("bugs.go"),
+        r#"package demo
+func inspect(xs []int, ys []int, rsp *Response, p *int, t *testing.T) {
+    if len(xs) == 0 { return }
+    _ = xs[1]
+    if len(ys) > 0 { _ = ys[0] }
+    _ = rsp.BatchList[0]
+    _ = mayFail()
+    if p != nil { _ = *p }
+    t.Run("empty", func(t *testing.T) {})
+}
+type Response struct { BatchList []int }
+"#,
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let query = SyntaxSearchRequest {
+        path: ".".into(),
+        node_kinds: vec![
+            "index_expression".into(),
+            "unary_expression".into(),
+            "call_expression".into(),
+            "assignment_statement".into(),
+        ],
+        text_regex: None,
+        include_comments: false,
+        bug_patterns: Vec::new(),
+        max_files: 100,
+        max_results: 100,
+    };
+    let found = index.search_ast_nodes("test", &workspace, &query).unwrap();
+    let rows = found["matches"].as_array().unwrap();
+    let mismatch = rows.iter().find(|row| row["text"] == "xs[1]").unwrap();
+    assert_eq!(mismatch["guarded"], false);
+    assert_eq!(mismatch["guard_mismatch"], true);
+    assert!(mismatch["bug_patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pattern| pattern == "index_mismatch"));
+    let guarded = rows.iter().find(|row| row["text"] == "ys[0]").unwrap();
+    assert_eq!(guarded["guarded"], true);
+    let nested = rows
+        .iter()
+        .find(|row| row["text"] == "rsp.BatchList[0]")
+        .unwrap();
+    assert!(nested["bug_patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pattern| pattern == "unguarded_subscript"));
+    let deref = rows.iter().find(|row| row["text"] == "*p").unwrap();
+    assert_eq!(deref["guarded"], true);
+    assert!(rows.iter().any(|row| {
+        row["bug_patterns"]
+            .as_array()
+            .is_some_and(|patterns| patterns.iter().any(|pattern| pattern == "err_swallowed"))
+    }));
+    assert!(rows.iter().any(|row| {
+        row["bug_patterns"]
+            .as_array()
+            .is_some_and(|patterns| patterns.iter().any(|pattern| pattern == "empty_test"))
+    }));
+
+    let filtered = SyntaxSearchRequest {
+        path: ".".into(),
+        node_kinds: vec![
+            "index_expression".into(),
+            "unary_expression".into(),
+            "assignment_statement".into(),
+            "call_expression".into(),
+        ],
+        text_regex: None,
+        include_comments: false,
+        bug_patterns: vec!["index_mismatch".into()],
+        max_files: 100,
+        max_results: 100,
+    };
+    let filtered = index
+        .search_ast_nodes("test", &workspace, &filtered)
+        .unwrap();
+    assert_eq!(filtered["count"], 1);
+    assert_eq!(filtered["matches"][0]["text"], "xs[1]");
+    assert_eq!(filtered["coverage_complete"], true);
+}
+
+#[test]
+fn go_nil_deref_analysis_respects_three_independent_early_exit_guards() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("guarded.go"),
+        r#"package demo
+func inspect(first *int, second *int, third *int) {
+    if first == nil { return }
+    if second == nil { return }
+    if third == nil { return }
+    _ = *first
+    _ = *second
+    _ = *third
+}
+"#,
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let query = SyntaxSearchRequest {
+        path: ".".into(),
+        node_kinds: vec!["unary_expression".into()],
+        text_regex: None,
+        include_comments: false,
+        bug_patterns: Vec::new(),
+        max_files: 100,
+        max_results: 100,
+    };
+    let found = index.search_ast_nodes("test", &workspace, &query).unwrap();
+    let rows = found["matches"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    for operand in ["*first", "*second", "*third"] {
+        let row = rows.iter().find(|row| row["text"] == operand).unwrap();
+        assert_eq!(row["guarded"], true, "{operand}");
+        assert!(
+            !row["bug_patterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|pattern| pattern == "nil_deref"),
+            "guarded dereference must not be reported as nil_deref: {row}"
+        );
+    }
 }
 
 #[test]

@@ -477,6 +477,67 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
 }
 
 #[test]
+fn observatory_exposes_engineering_digital_twin_code_graph() {
+    assert_eq!(
+        INTELLIGENCE_APP_PAGE.matches("data-workspace-tab=").count(),
+        7
+    );
+    assert!(!INTELLIGENCE_APP_PAGE.contains("id=\"tabCodeGraph\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("data-architecture-view=\"codegraph\""));
+    for marker in [
+        "id=\"codeGraphSection\"",
+        "id=\"codeGraphSearch\"",
+        "id=\"codeGraphMap\"",
+        "id=\"codeGraphInspector\"",
+    ] {
+        assert!(INTELLIGENCE_APP_PAGE.contains(marker), "missing {marker}");
+    }
+    assert!(INTELLIGENCE_JS.contains("/intelligence/code-graph"));
+    assert!(INTELLIGENCE_JS.contains("renderCodeGraphInspector"));
+    assert!(INTELLIGENCE_JS.contains("Why this node is related"));
+    assert!(INTELLIGENCE_JS.contains("precision_counts"));
+    assert!(INTELLIGENCE_JS.contains("edge.provenance?.provider"));
+    assert!(INTELLIGENCE_JS.contains("edge.provenance?.precision"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"codeGraphSnapshot\""));
+    assert!(INTELLIGENCE_JS.contains("snapshot_id"));
+    assert!(INTELLIGENCE_JS.contains("Latest graph"));
+    assert!(INTELLIGENCE_CSS.contains(".code-graph-lanes"));
+    assert!(INTELLIGENCE_CSS.contains(".code-graph-why"));
+}
+
+#[test]
+fn observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable() {
+    for selector in [
+        ".status-summary::before",
+        ".attention-item{",
+        ".activity-row::before",
+        ".runtime-status-card::after",
+        ".evidence-inspector-section h4::before",
+        ".req.selected",
+        ".change-table tbody tr:hover",
+        ".code-graph-lane:nth-child(2)",
+    ] {
+        assert!(
+            INTELLIGENCE_CSS.contains(selector),
+            "missing observability selector: {selector}"
+        );
+    }
+    for micro in [
+        "font-size:10px",
+        "font-size:11px",
+        "font:10px",
+        "font:11px",
+        "font: 10px",
+        "font: 11px",
+    ] {
+        assert!(
+            !INTELLIGENCE_CSS.contains(micro),
+            "micro observability typography leaked into production CSS: {micro}"
+        );
+    }
+}
+
+#[test]
 fn observatory_exposes_file_structure_and_largest_files() {
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"fileTree\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"largeFiles\""));

@@ -29,6 +29,7 @@ pub const DEFAULT_MAX_CPU_PERCENT: f64 = 10.0;
 pub const DEFAULT_MAX_MEMORY_MB: u64 = 512;
 pub const DEFAULT_MAX_PARALLEL_TOOLS: usize = 32;
 pub const TOKIO_MAX_BLOCKING_THREADS: usize = 64;
+pub const PROCESS_QUEUE_WAIT_CAP: Duration = Duration::from_secs(5);
 
 pub fn tokio_worker_threads() -> usize {
     std::thread::available_parallelism()
@@ -636,6 +637,19 @@ impl ResourceGovernor {
         self.child_slot.acquire_with_wait().await
     }
 
+    pub(crate) async fn acquire_child_with_wait_timeout(
+        &self,
+        wait_for: Duration,
+    ) -> Result<(OwnedSemaphorePermit, u64), String> {
+        let wait_ms = u64::try_from(wait_for.as_millis()).unwrap_or(u64::MAX);
+        match tokio::time::timeout(wait_for, self.acquire_child_with_wait()).await {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "process capacity remained busy for {wait_ms} ms; command was not started"
+            )),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn acquire_probe(&self) -> Result<OwnedSemaphorePermit, String> {
         self.acquire_probe_with_wait()
@@ -650,6 +664,19 @@ impl ResourceGovernor {
         // shapes reach this lane after normal command policy and workspace grants.
         self.admit_tool().await?;
         self.probe_slot.acquire_with_wait().await
+    }
+
+    pub(crate) async fn acquire_probe_with_wait_timeout(
+        &self,
+        wait_for: Duration,
+    ) -> Result<(OwnedSemaphorePermit, u64), String> {
+        let wait_ms = u64::try_from(wait_for.as_millis()).unwrap_or(u64::MAX);
+        match tokio::time::timeout(wait_for, self.acquire_probe_with_wait()).await {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "inspection capacity remained busy for {wait_ms} ms; command was not started"
+            )),
+        }
     }
 
     pub fn background_ready(&self) -> bool {

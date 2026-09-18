@@ -1,5 +1,5 @@
 use super::*;
-use walkdir::{DirEntry, WalkDir};
+use ignore::DirEntry;
 
 pub(super) struct ProfileDiscoveryPaths {
     pub(super) candidate_dirs: Vec<PathBuf>,
@@ -13,19 +13,17 @@ pub(super) fn scan(workspace_root: &Path) -> ProfileDiscoveryPaths {
     let mut contract_seen = 0usize;
     let mut contract_complete = false;
 
-    for entry in WalkDir::new(workspace_root)
-        .max_depth(MAX_PROFILE_SCAN_DEPTH.saturating_add(1))
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(shared_visible_entry)
-        .filter_map(Result::ok)
-    {
+    let mut builder = crate::workspace::repository_ignore_builder(workspace_root, true);
+    builder
+        .max_depth(Some(MAX_PROFILE_SCAN_DEPTH.saturating_add(1)))
+        .filter_entry(shared_visible_entry);
+    for entry in builder.build().filter_map(Result::ok) {
         let profile_visible = entry.depth() >= 1
             && profile_seen < MAX_PROFILE_SCAN_ENTRIES
             && entry_visible_for(workspace_root, &entry, islands::profile_excluded_directory);
         if profile_visible {
             profile_seen = profile_seen.saturating_add(1);
-            if entry.file_type().is_file() {
+            if entry.file_type().is_some_and(|kind| kind.is_file()) {
                 let name = entry.file_name().to_string_lossy();
                 if islands::is_manifest_file_name(&name) {
                     if let Some(parent) = entry.path().parent() {
@@ -46,7 +44,7 @@ pub(super) fn scan(workspace_root: &Path) -> ProfileDiscoveryPaths {
             );
         if contract_visible {
             contract_seen = contract_seen.saturating_add(1);
-            if entry.file_type().is_file()
+            if entry.file_type().is_some_and(|kind| kind.is_file())
                 && contracts::is_contract_config_name(&entry.file_name().to_string_lossy())
             {
                 contract_configs.push(entry.path().to_path_buf());
@@ -78,10 +76,10 @@ fn shared_visible_entry(entry: &DirEntry) -> bool {
     if entry.depth() == 0 {
         return true;
     }
-    if entry.file_type().is_symlink() {
+    if entry.file_type().is_some_and(|kind| kind.is_symlink()) {
         return false;
     }
-    if !entry.file_type().is_dir() {
+    if !entry.file_type().is_some_and(|kind| kind.is_dir()) {
         return true;
     }
     let name = entry.file_name().to_string_lossy();
@@ -96,13 +94,13 @@ fn entry_visible_for(
     if entry.depth() == 0 {
         return true;
     }
-    if entry.file_type().is_symlink() {
+    if entry.file_type().is_some_and(|kind| kind.is_symlink()) {
         return false;
     }
     let Ok(relative) = entry.path().strip_prefix(workspace_root) else {
         return false;
     };
-    let checked = if entry.file_type().is_dir() {
+    let checked = if entry.file_type().is_some_and(|kind| kind.is_dir()) {
         relative
     } else {
         relative.parent().unwrap_or_else(|| Path::new(""))

@@ -40,7 +40,7 @@ Tool Call 只有一条真实生命周期：
 request → queued → semaphore acquired → running → completed | failed
 ```
 
-Global Semaphore 仍是工具总并发上限。执行进程的 MCP 工具和项目检查先取得独立执行准入名额，为非命令工具留下最多四个槽位的余量；总槽位只有一个时不预留。两种名额都跟随真实工作，包括调用方取消后仍在执行的阻塞工作者。内层 CPU、I/O 和进程队列继续保持各自容量限制。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
+Global Semaphore 仍是工具总准入上限，但它不代表所有已准入工具都能同时启动子进程。执行进程的 MCP 工具和项目检查先取得独立执行准入名额，其容量取“外层预留策略”和“重型进程容量”中的较小值。Balanced 默认的 32 个 Tool / 4 个重型进程配置下，重型命令执行准入为 4；超出的命令会先在 EXEC 门口等待，不先占用 Global Tool Permit，也不会让 28 个命令一起挤在 4 个子进程名额后面。进程准入等待独立限制为最多 5 秒，不再借用命令本身的长执行超时。两种名额都跟随真实工作，包括调用方取消后仍在执行的阻塞工作者。内层 CPU、I/O 和进程队列继续保持各自容量限制。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
 
 `parallel_tools` 不是“全部一起跑”的通用 Helper，而是 Resource-aware Scheduler。它显式建模 `reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`；独立资源可以 Fan-out，重叠资源按依赖排序。同文件 `apply_edits` 只有在调用方 Pin 同一份 Observed SHA、Edit 不重叠且定位无歧义时才允许 Coalesce；无效 Overlap 在执行前就拒绝。调度由完成事件驱动，不等待整层结束；失败依赖跳过后续任务，父子空间物理别名共享调度身份，取消父任务不能留下脱离管理的排队子任务。已经运行的阻塞文件操作不会回滚。Coalesce 不能跨过中间的依赖操作，也不能超过 128 项编辑的事务上限。
 

@@ -116,6 +116,18 @@ pub struct TraceabilityStatus {
 pub enum DriftKind {
     ImplementationDrift,
     DesignDrift,
+    RuntimeDrift,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DriftDeviation {
+    pub metric: String,
+    pub expected_max: f64,
+    pub observed: f64,
+    pub deviation_percent: f64,
+    pub unit: String,
+    pub precision: String,
+    pub revision_bound: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -127,6 +139,8 @@ pub struct DriftFinding {
     pub message: String,
     pub affected_requirements: Vec<String>,
     pub paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deviation: Option<DriftDeviation>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -136,6 +150,7 @@ pub struct DriftStatus {
     pub implementation_changed: bool,
     pub implementation_drift: usize,
     pub design_drift: usize,
+    pub runtime_drift: usize,
     pub findings: Vec<DriftFinding>,
     pub truncated: bool,
 }

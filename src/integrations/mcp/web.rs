@@ -1,8 +1,13 @@
 use super::*;
 use crate::authorization::AuthorizationStatus;
 
+#[path = "web_graph.rs"]
+mod web_graph;
 #[path = "web_status.rs"]
-mod web_status;
+pub(super) mod web_status;
+pub(super) use web_graph::intelligence_web_code_graph;
+#[cfg(test)]
+pub(super) use web_graph::IntelligenceCodeGraphQuery;
 
 pub(super) async fn setup_page(
     State(state): State<Arc<AppState>>,
@@ -512,10 +517,57 @@ pub(super) async fn intelligence_web_activity(
             "workspace": workspace_id,
             "activity": state.monitor.observatory_activity(&workspace_id),
             "resources": crate::resource::capabilities(),
+            "harness": state.harness.capabilities(),
             "resource_scope": "whole_process",
             "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
         })),
     ).into_response()
+}
+
+fn request_observatory_refresh(
+    state: Arc<AppState>,
+    workspace_id: String,
+    workspace: crate::workspace::Workspace,
+) -> bool {
+    let Some(refresh_guard) = state.harness.begin_observatory_refresh(&workspace) else {
+        return false;
+    };
+    tokio::spawn(async move {
+        let revision_before = web_status::revision_state(&state.harness, &workspace_id, &workspace)
+            .await
+            .ok();
+        let review = if !workspace.exec_enabled() || !workspace.root().join(".git").exists() {
+            None
+        } else {
+            state
+                .harness
+                .review_changes(workspace_id.clone(), &workspace, 30, &state.monitor)
+                .await
+                .ok()
+        };
+        let harness = state.harness.clone();
+        let workspace_for_read = workspace.clone();
+        let workspace_id_for_read = workspace_id.clone();
+        let built = mcp_tools::run_blocking(move || {
+            harness.project_observatory(workspace_id_for_read, &workspace_for_read, review.as_ref())
+        })
+        .await;
+        if built.is_ok() {
+            let revision_after =
+                web_status::revision_state(&state.harness, &workspace_id, &workspace)
+                    .await
+                    .ok();
+            if let (Some(before), Some(after)) = (revision_before, revision_after) {
+                if before.stable_inputs_key == after.stable_inputs_key {
+                    state
+                        .harness
+                        .mark_observatory_revision(&workspace, after.full_snapshot_key);
+                }
+            }
+        }
+        drop(refresh_guard);
+    });
+    true
 }
 
 pub(super) async fn intelligence_web_project(
@@ -530,8 +582,18 @@ pub(super) async fn intelligence_web_project(
         .get("x-wcode-prefer-cached")
         .and_then(|value| value.to_str().ok())
         == Some("1");
+    let background_refresh = headers
+        .get("x-wcode-background-refresh")
+        .and_then(|value| value.to_str().ok())
+        == Some("1");
     if prefer_cached {
-        if let Some(snapshot) = state.harness.cached_project_observatory(&workspace) {
+        if background_refresh && !state.harness.observatory_refreshing(&workspace) {
+            request_observatory_refresh(state.clone(), workspace_id.clone(), workspace.clone());
+        }
+        let refreshing = state.harness.observatory_refreshing(&workspace);
+        if let Some((snapshot, revision_key)) =
+            state.harness.cached_project_observatory_state(&workspace)
+        {
             if let Ok(mut value) = serde_json::to_value(snapshot) {
                 value["workspace_options"] = intelligence_workspace_options(&state);
                 value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
@@ -545,7 +607,13 @@ pub(super) async fn intelligence_web_project(
                             && request.workspace == workspace_id
                     })
                     .count());
-                value["snapshot_cache"] = json!("stale-while-revalidate");
+                value["snapshot_cache"] = json!(if refreshing {
+                    "stale-while-revalidate"
+                } else {
+                    "cached"
+                });
+                value["snapshot_refreshing"] = json!(refreshing);
+                value["snapshot_revision"] = revision_key.map_or(Value::Null, Value::String);
                 let mut response =
                     ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response();
                 response.headers_mut().insert(
@@ -562,7 +630,8 @@ pub(super) async fn intelligence_web_project(
                 "workspace_options": intelligence_workspace_options(&state),
                 "activity": state.monitor.observatory_activity(&workspace_id),
                 "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
-                "snapshot_pending": true
+                "snapshot_pending": true,
+                "snapshot_refreshing": refreshing
             })),
         )
             .into_response();

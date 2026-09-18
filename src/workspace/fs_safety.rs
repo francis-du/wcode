@@ -1,4 +1,5 @@
 use super::*;
+use walkdir::WalkDir;
 
 const MAX_MOVE_TREE_ENTRIES: usize = 50_000;
 
@@ -179,59 +180,6 @@ pub(super) fn operation_fingerprint(root: &Path, operation: &str) -> String {
     hasher.update([0]);
     hasher.update(operation.as_bytes());
     format!("sha256:{:x}", hasher.finalize())
-}
-
-pub(super) fn listable_entry(entry: &DirEntry) -> bool {
-    if entry.file_type().is_symlink() {
-        return false;
-    }
-    let Some(name) = entry.file_name().to_str() else {
-        return false;
-    };
-    reject_protected_path(Path::new(name)).is_ok()
-}
-
-pub(super) fn visible_entry(entry: &DirEntry) -> bool {
-    let Some(name) = entry.file_name().to_str() else {
-        return false;
-    };
-    if reject_protected_path(Path::new(name)).is_err() {
-        return false;
-    }
-    if matches!(
-        name,
-        ".git"
-            | ".idea"
-            | ".vscode"
-            | "node_modules"
-            | "target"
-            | "build"
-            | "dist"
-            | "coverage"
-            | ".dart_tool"
-            | ".build"
-            | ".gradle"
-            | ".swiftpm"
-            | "ephemeral"
-            | "Pods"
-            | ".symlinks"
-            | ".plugin_symlinks"
-            | ".next"
-            | ".cache"
-            | "DerivedData"
-            | ".venv"
-            | "__pycache__"
-            | ".DS_Store"
-    ) {
-        return false;
-    }
-    if name.starts_with(".env")
-        || name.ends_with(".log")
-        || (name.starts_with(".wcode-") && name.ends_with(".tmp"))
-    {
-        return false;
-    }
-    true
 }
 
 pub(super) fn validate_source_metadata(metadata: &fs::Metadata) -> Result<()> {

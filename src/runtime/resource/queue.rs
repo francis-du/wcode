@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 /// Admission occupancy, not a count of OS processes actively using the CPU.
@@ -13,6 +13,8 @@ pub struct ProcessQueueSnapshot {
     pub waits: u64,
     pub total_wait_ms: u64,
     pub max_wait_ms: u64,
+    pub last_wait_ms: u64,
+    pub last_wait_age_ms: Option<u64>,
 }
 
 pub(super) struct ProcessQueue {
@@ -22,6 +24,8 @@ pub(super) struct ProcessQueue {
     waits: AtomicU64,
     total_wait_us: AtomicU64,
     max_wait_us: AtomicU64,
+    last_wait_us: AtomicU64,
+    last_wait_at_ms: AtomicU64,
 }
 
 impl ProcessQueue {
@@ -33,6 +37,8 @@ impl ProcessQueue {
             waits: AtomicU64::new(0),
             total_wait_us: AtomicU64::new(0),
             max_wait_us: AtomicU64::new(0),
+            last_wait_us: AtomicU64::new(0),
+            last_wait_at_ms: AtomicU64::new(0),
         }
     }
 
@@ -67,6 +73,7 @@ impl ProcessQueue {
     }
 
     pub(super) fn snapshot(&self) -> ProcessQueueSnapshot {
+        let last_wait_at_ms = self.last_wait_at_ms.load(Ordering::Relaxed);
         ProcessQueueSnapshot {
             limit: self.limit,
             active: self.limit.saturating_sub(self.slots.available_permits()),
@@ -74,6 +81,9 @@ impl ProcessQueue {
             waits: self.waits.load(Ordering::Relaxed),
             total_wait_ms: self.total_wait_us.load(Ordering::Relaxed) / 1_000,
             max_wait_ms: self.max_wait_us.load(Ordering::Relaxed) / 1_000,
+            last_wait_ms: self.last_wait_us.load(Ordering::Relaxed) / 1_000,
+            last_wait_age_ms: (last_wait_at_ms != 0)
+                .then(|| unix_time_ms().saturating_sub(last_wait_at_ms)),
         }
     }
 }
@@ -94,7 +104,18 @@ impl Drop for QueueWait<'_> {
                     Some(total.saturating_add(micros))
                 });
         self.queue.max_wait_us.fetch_max(micros, Ordering::Relaxed);
+        self.queue.last_wait_us.store(micros, Ordering::Relaxed);
+        self.queue
+            .last_wait_at_ms
+            .store(unix_time_ms(), Ordering::Relaxed);
     }
+}
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

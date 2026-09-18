@@ -2,11 +2,11 @@ use super::harness_retrieval::{
     classify_repo_map_intent, design_boost as retrieval_design_boost,
     direct_seed_boost as retrieval_direct_seed_boost,
     exact_query_match as repo_map_exact_query_match,
-    experience_boost as retrieval_experience_boost, query_needs_semantic_relationships,
+    experience_boost as retrieval_experience_boost,
     relationship_boost as retrieval_relationship_boost, retain_repo_candidates_with_task_evidence,
-    routing_value as retrieval_routing_value, select_repo_candidates,
-    test_boost as retrieval_test_boost, test_path as repo_map_test_path, RepoMapCandidate,
-    RepoMapIntent,
+    retain_returnable_repo_candidates, routing_value as retrieval_routing_value,
+    select_repo_candidates, test_boost as retrieval_test_boost, test_path as repo_map_test_path,
+    RepoMapCandidate, RepoMapIntent,
 };
 use super::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -28,13 +28,10 @@ impl ToolHarness {
         let max_items = max_items.clamp(1, REPO_MAP_MAX_ITEMS);
         let started = Instant::now();
         let routing = classify_repo_map_intent(query);
-        let scope_path = if routing.reason == "no_specific_retrieval_signal"
-            && !query_needs_semantic_relationships(query)
-        {
-            repo_map_scope_path(context)
-        } else {
-            ".".to_owned()
-        };
+        // Start from the narrowest task-owned scope for every query.
+        // Cross-file relationship tasks expand through targeted exact-search
+        // supplementation instead of parsing the whole repository up front.
+        let scope_path = repo_map_scope_path(context, query);
         let (graph, cache_hit) = self.repo_map_graph(workspace_id, workspace, &scope_path)?;
         let graph = harness_retrieval::augment_relationship_graph(
             self,
@@ -110,9 +107,18 @@ impl ToolHarness {
                     .and_then(Value::as_str)
                     .unwrap_or("symbol")
                     .to_owned();
+                let signature = node
+                    .attributes
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let mut haystack = qualified_name.to_ascii_lowercase();
                 haystack.push(' ');
                 haystack.push_str(&path.to_ascii_lowercase());
+                if !signature.is_empty() {
+                    haystack.push(' ');
+                    haystack.push_str(&signature.to_ascii_lowercase());
+                }
                 let token_hits = query_tokens
                     .iter()
                     .filter(|token| haystack.contains(token.as_str()))
@@ -375,7 +381,8 @@ impl ToolHarness {
             let centrality = (candidate.degree as f64 + 1.0).ln();
             candidate.rank = score * 1_000.0 + candidate.relevance * 1.6 + centrality * 8.0;
         }
-        retain_repo_candidates_with_task_evidence(&mut candidates, &neighbors);
+        retain_repo_candidates_with_task_evidence(&mut candidates, &neighbors, routing.intent);
+        retain_returnable_repo_candidates(&mut candidates);
         if matches!(
             routing.intent,
             RepoMapIntent::CommentToContext | RepoMapIntent::FailureTraceToCode
@@ -561,14 +568,18 @@ impl ToolHarness {
     }
 }
 
-fn repo_map_scope_path(context: &SoftwareContext) -> String {
-    let direct_paths = context
-        .symbols
-        .iter()
-        .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
-        .collect::<Vec<_>>();
-    // Local lookup stays narrow; relationship queries select a broader graph
-    // before reaching here. Broad Design ownership must not widen localization.
+fn repo_map_scope_path(context: &SoftwareContext, query: &str) -> String {
+    let mut direct_paths = harness_retrieval::explicit_query_paths(context, query);
+    if direct_paths.is_empty() {
+        direct_paths = context
+            .symbols
+            .iter()
+            .filter_map(|symbol| symbol.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+    }
+    // Broad Design ownership is only a fallback when retrieval produced no
+    // symbol path. Explicit code identities stay anchored to the task.
     let source_paths = if direct_paths.is_empty() {
         context
             .coverage
@@ -579,9 +590,6 @@ fn repo_map_scope_path(context: &SoftwareContext) -> String {
             .collect::<Vec<_>>()
     } else {
         direct_paths
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
     };
     repo_map_common_scope(&source_paths)
 }

@@ -1,5 +1,5 @@
 use crate::harness::harness_retrieval::{
-    retain_repo_candidates_with_task_evidence, RepoMapCandidate,
+    retain_repo_candidates_with_task_evidence, RepoMapCandidate, RepoMapIntent,
 };
 use std::collections::BTreeSet;
 
@@ -55,7 +55,11 @@ fn engineering_fitness_challenge_graph_membership_is_order_independent() {
                             .collect()
                     })
                     .collect();
-                retain_repo_candidates_with_task_evidence(&mut candidates, &neighbors);
+                retain_repo_candidates_with_task_evidence(
+                    &mut candidates,
+                    &neighbors,
+                    RepoMapIntent::EditToRipple,
+                );
                 let kept: BTreeSet<_> = candidates.iter().map(|c| c.id.as_str()).collect();
                 assert_eq!(
                     kept,
@@ -70,6 +74,65 @@ fn engineering_fitness_challenge_graph_membership_is_order_independent() {
 #[test]
 fn engineering_fitness_challenge_unanchored_exploration_stays_available() {
     let mut candidates: Vec<_> = (0..3).map(candidate).collect();
-    retain_repo_candidates_with_task_evidence(&mut candidates, &[vec![1], vec![0], vec![]]);
+    retain_repo_candidates_with_task_evidence(
+        &mut candidates,
+        &[vec![1], vec![0], vec![]],
+        RepoMapIntent::Context,
+    );
     assert_eq!(candidates.len(), 3, "no anchor must not mean no repository");
+}
+
+#[test]
+fn engineering_fitness_challenge_context_prunes_distant_connected_noise() {
+    let mut candidates: Vec<_> = (0..4).map(candidate).collect();
+    candidates[0].direct = true;
+    let neighbors = [vec![1], vec![0, 2], vec![1, 3], vec![2]];
+
+    retain_repo_candidates_with_task_evidence(&mut candidates, &neighbors, RepoMapIntent::Context);
+
+    let kept: BTreeSet<_> = candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect();
+    assert_eq!(kept, ["0", "1"].into_iter().collect());
+}
+
+#[test]
+fn engineering_fitness_challenge_relationship_intent_keeps_two_hops_not_the_component() {
+    let mut candidates: Vec<_> = (0..5).map(candidate).collect();
+    candidates[0].direct = true;
+    let neighbors = [vec![1], vec![0, 2], vec![1, 3], vec![2, 4], vec![3]];
+
+    retain_repo_candidates_with_task_evidence(
+        &mut candidates,
+        &neighbors,
+        RepoMapIntent::FailureTraceToCode,
+    );
+
+    let kept: BTreeSet<_> = candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect();
+    assert_eq!(kept, ["0", "1", "2"].into_iter().collect());
+}
+
+#[test]
+fn engineering_fitness_challenge_exact_anchor_does_not_reset_hops_from_generic_direct_seed() {
+    let mut candidates: Vec<_> = (0..4).map(candidate).collect();
+    candidates[0].direct = true;
+    candidates[0].exact_direct = true;
+    candidates[1].direct = true;
+    let neighbors = [vec![1], vec![0, 2], vec![1, 3], vec![2]];
+
+    retain_repo_candidates_with_task_evidence(
+        &mut candidates,
+        &neighbors,
+        RepoMapIntent::EditToRipple,
+    );
+
+    let kept: BTreeSet<_> = candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect();
+    assert_eq!(kept, ["0", "1", "2"].into_iter().collect());
 }

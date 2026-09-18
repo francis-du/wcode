@@ -11,6 +11,7 @@ fn request(queries: &[&str], mode: SearchMode, limit: usize) -> SearchRequest {
         path: ".".into(),
         mode,
         context_lines: 0,
+        include_comments: true,
         max_results: limit,
         offset: 0,
         output_mode: "content".into(),
@@ -155,6 +156,47 @@ fn search_file_and_count_modes_do_not_return_source_bodies() {
         assert!(found["files"][0].get("text").is_none());
         assert_eq!(found["next_offset"], 1);
     }
+}
+
+#[test]
+fn exact_files_only_search_preserves_multi_query_file_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    for index in 0..64 {
+        let mut source = format!("file_{index}\n");
+        if index % 3 == 0 {
+            source.push_str("alpha\n");
+        }
+        if index % 5 == 0 {
+            source.push_str("beta\n");
+        }
+        fs::write(dir.path().join(format!("file_{index:03}.txt")), source).unwrap();
+    }
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let mut content = request(&["alpha", "beta"], SearchMode::Exact, 1_000);
+    let full = report(&workspace, &content, false);
+    content.output_mode = "files_with_matches".into();
+    let files = report(&workspace, &content, false);
+
+    let mut expected = std::collections::BTreeMap::<String, usize>::new();
+    for row in full["matches"].as_array().unwrap() {
+        *expected
+            .entry(row["path"].as_str().unwrap().to_owned())
+            .or_default() += 1;
+    }
+    let actual = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| {
+            (
+                file["path"].as_str().unwrap().to_owned(),
+                file["count"].as_u64().unwrap() as usize,
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(actual, expected);
+    assert_eq!(files["coverage_complete"], true);
+    assert_eq!(files["files_scanned"], 64);
 }
 
 #[test]

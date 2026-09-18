@@ -19,7 +19,7 @@
 - schema_version: 1
   id: AC-HARNESS-001
   title: Verification passes through the bounded Harness lane
-  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes. Rust full verification and the language-quality Clippy provider cover all targets including tests; locked and unlocked profiles retain this coverage on cache hits, the locked command matches CI, and fixed check-only policy shapes continue to reject automatic fixes and configuration redirects. Verification accounts for the complete mixed-language plan up to 32 checks and rejects larger plans before dispatch instead of silently accepting a truncated prefix. Exact deterministic check Evidence stores versioned elapsed-time facts; retries are normalized to one latest observation per exact-command revision, equal-timestamp conflicts remain fail-closed, and fail-fast execution may isolate a bounded frontier of at most two phase-zero sentinels only from independent revision evidence. Temporal holdout replay permits explicit cold-start exploration but, after four evaluable revisions, blocks the learned frontier unless net time savings are positive with zero outcome mismatches. Correlated failures, cold-start low-signal, unreadable history, proven replay regression and diagnostic execution preserve the canonical phased-parallel remainder, and every required check remains in the plan. Quick verification may add at most one phase-one Rust, Python or Go focused test only from a direct changed implementation path through valid Design ownership to an Acceptance test in the same language island, with a simple declared symbol resolved in that exact test file; Cargo filters, pytest node IDs and Go package/-run filters remain exact workspace-bounded verification-safe shapes, stale, escaping or unsupported mappings add nothing, and full verification keeps its original broad tests unchanged. Successful allowlisted static checks may be reused only inside a bounded in-process exact-revision cache whose key includes code and Design revisions, verification/check shape, execution policy, environment and executable identity. Behavioral tests, arbitrary scripts, failures and partial/stale revisions are never reused; reused checks are visibly marked, do not consume an execution phase, and do not create duplicate individual, aggregate or Acceptance Evidence merely by being cited again.
+  statement: The repository test suite and Harness verification rules remain executable through approved bounded shapes. Rust full verification and the language-quality Clippy provider cover all targets including tests; locked and unlocked profiles retain this coverage on cache hits, the locked command matches CI, and fixed check-only policy shapes continue to reject automatic fixes and configuration redirects. Verification accounts for the complete mixed-language plan up to 32 checks and rejects larger plans before dispatch instead of silently accepting a truncated prefix. Exact deterministic check Evidence stores versioned elapsed-time facts; retries are normalized to one latest observation per exact-command revision, equal-timestamp conflicts remain fail-closed, and fail-fast execution may isolate a bounded frontier of at most two phase-zero sentinels only from independent revision evidence. Temporal holdout replay permits explicit cold-start exploration but, after four evaluable revisions, blocks the learned frontier unless net time savings are positive with zero outcome mismatches. Correlated failures, cold-start low-signal, unreadable history, proven replay regression and diagnostic execution preserve the canonical phased-parallel remainder, and every required check remains in the plan. Quick verification may add at most one phase-one Rust, Python or Go focused test only from a direct changed implementation path through valid Design ownership to an Acceptance test in the same language island, with a simple declared symbol resolved in that exact test file; Cargo filters, pytest node IDs and Go package/-run filters remain exact workspace-bounded verification-safe shapes, stale, escaping or unsupported mappings add nothing, and full verification keeps its original broad tests unchanged. Successful allowlisted static checks may be reused only inside a bounded in-process exact-revision cache whose key includes code and Design revisions, verification/check shape, execution policy, environment and executable identity. Behavioral tests, arbitrary scripts, failures and partial/stale revisions are never reused; reused checks are visibly marked, do not consume an execution phase, and do not create duplicate individual, aggregate or Acceptance Evidence merely by being cited again. Concurrent verify_project calls for the same Workspace and exact revision/configuration coalesce into one in-flight verification run so compiler/test processes are not duplicated; a changed revision starts independently, followers receive the leader report without recording a second proof, and a cancelled leader wakes followers with an explicit error.
   verification:
     - {kind: test, path: tests/unit/workspace/mod.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
     - {kind: test, path: tests/unit/workspace/execution.rs, symbol: git_probe_finishes_while_repository_process_capacity_is_occupied}
@@ -33,6 +33,9 @@
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: source_design_and_command_changes_invalidate_static_reuse}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: failures_behavioral_tests_and_unknown_checks_are_never_reused}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: mixed_run_does_not_remint_acceptance_for_only_reused_check}
+    - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: exact_revision_verification_runs_share_one_in_flight_result}
+    - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: changed_revision_does_not_join_an_existing_verification_flight}
+    - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: cancelled_verification_leader_releases_followers_with_an_error}
     - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: mixed_language_verification_accounts_for_every_inferred_check}
     - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: independent_process_queues_keep_compiler_and_probe_limits}
     - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: inspection_queue_still_obeys_resource_pressure_admission}
@@ -110,7 +113,7 @@
 - schema_version: 1
   id: AC-WORKSPACE-001
   title: Workspace coding primitives remain transactional and guarded
-  statement: "Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain workspace-bound, argument-bound, and deny-safe by default. An explicit current-runtime Workspace all-command grant switches direct run_command execution to an unrestricted lane: executable allowlists, command-shape/argument filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain independent. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string; malformed routing never silently selects the default Workspace."
+  statement: "Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain workspace-bound, argument-bound, and deny-safe by default. An explicit current-runtime Workspace all-command grant switches direct run_command execution to an unrestricted lane: executable allowlists, command-shape/argument filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain independent. Cargo commands that would otherwise wait on Cargo registry or workspace build locks are serialized at a pre-spawn contention gate, so lock waiters do not occupy the scarce child-process pool; registry commands serialize globally, build/test commands serialize only per Workspace, and bounded Cargo queue wait does not consume the subsequent command execution timeout. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string; malformed routing never silently selects the default Workspace."
   verification:
     - kind: test
       path: tests/unit/workspace/mod.rs
@@ -118,6 +121,18 @@
     - kind: test
       path: tests/unit/workspace/mod.rs
       symbol: workspace_command_allowlist_supports_defaults_and_operator_authorized_programs
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: cargo_contention_classification_separates_registry_and_workspace_locks
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: cargo_workspace_gate_serializes_before_child_process_admission
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: cargo_registry_gate_is_global_but_workspace_gates_are_independent
+    - kind: test
+      path: tests/unit/workspace/execution.rs
+      symbol: cargo_contention_wait_is_bounded_separately_from_execution_timeout
     - kind: test
       path: tests/unit/workspace/mod.rs
       symbol: revoked_catalog_command_becomes_selectively_authorizable
@@ -738,7 +753,7 @@
   id: AC-OBSERVABILITY-001
   title: Engineering Observatory explains the project without an IDE
   statement: >-
-    The WebUI first exposes one continuous rounded System → Subsystem → Component → Code topology canvas derived from Design State and current implementation ownership. Subsystems expose purpose, membership, source/requirement scale, dependency direction, current changes, strong drift and evidence gaps directly in that architecture-first hierarchy; component indexes and the raw dependency graph remain secondary drill-down surfaces rather than card walls. Existing bounded activity telemetry drives a realtime Understand → Change → Prove → Learn → Observe flow, exposes descriptive Agent Context candidate→delivery, cache, saved-context and build-latency facts without treating selection ratio as a quality score, and the working-tree story maps Files → Components → Requirements → Verification → confirmed Drift. The TUI automatically loads the focused project engineering model, shows a compact Engineering Pulse only when terminal space permits, preserves real task rows on constrained terminals, and groups Architecture plus Proof/Runtime in a rounded Engineering Console. WebUI, TUI, Setup and OAuth share the canonical wcode Logo/homepage palette and corresponding fluid hierarchy: rounded primary workbenches, frosted/liquid-glass Web depth, small refined controls and subordinate semantic colors. Component/Requirement drill-down keeps responsibilities, implementation, dependencies, Desired vs Actual, Change, revision-exact Proof and Convergence explicit; verification mapping remains distinct from Executed, Passed and Fresh evidence. Missing bounded-syntax relationships remain advisory and runtime activity remains the single control-state source.
+    The WebUI first exposes one continuous rounded System → Subsystem → Component → Code topology canvas derived from Design State and current implementation ownership. Subsystems expose purpose, membership, source/requirement scale, dependency direction, current changes, strong drift and evidence gaps directly in that architecture-first hierarchy; component indexes and dependency evidence remain secondary drill-down surfaces rather than card walls. Engineering Architecture contains an internal Code Graph mode—not an eighth top-level tab—that searches bounded code roots and shows callers/callees, dependency/reference paths, impact radius, test/requirement/proof context and why-related evidence while preserving provider and precision on every edge. Existing bounded activity telemetry drives a realtime Understand → Change → Prove → Learn → Observe flow, exposes descriptive Agent Context candidate→delivery, cache, saved-context and build-latency facts without treating selection ratio as a quality score, and the working-tree story maps Files → Components → Requirements → Verification → confirmed Drift. The TUI automatically loads the focused project engineering model; wide terminals put Workspace Activity and a compact Engineering/connection control rail side-by-side, medium/narrow terminals omit the permanent Engineering Pulse so real task rows remain dominant, and Architecture plus Proof/Runtime stays available in a rounded Engineering Console. WebUI, TUI, Setup and OAuth share the canonical wcode Logo/homepage palette and corresponding fluid hierarchy: rounded primary workbenches, frosted/liquid-glass Web depth, small refined controls and subordinate semantic colors. Overview, Architecture/Digital Twin, Task Activity, Verification Evidence, Current Changes, Requirements and Runtime reuse one glanceable visual grammar with project pulse, semantic status beacons, metric/relationship strips, timelines and inspectors; supporting metadata is at least 12px, and stale, unknown, inconclusive, failed or unverified state is visibly distinct from current passing proof. Component/Requirement drill-down keeps responsibilities, implementation, dependencies, Desired vs Actual, Change, revision-exact Proof and Convergence explicit; verification mapping remains distinct from Executed, Passed and Fresh evidence. Missing bounded-syntax relationships remain advisory and runtime activity remains the single control-state source.
   verification:
     - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_builds_requirement_architecture_from_current_code}
     - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph}
@@ -748,6 +763,12 @@
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_audit_covers_refresh_access_and_truthful_telemetry}
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: release_062_webui_keeps_semantic_and_authorization_responses_scoped}
     - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones}
+    - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: wide_dashboard_puts_activity_and_engineering_control_rail_side_by_side}
+    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_code_graph_is_protected_bounded_and_preserves_provenance}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_engineering_digital_twin_code_graph}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable}
+    - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: source_scans_honor_ignore_files_and_allow_explicit_ignored_paths}
+    - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: subspace_discovery_honors_gitignore_for_custom_generated_projects}
     - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: engineering_console_groups_architecture_and_proof_instead_of_flat_intelligence_rows}
     - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_retry_replaces_only_its_exact_scope}
     - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_ties_keep_failure_and_revisions_stay_isolated}
@@ -964,36 +985,3 @@
     - kind: test
       path: tests/cli.rs
       symbol: setup_dry_run_is_structured_and_does_not_write
-
-- schema_version: 1
-  id: AC-CLI-001
-  title: CLI exposes a compact stable catalog one-command setup and verified self-update
-  statement: Default help presents the explicit runtime command contract with setup/update/mcp-stdio/intelligence/verification and the discoverable help-all reference entry, omits the redundant generated help command and low-frequency advanced flags, keeps only agent-plugin as a hidden advanced export control, rejects removed restart/stop commands, and exposes update without requiring Workspace initialization. Foreground lifecycle is Ctrl-C/SIGTERM owned and stdio lifecycle is MCP-Host owned with no separate runtime-control route/state file. Setup provides the safe Global-first / Current-project Agent host installer while local MCP configuration remains path-free and current-directory scoped. Self-update targets the running installation unless explicitly overridden and preserves checksum, staged smoke-test and replace-after-success behavior on Unix and Windows. Performance presets preserve default budgets and explicit override precedence; configuration previews have no startup or authorization side effects, common flags work after subcommands, contradictory restrictions fail before startup and setup never silently ignores extra roots. Setup validates overrides before writes, saves the selected performance and restrictive runtime arguments consistently across supported Host formats, reports the planned launch, and applies the reviewed global plan with its original SHA preconditions.
-  verification:
-    - {kind: test, path: tests/cli.rs, symbol: help_exposes_the_stable_agent_and_transport_commands}
-    - {kind: test, path: tests/cli.rs, symbol: complete_help_exposes_hidden_options_without_starting_the_runtime}
-    - {kind: test, path: tests/cli.rs, symbol: complete_help_targets_a_command_without_executing_it}
-    - {kind: test, path: tests/cli.rs, symbol: complete_help_json_is_declarative_and_scoped}
-    - {kind: test, path: tests/cli.rs, symbol: complete_help_rejects_invalid_paths_without_running_commands}
-    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_covers_every_declared_command_and_argument}
-    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_preserves_the_original_parser_and_compact_help}
-    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_help_inherits_globals_and_retains_value_and_alias_metadata}
-    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_recurses_into_hidden_nested_commands}
-    - {kind: test, path: tests/unit/app/commands.rs, symbol: complete_catalog_output_handles_closed_pipes_but_not_other_io_failures}
-    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_presets_keep_defaults_and_explicit_overrides}
-    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_preview_reports_effective_limits_and_origins_without_activation}
-    - {kind: test, path: tests/unit/app/resources.rs, symbol: configuration_rejects_invalid_overrides_and_contradictory_modes}
-    - {kind: test, path: tests/unit/app/setup.rs, symbol: setup_scope_retries_invalid_choices_and_eof_never_means_consent}
-    - {kind: test, path: tests/cli.rs, symbol: configuration_preview_is_pure_and_global_options_work_after_subcommands}
-    - {kind: test, path: tests/cli.rs, symbol: setup_rejects_multiple_roots_instead_of_silently_selecting_the_first}
-    - {kind: test, path: tests/cli.rs, symbol: contradictory_safety_and_connection_flags_fail_before_startup}
-    - {kind: test, path: tests/cli.rs, symbol: setup_saves_selected_runtime_options_across_host_formats}
-    - {kind: test, path: tests/cli.rs, symbol: setup_validates_resource_overrides_before_writing_configuration}
-    - {kind: test, path: tests/unit/app/resources.rs, symbol: setup_launch_options_round_trip_without_persisting_authority}
-    - {kind: test, path: tests/unit/integrations/agent/install.rs, symbol: configured_global_setup_uses_reviewed_launch_options_and_file_versions}
-    - {kind: test, path: tests/cli.rs, symbol: update_help_is_stable_and_hidden_agent_plugin_remains_compatible}
-    - {kind: test, path: tests/cli.rs, symbol: setup_dry_run_is_structured_and_does_not_write}
-    - {kind: test, path: tests/unit/app/update.rs, symbol: update_targets_the_running_binary_directory_unless_explicitly_overridden}
-    - {kind: test, path: tests/unit/app/update.rs, symbol: embedded_unix_installer_keeps_checksum_smoke_and_atomic_replace_contract}
-    - {kind: test, path: tests/release_contract.rs, symbol: windows_installer_stages_and_smoke_tests_before_replacement}
-    - {kind: check, id: rust-test}

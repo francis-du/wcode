@@ -1,7 +1,7 @@
 schema_version: 1
 id: AC-SEC-003
 title: Command policy blocks unbounded project execution by default
-statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion. Command args must preserve every string including empty arguments; explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of falling back to defaults.
+statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion. Command args must preserve every string including empty arguments; explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of falling back to defaults. Direct command execution must use a short bounded process-capacity wait, report that the command was not started when admission expires, and treat the requested timeout as a total deadline spanning queue admission plus execution.
 verification:
   - kind: test
     path: tests/unit/workspace/mod.rs
@@ -18,3 +18,6 @@ verification:
   - kind: test
     path: tests/unit/integrations/mcp/dispatch.rs
     symbol: strict_command_rejects_invalid_optional_settings
+  - kind: test
+    path: tests/unit/runtime/process_admission.rs
+    symbol: bounded_child_wait_expires_without_leaking_capacity_or_waiters

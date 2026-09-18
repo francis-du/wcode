@@ -147,6 +147,8 @@ pub(crate) struct SyntaxSearchRequest {
     pub(crate) path: String,
     pub(crate) node_kinds: Vec<String>,
     pub(crate) text_regex: Option<String>,
+    pub(crate) include_comments: bool,
+    pub(crate) bug_patterns: Vec<String>,
     pub(crate) max_files: usize,
     pub(crate) max_results: usize,
 }

@@ -1,8 +1,34 @@
 use super::corpus::{base_case, corpus, Case, Identity};
-use super::scoring::{digest, score};
+use super::scoring::{digest, provider_context_calibration, score};
+use crate::decision::{
+    DecisionBatch, DecisionProvider, DecisionRequest, DecisionValue, DeterministicDecisionProvider,
+};
 use crate::harness::ToolHarness;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+
+struct CautiousShadowCandidate;
+
+impl DecisionProvider for CautiousShadowCandidate {
+    fn provider_id(&self) -> &'static str {
+        "fixture-cautious-shadow"
+    }
+
+    fn evaluate(&self, request: &DecisionRequest) -> DecisionBatch {
+        let mut batch = DeterministicDecisionProvider.evaluate(request);
+        batch.provider = self.provider_id().into();
+        if let Some(signal) = batch
+            .signals
+            .iter_mut()
+            .find(|signal| signal.id == "context_sufficient")
+        {
+            if let DecisionValue::Probability { probability_milli } = &mut signal.value {
+                *probability_milli = probability_milli.saturating_sub(300);
+            }
+        }
+        batch
+    }
+}
 
 fn complete_pack(case: &Case) -> Value {
     let mut targets = Vec::new();
@@ -25,6 +51,30 @@ fn complete_pack(case: &Case) -> Value {
     }
     json!({"targets":targets,"hot_source":bodies,"files":files,"repo_map":{"items":[]},
         "budget":4000,"project":{"write_enabled":true},"readiness":{"edit":"ready"}})
+}
+
+#[test]
+fn provider_shadow_benchmark_scores_candidates_against_the_same_authored_gold() {
+    let case = base_case("rust");
+    let (_root, workspace) = case.instantiate();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context("fitness", &workspace, &case.query, 4_000, &[])
+        .unwrap();
+
+    let baseline = provider_context_calibration(&pack, &case, &DeterministicDecisionProvider);
+    let candidate = provider_context_calibration(&pack, &case, &CautiousShadowCandidate);
+
+    assert!(baseline.gold_context_sufficient);
+    assert_eq!(
+        candidate.gold_context_sufficient,
+        baseline.gold_context_sufficient
+    );
+    assert_eq!(baseline.predicted_stop, Some(true));
+    assert_eq!(candidate.predicted_stop, Some(false));
+    assert!(candidate.brier_million > baseline.brier_million);
+    assert_eq!(candidate.comparison.safety_policy_violation_count, 0);
+    assert_eq!(candidate.comparison.probability_abs_delta_milli_sum, 300);
 }
 
 #[test]
@@ -58,6 +108,51 @@ fn engineering_fitness_validates_frozen_gold_corpus() {
 }
 
 #[test]
+fn engineering_fitness_useful_annotations_keep_true_noise_unlabelled() {
+    let cases = corpus();
+    for language in ["rust", "go", "typescript", "python"] {
+        let extension = match language {
+            "rust" => "rs",
+            "go" => "go",
+            "typescript" => "ts",
+            "python" => "py",
+            _ => unreachable!(),
+        };
+        let path = format!("src/session.{extension}");
+        let cleanup = cases
+            .iter()
+            .find(|case| case.id == format!("{language}-cleanup-only"))
+            .unwrap();
+        assert!(cleanup
+            .useful
+            .contains(&Identity::new(&path, "refresh_session")));
+
+        let refresh = cases
+            .iter()
+            .find(|case| case.id == format!("{language}-refresh-only"))
+            .unwrap();
+        assert!(refresh
+            .useful
+            .contains(&Identity::new(&path, "cleanup_if_owner")));
+    }
+
+    let mutation = cases
+        .iter()
+        .find(|case| case.id == "rust-mutation-self-owner")
+        .unwrap();
+    assert!(mutation.useful.contains(&Identity::new(
+        "tests/session.rs",
+        "replacement_keeps_new_owner",
+    )));
+    assert!(
+        !mutation
+            .useful
+            .contains(&Identity::new("src/lib.rs", "session")),
+        "module re-export filler must remain measurable as true Non-Gold noise"
+    );
+}
+
+#[test]
 fn engineering_fitness_rejects_wrong_path_same_symbol() {
     let case = base_case("rust");
     let mut pack = complete_pack(&case);
@@ -73,6 +168,79 @@ fn engineering_fitness_rejects_wrong_path_same_symbol() {
     assert!(
         result.reported_edit_ready,
         "test must challenge an optimistic self-report"
+    );
+}
+
+#[test]
+fn decision_calibration_truth_does_not_trust_system_readiness_flags() {
+    let case = base_case("rust");
+    let mut pack = complete_pack(&case);
+    pack["project"]["write_enabled"] = json!(false);
+    pack["readiness"]["edit"] = json!("blocked");
+    for file in pack["files"].as_array_mut().unwrap() {
+        file["readonly"] = json!(true);
+    }
+    let observed = score(&pack, &case);
+    assert!(
+        observed.gold_context_sufficient,
+        "authored Gold delivery must be graded independently from WCode self-reported readiness"
+    );
+    assert!(
+        !observed.all_required_edit_inputs,
+        "operational edit readiness may still reflect the system-provided write contract"
+    );
+
+    let mut readonly = case;
+    readonly.writable = false;
+    let pack = complete_pack(&readonly);
+    let observed = score(&pack, &readonly);
+    assert!(
+        !observed.gold_context_sufficient,
+        "authored readonly truth must not be overridden by an optimistic pack"
+    );
+}
+
+#[test]
+fn decision_shadow_uses_final_ready_context_inputs() {
+    let case = corpus()
+        .into_iter()
+        .find(|case| case.id == "typescript-call-chain")
+        .unwrap();
+    let (_root, workspace) = case.instantiate();
+    let pack = ToolHarness::new(4)
+        .unwrap()
+        .agent_context("fitness", &workspace, &case.query, 4_000, &[])
+        .unwrap();
+    let probability = crate::decision::probability_milli(
+        &crate::decision::agent_context_decisions(&pack, &case.query),
+        "context_sufficient",
+    )
+    .unwrap();
+    let state = json!({
+        "edit": pack.pointer("/readiness/edit"),
+        "editable_sha_targets": pack.pointer("/readiness/editable_sha_targets"),
+        "targets": pack["targets"].as_array().map_or(0, Vec::len),
+        "hot_source": pack["hot_source"].as_array().map_or(0, Vec::len),
+        "tests": pack["tests"].as_array().map_or(0, Vec::len),
+        "repo_map_truncated": pack.pointer("/repo_map/truncated"),
+        "probability_milli": probability,
+    });
+    assert_eq!(pack["readiness"]["edit"], "ready", "{state}");
+    assert!(
+        pack["hot_source"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "{state}"
+    );
+    assert!(
+        pack.pointer("/readiness/editable_sha_targets")
+            .and_then(Value::as_u64)
+            .is_some_and(|count| count > 0),
+        "{state}"
+    );
+    assert!(
+        probability >= crate::decision::CONTEXT_SUFFICIENT_STOP_THRESHOLD_MILLI,
+        "final ready context must not recommend unnecessary retrieval: {state}"
     );
 }
 
