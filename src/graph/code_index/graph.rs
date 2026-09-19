@@ -11,7 +11,8 @@ pub(super) fn select_graph_definitions<'a>(
 ) -> Vec<HashSet<&'a str>> {
     let mut selected = vec![HashSet::new(); records.len()];
     let mut remaining = max_symbols;
-    for phase in 0..3 {
+
+    for phase in 0..2 {
         if remaining == 0 {
             break;
         }
@@ -46,7 +47,6 @@ pub(super) fn select_graph_definitions<'a>(
                                 definition.end_byte.saturating_sub(definition.start_byte)
                             })
                     }
-                    2 if symbol.is_definition => Some(symbol),
                     _ => None,
                 };
                 if let Some(candidate) = candidate {
@@ -55,6 +55,35 @@ pub(super) fn select_graph_definitions<'a>(
                     }
                 }
             }
+        }
+    }
+
+    // Fill the non-priority budget fairly across files. A sequential fill lets
+    // one large early file consume the entire remaining budget, leaving later
+    // modules with only their file node in the Code Graph. Round-robin keeps
+    // the total bound unchanged while giving every indexed file a chance to
+    // contribute definitions before any one file receives its next symbol.
+    let mut cursors = vec![0usize; records.len()];
+    while remaining > 0 {
+        let mut progressed = false;
+        for (file_index, record) in records.iter().enumerate() {
+            while cursors[file_index] < record.symbols.len() {
+                let symbol = &record.symbols[cursors[file_index]];
+                cursors[file_index] += 1;
+                if !symbol.is_definition || selected[file_index].contains(symbol.id.as_str()) {
+                    continue;
+                }
+                selected[file_index].insert(symbol.id.as_str());
+                remaining -= 1;
+                progressed = true;
+                break;
+            }
+            if remaining == 0 {
+                break;
+            }
+        }
+        if !progressed {
+            break;
         }
     }
     selected

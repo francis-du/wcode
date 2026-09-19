@@ -1,7 +1,15 @@
 function setCodeGraphFull(full) {
   const active = Boolean(full);
   state.codeGraphFull = active;
-  els.codeGraphSection?.classList.toggle("code-graph-fullscreen", active);
+  const section = els.codeGraphSection;
+  section?.classList.toggle("code-graph-fullscreen", active);
+  if (active) {
+    section?.setAttribute("role", "dialog");
+    section?.setAttribute("aria-modal", "true");
+  } else {
+    section?.removeAttribute("role");
+    section?.removeAttribute("aria-modal");
+  }
   els.codeGraphFull?.setAttribute("aria-pressed", String(active));
   const label = active
     ? localized("Exit full screen code graph", "退出代码图谱全屏")
@@ -379,13 +387,26 @@ function codeGraphResponseMatchesRequest(graph, expected) {
     Number(graph.depth) === expected.depth &&
     (!expected.snapshot || graph.snapshot_id === expected.snapshot);
 }
+function clearCodeGraphSearchState() {
+  const controller = state.codeGraphController;
+  state.codeGraphController = null;
+  state.codeGraphLoading = false;
+  controller?.abort();
+  state.codeGraph = null;
+  state.codeGraphWorkspace = "";
+  state.codeGraphQuery = "";
+  state.selectedCodeNode = "";
+  state.codeGraphError = "";
+  renderCodeGraph();
+}
 async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
   const inputQuery = (els.codeGraphSearch?.value || "").trim();
   const query = nodeId
     ? (state.codeGraphQuery || inputQuery).trim()
     : String(requestedQuery ?? inputQuery).trim();
   if (!nodeId && query.length < 2) {
-    state.codeGraph = null; state.codeGraphError = ""; renderCodeGraph(); return false;
+    clearCodeGraphSearchState();
+    return false;
   }
   if (!nodeId && codeGraphLooksLikeDesignPath(query)) {
     state.codeGraph = null;
@@ -493,7 +514,13 @@ function wireCodeGraph() {
   els.codeGraphSearch.addEventListener("keydown", event => {
     if (event.key === "Enter") { event.preventDefault(); void loadCodeGraph(); }
   });
-  els.codeGraphSearch.addEventListener("search", () => void loadCodeGraph());
+  els.codeGraphSearch.addEventListener("input", () => {
+    if (!(els.codeGraphSearch.value || "").trim()) clearCodeGraphSearchState();
+  });
+  els.codeGraphSearch.addEventListener("search", () => {
+    if ((els.codeGraphSearch.value || "").trim()) void loadCodeGraph();
+    else clearCodeGraphSearchState();
+  });
   document.querySelectorAll("[data-code-graph-mode]").forEach(button => {
     button.addEventListener("click", () => {
       state.codeGraphMode = button.dataset.codeGraphMode;

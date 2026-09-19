@@ -96,6 +96,49 @@ fn graph_budget_reserves_priority_across_files() {
 }
 
 #[test]
+fn graph_budget_round_robins_unprioritized_definitions_across_files() {
+    let root = tempfile::tempdir().unwrap();
+    let mut large = String::new();
+    for index in 0..64 {
+        large.push_str(&format!("pub fn early_{index:02}() {{}}\n"));
+    }
+    fs::write(root.path().join("a_large.rs"), large).unwrap();
+    fs::write(
+        root.path().join("z_late.rs"),
+        "pub fn late_target() {}\npub fn late_neighbor() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let graph = index
+        .software_graph_from_paths(
+            &workspace,
+            vec!["a_large.rs".to_owned(), "z_late.rs".to_owned()],
+            false,
+            2,
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .unwrap();
+
+    assert!(graph
+        .graph
+        .nodes
+        .values()
+        .any(|node| node.label == "early_00"));
+    assert!(
+        graph.graph.nodes.values().any(|node| node.label == "late_target"),
+        "later files must retain at least one definition before an early file receives a second unprioritized slot"
+    );
+    assert!(!graph
+        .graph
+        .nodes
+        .values()
+        .any(|node| node.label == "early_01"));
+    assert!(graph.truncated);
+}
+
+#[test]
 fn graph_budget_keeps_exact_target_ahead_of_many_callers() {
     let root = tempfile::tempdir().unwrap();
     let mut source = (0..10)

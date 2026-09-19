@@ -47,10 +47,14 @@ async function run(){
     s.run('setCodeGraphFull(true)');
     assert.equal(s.run('state.codeGraphFull'),true);
     assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),true);
+    assert.equal(s.node('#codeGraphSection').attrs.role,'dialog');
+    assert.equal(s.node('#codeGraphSection').attrs['aria-modal'],'true');
     assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'true');
     s.run('setCodeGraphFull(false)');
     assert.equal(s.run('state.codeGraphFull'),false);
     assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),false);
+    assert.equal(s.node('#codeGraphSection').attrs.role,undefined);
+    assert.equal(s.node('#codeGraphSection').attrs['aria-modal'],undefined);
     assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'false');
   });
 
@@ -155,12 +159,35 @@ async function run(){
 
   await test('clearing the code-graph search does not resurrect the previous query',async()=>{
     const s=sandbox();
-    s.run('state.current="A";state.codeGraphQuery="oldSymbol";state.codeGraph={nodes:[{node:{id:"old",label:"oldSymbol"}}],edges:[],root_ids:["old"]};els.codeGraphSearch.value="";');
+    s.run('state.current="A";state.codeGraphQuery="oldSymbol";state.selectedCodeNode="old";state.codeGraphWorkspace="A";state.codeGraph={nodes:[{node:{id:"old",label:"oldSymbol"}}],edges:[],root_ids:["old"]};els.codeGraphSearch.value="";');
     const loaded=await s.run('loadCodeGraph()');
     assert.equal(loaded,false);
     assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
     assert.equal(s.run('state.codeGraph'),null);
+    assert.equal(s.run('state.codeGraphQuery'),'');
+    assert.equal(s.run('state.selectedCodeNode'),'');
+    assert.equal(s.run('state.codeGraphWorkspace'),'');
     assert.equal(s.run('state.codeGraphError'),'');
+  });
+
+  await test('native search clear aborts in-flight graph work and clears remembered context immediately',async()=>{
+    const s=sandbox();
+    s.run('wireCodeGraph();state.current="A";state.codeGraphQuery="oldSymbol";state.selectedCodeNode="old";state.codeGraphWorkspace="A";state.codeGraph={nodes:[{node:{id:"old",label:"oldSymbol"}}],edges:[],root_ids:["old"]};state.codeGraphError="stale";state.codeGraphLoading=true;state.codeGraphController=new AbortController();els.codeGraphSearch.value="oldSymbol";');
+    const controller=s.run('state.codeGraphController');
+    assert.equal(controller.signal.aborted,false);
+    const search=s.node('#codeGraphSearch');
+    search.value='';
+    search.events.input();
+    assert.equal(controller.signal.aborted,true);
+    assert.equal(s.run('state.codeGraphController'),null);
+    assert.equal(s.run('state.codeGraphLoading'),false);
+    assert.equal(s.run('state.codeGraph'),null);
+    assert.equal(s.run('state.codeGraphQuery'),'');
+    assert.equal(s.run('state.selectedCodeNode'),'');
+    assert.equal(s.run('state.codeGraphWorkspace'),'');
+    assert.equal(s.run('state.codeGraphError'),'');
+    search.events.search();
+    assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
   });
 
   await test('workspace switch starts the new code graph without waiting for an aborted old request',async()=>{
