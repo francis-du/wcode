@@ -315,13 +315,16 @@ impl Workspace {
             validate_command_policy(program, args, admissible)?;
         }
         let development_program = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
-        let broad_execution = sandbox::command_requires_sandbox(
-            unrestricted_commands,
-            self.allow_exec,
-            self.allow_write,
-            program,
-            args,
-        );
+        let bounded_workspace_verifier = self.workspace_program_available(program)
+            && validate_verification_command_shape(program, args).is_ok();
+        let broad_execution = !bounded_workspace_verifier
+            && sandbox::command_requires_sandbox(
+                unrestricted_commands,
+                self.allow_exec,
+                self.allow_write,
+                program,
+                args,
+            );
         let mut safe_development = self.security;
         safe_development.allow_unrestricted_commands = false;
         // Repository development tools are intentionally autonomous. Give
