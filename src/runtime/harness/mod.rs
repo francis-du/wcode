@@ -25,9 +25,10 @@ use crate::reconciliation_execution_store;
 use crate::reconciliation_store;
 use crate::scopes::{self, ProductScopeDescriptor};
 use crate::semantic::{SemanticCandidateInput, SemanticFact, SemanticMatch};
+use crate::semantic_provider::install::SemanticProviderInstallResult;
 use crate::semantic_provider::{
-    self, SemanticNavigationIntent, SemanticProviderRefresh, SemanticProviderStatus,
-    SemanticSessionPool, SemanticSessionPoolStatus,
+    self, SemanticLanguage, SemanticNavigationIntent, SemanticProviderRefresh,
+    SemanticProviderStatus, SemanticSessionPool, SemanticSessionPoolStatus,
 };
 use crate::semantic_store;
 use crate::stage_executor::{self, StageExecutionResult, StageExecutorRegistry};

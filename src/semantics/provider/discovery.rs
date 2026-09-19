@@ -34,6 +34,16 @@ pub(super) fn find_executable(workspace: &Workspace, name: &str) -> Option<PathB
             return Some(path);
         }
     }
+    if let Some(path) = super::install::managed_executable_candidates(workspace, name)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+    {
+        if let Some(path) = trusted_provider_path(workspace, &path)
+            .filter(|path| provider_executable_ready(workspace, name, path))
+        {
+            return Some(path);
+        }
+    }
     known_language_tool_paths(name)
         .into_iter()
         .find_map(|candidate| {
@@ -63,6 +73,14 @@ fn provider_executable_ready(workspace: &Workspace, name: &str, executable: &Pat
         cache.insert(key, (Instant::now(), available));
     }
     available
+}
+
+pub(super) fn invalidate_rustup_component_cache() {
+    if let Some(cache) = RUSTUP_COMPONENT_CACHE.get() {
+        if let Ok(mut cache) = cache.lock() {
+            cache.clear();
+        }
+    }
 }
 
 pub(super) fn is_rustup_proxy(executable: &Path) -> bool {

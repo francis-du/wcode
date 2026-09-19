@@ -190,30 +190,31 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "apply_file_edits"
     };
     let mut next_actions = Vec::<&str>::new();
+    let push_semantic_setup = |next_actions: &mut Vec<&'static str>| {
+        if !recommend_semantic_navigation {
+            return;
+        }
+        if semantic_provider_missing {
+            next_actions.push("semantic_provider_install");
+        }
+        if semantic_provider_missing
+            || semantic_provider_authorization
+            || semantic_provider_initialization
+        {
+            next_actions.push("semantic_provider_refresh");
+        }
+        next_actions.push("semantic_navigation");
+    };
     if convention_errors > 0 || convention_scan_truncated {
         next_actions.push("convention_status");
     }
     match edit {
         "ready" => {
-            if recommend_semantic_navigation
-                && (semantic_provider_authorization || semantic_provider_initialization)
-            {
-                next_actions.push("semantic_provider_refresh");
-            }
-            if recommend_semantic_navigation {
-                next_actions.push("semantic_navigation");
-            }
+            push_semantic_setup(&mut next_actions);
             next_actions.push(edit_tool);
         }
         "needs_source" => {
-            if recommend_semantic_navigation
-                && (semantic_provider_authorization || semantic_provider_initialization)
-            {
-                next_actions.push("semantic_provider_refresh");
-            }
-            if recommend_semantic_navigation {
-                next_actions.push("semantic_navigation");
-            }
+            push_semantic_setup(&mut next_actions);
             next_actions.push(if value.get("retrieval").is_some() {
                 "read_file"
             } else {
@@ -223,26 +224,12 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         }
         "needs_target" => {
             next_actions.push("find_symbol");
-            if recommend_semantic_navigation
-                && (semantic_provider_authorization || semantic_provider_initialization)
-            {
-                next_actions.push("semantic_provider_refresh");
-            }
-            if recommend_semantic_navigation {
-                next_actions.push("semantic_navigation");
-            }
+            push_semantic_setup(&mut next_actions);
             next_actions.push("symbol_context");
             next_actions.push(edit_tool);
         }
         "needs_sha" => {
-            if recommend_semantic_navigation
-                && (semantic_provider_authorization || semantic_provider_initialization)
-            {
-                next_actions.push("semantic_provider_refresh");
-            }
-            if recommend_semantic_navigation {
-                next_actions.push("semantic_navigation");
-            }
+            push_semantic_setup(&mut next_actions);
             next_actions.push("path_info");
             next_actions.push(edit_tool);
         }
@@ -497,3 +484,7 @@ fn canonical_precision(value: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/readiness.rs"]
+mod tests;

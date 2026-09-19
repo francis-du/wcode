@@ -21,6 +21,14 @@ impl ToolHarness {
         )
     }
 
+    pub async fn semantic_provider_install(
+        &self,
+        workspace: &Workspace,
+        language: SemanticLanguage,
+    ) -> Result<SemanticProviderInstallResult> {
+        semantic_provider::install::install(workspace, language).await
+    }
+
     pub fn semantic_session_status(&self, workspace: &Workspace) -> SemanticSessionPoolStatus {
         self.semantic_sessions.status_for(workspace)
     }

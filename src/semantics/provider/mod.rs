@@ -30,12 +30,14 @@ use registry::{automatic_provider, ProviderCandidate, PROVIDERS};
 #[path = "discovery.rs"]
 mod discovery;
 use discovery::{executable_discovery_source, find_executable};
+
+#[path = "install.rs"]
+pub mod install;
 #[cfg(test)]
 use discovery::{
     executable_name, is_rustup_proxy, known_language_tool_paths_from,
     rustup_proxy_component_ready_uncached, trusted_provider_path,
 };
-
 #[path = "auto.rs"]
 mod auto;
 pub(crate) use auto::{state as automatic_state, SemanticAutoState};
@@ -184,6 +186,7 @@ pub struct SemanticProviderStatus {
     pub precision: &'static str,
     pub discovery: &'static str,
     pub action: Option<&'static str>,
+    pub install: Option<install::SemanticProviderInstallPlan>,
     pub reason: String,
 }
 
@@ -275,6 +278,11 @@ pub(crate) fn status_for_languages(
                 .as_ref()
                 .map(|(_, executable)| executable_discovery_source(executable))
                 .unwrap_or("missing");
+            let install = if present && !available {
+                install::install_plan(workspace, language).ok()
+            } else {
+                None
+            };
             let action = if !present {
                 None
             } else if !available {
@@ -291,7 +299,22 @@ pub(crate) fn status_for_languages(
             let reason = if !present {
                 "no matching source files detected".to_owned()
             } else if !available {
-                "no supported LSP server was found on trusted PATH or known language-tool install directories; install the canonical server and refresh LSP status; Tree-sitter syntax remains available".to_owned()
+                install
+                    .as_ref()
+                    .map(|plan| {
+                        if plan.model_can_install {
+                            format!(
+                                "canonical LSP {} is missing; the model may call semantic_provider_install after exact approval, then refresh semantic providers; Tree-sitter syntax remains available",
+                                plan.provider
+                            )
+                        } else {
+                            format!(
+                                "canonical LSP {} is missing and requires {}; follow the returned install plan, then refresh semantic providers; Tree-sitter syntax remains available",
+                                plan.provider, plan.manager
+                            )
+                        }
+                    })
+                    .unwrap_or_else(|| "no supported LSP server was found; install the canonical server and refresh LSP status; Tree-sitter syntax remains available".to_owned())
             } else if !workspace.exec_enabled() {
                 "command execution is disabled".to_owned()
             } else if !workspace.semantic_exec_enabled() {
@@ -324,6 +347,7 @@ pub(crate) fn status_for_languages(
                 precision: if runnable { "semantic" } else { "syntax" },
                 discovery,
                 action,
+                install,
                 reason,
             }
         })

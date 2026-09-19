@@ -11,6 +11,7 @@ use tokio::time::{timeout_at, Instant};
 
 pub(crate) const TASK_EXTENSION_ID: &str = "io.modelcontextprotocol/tasks";
 const TASK_AUGMENTED_TOOLS: &[&str] = &[
+    "semantic_provider_install",
     "semantic_provider_refresh",
     "verification_execute_stages",
     "verify_project",

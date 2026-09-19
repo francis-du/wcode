@@ -23,6 +23,7 @@ pub(super) fn handles(name: &str) -> bool {
             | "graph_provider_import"
             | "graph_provider_status"
             | "semantic_provider_status"
+            | "semantic_provider_install"
             | "semantic_provider_refresh"
             | "semantic_navigation"
             | "graph_history"
@@ -189,6 +190,18 @@ pub(super) async fn call(
                     .and_then(|providers| serde_json::to_value(providers).map_err(Into::into))
             })
             .await
+        }
+        "semantic_provider_install" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let language = serde_json::from_value::<crate::semantic_provider::SemanticLanguage>(
+                Value::String(required_string(args, "language")?.to_owned()),
+            )
+            .map_err(|error| format!("invalid semantic provider language: {error}"))?;
+            state
+                .harness
+                .semantic_provider_install(&workspace, language)
+                .await
+                .and_then(|result| serde_json::to_value(result).map_err(Into::into))
         }
         "semantic_provider_refresh" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;

@@ -243,6 +243,7 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         | "find_symbol"
         | "symbol_context" => &[Graph],
         "semantic_provider_status"
+        | "semantic_provider_install"
         | "semantic_provider_refresh"
         | "semantic_navigation"
         | "semantic_status"

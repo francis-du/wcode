@@ -89,6 +89,76 @@ fn canonical_provider_matrix_covers_all_22_languages() {
 }
 
 #[test]
+fn install_plans_cover_every_canonical_language_without_arbitrary_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let allowed_managers = BTreeSet::from(["rustup", "go", "npm", "dotnet", "opam", "gem"]);
+    let mut model_installable = 0usize;
+    let mut manual = 0usize;
+    for language in SemanticLanguage::ALL {
+        let plan = install::install_plan(&workspace, language).unwrap();
+        let canonical = PROVIDERS
+            .iter()
+            .find(|provider| provider.canonical && provider.languages.contains(&language))
+            .unwrap();
+        assert_eq!(plan.provider, canonical.id);
+        assert_eq!(plan.post_install_action, "semantic_provider_refresh");
+        assert!(plan.requires_approval);
+        if plan.model_can_install {
+            model_installable += 1;
+            assert!(
+                allowed_managers.contains(plan.manager),
+                "{language:?}: {}",
+                plan.manager
+            );
+            let program = plan
+                .program
+                .as_deref()
+                .expect("installable plan needs a program");
+            assert_eq!(program, plan.manager);
+            assert!(!plan.args.is_empty());
+            assert!(plan
+                .args
+                .iter()
+                .all(|arg| !arg.contains(['\0', '\n', '\r'])));
+        } else {
+            manual += 1;
+            assert_eq!(plan.strategy, "manual");
+            assert!(plan.program.is_none());
+            assert!(plan.args.is_empty());
+        }
+    }
+    assert!(model_installable >= 10);
+    assert!(manual > 0);
+}
+
+#[test]
+fn managed_lsp_destinations_stay_in_wcode_state_outside_the_repository() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.py"), "def f():\n    return 1\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let plan = install::install_plan(&workspace, SemanticLanguage::Python).unwrap();
+    let destination = PathBuf::from(plan.destination.as_deref().unwrap());
+    assert!(!destination.starts_with(workspace.root()));
+    assert!(destination.to_string_lossy().contains("language-tools"));
+
+    let candidates = install::managed_executable_candidates(&workspace, "pyright-langserver");
+    assert!(candidates.iter().any(|path| path.starts_with(&destination)));
+}
+
+#[test]
+fn rust_and_go_install_plans_follow_the_canonical_toolchains() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let rust = install::install_plan(&workspace, SemanticLanguage::Rust).unwrap();
+    assert_eq!(rust.program.as_deref(), Some("rustup"));
+    assert_eq!(rust.args, ["component", "add", "rust-analyzer", "rust-src"]);
+    let go = install::install_plan(&workspace, SemanticLanguage::Go).unwrap();
+    assert_eq!(go.program.as_deref(), Some("go"));
+    assert_eq!(go.args, ["install", "golang.org/x/tools/gopls@latest"]);
+}
+
+#[test]
 fn alternate_provider_matrix_keeps_real_fallbacks_only() {
     let alternates = PROVIDERS
         .iter()

@@ -429,6 +429,7 @@ impl ToolHarness {
                     "executable": status.executable,
                     "discovery": status.discovery,
                     "action": status.action,
+                    "install": status.install,
                     "reason": status.reason,
                 })
             })
