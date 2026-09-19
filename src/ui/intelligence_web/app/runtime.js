@@ -607,6 +607,7 @@ document.querySelectorAll("[data-workspace-tab]").forEach(button => {
 });
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
+  if (state.codeGraphFull) { event.preventDefault(); setCodeGraphFull(false); return; }
   if (accessPanelOpen()) { event.preventDefault(); setAccessPanel(false); return; }
   if (els.componentInspector?.classList.contains("open")) {
     event.preventDefault();

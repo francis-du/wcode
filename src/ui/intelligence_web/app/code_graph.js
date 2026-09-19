@@ -1,3 +1,15 @@
+function setCodeGraphFull(full) {
+  const active = Boolean(full);
+  state.codeGraphFull = active;
+  els.codeGraphSection?.classList.toggle("code-graph-fullscreen", active);
+  els.codeGraphFull?.setAttribute("aria-pressed", String(active));
+  const label = active
+    ? localized("Exit full screen code graph", "退出代码图谱全屏")
+    : localized("Full screen code graph", "全屏查看代码图谱");
+  els.codeGraphFull?.setAttribute("aria-label", label);
+  if (els.codeGraphFull) els.codeGraphFull.title = label;
+  document.documentElement.classList.toggle("code-graph-fullscreen-open", active);
+}
 function codeGraphPath(node) {
   return node?.attributes?.path || "";
 }
@@ -498,4 +510,5 @@ function wireCodeGraph() {
     state.codeGraphDepth = Number(els.codeGraphDepth.value) || 2;
     reloadCodeGraphFromCurrentContext();
   });
+  els.codeGraphFull?.addEventListener("click", () => setCodeGraphFull(!state.codeGraphFull));
 }

@@ -130,7 +130,7 @@ fn observatory_code_graph_opens_loads_and_renders_real_graph_data() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 17
+                .is_some_and(|results| results.len() == 21
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

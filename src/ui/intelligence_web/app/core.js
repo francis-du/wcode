@@ -73,6 +73,7 @@ const els = {
   codeGraphSearch: q("#codeGraphSearch"),
   codeGraphSnapshot: q("#codeGraphSnapshot"),
   codeGraphDepth: q("#codeGraphDepth"),
+  codeGraphFull: q("#codeGraphFull"),
   codeGraphSummary: q("#codeGraphSummary"),
   codeGraphMap: q("#codeGraphMap"),
   codeGraphInspector: q("#codeGraphInspector"),
@@ -153,6 +154,7 @@ const state = {
   codeGraphMode: "all",
   codeGraphSnapshot: "",
   codeGraphDepth: 2,
+  codeGraphFull: false,
   codeGraphLoading: false,
   codeGraphError: "",
   codeGraphController: null,
@@ -466,6 +468,7 @@ function applyLanguage() {
   els.projectNavigator?.setAttribute("aria-label", t("Search systems, components, requirements…"));
   els.fileSearch?.setAttribute("aria-label", t("Filter file tree"));
   applyAutoRefreshControl();
+  if (typeof setCodeGraphFull === "function") setCodeGraphFull(state.codeGraphFull);
   els.workspacePath.placeholder = t("Absolute or relative project path");
   els.commandCandidate.placeholder = t("Executable name, e.g. hugo");
   els.operationProgram.placeholder = t("Executable name, e.g. make");

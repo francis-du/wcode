@@ -298,7 +298,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
     fs::create_dir_all(root.path().join("src")).unwrap();
     fs::write(
         root.path().join("src/lib.rs"),
-        "fn callee() {}\nfn target_feature() { callee(); }\nfn caller() { target_feature(); }\n",
+        "fn callee() {}\nfn target_feature() { callee(); }\nfn caller() { target_feature(); }\n// TUI operator surface keyword\n",
     )
     .unwrap();
     fs::create_dir_all(root.path().join(".wcode/design")).unwrap();
@@ -368,6 +368,33 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             edge["provenance"]["provider"].as_str().is_some()
                 && edge["provenance"]["precision"].as_str().is_some()
         }));
+
+    let keyword_response = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            q: Some("tui".into()),
+            node_id: None,
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: Some(2),
+            limit: Some(64),
+            mode: Some(GraphChainMode::Calls),
+        }),
+    )
+    .await;
+    assert_eq!(keyword_response.status(), StatusCode::OK);
+    let keyword_value = response_json(keyword_response).await;
+    assert_eq!(keyword_value["graph"]["query"], "tui");
+    assert!(keyword_value["graph"]["root_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "file:src/lib.rs"));
+    assert!(keyword_value["graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["node"]["kind"] == "function"));
 
     let stale_snapshot = intelligence_web_code_graph(
         State(state.clone()),

@@ -709,10 +709,30 @@ fn observatory_assets_have_a_mobile_safe_touch_layout() {
         ".change-table td::before",
         "font-size:16px",
         ".access-panel:not(.hidden)",
-        ".workspace-tabs button,.filter,.system-map-controls button,.evidence-inspector-controls button,.inspector-collapse{min-height:44px",
         "overflow-x:auto;scrollbar-width:none;overscroll-behavior-inline:contain",
     ] {
         assert!(INTELLIGENCE_CSS.contains(contract), "missing {contract}");
+    }
+    let coarse_touch_targets = INTELLIGENCE_CSS
+        .split_once("@media (max-width:900px) and (pointer:coarse){")
+        .expect("coarse-pointer media contract")
+        .1
+        .split_once("{min-height:44px")
+        .expect("coarse-pointer touch target height contract")
+        .0;
+    for selector in [
+        ".workspace-tabs button",
+        ".filter",
+        ".system-map-controls button",
+        ".code-graph-mode button",
+        ".code-graph-full-toggle",
+        ".evidence-inspector-controls button",
+        ".inspector-collapse",
+    ] {
+        assert!(
+            coarse_touch_targets.contains(selector),
+            "missing 44px coarse-pointer touch target: {selector}"
+        );
     }
     assert!(
         INTELLIGENCE_CSS.rfind("@media (max-width:720px)")

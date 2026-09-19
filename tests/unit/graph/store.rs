@@ -58,6 +58,12 @@ fn graph_history_round_trips_and_queries_nodes() {
 #[test]
 fn graph_chain_traces_calls_and_keeps_precision_provenance() {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(
+        dir.path().join("src/lib.rs"),
+        "fn target_feature() {}\nconst DISPLAY_LABEL: &str = \"TUI monitor surface\";\n",
+    )
+    .unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     let syntax = crate::graph::GraphProvenance {
         provider: "tree-sitter".into(),
@@ -285,6 +291,25 @@ fn graph_chain_traces_calls_and_keeps_precision_provenance() {
         .edges
         .iter()
         .any(|edge| edge.kind == EdgeKind::Calls));
+
+    let keyword = chain(
+        &workspace,
+        &GraphChainInput {
+            snapshot_id: None,
+            node_id: None,
+            label_contains: Some("tui".into()),
+            depth: 2,
+            limit: 64,
+            mode: GraphChainMode::Calls,
+        },
+    )
+    .unwrap();
+    assert_eq!(keyword.query, "tui");
+    assert_eq!(keyword.root_ids, vec!["file:src/lib.rs"]);
+    assert!(keyword
+        .nodes
+        .iter()
+        .any(|node| node.node.id == "function:target"));
 }
 
 #[test]

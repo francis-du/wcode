@@ -2,7 +2,7 @@ use crate::graph::{EdgeKind, GraphPrecision, NodeKind};
 use crate::graph_store::{
     load_selected, GraphChainInput, GraphChainMode, GraphChainNode, GraphChainResult,
 };
-use crate::workspace::Workspace;
+use crate::workspace::{SearchMode, Workspace};
 use anyhow::{bail, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -74,7 +74,16 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             })
             .collect::<Vec<_>>();
         matches.sort();
-        matches.into_iter().take(8).map(|(_, _, id)| id).collect()
+        let direct = matches
+            .into_iter()
+            .take(8)
+            .map(|(_, _, id)| id)
+            .collect::<Vec<_>>();
+        if direct.is_empty() {
+            keyword_file_roots(workspace, &stored.snapshot.graph.nodes, &needle)
+        } else {
+            direct
+        }
     };
     root_ids.sort();
     root_ids.dedup();
@@ -228,6 +237,45 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
         downstream_nodes,
         truncated,
     })
+}
+
+fn keyword_file_roots(
+    workspace: &Workspace,
+    nodes: &BTreeMap<String, crate::graph::GraphNode>,
+    query: &str,
+) -> Vec<String> {
+    if query.len() < 2 {
+        return Vec::new();
+    }
+    let pattern = format!("(?i:{})", regex::escape(query));
+    let Ok((matches, _)) = workspace.search_with_options(&pattern, ".", 120, SearchMode::Regex, 0)
+    else {
+        return Vec::new();
+    };
+    let mut counts = BTreeMap::<String, usize>::new();
+    for item in matches {
+        let Some(path) = item.get("path").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let id = format!("file:{path}");
+        if nodes
+            .get(&id)
+            .is_some_and(|node| node.kind == NodeKind::File)
+        {
+            *counts.entry(path.to_owned()).or_default() += 1;
+        }
+    }
+    let mut ranked = counts.into_iter().collect::<Vec<_>>();
+    ranked.sort_by(|(left_path, left_count), (right_path, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_path.cmp(right_path))
+    });
+    ranked
+        .into_iter()
+        .take(8)
+        .map(|(path, _)| format!("file:{path}"))
+        .collect()
 }
 
 fn code_chain_node_kind(kind: NodeKind) -> bool {

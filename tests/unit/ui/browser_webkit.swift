@@ -19,7 +19,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       const describe=el=>{
         if(!el)return null;
         const b=r(el),s=getComputedStyle(el);
-        return {tag:el.tagName,id:el.id,className:el.className,left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,display:s.display,position:s.position,minWidth:s.minWidth,maxWidth:s.maxWidth,gridTemplateColumns:s.gridTemplateColumns,gridTemplateRows:s.gridTemplateRows,margin:s.margin,padding:s.padding,overflow:s.overflow,transform:s.transform};
+        const className=typeof el.className==='object'&&el.className?.baseVal!==undefined?el.className.baseVal:String(el.className||'');
+        return {tag:el.tagName,id:el.id,className,left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,display:s.display,position:s.position,minWidth:s.minWidth,maxWidth:s.maxWidth,gridTemplateColumns:s.gridTemplateColumns,gridTemplateRows:s.gridTemplateRows,margin:s.margin,padding:s.padding,overflow:s.overflow,transform:s.transform};
       };
       const check=(ok,label,el=null,parent=null)=>{
         if(ok)return;
@@ -28,7 +29,16 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       };
       check(window.__layoutReady===true,'production boot failed');
       check(document.documentElement.scrollWidth<=innerWidth+1,'page overflow',document.documentElement);
+      if(document.documentElement.scrollWidth>innerWidth+1){
+        const overflowers=[...document.querySelectorAll('body *')].filter(el=>{if(!visible(el))return false;const b=r(el);return b.right>innerWidth+1||b.left<-1;}).slice(0,20).map(describe);
+        diagnostics.push({label:'page overflow offenders',overflowers});
+        if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'){
+          diagnostics.push({label:'code graph containment',section:describe(document.getElementById('codeGraphSection')),layout:describe(document.querySelector('.code-graph-layout')),canvas:describe(document.querySelector('.code-graph-canvas')),map:describe(document.getElementById('codeGraphMap')),viewport:describe(document.querySelector('.code-graph-viewport')),svg:describe(document.querySelector('.code-graph-diagram')),inspector:describe(document.getElementById('codeGraphInspector')),why:describe(document.querySelector('.code-graph-why')),whyRows:[...document.querySelectorAll('.code-graph-why>div')].slice(0,4).map(describe)});
+        }
+      }
       check(document.querySelectorAll('[role="tab"][aria-selected="true"]').length===1,'tab selection');
+      const activePanel=document.querySelector(`[data-workspace-panel="${state.workspaceTab}"]`);
+      check(activePanel&&visible(activePanel),'active workspace panel hidden',activePanel);
       for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar','.evidence-inspector-card','.evidence-inspector-section','.evidence-inspector-card .inspector-chip-list','.evidence-inspector-section pre']){
         document.querySelectorAll(selector).forEach((el,i)=>{
           if(!visible(el))return;
@@ -48,11 +58,28 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');
       }
+      if(state.workspaceTab==='architecture'&&state.architectureView==='blueprint') check(visible(document.getElementById('architectureBlueprint')),'system map hidden',document.getElementById('architectureBlueprint'));
+      if(state.workspaceTab==='architecture'&&state.architectureView==='components') check(visible(document.getElementById('componentCards')),'component cards hidden',document.getElementById('componentCards'));
+      if(state.workspaceTab==='architecture'&&state.architectureView==='graph') check(visible(document.getElementById('architectureGraph')),'dependency graph hidden',document.getElementById('architectureGraph'));
       if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'){
-        const section=document.getElementById('codeGraphSection');
+        const section=document.getElementById('codeGraphSection'),viewport=section?.querySelector('.code-graph-viewport'),canvas=section?.querySelector('.code-graph-canvas'),inspector=document.getElementById('codeGraphInspector'),full=state.codeGraphFull===true;
         check(section&&visible(section),'code graph hidden',section);
-        check(document.querySelectorAll('[data-code-node]').length>=3,'missing populated code graph',section);
-        check((document.getElementById('codeGraphInspector')?.textContent||'').includes('renderProject'),'missing code graph inspector focus',document.getElementById('codeGraphInspector'));
+        check(document.querySelectorAll('[data-code-node]').length>=17,'missing dense populated code graph',section);
+        check((inspector?.textContent||'').includes('renderProject'),'missing code graph inspector focus',inspector);
+        check(viewport&&viewport.scrollWidth>=viewport.clientWidth,'code graph viewport invalid',viewport);
+        check(canvas&&canvas.scrollWidth<=canvas.clientWidth+1,'code graph canvas outer overflow',canvas);
+        check(section?.querySelector('.code-graph-search')?.value==='','automatic graph seed leaked into search box',section?.querySelector('.code-graph-search'));
+        if(full){
+          const box=r(section),button=document.getElementById('codeGraphFull');
+          check(section.classList.contains('code-graph-fullscreen'),'full-screen class missing',section);
+          check(document.documentElement.classList.contains('code-graph-fullscreen-open'),'document full-screen lock missing',document.documentElement);
+          check(button?.getAttribute('aria-pressed')==='true','full-screen toggle state missing',button);
+          check(Math.abs(box.left)<=1&&Math.abs(box.top)<=1&&Math.abs(box.right-innerWidth)<=1&&Math.abs(box.bottom-innerHeight)<=1,'full-screen stage does not cover viewport',section);
+          check(viewport&&viewport.clientHeight>=Math.min(320,innerHeight*.45),'full-screen graph viewport too short',viewport);
+          if(innerWidth>980&&canvas&&inspector){const a=r(canvas),b=r(inspector);check(a.right<=b.left+1,'full-screen inspector overlaps canvas',canvas,inspector);}
+        } else {
+          check(!section.classList.contains('code-graph-fullscreen'),'regular graph leaked full-screen state',section);
+        }
       }
       const header=document.querySelector('.global-bar');
       const headerChildren=header&&header.scrollWidth>header.clientWidth+1?[...header.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).right>r(header).right+1||r(el).left<r(header).left-1)).slice(0,12).map(describe):[];
@@ -70,6 +97,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         super.init();web.navigationDelegate=self
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
         for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph"))}}}
+        for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph-full"))}}}
+        for view in ["activity","changes","requirements","files","architecture-blueprint","architecture-components","architecture-dependencies"] {for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,view))}}}}
         totalCases=scenarios.count
         if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--timeout=")}) {
             let value=String(option.dropFirst("--timeout=".count))
@@ -119,7 +148,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        (()=>{state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if('\(tab)'==='codegraph'){state.architectureView='codegraph';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab('\(tab)');}window.scrollTo(0,0);return innerWidth;})()
+        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
         """
         web.evaluateJavaScript(setup){value,error in
             if let error {self.finish("Browser setup failed: \(error)");return}

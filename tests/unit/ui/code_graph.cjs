@@ -42,6 +42,42 @@ async function run(){
     assert.equal(s.node('#codeGraphSearch').value,'','automatic focus must not write into the user search box');
   });
 
+  await test('code graph supports an application full-screen stage without browser fullscreen APIs',async()=>{
+    const s=sandbox();
+    s.run('setCodeGraphFull(true)');
+    assert.equal(s.run('state.codeGraphFull'),true);
+    assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),true);
+    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'true');
+    s.run('setCodeGraphFull(false)');
+    assert.equal(s.run('state.codeGraphFull'),false);
+    assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),false);
+    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'false');
+  });
+
+  await test('Escape exits Code Graph full screen before other overlays',async()=>{
+    const s=sandbox();let prevented=false;
+    s.run('setCodeGraphFull(true)');
+    s.events.keydown({key:'Escape',preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);
+    assert.equal(s.run('state.codeGraphFull'),false);
+    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'false');
+  });
+
+  await test('leaving Code Graph view cannot strand the full-screen overlay',async()=>{
+    const s=sandbox();
+    s.run('setCodeGraphFull(true);state.architectureView="components";renderArchitecture();');
+    assert.equal(s.run('state.codeGraphFull'),false);
+    assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),false);
+  });
+
+  await test('full-screen accessibility label follows live language changes',async()=>{
+    const s=sandbox();
+    s.run('setCodeGraphFull(true);state.language="zh-CN";applyLanguage();');
+    assert.match(s.node('#codeGraphFull').attrs['aria-label'],/退出代码图谱全屏/);
+    s.run('state.language="en";applyLanguage();');
+    assert.match(s.node('#codeGraphFull').attrs['aria-label'],/Exit full screen code graph/);
+  });
+
   await test('manual Design State paths are rejected locally because Code Graph is code-only',async()=>{
     const s=sandbox();s.run('state.current="A";');
     s.node('#codeGraphSearch').value='.wcode/design/acceptance.yaml';

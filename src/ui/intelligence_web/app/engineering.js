@@ -511,6 +511,7 @@ function renderArchitecture() {
   state.architectureView = view;
   const blueprint = view === "blueprint", components = view === "components", graph = view === "graph", codegraph = view === "codegraph";
   if (!blueprint && state.systemMapFull) setSystemMapFull(false);
+  if (!codegraph && state.codeGraphFull) setCodeGraphFull(false);
   document.querySelectorAll("[data-architecture-view]").forEach(button => {
     const active = button.dataset.architectureView === view;
     button.classList.toggle("active", active);
