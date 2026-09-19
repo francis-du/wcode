@@ -1,0 +1,27 @@
+schema_version: 1
+id: REQ-MULTI-AGENT-001
+title: Parallel agents use read-many single-writer isolation
+intent: >-
+  Multi-agent execution must default to independent read-only investigators/reviewers operating concurrently while
+  one writer owns mutations for a shared Git-worktree mutation domain. Writer ownership is enforced by a bounded
+  runtime lease tied to a claimed Design/Implementation Reconciliation task; while such a lease is active, file
+  mutations and workspace-mutating commands require the opaque lease and another MCP client/subagent cannot bypass
+  ownership by calling write tools directly. Nested Workspace/subspace roots inside the same Git worktree share the
+  same mutation domain. When genuinely independent implementation lanes need multiple writers, each writer must use
+  a distinct registered Git linked-worktree Workspace root, which naturally receives separate Execution,
+  Reconciliation and Evidence state; wcode does not silently create worktrees on the model's behalf. Review claims
+  remain parallel/read-only. Results converge through explicit review, reconciliation and verification; agent
+  consensus never bypasses deterministic gates. Shared-worktree concurrent writers are not an allowed optimization.
+priority: high
+implemented_by:
+  - component:execution-orchestrator
+  - component:scheduler
+acceptance:
+  - AC-MULTI-AGENT-001
+constraints:
+  - CONSTRAINT-MULTI-AGENT-WRITE-ISOLATION
+  - CONSTRAINT-PARALLEL-FIRST
+  - CONSTRAINT-SCHEDULER-RESOURCES
+risk:
+  reliability: critical
+  security: high

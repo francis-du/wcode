@@ -12,6 +12,7 @@ responsibilities:
   - benchmark candidate providers against the same authored Fitness Gold so external or local providers can be evaluated before promotion
   - "allow an explicitly integrated external Jev provider to run as increase-only assist: it may request more retrieval, semantic navigation, verification, or reasoning, but may not reduce deterministic work or expose a more permissive edit action than the deterministic baseline"
   - dynamically discover Jev credentials for each Agent Context call from the current process or literal user shell assignments without executing shell configuration, and fail soft to the deterministic provider when credentials or the remote service are unavailable
+  - project the latest actual Agent Context Jev outcome into bounded per-workspace observability state with freshness, provider/model/question-set identity, baseline/candidate action, increase-only guidance and comparison health while excluding credentials, raw prompts/context and raw provider responses
 depends_on: []
 constraints:
   - CONSTRAINT-BOUNDED-VERIFICATION

@@ -1,0 +1,26 @@
+schema_version: 1
+id: component:execution-policy
+name: Declarative Execution Policy
+responsibilities:
+  - evaluate declared tool effect canonical Product Scope Execution phase risk and writer ownership into bounded required controls
+  - compose writer lease review plan approval human approval and verification floors monotonically with existing Authorization/Evidence/Verification gates
+  - reuse existing workspace command mutation classification instead of maintaining a second command allowlist
+  - expose the decision through a read-only bounded status surface while keeping enforcement outside prompt/Skill memory
+  - remain inspectable and deterministic without arbitrary repository-provided executable hooks or policy code
+  - classify policy-bypass command execution as broad and require the OS sandbox independently from human approval; bounded command profiles keep the existing direct path
+constraints:
+  - CONSTRAINT-DECLARATIVE-EXECUTION-POLICY
+  - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
+  - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+depends_on:
+  - component:authorization
+  - component:verification-mesh
+  - component:execution-runtime
+  - component:execution-sandbox
+implementation:
+  - {kind: file, path: src/runtime/execution_policy.rs}
+  - {kind: file, path: src/workspace/authorization.rs}
+  - {kind: file, path: src/workspace/command_policy.rs}
+  - {kind: file, path: src/integrations/mcp/authorization.rs}
+  - {kind: file, path: src/integrations/mcp/writer.rs}
+  - {kind: file, path: src/workspace/sandbox.rs}

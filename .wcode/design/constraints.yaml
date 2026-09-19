@@ -108,7 +108,7 @@
 - schema_version: 1
   id: CONSTRAINT-SCHEDULER-RESOURCES
   title: Scheduler decisions come from explicit workspace resources
-  statement: Parallel scheduling must model reads, writes, creates, move sources, move destinations and deletes; independent work may fan out and conflicting resources must be dependency ordered.
+  statement: Parallel scheduling must model reads, writes, creates, move sources, move destinations, deletes and external-process contention resources; independent work may fan out and conflicting resources must be dependency ordered. Heavy process admission uses a per-Workspace/subspace quota before a separate host physical cap so one subspace cannot monopolize another subspace's local capacity. Cargo registry mutation is globally exclusive, workspace compilation/analysis is exclusive against same-workspace Cargo tests, and verification-safe test execution may share only a bounded reader lane governed by the subspace quota plus host capacity. Git-worktree mutation ownership remains independent from execution quota identity.
   applies_to:
     - component:scheduler
 
@@ -241,3 +241,44 @@
   statement: Self-update must use the release checksum contract, stage the downloaded binary separately, require successful version and help smoke tests, and replace the installation only afterward. A failed download, checksum, signature or smoke test must leave the existing installed binary in place; Windows replacement must occur only after the running executable exits.
   applies_to:
     - component:cli-lifecycle
+
+- schema_version: 1
+  id: CONSTRAINT-EXECUTION-AUTHORITY
+  title: Execution projects authority instead of duplicating it
+  statement: Durable Execution and checkpoints may project objective, phase, revision, runnable work, plan references and blockers, but Worklist remains authoritative for model work, Reconciliation remains authoritative for convergence tasks, Verification/Evidence remain authoritative for proof, and Authorization remains authoritative for trust. Execution cannot invent, overwrite or weaken those states and terminal completion must be derived from them.
+  applies_to:
+    - component:execution-runtime
+    - component:agent-context
+
+- schema_version: 1
+  id: CONSTRAINT-APPROVED-PLAN-IMMUTABLE
+  title: Approved implementation plans are immutable snapshots
+  statement: Once a human-approved implementation or Reconciliation plan is admitted for execution, its canonical digest, code and Design revisions, acceptance references and trust/risk assumptions are frozen for that execution attempt. Material drift creates replan_required rather than silently mutating or re-deriving approved decisions.
+  applies_to:
+    - component:execution-runtime
+    - component:reconciliation-engine
+
+- schema_version: 1
+  id: CONSTRAINT-MULTI-AGENT-WRITE-ISOLATION
+  title: Parallel agents never share unconstrained write ownership
+  statement: Parallel investigation and review are read-only by default. A shared Workspace has one mutation owner at a time; concurrent writers require separately owned worktrees or equivalent isolated write roots and converge only through normal review, reconciliation and verification.
+  applies_to:
+    - component:execution-orchestrator
+    - component:scheduler
+
+- schema_version: 1
+  id: CONSTRAINT-DECLARATIVE-EXECUTION-POLICY
+  title: Mandatory lifecycle policy is declarative and non-executable
+  statement: Mandatory coding lifecycle requirements must be evaluated by bounded declarative runtime policy rather than prompt memory or arbitrary repository-provided executable hooks. Policy may increase review, verification, approval or capability restrictions but cannot bypass existing Workspace, Authorization, Evidence or Verification gates.
+  applies_to:
+    - component:execution-policy
+    - component:authorization
+    - component:verification-mesh
+
+- schema_version: 1
+  id: CONSTRAINT-EXECUTION-SANDBOX-LAYERING
+  title: Sandbox isolation and human approval are separate layers
+  statement: If broad agent-owned shell execution is introduced, OS sandboxing constrains filesystem and network effects independently from approval; approval decides whether the request may be attempted. Neither layer may substitute for the other or weaken existing Workspace, environment-scrubbing, executable-identity or destructive-operation controls.
+  applies_to:
+    - component:execution-policy
+    - component:workspace-operations

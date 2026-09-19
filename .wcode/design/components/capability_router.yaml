@@ -1,0 +1,22 @@
+schema_version: 1
+id: component:capability-router
+name: Task-scoped Capability Router
+responsibilities:
+  - derive the smallest safe model-visible capability set from task intent Product Scope and Execution phase
+  - expose compact metadata before full specialized tool or Skill definitions
+  - preserve explicit user requests and mandatory recovery safety authorization and verification surfaces
+  - report routing provenance and context/tool-schema savings without creating a provider-specific branch
+constraints:
+  - CONSTRAINT-CONTEXT-BUDGET
+  - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+depends_on:
+  - component:agent-context
+  - component:mcp-capabilities
+  - component:product-scopes
+implementation:
+  - {kind: file, path: src/integrations/mcp/tools.rs}
+  - {kind: file, path: src/integrations/mcp/catalog.rs}
+  - {kind: file, path: src/scopes/mod.rs}
+  - {kind: file, path: src/runtime/harness/capability.rs}
+  - {kind: symbol, path: src/runtime/harness/agent_context.rs, symbol: ToolHarness::agent_context}

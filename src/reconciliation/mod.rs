@@ -14,7 +14,7 @@ pub enum DesignChangeKind {
     Unknown,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignChange {
     pub subject: String,
@@ -32,7 +32,7 @@ pub enum ReconciliationTaskKind {
     HumanApproval,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReconciliationTask {
     pub id: String,
@@ -43,7 +43,7 @@ pub struct ReconciliationTask {
     pub depends_on: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ChangeIntent {
     ChangeBehavior {
@@ -83,7 +83,7 @@ pub struct ImpactAnalysis {
     pub risk_level: RiskLevel,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReconciliationPlan {
     pub id: String,
     pub workspace: String,
@@ -93,6 +93,8 @@ pub struct ReconciliationPlan {
     pub impacted_components: Vec<String>,
     pub impacted_symbols: Vec<String>,
     pub impacted_tests: Vec<String>,
+    #[serde(default)]
+    pub impacted_acceptance: Vec<String>,
     pub implementation_tasks: Vec<ReconciliationTask>,
     pub change_intents: Vec<ChangeIntent>,
     pub verification_plan: VerificationPlan,
@@ -107,6 +109,19 @@ pub enum ReconciliationRunStatus {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReconciliationClaimMode {
+    ReadOnly,
+    SharedWriter,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationClaimOwnership {
+    pub mode: ReconciliationClaimMode,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReconciliationTaskRun {
@@ -114,6 +129,8 @@ pub struct ReconciliationTaskRun {
     pub status: ReconciliationRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<ReconciliationClaimOwnership>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,6 +184,7 @@ impl ReconciliationExecution {
                     task,
                     status: ReconciliationRunStatus::Pending,
                     claimed_by: None,
+                    ownership: None,
                     summary: None,
                     artifact_digest: None,
                 })
@@ -184,6 +202,12 @@ impl ReconciliationExecution {
         if executor.trim().is_empty() || executor.len() > 256 {
             return Err(ReconciliationError::InvalidExecutor);
         }
+        let writer_active = self.tasks.iter().any(|run| {
+            run.status == ReconciliationRunStatus::Claimed
+                && run.ownership.as_ref().is_some_and(|ownership| {
+                    ownership.mode == ReconciliationClaimMode::SharedWriter
+                })
+        });
         let runnable = self
             .tasks
             .iter()
@@ -197,6 +221,7 @@ impl ReconciliationExecution {
                             | ReconciliationTaskKind::Review
                     )
                     && (kinds.is_empty() || kinds.contains(&run.task.kind))
+                    && (run.task.kind == ReconciliationTaskKind::Review || !writer_active)
                     && run.task.depends_on.iter().all(|dependency| {
                         self.tasks.iter().any(|candidate| {
                             candidate.task.id == *dependency
@@ -206,9 +231,11 @@ impl ReconciliationExecution {
             })
             .map(|(index, _)| index)
             .ok_or(ReconciliationError::NoRunnableTask)?;
+        let ownership = default_claim_ownership(self.tasks[runnable].task.kind);
         let run = &mut self.tasks[runnable];
         run.status = ReconciliationRunStatus::Claimed;
         run.claimed_by = Some(executor.to_owned());
+        run.ownership = Some(ownership);
         self.updated_at_ms = now_ms();
         Ok(run.clone())
     }
@@ -267,6 +294,7 @@ impl ReconciliationExecution {
         }
         run.status = ReconciliationRunStatus::Pending;
         run.claimed_by = None;
+        run.ownership = None;
         run.summary = None;
         run.artifact_digest = None;
         self.updated_at_ms = now_ms();
@@ -303,6 +331,7 @@ impl ReconciliationExecution {
             if run.status != desired || run.summary.as_deref() != Some(summary.as_str()) {
                 run.status = desired;
                 run.claimed_by = None;
+                run.ownership = None;
                 run.summary = Some(summary.clone());
                 changed = true;
             }
@@ -394,6 +423,7 @@ impl ReconciliationPlan {
             || self.impacted_components.len() > 512
             || self.impacted_symbols.len() > 2_000
             || self.impacted_tests.len() > 2_000
+            || self.impacted_acceptance.len() > 2_000
         {
             return Err(ReconciliationError::InvalidPlan);
         }
@@ -445,6 +475,16 @@ fn has_dependency_cycle(tasks: &[ReconciliationTask]) -> bool {
         if completed.len() == before {
             return !tasks.is_empty();
         }
+    }
+}
+
+fn default_claim_ownership(kind: ReconciliationTaskKind) -> ReconciliationClaimOwnership {
+    ReconciliationClaimOwnership {
+        mode: if kind == ReconciliationTaskKind::Review {
+            ReconciliationClaimMode::ReadOnly
+        } else {
+            ReconciliationClaimMode::SharedWriter
+        },
     }
 }
 

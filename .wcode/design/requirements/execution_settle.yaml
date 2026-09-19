@@ -1,0 +1,21 @@
+schema_version: 1
+id: REQ-EXECUTION-SETTLEMENT-001
+title: Agent completion is a proposal settled by proof
+intent: >-
+  Models may propose that an Execution is complete or blocked, but must not directly author the durable terminal
+  truth. The runtime settles completion from authoritative Worklist/Reconciliation state plus current-revision
+  deterministic Verification, required reviewer/stage Evidence and HumanApproval where policy requires it. Failed,
+  stale, inconclusive or missing proof keeps the Execution non-terminal with explicit blockers.
+priority: critical
+implemented_by:
+  - component:execution-runtime
+  - component:verification-mesh
+acceptance:
+  - AC-EXECUTION-SETTLEMENT-001
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  reliability: critical
+  security: high

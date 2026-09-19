@@ -1,0 +1,30 @@
+schema_version: 1
+id: component:execution-steering
+name: Structured Execution Steering and Handoff
+responsibilities:
+  - persist bounded revision-guarded structured user directives on the active Execution without storing a transcript
+  - restore pending directive state through Agent Context before additional implementation work
+  - mark scope/objective-changing directives against a bound approved plan as requiring replan instead of mutating it
+  - derive clean handoff lineage from Execution Worklist Reconciliation and Verification state only
+  - project pending steering replan requirement verification floor and handoff lineage into the read-only Engineering Observatory
+  - raise generated Verification/Reconciliation proof policy to the persisted verification floor and block settlement on weaker proof
+  - keep deterministic authorization policy verification and settlement authority unchanged
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-APPROVED-PLAN-IMMUTABLE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+depends_on:
+  - component:execution-runtime
+  - component:agent-context
+implementation:
+  - {kind: file, path: src/runtime/execution.rs}
+  - {kind: file, path: src/intelligence/runtime/design.rs}
+  - {kind: file, path: src/intelligence/runtime/reconcile.rs}
+  - {kind: file, path: src/integrations/mcp/tools.rs}
+  - {kind: file, path: src/integrations/mcp/dispatch/intelligence.rs}
+  - {kind: file, path: src/runtime/harness/agent_context.rs}
+  - {kind: file, path: src/runtime/harness/context_budget.rs}
+  - {kind: file, path: src/runtime/harness/capability.rs}
+  - {kind: file, path: src/scopes/mod.rs}
+  - {kind: file, path: src/ui/intelligence_web/app/runtime.js}
+  - {kind: file, path: src/ui/intelligence_web/styles/observability.css}

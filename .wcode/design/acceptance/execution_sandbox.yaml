@@ -1,0 +1,21 @@
+schema_version: 1
+id: AC-EXECUTION-SANDBOX-001
+title: Future broad shell execution keeps sandbox and approval independent
+statement: >-
+  A command admitted only because Workspace all-command / Full Access bypasses the bounded command profile is marked
+  broad and must receive a platform sandbox launch plan before process spawn. The sandbox exposes the selected
+  Workspace read/write, keeps the host filesystem read-only outside sandbox scratch/Workspace, masks or denies
+  protected credential/repository-control paths at any depth within the selected Workspace, denies external network
+  access, preserves cwd and process resource limits, and never receives unsanitized credential environment variables.
+  Repository-control metadata such as .git/.hg/.svn is inaccessible to broad shell/policy-bypass commands; bounded
+  policy-approved Git operations remain on the existing direct execution lane and therefore keep their intentional
+  repository-control access. Commands already valid under the bounded command profile do not pay this sandbox cost. macOS selects Seatbelt; Linux selects bubblewrap
+  when available; unsupported or unavailable providers reject broad execution with sandbox_unavailable and never
+  fall back to a raw child process. Human command authorization remains a separate prerequisite and cannot disable
+  the sandbox.
+verification:
+  - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only}
+  - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed}
+  - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: protected_symlink_targets_are_masked_and_hardlink_aliases_fail_closed}
+  - {kind: test, path: tests/unit/workspace/execution.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed}
+  - {kind: test, path: tests/unit/workspace/execution.rs, symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass}

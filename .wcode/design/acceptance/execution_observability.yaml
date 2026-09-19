@@ -1,0 +1,13 @@
+schema_version: 1
+id: AC-EXECUTION-OBSERVABILITY-001
+title: Observatory shows truthful bounded Execution state
+statement: >-
+  The selected Workspace project payload includes a bounded execution projection sourced from durable
+  execution_status state. Before an Execution exists the UI says so explicitly. During work it shows the execution
+  identity/revision, objective, phase, Worklist done/open/blocked counts and runnable lanes, bound
+  Reconciliation/Verification identities and their converged/ready signals, current repository revision and
+  blockers. Rendering does not create or mutate Execution state and contains no transcript or raw model/provider
+  content.
+verification:
+  - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_exposes_bounded_execution_projection}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_execution_state_without_chat_history}

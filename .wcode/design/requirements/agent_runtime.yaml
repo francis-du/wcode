@@ -1,0 +1,24 @@
+schema_version: 1
+id: REQ-EXECUTION-001
+title: Durable coding Execution and structured checkpoint
+intent: >-
+  Long-running coding work must have one durable per-Workspace Execution envelope above the existing Worklist,
+  Reconciliation and Verification authorities. The Execution records the objective, phase, current repository
+  revision and a compact structured checkpoint containing open/completed/blocked work, runnable lanes,
+  current-revision Reconciliation/Verification references and blockers. It must survive model, Host and wcode
+  reconnects without persisting chat transcripts or chain-of-thought. Agent Context restores an active Execution
+  before reconstructing already completed work. Worklist completion moves the Execution to verifying; only
+  current-revision Verification readiness may settle it as completed.
+priority: critical
+implemented_by:
+  - component:execution-runtime
+  - component:agent-context
+acceptance:
+  - AC-EXECUTION-001
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-CONTEXT-BUDGET
+risk:
+  reliability: critical
+  performance: high

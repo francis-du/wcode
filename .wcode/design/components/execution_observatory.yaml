@@ -1,0 +1,18 @@
+schema_version: 1
+id: component:execution-observatory
+name: Execution Observatory Projection
+responsibilities:
+  - read the existing durable Execution checkpoint for the selected Workspace without mutating it
+  - expose objective phase revision Worklist lanes plan/proof references and blockers as bounded Observatory data
+  - render absent active blocked verifying and completed states truthfully with revision freshness
+  - exclude transcripts chain-of-thought credentials and raw provider traffic
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+depends_on:
+  - component:execution-runtime
+implementation:
+  - {kind: file, path: src/integrations/mcp/web.rs}
+  - {kind: file, path: src/ui/intelligence_web/page.html}
+  - {kind: file, path: src/ui/intelligence_web/app/runtime.js}
+  - {kind: file, path: src/ui/intelligence_web/styles/observability.css}

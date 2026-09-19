@@ -1,0 +1,21 @@
+schema_version: 1
+id: component:execution-sandbox
+name: Broad Execution OS Sandbox
+responsibilities:
+  - classify commands admitted only through Workspace all-command or Full Access as broad execution
+  - transform broad commands into platform-native sandbox launches before process spawn while leaving bounded command profiles on the existing direct path
+  - allow the selected Workspace read/write plus required system/tool reads, deny external network access, preserve cwd/time/resource bounds and sensitive-environment scrubbing
+  - use macOS Seatbelt and Linux bubblewrap; reject broad execution when the platform/provider cannot enforce the required boundary
+  - keep sandbox isolation independent from command authorization so human approval never disables containment
+constraints:
+  - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
+  - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+  - CONSTRAINT-ROOT-ISOLATION
+depends_on:
+  - component:workspace-operations
+  - component:execution-policy
+  - component:authorization
+implementation:
+  - {kind: file, path: src/workspace/sandbox.rs}
+  - {kind: symbol, path: src/workspace/operations/execution.rs, symbol: Workspace::run_command}
+  - {kind: file, path: src/workspace/command_policy.rs}

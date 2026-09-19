@@ -1,0 +1,25 @@
+schema_version: 1
+id: component:execution-runtime
+name: Durable Coding Execution Runtime
+responsibilities:
+  - project Worklist, Reconciliation, Verification and repository revision into one durable Execution envelope
+  - persist compact structured checkpoints without chat transcript or chain-of-thought storage
+  - restore active execution state into Agent Context before duplicate repository reconstruction
+  - keep completion fail-closed until current-revision verification settles it
+  - persist explicit human-approved immutable plan snapshots with canonical digest, revision and acceptance/verification bindings
+  - gate first model-executable Reconciliation admission on the approved baseline revision, then keep later execution bound to the frozen snapshot without treating expected plan-produced edits as automatic drift
+  - expose plan approval state separately from Verification approval and surface replan_required without mutating the approved snapshot
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-APPROVED-PLAN-IMMUTABLE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+depends_on:
+  - component:agent-context
+  - component:reconciliation-execution
+  - component:verification-mesh
+implementation:
+  - {kind: file, path: src/runtime/execution.rs}
+  - {kind: file, path: src/runtime/worklist.rs}
+  - {kind: file, path: src/reconciliation/approval.rs}
+  - {kind: file, path: src/intelligence/runtime/approval.rs}
+  - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence.rs, symbol: call}

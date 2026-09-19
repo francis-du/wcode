@@ -374,12 +374,13 @@ impl SoftwareIntelligenceRuntime {
             known_checks,
             review,
         )?;
+        let verification_risk = crate::execution::verification_risk_floor(workspace, risk.level)?;
         let registry = stage_executor::registry(workspace)?;
-        let stage_targets = verification_targets_for_review(review, &registry, risk.level);
+        let stage_targets = verification_targets_for_review(review, &registry, verification_risk);
         self.create_plan_for_risk_with_targets(
             &workspace_id,
             workspace,
-            risk.level,
+            verification_risk,
             stage_targets,
             &registry,
         )

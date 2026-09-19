@@ -18,6 +18,7 @@ fn execution_state_survives_a_fresh_load() {
         impacted_components: vec![],
         impacted_symbols: vec![],
         impacted_tests: vec![],
+        impacted_acceptance: vec![],
         implementation_tasks: vec![ReconciliationTask {
             id: "RT-1".into(),
             kind: ReconciliationTaskKind::Implementation,
@@ -66,6 +67,7 @@ fn batch_load_uses_one_exact_latest_snapshot_per_plan() {
         impacted_components: vec![],
         impacted_symbols: vec![],
         impacted_tests: vec![],
+        impacted_acceptance: vec![],
         implementation_tasks: vec![ReconciliationTask {
             id: "RT-1".into(),
             kind: ReconciliationTaskKind::Implementation,

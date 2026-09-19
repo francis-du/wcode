@@ -1,0 +1,27 @@
+schema_version: 1
+id: REQ-APPROVED-PLAN-001
+title: Approved plans execute from immutable snapshots
+intent: >-
+  A user-approved implementation or Reconciliation plan must be frozen into an immutable snapshot bound to its
+  canonical plan digest, repository revision, Design revision and acceptance/verification references. Plan approval
+  is a distinct explicit HumanApproval attestation and must not be conflated with Verification approval. Model-
+  executable Reconciliation work requires that frozen snapshot and reads the snapshot rather than silently re-
+  deriving the live plan. Before the first model-executable task starts, any code/Design revision change invalidates
+  admission with replan_required. Once execution has started, expected plan-produced edits may advance repository
+  revision without invalidating the snapshot merely because the SHA changed; subsequent drift checks must be scoped
+  to material premise, ownership, trust-boundary or risk changes. Mechanical adjustments that preserve approved
+  decisions are allowed; material premise failure, changed trust boundaries, missing referenced components or
+  materially increased risk must stop implementation in a replan_required state and require a new plan/review cycle.
+priority: critical
+implemented_by:
+  - component:execution-runtime
+  - component:reconciliation-engine
+acceptance:
+  - AC-APPROVED-PLAN-001
+constraints:
+  - CONSTRAINT-APPROVED-PLAN-IMMUTABLE
+  - CONSTRAINT-SAFE-RECONCILIATION
+  - CONSTRAINT-DESIGN-SYNC
+risk:
+  reliability: critical
+  security: high

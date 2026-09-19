@@ -1,0 +1,18 @@
+schema_version: 1
+id: AC-EXECUTION-POLICY-001
+title: Mandatory workflow gates execute as declarative policy
+statement: >-
+  A bounded pure Execution Policy deterministically maps tool effect, canonical Product Scopes, Execution phase,
+  risk and ownership state to required controls. Higher risk or a stronger existing control can only preserve or
+  increase review/verification/approval requirements. File mutation and commands that the existing command policy
+  classifies as workspace-writing require the active owner-bound writer lease when one exists; read-only work does
+  not. A mutation bound to a Reconciliation Plan requires its explicit approved snapshot and fails closed on
+  replan-required drift before execution. Policy output is inspectable through a read-only status surface and
+  contains no executable hook/script field. Repository configuration cannot inject arbitrary executable policy code
+  or reduce Authorization, Evidence or Verification.
+verification:
+  - {kind: test, path: tests/unit/runtime/execution_policy.rs, symbol: policy_is_deterministic_and_monotonic_in_risk}
+  - {kind: test, path: tests/unit/runtime/execution_policy.rs, symbol: policy_requires_writer_lease_only_for_mutating_effects_when_active}
+  - {kind: test, path: tests/unit/runtime/execution_policy.rs, symbol: policy_has_no_repository_executable_hook_surface}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: execution_policy_status_is_read_only_and_bounded}
+  - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: bound_mutation_requires_explicit_plan_approval}

@@ -1,0 +1,24 @@
+schema_version: 1
+id: REQ-CAPABILITY-ROUTING-001
+title: Task-scoped capability and Skill loading
+intent: >-
+  Model-visible capability discovery must progressively disclose only the tools, Skills, Product Scopes and
+  expensive schemas relevant to the current task and active Execution phase. The stable core catalog stays
+  discoverable, but low-frequency or specialized capabilities are represented first by compact metadata and loaded
+  in full only when Agent Context, explicit user intent or a runtime state transition requires them. Dynamic routing
+  must be provider-neutral, deterministic from declared capability metadata and current state, preserve explicit user
+  tool requests, and never hide a required safety, authorization, verification or recovery capability.
+priority: critical
+implemented_by:
+  - component:capability-router
+  - component:agent-context
+  - component:mcp-capabilities
+acceptance:
+  - AC-CAPABILITY-ROUTING-001
+constraints:
+  - CONSTRAINT-CONTEXT-BUDGET
+  - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
+  - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+risk:
+  performance: critical
+  compatibility: high

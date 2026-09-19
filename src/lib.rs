@@ -22,6 +22,10 @@ mod engineering_journal;
 pub mod evidence;
 #[path = "evidence/store.rs"]
 mod evidence_store;
+#[path = "runtime/execution.rs"]
+mod execution;
+#[path = "runtime/execution_policy.rs"]
+mod execution_policy;
 #[path = "evidence/experience.rs"]
 mod experience_store;
 #[path = "graph/mod.rs"]
@@ -68,6 +72,8 @@ mod quality_catalog_web;
 mod quality_provider;
 #[path = "reconciliation/mod.rs"]
 pub mod reconcile;
+#[path = "reconciliation/approval.rs"]
+mod reconciliation_approval;
 #[path = "reconciliation/execution_store.rs"]
 mod reconciliation_execution_store;
 #[path = "reconciliation/store.rs"]

@@ -1,0 +1,16 @@
+schema_version: 1
+id: AC-APPROVED-PLAN-001
+title: Approved plans cannot silently mutate during implementation
+statement: >-
+  Explicit human Plan approval freezes a canonical immutable Reconciliation Plan snapshot with digest, code/Design
+  revision and acceptance/verification bindings, independently from Verification approval. Model-executable claim
+  is rejected without approval; if code/Design changed before the first model task starts, admission returns
+  replan_required. After execution starts, claim/submit continue from the frozen snapshot rather than a re-derived
+  live plan, and expected plan-produced edits do not invalidate approval solely because repository SHA advanced.
+  The approval snapshot is immutable and auditable as HumanApproval Evidence.
+verification:
+  - {kind: test, path: tests/unit/reconciliation/approval.rs, symbol: explicit_plan_approval_freezes_digest_revision_and_references}
+  - {kind: test, path: tests/unit/reconciliation/approval.rs, symbol: claim_requires_approval_and_pre_start_revision_drift_requires_replan}
+  - {kind: test, path: tests/unit/reconciliation/approval.rs, symbol: started_execution_keeps_using_the_frozen_plan_after_expected_code_revision_changes}
+  - {kind: test, path: tests/unit/intelligence/approval.rs, symbol: runtime_requires_approval_and_rejects_pre_start_revision_drift}
+  - {kind: test, path: tests/unit/intelligence/approval.rs, symbol: runtime_claim_is_gated_by_approval_and_then_uses_the_frozen_plan}

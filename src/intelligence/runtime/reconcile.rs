@@ -303,9 +303,7 @@ impl SoftwareIntelligenceRuntime {
             .filter(|token| token.len() >= 3)
             .filter(|token| !is_context_symbol_stopword(token))
             .filter(|token| !literal_parts.contains(token.as_str()))
-            // The final symbol query budget is already capped at eight below.
-            // Keep enough natural-language terms for shorter module/path words
-            // such as `session` to survive longer symptom words.
+            // The final symbol query budget is capped at eight; keep shorter module/path terms such as `session` alive.
             .take(8)
             .cloned()
             .collect::<Vec<_>>();
@@ -575,12 +573,13 @@ impl SoftwareIntelligenceRuntime {
             risk.level,
             Some(&graph),
         );
+        let verification_risk = crate::execution::verification_risk_floor(workspace, risk.level)?;
         let registry = stage_executor::registry(workspace)?;
-        let stage_targets = verification_targets_for_review(review, &registry, risk.level);
+        let stage_targets = verification_targets_for_review(review, &registry, verification_risk);
         let verification_plan = self.create_plan_for_risk_with_targets(
             &workspace_id,
             workspace,
-            risk.level,
+            verification_risk,
             stage_targets,
             &registry,
         )?;
@@ -703,6 +702,7 @@ impl SoftwareIntelligenceRuntime {
             impacted_components: impact.impacted_components,
             impacted_symbols: impact.impacted_symbols,
             impacted_tests,
+            impacted_acceptance: impact.impacted_acceptance,
             implementation_tasks: tasks,
             change_intents: intents,
             verification_plan,
@@ -755,8 +755,12 @@ impl SoftwareIntelligenceRuntime {
             ));
         }
         let stored_execution = reconciliation_execution_store::load(workspace, &plan.id)?;
-        let verification =
-            self.verification_status(workspace_id, workspace, &plan.verification_plan.id)?;
+        let verification = self.reconciliation_verification_status(
+            workspace_id,
+            workspace,
+            plan,
+            stored_execution.as_ref(),
+        )?;
         reconciliation_execution_status_from_inputs(
             workspace,
             plan,
@@ -817,22 +821,6 @@ impl SoftwareIntelligenceRuntime {
             .collect()
     }
 
-    pub(crate) fn reconciliation_claim(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        plan_id: &str,
-        executor: &str,
-        kinds: &[ReconciliationTaskKind],
-    ) -> Result<ReconciliationTaskRun> {
-        self.reconciliation_execution_status(workspace_id, workspace, plan_id)?;
-        let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .ok_or_else(|| anyhow!("reconciliation execution state does not exist"))?;
-        let run = execution.claim(executor, kinds)?;
-        reconciliation_execution_store::persist(workspace, &execution)?;
-        Ok(run)
-    }
-
     pub(crate) fn reconciliation_submit(
         &self,
         workspace_id: &str,
@@ -842,14 +830,10 @@ impl SoftwareIntelligenceRuntime {
         executor: &str,
         submission: ReconciliationTaskSubmission,
     ) -> Result<ReconciliationTaskRun> {
-        let plan = self.reconciliation_status(workspace, plan_id)?;
-        if plan.workspace != workspace_id {
-            return Err(anyhow!(
-                "reconciliation plan does not belong to the selected workspace"
-            ));
-        }
+        let snapshot = self.approved_reconciliation_snapshot(workspace_id, workspace, plan_id)?;
+        let plan = &snapshot.plan;
         let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .unwrap_or(ReconciliationExecution::from_plan(&plan)?);
+            .unwrap_or(ReconciliationExecution::from_plan(plan)?);
         let run = execution.submit(task_id, executor, submission)?;
         reconciliation_execution_store::persist(workspace, &execution)?;
         let mut evidence = Evidence::new(
@@ -885,14 +869,10 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
         task_id: &str,
     ) -> Result<ReconciliationTaskRun> {
-        let plan = self.reconciliation_status(workspace, plan_id)?;
-        if plan.workspace != workspace_id {
-            return Err(anyhow!(
-                "reconciliation plan does not belong to the selected workspace"
-            ));
-        }
+        let snapshot = self.approved_reconciliation_snapshot(workspace_id, workspace, plan_id)?;
+        let plan = &snapshot.plan;
         let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .unwrap_or(ReconciliationExecution::from_plan(&plan)?);
+            .unwrap_or(ReconciliationExecution::from_plan(plan)?);
         let run = execution.retry(task_id)?;
         reconciliation_execution_store::persist(workspace, &execution)?;
         Ok(run)

@@ -1,0 +1,27 @@
+schema_version: 1
+id: REQ-EXECUTION-SANDBOX-001
+title: Expanded command execution can add an OS sandbox layer
+intent: >-
+  The existing explicit Workspace all-command / Full Access lane can execute commands that the normal bounded
+  command profiles reject, including shell interpreters and arbitrary external executables, so it is a broad
+  agent-owned execution surface. That policy-bypass lane must run inside an operating-system sandbox independent
+  from human approval. Commands that still satisfy the normal bounded development/verification profiles keep the
+  existing direct execution path. Broad execution uses workspace-write filesystem isolation, denies external network
+  access, preserves cwd/time/resource bounds and always scrubs sensitive environment variables. macOS uses Seatbelt;
+  Linux uses bubblewrap when available; a platform/provider with no enforceable sandbox fails the broad command
+  closed rather than silently executing unsandboxed. Approval decides whether a broad action may be attempted, never
+  whether OS isolation applies.
+priority: medium
+implemented_by:
+  - component:execution-policy
+  - component:execution-sandbox
+  - component:workspace-operations
+acceptance:
+  - AC-EXECUTION-SANDBOX-001
+constraints:
+  - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
+  - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+  - CONSTRAINT-ROOT-ISOLATION
+risk:
+  security: critical
+  compatibility: high

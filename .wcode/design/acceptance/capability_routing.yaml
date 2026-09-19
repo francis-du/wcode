@@ -1,0 +1,13 @@
+schema_version: 1
+id: AC-CAPABILITY-ROUTING-001
+title: Model-visible capabilities are progressively disclosed without hiding mandatory controls
+statement: >-
+  Agent Context and MCP capability discovery can derive a deterministic compact capability manifest for a task or
+  Execution phase, specialized schemas and Skill bodies are loaded only when needed, explicit user-requested tools
+  remain reachable, and safety, authorization, verification and recovery tools can never be removed by optimization.
+  Regression measurement reports catalog/schema bytes and task-visible capability counts.
+verification:
+  - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: coding_manifest_keeps_mandatory_controls_and_defers_specialized_scopes}
+  - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: execution_phase_and_query_promote_only_relevant_specialized_tools}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: tool_catalog_marks_core_and_on_demand_capabilities_without_hiding_tools}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: tool_catalog_is_deterministic_compact_and_unique}

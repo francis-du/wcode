@@ -50,3 +50,71 @@
     - component:decision-plane
     - component:agent-context
     - component:verification-harness
+
+- schema_version: 1
+  id: ADR-006-DURABLE-EXECUTION
+  title: Long-running coding work is represented by a derived durable Execution
+  status: accepted
+  decision: A per-Workspace Execution envelope and structured checkpoint sit above Worklist, Reconciliation, Verification and Authorization without replacing their authority. Execution stores prompt-free recovery state and Agent Context restores it before reconstructing prior work.
+  rationale: Market-leading coding agents increasingly make task/session continuity first-class, while wcode already owns stronger durable engineering state. A derived Execution unifies those states without creating a second mutable source of truth or persisting chat history.
+  affects:
+    - REQ-EXECUTION-001
+    - REQ-EXECUTION-SETTLEMENT-001
+    - component:execution-runtime
+    - component:agent-context
+
+- schema_version: 1
+  id: ADR-007-PROGRESSIVE-CAPABILITIES
+  title: Specialized agent capabilities are progressively disclosed
+  status: accepted
+  decision: wcode keeps a stable mandatory core capability surface while task-specific tools and Skills are advertised by compact metadata and expanded only when task intent, Product Scope, Execution phase or explicit user request needs them. Safety, recovery, authorization and required verification capabilities are never optimized away.
+  rationale: Large always-on tool and Skill schemas consume model context and increase routing noise. Progressive disclosure preserves interoperability and explicit user control while reducing token/schema overhead.
+  affects:
+    - REQ-CAPABILITY-ROUTING-001
+    - component:capability-router
+    - component:mcp-capabilities
+
+- schema_version: 1
+  id: ADR-008-PLAN-SNAPSHOT
+  title: Approved plans are frozen inputs, not mutable suggestions
+  status: accepted
+  decision: Human-approved implementation plans execute from an immutable revision-bound snapshot. Material premise, trust-boundary or risk drift stops execution with replan_required; agents may not silently redesign the approved plan in place.
+  rationale: Separating planning approval from implementation prevents the executed change from diverging materially from what the human reviewed and gives Verification a stable object to evaluate.
+  affects:
+    - REQ-APPROVED-PLAN-001
+    - component:execution-runtime
+    - component:reconciliation-engine
+
+- schema_version: 1
+  id: ADR-009-MULTI-AGENT-OWNERSHIP
+  title: Multi-agent parallelism defaults to read-many single-writer
+  status: accepted
+  decision: Independent investigators and reviewers may run concurrently with read-only authority. One writer owns shared-Workspace mutation; additional concurrent writers require isolated worktrees and explicit convergence through normal review, reconciliation and verification.
+  rationale: Parallel model reasoning is useful, but concurrent uncontrolled mutations create races and invalidate evidence. Read-many/single-writer captures most parallel benefit while worktree isolation provides a safe escape hatch for independent implementation lanes.
+  affects:
+    - REQ-MULTI-AGENT-001
+    - component:execution-orchestrator
+    - component:scheduler
+
+- schema_version: 1
+  id: ADR-010-RUNTIME-POLICY
+  title: Mandatory agent workflow belongs to declarative runtime policy
+  status: accepted
+  decision: Required lifecycle actions such as review, verification, approval and capability restrictions are enforced by inspectable declarative policy composed with existing trust/evidence mechanisms, not by relying on Skills/prompts or arbitrary executable repository hooks. An OS sandbox is added only if wcode later exposes broader agent-owned shell execution, and remains independent from approval.
+  rationale: Prompt instructions are advisory and arbitrary hooks widen the attack surface. Declarative policy makes mandatory behavior testable and model-neutral while preserving wcode's existing authorization and verification boundaries.
+  affects:
+    - REQ-EXECUTION-POLICY-001
+    - REQ-EXECUTION-SANDBOX-001
+    - component:execution-policy
+
+- schema_version: 1
+  id: ADR-011-BROAD-EXECUTION-SANDBOX
+  title: Policy-bypass commands are sandboxed instead of becoming raw Full Access children
+  status: accepted
+  decision: Commands that remain valid under wcode's bounded command profiles keep the existing direct execution path. A command admitted only because Workspace all-command or Full Access bypasses the bounded profile is broad execution and must be transformed by an OS sandbox before spawn. macOS uses Seatbelt and Linux uses bubblewrap; an unavailable or unsupported provider fails the broad command closed. Sandbox policy grants Workspace read/write and required system/tool reads, denies external network access, preserves resource/cwd bounds and keeps sensitive environment scrubbing active. Human authorization cannot disable this isolation layer.
+  rationale: All-command and Full Access currently create the exact broad agent-owned execution surface anticipated by REQ-EXECUTION-SANDBOX-001. Sandboxing only the bypass lane preserves compatibility and performance for normal engineering commands while preventing explicit approval from becoming equivalent to unisolated shell authority.
+  affects:
+    - REQ-EXECUTION-SANDBOX-001
+    - component:execution-sandbox
+    - component:workspace-operations
+    - component:execution-policy

@@ -1,0 +1,109 @@
+schema_version: 1
+id: AC-WORKSPACE-001
+title: Workspace coding primitives remain transactional and guarded
+statement: >-
+  Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces
+  idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain
+  workspace-bound, argument-bound, and deny-safe by default. An explicit current-runtime Workspace all-command grant
+  switches direct run_command execution to an unrestricted lane: executable allowlists, command-shape/argument
+  filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup
+  no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain
+  independent. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
+  pre-spawn contention gate before scarce child-process admission. Registry commands serialize globally. In one
+  Workspace, build/check/clippy/bench/doc/fix/run/rustc/rustdoc take an exclusive writer permit, while cargo test and
+  cargo nextest run take a shared reader permit plus a resource-derived test slot; independent tests may overlap up to
+  that slot bound, an exclusive writer cannot start until existing test readers finish, and new readers cannot bypass
+  a queued writer. Different Workspaces remain independent. Heavy command admission then acquires a per-Workspace
+  child-process quota before the host-wide physical child-process queue; a busy subspace cannot consume another
+  subspace's local permits, while aggregate process count remains bounded by the host cap and local waiters cannot
+  bypass resource-pressure admission. Git-worktree writer ownership remains a separate mutation-domain constraint.
+  Cargo queue wait does not consume the subsequent command execution timeout. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string;
+  malformed routing never silently selects the default Workspace.
+verification:
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: coding_primitives_create_write_edit_move_and_batch_safely
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: workspace_command_allowlist_supports_defaults_and_operator_authorized_programs
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cargo_contention_classification_separates_registry_exclusive_and_shared_test_lanes
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cargo_workspace_tests_share_bounded_reader_capacity
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cargo_workspace_writer_waits_for_test_readers_and_blocks_late_readers
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cargo_registry_gate_is_global_but_workspace_gates_are_independent
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cargo_contention_wait_is_bounded_separately_from_execution_timeout
+  - kind: test
+    path: tests/unit/runtime/process_admission.rs
+    symbol: subspace_process_admission_isolated_under_shared_host_capacity
+  - kind: test
+    path: tests/unit/runtime/process_admission.rs
+    symbol: host_process_cap_bounds_aggregate_subspace_activity
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: revoked_catalog_command_becomes_selectively_authorizable
+  - kind: test
+    path: tests/unit/workspace/policy.rs
+    symbol: bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries
+  - kind: test
+    path: tests/unit/workspace/policy.rs
+    symbol: ordinary_git_lifecycle_is_autonomous_while_destructive_variants_stay_blocked
+  - kind: test
+    path: tests/unit/workspace/policy.rs
+    symbol: audit_git_literal_messages_remain_text_without_triggering_path_guards
+  - kind: test
+    path: tests/unit/workspace/policy.rs
+    symbol: invalid_commands_do_not_create_useless_approval_requests
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: timed_out_command_returns_partial_diagnostics_without_replaying_effects
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: normal_command_output_and_exit_status_remain_compatible
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: large_command_streams_stay_bounded_and_do_not_deadlock
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: cancelling_command_owns_the_process_and_pipe_readers
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: timeout_diagnostics_preserve_existing_redaction
+  - kind: test
+    path: tests/unit/workspace/execution.rs
+    symbol: direct_commands_use_the_same_completion_contract
+  - kind: test
+    path: tests/unit/workspace/policy.rs
+    symbol: bounded_git_commit_and_branch_run_without_authorization
+  - kind: test
+    path: tests/unit/workspace/media.rs
+    symbol: detects_png_dimensions_without_decoder_dependency
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: explicit_nested_workspace_authorization_reuses_parent_security_boundary
+  - kind: test
+    path: tests/unit/workspace/mod.rs
+    symbol: webui_derived_workspace_authorization_blocks_symlink_children
+  - kind: test
+    path: tests/unit/integrations/mcp/http.rs
+    symbol: webui_command_approval_gates_executable_access_without_re_gating_safe_toolchains
+  - kind: test
+    path: tests/unit/integrations/mcp/http.rs
+    symbol: exact_operation_endpoint_does_not_implicitly_allow_an_executable
+  - kind: test
+    path: tests/unit/integrations/mcp/dispatch.rs
+    symbol: strict_workspace_selector_rejects_invalid_explicit_values
+  - kind: test
+    path: tests/unit/integrations/mcp/dispatch.rs
+    symbol: strict_tool_envelopes_and_workspace_types_never_write

@@ -84,6 +84,10 @@ pub(crate) fn status(workspace: &Workspace) -> Result<Value> {
     Ok(status_value(&worklist, true))
 }
 
+pub(crate) fn snapshot(workspace: &Workspace) -> Result<Option<Worklist>> {
+    load(workspace)
+}
+
 pub(crate) fn active_summary(workspace: &Workspace) -> Result<Option<Value>> {
     let Some(worklist) = load(workspace)? else {
         return Ok(None);
@@ -262,7 +266,7 @@ fn status_value(worklist: &Worklist, include_items: bool) -> Value {
     })
 }
 
-fn runnable_ids(worklist: &Worklist) -> Vec<String> {
+pub(crate) fn runnable_ids(worklist: &Worklist) -> Vec<String> {
     let done = worklist
         .items
         .iter()
@@ -287,7 +291,7 @@ fn runnable_ids(worklist: &Worklist) -> Vec<String> {
         .collect()
 }
 
-fn is_complete(worklist: &Worklist) -> bool {
+pub(crate) fn is_complete(worklist: &Worklist) -> bool {
     !worklist.items.is_empty()
         && worklist
             .items

@@ -1,0 +1,16 @@
+schema_version: 1
+id: AC-EXECUTION-SETTLEMENT-001
+title: Terminal Execution state is proof-settled
+statement: >-
+  A model completion or blocker claim is stored as a proposal at most. Completed becomes durable only when
+  authoritative Worklist and any Execution-bound Reconciliation state are terminal/converged and all required
+  current-revision deterministic, reviewer, stage and HumanApproval gates are satisfied; stale, failed, missing or
+  inconclusive proof remains visible as blockers. Once an Execution binds a Reconciliation Plan, expected code
+  revision changes produced by that approved plan must not silently drop the binding; the same plan remains part of
+  completion settlement until it converges or requires replanning.
+verification:
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_checkpoint_tracks_worklist_and_requires_verification_to_complete}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: model_terminal_proposal_is_advisory_and_cannot_self_complete}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: verification_ready_cannot_complete_until_current_reconciliation_converges}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: bound_reconciliation_plan_survives_expected_repository_revision_change}
+  - {kind: test, path: tests/unit/intelligence/approval.rs, symbol: current_reconciliation_verification_never_downgrades_required_risk}

@@ -1,0 +1,21 @@
+schema_version: 1
+id: REQ-EXECUTION-OBSERVABILITY-001
+title: Active Execution is observable without becoming a second control plane
+intent: >-
+  The Engineering Observatory must expose the current Workspace Execution as a bounded read-only projection of the
+  durable Execution checkpoint: execution id/revision, objective, phase, current repository revision, Worklist
+  progress and runnable lanes, bound Reconciliation/Verification references, convergence/readiness and explicit
+  blockers. The view must distinguish absent, active, blocked, verifying and completed state, preserve freshness,
+  and never expose chat transcripts, chain-of-thought, raw provider traffic or invent proof. Observatory display
+  state must not mutate Worklist, Reconciliation, Verification, Authorization or Execution settlement authority.
+priority: high
+implemented_by:
+  - component:execution-observatory
+acceptance:
+  - AC-EXECUTION-OBSERVABILITY-001
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  reliability: high
+  security: high

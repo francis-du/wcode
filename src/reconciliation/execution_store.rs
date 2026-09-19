@@ -1,5 +1,8 @@
 use crate::evidence_store::workspace_state_directory;
-use crate::reconcile::ReconciliationExecution;
+use crate::reconcile::{
+    ReconciliationClaimMode, ReconciliationExecution, ReconciliationRunStatus,
+    ReconciliationTaskRun,
+};
 use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
@@ -126,6 +129,37 @@ pub(crate) fn load_many(
         }
     }
     Ok(found)
+}
+
+pub(crate) fn claimed_writers(workspace: &Workspace) -> Result<Vec<ReconciliationTaskRun>> {
+    let directory = execution_directory(workspace)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut seen_plans = BTreeSet::new();
+    let mut claimed = Vec::new();
+    for path in execution_paths(&directory)?.into_iter().rev() {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(plan_id) = execution_snapshot_plan_id(name) else {
+            continue;
+        };
+        if seen_plans.contains(plan_id) {
+            continue;
+        }
+        let Some(execution) = read_execution(&path)? else {
+            continue;
+        };
+        seen_plans.insert(execution.plan_id.clone());
+        claimed.extend(execution.tasks.into_iter().filter(|run| {
+            run.status == ReconciliationRunStatus::Claimed
+                && run.ownership.as_ref().is_some_and(|ownership| {
+                    ownership.mode == ReconciliationClaimMode::SharedWriter
+                })
+        }));
+    }
+    Ok(claimed)
 }
 
 pub(crate) fn capabilities() -> serde_json::Value {

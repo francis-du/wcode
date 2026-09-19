@@ -1,0 +1,28 @@
+schema_version: 1
+id: REQ-EXECUTION-STEERING-001
+title: Running work accepts bounded structured steering and clean handoff
+intent: >-
+  A user must be able to steer an active durable Execution without creating a parallel chat/session source of truth.
+  Steering is stored as bounded structured directive state tied to an expected Execution revision and current
+  Worklist/repository revision, and is restored through Agent Context before further work. Directives may refine the
+  objective, request a scope change or request stronger verification, but cannot self-author completion, weaken
+  policy, bypass authorization or lower verification. A directive that changes scope/objective while an approved
+  Reconciliation plan is bound must surface replan_required rather than silently mutating the frozen plan. Handoff
+  creates a clean continuation from structured Execution/Worklist/plan/proof state and lineage only; it does not
+  persist or replay chat transcripts or chain-of-thought. The Engineering Observatory exposes the pending directive,
+  replan requirement, verification floor and handoff lineage as read-only structured state so operators can see why
+  an Execution is blocked without creating a second control plane. Verification-strengthening steering is an
+  enforceable floor rather than advisory metadata: full requires at least the full deterministic policy and
+  adversarial requires the full policy plus adversarial review; weaker proof must keep Execution unsettled.
+priority: high
+implemented_by:
+  - component:execution-steering
+acceptance:
+  - AC-EXECUTION-STEERING-001
+constraints:
+  - CONSTRAINT-EXECUTION-AUTHORITY
+  - CONSTRAINT-APPROVED-PLAN-IMMUTABLE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+risk:
+  reliability: critical
+  security: high

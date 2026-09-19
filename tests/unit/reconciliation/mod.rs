@@ -23,6 +23,7 @@ fn plan_validation_rejects_dependency_cycles() {
         impacted_components: Vec::new(),
         impacted_symbols: Vec::new(),
         impacted_tests: Vec::new(),
+        impacted_acceptance: Vec::new(),
         implementation_tasks: vec![
             ReconciliationTask {
                 id: "a".into(),
@@ -74,6 +75,7 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
         impacted_components: Vec::new(),
         impacted_symbols: Vec::new(),
         impacted_tests: Vec::new(),
+        impacted_acceptance: Vec::new(),
         implementation_tasks: vec![
             ReconciliationTask {
                 id: "design".into(),
@@ -179,4 +181,80 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
     assert_eq!(status.completed, 3);
     assert_eq!(status.blocked, 0);
     assert!(status.converged);
+}
+
+#[test]
+fn execution_allows_parallel_reviews_but_only_one_writer_claim() {
+    let task = |id: &str, kind: ReconciliationTaskKind| ReconciliationTask {
+        id: id.into(),
+        kind,
+        subject: id.into(),
+        description: format!("Run {id}"),
+        depends_on: vec![],
+    };
+    let plan = ReconciliationPlan {
+        id: "RP-ownership".into(),
+        workspace: "demo".into(),
+        risk_level: RiskLevel::Low,
+        design_changes: vec![],
+        drift_ids: vec![],
+        impacted_components: vec![],
+        impacted_symbols: vec![],
+        impacted_tests: vec![],
+        impacted_acceptance: vec![],
+        implementation_tasks: vec![
+            task("RT-write-a", ReconciliationTaskKind::Implementation),
+            task("RT-write-b", ReconciliationTaskKind::Implementation),
+            task("RT-review-a", ReconciliationTaskKind::Review),
+            task("RT-review-b", ReconciliationTaskKind::Review),
+        ],
+        change_intents: vec![],
+        verification_plan: VerificationPlan {
+            id: "VP-ownership".into(),
+            workspace: "demo".into(),
+            subject: "change:ownership".into(),
+            revision: None,
+            risk_level: RiskLevel::Low,
+            policy: "risk-adaptive/v1/low".into(),
+            deterministic_level: "quick".into(),
+            deterministic_checks: vec![],
+            reviewer_roles: vec![],
+            require_property: false,
+            require_mutation: false,
+            require_fuzz: false,
+            require_human_approval: false,
+            stage_targets: vec![],
+            automation_gaps: vec![],
+            job_ids: vec![],
+        },
+    };
+    let mut execution = ReconciliationExecution::from_plan(&plan).unwrap();
+    let writer = execution
+        .claim("writer-a", &[ReconciliationTaskKind::Implementation])
+        .unwrap();
+    assert_eq!(
+        writer.ownership.as_ref().unwrap().mode,
+        ReconciliationClaimMode::SharedWriter
+    );
+    assert_eq!(
+        execution
+            .claim("writer-b", &[ReconciliationTaskKind::Implementation])
+            .unwrap_err(),
+        ReconciliationError::NoRunnableTask
+    );
+
+    let review_a = execution
+        .claim("review-a", &[ReconciliationTaskKind::Review])
+        .unwrap();
+    let review_b = execution
+        .claim("review-b", &[ReconciliationTaskKind::Review])
+        .unwrap();
+    assert_eq!(
+        review_a.ownership.as_ref().unwrap().mode,
+        ReconciliationClaimMode::ReadOnly
+    );
+    assert_eq!(
+        review_b.ownership.as_ref().unwrap().mode,
+        ReconciliationClaimMode::ReadOnly
+    );
 }

@@ -1,0 +1,12 @@
+schema_version: 1
+id: AC-EXECUTION-001
+title: Active coding work resumes from a bounded durable checkpoint
+statement: >-
+  Creating or restarting a Worklist establishes one durable Execution generation; later Worklist progress updates
+  the same generation. The checkpoint survives process reconstruction, includes only structured objective/progress/
+  revision/plan/proof state, and Agent Context restores it. A completed Worklist is still verifying until
+  current-revision Verification becomes ready.
+verification:
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_checkpoint_tracks_worklist_and_requires_verification_to_complete}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: worklist_restart_creates_a_new_execution_generation}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: blocked_worklist_projects_to_blocked_execution_without_chat_state}

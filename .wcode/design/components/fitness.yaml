@@ -7,6 +7,7 @@ responsibilities:
   - measure syntax relationships and deterministic edit and workspace controls without invoking models
   - preserve rejected requests and missing evidence in explicit result accounting
   - emit create-only JSON and Markdown trial reports with samples and revision provenance
+  - single-flight the identical collect(1) development snapshot across matrix, noise and decision-calibration assertions while keeping the seven-sample report trial explicit opt-in
   - keep local cost measurements and unmeasured capabilities separate from model coding success
 implementation:
   - {kind: file, path: tests/unit/runtime/harness/engineering_fitness.rs}

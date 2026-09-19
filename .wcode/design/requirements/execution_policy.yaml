@@ -1,0 +1,26 @@
+schema_version: 1
+id: REQ-EXECUTION-POLICY-001
+title: Mandatory lifecycle behavior is declarative runtime policy
+intent: >-
+  Rules that must always happen around coding work must be enforced by a bounded declarative Execution Policy, not
+  merely remembered from Skill or prompt text. The policy evaluates declared tool effect (read/file mutation/
+  workspace-writing command), canonical Product Scope, active Execution phase, risk and writer ownership into an
+  inspectable set of required controls such as writer lease, review, verification floor, plan approval and explicit
+  human approval. Policy composition is monotonic: it may add or strengthen requirements but can never lower existing
+  Workspace/Authorization/Verification/Evidence gates. Command mutation classification reuses the existing bounded
+  command policy rather than a second allowlist. The same inputs produce the same decision, and repository
+  configuration cannot inject arbitrary executable shell hooks or policy code.
+priority: high
+implemented_by:
+  - component:execution-policy
+  - component:authorization
+  - component:verification-mesh
+acceptance:
+  - AC-EXECUTION-POLICY-001
+constraints:
+  - CONSTRAINT-DECLARATIVE-EXECUTION-POLICY
+  - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT
+  - CONSTRAINT-SAFE-RECONCILIATION
+risk:
+  reliability: critical
+  security: critical

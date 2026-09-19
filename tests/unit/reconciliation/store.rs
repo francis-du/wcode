@@ -15,6 +15,7 @@ fn reconciliation_plan_round_trips_from_persistent_store() {
         impacted_components: vec![],
         impacted_symbols: vec![],
         impacted_tests: vec![],
+        impacted_acceptance: vec![],
         implementation_tasks: vec![],
         change_intents: vec![],
         verification_plan: VerificationPlan {

@@ -25,7 +25,7 @@
   responsibilities:
     - execute normal commands through bounded policy-checked direct program invocation without implicit shell evaluation
     - bypass executable, argument, shell, Git/GitHub hardening and environment-scrubbing policy only after explicit Workspace all-command authorization or Full Access
-    - retain resource admission, process ownership, cancellation and bounded output even for unrestricted commands; process admission wait is capped at five seconds independently from execution timeout, outer heavy-command admission tracks child-process capacity, and Cargo registry/workspace contention gates queue lock-sharing Cargo commands before they consume scarce child-process slots; Cargo contention wait has its own bounded queue budget and command execution timeout begins only after the Cargo gate is acquired
+    - retain resource admission, process ownership, cancellation and bounded output even for unrestricted commands; process admission wait is capped at five seconds independently from execution timeout, heavy-command admission first consumes a per-Workspace/subspace child quota and then the separate host physical process cap, and Cargo contention is admitted before child-process capacity with one global registry-exclusive lane, one per-Workspace writer lane for build/check/clippy/bench/doc/fix/run/rustc/rustdoc, and a bounded per-Workspace reader lane for verification-safe cargo test/nextest commands; readers may overlap each other up to resource-derived test capacity while writers exclude all readers, different subspaces retain independent local quotas, and Cargo queue wait remains independent from command execution timeout
     - classify known development CLIs into autonomous and gated shapes only when unrestricted command trust is not active
   constraints:
     - CONSTRAINT-NO-SHELL
@@ -317,6 +317,7 @@
     - turn drift impact and risk into durable convergence plans
     - coordinate dependency-aware implementation design review and system evidence gates
     - re-audit deterministic structural change intents before reporting convergence so completed tasks cannot substitute for an unmet repository invariant
+    - freeze explicit human-approved Reconciliation Plans as immutable revision-bound snapshots and reject model execution when approval is missing or requires replanning
     - reject invalid or cyclic execution plans
   constraints:
     - CONSTRAINT-SAFE-RECONCILIATION
@@ -337,6 +338,14 @@
     - kind: symbol
       path: src/intelligence/runtime/reconcile.rs
       symbol: reconciliation_intent_audit
+    - kind: file
+      path: src/reconciliation/approval.rs
+    - kind: symbol
+      path: src/intelligence/runtime/approval.rs
+      symbol: SoftwareIntelligenceRuntime::reconciliation_approve
+    - kind: symbol
+      path: src/intelligence/runtime/approval.rs
+      symbol: SoftwareIntelligenceRuntime::approved_reconciliation_snapshot
 
 - schema_version: 1
   id: component:intelligence-ui
@@ -463,12 +472,13 @@
     - expose bounded ignore-aware list create edit batch move metadata and delete primitives; model-facing root listings reuse the repository walker so gitignored/generated directories such as target never become source-tree noise, while an explicitly addressed ignored/generated directory remains browsable instead of being silently hidden
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
     - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
-    - keep executable access separate from exact repository-operation approval by default, while an explicit Workspace all-command grant bypasses command allowlist, shape and argument filtering
-    - expose explicit Full Access for the current user Home only after operator confirmation and place direct commands in the same unrestricted lane while guarded file tools retain filesystem-root, protected-path and symlink/hard-link boundaries
+    - keep executable access separate from exact repository-operation approval by default; an explicit Workspace all-command grant may bypass command allowlist/shape filtering only through the OS-sandboxed broad execution lane
+    - expose explicit Full Access for the current user Home only after operator confirmation; bounded commands retain their normal direct path while policy-bypass direct commands require the same OS sandbox, and guarded file tools retain filesystem-root, protected-path and symlink/hard-link boundaries
   constraints:
     - CONSTRAINT-ROOT-ISOLATION
     - CONSTRAINT-SHA-PRECONDITION
     - CONSTRAINT-DESTRUCTIVE-AUTH
+    - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
   depends_on:
     - component:workspace-security
     - component:authorization
@@ -505,6 +515,8 @@
     - kind: symbol
       path: src/workspace/registry.rs
       symbol: Workspaces::grant_full_user_access
+    - kind: file
+      path: src/workspace/sandbox.rs
 
 - schema_version: 1
   id: component:scheduler
