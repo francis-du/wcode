@@ -16,7 +16,7 @@ pub(super) fn draw_dashboard(
     render_dashboard_body(frame, area, snapshot, config, tick, ui);
 
     if ui.commands_open {
-        if let Some(workspace_id) = focused_workspace_id(config, ui.workspace_focus) {
+        if let Some(workspace_id) = focused_workspace_id(config, snapshot, ui.workspace_focus) {
             render_commands_overlay(
                 frame,
                 area,
@@ -231,7 +231,7 @@ fn render_engineering_pulse(
     language: UiLanguage,
 ) {
     let workspace_id =
-        focused_workspace_id(config, focus).unwrap_or_else(|| "workspace".to_owned());
+        focused_workspace_id(config, snapshot, focus).unwrap_or_else(|| "workspace".to_owned());
     let stats = snapshot.intelligence.get(&workspace_id);
     let mut block = Block::default()
         .borders(Borders::ALL)

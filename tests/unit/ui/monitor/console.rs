@@ -80,7 +80,7 @@ fn wide_dashboard_puts_activity_and_engineering_control_rail_side_by_side() {
     let monitor = TaskMonitor::new(["backend".to_owned()]);
     monitor.mark_mcp_initialized();
     seed_engineering_state(&monitor, "backend");
-    let mut task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
+    let task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
     task.start();
 
     let text = monitor_test_text(&monitor, &config, 120, 34, &DashboardState::default());
@@ -102,7 +102,7 @@ fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones()
     let monitor = TaskMonitor::new(["backend".to_owned()]);
     monitor.mark_mcp_initialized();
     seed_engineering_state(&monitor, "backend");
-    let mut task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
+    let task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
     task.start();
 
     let roomy = monitor_test_text(&monitor, &config, 120, 34, &DashboardState::default());
@@ -240,6 +240,76 @@ fn command_overlay_keeps_action_feedback_inside_the_surface() {
 }
 
 #[test]
+fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
+    let monitor = TaskMonitor::new(["web".to_owned()]);
+    monitor.record_agent_context_decision(
+        "web",
+        &serde_json::json!({
+            "provider": "jev",
+            "status": "active",
+            "model": "jev-latest",
+            "authority": "increase_only_assist",
+            "question_set": {"id": "wcode.agent_context", "version": 3},
+            "baseline_next_action": "edit_then_verify",
+            "candidate_next_action": "semantic_navigation",
+            "guidance": ["jev:prefer_semantic_navigation"],
+            "comparison": {
+                "shared_signals": 7,
+                "choice_disagreements": 1,
+                "safety_policy_violations": 0,
+                "shape_mismatches": 0
+            },
+            "api_key": "PRIVATE-JEV-KEY",
+            "raw_response": "PRIVATE-JEV-RESPONSE"
+        }),
+    );
+
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.workspaces["web"];
+    assert_eq!(stats.agent_context_jev_observed, 1);
+    assert_eq!(stats.agent_context_jev_successful, 1);
+    assert_eq!(stats.agent_context_jev_degraded, 0);
+    let latest = stats.agent_context_jev_latest.as_ref().unwrap();
+    assert_eq!(latest.status, "active");
+    assert_eq!(latest.model.as_deref(), Some("jev-latest"));
+    assert_eq!(latest.choice_disagreements, 1);
+
+    let activity = monitor.observatory_activity("web");
+    let jev = &activity["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(jev["status"], "active");
+    assert_eq!(jev["model"], "jev-latest");
+    assert_eq!(jev["question_set"]["id"], "wcode.agent_context");
+    assert_eq!(jev["question_set"]["version"], 3);
+    assert_eq!(jev["baseline_next_action"], "edit_then_verify");
+    assert_eq!(jev["candidate_next_action"], "semantic_navigation");
+    assert_eq!(jev["comparison"]["shared_signals"], 7);
+    assert_eq!(jev["calls"]["observed"], 1);
+    assert_eq!(jev["calls"]["successful"], 1);
+    assert!(jev["observed_ago_ms"].as_u64().is_some());
+    let serialized = activity.to_string();
+    assert!(!serialized.contains("PRIVATE-JEV-KEY"));
+    assert!(!serialized.contains("PRIVATE-JEV-RESPONSE"));
+
+    monitor.record_agent_context_decision(
+        "web",
+        &serde_json::json!({
+            "provider": "jev",
+            "status": "unavailable",
+            "model": "jev-latest",
+            "authority": "increase_only_assist",
+            "question_set": {"id": "wcode.agent_context", "version": 3},
+            "baseline_next_action": "retrieve"
+        }),
+    );
+    let latest = monitor.observatory_activity("web");
+    let jev = &latest["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(jev["status"], "unavailable");
+    assert_eq!(jev["calls"]["observed"], 2);
+    assert_eq!(jev["calls"]["successful"], 1);
+    assert_eq!(jev["calls"]["degraded"], 1);
+}
+
+#[test]
 fn engineering_console_groups_architecture_and_proof_instead_of_flat_intelligence_rows() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = monitor_test_config(workspaces);
@@ -261,4 +331,76 @@ fn engineering_console_groups_architecture_and_proof_instead_of_flat_intelligenc
     assert!(text.contains("POLICY"));
     assert!(text.contains("1 errors · 2 warnings"));
     assert!(!text.contains("REPOSITORY INTELLIGENCE"));
+}
+
+#[test]
+fn workspace_focus_identity_survives_activity_reordering() {
+    let initial = vec![
+        ("alpha".to_owned(), "alpha".to_owned(), true),
+        ("beta".to_owned(), "beta".to_owned(), true),
+        ("gamma".to_owned(), "gamma".to_owned(), true),
+    ];
+    let mut ui = DashboardState::default();
+    ui.sync_workspace_order(&initial, 2);
+    ui.set_workspace_focus(&initial, 1, 2);
+    assert_eq!(ui.workspace_focus_id.as_deref(), Some("beta"));
+
+    let reordered = vec![
+        ("beta".to_owned(), "beta".to_owned(), true),
+        ("alpha".to_owned(), "alpha".to_owned(), true),
+        ("gamma".to_owned(), "gamma".to_owned(), true),
+    ];
+    ui.sync_workspace_order(&reordered, 2);
+
+    assert_eq!(ui.workspace_focus, 0);
+    assert_eq!(ui.workspace_focus_id.as_deref(), Some("beta"));
+}
+
+#[tokio::test]
+async fn workspace_activity_order_promotes_running_queued_approval_then_recent() {
+    let (_root, workspaces) =
+        monitor_test_workspaces(&["idle", "recent", "failed", "approval", "queued", "active"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new([
+        "idle".to_owned(),
+        "recent".to_owned(),
+        "failed".to_owned(),
+        "approval".to_owned(),
+        "queued".to_owned(),
+        "active".to_owned(),
+    ]);
+
+    config
+        .workspaces
+        .revoke_command(Some("approval"), "cargo")
+        .unwrap();
+    let (_, approval_workspace) = config.workspaces.select(Some("approval")).unwrap();
+    let authorization_error = approval_workspace
+        .run_command("cargo", &["test".to_owned()], ".", 30)
+        .await
+        .unwrap_err();
+    assert!(authorization_error
+        .to_string()
+        .contains("authorization required"));
+
+    let recent = monitor.queue("recent", "read_file", "recent", 1);
+    recent.start();
+    recent.finish(true, 1);
+    let failed = monitor.queue("failed", "read_file", "failed", 1);
+    failed.start();
+    failed.finish(false, 0);
+    let _queued = monitor.queue("queued", "search_code", "queued", 1);
+    let active = monitor.queue("active", "agent_context", "active", 1);
+    active.start();
+
+    let snapshot = monitor.snapshot();
+    let ordered = ordered_workspaces(&config, &snapshot);
+    let ids = ordered
+        .iter()
+        .map(|workspace| workspace.0.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec!["active", "queued", "approval", "failed", "recent", "idle"]
+    );
 }

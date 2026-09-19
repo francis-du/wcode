@@ -34,6 +34,97 @@ impl TaskMonitor {
             .agent_context_build_ms
             .saturating_add(metrics.build_ms);
     }
+
+    pub(crate) fn record_agent_context_decision(&self, workspace: &str, telemetry: &Value) {
+        if telemetry.get("provider").and_then(Value::as_str) != Some("jev") {
+            return;
+        }
+        let status = match telemetry.get("status").and_then(Value::as_str) {
+            Some("active") => "active",
+            Some("disabled") => "disabled",
+            Some("unavailable") => "unavailable",
+            Some("invalid_configuration") => "invalid_configuration",
+            _ => "unknown",
+        }
+        .to_owned();
+        let bounded = |value: Option<&str>, max: usize| {
+            value
+                .filter(|value| !value.is_empty())
+                .map(|value| value.chars().take(max).collect::<String>())
+        };
+        let guidance = telemetry
+            .get("guidance")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .take(8)
+            .map(|value| value.chars().take(128).collect::<String>())
+            .collect::<Vec<_>>();
+        let latest = JevRuntimeStats {
+            observed_at: Instant::now(),
+            status: status.clone(),
+            model: bounded(telemetry.get("model").and_then(Value::as_str), 128),
+            authority: bounded(telemetry.get("authority").and_then(Value::as_str), 64),
+            question_set_id: bounded(
+                telemetry
+                    .pointer("/question_set/id")
+                    .and_then(Value::as_str),
+                128,
+            ),
+            question_set_version: telemetry
+                .pointer("/question_set/version")
+                .and_then(Value::as_u64),
+            baseline_next_action: bounded(
+                telemetry
+                    .get("baseline_next_action")
+                    .and_then(Value::as_str),
+                64,
+            ),
+            candidate_next_action: bounded(
+                telemetry
+                    .get("candidate_next_action")
+                    .and_then(Value::as_str),
+                64,
+            ),
+            guidance,
+            shared_signals: telemetry
+                .pointer("/comparison/shared_signals")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            choice_disagreements: telemetry
+                .pointer("/comparison/choice_disagreements")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            safety_policy_violations: telemetry
+                .pointer("/comparison/safety_policy_violations")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            shape_mismatches: telemetry
+                .pointer("/comparison/shape_mismatches")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+        };
+        let mut state = self.state.lock().expect("task monitor lock poisoned");
+        let stats = state.workspaces.entry(workspace.to_owned()).or_default();
+        stats.agent_context_jev_observed = stats.agent_context_jev_observed.saturating_add(1);
+        match status.as_str() {
+            "active" => {
+                stats.agent_context_jev_successful =
+                    stats.agent_context_jev_successful.saturating_add(1);
+            }
+            "disabled" => {
+                stats.agent_context_jev_disabled =
+                    stats.agent_context_jev_disabled.saturating_add(1);
+            }
+            "unavailable" | "invalid_configuration" | "unknown" => {
+                stats.agent_context_jev_degraded =
+                    stats.agent_context_jev_degraded.saturating_add(1);
+            }
+            _ => {}
+        }
+        stats.agent_context_jev_latest = Some(latest);
+    }
 }
 
 pub(super) fn split_rects_with_gap(area: Rect, count: usize, gap: u16) -> Vec<Rect> {

@@ -315,7 +315,7 @@ pub(super) fn render_workspace_activity(
     tick: usize,
     ui: &DashboardState,
 ) {
-    let workspaces = configured_workspaces(config);
+    let workspaces = ordered_workspaces(config, snapshot);
     let total = workspaces.len();
     let visible = workspace_column_count(area.width, total);
     let offset = ui.workspace_offset.min(total.saturating_sub(visible));
@@ -379,13 +379,23 @@ pub(super) fn render_workspace_activity(
         let stats = snapshot.workspaces.get(id).cloned().unwrap_or_default();
         let active = stats.active > 0;
         let queued = stats.queued > 0;
+        let approvals = ui
+            .pending_authorizations
+            .iter()
+            .filter(|request| request.workspace == *id)
+            .count();
+        let last_activity = workspace_recent_activity(snapshot, id);
+        let recent = !active && !queued && approvals == 0 && last_activity.is_some();
+        let recent_failure = recent && workspace_recent_failure(snapshot, id);
         let focused = workspace_index == ui.workspace_focus;
         let status_color = if active {
             ACCENT
-        } else if queued {
+        } else if queued || approvals > 0 {
             WARNING
-        } else if stats.failed > 0 {
+        } else if recent_failure {
             DANGER
+        } else if recent {
+            LINK
         } else {
             TEXT_DIM
         };
@@ -393,11 +403,28 @@ pub(super) fn render_workspace_activity(
             LINK
         } else if active {
             ACCENT
+        } else if queued || approvals > 0 {
+            WARNING
+        } else if recent_failure {
+            DANGER
         } else {
             OUTLINE
         };
         let summary = if active || queued {
-            format!("{} run · {} wait", stats.active, stats.queued)
+            let approval_suffix = if approvals > 0 {
+                format!(" · {approvals} auth")
+            } else {
+                String::new()
+            };
+            format!(
+                "{} run · {} wait{approval_suffix}",
+                stats.active, stats.queued
+            )
+        } else if approvals > 0 {
+            format!("{approvals} auth")
+        } else if let Some(last_activity) = last_activity {
+            let label = if recent_failure { "failed" } else { "recent" };
+            format!("{label} · {}", last_seen_text(Some(last_activity)))
         } else {
             "idle".to_owned()
         };

@@ -285,7 +285,7 @@ pub(super) fn render_intelligence_overlay(
         height,
     );
     frame.render_widget(Clear, popup);
-    let workspaces = configured_workspaces(config);
+    let workspaces = ordered_workspaces(config, snapshot);
     let workspace = workspaces.get(focus.min(workspaces.len().saturating_sub(1)));
     let workspace_id = workspace
         .map(|entry| entry.0.as_str())

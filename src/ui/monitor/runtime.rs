@@ -138,34 +138,6 @@ pub(super) fn intelligence_url_for_workspace(base: &str, workspace: &str) -> Str
     format!("{base}{separator}workspace={encoded}")
 }
 
-pub(super) fn pending_authorizations(config: &MonitorConfig) -> Vec<AuthorizationRequest> {
-    config
-        .workspaces
-        .authorization_requests(256)
-        .into_iter()
-        .filter(|request| request.status == AuthorizationStatus::Pending)
-        .collect()
-}
-
-pub(super) fn configured_workspaces(config: &MonitorConfig) -> Vec<(String, String, bool)> {
-    config
-        .workspaces
-        .roots()
-        .into_iter()
-        .map(|(id, root)| {
-            let is_default = id == config.workspaces.default_id();
-            (id, root.display().to_string(), is_default)
-        })
-        .collect()
-}
-
-pub(super) fn focused_workspace_id(config: &MonitorConfig, focus: usize) -> Option<String> {
-    let workspaces = configured_workspaces(config);
-    workspaces
-        .get(focus.min(workspaces.len().saturating_sub(1)))
-        .map(|workspace| workspace.0.clone())
-}
-
 fn open_dashboard_url(ui: &mut DashboardState, url: &str) -> bool {
     match open_external_url(url) {
         Ok(()) => {
@@ -193,7 +165,11 @@ pub(super) fn run_dashboard(
     let mut ui = DashboardState::default();
     let mut status_snapshot: Option<String> = None;
     let mut status_deadline: Option<Instant> = None;
-    if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
+    let initial_snapshot = monitor.snapshot();
+    let initial_workspaces = ordered_workspaces(&config, &initial_snapshot);
+    ui.sync_workspace_order(&initial_workspaces, initial_workspaces.len().max(1));
+    if let Some(workspace_id) = focused_workspace_id(&config, &initial_snapshot, ui.workspace_focus)
+    {
         request_intelligence_refresh(&monitor, &config, workspace_id);
     }
 
@@ -233,9 +209,11 @@ pub(super) fn run_dashboard(
                     .to_owned(),
             );
         }
-        let workspace_count = config.workspaces.roots().len();
+        let snapshot = monitor.snapshot();
+        let workspaces = ordered_workspaces(&config, &snapshot);
+        let workspace_count = workspaces.len();
         let visible = workspace_column_count(size.width, workspace_count);
-        ui.clamp(workspace_count, visible);
+        ui.sync_workspace_order(&workspaces, visible);
         if ui.commands_open && !commands_overlay_visible(area) {
             ui.commands_open = false;
             ui.command_offset = 0;
@@ -262,14 +240,14 @@ pub(super) fn run_dashboard(
             ui.authorization_scroll = 0;
         }
         if ui.commands_open {
-            if let Some(workspace_id) = focused_workspace_id(&config, ui.workspace_focus) {
+            if let Some(workspace_id) = focused_workspace_id(&config, &snapshot, ui.workspace_focus)
+            {
                 let total = command_count(&config.workspaces, &workspace_id);
                 ui.command_offset = ui
                     .command_offset
                     .min(total.saturating_sub(command_page_size(area)));
             }
         }
-        let snapshot = monitor.snapshot();
         session
             .terminal
             .draw(|frame| draw_dashboard(frame, &snapshot, &config, tick, &ui))?;
@@ -298,12 +276,19 @@ pub(super) fn run_dashboard(
                                             ui.language.tr("full access granted"),
                                             root.display()
                                         ));
-                                        let workspaces = configured_workspaces(&config);
+                                        let workspaces = ordered_workspaces(&config, &snapshot);
                                         if let Some(index) = workspaces
                                             .iter()
                                             .position(|workspace| workspace.0 == id)
                                         {
-                                            ui.workspace_focus = index;
+                                            ui.set_workspace_focus(
+                                                &workspaces,
+                                                index,
+                                                workspace_column_count(
+                                                    size.width,
+                                                    workspaces.len(),
+                                                ),
+                                            );
                                         }
                                     }
                                     Err(error) => {
@@ -344,18 +329,23 @@ pub(super) fn run_dashboard(
                                                 "authorized workspace {id}: {}",
                                                 root.display()
                                             ));
-                                            let workspaces = configured_workspaces(&config);
+                                            let workspaces = ordered_workspaces(&config, &snapshot);
                                             let count = workspaces.len();
                                             if let Some(index) = workspaces
                                                 .iter()
                                                 .position(|workspace| workspace.0 == id)
                                             {
-                                                ui.workspace_focus = index;
+                                                ui.set_workspace_focus(
+                                                    &workspaces,
+                                                    index,
+                                                    workspace_column_count(size.width, count),
+                                                );
+                                            } else {
+                                                ui.sync_workspace_order(
+                                                    &workspaces,
+                                                    workspace_column_count(size.width, count),
+                                                );
                                             }
-                                            ui.clamp(
-                                                count,
-                                                workspace_column_count(size.width, count),
-                                            );
                                         }
                                         Err(error) => {
                                             ui.workspace_message =
@@ -398,7 +388,7 @@ pub(super) fn run_dashboard(
                             ui.commands_open = false;
                             if ui.intelligence_open {
                                 if let Some(workspace_id) =
-                                    focused_workspace_id(&config, ui.workspace_focus)
+                                    focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {
                                     request_intelligence_refresh(&monitor, &config, workspace_id);
                                 }
@@ -406,7 +396,7 @@ pub(super) fn run_dashboard(
                         }
                         DashboardAction::RefreshIntelligence => {
                             if let Some(workspace_id) =
-                                focused_workspace_id(&config, ui.workspace_focus)
+                                focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                             {
                                 request_intelligence_refresh(&monitor, &config, workspace_id);
                             }
@@ -467,7 +457,7 @@ pub(super) fn run_dashboard(
                             }
                         }
                         DashboardAction::Observatory => {
-                            let workspaces = configured_workspaces(&config);
+                            let workspaces = ordered_workspaces(&config, &snapshot);
                             let url = workspaces
                                 .get(ui.workspace_focus.min(workspaces.len().saturating_sub(1)))
                                 .map(|workspace| {
@@ -517,9 +507,10 @@ pub(super) fn run_dashboard(
                                         .to_owned(),
                                 );
                             } else {
-                                let workspace_id = request_target
-                                    .map(|(workspace, _)| workspace)
-                                    .or_else(|| focused_workspace_id(&config, ui.workspace_focus));
+                                let workspace_id =
+                                    request_target.map(|(workspace, _)| workspace).or_else(|| {
+                                        focused_workspace_id(&config, &snapshot, ui.workspace_focus)
+                                    });
                                 ui.workspace_message = Some(match workspace_id {
                                     Some(workspace_id) => match config
                                         .workspaces
@@ -574,7 +565,7 @@ pub(super) fn run_dashboard(
                         }
                         DashboardAction::ToggleCommandTrust => {
                             if let Some(workspace_id) =
-                                focused_workspace_id(&config, ui.workspace_focus)
+                                focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                             {
                                 let enabled = config
                                     .workspaces
@@ -669,7 +660,7 @@ pub(super) fn run_dashboard(
                         }
                         DashboardAction::CommandsDown => {
                             if let Some(workspace_id) =
-                                focused_workspace_id(&config, ui.workspace_focus)
+                                focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                             {
                                 let page =
                                     command_page_size(Rect::new(0, 0, size.width, size.height));
@@ -686,7 +677,7 @@ pub(super) fn run_dashboard(
                         }
                         DashboardAction::CommandsPageDown => {
                             if let Some(workspace_id) =
-                                focused_workspace_id(&config, ui.workspace_focus)
+                                focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                             {
                                 let page =
                                     command_page_size(Rect::new(0, 0, size.width, size.height));
@@ -719,40 +710,39 @@ pub(super) fn run_dashboard(
                             }
                         }
                         DashboardAction::WorkspaceLeft => {
-                            let previous = ui.workspace_focus;
+                            let previous = ui.workspace_focus_id.clone();
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
                                 visible.max(1)
                             } else {
                                 1
                             };
-                            ui.workspace_focus = ui.workspace_focus.saturating_sub(step);
+                            let next = ui.workspace_focus.saturating_sub(step);
+                            ui.set_workspace_focus(&workspaces, next, visible);
                             ui.command_offset = 0;
-                            ui.clamp(config.workspaces.roots().len(), visible);
-                            if ui.workspace_focus != previous {
+                            if ui.workspace_focus_id != previous {
                                 if let Some(workspace_id) =
-                                    focused_workspace_id(&config, ui.workspace_focus)
+                                    focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {
                                     request_intelligence_refresh(&monitor, &config, workspace_id);
                                 }
                             }
                         }
                         DashboardAction::WorkspaceRight => {
-                            let previous = ui.workspace_focus;
+                            let previous = ui.workspace_focus_id.clone();
                             let step = if key.modifiers.contains(KeyModifiers::SHIFT) {
                                 visible.max(1)
                             } else {
                                 1
                             };
-                            let count = config.workspaces.roots().len();
-                            ui.workspace_focus = ui
+                            let next = ui
                                 .workspace_focus
                                 .saturating_add(step)
-                                .min(count.saturating_sub(1));
+                                .min(workspaces.len().saturating_sub(1));
+                            ui.set_workspace_focus(&workspaces, next, visible);
                             ui.command_offset = 0;
-                            ui.clamp(count, visible);
-                            if ui.workspace_focus != previous {
+                            if ui.workspace_focus_id != previous {
                                 if let Some(workspace_id) =
-                                    focused_workspace_id(&config, ui.workspace_focus)
+                                    focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {
                                     request_intelligence_refresh(&monitor, &config, workspace_id);
                                 }

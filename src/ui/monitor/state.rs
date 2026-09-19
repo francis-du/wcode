@@ -106,9 +106,11 @@ impl TaskMonitor {
         });
         trim_history(&mut state, now);
         TaskTicket {
-            monitor: self.clone(),
-            id,
-            finished: false,
+            inner: Arc::new(TaskTicketInner {
+                monitor: self.clone(),
+                id,
+                finished: AtomicBool::new(false),
+            }),
         }
     }
 
@@ -154,6 +156,34 @@ impl TaskMonitor {
                 "finished_ago_ms": task.finished_at.map(|finished| now.saturating_duration_since(finished).as_millis()),
             })
         }).collect::<Vec<_>>();
+        let jev_runtime = stats.agent_context_jev_latest.as_ref().map(|jev| {
+            serde_json::json!({
+                "provider": "jev",
+                "status": jev.status,
+                "model": jev.model,
+                "authority": jev.authority,
+                "question_set": {
+                    "id": jev.question_set_id,
+                    "version": jev.question_set_version,
+                },
+                "baseline_next_action": jev.baseline_next_action,
+                "candidate_next_action": jev.candidate_next_action,
+                "guidance": jev.guidance,
+                "comparison": {
+                    "shared_signals": jev.shared_signals,
+                    "choice_disagreements": jev.choice_disagreements,
+                    "safety_policy_violations": jev.safety_policy_violations,
+                    "shape_mismatches": jev.shape_mismatches,
+                },
+                "calls": {
+                    "observed": stats.agent_context_jev_observed,
+                    "successful": stats.agent_context_jev_successful,
+                    "degraded": stats.agent_context_jev_degraded,
+                    "disabled": stats.agent_context_jev_disabled,
+                },
+                "observed_ago_ms": now.saturating_duration_since(jev.observed_at).as_millis(),
+            })
+        });
         serde_json::json!({
             "workspace": workspace, "available": true,
             "active": stats.active, "queued": stats.queued,
@@ -170,6 +200,9 @@ impl TaskMonitor {
                 "repo_map_candidates": stats.agent_repo_map_candidates,
                 "repo_map_delivered": stats.agent_repo_map_delivered,
                 "build_ms": stats.agent_context_build_ms,
+                "decision_runtime": {
+                    "jev": jev_runtime,
+                },
             },
             "recent": recent, "recent_truncated": retained > 12,
             "history_scope": "bounded_process_memory",
@@ -916,32 +949,39 @@ impl Drop for TerminalClaimGuard {
 }
 
 impl TaskTicket {
-    pub fn start(&mut self) {
-        self.monitor.start(self.id);
+    pub fn start(&self) {
+        self.inner.monitor.start(self.inner.id);
     }
 
-    pub fn finish(mut self, success: bool, response_bytes: u64) {
-        self.monitor.finish(self.id, success, response_bytes, 0);
-        self.finished = true;
+    pub fn finish(self, success: bool, response_bytes: u64) {
+        self.finish_once(success, response_bytes, 0);
     }
 
     pub fn finish_with_context_savings(
-        mut self,
+        self,
         success: bool,
         response_bytes: u64,
         context_bytes_avoided: u64,
     ) {
-        self.monitor
-            .finish(self.id, success, response_bytes, context_bytes_avoided);
-        self.finished = true;
+        self.finish_once(success, response_bytes, context_bytes_avoided);
+    }
+
+    fn finish_once(&self, success: bool, response_bytes: u64, context_bytes_avoided: u64) {
+        if !self.inner.finished.swap(true, Ordering::AcqRel) {
+            self.inner.monitor.finish(
+                self.inner.id,
+                success,
+                response_bytes,
+                context_bytes_avoided,
+            );
+        }
     }
 }
 
-impl Drop for TaskTicket {
+impl Drop for TaskTicketInner {
     fn drop(&mut self) {
-        if !self.finished {
+        if !self.finished.swap(true, Ordering::AcqRel) {
             self.monitor.finish(self.id, false, 0, 0);
-            self.finished = true;
         }
     }
 }

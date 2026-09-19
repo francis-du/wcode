@@ -20,6 +20,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, IsTerminal};
 use std::process::{Command as StdCommand, Stdio as StdStdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -31,6 +32,7 @@ const TRAFFIC_WINDOW: Duration = Duration::from_secs(60);
 const ACTIVE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(4);
+const WORKSPACE_RECENT_ACTIVITY_WINDOW: Duration = Duration::from_secs(5 * 60);
 const ESTIMATED_BYTES_PER_TOKEN: f64 = 4.0;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -53,6 +55,10 @@ use monitor_commands::*;
 #[path = "overlays.rs"]
 mod monitor_overlays;
 use monitor_overlays::*;
+
+#[path = "workspace_order.rs"]
+mod monitor_workspace_order;
+use monitor_workspace_order::*;
 
 #[path = "runtime.rs"]
 mod monitor_runtime;
@@ -144,6 +150,23 @@ pub(crate) struct AgentContextMetrics {
     pub(crate) build_ms: u64,
 }
 
+#[derive(Clone)]
+struct JevRuntimeStats {
+    observed_at: Instant,
+    status: String,
+    model: Option<String>,
+    authority: Option<String>,
+    question_set_id: Option<String>,
+    question_set_version: Option<u64>,
+    baseline_next_action: Option<String>,
+    candidate_next_action: Option<String>,
+    guidance: Vec<String>,
+    shared_signals: u64,
+    choice_disagreements: u64,
+    safety_policy_violations: u64,
+    shape_mismatches: u64,
+}
+
 #[derive(Clone, Default)]
 struct WorkspaceStats {
     queued: u64,
@@ -163,6 +186,11 @@ struct WorkspaceStats {
     agent_repo_map_candidates: u64,
     agent_repo_map_delivered: u64,
     agent_context_build_ms: u64,
+    agent_context_jev_observed: u64,
+    agent_context_jev_successful: u64,
+    agent_context_jev_degraded: u64,
+    agent_context_jev_disabled: u64,
+    agent_context_jev_latest: Option<JevRuntimeStats>,
 }
 
 #[derive(Clone, Default)]
@@ -248,10 +276,15 @@ enum TaskStatus {
     Failed,
 }
 
+#[derive(Clone)]
 pub struct TaskTicket {
+    inner: Arc<TaskTicketInner>,
+}
+
+struct TaskTicketInner {
     monitor: TaskMonitor,
     id: u64,
-    finished: bool,
+    finished: AtomicBool,
 }
 
 pub struct MonitorConfig {
@@ -399,6 +432,7 @@ impl Drop for TerminalSession {
 #[derive(Default)]
 struct DashboardState {
     workspace_focus: usize,
+    workspace_focus_id: Option<String>,
     workspace_offset: usize,
     help_open: bool,
     intelligence_open: bool,
@@ -430,6 +464,40 @@ impl DashboardState {
 
     fn workspace_input_visible(&self, area: Rect) -> bool {
         self.workspace_input.is_some() && workspace_input_overlay_visible(area)
+    }
+
+    fn sync_workspace_order(&mut self, workspaces: &[(String, String, bool)], visible: usize) {
+        if workspaces.is_empty() {
+            self.workspace_focus = 0;
+            self.workspace_focus_id = None;
+            self.workspace_offset = 0;
+            return;
+        }
+        if let Some(focused) = self.workspace_focus_id.as_deref() {
+            if let Some(index) = workspaces
+                .iter()
+                .position(|workspace| workspace.0 == focused)
+            {
+                self.workspace_focus = index;
+            }
+        }
+        self.clamp(workspaces.len(), visible);
+        self.workspace_focus_id = workspaces
+            .get(self.workspace_focus)
+            .map(|workspace| workspace.0.clone());
+    }
+
+    fn set_workspace_focus(
+        &mut self,
+        workspaces: &[(String, String, bool)],
+        focus: usize,
+        visible: usize,
+    ) {
+        self.workspace_focus = focus.min(workspaces.len().saturating_sub(1));
+        self.workspace_focus_id = workspaces
+            .get(self.workspace_focus)
+            .map(|workspace| workspace.0.clone());
+        self.clamp(workspaces.len(), visible);
     }
 
     fn clamp(&mut self, total: usize, visible: usize) {

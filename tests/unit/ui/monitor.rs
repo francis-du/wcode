@@ -111,7 +111,7 @@ fn dashboard_prioritizes_tasks_without_overview_in_both_languages() {
     for provider in ["cloudflare", "localhost.run", "pinggy", "tailscale"] {
         monitor.register_tunnel(provider, &format!("https://{provider}.test"));
     }
-    let mut task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
+    let task = monitor.queue("backend", "read_file", "src/lib.rs", 1);
     task.start();
     for connected in [false, true] {
         if connected {
@@ -299,7 +299,7 @@ fn sparkline_handles_saturated_counters_without_overflow() {
 #[test]
 fn tracks_task_lifecycle_per_workspace_and_bytes() {
     let monitor = TaskMonitor::new(["api".to_owned(), "web".to_owned()]);
-    let mut ticket = monitor.queue("web", "read_file", "src/main.rs · lines 1-80", 128);
+    let ticket = monitor.queue("web", "read_file", "src/main.rs · lines 1-80", 128);
     let snapshot = monitor.snapshot();
     assert_eq!(snapshot.workspaces["web"].queued, 1);
     assert_eq!(snapshot.workspaces["web"].calls, 1);
@@ -436,7 +436,7 @@ fn opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls() {
 #[test]
 fn orchestration_tasks_are_visible_without_consuming_execution_slots() {
     let monitor = TaskMonitor::new(["api".to_owned()]);
-    let mut ticket =
+    let ticket =
         monitor.queue_orchestration("api", "verification_plan", "orchestrate child checks", 64);
 
     ticket.start();
@@ -456,8 +456,8 @@ fn orchestration_tasks_are_visible_without_consuming_execution_slots() {
 #[test]
 fn tracks_current_slots_and_peak_parallelism() {
     let monitor = TaskMonitor::new(["api".to_owned(), "web".to_owned()]);
-    let mut first = monitor.queue("api", "read_file", "one", 1);
-    let mut second = monitor.queue("web", "read_file", "two", 1);
+    let first = monitor.queue("api", "read_file", "one", 1);
+    let second = monitor.queue("web", "read_file", "two", 1);
 
     first.start();
     second.start();
@@ -482,7 +482,7 @@ fn tracks_current_slots_and_peak_parallelism() {
 fn snapshots_preserve_short_lived_activity_between_draws() {
     let monitor = TaskMonitor::new(["api".to_owned()]);
     let _ = monitor.snapshot();
-    let mut ticket = monitor.queue("api", "read_file", "short task", 1);
+    let ticket = monitor.queue("api", "read_file", "short task", 1);
     std::thread::sleep(Duration::from_millis(6));
     ticket.start();
     ticket.finish(true, 1);
@@ -501,7 +501,7 @@ fn snapshots_preserve_short_lived_activity_between_draws() {
 #[test]
 fn dropped_ticket_is_failed() {
     let monitor = TaskMonitor::new(["api".to_owned()]);
-    let mut ticket = monitor.queue("api", "search_code", ". · query 8 chars", 64);
+    let ticket = monitor.queue("api", "search_code", ". · query 8 chars", 64);
     ticket.start();
     drop(ticket);
     let snapshot = monitor.snapshot();
@@ -715,7 +715,7 @@ fn help_and_footer_render_project_and_author_links() {
     let monitor = TaskMonitor::new(["backend".to_owned()]);
     let (_workspace_root, workspaces) = monitor_test_workspaces(&["backend"]);
     monitor.mark_mcp_initialized();
-    let mut saved = monitor.queue("backend", "symbol_context", "saved context", 1);
+    let saved = monitor.queue("backend", "symbol_context", "saved context", 1);
     saved.start();
     saved.finish_with_context_savings(true, 400, 4_000);
     monitor.record_agent_context_metrics(
@@ -731,8 +731,8 @@ fn help_and_footer_render_project_and_author_links() {
             build_ms: 120,
         },
     );
-    let mut first = monitor.queue("backend", "read_file", "one", 1);
-    let mut second = monitor.queue("backend", "search_code", "two", 1);
+    let first = monitor.queue("backend", "read_file", "one", 1);
+    let second = monitor.queue("backend", "search_code", "two", 1);
     first.start();
     second.start();
     let config = MonitorConfig {
