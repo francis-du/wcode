@@ -143,7 +143,7 @@ pub(crate) struct VerificationPlanBinding {
     pub automation_gaps: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct VerificationPlan {
     pub id: String,
     pub workspace: String,

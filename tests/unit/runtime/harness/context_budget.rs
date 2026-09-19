@@ -360,6 +360,61 @@ fn trimming_preserves_multiple_explicit_targets_before_hot_source() {
 }
 
 #[test]
+fn tight_context_budget_preserves_pending_execution_steering() {
+    let directive = json!({
+        "kind": "change_scope",
+        "summary": "Expand the recovery work into the scheduler",
+        "requested_by": "user:test",
+        "scopes": ["runtime", "workspace"],
+        "worklist_revision": 7,
+        "repository_revision": {"code": "abc123", "design": "def456"},
+        "reconciliation_plan_id": "RP-old",
+        "requires_replan": true,
+        "requested_at_ms": 1234
+    });
+    let lineage = json!({
+        "parent_execution_id": "EX-parent",
+        "handoff_count": 1,
+        "requested_by": "user:test",
+        "summary": "Continue cleanly",
+        "handed_off_at_ms": 1200
+    });
+    let mut value = json!({
+        "truncated": false,
+        "execution": {
+            "id": "EX-current",
+            "revision": 9,
+            "objective": "verbose-objective-".repeat(300),
+            "phase": "blocked",
+            "checkpoint": {
+                "worklist_revision": 7,
+                "repository_revision": {"code": "abc123", "design": "def456"},
+                "reconciliation_plan_id": "RP-old",
+                "verification_plan_id": "VP-old",
+                "verification_ready": false,
+                "blockers": ["steering_replan_required"]
+            },
+            "pending_directive": directive,
+            "replan_required": true,
+            "lineage": lineage
+        }
+    });
+    let before = context_budget::estimated_json_tokens(&value).unwrap();
+    context_budget::trim_agent_context(&mut value, 420).unwrap();
+
+    assert!(before > 420);
+    assert_eq!(value["truncated"], true);
+    assert_eq!(value["execution"]["compacted"], true);
+    assert_eq!(value["execution"]["pending_directive"], directive);
+    assert_eq!(value["execution"]["replan_required"], true);
+    assert_eq!(value["execution"]["lineage"], lineage);
+    assert_eq!(
+        value["execution"]["checkpoint"]["reconciliation_plan_id"],
+        "RP-old"
+    );
+}
+
+#[test]
 fn task_aware_retrieval_specializes_only_when_one_intent_is_clear() {
     use crate::harness::harness_retrieval::{classify_repo_map_intent, RepoMapIntent};
 

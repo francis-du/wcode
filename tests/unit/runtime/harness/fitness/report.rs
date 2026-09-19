@@ -673,9 +673,16 @@ fn engineering_fitness_failures_stay_in_quality_denominators() {
     }));
 }
 
+fn shared_unit_report() -> &'static Report {
+    static REPORT: std::sync::OnceLock<Report> = std::sync::OnceLock::new();
+    REPORT.get_or_init(|| {
+        collect(1).expect("model-free Engineering Fitness unit snapshot must collect")
+    })
+}
+
 #[test]
 fn engineering_fitness_matrix_records_every_case_budget_and_phase() {
-    let report = collect(1).unwrap();
+    let report = shared_unit_report();
     assert_eq!(report.rows.len(), 60 * BUDGETS.len() * 2);
     assert_eq!(report.summary.len(), 6);
     assert!(report.rows.iter().all(|row| row.samples.len() == 1));
@@ -690,7 +697,7 @@ fn engineering_fitness_matrix_records_every_case_budget_and_phase() {
         "FITNESS_MATRIX {}",
         serde_json::to_string(&report.summary).unwrap()
     );
-    assert!(markdown(&report)
+    assert!(markdown(report)
         .contains("| Case | Budget | Phase | Gold recall | Source recall | NDCG@10 | Non-Gold |"));
     let query_failures: Vec<_> = report.rows.iter().filter(|row| row.samples.iter().any(|s| s.error.is_some()))
         .map(|row| json!({"case":row.case_id,"budget":row.budget,"phase":row.phase,"samples":row.samples})).collect();
@@ -742,7 +749,7 @@ fn engineering_fitness_matrix_records_every_case_budget_and_phase() {
 
 #[test]
 fn engineering_fitness_noise_snapshot() {
-    let report = collect(1).unwrap();
+    let report = shared_unit_report();
     let summary = report
         .summary
         .iter()
@@ -786,7 +793,7 @@ fn engineering_fitness_noise_snapshot() {
 
 #[test]
 fn engineering_fitness_decision_calibration_snapshot() {
-    let report = collect(1).unwrap();
+    let report = shared_unit_report();
     let compact = report
         .summary
         .iter()

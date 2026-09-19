@@ -77,6 +77,12 @@ fn graph_chain_traces_calls_and_keeps_precision_provenance() {
     let mut graph = SoftwareGraph::default();
     for (id, kind, label, provenance) in [
         (
+            "file:src/lib.rs",
+            NodeKind::File,
+            "src/lib.rs",
+            syntax.clone(),
+        ),
+        (
             "function:caller2",
             NodeKind::Function,
             "caller2",
@@ -130,6 +136,12 @@ fn graph_chain_traces_calls_and_keeps_precision_provenance() {
             .unwrap();
     }
     for edge in [
+        GraphEdge {
+            from: "file:src/lib.rs".into(),
+            to: "function:target".into(),
+            kind: EdgeKind::Defines,
+            provenance: syntax.clone(),
+        },
         GraphEdge {
             from: "function:caller2".into(),
             to: "function:caller".into(),
@@ -230,9 +242,49 @@ fn graph_chain_traces_calls_and_keeps_precision_provenance() {
         },
     )
     .unwrap();
-    assert!(all.nodes.iter().any(|node| node.node.id == "REQ-RUNTIME"));
-    assert!(all.precision_counts["declared"] >= 2);
+    assert!(all.nodes.iter().all(|node| !matches!(
+        node.node.kind,
+        NodeKind::Requirement | NodeKind::Component | NodeKind::Config | NodeKind::Verification
+    )));
+    assert!(all.edges.iter().all(|edge| !matches!(
+        edge.kind,
+        EdgeKind::ImplementsRequirement | EdgeKind::VerifiedBy | EdgeKind::ConstrainedBy
+    )));
     assert!(!all.truncated);
+
+    let file_calls = chain(
+        &workspace,
+        &GraphChainInput {
+            snapshot_id: None,
+            node_id: None,
+            label_contains: Some("src/lib.rs".into()),
+            depth: 2,
+            limit: 64,
+            mode: GraphChainMode::Calls,
+        },
+    )
+    .unwrap();
+    assert_eq!(file_calls.root_ids, vec!["file:src/lib.rs"]);
+    assert!(file_calls
+        .nodes
+        .iter()
+        .any(|node| node.node.id == "function:target"));
+    assert!(file_calls
+        .nodes
+        .iter()
+        .any(|node| node.node.id == "function:caller"));
+    assert!(file_calls
+        .nodes
+        .iter()
+        .any(|node| node.node.id == "function:callee"));
+    assert!(file_calls
+        .edges
+        .iter()
+        .any(|edge| edge.kind == EdgeKind::Defines));
+    assert!(file_calls
+        .edges
+        .iter()
+        .any(|edge| edge.kind == EdgeKind::Calls));
 }
 
 #[test]

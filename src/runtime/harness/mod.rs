@@ -45,11 +45,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 
 const MAX_PARALLEL_TOOLS: usize = 256;
+pub(crate) const TOOL_SLOT_WAIT_CAP: Duration = Duration::from_secs(10);
 pub(crate) const REPO_MAP_MAX_FILES: usize = 600;
 pub(crate) const REPO_MAP_MAX_SYMBOLS: usize = 5_000;
 const MAX_OBSERVATORY_FILES: usize = 1_500;
@@ -172,16 +173,17 @@ impl From<OwnedSemaphorePermit> for ToolPermit {
 }
 
 impl ToolHarness {
-    fn execution_limit_for(max_parallel: usize, process_capacity: usize) -> usize {
-        let outer_limit = max_parallel
+    fn execution_limit_for(max_parallel: usize, _process_capacity: usize) -> usize {
+        max_parallel
             .saturating_sub(max_parallel.div_ceil(8).min(4))
-            .max(1);
-        let process_queue_limit = process_capacity.max(1);
-        outer_limit.min(process_queue_limit)
+            .max(1)
     }
 
     pub(crate) fn execution_limit(max_parallel: usize) -> usize {
-        Self::execution_limit_for(max_parallel, crate::resource::limits().child_processes)
+        Self::execution_limit_for(
+            max_parallel,
+            crate::resource::limits().host_child_process_limit(),
+        )
     }
 
     pub(crate) async fn acquire_tool(&self, executes_process: bool) -> Result<ToolPermit, String> {
@@ -203,6 +205,20 @@ impl ToolHarness {
             _slot: slot,
             _execution: execution,
         })
+    }
+
+    pub(crate) async fn acquire_tool_with_wait_timeout(
+        &self,
+        executes_process: bool,
+        wait_for: Duration,
+    ) -> Result<ToolPermit, String> {
+        let wait_ms = u64::try_from(wait_for.as_millis()).unwrap_or(u64::MAX);
+        match tokio::time::timeout(wait_for, self.acquire_tool(executes_process)).await {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "tool capacity remained busy for {wait_ms} ms; request was not started"
+            )),
+        }
     }
 
     pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {

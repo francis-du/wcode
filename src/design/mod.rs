@@ -7,7 +7,7 @@ use std::path::{Component, Path};
 
 pub const DESIGN_ROOT: &str = ".wcode/design";
 pub const PROJECT_FILE: &str = ".wcode/project.yaml";
-const MAX_DESIGN_FILES: usize = 512;
+pub(crate) const MAX_DESIGN_FILES: usize = 512;
 
 #[cfg(test)]
 thread_local! {

@@ -80,7 +80,7 @@ pub(super) async fn run_review_probe(
     timeout_seconds: u64,
 ) -> ReviewProbeOutput {
     let command = command_text("git", &spec.args);
-    let mut task = monitor.queue(
+    let task = monitor.queue(
         workspace_id,
         format!("review:{}", spec.id),
         command.clone(),

@@ -236,11 +236,14 @@ impl JevDecisionProvider {
     }
 }
 
-pub(crate) async fn augment_agent_context(context: &mut Value, query: &str) -> Result<(), String> {
+pub(crate) async fn augment_agent_context(
+    context: &mut Value,
+    query: &str,
+) -> Result<Value, String> {
     #[cfg(test)]
     {
         let _ = (context, query);
-        Ok(())
+        Ok(Value::Null)
     }
 
     #[cfg(not(test))]
@@ -250,20 +253,38 @@ pub(crate) async fn augment_agent_context(context: &mut Value, query: &str) -> R
             .cloned()
             .and_then(|value| serde_json::from_value::<DecisionBatch>(value).ok())
             .unwrap_or_else(|| agent_context_decisions(context, query));
+        let baseline_next_action = choice(&baseline, "next_action").unwrap_or("unknown");
         let provider = match JevDecisionProvider::from_env() {
             Ok(Some(provider)) => provider,
-            Ok(None) => return Ok(()),
+            Ok(None) => {
+                return Ok(json!({
+                    "provider": "jev",
+                    "status": "disabled",
+                    "reason": "not_configured",
+                    "authority": "increase_only_assist",
+                    "baseline_next_action": baseline_next_action,
+                    "question_set": {
+                        "id": AGENT_CONTEXT_QUESTION_SET_ID,
+                        "version": AGENT_CONTEXT_QUESTION_SET_VERSION
+                    },
+                    "fallback": "deterministic"
+                }));
+            }
             Err(error) => {
                 tracing::warn!(error = %error, "Jev configuration rejected; deterministic decision plane retained");
-                attach_jev_if_budget_allows(
-                    context,
-                    json!({
-                        "provider": "jev",
-                        "status": "invalid_configuration",
-                        "fallback": "deterministic"
-                    }),
-                );
-                return Ok(());
+                let telemetry = json!({
+                    "provider": "jev",
+                    "status": "invalid_configuration",
+                    "authority": "increase_only_assist",
+                    "baseline_next_action": baseline_next_action,
+                    "question_set": {
+                        "id": AGENT_CONTEXT_QUESTION_SET_ID,
+                        "version": AGENT_CONTEXT_QUESTION_SET_VERSION
+                    },
+                    "fallback": "deterministic"
+                });
+                attach_jev_if_budget_allows(context, telemetry.clone());
+                return Ok(telemetry);
             }
         };
         let request = agent_context_decision_request(context, query);
@@ -271,53 +292,58 @@ pub(crate) async fn augment_agent_context(context: &mut Value, query: &str) -> R
             Ok(candidate) => {
                 let comparison = compare_decision_batches(&baseline, &candidate);
                 let guidance = advisory_guidance(&baseline, &candidate);
-                attach_jev_if_budget_allows(
-                    context,
-                    json!({
-                        "provider": "jev",
-                        "model": provider.model(),
-                        "status": "active",
-                        "authority": "increase_only_assist",
-                        "candidate_signal_count": candidate.signals.len(),
-                        "question_set": {
-                            "id": AGENT_CONTEXT_QUESTION_SET_ID,
-                            "version": AGENT_CONTEXT_QUESTION_SET_VERSION
-                        },
-                        "comparison": {
-                            "shared_signals": comparison.shared_signals,
-                            "missing_from_baseline": comparison.missing_from_baseline,
-                            "missing_from_candidate": comparison.missing_from_candidate,
-                            "probability_pairs": comparison.probability_pairs,
-                            "score_pairs": comparison.score_pairs,
-                            "choice_pairs": comparison.choice_pairs,
-                            "choice_disagreements": comparison.choice_disagreement_count,
-                            "safety_policy_violations": comparison.safety_policy_violation_count,
-                            "shape_mismatches": comparison.primitive_mismatch_count
-                                + comparison.mode_mismatch_count
-                                + comparison.baseline_duplicate_signal_ids
-                                + comparison.candidate_duplicate_signal_ids
-                                + usize::from(comparison.scope_mismatch)
-                                + usize::from(comparison.schema_mismatch)
-                        },
-                        "guidance": guidance,
-                        "fallback": "deterministic"
-                    }),
-                );
+                let telemetry = json!({
+                    "provider": "jev",
+                    "model": provider.model(),
+                    "status": "active",
+                    "authority": "increase_only_assist",
+                    "baseline_next_action": baseline_next_action,
+                    "candidate_next_action": choice(&candidate, "next_action"),
+                    "candidate_signal_count": candidate.signals.len(),
+                    "question_set": {
+                        "id": AGENT_CONTEXT_QUESTION_SET_ID,
+                        "version": AGENT_CONTEXT_QUESTION_SET_VERSION
+                    },
+                    "comparison": {
+                        "shared_signals": comparison.shared_signals,
+                        "missing_from_baseline": comparison.missing_from_baseline,
+                        "missing_from_candidate": comparison.missing_from_candidate,
+                        "probability_pairs": comparison.probability_pairs,
+                        "score_pairs": comparison.score_pairs,
+                        "choice_pairs": comparison.choice_pairs,
+                        "choice_disagreements": comparison.choice_disagreement_count,
+                        "safety_policy_violations": comparison.safety_policy_violation_count,
+                        "shape_mismatches": comparison.primitive_mismatch_count
+                            + comparison.mode_mismatch_count
+                            + comparison.baseline_duplicate_signal_ids
+                            + comparison.candidate_duplicate_signal_ids
+                            + usize::from(comparison.scope_mismatch)
+                            + usize::from(comparison.schema_mismatch)
+                    },
+                    "guidance": guidance,
+                    "fallback": "deterministic"
+                });
+                attach_jev_if_budget_allows(context, telemetry.clone());
+                Ok(telemetry)
             }
             Err(error) => {
                 tracing::warn!(error = %error, "Jev request failed; deterministic decision plane retained");
-                attach_jev_if_budget_allows(
-                    context,
-                    json!({
-                        "provider": "jev",
-                        "model": provider.model(),
-                        "status": "unavailable",
-                        "fallback": "deterministic"
-                    }),
-                );
+                let telemetry = json!({
+                    "provider": "jev",
+                    "model": provider.model(),
+                    "status": "unavailable",
+                    "authority": "increase_only_assist",
+                    "baseline_next_action": baseline_next_action,
+                    "question_set": {
+                        "id": AGENT_CONTEXT_QUESTION_SET_ID,
+                        "version": AGENT_CONTEXT_QUESTION_SET_VERSION
+                    },
+                    "fallback": "deterministic"
+                });
+                attach_jev_if_budget_allows(context, telemetry.clone());
+                Ok(telemetry)
             }
         }
-        Ok(())
     }
 }
 

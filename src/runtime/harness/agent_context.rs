@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "agent_readiness.rs"]
 mod agent_readiness;
+#[path = "capability.rs"]
+mod capability;
 #[path = "context_anchors.rs"]
 mod context_anchors;
 #[path = "context_budget.rs"]
@@ -54,10 +56,15 @@ impl ToolHarness {
         }
         let requested_budget =
             (budget != 0).then(|| budget.clamp(MIN_AGENT_CONTEXT_BUDGET, MAX_AGENT_CONTEXT_BUDGET));
+        // Execution recovery is intentionally fail-soft: a damaged runtime snapshot
+        // must not prevent the agent from receiving repository context needed to repair it.
+        let execution =
+            crate::execution::active_summary(self, &workspace_id, workspace).unwrap_or(None);
+        let capabilities = capability::manifest(query, requested_scopes, execution.as_ref());
         let profile_started = Instant::now();
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
         if requested_scopes.is_empty() {
-            if let Some(pack) = context_operations::build(
+            if let Some(mut pack) = context_operations::build(
                 &profile,
                 &workspace_id,
                 query,
@@ -65,6 +72,10 @@ impl ToolHarness {
                 self.max_parallel,
                 cache_hit,
             )? {
+                if let Some(execution) = execution.clone() {
+                    pack["execution"] = execution;
+                }
+                pack["capabilities"] = capabilities.clone();
                 return Ok(pack);
             }
         }
@@ -478,6 +489,8 @@ impl ToolHarness {
             "checks": checks,
             "semantic_provider_hints": semantic_provider_hints,
             "worklist": worklist,
+            "execution": execution,
+            "capabilities": capabilities,
             "workflow": [
                 "Parallel-first is mandatory: if readiness.parallelism.required is true, launch independent lanes concurrently now. Prefer one-traversal bulk tools such as read_files, search_many and apply_file_edits before per-item fan-out; use parallel_tools only when no bulk primitive fits.",
                 "Start from hot_source; open additional bodies only when the edit requires them.",

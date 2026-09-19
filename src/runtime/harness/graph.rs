@@ -220,6 +220,8 @@ pub(super) fn overlay_design_graph(
         )?;
     }
 
+    overlay_design_documents(snapshot, workspace, &provenance)?;
+
     for requirement in state.requirements.values() {
         for component in &requirement.implemented_by {
             add_graph_edge_if_possible(
@@ -351,6 +353,107 @@ pub(super) fn overlay_design_graph(
         }
     }
     Ok(())
+}
+
+fn overlay_design_documents(
+    snapshot: &mut SoftwareGraphSnapshot,
+    workspace: &Workspace,
+    provenance: &GraphProvenance,
+) -> Result<()> {
+    let (mut paths, _) = workspace.source_files(design::DESIGN_ROOT, design::MAX_DESIGN_FILES)?;
+    if workspace.root().join(design::PROJECT_FILE).is_file() {
+        paths.push(design::PROJECT_FILE.to_owned());
+    }
+    paths.sort();
+    paths.dedup();
+    for path in paths {
+        let Some(collection) = design_document_collection(&path) else {
+            continue;
+        };
+        let source = workspace.load_source(&path)?;
+        let target_ids = design_document_ids(&source.content);
+        let node_id = format!("config:{path}");
+        add_graph_node_if_absent(
+            snapshot,
+            GraphNode {
+                id: node_id.clone(),
+                kind: NodeKind::Config,
+                label: path.clone(),
+                attributes: BTreeMap::from([
+                    ("path".to_owned(), json!(path)),
+                    ("design_collection".to_owned(), json!(collection)),
+                    ("entries".to_owned(), json!(target_ids.len())),
+                ]),
+                provenance: provenance.clone(),
+            },
+        )?;
+        for target in target_ids {
+            add_graph_edge_if_possible(
+                snapshot,
+                &node_id,
+                &target,
+                EdgeKind::Contains,
+                provenance,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn design_document_collection(path: &str) -> Option<&'static str> {
+    if path == design::PROJECT_FILE {
+        return Some("project");
+    }
+    let relative = path.strip_prefix(design::DESIGN_ROOT)?.strip_prefix('/')?;
+    if !(relative.ends_with(".yaml") || relative.ends_with(".yml")) {
+        return None;
+    }
+    for collection in [
+        "product",
+        "requirements",
+        "components",
+        "constraints",
+        "decisions",
+        "acceptance",
+    ] {
+        if relative == format!("{collection}.yaml") || relative == format!("{collection}.yml") {
+            return Some(collection);
+        }
+        if collection != "product" && relative.starts_with(&format!("{collection}/")) {
+            return Some(collection);
+        }
+    }
+    None
+}
+
+fn design_document_ids(content: &str) -> Vec<String> {
+    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+        return Vec::new();
+    };
+    let mut ids = Vec::new();
+    let mut push_mapping_id = |mapping: &serde_yaml::Mapping| {
+        if let Some(id) = mapping.iter().find_map(|(key, value)| {
+            (key.as_str() == Some("id"))
+                .then(|| value.as_str())
+                .flatten()
+        }) {
+            ids.push(id.to_owned());
+        }
+    };
+    match value {
+        serde_yaml::Value::Mapping(mapping) => push_mapping_id(&mapping),
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                if let serde_yaml::Value::Mapping(mapping) = item {
+                    push_mapping_id(&mapping);
+                }
+            }
+        }
+        _ => {}
+    }
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 fn design_state_revision(state: &design::DesignState) -> Result<String> {

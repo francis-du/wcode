@@ -24,6 +24,8 @@ use crate::verification::{
 use crate::verification_store;
 use crate::workspace::Workspace;
 
+#[path = "runtime/claim.rs"]
+mod claim_runtime;
 pub(crate) mod release_gate;
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
@@ -146,6 +148,8 @@ pub(crate) use observatory::{build_project_observatory, ObservatoryInput};
 const MAX_TRACE_REQUIREMENTS: usize = 200;
 const MAX_TRACE_DIAGNOSTICS: usize = 128;
 
+#[path = "runtime/approval.rs"]
+mod approval_runtime;
 #[path = "runtime/design.rs"]
 mod design_runtime;
 #[path = "runtime/reconcile.rs"]

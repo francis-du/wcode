@@ -2,9 +2,9 @@ use super::*;
 use std::time::Duration;
 
 #[test]
-fn execution_admission_tracks_process_capacity_without_collapsing_tool_capacity() {
-    assert_eq!(ToolHarness::execution_limit_for(32, 4), 4);
-    assert_eq!(ToolHarness::execution_limit_for(16, 4), 4);
+fn execution_admission_preserves_read_headroom_without_reusing_subspace_process_quota() {
+    assert_eq!(ToolHarness::execution_limit_for(32, 4), 28);
+    assert_eq!(ToolHarness::execution_limit_for(16, 4), 14);
     assert_eq!(ToolHarness::execution_limit_for(4, 4), 3);
     assert_eq!(ToolHarness::execution_limit_for(1, 4), 1);
 }
@@ -15,9 +15,7 @@ async fn execution_headroom_keeps_total_cap_and_single_slot_compatibility() {
         let harness = ToolHarness::new(total).unwrap();
         let limit = ToolHarness::execution_limit(total);
         let outer_limit = total.saturating_sub(total.div_ceil(8).min(4)).max(1);
-        let process_queue_limit = crate::resource::limits().child_processes.max(1);
-        assert_eq!(limit, outer_limit.min(process_queue_limit));
-        assert!(limit <= process_queue_limit);
+        assert_eq!(limit, outer_limit);
         let mut commands = Vec::new();
         for _ in 0..limit {
             commands.push(harness.acquire_tool(true).await.unwrap());
@@ -34,6 +32,27 @@ async fn execution_headroom_keeps_total_cap_and_single_slot_compatibility() {
         assert_eq!(harness.slots.available_permits(), total);
         assert_eq!(harness.execution_slots.available_permits(), limit);
     }
+}
+
+#[tokio::test]
+async fn bounded_tool_admission_fails_before_transport_deadlines() {
+    let harness = ToolHarness::new(1).unwrap();
+    let held = harness.acquire_tool(false).await.unwrap();
+    let started = std::time::Instant::now();
+    let error = harness
+        .acquire_tool_with_wait_timeout(false, Duration::from_millis(25))
+        .await
+        .err()
+        .expect("bounded admission should time out while capacity is held");
+    assert!(error.contains("tool capacity remained busy for 25 ms"));
+    assert!(error.contains("request was not started"));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    drop(held);
+    let recovered = harness
+        .acquire_tool_with_wait_timeout(false, Duration::from_secs(1))
+        .await
+        .unwrap();
+    drop(recovered);
 }
 
 #[tokio::test]

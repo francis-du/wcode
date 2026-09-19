@@ -149,7 +149,7 @@ async fn refresh_workspace(
     monitor: &TaskMonitor,
     state: &SemanticAutoState,
 ) -> bool {
-    let mut ticket = monitor.queue(
+    let ticket = monitor.queue(
         workspace_id.to_owned(),
         "semantic_auto",
         format!(

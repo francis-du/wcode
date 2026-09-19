@@ -29,6 +29,13 @@ impl ToolHarness {
         self.max_parallel
     }
 
+    pub(crate) fn current_revision(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<crate::evidence::Revision> {
+        self.intelligence.current_revision(workspace)
+    }
+
     pub fn design_status(
         &self,
         workspace_id: impl Into<String>,
@@ -436,6 +443,33 @@ impl ToolHarness {
     ) -> Result<ReconciliationExecutionStatus> {
         self.intelligence
             .reconciliation_execution_status(workspace_id, workspace, plan_id)
+    }
+
+    pub fn reconciliation_approve(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+    ) -> Result<Value> {
+        self.intelligence.reconciliation_approve(
+            workspace_id,
+            workspace,
+            plan_id,
+            approver,
+            statement,
+        )
+    }
+
+    pub fn reconciliation_approval_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<Value> {
+        self.intelligence
+            .reconciliation_approval_status(workspace_id, workspace, plan_id)
     }
 
     pub fn reconciliation_claim(

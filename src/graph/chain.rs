@@ -22,7 +22,13 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
     }
 
     let mut root_ids = if let Some(node_id) = input.node_id.as_ref() {
-        if stored.snapshot.graph.nodes.contains_key(node_id) {
+        if stored
+            .snapshot
+            .graph
+            .nodes
+            .get(node_id)
+            .is_some_and(|node| code_chain_node_kind(node.kind))
+        {
             vec![node_id.clone()]
         } else {
             Vec::new()
@@ -42,7 +48,7 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             .graph
             .nodes
             .values()
-            .filter(|node| code_chain_root_kind(node.kind))
+            .filter(|node| code_chain_node_kind(node.kind))
             .filter_map(|node| {
                 let label = node.label.to_ascii_lowercase();
                 let path = node
@@ -92,8 +98,22 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
         if current_distance >= depth {
             continue;
         }
+        let current_kind = stored
+            .snapshot
+            .graph
+            .nodes
+            .get(&current)
+            .map(|node| node.kind);
         for edge in &stored.snapshot.graph.edges {
-            if !chain_edge_allowed(input.mode, edge.kind) {
+            let structural_root_edge = root_set.contains(&current)
+                && matches!(input.mode, GraphChainMode::Calls | GraphChainMode::Impact)
+                && matches!(
+                    current_kind,
+                    Some(NodeKind::Package | NodeKind::Module | NodeKind::File)
+                )
+                && matches!(edge.kind, EdgeKind::Contains | EdgeKind::Defines)
+                && edge.from == current;
+            if !structural_root_edge && !chain_edge_allowed(input.mode, edge.kind) {
                 continue;
             }
             let (neighbor, edge_direction) = if edge.from == current {
@@ -108,7 +128,10 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             if input.mode == GraphChainMode::Calls && branch != 0 && edge_direction != branch {
                 continue;
             }
-            if !stored.snapshot.graph.nodes.contains_key(neighbor) {
+            let Some(neighbor_node) = stored.snapshot.graph.nodes.get(neighbor) else {
+                continue;
+            };
+            if !code_chain_node_kind(neighbor_node.kind) {
                 continue;
             }
             if edge_keys.insert((edge.from.clone(), edge.to.clone(), edge.kind)) {
@@ -121,7 +144,13 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             if root_set.contains(neighbor) {
                 continue;
             }
-            let next_branch = if branch == 0 { edge_direction } else { branch };
+            let next_branch = if structural_root_edge {
+                0
+            } else if branch == 0 {
+                edge_direction
+            } else {
+                branch
+            };
             let upstream = next_branch < 0;
             let downstream = next_branch > 0;
             let next_distance = current_distance.saturating_add(1);
@@ -201,10 +230,11 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
     })
 }
 
-fn code_chain_root_kind(kind: NodeKind) -> bool {
+fn code_chain_node_kind(kind: NodeKind) -> bool {
     matches!(
         kind,
-        NodeKind::Module
+        NodeKind::Package
+            | NodeKind::Module
             | NodeKind::File
             | NodeKind::Symbol
             | NodeKind::Function
@@ -228,13 +258,7 @@ fn chain_edge_allowed(mode: GraphChainMode, kind: EdgeKind) -> bool {
                 | EdgeKind::DependsOn
                 | EdgeKind::Implements
                 | EdgeKind::Extends
-                | EdgeKind::ImplementsRequirement
-                | EdgeKind::TestedBy
-                | EdgeKind::VerifiedBy
-                | EdgeKind::GuardsAgainst
-                | EdgeKind::ProducesEvidence
                 | EdgeKind::RuntimeCalls
-                | EdgeKind::ConstrainedBy
         ),
         GraphChainMode::All => matches!(
             kind,
@@ -246,13 +270,7 @@ fn chain_edge_allowed(mode: GraphChainMode, kind: EdgeKind) -> bool {
                 | EdgeKind::DependsOn
                 | EdgeKind::Implements
                 | EdgeKind::Extends
-                | EdgeKind::ImplementsRequirement
-                | EdgeKind::TestedBy
-                | EdgeKind::VerifiedBy
-                | EdgeKind::GuardsAgainst
-                | EdgeKind::ProducesEvidence
                 | EdgeKind::RuntimeCalls
-                | EdgeKind::ConstrainedBy
         ),
     }
 }

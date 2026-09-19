@@ -16,13 +16,17 @@ impl ToolHarness {
             "revision_stamped_cache": true,
             "code_graph_lazy_loaded": true,
         });
+        let limits = crate::resource::limits();
         let execution_admission = json!({
             "limit": Self::execution_limit(self.max_parallel),
-            "process_capacity": crate::resource::limits().child_processes,
+            "process_capacity": limits.child_processes,
+            "subspace_process_capacity": limits.child_processes,
+            "host_process_capacity": limits.host_child_process_limit(),
             "queued_process_headroom": Self::execution_limit(self.max_parallel)
-                .saturating_sub(crate::resource::limits().child_processes),
+                .saturating_sub(limits.host_child_process_limit()),
             "read_headroom": self.max_parallel - Self::execution_limit(self.max_parallel),
             "total_limit": self.max_parallel,
+            "tool_slot_wait_cap_ms": u64::try_from(TOOL_SLOT_WAIT_CAP.as_millis()).unwrap_or(u64::MAX),
         });
         let digital_twin = json!({
             "code_graph": true,

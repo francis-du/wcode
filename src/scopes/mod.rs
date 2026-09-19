@@ -220,6 +220,11 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
     use ProductScope::*;
     let scopes: &[ProductScope] = match name {
         "workspace_info" | "scope_status" => &[Runtime, Workspace, Integrations],
+        "execution_status"
+        | "execution_propose"
+        | "execution_policy_status"
+        | "execution_steer"
+        | "execution_handoff" => &[Runtime, Workspace, Reconciliation, Verification],
         "project_context" | "convention_status" | "worklist_status" | "worklist_update"
         | "list_files" | "search_code" | "search_many" | "scan_patterns" | "read_file"
         | "read_files" | "read_media" | "path_info" | "replace_text" | "apply_edits"
@@ -273,6 +278,7 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         "reconciliation_plan"
         | "reconciliation_status"
         | "reconciliation_history"
+        | "reconciliation_approve"
         | "reconciliation_execution_status"
         | "reconciliation_claim"
         | "reconciliation_submit"

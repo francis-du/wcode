@@ -703,6 +703,10 @@ pub(super) fn trim_agent_context_from_tokens(
         // tight budget it yields before original risk/evidence and before
         // edit-critical SHA/source/test data.
         let changed = drop_key(value, "decision_plane")
+            || drop_nested_key(value, "capabilities", "host_contract")
+            || pop_nested_array(value, "capabilities", "deferred_product_scopes", 0)
+            || pop_nested_array(value, "capabilities", "active_product_scopes", 0)
+            || drop_key(value, "capabilities")
             || pop_array(value, "risks", 0)
             || pop_nested_array(value, "relations", "edges", 0)
             || pop_nested_array(value, "relations", "nodes", 0)
@@ -738,6 +742,7 @@ pub(super) fn trim_agent_context_from_tokens(
             // tight edit budget it must disappear before SHA targets, tests,
             // the strongest repo-map item, or diagnostic Hot Source.
             || drop_nested_key(value, "repo_map", "routing")
+            || compact_execution_summary(value)
             || pop_nested_array(value, "worklist", "parallel_runnable", 0)
             || pop_nested_array(value, "worklist", "items", 0)
             || pop_nested_array(value, "worklist", "runnable", 0)
@@ -768,6 +773,43 @@ pub(super) fn trim_agent_context_from_tokens(
     }
     value["truncated"] = json!(truncated);
     Ok(())
+}
+
+fn compact_execution_summary(value: &mut Value) -> bool {
+    let Some(execution) = value.get_mut("execution").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    if execution.get("compacted").and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    let checkpoint = execution
+        .get("checkpoint")
+        .and_then(Value::as_object)
+        .map(|checkpoint| {
+            json!({
+                "worklist_revision": checkpoint.get("worklist_revision"),
+                "repository_revision": checkpoint.get("repository_revision"),
+                "reconciliation_plan_id": checkpoint.get("reconciliation_plan_id"),
+                "verification_plan_id": checkpoint.get("verification_plan_id"),
+                "verification_ready": checkpoint.get("verification_ready"),
+                "blockers": checkpoint.get("blockers"),
+            })
+        })
+        .unwrap_or(Value::Null);
+    let compact = json!({
+        "id": execution.get("id"),
+        "revision": execution.get("revision"),
+        "phase": execution.get("phase"),
+        "checkpoint": checkpoint,
+        "pending_directive": execution.get("pending_directive"),
+        "replan_required": execution.get("replan_required"),
+        "verification_floor": execution.get("verification_floor"),
+        "lineage": execution.get("lineage"),
+        "compacted": true,
+        "guidance": "Pending structured steering and its verification floor are never dropped by context compaction. Apply steering through Worklist/replan state first; call execution_status for the full checkpoint."
+    });
+    *execution = compact.as_object().cloned().unwrap_or_default();
+    true
 }
 
 fn compact_worklist_summary(value: &mut Value) -> bool {

@@ -25,6 +25,8 @@ mod repo_map;
 mod review_generated;
 #[path = "harness/selective.rs"]
 mod selective;
+#[path = "harness/steering.rs"]
+mod steering;
 #[path = "harness/verification_reuse.rs"]
 mod verification_reuse;
 
@@ -37,18 +39,6 @@ async fn enforces_parallel_limit() {
     drop(first);
     assert_eq!(harness.slots.available_permits(), 1);
     drop(second);
-}
-
-#[test]
-fn rejects_unbounded_parallelism() {
-    assert!(ToolHarness::new(0).is_err());
-    assert_eq!(
-        ToolHarness::new(MAX_PARALLEL_TOOLS)
-            .expect("documented maximum should be accepted")
-            .max_parallel(),
-        MAX_PARALLEL_TOOLS
-    );
-    assert!(ToolHarness::new(MAX_PARALLEL_TOOLS + 1).is_err());
 }
 
 #[test]

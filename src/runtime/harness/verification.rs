@@ -33,7 +33,7 @@ pub(super) async fn run_verification_check(
 ) -> VerificationCheck {
     let command = verification_command_text(&check);
     let request_bytes = command.len() as u64;
-    let mut task = monitor.queue(
+    let task = monitor.queue(
         workspace_id,
         format!("verify:{}", check.id),
         format!("phase {} · {command}", check.phase),
