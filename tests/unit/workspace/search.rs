@@ -440,7 +440,7 @@ fn batch_edit_fuzz_corpus_is_bounded_and_never_panics() {
         let mut edits = Vec::with_capacity(edit_count);
         for edit_index in 0..edit_count {
             let selector = next() as usize;
-            let old_text = if selector % 5 == 0 {
+            let old_text = if selector.is_multiple_of(5) {
                 format!("missing_{case}_{edit_index}")
             } else {
                 anchors[selector % anchors.len()].clone()
