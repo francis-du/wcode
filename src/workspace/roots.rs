@@ -83,6 +83,45 @@ impl Workspace {
         self.allow_exec && self.security.allow_semantic_exec
     }
 
+    pub(crate) fn is_linked_worktree_of(&self, shared: &Workspace) -> Result<bool> {
+        if self.root == shared.root {
+            return Ok(false);
+        }
+        let Some((isolated_common, isolated_linked)) = git_common_dir(&self.root)? else {
+            return Ok(false);
+        };
+        if !isolated_linked {
+            return Ok(false);
+        }
+        let Some((shared_common, _)) = git_common_dir(&shared.root)? else {
+            return Ok(false);
+        };
+        Ok(isolated_common == shared_common)
+    }
+
+    pub(crate) fn mutation_domain_root(&self) -> Result<PathBuf> {
+        for ancestor in self.root.ancestors() {
+            let dotgit = ancestor.join(".git");
+            let metadata = match fs::symlink_metadata(&dotgit) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if metadata.file_type().is_symlink() {
+                bail!(
+                    "Git metadata path must not be a symlink: {}",
+                    dotgit.display()
+                );
+            }
+            if metadata.is_dir() || metadata.is_file() {
+                return ancestor.canonicalize().with_context(|| {
+                    format!("cannot resolve Git worktree root {}", ancestor.display())
+                });
+            }
+        }
+        Ok(self.root.clone())
+    }
+
     pub(crate) fn readonly_subspace(&self, relative: &str) -> Result<Self> {
         let root = self.existing_path(relative)?;
         if !root.is_dir() {
@@ -583,4 +622,62 @@ impl Workspace {
         locks.insert(path.to_path_buf(), Arc::downgrade(&lock));
         Ok(lock)
     }
+}
+
+fn git_common_dir(root: &Path) -> Result<Option<(PathBuf, bool)>> {
+    for ancestor in root.ancestors() {
+        let dotgit = ancestor.join(".git");
+        let metadata = match fs::symlink_metadata(&dotgit) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "Git metadata path must not be a symlink: {}",
+                dotgit.display()
+            );
+        }
+        if metadata.is_dir() {
+            return Ok(Some((dotgit.canonicalize()?, false)));
+        }
+        if !metadata.is_file() || metadata.len() > 4 * 1024 {
+            return Ok(None);
+        }
+        let marker = fs::read_to_string(&dotgit)
+            .with_context(|| format!("cannot read Git worktree marker {}", dotgit.display()))?;
+        let Some(value) = marker.trim().strip_prefix("gitdir:") else {
+            return Ok(None);
+        };
+        let gitdir = PathBuf::from(value.trim());
+        let gitdir = if gitdir.is_absolute() {
+            gitdir
+        } else {
+            ancestor.join(gitdir)
+        }
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "cannot resolve Git worktree metadata for {}",
+                root.display()
+            )
+        })?;
+        let commondir_path = gitdir.join("commondir");
+        let commondir = fs::read_to_string(&commondir_path).with_context(|| {
+            format!(
+                "cannot read Git common-dir marker {}",
+                commondir_path.display()
+            )
+        })?;
+        let common = PathBuf::from(commondir.trim());
+        let common = if common.is_absolute() {
+            common
+        } else {
+            gitdir.join(common)
+        }
+        .canonicalize()
+        .with_context(|| format!("cannot resolve Git common directory for {}", root.display()))?;
+        return Ok(Some((common, true)));
+    }
+    Ok(None)
 }

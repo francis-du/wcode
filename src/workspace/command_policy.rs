@@ -71,6 +71,14 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> bool {
+    let bounded = WorkspaceSecurity {
+        allow_risky_exec: LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program),
+        ..WorkspaceSecurity::default()
+    };
+    validate_command_policy(program, args, bounded).is_err()
+}
+
 pub(super) fn validate_command_policy(
     program: &str,
     args: &[String],

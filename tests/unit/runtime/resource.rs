@@ -11,7 +11,7 @@ fn burst_friendly_limits_keep_tool_concurrency_and_bound_cpu_workers() {
         limits.interactive_cpu_percent,
         limits.cpu_burst_threads as f64 * 100.0
     );
-    assert!((1..=8).contains(&limits.cpu_burst_threads));
+    assert!((1..=16).contains(&limits.cpu_burst_threads));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
     assert!(limits.child_processes >= limits.cpu_burst_threads.div_ceil(limits.child_threads));
     assert!(limits.child_processes <= limits.cpu_burst_threads);

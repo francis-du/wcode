@@ -20,8 +20,11 @@ use tokio::sync::OwnedSemaphorePermit;
 
 #[path = "resource/queue.rs"]
 mod process_queue;
+#[path = "resource/subspace.rs"]
+mod subspace;
 use process_queue::ProcessQueue;
 pub use process_queue::ProcessQueueSnapshot;
+use subspace::SubspaceProcessQueues;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
@@ -63,6 +66,7 @@ pub struct ResourceLimits {
     pub effective_parallel_tools: usize,
     pub cpu_burst_threads: usize,
     pub rayon_threads: usize,
+    /// Per-Workspace/subspace heavy-process quota.
     pub child_processes: usize,
     pub child_threads: usize,
 }
@@ -99,8 +103,8 @@ impl ResourceLimits {
         // Background maintenance's CPU target must not serialize foreground
         // indexing. Bound foreground work by hardware, memory and tool demand.
         let cpu_burst_threads = host_threads
-            .min(8)
-            .min(usize::try_from(max_memory_mb / 64).unwrap_or(8))
+            .min(16)
+            .min(usize::try_from(max_memory_mb / 64).unwrap_or(16))
             .min(requested_parallel_tools)
             .max(1);
         let rayon_threads = cpu_burst_threads;
@@ -116,9 +120,9 @@ impl ResourceLimits {
         // Heavy repository commands are latency-sensitive foreground work. Use
         // ~128 MiB of soft budget per child and never advertise more children
         // than the foreground CPU lanes can sustain at `child_threads` each.
-        // On an 8-lane host the default 512 MiB profile reaches four 2-thread
-        // children: higher fan-out than the old three-child profile without
-        // oversubscribing the CPU burst budget.
+        // The default 512 MiB profile remains memory-bounded at four 2-thread
+        // children, while 1 GiB+ profiles can scale toward eight children on
+        // hosts with more than eight foreground CPU lanes.
         let child_processes = usize::try_from(max_memory_mb / 128)
             .unwrap_or(8)
             .clamp(1, 8)
@@ -138,6 +142,16 @@ impl ResourceLimits {
             child_processes,
             child_threads,
         })
+    }
+
+    pub(crate) fn host_child_process_limit(self) -> usize {
+        let memory_mb =
+            usize::try_from(self.max_memory_bytes / (1024 * 1024)).unwrap_or(usize::MAX);
+        (memory_mb / 64)
+            .clamp(1, 16)
+            .min(self.cpu_burst_threads.max(self.child_processes))
+            .min(self.effective_parallel_tools)
+            .max(self.child_processes)
     }
 
     #[cfg(test)]
@@ -272,6 +286,7 @@ pub struct ResourceSnapshot {
     pub cpu_burst_threads: usize,
     pub rayon_threads: usize,
     pub child_processes: usize,
+    pub host_child_processes: usize,
     pub child_threads: usize,
     pub child_queue: ProcessQueueSnapshot,
     pub probe_queue: ProcessQueueSnapshot,
@@ -349,6 +364,7 @@ pub struct ResourceGovernor {
     cpu_activity_changed: Condvar,
     cpu_budget: Mutex<CpuBudget>,
     child_slot: ProcessQueue,
+    subspace_child_slots: SubspaceProcessQueues,
     probe_slot: ProcessQueue,
     telemetry: Mutex<Telemetry>,
 }
@@ -449,7 +465,8 @@ impl ResourceGovernor {
                 background_credit_seconds: limits.background_burst_seconds(),
                 tokens: limits.interactive_burst_seconds(),
             }),
-            child_slot: ProcessQueue::new(limits.child_processes),
+            child_slot: ProcessQueue::new(limits.host_child_process_limit()),
+            subspace_child_slots: SubspaceProcessQueues::default(),
             probe_slot: ProcessQueue::new(limits.probe_process_limit()),
             telemetry: Mutex::new(Telemetry::default()),
         }
@@ -621,33 +638,6 @@ impl ResourceGovernor {
         let mut telemetry = lock_recover(&self.telemetry);
         telemetry.admission_delays = telemetry.admission_delays.saturating_add(1);
         telemetry.throttle_sleep += delay;
-    }
-
-    #[cfg(test)]
-    pub async fn acquire_child(&self) -> Result<OwnedSemaphorePermit, String> {
-        self.acquire_child_with_wait()
-            .await
-            .map(|(permit, _)| permit)
-    }
-
-    pub(crate) async fn acquire_child_with_wait(
-        &self,
-    ) -> Result<(OwnedSemaphorePermit, u64), String> {
-        self.admit_tool().await?;
-        self.child_slot.acquire_with_wait().await
-    }
-
-    pub(crate) async fn acquire_child_with_wait_timeout(
-        &self,
-        wait_for: Duration,
-    ) -> Result<(OwnedSemaphorePermit, u64), String> {
-        let wait_ms = u64::try_from(wait_for.as_millis()).unwrap_or(u64::MAX);
-        match tokio::time::timeout(wait_for, self.acquire_child_with_wait()).await {
-            Ok(result) => result,
-            Err(_) => Err(format!(
-                "process capacity remained busy for {wait_ms} ms; command was not started"
-            )),
-        }
     }
 
     #[cfg(test)]
@@ -961,9 +951,10 @@ fn snapshot_from(limits: ResourceLimits, telemetry: &Telemetry, now: Instant) ->
         cpu_burst_threads: limits.cpu_burst_threads,
         rayon_threads: limits.rayon_threads,
         child_processes: limits.child_processes,
+        host_child_processes: limits.host_child_process_limit(),
         child_threads: limits.child_threads,
         child_queue: ProcessQueueSnapshot {
-            limit: limits.child_processes,
+            limit: limits.host_child_process_limit(),
             ..ProcessQueueSnapshot::default()
         },
         probe_queue: ProcessQueueSnapshot {

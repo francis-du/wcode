@@ -27,6 +27,29 @@ fn perf_foreground_capacity_uses_hardware_without_raising_background_budget() {
     assert_eq!(small.interactive_cpu_percent, 100.0);
 }
 
+#[test]
+fn perf_foreground_capacity_scales_beyond_eight_lanes_when_memory_and_host_allow() {
+    let host = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(8)
+        .max(1);
+    let limits = ResourceLimits::new(10.0, 1_024, 64).unwrap();
+    assert_eq!(limits.cpu_burst_threads, host.min(16));
+    assert_eq!(
+        limits.child_processes,
+        (1_024usize / 128)
+            .clamp(1, 8)
+            .min(limits.cpu_burst_threads.div_ceil(limits.child_threads))
+            .min(limits.effective_parallel_tools)
+    );
+    if host > 8 {
+        assert!(
+            limits.cpu_burst_threads > 8,
+            "large-memory profiles should use additional foreground CPU lanes on capable hosts"
+        );
+    }
+}
+
 fn blocking_workers_started(blocking_limit: usize) -> usize {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

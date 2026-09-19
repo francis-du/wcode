@@ -108,6 +108,9 @@ fn focused_rust_test_filter_is_exact_and_does_not_open_arbitrary_test_arguments(
     }
 }
 
+#[path = "policy/focused.rs"]
+mod focused;
+
 #[test]
 fn focused_python_and_go_test_filters_are_exact_and_path_bounded() {
     let safe = WorkspaceSecurity::default();

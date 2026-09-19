@@ -13,6 +13,12 @@ fn bounded_cargo_test_filter(program: &str, args: &[String]) -> bool {
     let filter = match args {
         [command, filter] if command == "test" => filter.as_str(),
         [command, locked, filter] if command == "test" && locked == "--locked" => filter.as_str(),
+        [command, lib, filter] if command == "test" && lib == "--lib" => filter.as_str(),
+        [command, locked, lib, filter]
+            if command == "test" && locked == "--locked" && lib == "--lib" =>
+        {
+            filter.as_str()
+        }
         _ => return false,
     };
     simple_cargo_test_filter(filter)

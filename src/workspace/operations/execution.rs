@@ -1,5 +1,7 @@
 use super::*;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{
+    OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock, Semaphore,
+};
 
 #[cfg(test)]
 #[path = "../../../tests/unit/workspace/execution.rs"]
@@ -20,31 +22,34 @@ fn cargo_contention_wait(command_timeout: Duration) -> Duration {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CargoContentionLane {
     Registry,
-    Workspace,
+    WorkspaceExclusive,
+    WorkspaceTest,
 }
 
 fn cargo_contention_lane(program: &str, args: &[String]) -> Option<CargoContentionLane> {
     if program != "cargo" {
         return None;
     }
-    for arg in args {
+    for (index, arg) in args.iter().enumerate() {
         if matches!(arg.as_str(), "info" | "search" | "fetch" | "update") {
             return Some(CargoContentionLane::Registry);
         }
+        if arg == "test"
+            || (arg == "nextest" && args.get(index + 1).is_some_and(|next| next == "run"))
+        {
+            return Some(
+                if validate_verification_command_shape(program, args).is_ok() {
+                    CargoContentionLane::WorkspaceTest
+                } else {
+                    CargoContentionLane::WorkspaceExclusive
+                },
+            );
+        }
         if matches!(
             arg.as_str(),
-            "build"
-                | "check"
-                | "test"
-                | "clippy"
-                | "bench"
-                | "doc"
-                | "fix"
-                | "run"
-                | "rustc"
-                | "rustdoc"
+            "build" | "check" | "clippy" | "bench" | "doc" | "fix" | "run" | "rustc" | "rustdoc"
         ) {
-            return Some(CargoContentionLane::Workspace);
+            return Some(CargoContentionLane::WorkspaceExclusive);
         }
     }
     None
@@ -55,13 +60,44 @@ fn cargo_registry_gate() -> &'static Arc<Semaphore> {
     GATE.get_or_init(|| Arc::new(Semaphore::new(1)))
 }
 
-fn cargo_workspace_gates() -> &'static Mutex<HashMap<PathBuf, Weak<Semaphore>>> {
-    static GATES: std::sync::OnceLock<Mutex<HashMap<PathBuf, Weak<Semaphore>>>> =
+struct CargoWorkspaceGate {
+    access: Arc<RwLock<()>>,
+    test_slots: Arc<Semaphore>,
+}
+
+impl CargoWorkspaceGate {
+    fn new() -> Self {
+        Self {
+            access: Arc::new(RwLock::new(())),
+            test_slots: Arc::new(Semaphore::new(
+                crate::resource::limits().child_processes.max(1),
+            )),
+        }
+    }
+}
+
+enum CargoContentionPermit {
+    Registry {
+        _permit: OwnedSemaphorePermit,
+    },
+    WorkspaceTest {
+        _gate: Arc<CargoWorkspaceGate>,
+        _slot: OwnedSemaphorePermit,
+        _access: OwnedRwLockReadGuard<()>,
+    },
+    WorkspaceExclusive {
+        _gate: Arc<CargoWorkspaceGate>,
+        _access: OwnedRwLockWriteGuard<()>,
+    },
+}
+
+fn cargo_workspace_gates() -> &'static Mutex<HashMap<PathBuf, Weak<CargoWorkspaceGate>>> {
+    static GATES: std::sync::OnceLock<Mutex<HashMap<PathBuf, Weak<CargoWorkspaceGate>>>> =
         std::sync::OnceLock::new();
     GATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn cargo_workspace_gate(root: &Path) -> Arc<Semaphore> {
+fn cargo_workspace_gate(root: &Path) -> Arc<CargoWorkspaceGate> {
     let mut gates = cargo_workspace_gates()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -69,9 +105,13 @@ fn cargo_workspace_gate(root: &Path) -> Arc<Semaphore> {
     if let Some(gate) = gates.get(root).and_then(Weak::upgrade) {
         return gate;
     }
-    let gate = Arc::new(Semaphore::new(1));
+    let gate = Arc::new(CargoWorkspaceGate::new());
     gates.insert(root.to_path_buf(), Arc::downgrade(&gate));
     gate
+}
+
+fn cargo_gate_timeout_error() -> anyhow::Error {
+    anyhow!("cargo contention gate remained busy for the bounded queue wait")
 }
 
 async fn acquire_cargo_contention_gate(
@@ -79,17 +119,58 @@ async fn acquire_cargo_contention_gate(
     args: &[String],
     workspace_root: &Path,
     wait_timeout: Duration,
-) -> Result<Option<OwnedSemaphorePermit>> {
-    let gate = match cargo_contention_lane(program, args) {
-        Some(CargoContentionLane::Registry) => Arc::clone(cargo_registry_gate()),
-        Some(CargoContentionLane::Workspace) => cargo_workspace_gate(workspace_root),
+) -> Result<Option<CargoContentionPermit>> {
+    let lane = match cargo_contention_lane(program, args) {
+        Some(lane) => lane,
         None => return Ok(None),
     };
-    tokio::time::timeout(wait_timeout, gate.acquire_owned())
-        .await
-        .map_err(|_| anyhow!("cargo contention gate remained busy for the bounded queue wait"))?
-        .map(Some)
-        .map_err(|_| anyhow!("cargo contention gate is shutting down"))
+    let deadline = tokio::time::Instant::now() + wait_timeout;
+    match lane {
+        CargoContentionLane::Registry => {
+            let permit = tokio::time::timeout(
+                wait_timeout,
+                Arc::clone(cargo_registry_gate()).acquire_owned(),
+            )
+            .await
+            .map_err(|_| cargo_gate_timeout_error())?
+            .map_err(|_| anyhow!("cargo contention gate is shutting down"))?;
+            Ok(Some(CargoContentionPermit::Registry { _permit: permit }))
+        }
+        CargoContentionLane::WorkspaceTest => {
+            let gate = cargo_workspace_gate(workspace_root);
+            let slot = tokio::time::timeout(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                Arc::clone(&gate.test_slots).acquire_owned(),
+            )
+            .await
+            .map_err(|_| cargo_gate_timeout_error())?
+            .map_err(|_| anyhow!("cargo test contention gate is shutting down"))?;
+            let access = tokio::time::timeout(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                Arc::clone(&gate.access).read_owned(),
+            )
+            .await
+            .map_err(|_| cargo_gate_timeout_error())?;
+            Ok(Some(CargoContentionPermit::WorkspaceTest {
+                _gate: gate,
+                _slot: slot,
+                _access: access,
+            }))
+        }
+        CargoContentionLane::WorkspaceExclusive => {
+            let gate = cargo_workspace_gate(workspace_root);
+            let access = tokio::time::timeout(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                Arc::clone(&gate.access).write_owned(),
+            )
+            .await
+            .map_err(|_| cargo_gate_timeout_error())?;
+            Ok(Some(CargoContentionPermit::WorkspaceExclusive {
+                _gate: gate,
+                _access: access,
+            }))
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -234,7 +315,15 @@ impl Workspace {
             validate_command_policy(program, args, admissible)?;
         }
         let development_program = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
+        let broad_execution = sandbox::command_requires_sandbox(
+            unrestricted_commands,
+            self.allow_exec,
+            self.allow_write,
+            program,
+            args,
+        );
         let mut safe_development = self.security;
+        safe_development.allow_unrestricted_commands = false;
         // Repository development tools are intentionally autonomous. Give
         // their existing bounded policy the elevated lane up front so normal
         // build/test/lint/codegen/package-manager workflows do not create a
@@ -242,8 +331,8 @@ impl Workspace {
         // rejections (shell interpreters, protected/escaping paths, credential
         // flows, and explicitly blocked host operations) still fail closed.
         safe_development.allow_risky_exec = development_program;
-        let autonomous_development = unrestricted_commands
-            || validate_command_policy(program, args, safe_development).is_ok();
+        let autonomous_development =
+            validate_command_policy(program, args, safe_development).is_ok();
         let cwd_path = self.existing_path(cwd)?;
         if !cwd_path.is_dir() {
             bail!("cwd is not a directory");
@@ -312,13 +401,21 @@ impl Workspace {
         let deadline = tokio::time::Instant::now() + command_timeout;
         let queue_wait = process_queue_wait(command_timeout);
         let governor = crate::resource::global();
-        let (_child_permit, process_queue_wait_ms) = if is_inspection_probe(program, args) {
-            governor.acquire_probe_with_wait_timeout(queue_wait).await
-        } else {
-            governor.acquire_child_with_wait_timeout(queue_wait).await
-        }
-        .map_err(anyhow::Error::msg)?;
-        let effective_args = if unrestricted_commands {
+        let (_probe_permit, _child_permit, process_queue_wait_ms) =
+            if is_inspection_probe(program, args) {
+                let (permit, wait_ms) = governor
+                    .acquire_probe_with_wait_timeout(queue_wait)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                (Some(permit), None, wait_ms)
+            } else {
+                let (permit, wait_ms) = governor
+                    .acquire_child_for_workspace_with_wait_timeout(&self.root, queue_wait)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                (None, Some(permit), wait_ms)
+            };
+        let effective_args = if broad_execution {
             args.to_vec()
         } else {
             hardened_command_args(program, args)
@@ -332,32 +429,42 @@ impl Workspace {
         } else {
             PathBuf::from(program)
         };
-        let mut command = Command::new(executable);
+        let mut sandbox_guard = None;
+        let mut command = if broad_execution {
+            let (command, guard) =
+                sandbox::prepare(&self.root, &cwd, &executable, &effective_args)?;
+            sandbox_guard = Some(guard);
+            command
+        } else {
+            let mut command = Command::new(executable);
+            command.args(&effective_args).current_dir(&cwd);
+            command
+        };
         command
-            .args(&effective_args)
-            .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        if !unrestricted_commands {
-            scrub_sensitive_environment(
-                &mut command,
-                program,
-                args,
-                effective_security.allow_risky_exec
-                    || (program == "git" && is_git_push_command(args)),
-            );
-            if program == "git" {
-                command
-                    .env("GIT_CEILING_DIRECTORIES", &self.root)
-                    .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "0");
-            }
+        scrub_sensitive_environment(
+            &mut command,
+            program,
+            args,
+            !broad_execution
+                && (effective_security.allow_risky_exec
+                    || (program == "git" && is_git_push_command(args))),
+        );
+        if program == "git" {
+            command
+                .env("GIT_CEILING_DIRECTORIES", &self.root)
+                .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "0");
         }
         crate::resource::apply_child_limits(&mut command);
 
         let child = command.spawn().context("failed to start command")?;
-        collect_command_result(child, program, args, deadline, process_queue_wait_ms).await
+        let result =
+            collect_command_result(child, program, args, deadline, process_queue_wait_ms).await;
+        drop(sandbox_guard);
+        result
     }
 
     pub(crate) fn verification_command_shape_allowed(
@@ -504,7 +611,10 @@ impl Workspace {
         let command_timeout = Duration::from_secs(timeout_seconds.clamp(1, 1800));
         let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
-            .acquire_child_with_wait_timeout(process_queue_wait(command_timeout))
+            .acquire_child_for_workspace_with_wait_timeout(
+                &self.root,
+                process_queue_wait(command_timeout),
+            )
             .await
             .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);
@@ -569,7 +679,10 @@ impl Workspace {
         .await?;
         let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
-            .acquire_child_with_wait_timeout(process_queue_wait(command_timeout))
+            .acquire_child_for_workspace_with_wait_timeout(
+                &self.root,
+                process_queue_wait(command_timeout),
+            )
             .await
             .map_err(anyhow::Error::msg)?;
         let mut command = Command::new(executable);

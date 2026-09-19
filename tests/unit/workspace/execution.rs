@@ -30,7 +30,7 @@ fn cargo_contention_wait_is_bounded_separately_from_execution_timeout() {
 }
 
 #[test]
-fn cargo_contention_classification_separates_registry_and_workspace_locks() {
+fn cargo_contention_classification_separates_registry_exclusive_and_shared_test_lanes() {
     assert_eq!(
         cargo_contention_lane("cargo", &["info".into(), "serde".into()]),
         Some(CargoContentionLane::Registry)
@@ -45,7 +45,35 @@ fn cargo_contention_classification_separates_registry_and_workspace_locks() {
                 "--quiet".into()
             ]
         ),
-        Some(CargoContentionLane::Workspace)
+        Some(CargoContentionLane::WorkspaceExclusive),
+        "arbitrary cargo test shapes must not enter the shared verification lane"
+    );
+    assert_eq!(
+        cargo_contention_lane("cargo", &["test".into(), "--locked".into()]),
+        Some(CargoContentionLane::WorkspaceTest)
+    );
+    assert_eq!(
+        cargo_contention_lane(
+            "cargo",
+            &[
+                "test".into(),
+                "--locked".into(),
+                "--lib".into(),
+                "module::focused_smoke".into()
+            ]
+        ),
+        Some(CargoContentionLane::WorkspaceTest)
+    );
+    assert_eq!(
+        cargo_contention_lane(
+            "cargo",
+            &["nextest".into(), "run".into(), "--locked".into()]
+        ),
+        Some(CargoContentionLane::WorkspaceTest)
+    );
+    assert_eq!(
+        cargo_contention_lane("cargo", &["check".into(), "--locked".into()]),
+        Some(CargoContentionLane::WorkspaceExclusive)
     );
     assert_eq!(
         cargo_contention_lane(
@@ -62,9 +90,42 @@ fn cargo_contention_classification_separates_registry_and_workspace_locks() {
 }
 
 #[tokio::test]
-async fn cargo_workspace_gate_serializes_before_child_process_admission() {
+async fn cargo_workspace_tests_share_bounded_reader_capacity() {
     let root = tempfile::tempdir().unwrap();
-    let first = acquire_cargo_contention_gate(
+    let capacity = crate::resource::limits().child_processes.max(1);
+    let mut permits = Vec::with_capacity(capacity);
+    for _ in 0..capacity {
+        permits.push(
+            acquire_cargo_contention_gate(
+                "cargo",
+                &["test".into()],
+                root.path(),
+                Duration::from_secs(1),
+            )
+            .await
+            .unwrap()
+            .expect("cargo test must acquire a shared workspace permit"),
+        );
+    }
+
+    let blocked = acquire_cargo_contention_gate(
+        "cargo",
+        &["test".into()],
+        root.path(),
+        Duration::from_millis(40),
+    )
+    .await;
+    assert!(
+        blocked.is_err(),
+        "shared cargo test concurrency must remain bounded by child-process capacity"
+    );
+    drop(permits);
+}
+
+#[tokio::test]
+async fn cargo_workspace_writer_waits_for_test_readers_and_blocks_late_readers() {
+    let root = tempfile::tempdir().unwrap();
+    let test_permit = acquire_cargo_contention_gate(
         "cargo",
         &["test".into()],
         root.path(),
@@ -72,24 +133,50 @@ async fn cargo_workspace_gate_serializes_before_child_process_admission() {
     )
     .await
     .unwrap()
-    .expect("workspace cargo command must acquire a contention permit");
+    .expect("cargo test must acquire a shared workspace permit");
 
-    let blocked = acquire_cargo_contention_gate(
+    let gate = cargo_workspace_gate(root.path());
+    let queued_writer = Arc::clone(&gate.access).write_owned();
+    tokio::pin!(queued_writer);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(40), queued_writer.as_mut())
+            .await
+            .is_err(),
+        "exclusive cargo work must wait for active shared tests"
+    );
+
+    let late_reader = acquire_cargo_contention_gate(
         "cargo",
-        &["check".into()],
+        &["test".into()],
         root.path(),
         Duration::from_millis(40),
     )
     .await;
     assert!(
-        blocked.is_err(),
-        "same-workspace cargo command must queue before spawning"
+        late_reader.is_err(),
+        "a late cargo test must not bypass an already queued exclusive writer"
     );
-    drop(first);
+
+    drop(test_permit);
+    let writer = tokio::time::timeout(Duration::from_secs(1), queued_writer.as_mut())
+        .await
+        .expect("queued writer must acquire after existing test readers finish");
+    let blocked_reader = acquire_cargo_contention_gate(
+        "cargo",
+        &["test".into()],
+        root.path(),
+        Duration::from_millis(40),
+    )
+    .await;
+    assert!(
+        blocked_reader.is_err(),
+        "new cargo tests must wait while exclusive workspace cargo work is active"
+    );
+    drop(writer);
 
     let resumed = acquire_cargo_contention_gate(
         "cargo",
-        &["check".into()],
+        &["test".into()],
         root.path(),
         Duration::from_secs(1),
     )
@@ -343,42 +430,54 @@ async fn workspace_all_command_grant_skips_repetitive_command_authorization() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn workspace_all_command_grant_bypasses_shell_policy_read_only_and_startup_no_exec() {
+async fn workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed() {
     let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(".env"), "SECRET=must-not-be-readable\n").unwrap();
     let workspace = Workspace::new(root.path(), false, false).unwrap();
     let workspace_id = workspace.authorization_workspace_id();
     workspace
         .authorization
         .set_workspace_commands_granted(&workspace_id, true);
 
-    let result = workspace
+    let outcome = workspace
         .run_command(
             "sh",
             &[
                 "-c".into(),
-                "printf unrestricted > unrestricted-command.txt".into(),
+                "test \"$WCODE_SANDBOX\" = 1 || exit 41; if cat .env >/dev/null 2>&1; then exit 42; fi; printf unrestricted > unrestricted-command.txt; if printf escape > ../sandbox-escape.txt 2>/dev/null; then exit 43; else exit 0; fi".into(),
             ],
             ".",
             10,
         )
-        .await
-        .expect("explicit all-command authorization must bypass WCode command policy");
-    assert!(result.success, "{}", result.stderr);
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("unrestricted-command.txt")).unwrap(),
-        "unrestricted"
-    );
+        .await;
+    if crate::workspace::execution_sandbox_status().available {
+        let result = outcome.expect("available strong sandbox must launch broad command");
+        assert!(result.success, "{}", result.stderr);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("unrestricted-command.txt")).unwrap(),
+            "unrestricted"
+        );
+        assert!(!root
+            .path()
+            .parent()
+            .unwrap()
+            .join("sandbox-escape.txt")
+            .exists());
+    } else {
+        let error = outcome.unwrap_err().to_string();
+        assert!(error.contains("sandbox_unavailable"));
+    }
     assert!(workspace.authorization.latest_pending().is_none());
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn full_access_command_lane_bypasses_command_policy_and_argument_filters() {
+async fn full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass() {
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new_with_security(
         root.path(),
-        false,
-        false,
+        true,
+        true,
         WorkspaceSecurity {
             allow_unrestricted_commands: true,
             ..WorkspaceSecurity::default()
@@ -386,23 +485,33 @@ async fn full_access_command_lane_bypasses_command_policy_and_argument_filters()
     )
     .unwrap();
 
-    let result = workspace
+    let bounded = workspace
+        .run_command("cargo", &["--version".into()], ".", 30)
+        .await
+        .expect("bounded command must remain available without broad sandbox overhead");
+    assert!(bounded.success, "{}", bounded.stderr);
+
+    let broad = workspace
         .run_command(
             "/bin/sh",
             &[
                 "-c".into(),
-                "test -d / && printf full-access > full-access-command.txt".into(),
+                "printf full-access > full-access-command.txt".into(),
             ],
             ".",
             10,
         )
-        .await
-        .expect("full-access command lane must not apply command-policy or argument filters");
-    assert!(result.success, "{}", result.stderr);
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("full-access-command.txt")).unwrap(),
-        "full-access"
-    );
+        .await;
+    if crate::workspace::execution_sandbox_status().available {
+        let result = broad.expect("available strong sandbox must launch policy bypass");
+        assert!(result.success, "{}", result.stderr);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("full-access-command.txt")).unwrap(),
+            "full-access"
+        );
+    } else {
+        assert!(broad.unwrap_err().to_string().contains("sandbox"));
+    }
 }
 
 #[cfg(unix)]
@@ -414,13 +523,14 @@ async fn revoking_workspace_all_command_grant_restores_normal_policy() {
     workspace
         .authorization
         .set_workspace_commands_granted(&workspace_id, true);
-    assert!(
-        workspace
-            .run_command("/bin/sh", &["-c".into(), "exit 0".into()], ".", 10)
-            .await
-            .unwrap()
-            .success
-    );
+    let broad = workspace
+        .run_command("/bin/sh", &["-c".into(), "exit 0".into()], ".", 10)
+        .await;
+    if crate::workspace::execution_sandbox_status().available {
+        assert!(broad.unwrap().success);
+    } else {
+        assert!(broad.unwrap_err().to_string().contains("sandbox"));
+    }
 
     workspace
         .authorization

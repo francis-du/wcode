@@ -840,15 +840,22 @@ impl Workspace {
 mod fs_safety;
 use fs_safety::{
     apply_text_edits, atomic_create_new, atomic_write, ensure_single_link_file, hard_link_count,
-    operation_fingerprint, reject_destructive_replacement, reject_protected_path, root_identity,
-    sha256, sha256_file, source_stamp, validate_batch_paths, validate_independent_moves,
-    validate_movable_directory, validate_source_metadata, validate_workspace_root,
-    validate_write_content, workspace_id,
+    operation_fingerprint, protected_component_kind, reject_destructive_replacement,
+    reject_protected_path, root_identity, sha256, sha256_file, source_stamp, validate_batch_paths,
+    validate_independent_moves, validate_movable_directory, validate_source_metadata,
+    validate_workspace_root, validate_write_content, workspace_id,
 };
 
 #[path = "command_policy.rs"]
 mod command_policy;
 use command_policy::*;
+#[path = "sandbox.rs"]
+mod sandbox;
+pub(crate) use sandbox::status as execution_sandbox_status;
+
+pub(crate) fn command_writes_workspace(program: &str, args: &[String]) -> bool {
+    command_requires_workspace_write(program, args)
+}
 
 #[path = "operations/execution.rs"]
 mod execution;

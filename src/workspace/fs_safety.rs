@@ -47,47 +47,72 @@ pub(super) fn validate_workspace_root(root: &Path, security: WorkspaceSecurity) 
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ProtectedPathKind {
+    Credential,
+    Internal,
+    EnvironmentSecret,
+}
+
+pub(super) fn protected_component_kind(name: &str) -> Option<ProtectedPathKind> {
+    let name = name.to_ascii_lowercase();
+    if matches!(
+        name.as_str(),
+        ".git"
+            | ".hg"
+            | ".svn"
+            | ".ssh"
+            | ".aws"
+            | ".gnupg"
+            | ".azure"
+            | ".kube"
+            | ".git-credentials"
+            | ".netrc"
+            | ".npmrc"
+            | ".pypirc"
+            | "credentials"
+            | "credentials.json"
+            | "service-account.json"
+            | "id_rsa"
+            | "id_dsa"
+            | "id_ecdsa"
+            | "id_ed25519"
+            | "authorized_keys"
+    ) {
+        return Some(ProtectedPathKind::Credential);
+    }
+    if name.starts_with(".wcode-") || name == ".wcode-security" {
+        return Some(ProtectedPathKind::Internal);
+    }
+    if name == ".env"
+        || (name.starts_with(".env.")
+            && !name.ends_with(".example")
+            && !name.ends_with(".sample")
+            && !name.ends_with(".template"))
+    {
+        return Some(ProtectedPathKind::EnvironmentSecret);
+    }
+    None
+}
+
 pub(super) fn reject_protected_path(path: &Path) -> Result<()> {
     for component in path.components() {
         let Component::Normal(value) = component else {
             continue;
         };
-        let name = value.to_string_lossy().to_ascii_lowercase();
-        if matches!(
-            name.as_str(),
-            ".git"
-                | ".hg"
-                | ".svn"
-                | ".ssh"
-                | ".aws"
-                | ".gnupg"
-                | ".azure"
-                | ".kube"
-                | ".git-credentials"
-                | ".netrc"
-                | ".npmrc"
-                | ".pypirc"
-                | "credentials"
-                | "credentials.json"
-                | "service-account.json"
-                | "id_rsa"
-                | "id_dsa"
-                | "id_ecdsa"
-                | "id_ed25519"
-                | "authorized_keys"
-        ) {
-            bail!("protected credential or repository-control path is not accessible: {name}");
-        }
-        if name.starts_with(".wcode-") || name == ".wcode-security" {
-            bail!("wcode internal paths are not accessible");
-        }
-        if name == ".env"
-            || (name.starts_with(".env.")
-                && !name.ends_with(".example")
-                && !name.ends_with(".sample")
-                && !name.ends_with(".template"))
-        {
-            bail!("environment secret files are not accessible through MCP tools");
+        let name = value.to_string_lossy();
+        match protected_component_kind(&name) {
+            Some(ProtectedPathKind::Credential) => bail!(
+                "protected credential or repository-control path is not accessible: {}",
+                name.to_ascii_lowercase()
+            ),
+            Some(ProtectedPathKind::Internal) => {
+                bail!("wcode internal paths are not accessible")
+            }
+            Some(ProtectedPathKind::EnvironmentSecret) => {
+                bail!("environment secret files are not accessible through MCP tools")
+            }
+            None => {}
         }
     }
     Ok(())
