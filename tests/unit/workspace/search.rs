@@ -410,3 +410,66 @@ fn regex_search_rejects_invalid_patterns_without_scanning() {
         .unwrap_err();
     assert!(error.to_string().contains("invalid search regex"));
 }
+
+#[test]
+fn batch_edit_fuzz_corpus_is_bounded_and_never_panics() {
+    let mut seed = 0x8a5c_1f27_d4e3_b691_u64;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        seed
+    };
+    for case in 0..512 {
+        let line_count = 1 + (next() as usize % 24);
+        let mut original = String::new();
+        let mut anchors = Vec::with_capacity(line_count);
+        for line in 0..line_count {
+            let anchor = format!(
+                "原始_{case}_{line}_{}",
+                "值".repeat(1 + (next() as usize % 8))
+            );
+            anchors.push(anchor.clone());
+            original.push_str(&anchor);
+            if line + 1 != line_count {
+                original.push_str(if next() & 1 == 0 { "\n" } else { "\r\n" });
+            }
+        }
+
+        let edit_count = 1 + (next() as usize % 16);
+        let mut edits = Vec::with_capacity(edit_count);
+        for edit_index in 0..edit_count {
+            let selector = next() as usize;
+            let old_text = if selector % 5 == 0 {
+                format!("missing_{case}_{edit_index}")
+            } else {
+                anchors[selector % anchors.len()].clone()
+            };
+            let start_line = if next() % 3 == 0 {
+                None
+            } else {
+                Some(1 + (next() as usize % (line_count + 3)))
+            };
+            let end_line = start_line.map(|start| start + (next() as usize % 2));
+            edits.push(TextEdit {
+                old_text,
+                new_text: format!("新_{}_{edit_index}", "界".repeat(next() as usize % 12)),
+                start_line,
+                end_line,
+            });
+        }
+
+        let max_output =
+            original.len() + edits.iter().map(|edit| edit.new_text.len()).sum::<usize>();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            apply_text_edits(&original, &edits)
+        }));
+        let result = outcome.unwrap_or_else(|_| panic!("fuzz case {case} panicked"));
+        if let Ok(output) = result {
+            assert!(
+                output.len() <= max_output,
+                "fuzz case {case} escaped the bounded replacement envelope"
+            );
+        }
+    }
+}

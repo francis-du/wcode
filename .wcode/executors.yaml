@@ -1,0 +1,44 @@
+schema_version: 1
+executors:
+  - id: wcode-rust-property-edits
+    stage: property
+    languages: [rust]
+    program: cargo
+    args: [test, --locked, --lib, batch_edit_stitching_preserves_original_anchors_unicode_and_crlf]
+    cwd: .
+    timeout_seconds: 300
+  - id: wcode-rust-mutation-syntax-candidate
+    stage: mutation
+    languages: [rust]
+    program: cargo
+    args: [test, --locked, --lib, syntax_candidates_generated_mutation_is_killed_by_isolated_fixture_oracle]
+    cwd: .
+    timeout_seconds: 300
+  - id: wcode-rust-fuzz-edits
+    stage: fuzz
+    languages: [rust]
+    program: cargo
+    args: [test, --locked, --lib, batch_edit_fuzz_corpus_is_bounded_and_never_panics]
+    cwd: .
+    timeout_seconds: 300
+  - id: wcode-js-property-system-map
+    stage: property
+    languages: [java-script]
+    program: node
+    args: [tests/ui_quality_stage.cjs, property]
+    cwd: .
+    timeout_seconds: 30
+  - id: wcode-js-mutation-system-map
+    stage: mutation
+    languages: [java-script]
+    program: node
+    args: [tests/ui_quality_stage.cjs, mutation]
+    cwd: .
+    timeout_seconds: 30
+  - id: wcode-js-fuzz-system-map
+    stage: fuzz
+    languages: [java-script]
+    program: node
+    args: [tests/ui_quality_stage.cjs, fuzz]
+    cwd: .
+    timeout_seconds: 30
