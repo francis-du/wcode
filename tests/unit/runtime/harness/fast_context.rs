@@ -100,8 +100,8 @@ fn fast_context_exposes_advisory_decision_plane_when_budget_allows() {
         .unwrap()
         .iter()
         .any(|signal| {
-            signal["id"] == "semantic_navigation_value"
-                && signal["recommendation"] == "prefer_semantic_navigation"
+            signal["id"] == "semantic_navigation_required"
+                && signal["recommendation"] == "semantic_navigation_required_before_edit"
         }));
 }
 

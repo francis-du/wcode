@@ -6,7 +6,7 @@
       "name": "wcode",
       "source": ".",
       "description": "wcode engineering control-plane skill with current-directory MCP defaults.",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "category": "developer-tools",
       "tags": ["mcp", "engineering-control-plane", "software-intelligence", "verification"],
       "strict": true

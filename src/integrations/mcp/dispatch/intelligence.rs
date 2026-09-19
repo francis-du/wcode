@@ -297,6 +297,7 @@ pub(super) async fn call(
             };
             let budget = usize_arg(args, "budget").unwrap_or(0);
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
+            let decision_query = query.clone();
             let context_harness = state.harness.clone();
             let context_workspace = workspace.clone();
             let context_future = run_blocking(move || {
@@ -321,6 +322,10 @@ pub(super) async fn call(
                     context["verification_impact"] = impact;
                 }
             }
+            enforce_agent_context_postlude_budget(&mut context);
+            crate::jev::augment_agent_context(&mut context, &decision_query)
+                .await
+                .map_err(|error| format!("system one augmentation failed: {error}"))?;
             Ok(context)
         }
         "worklist_status" => {

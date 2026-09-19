@@ -593,6 +593,53 @@ mod agent_context_enrichment_tests {
     use super::*;
 
     #[test]
+    fn postlude_budget_drops_optional_enrichment_before_breaking_agent_budget() {
+        let mut context = json!({
+            "budget": 256,
+            "readiness": {
+                "edit": "worktree_conflict",
+                "next_actions": ["review_changes"],
+                "advisories": ["target_has_worktree_changes"]
+            },
+            "targets": [{"path":"src/lib.rs"}],
+            "worktree": {
+                "targets": (0..32).map(|index| json!({
+                    "path": format!("src/file_{index}.rs"),
+                    "status": "clean"
+                })).collect::<Vec<_>>(),
+                "has_existing_changes": false,
+                "truncated": false
+            },
+            "verification_impact": {
+                "reasons": (0..32).map(|index| format!("long verification reason {index} {}", "x".repeat(32))).collect::<Vec<_>>()
+            }
+        });
+        assert!(agent_context_model_tokens(&context) > 256);
+        enforce_agent_context_postlude_budget(&mut context);
+        assert!(agent_context_model_tokens(&context) <= 256);
+        assert!(context.get("verification_impact").is_none());
+        assert!(context.get("worktree").is_none());
+        assert_eq!(context["readiness"]["edit"], "worktree_conflict");
+        assert_eq!(
+            context["readiness"]["next_actions"],
+            json!(["review_changes"])
+        );
+    }
+
+    #[test]
+    fn postlude_budget_keeps_enrichment_when_it_already_fits() {
+        let mut context = json!({
+            "budget": 1000,
+            "targets": [{"path":"src/lib.rs"}],
+            "worktree": {"targets":[{"path":"src/lib.rs","status":"clean"}],"has_existing_changes":false},
+            "verification_impact": {"selective":true}
+        });
+        let before = context.clone();
+        enforce_agent_context_postlude_budget(&mut context);
+        assert_eq!(context, before);
+    }
+
+    #[test]
     fn worktree_status_warns_on_existing_changes_and_blocks_conflicts() {
         let mut context = json!({
             "targets": [{"path": "src/lib.rs"}],

@@ -10,381 +10,7 @@ function savePreference(key, value) {
 const savedLanguage = readPreference("wcode.ui.language");
 const savedTheme = readPreference("wcode.ui.theme");
 const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
-const translations = {
-  "zh-CN": {
-    "Engineering Observatory": "工程观测台",
-    "Project digital twin": "项目数字孪生",
-    "Overview": "总览",
-    "Architecture": "架构",
-    "Activity": "活动",
-    "Proof": "证据",
-    "Engineering": "工程",
-    "Changes": "变更",
-    "Files": "文件",
-    "Diagnostics": "诊断",
-    "Quality": "质量",
-    "rail note": "先看架构与变更链，需要证据时再展开原始表格。",
-    "Find subsystem, component, requirement or file…": "搜索子系统、组件、需求或文件…",
-    "Search systems, components, requirements…": "搜索系统、组件、需求…",
-    "Project navigator": "项目导航",
-    "observatory subtitle":
-      "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
-    "auto refresh": "自动刷新",
-    "Refresh semantics": "刷新语义",
-    "Manage access": "管理访问",
-    "Semantics": "语义",
-    "Access": "访问",
-    "Refresh now": "立即刷新",
-    "Fit": "适配全图",
-    "Open full map": "打开全图",
-    "System architecture map": "系统架构地图",
-    "Blueprint": "蓝图",
-    "System map": "系统地图",
-    "architecture map note": "四个语义层展示系统全貌；精确依赖证据统一在“依赖”账本中查看。",
-    "Dependencies": "依赖",
-    "Data source": "数据来源",
-    "View": "视图",
-    "Relationships": "关系",
-    "Focus": "聚焦",
-    "All relationships": "全部",
-    "Zoom": "缩放",
-    "Connecting": "连接中",
-    "Live": "实时",
-    "Syncing": "同步中",
-    "Refresh failed": "刷新失败",
-    "Theme": "主题",
-    "System": "跟随系统",
-    "Dark": "深色",
-    "Light": "浅色",
-    "Workspace & command access": "项目与命令授权",
-    "access safety note":
-      "Session 级权限仍受 Workspace、命令策略和高风险操作策略约束。",
-    "Close": "关闭",
-    "Authorized projects": "已授权项目",
-    "Authorize project": "授权项目",
-    "project safety note": "项目根目录会规范化处理并保持隔离。",
-    "Authorized commands": "已授权命令",
-    "Authorize command": "授权命令",
-    "command safety note": "可执行程序权限按项目隔离；Shell 解释器继续禁止。",
-    "Exact repository operation": "精确仓库操作",
-    "Authorize operation": "授权操作",
-    "operation safety note": "只授权当前 Session 内一个精确的仓库感知命令。",
-    "Pending authorizations": "待授权请求",
-    "authorization safety note": "可批准当前精确请求、为当前 Workspace 本次运行全部授权，或拒绝。",
-    "Approve": "批准",
-    "Deny": "拒绝",
-    "No pending authorizations": "没有待授权请求",
-    "No authorized projects": "没有已授权项目",
-    "No commands authorized": "没有已授权命令",
-    "Command access": "命令权限",
-    "Risky execution": "高风险执行",
-    "Runtime executor": "运行时执行器",
-    "Destructive delete": "删除操作",
-    "Authorization approved": "授权已批准",
-    "Authorization denied": "授权已拒绝",
-    "Unable to update authorizations": "无法更新授权请求",
-    "Unable to update access": "无法更新访问配置",
-    "Workspace added": "工作区已添加",
-    "Command authorized": "命令已授权",
-    "Command revoked": "命令授权已撤销",
-    "Operation authorized": "操作已授权",
-    "Authorize all commands": "全部授权",
-    "Disable all command authorization": "关闭全部授权",
-    "All commands authorized for this session": "本次运行已全部授权",
-    "All commands require per-request approval": "命令按请求授权",
-    "All command authorization enabled": "已开启全部授权",
-    "All command authorization disabled": "已关闭全部授权",
-    "Requirements": "需求",
-    "All": "全部",
-    "Changed": "有变更",
-    "Needs convergence": "需要收敛",
-    "Incomplete": "不完整",
-    "Search requirement, feature, component…": "搜索需求、功能、组件…",
-    "Loading project state…": "正在加载项目状态…",
-    "Current changes": "当前变更",
-    "current changes meta":
-      "Working Tree 变更映射回 Requirement 与 Product Scope。",
-    "Code statistics": "代码统计",
-    "current repository snapshot": "当前有界仓库快照。",
-    "Architecture revisions": "架构版本",
-    "meaningful graph snapshots": "有意义的 Composite Graph 快照与结构化风险。",
-    "Language quality matrix": "语言质量矩阵",
-    "language quality meta":
-      "按能力显示覆盖与缺口；需要 Provider 细节时再展开。",
-    "Desired State": "目标状态",
-    "Actual State": "实际状态",
-    "Change": "变更",
-    "Proof": "证据",
-    "Mapped": "已映射",
-    "Executed": "已执行",
-    "Passed": "已通过",
-    "Fresh": "当前版本",
-    "Convergence": "收敛",
-    "Feature architecture · desired vs actual": "功能架构 · 目标与实际",
-    "Acceptance & verification": "验收与验证",
-    "Constraints, decisions & drift": "约束、决策与漂移",
-    "Current changes touching this feature": "当前影响该功能的变更",
-    "Design architecture": "设计架构",
-    "Actual code architecture · generated from current implementation":
-      "实际代码架构 · 从当前实现生成",
-    "Languages": "语言",
-    "Product Scopes": "Product Scope",
-    "Latest structural delta": "最近结构变化",
-    "Current structured risks": "当前结构化风险",
-    "Path": "路径",
-    "Status": "状态",
-    "Scope": "范围",
-    "Diff": "差异",
-    "Files": "文件",
-    "Language": "语言",
-    "Syntax": "语法",
-    "Semantic": "语义",
-    "Format": "格式化",
-    "Lint": "Lint",
-    "Type": "类型",
-    "Static": "静态分析",
-    "Test": "测试",
-    "Security": "安全",
-    "Advanced": "高级验证",
-    "Gaps": "缺口",
-    "Select a requirement.": "请选择一个需求。",
-    "Design valid": "设计有效",
-    "Design invalid": "设计无效",
-    "No critical attention items": "当前没有需要立即处理的信号",
-    "Semantic graph active": "Semantic Graph 已生效",
-    "Tree-sitter only": "Tree-sitter Only",
-    "LSP available": "LSP 可用",
-    "Refresh semantics for stronger dependency evidence":
-      "刷新语义以获得更强的依赖证据",
-    "Verification failed": "验证失败",
-    "Verification disagreement": "验证存在分歧",
-    "Requirements need convergence": "个需求需要收敛",
-    "Critical risk": "Critical 风险",
-    "High risk": "High 风险",
-    "Pending approval": "个待授权请求",
-    "Semantic refresh complete": "语义刷新完成",
-    "Semantic refresh needs approval": "语义刷新需要人工批准",
-    "No implementation reference declared.": "没有声明实现引用。",
-    "No responsibilities declared.": "没有声明职责。",
-    "No current implementation mapping.": "没有当前实现映射。",
-    "No cross-component dependency is declared or detected for this feature.":
-      "该功能没有声明或观测到跨组件依赖。",
-    "No acceptance criteria.": "没有验收条件。",
-    "No requirement-specific constraints.": "没有该需求专属约束。",
-    "No current working-tree file is mapped to this requirement.":
-      "当前 Working Tree 没有文件映射到该需求。",
-    "Working tree is clean or Git review is unavailable.":
-      "Working Tree 干净，或 Git Review 当前不可用。",
-    "No previous meaningful graph revision yet.":
-      "暂无上一版有意义的 Graph Revision。",
-    "No data.": "暂无数据。",
-    "No supported source language detected in the bounded repository snapshot.":
-      "当前有界仓库快照中未检测到支持的源码语言。",
-    "declared coverage complete": "声明覆盖完整",
-    "gap": "缺口",
-    "gaps": "缺口",
-    "provider precision": "Provider 精度",
-    "advisory": "提示",
-    "blocker": "阻塞",
-    "blockers": "阻塞",
-    "advisories": "提示",
-    "not observed": "未观测到",
-    "last updated": "更新于",
-    "Refreshing project state…": "正在刷新项目状态…",
-  },
-};
-Object.assign(translations["zh-CN"], {
-  "Executable access": "可执行程序访问",
-  "Authorize executable": "授权可执行程序",
-  "Command access": "可执行程序访问",
-  "Risky execution": "精确仓库操作",
-  "observatory subtitle":
-    "实时查看目标状态、实现、变更、证据与收敛，并始终显示数据来源与精度。",
-  "access safety note":
-    "会话级权限仍受项目隔离、命令策略和高风险操作策略约束。",
-  "command safety note": "可执行程序权限按项目隔离；不会授权该程序的所有参数。",
-  "operation safety note":
-    "必须先允许可执行程序；这里只授权精确参数与工作目录。",
-  "current changes meta": "工作树变更映射回需求与产品范围。",
-  "meaningful graph snapshots": "有意义的软件图谱快照与结构化风险。",
-  "language quality meta": "按能力显示覆盖与缺口；需要分析器细节时再展开。",
-  "Product Scopes": "产品范围",
-  "Semantic graph active": "语义图谱已生效",
-  "Tree-sitter only": "仅 Tree-sitter",
-  "LSP available": "LSP 可用",
-  "Critical risk": "严重风险",
-  "High risk": "高风险",
-  "provider precision": "数据来源精度",
-  "Workspace": "工作区",
-  "Language / Parser": "语言 / 解析器",
-  "Language": "语言",
-  "Revoke": "撤销",
-  "complete": "完整",
-  "aligned": "已对齐",
-  "low": "低",
-  "stable": "稳定",
-  "valid": "有效",
-  "ready": "就绪",
-  "pass": "通过",
-  "critical": "严重",
-  "failed": "失败",
-  "invalid": "无效",
-  "error": "错误",
-  "medium": "中",
-  "high": "高",
-  "needs convergence": "需要收敛",
-  "incomplete": "不完整",
-  "blocked": "阻塞",
-  "disagreed": "有分歧",
-  "undeclared actual": "未声明的实际依赖",
-  "unverified actual": "未验证的实际依赖",
-  "unknown": "未知",
-  "declared": "已声明",
-  "current": "当前",
-  "resolved": "已解析",
-  "unresolved": "未解析",
-  "semantic": "语义",
-  "syntax": "语法",
-  "runtime": "运行时",
-  "evidence": "证据",
-  "covered": "已覆盖",
-  "available": "可用",
-  "clean": "无变更",
-  "changed": "已变更",
-  "untracked": "未跟踪",
-  "truncated": "已截断",
-  "nodes": "节点",
-  "edges": "边",
-  "requirement": "需求",
-  "accepted": "已采纳",
-  "proposed": "提议中",
-  "deprecated": "已弃用",
-  "superseded": "已取代",
-  "added": "新增",
-  "modified": "修改",
-  "deleted": "删除",
-  "renamed": "重命名",
-  "none": "无",
-  "No requirements match this filter.": "没有符合当前筛选条件的需求。",
-  "No implementation component declared.": "没有声明实现组件。",
-  "No acceptance criterion declared.": "没有声明验收条件。",
-  "Bounded snapshot": "有界快照",
-  "bounded graph note": "实时代码图谱达到安全上限；统计与架构信息可能不完整。",
-  "Design diagnostics require attention": "设计诊断需要处理",
-  "Open Manage access to review exact requests": "打开“管理访问”以审核精确请求",
-  "Design, proof and convergence have no active blockers":
-    "设计、证据与收敛当前没有阻塞项",
-  "positive evidence note":
-    "只有明确的数据来源证据才会阻塞收敛；有界语法图谱中未观测到关系只作为提示。",
-  "security footer":
-    "只有在本页面 URL 片段中的本地 UI 令牌被提交给受保护的智能端点后，项目数据才会返回。URL 片段本身不会进入 HTTP 请求或服务器日志。",
-  "Architecture overview": "整体架构",
-  "Engineering architecture": "工程架构",
-  "Architecture blueprint": "架构蓝图",
-  "Live engineering flow": "实时工程流",
-  "live engineering flow meta": "实时投影仓库理解、受控修改、验证证明、经验学习和观测状态。",
-  "Vibe coding change story": "Vibe Coding 变更链",
-  "vibe coding change story meta": "文件 → 组件 → 需求 → 验证 → 已确认架构偏离。",
-  "Live engineering timeline": "实时工程时间线",
-  "live engineering timeline meta": "把真实 Harness 活动、验证证据和架构版本合成一条有界事件流。",
-  "Engineering signals": "工程信号",
-  "engineering signals meta": "工程流、变更链、运行拓扑与最近工程事件。",
-  "architecture overview meta":
-    "先按分层蓝图读懂系统，再下钻组件或查看原始依赖图。",
-  "Overlay": "叠加对比",
-  "Design": "设计",
-  "Implementation": "实现",
-  "Aligned dependency": "设计与实现对齐",
-  "Declared, not yet observed": "设计已声明、实现尚未观测",
-  "Observed implementation edge": "实现中观测到的依赖",
-  "Strong observed drift": "强证据架构偏离",
-  "Observed drift": "已观测偏离度",
-  "Evidence coverage": "设计依赖证据覆盖",
-  "Implementation coverage": "组件实现覆盖",
-  "Architecture size": "架构规模",
-  "strong drift denominator":
-    "仅用已观测实际依赖计算；强语义/运行时证据的未声明依赖才算偏离。",
-  "coverage denominator":
-    "设计依赖被当前实现图确认的比例；未观测不等于不存在。",
-  "implementation denominator": "在设计状态中声明了实现路径的组件比例。",
-  "architecture size detail": "组件 / 设计依赖 / 实际依赖",
-  "Component detail": "组件详情",
-  "Responsibilities": "职责",
-  "Implementation mapping": "实现映射",
-  "Related requirements": "关联需求",
-  "Dependencies": "依赖关系",
-  "Changed paths": "当前变更路径",
-  "Product scopes": "产品范围",
-  "No component selected.": "请选择一个组件。",
-  "No implementation mapping.": "没有实现映射。",
-  "No related requirements.": "没有关联需求。",
-  "No dependency edges.": "没有依赖边。",
-  "No current component changes.": "该组件当前没有变更。",
-  "No product scope mapping.": "没有产品范围映射。",
-  "Architecture aligned": "架构已对齐",
-  "Architecture drift": "存在架构偏离",
-  "Needs stronger evidence": "需要更强证据",
-  "Click a component to inspect it.": "点击组件查看职责、实现和依赖详情。",
-  "design edge": "设计依赖",
-  "actual edge": "实际依赖",
-  "incoming": "被依赖",
-  "outgoing": "依赖",
-  "observed actual": "实际已观测",
-  "not observed": "未观测到",
-  "deterministic": "确定性",
-  "heuristic": "启发式",
-  "mixed": "混合",
-  "Project files": "项目文件",
-  "project files meta":
-    "查看有界源码快照的目录层级，并找出超过项目行数上限的文件。",
-  "File structure": "文件结构",
-  "Filter file tree…": "筛选文件名或路径…",
-  "Filter file tree": "筛选文件树",
-  "No matching files.": "没有匹配的文件。",
-  "Largest files": "大文件",
-  "No source files in this snapshot.": "当前快照中没有源码文件。",
-  "Within line limit": "均未超过行数上限",
-  "Snapshot truncated": "快照已截断",
-});
-
-Object.assign(translations["zh-CN"], {
-  "observatory subtitle": "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
-  "Task activity": "任务活动", "Verification evidence": "验证证据",
-  "Engineering closed loop": "工程闭环流程",
-  "engineering cycle meta": "理解 → 规划 → 实施 → 证明 → 学习 → 观测，并通过版本绑定证据形成持续反馈。",
-  "Change impact snapshot": "变更影响快照",
-  "change impact snapshot meta": "文件 → 组件 → 需求 → 验证 → 偏离。",
-  "Runtime signals": "运行时信号",
-  "runtime signals meta": "入口、工作区边界、Harness、仓库模型与验证状态。",
-  "Requirement to evidence traceability": "需求到证据追踪",
-  "traceability map meta": "沿需求意图追踪到归属组件、实现代码、验证检查与版本绑定证据。",
-  "Change impact and convergence": "变更影响与收敛",
-  "change convergence meta": "看清改了什么、影响什么、需要哪些证明，以及最终还剩多少风险与信心。",
-  "Task activity meta": "正在执行的任务优先。等待时间与执行时间分别展示。",
-  "Proof meta": "当前版本、历史结果与尚未验证的工作，分别展示。",
-  "Components": "组件", "Component map": "组件地图", "Dependency graph": "依赖连线图",
-  "Find a component": "查找组件", "Name, responsibility or scope": "搜索名称、职责或所属范围",
-  "Explore requirement details": "查看实现、验收条件与依赖证据",
-  "Diagnostics & history": "诊断与历史", "Diagnostics meta": "代码分布、图谱版本与已记录风险",
-  "Verification impact": "验证影响",
-  "verification impact meta": "解释当前改动为什么会扩大到这些项目岛的验证范围。",
-  "Adaptive verification": "自适应验证",
-  "adaptive verification meta": "只读预览下一次 quick 为什么可能优先运行聚焦测试或 fail-fast sentinel；full 覆盖保持不变。",
-  "Verified learning": "验证学习",
-  "verified learning meta": "按全局时间隔离评估不保存提示词的已验证共改记忆。",
-  "Live runtime topology": "实时运行拓扑",
-  "live runtime topology meta": "从真实运行遥测投影当前入口、MCP/授权、工作区边界、Harness 队列、仓库模型和验证状态。",
-});
-
-// Descriptive translation keys need English copy too, not their internal IDs.
-translations.en = {
-  "Diagnostics meta": "Code distribution, graph revisions and recorded risks.",
-  "adaptive verification meta": "Read-only preview of focused tests and fail-fast checks. Full verification coverage is unchanged.",
-  "verified learning meta": "Temporal holdout evaluation of prompt-free verified change history.",
-  "bounded graph note": "The live code graph reached its safety bound; statistics and architecture may be incomplete.",
-  "current repository snapshot": "Current bounded repository snapshot.",
-  "meaningful graph snapshots": "Meaningful graph snapshots and recorded structural changes.",
-};
+// Localization dictionaries and locale helpers are loaded by i18n.js.
 
 const q = (id) => document.querySelector(id);
 const els = {
@@ -533,7 +159,7 @@ const state = {
   filter: "all",
   architectureMode: "overlay",
   timer: null,
-  language: savedLanguage === "zh-CN" ? "zh-CN" : "en",
+  language: initialLanguage(savedLanguage),
   theme: ["system", "dark", "light"].includes(savedTheme)
     ? savedTheme
     : "system",
@@ -546,7 +172,7 @@ const state = {
   revisionKey: null,
   semanticRefreshPending: false,
 };
-const t = (key) => translations[state.language]?.[key] || key;
+const t = (key) => translateKey(state.language, key);
 const localized = (en, zh) => state.language === "zh-CN" ? zh : en;
 const unit = (value, singular, plural, zh) =>
   state.language === "zh-CN"
@@ -716,6 +342,24 @@ function tunnelDashboardUrl(tunnel) {
     return "";
   }
 }
+function validTunnelStatus(data) {
+  const optionalString = value => value == null || typeof value === "string";
+  const optionalCount = value => value == null ||
+    (Number.isInteger(Number(value)) && Number(value) >= 0);
+  return Boolean(
+    data && typeof data === "object" && !Array.isArray(data) &&
+    (data.public_url_healthy === undefined || typeof data.public_url_healthy === "boolean") &&
+    optionalString(data.public_endpoint) &&
+    Array.isArray(data.tunnels) && data.tunnels.length <= 64 &&
+    data.tunnels.every(tunnel =>
+      tunnel && typeof tunnel === "object" && !Array.isArray(tunnel) &&
+      typeof tunnel.provider === "string" && tunnel.provider.length > 0 &&
+      optionalString(tunnel.role) && optionalString(tunnel.state) && optionalString(tunnel.url) &&
+      optionalCount(tunnel.lease_age_seconds) && optionalCount(tunnel.retry_in_seconds) &&
+      optionalCount(tunnel.death_count)
+    )
+  );
+}
 async function refreshTunnels() {
   if (document.hidden || state.tunnelBusy) return;
   const controller = new AbortController();
@@ -729,10 +373,7 @@ async function refreshTunnels() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (state.tunnelController !== controller || controller.signal.aborted) return;
-    if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.tunnels) ||
-        data.tunnels.some(tunnel => !tunnel || typeof tunnel !== "object" || Array.isArray(tunnel))) {
-      throw new Error("Invalid tunnel response");
-    }
+    if (!validTunnelStatus(data)) throw new Error("Invalid tunnel response");
     const tunnels = data.tunnels;
     let html = "";
     if (tunnels.length) {
@@ -807,13 +448,8 @@ function applyAutoRefreshControl() {
 }
 function applyLanguage() {
   document.documentElement.lang = state.language;
-  document.querySelectorAll("[data-i18n]").forEach((node) => {
-    if (!node.dataset.i18nFallback) node.dataset.i18nFallback = node.textContent;
-    node.textContent = translations[state.language]?.[node.dataset.i18n] || node.dataset.i18nFallback;
-  });
-  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
-    node.placeholder = t(node.dataset.i18nPlaceholder);
-  });
+  document.title = t("wcode · Engineering Observatory");
+  applyStaticTranslations(document, state.language);
   els.workspace.setAttribute("aria-label", t("Workspace"));
   els.language.setAttribute("aria-label", t("Language"));
   const languageLabel = els.language.querySelector("strong");
@@ -826,15 +462,9 @@ function applyLanguage() {
   els.fileSearch?.setAttribute("aria-label", t("Filter file tree"));
   applyAutoRefreshControl();
   els.workspacePath.placeholder = t("Absolute or relative project path");
-  els.commandCandidate.placeholder = state.language === "zh-CN"
-    ? "可执行程序名，例如 hugo"
-    : "Executable name, e.g. hugo";
-  els.operationProgram.placeholder = state.language === "zh-CN"
-    ? "可执行程序名，例如 make"
-    : "Executable name, e.g. make";
-  els.operationArgs.placeholder = state.language === "zh-CN"
-    ? 'JSON 参数数组，例如 ["commit","-m","两词说明"]'
-    : 'JSON arguments, e.g. ["commit","-m","two words"]';
+  els.commandCandidate.placeholder = t("Executable name, e.g. hugo");
+  els.operationProgram.placeholder = t("Executable name, e.g. make");
+  els.operationArgs.placeholder = t('JSON arguments, e.g. ["test","--locked"]');
   state.rendered.clear();
   if (state.project) renderProject(true);
   if (state.access || state.workspaceAccess || state.authorizations.length) {

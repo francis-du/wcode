@@ -13,6 +13,7 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## 0.8.x
 
+- [v0.8.1](v0.8.1/) — Jev Decision Plane hardening, narrower typed judgments, strict increase-only authority, unified naming, and safer WebUI state binding.
 - [v0.8.0](v0.8.0/) — Engineering Digital Twin, bounded code graph/time travel, faster Observatory refresh, ignore-aware scanning, calibrated Decision Plane and task-first TUI.
 
 ## 0.7.x

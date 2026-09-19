@@ -79,9 +79,9 @@ fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
     assert!(INTELLIGENCE_JS.contains("实时工程流"));
     assert!(INTELLIGENCE_JS.contains("Vibe Coding 变更链"));
     assert!(INTELLIGENCE_JS.contains("强证据架构偏离"));
-    assert!(INTELLIGENCE_JS.contains("savedLanguage === \"zh-CN\" ? \"zh-CN\" : \"en\""));
+    assert!(INTELLIGENCE_JS.contains("language: initialLanguage(savedLanguage)"));
+    assert!(INTELLIGENCE_JS.contains("globalThis.navigator?.languages"));
     assert!(INTELLIGENCE_JS.contains("fragment.get(\"workspace\") || \"\""));
-    assert!(!INTELLIGENCE_JS.contains("navigator.language"));
     assert!(!INTELLIGENCE_APP_PAGE.contains("graphCanvas"));
     assert!(!INTELLIGENCE_APP_PAGE.contains("Interactive Software Graph"));
     assert!(INTELLIGENCE_CSS.contains(".architecture-workbench"));

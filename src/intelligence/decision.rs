@@ -34,7 +34,13 @@ pub struct DecisionSignal {
     pub primitive: DecisionPrimitive,
     pub mode: DecisionMode,
     pub value: DecisionValue,
+    /// Backward-compatible effective confidence. For providers that do not
+    /// expose native confidence (notably Jev Noul), this is zero.
     pub confidence_milli: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_confidence_milli: Option<u16>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub probabilities_milli: BTreeMap<String, u16>,
     pub recommendation: String,
     pub evidence: Vec<String>,
 }
@@ -245,11 +251,21 @@ impl DecisionProvider for DeterministicDecisionProvider {
             "retrieve"
         } else if edit == "worktree_conflict" {
             "review_worktree"
-        } else if risk_count > 0 {
+        } else if edit == "ready" {
             "edit_then_verify"
         } else {
-            "edit"
+            "other_review"
         };
+        let next_action_distribution =
+            local_next_action_distribution(next_action, semantic_value, risk_count);
+        let (risk_surface, risk_surface_distribution) = local_risk_surface(
+            risk_count,
+            verify,
+            edit,
+            semantic_requested,
+            graph_precision,
+            repo_map_truncated,
+        );
 
         let evidence_density = (hot_source_items.saturating_mul(500)
             + test_refs.saturating_mul(250)
@@ -286,14 +302,14 @@ impl DecisionProvider for DeterministicDecisionProvider {
                 vec![format!("context_sufficient_milli:{sufficient}")],
             ),
             probability(
-                "semantic_navigation_value",
+                "semantic_navigation_required",
                 semantic_value,
                 880,
                 DecisionMode::Assist,
                 if semantic_value >= 700 {
-                    "prefer_semantic_navigation"
+                    "semantic_navigation_required_before_edit"
                 } else {
-                    "semantic_navigation_optional"
+                    "semantic_navigation_not_required"
                 },
                 vec![
                     format!("semantic_requested:{semantic_requested}"),
@@ -320,11 +336,33 @@ impl DecisionProvider for DeterministicDecisionProvider {
                     selected: next_action.into(),
                 },
                 confidence_milli: 950,
+                native_confidence_milli: Some(950),
+                probabilities_milli: next_action_distribution,
                 recommendation: "advisory_next_action".into(),
                 evidence: vec![
                     format!("direct_targets:{direct_targets}"),
                     format!("edit:{edit}"),
                     format!("risk_count:{risk_count}"),
+                ],
+            },
+            DecisionSignal {
+                id: "risk_surface".into(),
+                primitive: DecisionPrimitive::Choice,
+                mode: DecisionMode::Shadow,
+                value: DecisionValue::Choice {
+                    selected: risk_surface.into(),
+                },
+                confidence_milli: 900,
+                native_confidence_milli: Some(900),
+                probabilities_milli: risk_surface_distribution,
+                recommendation: "prioritize_deterministic_adversarial_review".into(),
+                evidence: vec![
+                    format!("risk_count:{risk_count}"),
+                    format!("verify:{verify}"),
+                    format!("edit:{edit}"),
+                    format!("semantic_requested:{semantic_requested}"),
+                    format!("graph_precision:{graph_precision}"),
+                    format!("repo_map_truncated:{repo_map_truncated}"),
                 ],
             },
             DecisionSignal {
@@ -335,6 +373,8 @@ impl DecisionProvider for DeterministicDecisionProvider {
                     score_milli: u16::try_from(evidence_density).unwrap_or(1000),
                 },
                 confidence_milli: 1000,
+                native_confidence_milli: Some(1000),
+                probabilities_milli: BTreeMap::new(),
                 recommendation: "track_context_quality_without_overriding_readiness".into(),
                 evidence: vec![
                     format!("hot_source_items:{hot_source_items}"),
@@ -400,6 +440,60 @@ pub fn probability_milli(batch: &DecisionBatch, id: &str) -> Option<u16> {
                 DecisionValue::Choice { .. } | DecisionValue::Score { .. } => None,
             })
     })
+}
+
+#[must_use]
+pub fn distribution_top1_margin_milli(signal: &DecisionSignal) -> Option<u16> {
+    if signal.probabilities_milli.len() < 2 {
+        return None;
+    }
+    let mut values = signal
+        .probabilities_milli
+        .values()
+        .copied()
+        .collect::<Vec<_>>();
+    values.sort_unstable_by(|left, right| right.cmp(left));
+    Some(values[0].saturating_sub(values[1]))
+}
+
+#[must_use]
+pub fn distribution_entropy_milli(signal: &DecisionSignal) -> Option<u16> {
+    let count = signal.probabilities_milli.len();
+    if count < 2 {
+        return None;
+    }
+    let total = signal
+        .probabilities_milli
+        .values()
+        .map(|value| f64::from(*value))
+        .sum::<f64>();
+    if total <= 0.0 {
+        return None;
+    }
+    let entropy = signal
+        .probabilities_milli
+        .values()
+        .filter(|value| **value > 0)
+        .map(|value| {
+            let probability = f64::from(*value) / total;
+            -probability * probability.ln()
+        })
+        .sum::<f64>();
+    let normalized = (entropy / (count as f64).ln()).clamp(0.0, 1.0);
+    Some((normalized * 1000.0).round() as u16)
+}
+
+#[must_use]
+pub fn choice_signal_is_concentrated(signal: &DecisionSignal) -> bool {
+    if signal.primitive != DecisionPrimitive::Choice {
+        return false;
+    }
+    let confidence = signal
+        .native_confidence_milli
+        .unwrap_or(signal.confidence_milli);
+    let margin_ok = distribution_top1_margin_milli(signal).is_none_or(|margin| margin >= 150);
+    let entropy_ok = distribution_entropy_milli(signal).is_none_or(|entropy| entropy <= 850);
+    confidence >= 600 && margin_ok && entropy_ok
 }
 
 #[must_use]
@@ -513,9 +607,127 @@ fn probability(
             probability_milli: probability_milli.min(1000),
         },
         confidence_milli: confidence_milli.min(1000),
+        native_confidence_milli: Some(confidence_milli.min(1000)),
+        probabilities_milli: BTreeMap::new(),
         recommendation: recommendation.into(),
         evidence,
     }
+}
+
+fn normalized_distribution(weights: &[(&str, u16)]) -> BTreeMap<String, u16> {
+    let total = weights
+        .iter()
+        .map(|(_, weight)| u32::from(*weight))
+        .sum::<u32>()
+        .max(1);
+    weights
+        .iter()
+        .map(|(label, weight)| {
+            let scaled = (u32::from(*weight) * 1000 + total / 2) / total;
+            (label.to_string(), u16::try_from(scaled).unwrap_or(1000))
+        })
+        .collect()
+}
+
+fn local_next_action_distribution(
+    selected: &str,
+    semantic_value: u16,
+    risk_count: usize,
+) -> BTreeMap<String, u16> {
+    match selected {
+        "retrieve" => normalized_distribution(&[
+            ("retrieve", 680),
+            (
+                "semantic_navigation",
+                if semantic_value >= 700 { 210 } else { 90 },
+            ),
+            ("review_worktree", 40),
+            ("edit_then_verify", 30),
+            ("other_review", 40),
+        ]),
+        "review_worktree" => normalized_distribution(&[
+            ("retrieve", 70),
+            ("semantic_navigation", 40),
+            ("review_worktree", 790),
+            ("edit_then_verify", 50),
+            ("other_review", 50),
+        ]),
+        "other_review" => normalized_distribution(&[
+            ("retrieve", 160),
+            ("semantic_navigation", 120),
+            ("review_worktree", 120),
+            ("edit_then_verify", 80),
+            ("other_review", 520),
+        ]),
+        _ => normalized_distribution(&[
+            ("retrieve", if risk_count > 0 { 120 } else { 70 }),
+            (
+                "semantic_navigation",
+                if semantic_value >= 700 { 180 } else { 70 },
+            ),
+            ("review_worktree", if risk_count > 0 { 110 } else { 50 }),
+            ("edit_then_verify", if risk_count > 0 { 540 } else { 750 }),
+            ("other_review", if risk_count > 0 { 110 } else { 60 }),
+        ]),
+    }
+}
+
+fn local_risk_surface(
+    risk_count: usize,
+    verify: &str,
+    edit: &str,
+    semantic_requested: bool,
+    graph_precision: &str,
+    repo_map_truncated: bool,
+) -> (&'static str, BTreeMap<String, u16>) {
+    let weights = [
+        (
+            "stale_state",
+            if edit == "worktree_conflict" { 520 } else { 90 },
+        ),
+        (
+            "response_contract",
+            if repo_map_truncated && edit != "ready" {
+                360
+            } else {
+                90
+            },
+        ),
+        (
+            "workspace_isolation",
+            if edit == "worktree_conflict" { 480 } else { 80 },
+        ),
+        (
+            "graph_semantics",
+            if semantic_requested && graph_precision == "syntax" {
+                620
+            } else if semantic_requested {
+                360
+            } else {
+                80
+            },
+        ),
+        (
+            "verification_gap",
+            if risk_count > 0 {
+                760
+            } else if verify != "ready" {
+                600
+            } else {
+                100
+            },
+        ),
+        ("ui_truthfulness", if verify != "ready" { 260 } else { 70 }),
+    ];
+    let max_weight = weights.iter().map(|(_, weight)| *weight).max().unwrap_or(0);
+    let none_weight = if max_weight < 400 { 650 } else { 40 };
+    let mut all = weights.to_vec();
+    all.push(("none", none_weight));
+    let selected = all
+        .iter()
+        .max_by_key(|(_, weight)| *weight)
+        .map_or("none", |(label, _)| *label);
+    (selected, normalized_distribution(&all))
 }
 
 fn state_usize(state: &Value, key: &str) -> usize {

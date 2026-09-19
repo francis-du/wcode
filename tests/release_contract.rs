@@ -17,7 +17,14 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     assert!(audit.contains("wcode-adversarial-30.json"));
     assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(webkit.contains("--cases="));
-    assert!(webkit.contains("\"total_cases\":96"));
+    assert!(webkit.contains("totalCases=scenarios.count"));
+    assert!(webkit.contains("for width in [320,720,1024,1440]"));
+    assert!(webkit.contains("\"codegraph\""));
+    assert!(audit.contains("112 width/language/theme/view combinations"));
+    assert!(audit.contains("tests/unit/ui/code_graph.cjs"));
+    assert!(audit.contains("tests/unit/ui/web_i18n.cjs"));
+    assert!(audit.contains("positive_harness_tools_flow_through_mcp"));
+    assert!(audit.contains("postlude_budget_"));
     assert!(adversarial_workflow.contains("node tests/release_audit.cjs --require-clean"));
     assert!(adversarial_workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
     assert!(release_workflow.contains("release_metadata_versions_match_the_cargo_package"));

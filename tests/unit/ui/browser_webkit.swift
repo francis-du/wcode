@@ -9,6 +9,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     var scenarios: [(Int,String,String,String)] = []
     var reports: [[String:Any]] = []
     var index = 0
+    var totalCases = 0
     var finished = false
     var phase = "initializing"
     var timeoutSeconds: Double = 90
@@ -47,6 +48,12 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');
       }
+      if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'){
+        const section=document.getElementById('codeGraphSection');
+        check(section&&visible(section),'code graph hidden',section);
+        check(document.querySelectorAll('[data-code-node]').length>=3,'missing populated code graph',section);
+        check((document.getElementById('codeGraphInspector')?.textContent||'').includes('renderProject'),'missing code graph inspector focus',document.getElementById('codeGraphInspector'));
+      }
       const header=document.querySelector('.global-bar');
       const headerChildren=header&&header.scrollWidth>header.clientWidth+1?[...header.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).right>r(header).right+1||r(el).left<r(header).left-1)).slice(0,12).map(describe):[];
       return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors,diagnostics,headerChildren,
@@ -62,6 +69,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         web=WKWebView(frame:frame,configuration:config)
         super.init();web.navigationDelegate=self
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
+        for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph"))}}}
+        totalCases=scenarios.count
         if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--timeout=")}) {
             let value=String(option.dropFirst("--timeout=".count))
             if let seconds=Double(value),seconds>=1 { timeoutSeconds=seconds }
@@ -94,7 +103,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         let failures=reports.reduce(0){$0+(($1["errors"] as? [String])?.count ?? 1)} + (reason == nil && reports.count == scenarios.count ? 0:1)
         let failedCases=reports.filter{!(($0["errors"] as? [String])?.isEmpty ?? false)}.count
         let sharded=CommandLine.arguments.contains(where:{$0.hasPrefix("--cases=")})
-        let report:[String:Any]=["suite":sharded ? "full-browser-adversarial-shard" : "full-browser-adversarial","failures":failures,"failed_cases":failedCases,"cases":reports.count,"expected_cases":scenarios.count,"total_cases":96,"results":reports,"runner_error":reason ?? ""]
+        let report:[String:Any]=["suite":sharded ? "full-browser-adversarial-shard" : "full-browser-adversarial","failures":failures,"failed_cases":failedCases,"cases":reports.count,"expected_cases":scenarios.count,"total_cases":totalCases,"results":reports,"runner_error":reason ?? ""]
         do {
             let data=try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys])
             try data.write(to:URL(fileURLWithPath:"target/wcode-browser-audit.json"),options:.atomic)
@@ -110,7 +119,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        (()=>{state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();activateWorkspaceTab('\(tab)');window.scrollTo(0,0);return innerWidth;})()
+        (()=>{state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if('\(tab)'==='codegraph'){state.architectureView='codegraph';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab('\(tab)');}window.scrollTo(0,0);return innerWidth;})()
         """
         web.evaluateJavaScript(setup){value,error in
             if let error {self.finish("Browser setup failed: \(error)");return}

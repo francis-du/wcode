@@ -76,6 +76,9 @@ function revealSection(id) {
 }
 function cacheWorkspaceSnapshot() {
   if (!state.current || !state.project) return;
+  // Map.set() does not refresh insertion order for an existing key.
+  // Touch the entry explicitly so the eight-workspace cache is true LRU.
+  state.projectCache.delete(state.current);
   state.projectCache.set(state.current, {
     project: state.project,
     revisionKey: state.revisionKey,
@@ -107,6 +110,8 @@ function restoreWorkspaceSnapshot(workspace) {
     showRefreshFailure(error, "render");
     return false;
   }
+  state.projectCache.delete(workspace);
+  state.projectCache.set(workspace, cached);
   setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
   return true;
 }
@@ -181,7 +186,9 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
-  state.codeGraphController?.abort(); state.codeGraph = null; state.codeGraphWorkspace = ""; state.codeGraphError = ""; state.selectedCodeNode = "";
+  state.codeGraphController?.abort(); state.codeGraphController = null;
+  state.codeGraph = null; state.codeGraphWorkspace = ""; state.codeGraphQuery = ""; state.codeGraphSnapshot = "";
+  state.codeGraphLoading = false; state.codeGraphError = ""; state.selectedCodeNode = "";
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;
   state.activitySnapshot = null; state.activityUpdated = 0; state.activityError = false;
@@ -348,17 +355,33 @@ async function refreshActivity() {
   if (state.activityController) return;
   const controller = new AbortController(), workspace = state.current;
   const stamp = observationStamp();
+  const previous = {
+    snapshot: state.activitySnapshot,
+    updated: state.activityUpdated,
+    projectActivity: state.project?.activity,
+  };
+  let published = false;
   state.activityController = controller;
   try {
     const data = await uiJson("/intelligence/activity", "GET", undefined, { workspace, signal: controller.signal, timeout: 10000 });
     if (controller.signal.aborted || !observationCurrent(stamp)) return;
     if (typeof data.workspace !== "string" || (workspace && data.workspace !== workspace)) throw new Error("Workspace response mismatch");
+    if (!data.activity || typeof data.activity !== "object" || Array.isArray(data.activity) ||
+        (data.activity.available === true && !Array.isArray(data.activity.recent))) {
+      throw new Error("Invalid activity response");
+    }
     observePending(data.pending_authorizations, stamp);
     state.activitySnapshot = data; state.activityUpdated = Date.now(); state.activityError = false;
     if (state.project) state.project.activity = data.activity;
+    published = true;
     renderActivity(); if (state.project) { renderStats(); renderAttention(); renderEngineeringFlow(); renderChangeConvergenceMap(); renderRuntimeTopology(); renderEngineeringTimeline(); }
   } catch (error) {
     if (!controller.signal.aborted && observationCurrent(stamp)) {
+      if (published) {
+        state.activitySnapshot = previous.snapshot;
+        state.activityUpdated = previous.updated;
+        if (state.project) state.project.activity = previous.projectActivity;
+      }
       state.activityError = true;
       const renders = [renderActivity, ...(state.project ? [renderStats, renderAttention, renderEngineeringFlow, renderChangeConvergenceMap, renderRuntimeTopology, renderEngineeringTimeline] : [])];
       for (const render of renders) {
@@ -554,6 +577,11 @@ document.addEventListener("visibilitychange", () => {
   clearTimeout(state.activityTimer); state.activityTimer = null;
   if (document.hidden) {
     cancelTunnelRefresh();
+    const codeGraphController = state.codeGraphController;
+    state.codeGraphController = null;
+    state.codeGraphLoading = false;
+    codeGraphController?.abort();
+    if (codeGraphController) renderCodeGraph();
     state.pollController?.abort(); state.activityController?.abort(); state.controller?.abort();
   } else if (state.autoRefresh) {
     void refreshTick(); void activityTick();

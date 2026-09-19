@@ -93,11 +93,57 @@ async function main() {
     assert.equal(s.run('state.authorizations[0].kind'), 'destructive_delete');
     assert.ok(s.node('#allCommandsStatus').textContent.includes('All commands authorized'));
   });
+  await test('empty workspace mutation response is rejected before switching projects', async () => {
+    const s = sandbox();
+    s.node('#workspacePath').value = '/fixture/new';
+    const pending = s.run('addWorkspaceFromUi()');
+    await flush();
+    respond(s.requests[0], {workspace: {id: ''}});
+    await pending;
+    assert.equal(s.requests.length, 1);
+    assert.equal(s.node('#workspacePath').value, '/fixture/new');
+    assert.equal(s.run('state.current'), 'A');
+  });
+  await test('malformed command mutation response does not replace access state or clear input', async () => {
+    const s = sandbox();
+    s.node('#commandCandidate').value = 'cargo';
+    const pending = s.run('addCommandFromUi()');
+    await flush();
+    respond(s.requests[0], {});
+    await pending;
+    assert.equal(s.run('state.access'), null);
+    assert.equal(s.node('#commandCandidate').value, 'cargo');
+  });
+  await test('malformed access reads fail closed before partial publication', async () => {
+    const workspace = {id:'A',root:'/fixture/A',write_enabled:true,exec_enabled:true,all_commands_authorized:false,allowed_commands:[],available_commands:[]};
+    const validWorkspace = {workspace,workspace_options:[{id:'A',root:'/fixture/A'}]};
+    const variants = [
+      {workspace:{...validWorkspace,workspace_options:'bad'},commands:{allowed_commands:[]},authorizations:{pending:[]}},
+      {workspace:validWorkspace,commands:{allowed_commands:'bad'},authorizations:{pending:[]}},
+      {workspace:validWorkspace,commands:{allowed_commands:[]},authorizations:{pending:[{id:'AUTH',kind:'command_access',workspace:'A'}]}}
+    ];
+    for (const variant of variants) {
+      const s = sandbox();
+      const pending = s.run('loadAccess()');
+      await flush();
+      for (const request of s.requests) {
+        if (request.url.endsWith('/workspaces')) respond(request, variant.workspace);
+        else if (request.url.endsWith('/commands')) respond(request, variant.commands);
+        else respond(request, variant.authorizations);
+      }
+      assert.equal(await pending, false);
+      assert.equal(s.run('state.access'), null);
+      assert.equal(s.run('state.workspaceAccess'), null);
+      assert.equal(s.run('state.accessLoaded'), false);
+      assert.ok(!s.node('#authorizationList').innerHTML.includes('No pending authorizations'));
+    }
+  });
+
   const report = {suite: 'release-webui', results};
   fs.mkdirSync(path.join(process.argv[2], 'target'), {recursive: true});
   fs.writeFileSync(path.join(process.argv[2], 'target/wcode-release-webui.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
-  assert.equal(results.length, 7);
+  assert.equal(results.length, 10);
   assert.ok(results.every(item => item.passed), 'release WebUI regressions failed');
 }
 main().catch(error => {console.error(error); process.exitCode = 1;});

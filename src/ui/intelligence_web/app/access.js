@@ -1,3 +1,49 @@
+function validCommandAccess(data) {
+  return Boolean(
+    data && typeof data === "object" && !Array.isArray(data) &&
+    Array.isArray(data.allowed_commands) &&
+    data.allowed_commands.every(command => typeof command === "string") &&
+    (data.available_commands === undefined ||
+      (Array.isArray(data.available_commands) && data.available_commands.every(command => typeof command === "string"))) &&
+    (data.all_commands_authorized === undefined || typeof data.all_commands_authorized === "boolean")
+  );
+}
+function validWorkspaceMutationResponse(data) {
+  return Boolean(
+    data && typeof data === "object" && !Array.isArray(data) &&
+    data.workspace && typeof data.workspace === "object" && !Array.isArray(data.workspace) &&
+    typeof data.workspace.id === "string" && data.workspace.id.trim().length > 0
+  );
+}
+function validWorkspaceAccess(data) {
+  return Boolean(
+    validWorkspaceMutationResponse(data) &&
+    typeof data.workspace.root === "string" &&
+    typeof data.workspace.write_enabled === "boolean" &&
+    typeof data.workspace.exec_enabled === "boolean" &&
+    validCommandAccess(data.workspace) &&
+    Array.isArray(data.workspace_options) &&
+    data.workspace_options.every(item =>
+      item && typeof item === "object" && !Array.isArray(item) &&
+      typeof item.id === "string" && item.id.trim().length > 0 &&
+      typeof item.root === "string"
+    )
+  );
+}
+function validAuthorizationAccess(data) {
+  return Boolean(
+    data && typeof data === "object" && !Array.isArray(data) &&
+    Array.isArray(data.pending) &&
+    data.pending.every(request =>
+      request && typeof request === "object" && !Array.isArray(request) &&
+      typeof request.id === "string" && request.id.length > 0 &&
+      typeof request.kind === "string" && request.kind.length > 0 &&
+      typeof request.workspace === "string" && request.workspace.length > 0 &&
+      typeof request.summary === "string" &&
+      (request.program === undefined || typeof request.program === "string")
+    )
+  );
+}
 function renderAccess(force = false) {
   const allowed = state.access?.allowed_commands || [];
   const workspaceOptions = state.workspaceAccess?.workspace_options || [];
@@ -93,7 +139,9 @@ async function loadAccess() {
         uiJson("/intelligence/authorizations", "GET", undefined, options),
       ]);
       if (!observationCurrent(read.stamp) || read.epoch !== state.accessEpoch) return false;
-      if (!Array.isArray(authorizations.pending)) throw new Error("Invalid authorization response");
+      if (!validWorkspaceAccess(workspaceAccess)) throw new Error("Invalid workspace access response");
+      if (!validCommandAccess(commands)) throw new Error("Invalid command access response");
+      if (!validAuthorizationAccess(authorizations)) throw new Error("Invalid authorization response");
       state.workspaceAccess = workspaceAccess;
       state.access = commands;
       state.authorizations = authorizations.pending;
@@ -123,7 +171,7 @@ async function addWorkspaceFromUi() {
   const result = await mutateAccess(els.workspaceMessage, async op => {
     const data = await uiJson("/intelligence/workspaces", "POST", { root }, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return null;
-    if (typeof data.workspace?.id !== "string") throw new Error("Invalid workspace response");
+    if (!validWorkspaceMutationResponse(data)) throw new Error("Invalid workspace response");
     els.workspacePath.value = "";
     accessMessage(els.workspaceMessage, `${t("Workspace added")}: ${data.workspace.id}`);
     return { workspace: data.workspace.id, stamp: op.stamp };
@@ -139,6 +187,7 @@ async function addCommandFromUi() {
   await mutateAccess(els.commandMessage, async op => {
     const data = await uiJson("/intelligence/commands", "POST", { program }, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return;
+    if (!validCommandAccess(data)) throw new Error("Invalid command access response");
     state.access = data;
     els.commandCandidate.value = "";
     accessMessage(els.commandMessage, `${t("Command authorized")}: ${program}`);
@@ -150,6 +199,7 @@ async function revokeCommandFromUi(program) {
   await mutateAccess(els.commandMessage, async op => {
     const data = await uiJson("/intelligence/commands", "DELETE", { program }, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return;
+    if (!validCommandAccess(data)) throw new Error("Invalid command access response");
     state.access = data;
     accessMessage(els.commandMessage, `${t("Command revoked")}: ${program}`);
     renderAccess();
@@ -161,6 +211,7 @@ async function toggleAllCommandsFromUi() {
   await mutateAccess(els.commandMessage, async op => {
     const data = await uiJson("/intelligence/command-trust", enable ? "POST" : "DELETE", undefined, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return;
+    if (!validCommandAccess(data)) throw new Error("Invalid command access response");
     state.access = data;
     if (enable) {
       state.authorizations = state.authorizations.filter(request => request.kind === "destructive_delete");
@@ -188,6 +239,7 @@ async function authorizeOperationFromUi() {
     const args = parseOperationArgs(els.operationArgs.value);
     const data = await uiJson("/intelligence/command-operations", "POST", { program, args, cwd }, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return;
+    if (data.workspace !== undefined && !validCommandAccess(data.workspace)) throw new Error("Invalid command access response");
     state.access = data.workspace || state.access;
     if (Array.isArray(data.pending)) {
       state.authorizations = data.pending;
@@ -214,6 +266,7 @@ async function decideAuthorization(id, approve) {
     // fact or automatically replay the approval.
     try {
       const commands = await uiJson("/intelligence/commands", "GET", undefined, { workspace: op.stamp.workspace });
+      if (!validCommandAccess(commands)) throw new Error("Invalid command access response");
       if (accessOperationCurrent(op)) state.access = commands;
     } catch { if (accessOperationCurrent(op)) state.access = null; }
     if (!accessOperationCurrent(op)) return;

@@ -46,6 +46,11 @@ impl ToolHarness {
         let decision_plane = json!({
             "schema_version": crate::decision::DECISION_SCHEMA_VERSION,
             "provider": "wcode-deterministic-v1",
+            "local_decision_plane": true,
+            "jev_optional": "jev",
+            "question_set": "wcode.agent_context@3",
+            "typed_distributions": true,
+            "concentration_metrics": ["top1_margin", "normalized_entropy"],
             "authority": "advisory_only",
             "shadow_ab": true,
             "independent_fitness_calibration": true,

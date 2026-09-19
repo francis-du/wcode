@@ -23,7 +23,7 @@ fn ready_pack() -> serde_json::Value {
 }
 
 #[test]
-fn ready_context_prefers_edit_without_claiming_safety_authority() {
+fn ready_context_prefers_local_edit_then_verify_without_claiming_safety_authority() {
     let batch = agent_context_decisions(&ready_pack(), "fix target_feature");
     assert_eq!(batch.policy.authority, "advisory_only");
     assert!(!batch.policy.can_reduce_safety);
@@ -38,7 +38,7 @@ fn ready_context_prefers_edit_without_claiming_safety_authority() {
     assert_eq!(
         next.value,
         DecisionValue::Choice {
-            selected: "edit".into()
+            selected: "edit_then_verify".into()
         }
     );
 
@@ -53,6 +53,21 @@ fn ready_context_prefers_edit_without_claiming_safety_authority() {
             probability_milli: 0..=200
         }
     ));
+    assert!(next.probabilities_milli["edit_then_verify"] > 700);
+    assert!(crate::decision::choice_signal_is_concentrated(next));
+
+    let risk = batch
+        .signals
+        .iter()
+        .find(|signal| signal.id == "risk_surface")
+        .unwrap();
+    assert_eq!(
+        risk.value,
+        DecisionValue::Choice {
+            selected: "none".into()
+        }
+    );
+    assert!(risk.probabilities_milli["none"] > risk.probabilities_milli["verification_gap"]);
 }
 
 #[test]
@@ -77,11 +92,12 @@ fn unresolved_context_recommends_retrieval_and_semantic_escalation() {
             selected: "retrieve".into()
         }
     );
+    assert!(next.probabilities_milli["retrieve"] > next.probabilities_milli["edit_then_verify"]);
 
     let semantic = batch
         .signals
         .iter()
-        .find(|signal| signal.id == "semantic_navigation_value")
+        .find(|signal| signal.id == "semantic_navigation_required")
         .unwrap();
     assert!(matches!(
         semantic.value,
@@ -102,6 +118,27 @@ fn repo_map_truncation_does_not_override_edit_ready_context() {
     pack["readiness"]["edit"] = json!("needs_source");
     let batch = agent_context_decisions(&pack, "fix target_feature");
     assert_eq!(probability_milli(&batch, "context_sufficient"), Some(580));
+}
+
+#[test]
+fn unknown_edit_state_abstains_instead_of_claiming_edit_readiness() {
+    let mut pack = ready_pack();
+    pack["readiness"]["edit"] = json!("unknown");
+    let batch = agent_context_decisions(&pack, "fix target_feature");
+    let next = batch
+        .signals
+        .iter()
+        .find(|signal| signal.id == "next_action")
+        .unwrap();
+    assert_eq!(
+        next.value,
+        DecisionValue::Choice {
+            selected: "other_review".into()
+        }
+    );
+    assert!(
+        next.probabilities_milli["other_review"] > next.probabilities_milli["edit_then_verify"]
+    );
 }
 
 #[test]
@@ -126,6 +163,19 @@ fn risk_can_only_raise_or_preserve_verification_work() {
         "preserve_or_raise_deterministic_verification_floor"
     );
     assert!(!batch.policy.can_reduce_safety);
+
+    let risk_surface = batch
+        .signals
+        .iter()
+        .find(|signal| signal.id == "risk_surface")
+        .unwrap();
+    assert_eq!(
+        risk_surface.value,
+        DecisionValue::Choice {
+            selected: "verification_gap".into()
+        }
+    );
+    assert!(risk_surface.probabilities_milli["verification_gap"] >= 500);
 }
 
 #[test]
@@ -247,7 +297,7 @@ fn unsafe_shadow_candidate_is_measured_but_never_granted_authority() {
     assert_eq!(comparison.missing_from_candidate, 1);
     assert_eq!(comparison.probability_pairs, 4);
     assert_eq!(comparison.probability_abs_delta_milli_sum, 240);
-    assert_eq!(comparison.choice_pairs, 1);
+    assert_eq!(comparison.choice_pairs, 2);
     assert_eq!(comparison.choice_disagreement_count, 1);
     assert_eq!(comparison.mode_mismatch_count, 1);
     assert_eq!(comparison.safety_policy_violation_count, 2);

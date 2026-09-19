@@ -29,7 +29,21 @@ history:[{id:long,captured_at_ms:1,files_indexed:999999999,nodes:999999999,edges
 latest_delta:{from_captured_at_ms:1,to_captured_at_ms:2,added_nodes:200,changed_nodes:42,removed_nodes:1,changed_paths:[long]},
 activity:{available:true,active:1,queued:1,recent:[]}};
 const data=JSON.stringify(fixture).replace(/</g,'\\u003c');
-const init=`\nstate.project=${data};state.current='A';state.autoRefresh=false;state.lastUpdated=Date.now();state.language='en';state.theme='dark';applyTheme();applyLanguage();renderProject(true);activateWorkspaceTab('proof');window.__layoutReady=true;`;
+const codeGraph=JSON.stringify({
+  snapshot_id:'GRAPH-browser',captured_at_ms:Date.now(),provider:'wcode-composite',precision:'mixed',
+  query:'renderProject',mode:'all',depth:2,root_ids:['node:focus'],
+  nodes:[
+    {node:{id:'node:caller',kind:'function',label:'refreshProject',attributes:{path:'src/ui/intelligence_web/app/runtime.js'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'browser-syntax'}},distance:1,upstream:true,downstream:false},
+    {node:{id:'node:focus',kind:'function',label:'renderProject',attributes:{path:'src/ui/intelligence_web/app/runtime.js'},provenance:{precision:'semantic',provider:'lsp',revision:'browser-semantic'}},distance:0,upstream:false,downstream:false},
+    {node:{id:'node:callee',kind:'function',label:'renderArchitecture',attributes:{path:'src/ui/intelligence_web/app/engineering.js'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'browser-syntax'}},distance:1,upstream:false,downstream:true}
+  ],
+  edges:[
+    {from:'node:caller',to:'node:focus',kind:'calls',provenance:{precision:'syntax',provider:'tree-sitter',revision:'browser-syntax'}},
+    {from:'node:focus',to:'node:callee',kind:'calls',provenance:{precision:'semantic',provider:'lsp',revision:'browser-semantic'}}
+  ],
+  precision_counts:{syntax:1,semantic:1},upstream_nodes:1,downstream_nodes:1,truncated:false
+}).replace(/</g,'\\u003c');
+const init=`\nstate.project=${data};state.current='A';state.autoRefresh=false;state.lastUpdated=Date.now();state.language='en';state.theme='dark';state.codeGraph=${codeGraph};state.codeGraphWorkspace='A';applyTheme();applyLanguage();renderProject(true);activateWorkspaceTab('proof');window.__layoutReady=true;`;
 let html=read(base+'page.html').replace('<link rel="stylesheet" href="/intelligence/app.css">','<style>'+styles+'</style>').replace('<script defer src="/intelligence/app.js"></script>','');
 html=html.replace('</body>',`<script>${(bundle.slice(0,bundle.indexOf(marker))+init).replace(/<\/script/gi,'<\\/script')}</script></body>`);
 const out=path.join(root,'target/wcode-browser-fixture.html');fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,html);

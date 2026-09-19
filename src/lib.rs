@@ -40,6 +40,8 @@ pub mod intelligence;
 mod intelligence_types;
 #[path = "ui/intelligence_web.rs"]
 mod intelligence_web;
+#[path = "intelligence/jev.rs"]
+mod jev;
 #[path = "integrations/mcp/mod.rs"]
 mod mcp;
 #[path = "integrations/mcp/catalog.rs"]

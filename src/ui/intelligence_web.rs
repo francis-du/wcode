@@ -15,6 +15,7 @@ pub(crate) const INTELLIGENCE_CSS: &str = concat!(
     include_str!("intelligence_web/styles/responsive.css"),
 );
 pub(crate) const INTELLIGENCE_JS: &str = concat!(
+    include_str!("intelligence_web/app/i18n.js"),
     include_str!("intelligence_web/app/core.js"),
     include_str!("intelligence_web/app/access.js"),
     include_str!("intelligence_web/app/overview.js"),

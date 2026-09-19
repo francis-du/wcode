@@ -13,6 +13,7 @@ permalink: /zh/docs/releases/
 
 ## 0.8.x
 
+- [v0.8.1](v0.8.1/) — Jev Decision Plane 加固、更窄的结构化判断、严格 increase-only 权限、统一命名与更可靠的 WebUI 状态绑定。
 - [v0.8.0](v0.8.0/) — Engineering Digital Twin、有界代码图谱与时间旅行、更快 Observatory、Ignore 感知扫描、可校准 Decision Plane 与任务优先 TUI。
 
 ## 0.7.x

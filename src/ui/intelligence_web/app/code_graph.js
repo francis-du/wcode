@@ -10,7 +10,11 @@ function codeGraphPathChanged(node) {
 }
 function syncCodeGraphSnapshots() {
   if (!els.codeGraphSnapshot) return;
-  const history = state.project?.history || [];
+  const history = (state.project?.history || []).filter(item =>
+    item && typeof item === "object" && !Array.isArray(item) &&
+    typeof item.id === "string" && item.id.length > 0 &&
+    Number.isFinite(Number(item.captured_at_ms))
+  );
   const ids = new Set(history.map(item => item.id));
   if (state.codeGraphSnapshot && !ids.has(state.codeGraphSnapshot)) state.codeGraphSnapshot = "";
   const options = [`<option value="">${esc(localized("Latest graph", "最新图谱"))}</option>`]
@@ -155,20 +159,98 @@ function renderCodeGraph() {
   });
   renderCodeGraphInspector();
 }
+function validCodeGraphResponse(data) {
+  const graph = data?.graph;
+  const precisions = ["declared", "syntax", "semantic", "runtime", "deterministic", "heuristic", "mixed"];
+  const nodeKinds = ["product", "requirement", "acceptance_criterion", "constraint", "decision", "component", "package", "module", "file", "symbol", "function", "struct", "trait", "class", "interface", "api", "database", "queue", "config", "test", "verification", "risk", "evidence"];
+  const edgeKinds = ["contains", "defines", "references", "calls", "imports", "depends_on", "implements", "extends", "implements_requirement", "constrained_by", "tested_by", "verified_by", "guards_against", "produces_evidence", "runtime_calls", "conflicts_with"];
+  const nonNegativeInteger = value => Number.isInteger(Number(value)) && Number(value) >= 0;
+  if (!(
+    graph && typeof graph === "object" && !Array.isArray(graph) &&
+    typeof graph.snapshot_id === "string" && graph.snapshot_id.length > 0 &&
+    nonNegativeInteger(graph.captured_at_ms) &&
+    typeof graph.provider === "string" && graph.provider.length > 0 &&
+    precisions.includes(graph.precision) &&
+    typeof graph.query === "string" && graph.query.trim().length > 0 &&
+    ["calls", "impact", "all"].includes(graph.mode) &&
+    Number.isInteger(Number(graph.depth)) && Number(graph.depth) >= 1 && Number(graph.depth) <= 4 &&
+    Array.isArray(graph.root_ids) && graph.root_ids.length >= 1 && graph.root_ids.length <= 8 &&
+    graph.root_ids.every(id => typeof id === "string" && id.length > 0) &&
+    new Set(graph.root_ids).size === graph.root_ids.length &&
+    Array.isArray(graph.nodes) && graph.nodes.length >= 1 && graph.nodes.length <= 140 &&
+    Array.isArray(graph.edges) && graph.edges.length <= 420 &&
+    nonNegativeInteger(graph.upstream_nodes) && Number(graph.upstream_nodes) <= graph.nodes.length &&
+    nonNegativeInteger(graph.downstream_nodes) && Number(graph.downstream_nodes) <= graph.nodes.length &&
+    typeof graph.truncated === "boolean" &&
+    graph.precision_counts && typeof graph.precision_counts === "object" &&
+    !Array.isArray(graph.precision_counts) &&
+    Object.entries(graph.precision_counts).every(([precision, count]) =>
+      precisions.includes(precision) && nonNegativeInteger(count)
+    )
+  )) return false;
+  const provenanceValid = provenance =>
+    provenance && typeof provenance === "object" && !Array.isArray(provenance) &&
+    typeof provenance.provider === "string" && provenance.provider.length > 0 &&
+    precisions.includes(provenance.precision) &&
+    typeof provenance.revision === "string" && provenance.revision.length > 0;
+  const nodeIds = new Set();
+  let upstreamNodes = 0, downstreamNodes = 0;
+  for (const item of graph.nodes) {
+    const node = item?.node;
+    if (!(
+      item && typeof item === "object" && !Array.isArray(item) &&
+      node && typeof node === "object" && !Array.isArray(node) &&
+      typeof node.id === "string" && node.id.length > 0 &&
+      nodeKinds.includes(node.kind) &&
+      typeof node.label === "string" &&
+      (node.attributes === undefined ||
+        (node.attributes && typeof node.attributes === "object" && !Array.isArray(node.attributes))) &&
+      provenanceValid(node.provenance) &&
+      Number.isInteger(Number(item.distance)) && Number(item.distance) >= 0 &&
+      Number(item.distance) <= Number(graph.depth) &&
+      typeof item.upstream === "boolean" && typeof item.downstream === "boolean"
+    ) || nodeIds.has(node.id)) return false;
+    if (item.upstream) upstreamNodes++;
+    if (item.downstream) downstreamNodes++;
+    nodeIds.add(node.id);
+  }
+  if (upstreamNodes !== Number(graph.upstream_nodes) || downstreamNodes !== Number(graph.downstream_nodes)) return false;
+  if (!graph.root_ids.every(id => nodeIds.has(id))) return false;
+  return graph.edges.every(edge =>
+    edge && typeof edge === "object" && !Array.isArray(edge) &&
+    typeof edge.from === "string" && nodeIds.has(edge.from) &&
+    typeof edge.to === "string" && nodeIds.has(edge.to) &&
+    edgeKinds.includes(edge.kind) &&
+    provenanceValid(edge.provenance)
+  );
+}
+function codeGraphResponseMatchesRequest(graph, expected) {
+  return graph.query === expected.query &&
+    graph.mode === expected.mode &&
+    Number(graph.depth) === expected.depth &&
+    (!expected.snapshot || graph.snapshot_id === expected.snapshot);
+}
 async function loadCodeGraph({ nodeId } = {}) {
-  const query = (els.codeGraphSearch?.value || state.codeGraphQuery || "").trim();
+  const inputQuery = (els.codeGraphSearch?.value || "").trim();
+  const query = nodeId ? (state.codeGraphQuery || inputQuery).trim() : inputQuery;
   if (!nodeId && query.length < 2) {
     state.codeGraph = null; state.codeGraphError = ""; renderCodeGraph(); return false;
   }
+  const expected = {
+    query: nodeId || query,
+    mode: state.codeGraphMode || "all",
+    depth: Number(state.codeGraphDepth || 2),
+    snapshot: state.codeGraphSnapshot || "",
+  };
   state.codeGraphController?.abort();
   const controller = new AbortController();
   state.codeGraphController = controller;
   state.codeGraphLoading = true; state.codeGraphError = ""; renderCodeGraph();
   const params = new URLSearchParams();
   if (nodeId) params.set("node_id", nodeId); else params.set("q", query);
-  params.set("mode", state.codeGraphMode || "all");
-  if (state.codeGraphSnapshot) params.set("snapshot_id", state.codeGraphSnapshot);
-  params.set("depth", String(state.codeGraphDepth || 2));
+  params.set("mode", expected.mode);
+  if (expected.snapshot) params.set("snapshot_id", expected.snapshot);
+  params.set("depth", String(expected.depth));
   params.set("limit", "140");
   try {
     const data = await uiJson(`/intelligence/code-graph?${params}`, "GET", undefined, {
@@ -177,6 +259,11 @@ async function loadCodeGraph({ nodeId } = {}) {
       timeout: 30000,
     });
     if (controller.signal.aborted || data.workspace !== state.current) return false;
+    if (!validCodeGraphResponse(data) || !codeGraphResponseMatchesRequest(data.graph, expected)) {
+      const invalid = new Error(localized("Invalid code graph response", "代码图谱响应无效"));
+      invalid.code = "invalid_response";
+      throw invalid;
+    }
     state.codeGraph = data.graph; state.codeGraphWorkspace = data.workspace;
     state.codeGraphQuery = nodeId ? data.graph?.query || query : query;
     state.selectedCodeNode = data.graph?.root_ids?.[0] || "";
@@ -185,6 +272,8 @@ async function loadCodeGraph({ nodeId } = {}) {
   } catch (error) {
     if (!controller.signal.aborted) {
       state.codeGraph = null;
+      state.codeGraphWorkspace = "";
+      state.selectedCodeNode = "";
       state.codeGraphError = requestFailureMessage(error);
       renderCodeGraph();
     }
@@ -196,12 +285,36 @@ async function loadCodeGraph({ nodeId } = {}) {
     }
   }
 }
+function codeGraphDefaultQuery() {
+  const changed = state.project?.changes?.find(change => change?.path)?.path;
+  if (changed) return changed;
+  const components = state.project?.architecture?.components || [];
+  const component = components.find(item => item.id === state.selectedComponent &&
+      (item.implementation_targets || []).length)
+    || components.find(item => (item.implementation_targets || []).length);
+  const target = component?.implementation_targets?.[0];
+  if (target) {
+    const value = String(target).trim();
+    const symbol = value.includes("::") ? value.split("::").pop().trim() : "";
+    return symbol.length >= 2 ? symbol : value;
+  }
+  const entry = (state.project?.structure?.entries || []).find(item =>
+    typeof item === "string" ? item.length >= 2 : String(item?.path || "").length >= 2
+  );
+  return typeof entry === "string" ? entry : String(entry?.path || "");
+}
 function maybeLoadCodeGraph() {
   if (state.workspaceTab !== "architecture" || state.architectureView !== "codegraph" || state.codeGraphLoading) return;
-  if (state.codeGraph && state.codeGraphWorkspace === state.current) return;
+  if (state.codeGraph && state.codeGraphWorkspace === state.current) {
+    renderCodeGraph();
+    return;
+  }
+  // Always paint a truthful empty/loading state. v0.8.0 left this canvas
+  // completely blank in clean repositories because no changed-file seed existed.
+  renderCodeGraph();
   if (els.codeGraphSearch && !els.codeGraphSearch.value.trim()) {
-    const changed = state.project?.changes?.find(change => change.path)?.path || "";
-    if (changed) els.codeGraphSearch.value = changed;
+    const query = codeGraphDefaultQuery();
+    if (query) els.codeGraphSearch.value = query;
   }
   if ((els.codeGraphSearch?.value || "").trim().length >= 2) void loadCodeGraph();
 }

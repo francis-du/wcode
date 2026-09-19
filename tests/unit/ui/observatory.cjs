@@ -4,7 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = process.argv[2];
-const APP_FILES=['core','access','overview','architecture','engineering','features','quality','structure','runtime'];
+const manifest=fs.readFileSync(path.join(root,'src/ui/intelligence_web.rs'),'utf8');
+function manifestFiles(constant,folder,extension){
+  const start=`pub(crate) const ${constant}: &str = concat!(`,from=manifest.indexOf(start);
+  assert.ok(from>=0,`missing ${constant} manifest`);
+  const to=manifest.indexOf('\n);',from);assert.ok(to>from,`unterminated ${constant} manifest`);
+  const files=[...manifest.slice(from,to).matchAll(/include_str!\("([^"]+)"\)/g)]
+    .map(match=>match[1]).filter(file=>file.startsWith(folder+'/')&&file.endsWith(extension))
+    .map(file=>file.slice((folder+'/').length,-extension.length));
+  assert.ok(files.length>0,`empty ${constant} manifest`);return files;
+}
+const APP_FILES=manifestFiles('INTELLIGENCE_JS','intelligence_web/app','.js');
+const STYLE_FILES=manifestFiles('INTELLIGENCE_CSS','intelligence_web/styles','.css');
 function productionBundle(){return APP_FILES.map(file=>fs.readFileSync(path.join(root,'src/ui/intelligence_web/app',file+'.js'),'utf8')).join('');}
 class Element {
   constructor(){ this.innerHTML=''; this.textContent=''; this.value=''; this.checked=true; this.disabled=false; this.dataset={}; this.attrs={}; this.events={}; this.classes=new Set(); this.classList={contains:x=>this.classes.has(x),toggle:(x,on)=>on?this.classes.add(x):this.classes.delete(x),add:x=>this.classes.add(x),remove:x=>this.classes.delete(x)}; }
@@ -27,8 +38,11 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
   node('#accessPanel').classes.add('hidden');
   const requests=[],timers=new Map(),events={};let timerId=0;
+  const storage={...(options.storage||{})};
+  const languages=options.languages||['en-US'];
   const context={console,URL,URLSearchParams,AbortController,Date,Intl,Map,Set,Promise,JSON,Number,String,Math,Error,DOMException,
-    location:{hash:authenticated?'#token=test-ui&workspace=A':'#workspace=A'},localStorage:{getItem(){if(storageBlocked)throw new Error('storage denied');return null;},setItem(){if(storageBlocked)throw new Error('storage denied');}},
+    navigator:{languages,language:languages[0]||'en-US'},
+    location:{hash:authenticated?'#token=test-ui&workspace=A':'#workspace=A'},localStorage:{getItem(key){if(storageBlocked)throw new Error('storage denied');return storage[key]??null;},setItem(key,value){if(storageBlocked)throw new Error('storage denied');storage[key]=String(value);}},
     document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{events[name]=handler;},getElementById:id=>node('#'+id)},
     window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){}},requestAnimationFrame:fn=>fn(),queueMicrotask,
     setTimeout:(fn,ms)=>{if(options.fakeTimers){timers.set(++timerId,{fn,ms});return timerId;}const timer=setTimeout(fn,ms);timer.unref();return timer;},clearTimeout:id=>options.fakeTimers?timers.delete(id):clearTimeout(id),
@@ -296,6 +310,53 @@ async function run(){
     s.run('clearWorkspaceView();');assert.equal(s.node('#fileSearch').value,'');
     assert.equal(s.node('#fileSearchStatus').textContent,'');
   });
+  await test('workspace snapshot cache refreshes recency before bounded eviction',async()=>{
+    const s=sandbox();
+    for(let index=0;index<8;index++){
+      s.context.fixture={...project('W'+index),marker:'W'+index};
+      s.run('state.current="W'+index+'";state.project=fixture;cacheWorkspaceSnapshot();');
+    }
+    s.run('state.current="W0";clearWorkspaceView();');
+    assert.equal(s.run('restoreWorkspaceSnapshot("W0")'),true);
+    s.context.fixture={...project('W8'),marker:'W8'};
+    s.run('state.current="W8";state.project=fixture;cacheWorkspaceSnapshot();');
+    assert.equal(s.run('state.projectCache.has("W0")'),true);
+    assert.equal(s.run('state.projectCache.has("W1")'),false);
+    assert.equal(s.run('state.projectCache.size'),8);
+  });
+  await test('hidden pages cancel in-flight code graph work and clear its loading state',async()=>{
+    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
+    const pending=s.run('loadCodeGraph()');await flush();const request=s.requests[0];
+    request.options.signal.addEventListener('abort',()=>request.reject(new DOMException('aborted','AbortError')),{once:true});
+    s.context.document.hidden=true;s.events.visibilitychange();await pending;
+    assert.equal(request.options.signal.aborted,true);
+    assert.equal(s.run('state.codeGraphController'),null);
+    assert.equal(s.run('state.codeGraphLoading'),false);
+  });
+  await test('malformed activity cannot remain published after a render failure',async()=>{
+    const s=sandbox();s.context.fixture={...project(),activity:{available:true,recent:[]}};
+    s.context.previous={workspace:'A',marker:'previous',activity:{available:true,recent:[]},resources:{}};
+    s.run('state.project=fixture;state.activitySnapshot=previous;state.activityUpdated=77;');
+    const pending=s.run('refreshActivity()');await flush();
+    respond(s.requests[0],{workspace:'A',marker:'bad',activity:{available:true,recent:{length:1},active:0,queued:0,completed:0,failed:0},resources:{}});await pending;
+    assert.equal(s.run('state.activitySnapshot.marker'),'previous');
+    assert.equal(s.run('state.activityUpdated'),77);
+    assert.equal(s.run('state.activityError'),true);
+  });
+  await test('malformed tunnel fields fail closed instead of publishing fake health',async()=>{
+    const variants=[
+      {provider:{bad:true},role:'active',state:'verified',url:'https://example.test'},
+      {provider:'x',role:[],state:'verified',url:'https://example.test'},
+      {provider:'x',role:'active',state:'verified',url:'https://example.test',retry_in_seconds:-1}
+    ];
+    for(const tunnel of variants){
+      const s=sandbox(false,true,{fakeTimers:true,controlTunnels:true});
+      const pending=s.run('refreshTunnels()');await flush();
+      respond(s.requests[0],{public_url_healthy:true,public_endpoint:'ready',tunnels:[tunnel]});await pending;
+      assert.equal(s.run('state.tunnelSnapshot'),null);
+      assert.ok(s.node('#tunnels').innerHTML.includes('unavailable'));
+    }
+  });
   await test('icon controls retain accessible names across language and theme changes',async()=>{
     const s=sandbox();s.run('state.language="zh-CN";state.theme="light";applyLanguage();');
     for(const id of ['#refresh','#refreshSemantic','#manage','#projectNavigator','#fileSearch']){
@@ -333,7 +394,7 @@ async function run(){
   const snapshots={};
   for(const language of ['en','zh-CN']){view.context.fixtureLanguage=language;view.run('state.language=fixtureLanguage;renderProject(true);');snapshots[language]=[...view.nodes].filter(([id])=>id.startsWith('#')).map(([id,node])=>({id:id.slice(1),html:node.innerHTML,text:node.textContent,value:node.value,attrs:node.attrs}));}
   const dictionary=view.run('JSON.stringify(translations)');
-  const styles=['theme','shell','features','data','architecture','engineering','structure','responsive'].map(file=>fs.readFileSync(path.join(root,'src/ui/intelligence_web/styles',file+'.css'),'utf8')).join('\n');
+  const styles=STYLE_FILES.map(file=>fs.readFileSync(path.join(root,'src/ui/intelligence_web/styles',file+'.css'),'utf8')).join('\n');
   let html=fs.readFileSync(path.join(root,'src/ui/intelligence_web/page.html'),'utf8').replace('<link rel="stylesheet" href="/intelligence/app.css">','<style>'+styles+'</style>').replace('<script defer src="/intelligence/app.js"></script>','');
   const script='const snapshots='+JSON.stringify(snapshots)+',translations='+dictionary+';window.preview=(language,theme)=>{document.documentElement.lang=language;document.documentElement.dataset.theme=theme;for(const item of snapshots[language]){const node=document.getElementById(item.id);if(!node)continue;if(item.html)node.innerHTML=item.html;else if(item.text)node.textContent=item.text;for(const [k,v] of Object.entries(item.attrs))node.setAttribute(k,v);}document.querySelectorAll("[data-i18n]").forEach(node=>node.textContent=translations[language]?.[node.dataset.i18n]||node.dataset.i18n);const languageNode=document.querySelector("#language strong");if(languageNode)languageNode.textContent=language==="zh-CN"?"EN":"中";const themeNode=document.getElementById("theme");if(themeNode){themeNode.dataset.themeState=theme;themeNode.setAttribute("aria-pressed",String(theme!=="system"));}document.getElementById("syncState").textContent=language==="en"?"Example data · layout fixture":"示例数据 · 布局验收";document.getElementById("syncDot").className="sync-dot ok";};preview("en","light");';
   html=html.replace('</body>','<script>'+script+'</script></body>');

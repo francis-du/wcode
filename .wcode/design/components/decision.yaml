@@ -9,13 +9,17 @@ responsibilities:
   - provide typed probability lookup and Brier primitives for measuring decision quality over independent outcomes
   - calibrate context sufficiency against Engineering Fitness Gold edit inputs, including false-stop and false-continue counts across budgets and cold/warm phases
   - compare baseline and candidate providers on the same request, recording overlap, numeric deltas, choice disagreements, malformed shape and safety-policy violations without granting the candidate execution authority
-  - benchmark candidate providers against the same authored Fitness Gold so external or local providers can be evaluated without changing runtime behavior
+  - benchmark candidate providers against the same authored Fitness Gold so external or local providers can be evaluated before promotion
+  - "allow an explicitly integrated external Jev provider to run as increase-only assist: it may request more retrieval, semantic navigation, verification, or reasoning, but may not reduce deterministic work or expose a more permissive edit action than the deterministic baseline"
+  - dynamically discover Jev credentials for each Agent Context call from the current process or literal user shell assignments without executing shell configuration, and fail soft to the deterministic provider when credentials or the remote service are unavailable
 depends_on: []
 constraints:
   - CONSTRAINT-BOUNDED-VERIFICATION
   - CONSTRAINT-CONTEXT-BUDGET
 implementation:
   - {kind: file, path: src/intelligence/decision.rs}
+  - {kind: file, path: src/intelligence/jev.rs}
+  - {kind: file, path: src/integrations/mcp/dispatch/intelligence.rs}
   - {kind: file, path: src/runtime/harness/agent_context.rs}
   - {kind: file, path: tests/unit/runtime/harness/fitness/scoring.rs}
   - {kind: file, path: tests/unit/runtime/harness/fitness/report.rs}

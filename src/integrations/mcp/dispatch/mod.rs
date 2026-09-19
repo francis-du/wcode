@@ -377,6 +377,36 @@ async fn call_leaf_tool_mode(
     }
 }
 
+fn agent_context_model_tokens(context: &Value) -> u64 {
+    let preview = agent_context_structured_result(context.clone(), false);
+    preview
+        .pointer("/_meta/dev.wcode/agentContextTelemetry/model_estimated_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| serialized_size(context).div_ceil(4) as u64)
+}
+
+fn enforce_agent_context_postlude_budget(context: &mut Value) {
+    let Some(budget) = context
+        .get("budget")
+        .and_then(Value::as_u64)
+        .filter(|budget| *budget > 0)
+    else {
+        return;
+    };
+    if agent_context_model_tokens(context) <= budget {
+        return;
+    }
+    if let Some(object) = context.as_object_mut() {
+        object.remove("verification_impact");
+    }
+    if agent_context_model_tokens(context) <= budget {
+        return;
+    }
+    if let Some(object) = context.as_object_mut() {
+        object.remove("worktree");
+    }
+}
+
 fn merge_agent_worktree_status(context: &mut Value, snapshot: &Value) {
     if snapshot.get("available").and_then(Value::as_bool) != Some(true) {
         return;
