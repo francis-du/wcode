@@ -1,8 +1,8 @@
 use super::mcp_tools::{
-    agent_context_structured_result, agent_context_tool_result, optional_string_array_arg,
-    required_string, reviewer_role_arg, run_blocking, selected_workspace, string_arg,
-    string_array_arg, structured_tool_result, task_detail, tool_result, tool_result_with_text,
-    usize_arg, workspace_arg,
+    acquire_tool_permit, agent_context_structured_result, agent_context_tool_result,
+    optional_string_array_arg, required_string, reviewer_role_arg, run_blocking,
+    selected_workspace, string_arg, string_array_arg, structured_tool_result, task_detail,
+    tool_result, tool_result_with_text, usize_arg, workspace_arg,
 };
 use super::*;
 use crate::scopes;
@@ -57,11 +57,12 @@ async fn call_orchestration_tool(
     mut args: Value,
 ) -> Result<Value, String> {
     let journal_started = std::time::Instant::now();
+    let journal_args = mcp_writer::sanitized_args(&args);
     let workspace_label = string_arg(&args, "workspace")
         .unwrap_or(state.workspaces.default_id())
         .to_owned();
     let request_bytes = serialized_size(&args) as u64;
-    let mut task = state.monitor.queue_orchestration(
+    let task = state.monitor.queue_orchestration(
         workspace_label,
         name,
         task_detail(name, &args),
@@ -101,7 +102,7 @@ async fn call_orchestration_tool(
     leaf_journal::record(
         state,
         name,
-        &args,
+        &journal_args,
         journal_outcome,
         journal_started
             .elapsed()
@@ -112,17 +113,6 @@ async fn call_orchestration_tool(
     )
     .await;
     outcome
-}
-
-async fn convention_status_tool(state: &AppState, args: &Value) -> AnyResult<Value> {
-    let (_workspace_id, workspace) = selected_workspace(state, args).map_err(anyhow::Error::msg)?;
-    let harness = state.harness.clone();
-    run_blocking(move || {
-        harness
-            .convention_status(&workspace)
-            .and_then(|status| serde_json::to_value(status).map_err(Into::into))
-    })
-    .await
 }
 
 pub(super) async fn call_leaf_tool(
@@ -144,9 +134,10 @@ async fn call_leaf_tool_structured(
 async fn call_leaf_tool_mode(
     state: &AppState,
     name: &str,
-    args: Value,
+    mut args: Value,
     include_text: bool,
 ) -> Result<Value, String> {
+    let writer_guard = mcp_writer::before_tool(state, name, &mut args)?;
     let journal_started = std::time::Instant::now();
     let workspace_label = if name == "workspace_info" {
         "system".to_owned()
@@ -157,27 +148,30 @@ async fn call_leaf_tool_mode(
     };
     let request_bytes = serialized_size(&args) as u64;
     let detail = task_detail(name, &args);
-    let mut task = state
+    let task = state
         .monitor
         .queue(workspace_label.clone(), name, detail, request_bytes);
-    let permit = Arc::new(
-        state
-            .harness
-            .acquire_tool(matches!(name, "run_command" | "language_quality_run"))
-            .await?,
-    );
+    let permit = acquire_tool_permit(
+        state,
+        matches!(name, "run_command" | "language_quality_run"),
+    )
+    .await?;
     task.start();
-
-    let mut outcome: AnyResult<Value> = super::mcp_tools::BLOCKING_PERMIT
-        .scope(permit, async {
-            match name {
-                name if leaf_intelligence::handles(name) => {
-                    leaf_intelligence::call(state, name, &args).await
-                }
-                _ => leaf_workspace::call(state, name, &args).await,
+    let operation = async {
+        match name {
+            name if leaf_intelligence::handles(name) => {
+                leaf_intelligence::call(state, name, &args).await
             }
-        })
+            _ => leaf_workspace::call(state, name, &args).await,
+        }
+    };
+    let mut outcome: AnyResult<Value> = super::mcp_tools::BLOCKING_TASK
+        .scope(
+            task.clone(),
+            super::mcp_tools::BLOCKING_PERMIT.scope(permit, operation),
+        )
         .await?;
+    mcp_writer::after_tool(state, writer_guard, &mut outcome);
     let success = match &mut outcome {
         Ok(value) if matches!(name, "run_command" | "language_quality_run") => {
             value.get("success").and_then(Value::as_bool) == Some(true)
@@ -523,8 +517,8 @@ async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, St
         Ok(report) => {
             let mut value = serde_json::to_value(&report).map_err(|error| error.to_string())?;
             if adversarial {
+                let permit = acquire_tool_permit(state, false).await?;
                 let harness = state.harness.clone();
-                let permit = Arc::new(harness.acquire_tool(false).await?);
                 let packet = super::mcp_tools::BLOCKING_PERMIT
                     .scope(
                         permit,
@@ -676,6 +670,7 @@ fn inherit_parallel_workspace(arguments: &mut Value, workspace: &str) {
 }
 
 async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, String> {
+    let owner = mcp_writer::current_owner();
     let dry_run = match args.get("dry_run") {
         None => false,
         Some(Value::Bool(value)) => *value,
@@ -844,6 +839,7 @@ async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, Str
                 .take()
                 .expect("scheduled task arguments were prepared during preflight");
             let child_state = state.clone();
+            let child_owner = owner.clone();
             let child_name = name.to_owned();
             let id_for_task = id.clone();
             let name_for_task = child_name.clone();
@@ -851,7 +847,11 @@ async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, Str
                 let response = if dependency_failed {
                     Err("dependency failed; task was not executed".to_owned())
                 } else {
-                    call_leaf_tool_structured(&child_state, &name_for_task, arguments).await
+                    mcp_writer::with_owner(
+                        child_owner,
+                        call_leaf_tool_structured(&child_state, &name_for_task, arguments),
+                    )
+                    .await
                 };
                 let result = match response {
                     Ok(response) => {

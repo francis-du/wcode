@@ -1,5 +1,16 @@
 use super::*;
 
+async fn convention_status_tool(state: &AppState, args: &Value) -> AnyResult<Value> {
+    let (_workspace_id, workspace) = selected_workspace(state, args).map_err(anyhow::Error::msg)?;
+    let harness = state.harness.clone();
+    run_blocking(move || {
+        harness
+            .convention_status(&workspace)
+            .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+    })
+    .await
+}
+
 pub(super) fn handles(name: &str) -> bool {
     matches!(
         name,
@@ -20,6 +31,11 @@ pub(super) fn handles(name: &str) -> bool {
             | "traceability_status"
             | "software_context"
             | "agent_context"
+            | "execution_status"
+            | "execution_policy_status"
+            | "execution_propose"
+            | "execution_steer"
+            | "execution_handoff"
             | "worklist_status"
             | "worklist_update"
             | "semantic_status"
@@ -40,6 +56,7 @@ pub(super) fn handles(name: &str) -> bool {
             | "verification_history"
             | "reconciliation_status"
             | "reconciliation_history"
+            | "reconciliation_approve"
             | "reconciliation_execution_status"
             | "reconciliation_claim"
             | "reconciliation_submit"
@@ -300,9 +317,10 @@ pub(super) async fn call(
             let decision_query = query.clone();
             let context_harness = state.harness.clone();
             let context_workspace = workspace.clone();
+            let context_workspace_id = workspace_id.clone();
             let context_future = run_blocking(move || {
                 context_harness.agent_context(
-                    workspace_id,
+                    context_workspace_id,
                     &context_workspace,
                     &query,
                     budget,
@@ -323,20 +341,65 @@ pub(super) async fn call(
                 }
             }
             enforce_agent_context_postlude_budget(&mut context);
-            crate::jev::augment_agent_context(&mut context, &decision_query)
+            let jev_telemetry = crate::jev::augment_agent_context(&mut context, &decision_query)
                 .await
-                .map_err(|error| format!("system one augmentation failed: {error}"))?;
+                .map_err(|error| format!("Jev augmentation failed: {error}"))?;
+            state
+                .monitor
+                .record_agent_context_decision(&workspace_id, &jev_telemetry);
             Ok(context)
+        }
+        "execution_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                crate::execution::refresh(&harness, &workspace_id, &workspace, false)
+            })
+            .await
+        }
+        "execution_policy_status" => {
+            mcp_writer::policy_status(state, args).map_err(anyhow::Error::msg)
+        }
+        "execution_propose" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionProposalInput>(args.clone())
+                    .map_err(|error| format!("invalid execution proposal: {error}"))?;
+            run_blocking(move || crate::execution::propose(&workspace, input)).await
+        }
+        "execution_steer" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionDirectiveInput>(args.clone())
+                    .map_err(|error| format!("invalid execution steering directive: {error}"))?;
+            run_blocking(move || crate::execution::steer(&workspace, input)).await
+        }
+        "execution_handoff" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionHandoffInput>(args.clone())
+                    .map_err(|error| format!("invalid execution handoff: {error}"))?;
+            run_blocking(move || crate::execution::handoff(&workspace, input)).await
         }
         "worklist_status" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
             run_blocking(move || crate::worklist::status(&workspace)).await
         }
         "worklist_update" => {
-            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
             let update = serde_json::from_value::<crate::worklist::WorklistUpdate>(args.clone())
                 .map_err(|error| format!("invalid worklist update: {error}"))?;
-            run_blocking(move || crate::worklist::update(&workspace, update)).await
+            let restart = update.restart;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut status = crate::worklist::update(&workspace, update)?;
+                match crate::execution::refresh(&harness, &workspace_id, &workspace, restart) {
+                    Ok(execution) => status["execution"] = execution,
+                    Err(error) => status["execution_sync_error"] = json!(error.to_string()),
+                }
+                Ok(status)
+            })
+            .await
         }
         "semantic_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
@@ -598,13 +661,25 @@ pub(super) async fn call(
             .await
         }
         "reconciliation_status" => {
-            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
             let plan_id = required_string(args, "plan_id")?.to_owned();
+            let include_approval = args
+                .get("include_approval")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let harness = state.harness.clone();
             run_blocking(move || {
-                harness
-                    .reconciliation_status(&workspace, &plan_id)
-                    .and_then(|plan| serde_json::to_value(plan).map_err(Into::into))
+                let plan = harness.reconciliation_status(&workspace, &plan_id)?;
+                if include_approval {
+                    let approval = harness.reconciliation_approval_status(
+                        &workspace_id,
+                        &workspace,
+                        &plan_id,
+                    )?;
+                    Ok(json!({"plan": plan, "approval": approval}))
+                } else {
+                    serde_json::to_value(plan).map_err(Into::into)
+                }
             })
             .await
         }
@@ -616,6 +691,29 @@ pub(super) async fn call(
                 harness
                     .reconciliation_history(&workspace, limit)
                     .and_then(|plans| serde_json::to_value(plans).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_approve" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let approver = required_string(args, "approver")?.to_owned();
+            let statement = required_string(args, "statement")?.to_owned();
+            if args.get("confirmed").and_then(Value::as_bool) != Some(true) {
+                return Err(
+                    "reconciliation_approve requires confirmed=true from explicit human approval"
+                        .to_owned(),
+                );
+            }
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness.reconciliation_approve(
+                    &workspace_id,
+                    &workspace,
+                    &plan_id,
+                    &approver,
+                    &statement,
+                )
             })
             .await
         }

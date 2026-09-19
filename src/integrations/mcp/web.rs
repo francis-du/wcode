@@ -570,6 +570,24 @@ fn request_observatory_refresh(
     true
 }
 
+async fn intelligence_execution_snapshot(workspace: crate::workspace::Workspace) -> Value {
+    match mcp_tools::run_blocking(move || crate::execution::stored_status(&workspace)).await {
+        Ok(mut value) => {
+            value["available"] = Value::Bool(true);
+            value
+        }
+        Err(_) => json!({
+            "available": false,
+            "exists": false,
+            "active": false,
+            "revision": 0,
+            "checkpoint": Value::Null,
+            "proposal": Value::Null,
+            "reason": "execution_status_unavailable"
+        }),
+    }
+}
+
 pub(super) async fn intelligence_web_project(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -578,6 +596,7 @@ pub(super) async fn intelligence_web_project(
         Ok(selected) => selected,
         Err(response) => return *response,
     };
+    let execution = intelligence_execution_snapshot(workspace.clone()).await;
     let prefer_cached = headers
         .get("x-wcode-prefer-cached")
         .and_then(|value| value.to_str().ok())
@@ -596,6 +615,7 @@ pub(super) async fn intelligence_web_project(
         {
             if let Ok(mut value) = serde_json::to_value(snapshot) {
                 value["workspace_options"] = intelligence_workspace_options(&state);
+                value["execution"] = execution.clone();
                 value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
                 value["activity"] = state.monitor.observatory_activity(&workspace_id);
                 value["pending_authorizations"] = json!(state
@@ -628,6 +648,7 @@ pub(super) async fn intelligence_web_project(
             Json(json!({
                 "workspace": workspace_id,
                 "workspace_options": intelligence_workspace_options(&state),
+                "execution": execution.clone(),
                 "activity": state.monitor.observatory_activity(&workspace_id),
                 "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
                 "snapshot_pending": true,
@@ -677,6 +698,7 @@ pub(super) async fn intelligence_web_project(
     let mut response = match project {
         Ok(mut value) => {
             value["workspace_options"] = intelligence_workspace_options(&state);
+            value["execution"] = execution;
             value["git_review"] = git_review;
             value["activity"] = state.monitor.observatory_activity(&workspace_id);
             value["pending_authorizations"] = json!(state

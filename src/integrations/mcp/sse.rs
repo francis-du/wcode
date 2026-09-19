@@ -190,13 +190,5 @@ async fn post_message(
 }
 
 #[cfg(test)]
-pub(crate) fn active_session_count() -> usize {
-    sessions()
-        .lock()
-        .expect("legacy SSE session lock poisoned")
-        .len()
-}
-
-#[cfg(test)]
 #[path = "../../../tests/unit/integrations/mcp/sse.rs"]
 mod tests;

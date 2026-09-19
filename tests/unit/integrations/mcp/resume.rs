@@ -179,6 +179,7 @@ async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
             workspace.clone(),
             record.task_id.clone(),
             json!({"name": "verify_project"}),
+            "resume-test-owner".to_owned(),
             deadline,
         ));
         state

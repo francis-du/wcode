@@ -47,6 +47,7 @@ pub(crate) async fn intelligence_web_code_graph(
         limit: query.limit.unwrap_or(120).clamp(16, 240),
         mode: query.mode.unwrap_or_default(),
     };
+    let requested_snapshot = input.snapshot_id.is_some();
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
     let workspace_id_for_read = workspace_id.clone();
@@ -56,9 +57,14 @@ pub(crate) async fn intelligence_web_code_graph(
                 Ok(result) => Ok(result),
                 Err(error)
                     if input.snapshot_id.is_none()
-                        && error
+                        && (error
                             .to_string()
-                            .contains("no stored software graph snapshot") =>
+                            .contains("no stored software graph snapshot")
+                            || (input.label_contains.as_deref().is_some_and(|value| {
+                                value.contains('/') || value.contains('\\')
+                            }) && error.to_string().contains(
+                                "no code graph symbol matches the requested chain root",
+                            ))) =>
                 {
                     harness.software_graph(
                         workspace_id_for_read,
@@ -82,12 +88,27 @@ pub(crate) async fn intelligence_web_code_graph(
             })),
         )
             .into_response(),
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": crate::workspace::redact_sensitive_text(&error.to_string()).0
-            })),
-        )
-            .into_response(),
+        Err(error) => {
+            let message = error.to_string();
+            let status = if requested_snapshot
+                && message.contains("no stored software graph snapshot is available")
+            {
+                StatusCode::CONFLICT
+            } else if message.contains("code graph chain requires")
+                || message.contains("code graph label query must contain")
+                || message.contains("no code graph symbol matches the requested chain root")
+            {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                Json(json!({
+                    "error": crate::workspace::redact_sensitive_text(&message).0
+                })),
+            )
+                .into_response()
+        }
     }
 }

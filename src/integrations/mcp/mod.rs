@@ -64,6 +64,7 @@ const PARALLEL_READ_TOOLS: &[&str] = &[
     "traceability_status",
     "software_context",
     "agent_context",
+    "execution_status",
     "semantic_status",
     "semantic_query",
     "evidence_status",
@@ -111,6 +112,8 @@ use mcp_authorization::{
     apply_authorization_retry, authorization_input_required, client_supports_elicitation,
 };
 
+#[path = "writer.rs"]
+mod mcp_writer;
 #[path = "web.rs"]
 mod web;
 use web::*;
@@ -764,7 +767,13 @@ pub(crate) async fn handle_message(
             }
         }
         "tools/call" => {
-            match call_tool(&state, message.get("params").cloned().unwrap_or_default()).await {
+            match call_tool_owned(
+                &state,
+                message.get("params").cloned().unwrap_or_default(),
+                owner,
+            )
+            .await
+            {
                 Ok(value) if modern => {
                     if let Some(request) = authorization_request_from_tool_result(&state, &value) {
                         if !client_supports_elicitation(&message) {
@@ -836,7 +845,17 @@ fn modern_cacheable_result(value: Value) -> Value {
 mod mcp_dispatch;
 #[path = "tools.rs"]
 mod mcp_tools;
-pub(crate) use mcp_dispatch::{call_tool, verification_options};
+#[cfg(test)]
+pub(crate) use mcp_dispatch::call_tool;
+pub(crate) use mcp_dispatch::verification_options;
+
+pub(crate) async fn call_tool_owned(
+    state: &AppState,
+    params: Value,
+    owner: &str,
+) -> Result<Value, String> {
+    mcp_writer::with_owner(owner.to_owned(), mcp_dispatch::call_tool(state, params)).await
+}
 #[cfg(test)]
 use mcp_dispatch::{estimated_context_bytes_avoided, parallel_item_from_response};
 #[cfg(test)]

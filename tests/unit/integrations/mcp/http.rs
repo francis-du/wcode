@@ -79,17 +79,16 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
             .queue(&workspace, "old_read", "PRIVATE-ARGUMENT", 1)
             .finish(true, 1);
     }
-    let mut running = state
+    let running = state
         .monitor
         .queue(&workspace, "read_file", "PRIVATE-ARGUMENT", 1);
     running.start();
     let queued = state
         .monitor
         .queue(&workspace, "find_symbol", "PRIVATE-ARGUMENT", 1);
-    let mut foreign =
-        state
-            .monitor
-            .queue("unrelated-project", "FOREIGN-TOOL", "PRIVATE-ARGUMENT", 1);
+    let foreign = state
+        .monitor
+        .queue("unrelated-project", "FOREIGN-TOOL", "PRIVATE-ARGUMENT", 1);
     foreign.start();
     let before = state.monitor.connection_status();
     let response =
@@ -117,6 +116,50 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
 }
 
 #[tokio::test]
+async fn observatory_activity_exposes_latest_jev_decision_without_secrets() {
+    let (state, _root) = origin_test_state();
+    let workspace = state.workspaces.default_id().to_owned();
+    state.monitor.record_agent_context_decision(
+        &workspace,
+        &json!({
+            "provider": "jev",
+            "status": "active",
+            "model": "jev-latest",
+            "authority": "increase_only_assist",
+            "question_set": {"id": "wcode.agent_context", "version": 3},
+            "baseline_next_action": "edit_then_verify",
+            "candidate_next_action": "edit_then_verify",
+            "guidance": ["jev:next_action:edit_then_verify"],
+            "comparison": {
+                "shared_signals": 7,
+                "choice_disagreements": 1,
+                "safety_policy_violations": 0,
+                "shape_mismatches": 0
+            },
+            "api_key": "PRIVATE-JEV-KEY",
+            "state": "PRIVATE-RAW-CONTEXT"
+        }),
+    );
+
+    let response =
+        intelligence_web_activity(State(state.clone()), ui_headers(&state, &workspace)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    let jev = &body["activity"]["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(jev["status"], "active");
+    assert_eq!(jev["model"], "jev-latest");
+    assert_eq!(jev["question_set"]["id"], "wcode.agent_context");
+    assert_eq!(jev["baseline_next_action"], "edit_then_verify");
+    assert_eq!(jev["candidate_next_action"], "edit_then_verify");
+    assert_eq!(jev["calls"]["successful"], 1);
+    assert_eq!(jev["comparison"]["safety_policy_violations"], 0);
+    let serialized = body.to_string();
+    assert!(!serialized.contains("PRIVATE-JEV-KEY"));
+    assert!(!serialized.contains("PRIVATE-RAW-CONTEXT"));
+    assert!(!serialized.contains(state.auth.ui_token()));
+}
+
+#[tokio::test]
 async fn observatory_project_distinguishes_unavailable_review_from_clean() {
     let (state, _root) = origin_test_state();
     let workspace = state.workspaces.default_id().to_owned();
@@ -132,6 +175,61 @@ async fn observatory_project_distinguishes_unavailable_review_from_clean() {
     assert_eq!(value["git_review"]["reason"], "execution_disabled");
     assert_eq!(value["activity"]["workspace"], workspace);
     assert_eq!(value["proof"]["current_evidence"], 0);
+}
+
+#[tokio::test]
+async fn observatory_project_exposes_bounded_execution_projection() {
+    let (state, _root) = origin_test_state();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    crate::worklist::update(
+        &workspace,
+        crate::worklist::WorklistUpdate {
+            expected_revision: 0,
+            goal: Some("Expose active execution without chat history".to_owned()),
+            restart: true,
+            items: vec![crate::worklist::WorkItemPatch {
+                id: "observe-execution".to_owned(),
+                title: Some("Observe execution".to_owned()),
+                status: Some(crate::worklist::WorkItemStatus::InProgress),
+                depends_on: Some(Vec::new()),
+                note: None,
+            }],
+        },
+    )
+    .unwrap();
+    crate::execution::refresh(&state.harness, &workspace_id, &workspace, true).unwrap();
+    let before = crate::execution::stored_status(&workspace).unwrap();
+
+    let response =
+        intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace_id)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    let execution = &body["execution"];
+    assert_eq!(execution["available"], true);
+    assert_eq!(execution["exists"], true);
+    assert_eq!(execution["active"], true);
+    assert_eq!(execution["phase"], "executing");
+    assert_eq!(
+        execution["objective"],
+        "Expose active execution without chat history"
+    );
+    assert_eq!(execution["checkpoint"]["open_items"], 1);
+    assert_eq!(execution["checkpoint"]["done_items"], 0);
+    assert_eq!(execution["checkpoint"]["runnable"][0], "observe-execution");
+    assert!(execution["checkpoint"]["repository_revision"]["code"].is_string());
+    let after = crate::execution::stored_status(&workspace).unwrap();
+    assert_eq!(before["revision"], after["revision"]);
+    assert_eq!(before["updated_at_ms"], after["updated_at_ms"]);
+    let serialized = execution.to_string();
+    for forbidden in [
+        "transcript",
+        "chain_of_thought",
+        "provider_response",
+        "messages",
+    ] {
+        assert!(!serialized.contains(forbidden));
+    }
 }
 
 #[tokio::test]
@@ -203,6 +301,18 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         "fn callee() {}\nfn target_feature() { callee(); }\nfn caller() { target_feature(); }\n",
     )
     .unwrap();
+    fs::create_dir_all(root.path().join(".wcode/design")).unwrap();
+    fs::write(
+        root.path().join(".wcode/design/acceptance.yaml"),
+        "- schema_version: 1\n  id: AC-WEB-GRAPH\n  title: Web graph query\n  statement: Design files are graph roots.\n  verification: []\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join(".wcode/design/acceptance")).unwrap();
+    fs::write(
+        root.path().join(".wcode/design/acceptance/split.yaml"),
+        "schema_version: 1\nid: AC-WEB-SPLIT\ntitle: Split web graph query\nstatement: Split Design files are graph roots.\nverification: []\n",
+    )
+    .unwrap();
     let workspace_id = state.workspaces.default_id().to_owned();
     let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
     let graph = state
@@ -258,6 +368,46 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             edge["provenance"]["provider"].as_str().is_some()
                 && edge["provenance"]["precision"].as_str().is_some()
         }));
+
+    let stale_snapshot = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            q: Some("target_feature".into()),
+            node_id: None,
+            snapshot_id: Some("GRAPH-MISSING".into()),
+            depth: Some(2),
+            limit: Some(64),
+            mode: Some(GraphChainMode::All),
+        }),
+    )
+    .await;
+    assert_eq!(stale_snapshot.status(), StatusCode::CONFLICT);
+
+    for design_path in [
+        ".wcode/design/acceptance.yaml",
+        ".wcode/design/acceptance/split.yaml",
+    ] {
+        let design_response = intelligence_web_code_graph(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Query(IntelligenceCodeGraphQuery {
+                q: Some(design_path.into()),
+                node_id: None,
+                snapshot_id: Some(snapshot_id.clone()),
+                depth: Some(2),
+                limit: Some(64),
+                mode: Some(GraphChainMode::All),
+            }),
+        )
+        .await;
+        assert_eq!(design_response.status(), StatusCode::BAD_REQUEST);
+        let design_value = response_json(design_response).await;
+        assert!(design_value["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no code graph symbol matches"));
+    }
 }
 
 #[tokio::test]

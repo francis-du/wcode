@@ -53,6 +53,65 @@ async fn cancelled_blocking_worker_retains_its_real_permit_until_finished() {
     assert_eq!(slots.available_permits(), 1);
 }
 
+#[tokio::test]
+async fn cancelled_blocking_worker_remains_visible_until_real_capacity_is_released() {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let monitor = TaskMonitor::new(["fixture".to_owned()]);
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = Arc::new(slots.clone().acquire_owned().await.unwrap().into());
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let monitor_for_task = monitor.clone();
+    let parent = tokio::spawn(async move {
+        let task = monitor_for_task.queue("fixture", "search_code", "fixture", 1);
+        task.start();
+        let result = BLOCKING_TASK
+            .scope(
+                task.clone(),
+                BLOCKING_PERMIT.scope(
+                    permit,
+                    run_blocking(move || {
+                        let _ = started_tx.send(());
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        Ok(json!({"done": true}))
+                    }),
+                ),
+            )
+            .await;
+        task.finish(result.is_ok(), 1);
+    });
+    tokio::time::timeout(Duration::from_secs(3), started_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    parent.abort();
+    assert!(parent.await.unwrap_err().is_cancelled());
+    assert_eq!(monitor.observatory_activity("fixture")["active"], 1);
+    assert_eq!(
+        monitor.observatory_activity("fixture")["recent"][0]["status"],
+        "running"
+    );
+    assert_eq!(slots.available_permits(), 0);
+
+    release_tx.send(()).unwrap();
+    let recovered = tokio::time::timeout(Duration::from_secs(3), slots.acquire_owned())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(recovered);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while monitor.observatory_activity("fixture")["active"] != 0
+        && tokio::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let activity = monitor.observatory_activity("fixture");
+    assert_eq!(activity["active"], 0);
+    assert_eq!(activity["recent"][0]["status"], "failed");
+}
+
 #[test]
 fn cancelled_queued_blocking_worker_never_starts() {
     use std::sync::{
@@ -261,6 +320,53 @@ fn tool_catalog_exposes_model_neutral_agent_hints() {
             assert!(tool["_meta"].get("dev.wcode/preloadRecommended").is_none());
         }
     }
+}
+
+#[test]
+fn tool_catalog_marks_core_and_on_demand_capabilities_without_hiding_tools() {
+    let catalog = tools();
+    let core = catalog
+        .iter()
+        .filter(|tool| tool["_meta"]["dev.wcode/preloadRecommended"] == true)
+        .count();
+    let on_demand = catalog.len().saturating_sub(core);
+    for tool in catalog {
+        assert!(tool["_meta"]["dev.wcode/productScopes"].is_array());
+        if tool["_meta"]["dev.wcode/preloadRecommended"] != true {
+            assert!(tool["_meta"].get("dev.wcode/preloadRecommended").is_none());
+        }
+    }
+    assert!(core > 0);
+    assert!(
+        on_demand > core,
+        "specialized capabilities should stay metadata-first"
+    );
+    assert!(catalog
+        .iter()
+        .any(|tool| tool["name"] == "execution_status"));
+}
+
+#[test]
+fn execution_policy_status_is_read_only_and_bounded() {
+    let catalog = tools();
+    let tool = catalog
+        .iter()
+        .find(|tool| tool["name"] == "execution_policy_status")
+        .expect("execution_policy_status must be exposed");
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_ne!(tool["annotations"]["destructiveHint"], true);
+    let schema = &tool["inputSchema"];
+    assert_eq!(schema["required"], json!(["tool_name"]));
+    assert!(schema["properties"]["tool_name"].is_object());
+    assert!(schema["properties"]["arguments"].is_object());
+    let encoded = serde_json::to_vec(tool).unwrap();
+    assert!(
+        encoded.len() < 2_000,
+        "policy status tool must stay compact"
+    );
+    let text = String::from_utf8(encoded).unwrap();
+    assert!(!text.contains("writer_lease"));
+    assert!(!text.contains("hook_command"));
 }
 
 #[test]

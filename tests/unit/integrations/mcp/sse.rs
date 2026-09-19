@@ -42,10 +42,20 @@ fn test_state() -> (Arc<AppState>, tempfile::TempDir) {
     )
 }
 
+fn instance_session_count(state: &AppState) -> usize {
+    let prefix = format!("{}-", state.auth.instance_id());
+    sessions()
+        .lock()
+        .expect("legacy SSE session lock poisoned")
+        .keys()
+        .filter(|session_id| session_id.starts_with(&prefix))
+        .count()
+}
+
 #[tokio::test]
 async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
     let (state, _root) = test_state();
-    let baseline = active_session_count();
+    let baseline = instance_session_count(&state);
     state
         .auth
         .register_public_url("https://verified.example".to_owned());
@@ -53,7 +63,7 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
     alias_headers.insert("origin", "https://verified.example".parse().unwrap());
     let response = open_session(State(state.clone()), alias_headers.clone()).await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(active_session_count(), baseline + 1);
+    assert_eq!(instance_session_count(&state), baseline + 1);
 
     let mut body = Body::into_data_stream(response.into_body());
     let endpoint = body.next().await.unwrap().unwrap();
@@ -118,7 +128,7 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
         .auth
         .insert_test_access_token("client-two", "client-one", "http://127.0.0.1:9876/mcp");
     let wrong_tunnel = post_message(
-        State(state),
+        State(state.clone()),
         Query(MessageQuery { session_id }),
         request_headers("client-two", "127.0.0.1:9876"),
         Json(json!({"jsonrpc":"2.0","id":3,"method":"ping"})),
@@ -127,7 +137,7 @@ async fn legacy_sse_routes_share_dispatch_and_cleanup_closed_sessions() {
     assert_eq!(wrong_tunnel.status(), StatusCode::NOT_FOUND);
 
     drop(body);
-    assert_eq!(active_session_count(), baseline);
+    assert_eq!(instance_session_count(&state), baseline);
 }
 
 #[tokio::test]

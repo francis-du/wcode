@@ -1,4 +1,4 @@
-use crate::mcp::{call_tool, jsonrpc_error, modern_result, selected_workspace, AppState};
+use crate::mcp::{call_tool_owned, jsonrpc_error, modern_result, selected_workspace, AppState};
 use crate::task_store::{self, TaskRecord, TaskStatus};
 use crate::workspace::Workspace;
 use serde_json::{json, Value};
@@ -174,6 +174,7 @@ pub(super) async fn create_tool_task(
     if tool_name == "verify_project" {
         crate::mcp::verification_options(&args).map_err(TaskRpcError::invalid)?;
     }
+    let task_owner = owner.clone();
     let record = TaskRecord::working(
         owner,
         workspace_id,
@@ -206,6 +207,7 @@ pub(super) async fn create_tool_task(
             worker_workspace,
             worker_task_id,
             params,
+            task_owner,
             deadline,
         )
         .await;
@@ -222,6 +224,7 @@ async fn run_task_worker(
     workspace: Workspace,
     task_id: String,
     params: Value,
+    owner: String,
     deadline: Instant,
 ) {
     // Disconnection does not own this worker. Its deadline and tasks/cancel do.
@@ -232,7 +235,7 @@ async fn run_task_worker(
     } else {
         let tool_state = state.clone();
         let mut tools = JoinSet::new();
-        tools.spawn(async move { call_tool(&tool_state, params).await });
+        tools.spawn(async move { call_tool_owned(&tool_state, params, &owner).await });
         match timeout_at(deadline, tools.join_next()).await {
             Ok(Some(Ok(outcome))) => outcome.map_err(TaskRpcError::invalid),
             Ok(Some(Err(error))) => Err(TaskRpcError::internal(format!(

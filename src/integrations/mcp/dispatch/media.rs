@@ -1,3 +1,4 @@
+use super::super::mcp_tools::acquire_tool_permit;
 use super::*;
 
 pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<Value, String> {
@@ -9,13 +10,13 @@ pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<
         .unwrap_or(state.workspaces.default_id())
         .to_owned();
     let request_bytes = serialized_size(&args) as u64;
-    let mut task = state.monitor.queue(
+    let task = state.monitor.queue(
         workspace_label,
         "read_media",
         task_detail("read_media", &args),
         request_bytes,
     );
-    let permit = Arc::new(state.harness.acquire_tool(false).await?);
+    let permit = acquire_tool_permit(state, false).await?;
     task.start();
 
     let (workspace_id, workspace) = match selected_workspace(state, &args) {
@@ -36,8 +37,12 @@ pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<
         .get("include_content")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let read = super::mcp_tools::BLOCKING_PERMIT
-        .scope(permit, run_blocking(move || workspace.read_media(&path)))
+    let read = super::mcp_tools::BLOCKING_TASK
+        .scope(
+            task.clone(),
+            super::mcp_tools::BLOCKING_PERMIT
+                .scope(permit, run_blocking(move || workspace.read_media(&path))),
+        )
         .await;
     let view = match read {
         Ok(view) => view,
