@@ -23,7 +23,7 @@ pub(crate) const JEV_DEFAULT_MODEL_ENV: &str = "JEV_DEFAULT_MODEL";
 pub(crate) const JEV_DEFAULT_BASE_URL: &str = "https://api.typesafe.ai";
 pub(crate) const JEV_DEFAULT_MODEL: &str = "jev-latest";
 const AGENT_CONTEXT_QUESTION_SET_ID: &str = "wcode.agent_context";
-const AGENT_CONTEXT_QUESTION_SET_VERSION: u16 = 3;
+const AGENT_CONTEXT_QUESTION_SET_VERSION: u16 = 4;
 #[cfg(not(test))]
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
 #[cfg(not(test))]
@@ -257,7 +257,7 @@ pub(crate) async fn augment_agent_context(
         let provider = match JevDecisionProvider::from_env() {
             Ok(Some(provider)) => provider,
             Ok(None) => {
-                return Ok(json!({
+                let telemetry = json!({
                     "provider": "jev",
                     "status": "disabled",
                     "reason": "not_configured",
@@ -268,7 +268,9 @@ pub(crate) async fn augment_agent_context(
                         "version": AGENT_CONTEXT_QUESTION_SET_VERSION
                     },
                     "fallback": "deterministic"
-                }));
+                });
+                attach_jev_if_budget_allows(context, telemetry.clone());
+                return Ok(telemetry);
             }
             Err(error) => {
                 tracing::warn!(error = %error, "Jev configuration rejected; deterministic decision plane retained");
@@ -292,7 +294,7 @@ pub(crate) async fn augment_agent_context(
             Ok(candidate) => {
                 let comparison = compare_decision_batches(&baseline, &candidate);
                 let guidance = advisory_guidance(&baseline, &candidate);
-                let telemetry = json!({
+                let mut telemetry = json!({
                     "provider": "jev",
                     "model": provider.model(),
                     "status": "active",
@@ -323,6 +325,8 @@ pub(crate) async fn augment_agent_context(
                     "guidance": guidance,
                     "fallback": "deterministic"
                 });
+                let routing = apply_agent_context_guidance(context, &telemetry);
+                telemetry["routing"] = routing;
                 attach_jev_if_budget_allows(context, telemetry.clone());
                 Ok(telemetry)
             }
@@ -345,6 +349,208 @@ pub(crate) async fn augment_agent_context(
             }
         }
     }
+}
+
+fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value {
+    if telemetry.get("status").and_then(Value::as_str) != Some("active") {
+        return json!({"applied":false,"actions":[]});
+    }
+    let guidance = telemetry
+        .get("guidance")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let candidate_next_action = telemetry
+        .get("candidate_next_action")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    let target_count = context
+        .get("targets")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let hot_source_count = context
+        .get("hot_source")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let retrieval_action = if target_count == 0 {
+        "find_symbol"
+    } else if hot_source_count < target_count {
+        "symbol_context"
+    } else {
+        "software_context"
+    };
+
+    let needs_semantic = guidance.iter().any(|item| {
+        item.as_str() == Some("jev:prefer_semantic_navigation")
+            || item.as_str() == Some("jev:next_action:semantic_navigation")
+    }) || candidate_next_action == "semantic_navigation";
+    let needs_review = guidance
+        .iter()
+        .any(|item| item.as_str() == Some("jev:next_action:review_worktree"))
+        || candidate_next_action == "review_worktree";
+    let needs_retrieval = guidance.iter().any(|item| {
+        matches!(
+            item.as_str(),
+            Some("jev:retrieve_more_evidence")
+                | Some("jev:choice_uncertain_collect_evidence")
+                | Some("jev:next_action:retrieve")
+        )
+    }) || candidate_next_action == "retrieve";
+    let verification_escalation = guidance
+        .iter()
+        .any(|item| item.as_str() == Some("jev:preserve_or_raise_verification"));
+    let lsp_install_required = context
+        .pointer("/readiness/advisories")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some("lsp_install_required"))
+        });
+
+    let Some(readiness) = context.get_mut("readiness").and_then(Value::as_object_mut) else {
+        return json!({"applied":false,"actions":[]});
+    };
+    let original = readiness.clone();
+    let actions = readiness
+        .entry("next_actions")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut();
+    let Some(actions) = actions else {
+        return json!({"applied":false,"actions":[]});
+    };
+
+    let mut applied = Vec::<String>::new();
+    if needs_retrieval {
+        promote_before_edit(actions, retrieval_action);
+        applied.push(retrieval_action.to_owned());
+    }
+    if needs_review {
+        promote_before_edit(actions, "review_changes");
+        applied.push("review_changes".to_owned());
+    }
+    if needs_semantic {
+        if lsp_install_required {
+            promote_before_edit(actions, "semantic_provider_install");
+            promote_before_edit(actions, "semantic_provider_refresh");
+            applied.push("semantic_provider_install".to_owned());
+            applied.push("semantic_provider_refresh".to_owned());
+        }
+        promote_before_edit(actions, "semantic_navigation");
+        applied.push("semantic_navigation".to_owned());
+    }
+    if verification_escalation {
+        promote_before_action(actions, "verification_plan", "verify_project");
+        applied.push("verification_plan".to_owned());
+    }
+
+    let advisories = readiness
+        .entry("advisories")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut();
+    if let Some(advisories) = advisories {
+        for advisory in [
+            needs_retrieval.then_some("jev_retrieval_review"),
+            needs_review.then_some("jev_worktree_review"),
+            needs_semantic.then_some("jev_semantic_navigation"),
+            verification_escalation.then_some("jev_verification_escalation"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !advisories
+                .iter()
+                .any(|item| item.as_str() == Some(advisory))
+            {
+                advisories.push(Value::String(advisory.to_owned()));
+            }
+        }
+    }
+    if !applied.is_empty() {
+        readiness.insert(
+            "decision_assist".to_owned(),
+            json!({
+                "provider":"jev",
+                "authority":"increase_only",
+                "candidate_next_action": candidate_next_action,
+                "applied_actions": applied,
+            }),
+        );
+    }
+
+    if !context_fits_budget(context) {
+        if let Some(readiness) = context.get_mut("readiness").and_then(Value::as_object_mut) {
+            *readiness = original;
+        }
+        return json!({
+            "applied":false,
+            "actions":[],
+            "reason":"context_budget"
+        });
+    }
+
+    json!({
+        "applied":!applied.is_empty(),
+        "actions":applied,
+        "verification_escalation":verification_escalation
+    })
+}
+
+fn promote_before_action(actions: &mut Vec<Value>, action: &str, before: &str) {
+    let existing = actions
+        .iter()
+        .position(|item| item.as_str() == Some(action));
+    let mut before_index = actions
+        .iter()
+        .position(|item| item.as_str() == Some(before))
+        .unwrap_or(actions.len());
+    if let Some(existing) = existing {
+        if existing < before_index {
+            return;
+        }
+        let value = actions.remove(existing);
+        before_index = actions
+            .iter()
+            .position(|item| item.as_str() == Some(before))
+            .unwrap_or(actions.len());
+        actions.insert(before_index, value);
+        return;
+    }
+    actions.insert(before_index, Value::String(action.to_owned()));
+}
+
+fn promote_before_edit(actions: &mut Vec<Value>, action: &str) {
+    let edit_action = |value: &Value| {
+        matches!(
+            value.as_str(),
+            Some("apply_edits")
+                | Some("apply_file_edits")
+                | Some("write_file")
+                | Some("create_file")
+                | Some("create_files")
+        )
+    };
+    let existing = actions
+        .iter()
+        .position(|item| item.as_str() == Some(action));
+    let mut edit_index = actions
+        .iter()
+        .position(edit_action)
+        .unwrap_or(actions.len());
+    if let Some(existing) = existing {
+        if existing < edit_index {
+            return;
+        }
+        let value = actions.remove(existing);
+        edit_index = actions
+            .iter()
+            .position(edit_action)
+            .unwrap_or(actions.len());
+        actions.insert(edit_index, value);
+        return;
+    }
+    actions.insert(edit_index, Value::String(action.to_owned()));
 }
 
 fn attach_jev_if_budget_allows(context: &mut Value, jev: Value) {

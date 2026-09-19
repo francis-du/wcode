@@ -412,6 +412,11 @@ pub fn agent_context_decision_request(pack: &Value, query: &str) -> DecisionRequ
             "graph_precision": pack.pointer("/readiness/graph_precision").and_then(Value::as_str).unwrap_or("unknown"),
             "edit": pack.pointer("/readiness/edit").and_then(Value::as_str).unwrap_or("unknown"),
             "verify": pack.pointer("/readiness/verify").and_then(Value::as_str).unwrap_or("unknown"),
+            "change_strategy": pack.pointer("/readiness/change_strategy").and_then(Value::as_str).unwrap_or("unknown"),
+            "retrieval_intent": pack.pointer("/repo_map/routing/intent").and_then(Value::as_str).unwrap_or("unknown"),
+            "parallel_strategy": pack.pointer("/readiness/parallelism/strategy").and_then(Value::as_str).unwrap_or("unknown"),
+            "worklist_open_items": pack.pointer("/worklist/open_items").and_then(Value::as_u64).unwrap_or(0),
+            "lsp_install_required": pack.pointer("/readiness/advisories").and_then(Value::as_array).is_some_and(|items| items.iter().any(|item| item.as_str() == Some("lsp_install_required"))),
             "semantic_requested": query_has_relationship_intent(query),
         }),
     }

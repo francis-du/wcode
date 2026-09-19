@@ -357,6 +357,10 @@ pub(super) async fn call(
             let jev_telemetry = crate::jev::augment_agent_context(&mut context, &decision_query)
                 .await
                 .map_err(|error| format!("Jev augmentation failed: {error}"))?;
+            // Jev may only add bounded review/retrieval work. Re-run the same
+            // output budget after that increase-only routing so optional
+            // postlude fields cannot push Agent Context over its contract.
+            enforce_agent_context_postlude_budget(&mut context);
             state
                 .monitor
                 .record_agent_context_decision(&workspace_id, &jev_telemetry);

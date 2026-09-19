@@ -166,6 +166,127 @@ fn jev_attachment_never_breaks_agent_context_budget() {
 }
 
 #[test]
+fn active_jev_can_only_promote_additional_work_before_edit() {
+    let mut context = json!({
+        "budget": 1000,
+        "targets": [{"id":"target","path":"src/a.rs"}],
+        "hot_source": [{"id":"target","path":"src/a.rs"}],
+        "readiness": {
+            "next_actions": ["apply_edits","review_changes","verify_project"],
+            "advisories": ["lsp_install_required"]
+        }
+    });
+    let routing = apply_agent_context_guidance(
+        &mut context,
+        &json!({
+            "status":"active",
+            "candidate_next_action":"semantic_navigation",
+            "guidance":[
+                "jev:prefer_semantic_navigation",
+                "jev:next_action:review_worktree",
+                "jev:preserve_or_raise_verification"
+            ]
+        }),
+    );
+    assert_eq!(routing["applied"], true);
+    assert_eq!(
+        context["readiness"]["next_actions"],
+        json!([
+            "review_changes",
+            "semantic_provider_install",
+            "semantic_provider_refresh",
+            "semantic_navigation",
+            "apply_edits",
+            "verification_plan",
+            "verify_project"
+        ])
+    );
+    assert_eq!(context["readiness"]["decision_assist"]["provider"], "jev");
+    assert_eq!(
+        context["readiness"]["decision_assist"]["authority"],
+        "increase_only"
+    );
+    assert!(context["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item == "jev_semantic_navigation"));
+    assert!(context["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item == "jev_worktree_review"));
+}
+
+#[test]
+fn jev_retrieval_routes_to_bounded_evidence_without_dropping_existing_actions() {
+    let mut context = json!({
+        "budget": 1000,
+        "targets": [{"id":"target","path":"src/a.rs"}],
+        "hot_source": [],
+        "readiness": {
+            "next_actions": ["apply_file_edits","review_changes","verify_project"],
+            "advisories": []
+        }
+    });
+    let routing = apply_agent_context_guidance(
+        &mut context,
+        &json!({
+            "status":"active",
+            "candidate_next_action":"retrieve",
+            "guidance":["jev:retrieve_more_evidence"]
+        }),
+    );
+    assert_eq!(routing["actions"], json!(["symbol_context"]));
+    assert_eq!(
+        context["readiness"]["next_actions"],
+        json!([
+            "symbol_context",
+            "apply_file_edits",
+            "review_changes",
+            "verify_project"
+        ])
+    );
+}
+
+#[test]
+fn jev_routing_is_inert_when_disabled_or_over_budget() {
+    let original = json!({
+        "budget": 1000,
+        "targets": [{"id":"target","path":"src/a.rs"}],
+        "hot_source": [{"id":"target","path":"src/a.rs"}],
+        "readiness": {"next_actions":["apply_edits","verify_project"],"advisories":[]}
+    });
+    let mut disabled = original.clone();
+    let routing = apply_agent_context_guidance(
+        &mut disabled,
+        &json!({"status":"disabled","guidance":["jev:prefer_semantic_navigation"]}),
+    );
+    assert_eq!(routing["applied"], false);
+    assert_eq!(disabled, original);
+
+    let mut tiny = json!({
+        "budget": 20,
+        "payload":"x".repeat(40),
+        "targets": [{"id":"target","path":"src/a.rs"}],
+        "hot_source": [{"id":"target","path":"src/a.rs"}],
+        "readiness": {"next_actions":["apply_edits"],"advisories":[]}
+    });
+    let before = tiny["readiness"].clone();
+    let routing = apply_agent_context_guidance(
+        &mut tiny,
+        &json!({
+            "status":"active",
+            "candidate_next_action":"semantic_navigation",
+            "guidance":["jev:prefer_semantic_navigation"]
+        }),
+    );
+    assert_eq!(routing["applied"], false);
+    assert_eq!(routing["reason"], "context_budget");
+    assert_eq!(tiny["readiness"], before);
+}
+
+#[test]
 fn questions_cover_probability_choice_and_score() {
     let questions = agent_context_questions();
     assert_eq!(questions["context_sufficient"]["type"], "noul");
@@ -180,5 +301,5 @@ fn questions_cover_probability_choice_and_score() {
     assert_eq!(questions["risk_surface"]["type"], "choice");
     assert_eq!(questions["evidence_density"]["type"], "score");
     assert_eq!(AGENT_CONTEXT_QUESTION_SET_ID, "wcode.agent_context");
-    assert_eq!(AGENT_CONTEXT_QUESTION_SET_VERSION, 3);
+    assert_eq!(AGENT_CONTEXT_QUESTION_SET_VERSION, 4);
 }
