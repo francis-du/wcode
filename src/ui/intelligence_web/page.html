@@ -181,7 +181,7 @@
           <div class="code-graph-mode" role="group" aria-label="Code graph relation mode" data-i18n-aria-label="Code graph relation mode">
             <button type="button" data-code-graph-mode="calls" data-i18n="Calls">Calls</button>
             <button type="button" data-code-graph-mode="impact" data-i18n="Impact">Impact</button>
-            <button type="button" class="active" data-code-graph-mode="all" data-i18n="All evidence">All evidence</button>
+            <button type="button" class="active" data-code-graph-mode="all" data-i18n="All code relations">All relations</button>
           </div>
           <select id="codeGraphSnapshot" class="code-graph-depth" aria-label="Code graph revision" data-i18n-aria-label="Code graph revision"><option value="" data-i18n="Latest graph">Latest graph</option></select>
           <select id="codeGraphDepth" class="code-graph-depth" aria-label="Code graph depth" data-i18n-aria-label="Code graph depth">
@@ -241,7 +241,13 @@
 
     <section class="drawer-stack" aria-label="Engineering details" data-i18n-aria-label="Engineering details">
       <section id="activitySection" class="activity-workspace workspace-panel hidden" data-workspace-panel="activity" role="tabpanel" aria-labelledby="tabActivity" tabindex="-1">
-        <div class="workspace-body"><div id="activity" class="section"></div><div id="resourceStatus" class="section"></div></div>
+        <div class="workspace-body">
+          <section class="execution-observatory-panel" aria-labelledby="executionObservatoryTitle">
+            <header class="execution-observatory-head"><div><span class="section-kicker" data-i18n="DURABLE EXECUTION">DURABLE EXECUTION</span><h2 id="executionObservatoryTitle" data-i18n="Durable execution">Durable execution</h2><p data-i18n="execution observatory meta">Read-only projection of objective, progress, plan and proof state. No chat transcript is stored or displayed.</p></div></header>
+            <div id="executionStatus" class="execution-status" aria-live="polite"></div>
+          </section>
+          <div id="activity" class="section"></div><div id="resourceStatus" class="section"></div>
+        </div>
       </section>
 
       <section id="proofSection" class="proof-workspace-panel workspace-panel hidden" data-workspace-panel="proof" role="tabpanel" aria-labelledby="tabProof" tabindex="-1">

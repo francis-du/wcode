@@ -43,6 +43,7 @@ const els = {
   stats: q("#stats"),
   statusSummary: q("#statusSummary"),
   activity: q("#activity"),
+  executionStatus: q("#executionStatus"),
   resourceStatus: q("#resourceStatus"),
   proofSummary: q("#proofSummary"),
   adaptiveVerification: q("#adaptiveVerification"),
@@ -419,8 +420,12 @@ function setSync(kind, label) {
   els.syncState.textContent = label;
   els.syncState.title = "";
   els.syncState.parentElement?.setAttribute("aria-label", label);
-  els.refresh.disabled = kind === "loading";
   document.querySelector(".observatory-main")?.setAttribute("aria-busy", String(kind === "loading" && !state.project));
+}
+function setManualRefreshBusy(busy) {
+  if (!els.refresh) return;
+  els.refresh.disabled = Boolean(busy);
+  els.refresh.setAttribute("aria-busy", String(Boolean(busy)));
 }
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;

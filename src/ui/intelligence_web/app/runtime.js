@@ -11,7 +11,49 @@ function renderProject(force = false) {
   renderLive(); renderStats(); renderAttention(); renderArchitecture(); renderTraceabilityMap(); renderChangeConvergenceMap(); renderProjectNavigator();
   renderRequirements(); renderDetail(); renderVerificationImpact(); renderChanges(); renderProjectStructure();
   if (state.codeGraph) renderCodeGraph();
-  renderCodeStats(); renderRevisions(); renderLanguageQuality(); renderActivity(); renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
+  renderCodeStats(); renderRevisions(); renderLanguageQuality(); renderExecutionStatus(); renderActivity(); renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
+}
+function renderExecutionStatus() {
+  const execution = state.project?.execution;
+  if (!execution || execution.available === false) {
+    return setHtml("executionStatus", els.executionStatus, `<div class="execution-empty warn"><strong>${esc(localized("Execution state unavailable", "执行状态不可用"))}</strong><span>${esc(localized("The Observatory could not read the durable checkpoint; this is not an idle signal.", "观测台无法读取持久化检查点；这不代表当前没有任务。"))}</span></div>`);
+  }
+  if (!execution.exists) {
+    return setHtml("executionStatus", els.executionStatus, `<div class="execution-empty"><strong>${esc(localized("No durable Execution yet", "暂无持久化 Execution"))}</strong><span>${esc(localized("No Execution checkpoint has been created for this Workspace.", "当前工作区尚未创建 Execution 检查点。"))}</span></div>`);
+  }
+  const checkpoint = execution.checkpoint || {}, phase = String(execution.phase || "executing"),
+    tone = phase === "completed" ? "good" : phase === "blocked" ? "bad" : phase === "verifying" ? "warn" : "info",
+    phaseLabel = {
+      executing: localized("Executing", "执行中"), blocked: localized("Blocked", "阻塞"),
+      verifying: localized("Verifying", "验证中"), completed: localized("Completed", "已完成"),
+    }[phase] || phase;
+  const runnable = (checkpoint.runnable || []).slice(0, 8), blockers = (checkpoint.blockers || []).slice(0, 12),
+    repository = checkpoint.repository_revision || {}, codeRevision = repository.code ? String(repository.code).slice(0, 12) : "—",
+    designRevision = repository.design ? String(repository.design).slice(0, 12) : "—";
+  const laneHtml = runnable.length
+    ? runnable.map(item => `<span class="execution-chip">${esc(item)}</span>`).join("")
+    : `<span class="panel-meta">${esc(localized("No runnable lanes", "暂无可运行执行通道"))}</span>`;
+  const blockerHtml = blockers.length
+    ? blockers.map(item => `<span class="execution-blocker">${esc(item)}</span>`).join("")
+    : `<span class="panel-meta">${esc(localized("No explicit blockers", "没有显式阻塞项"))}</span>`;
+  const directive = execution.pending_directive && typeof execution.pending_directive === "object" ? execution.pending_directive : null,
+    lineage = execution.lineage && typeof execution.lineage === "object" ? execution.lineage : null,
+    verificationFloor = execution.verification_floor ? String(execution.verification_floor) : "—",
+    steeringTone = execution.replan_required === true ? "bad" : directive ? "warn" : "info",
+    steeringLabel = execution.replan_required === true
+      ? localized("Replan required", "需要重新规划")
+      : directive ? localized("Pending steering", "待应用 steering") : localized("Execution guard", "执行约束");
+  const steeringHtml = directive || lineage || execution.verification_floor
+    ? `<section class="execution-steering-card"><div class="execution-steering-head"><span class="execution-label">${esc(localized("Steering / handoff", "Steering / 交接"))}</span>${pill(steeringLabel, steeringTone)}</div>${directive ? `<strong class="execution-steering-summary">${esc(directive.summary || localized("Pending structured directive", "待应用结构化指令"))}</strong>` : ""}<div class="execution-steering-facts"><span><i>${esc(localized("Directive", "指令"))}</i><b>${esc(directive ? String(directive.kind || "steering").replace(/_/g, " ") : "—")}</b></span><span><i>${esc(localized("Verification floor", "验证下限"))}</i><b>${esc(verificationFloor)}</b></span><span><i>${esc(localized("Bound plan", "绑定计划"))}</i><b>${esc(directive?.reconciliation_plan_id || "—")}</b></span><span><i>${esc(localized("Handoff lineage", "交接血缘"))}</i><b>${esc(lineage ? `${lineage.parent_execution_id || "—"} · #${num(lineage.handoff_count || 0)}` : "—")}</b></span></div></section>`
+    : "";
+  const html = `<div class="execution-shell ${tone}">
+    <div class="execution-primary"><div class="execution-heading"><div><span class="execution-id">${esc(execution.execution_id || "Execution")}</span><h3>${esc(execution.objective || localized("Untitled execution", "未命名执行"))}</h3></div>${pill(phaseLabel, tone)}</div><div class="execution-revision">${esc(localized("Execution revision", "Execution 版本"))} ${num(execution.revision || 0)} · ${esc(localized("Worklist revision", "Worklist 版本"))} ${num(checkpoint.worklist_revision || 0)}</div></div>
+    <div class="execution-metrics"><div><span>${esc(localized("Done", "已完成"))}</span><strong>${num(checkpoint.done_items || 0)}</strong></div><div><span>${esc(localized("Open", "未完成"))}</span><strong>${num(checkpoint.open_items || 0)}</strong></div><div><span>${esc(localized("Blocked", "阻塞"))}</span><strong>${num(checkpoint.blocked_items || 0)}</strong></div><div><span>${esc(localized("Runnable", "可运行"))}</span><strong>${num(runnable.length)}</strong></div></div>
+    <div class="execution-grid"><section><span class="execution-label">${esc(localized("Runnable lanes", "可运行执行通道"))}</span><div class="execution-chip-list">${laneHtml}</div></section><section><span class="execution-label">${esc(localized("Bound convergence / proof", "绑定的收敛 / 证明"))}</span><div class="execution-facts"><span>${esc(localized("Reconciliation", "收敛计划"))}<b>${esc(checkpoint.reconciliation_plan_id || "—")}</b><i>${checkpoint.reconciliation_converged === true ? esc(localized("converged", "已收敛")) : checkpoint.reconciliation_converged === false ? esc(localized("pending", "未收敛")) : "—"}</i></span><span>${esc(localized("Verification", "验证计划"))}<b>${esc(checkpoint.verification_plan_id || "—")}</b><i>${checkpoint.verification_ready === true ? esc(localized("ready", "已就绪")) : checkpoint.verification_ready === false ? esc(localized("pending", "未就绪")) : "—"}</i></span><span>${esc(localized("Code / Design revision", "代码 / 设计版本"))}<b>${esc(codeRevision)} / ${esc(designRevision)}</b></span></div></section></div>
+    ${steeringHtml}
+    <section class="execution-blockers"><span class="execution-label">${esc(localized("Blockers", "阻塞项"))}</span><div>${blockerHtml}</div></section>
+  </div>`;
+  setHtml("executionStatus", els.executionStatus, html);
 }
 const workspaceTabForSection = {
   architectureSection: "architecture",
@@ -174,7 +216,7 @@ function renderProjectPlaceholder(failed = false) {
   const content = failed
     ? `<div class="section empty connection-state"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div>`
     : `<div class="section empty loading-state">${esc(title)}</div>`;
-  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
+  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "executionStatus", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
     if ((key === "activity" || key === "resourceStatus") && state.activitySnapshot) continue;
     setHtml(key, els[key], content);
   }
@@ -230,7 +272,8 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   state.controller = controller; state.inFlight = true;
   const stamp = observationStamp();
   const current = () => epoch === state.requestEpoch && observationCurrent(stamp);
-  const continuationReason = reason === "manual" || reason === "initial" ? reason : "background";
+  const foregroundSync = reason === "manual" || reason === "initial";
+  const continuationReason = foregroundSync ? reason : "background";
   const previousSnapshot = { project: state.project, revisionKey: state.revisionKey, lastUpdated: state.lastUpdated, lastChecked: state.lastChecked };
   let phase = "request";
   // Only acknowledge a revision observed before this project request. A
@@ -258,7 +301,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
       }
     }, 900);
   };
-  setSync("loading", t("Refreshing project state…"));
+  if (foregroundSync) setSync("loading", t("Refreshing project state…"));
   try {
     const data = await uiJson("/intelligence/project", "GET", undefined, options);
     if (!current() || controller.signal.aborted) return false;
@@ -272,7 +315,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     }
     observePending(data.pending_authorizations, stamp);
     if (data.snapshot_pending === true) {
-      setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
+      if (foregroundSync) setSync("loading", localized("Building project snapshot in background…", "正在后台构建项目快照…"));
       scheduleSnapshotProbe();
       return true;
     }
@@ -291,7 +334,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     renderProject(force);
     cacheWorkspaceSnapshot();
     if (snapshotRefreshing || (cachedResponse && !snapshotRevision)) {
-      setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
+      if (foregroundSync) setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
       scheduleSnapshotProbe();
     } else {
       setSync("ok", localized("Snapshot up to date", "快照已更新"));
@@ -309,7 +352,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     }
     return false;
   } finally {
-    if (state.controller === controller) { state.inFlight = false; state.controller = null; els.refresh.disabled = false; }
+    if (state.controller === controller) { state.inFlight = false; state.controller = null; }
   }
 }
 async function pollRevision() {
@@ -480,12 +523,19 @@ els.commandCandidate.addEventListener("keydown", event => { if (event.key === "E
 els.authorizeOperation.addEventListener("click", authorizeOperationFromUi);
 els.operationArgs.addEventListener("keydown", event => { if (event.key === "Enter") authorizeOperationFromUi(); });
 els.refresh.addEventListener("click", async () => {
-  let revision = null;
+  if (els.refresh.disabled) return;
+  setManualRefreshBusy(true);
   try {
-    revision = await uiJson("/intelligence/revision", "GET", undefined, { workspace: state.current });
-  } catch {}
-  await Promise.all([refreshProject({ reason: "manual", force: true, revision, preferCached: true }), refreshActivity(), refreshTunnels()]);
-  schedule(); if (accessPanelOpen()) await loadAccess();
+    let revision = null;
+    try {
+      revision = await uiJson("/intelligence/revision", "GET", undefined, { workspace: state.current });
+    } catch {}
+    await Promise.all([refreshProject({ reason: "manual", force: true, revision, preferCached: true }), refreshActivity(), refreshTunnels()]);
+    schedule();
+    if (accessPanelOpen()) await loadAccess();
+  } finally {
+    setManualRefreshBusy(false);
+  }
 });
 els.refreshSemantic.addEventListener("click", refreshSemantics);
 els.auto.addEventListener("click", () => {

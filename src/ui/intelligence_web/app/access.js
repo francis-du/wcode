@@ -50,7 +50,7 @@ function renderAccess(force = false) {
   const unknown = localized("Access state unavailable; refresh before deciding.", "授权状态尚未取得，请刷新后再操作。");
   if (force) invalidate("workspaceAccess", "commandAccess", "authorizationAccess");
   setHtml("workspaceAccess", els.workspaceList, workspaceOptions.length
-    ? workspaceOptions.map(item => `<span class="workspace-chip"><code>${esc(item.id)}</code><span class="panel-meta">${esc(item.root || "")}</span></span>`).join("")
+    ? workspaceOptions.map(item => `<span class="workspace-chip" title="${esc(item.root || item.id)}"><code class="workspace-chip-id">${esc(item.id)}</code><span class="workspace-chip-root">${esc(item.root || "")}</span></span>`).join("")
     : `<span class="panel-meta">${esc(state.workspaceAccess ? t("No authorized projects") : unknown)}</span>`);
   setHtml("commandAccess", els.commandList, allowed.length
     ? allowed.map(program => `<span class="command-chip"><code>${esc(program)}</code><button type="button" data-revoke-command="${esc(program)}" aria-label="${esc(`${t("Revoke")} ${program}`)}">${uiIcon("close")}</button></span>`).join("")

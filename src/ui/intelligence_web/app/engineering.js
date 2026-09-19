@@ -188,13 +188,34 @@ function subsystemToneLabel(subsystem) {
 function subsystemDependencyIds(subsystem) {
   return [...new Set([...(subsystem.depends_on || []), ...(subsystem.designed_depends_on || []), ...(subsystem.observed_depends_on || [])])];
 }
+function subsystemAliases(subsystems) {
+  const aliases = new Map(), titleCounts = new Map();
+  for (const subsystem of subsystems) {
+    aliases.set(subsystem.id, subsystem);
+    const title = String(subsystem.title || "").trim();
+    if (title) titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+  }
+  for (const subsystem of subsystems) {
+    const title = String(subsystem.title || "").trim();
+    if (title && titleCounts.get(title) === 1) aliases.set(title, subsystem);
+  }
+  return aliases;
+}
+function subsystemDependencyTargets(subsystem, aliases) {
+  const targets = new Map();
+  for (const id of subsystemDependencyIds(subsystem)) {
+    const target = aliases.get(id);
+    if (target && target.id !== subsystem.id) targets.set(target.id, target);
+  }
+  return [...targets.values()];
+}
 function clampSystemMapScale(value) {
   return Math.min(1.35, Math.max(.5, Number(value) || 1));
 }
 function applySystemMapScale() {
   const scale = clampSystemMapScale(state.systemMapScale);
   state.systemMapScale = scale;
-  els.architectureBlueprint?.style.setProperty("--system-map-scale", String(scale));
+  els.architectureBlueprint?.style?.setProperty?.("--system-map-scale", String(scale));
   if (els.systemMapZoomValue) els.systemMapZoomValue.textContent = `${Math.round(scale * 100)}%`;
   if (els.systemMapFit) els.systemMapFit.setAttribute("aria-pressed", String(Boolean(state.systemMapFit)));
   if (els.systemMapZoomOut) els.systemMapZoomOut.disabled = scale <= .501;
@@ -207,14 +228,13 @@ function setSystemMapScale(value, { fit = false } = {}) {
 }
 function fitSystemMap() {
   const canvas = document.querySelector(".architecture-canvas"), map = els.architectureBlueprint?.querySelector(".system-map");
-  if (!canvas || !map) return setSystemMapScale(1, { fit: true });
+  if (!canvas || !map || typeof map.getBoundingClientRect !== "function") return setSystemMapScale(1, { fit: true });
   const current = clampSystemMapScale(state.systemMapScale), rect = map.getBoundingClientRect(),
-    rawWidth = rect.width / current, rawHeight = rect.height / current,
+    rawWidth = rect.width / current,
     availableWidth = Math.max(1, canvas.clientWidth - 8),
-    availableHeight = Math.max(420, window.innerHeight - canvas.getBoundingClientRect().top - 36),
-    scale = Math.min(1, availableWidth / Math.max(1, rawWidth), availableHeight / Math.max(1, rawHeight));
+    scale = Math.min(1, availableWidth / Math.max(1, rawWidth));
   setSystemMapScale(scale, { fit: true });
-  canvas.scrollTo?.({ left: 0, top: 0, behavior: "smooth" });
+  canvas.scrollTo?.({ left: 0, top: canvas.scrollTop, behavior: "smooth" });
 }
 function setSystemMapFull(enabled) {
   state.systemMapFull = Boolean(enabled);
@@ -239,10 +259,9 @@ function renderSubsystemInspector() {
     setHtml("componentInspector", els.componentInspector, "");
     return;
   }
-  const aliases = new Map();
-  for (const item of subsystems) { aliases.set(item.id, item); aliases.set(item.title, item); }
-  const outgoing = subsystemDependencyIds(subsystem).map(id => aliases.get(id)).filter(Boolean);
-  const incoming = subsystems.filter(item => item.id !== subsystem.id && subsystemDependencyIds(item).some(id => (aliases.get(id)?.id || id) === subsystem.id));
+  const aliases = subsystemAliases(subsystems);
+  const outgoing = subsystemDependencyTargets(subsystem, aliases);
+  const incoming = subsystems.filter(item => subsystemDependencyTargets(item, aliases).some(target => target.id === subsystem.id));
   const components = subsystemComponents(subsystem);
   const requirements = new Set(components.flatMap(component => component.requirements || []));
   const evidence = (state.project?.proof?.effective?.items || []).filter(item => {
@@ -290,17 +309,29 @@ function renderArchitectureBlueprint() {
   const runtimeDrift = (project.risk?.drift?.findings || []).filter(item => item.kind === "runtime_drift"),
     runtimeDeviation = runtimeDrift.reduce((value, item) => Math.max(value, Number(item.deviation?.deviation_percent || 0)), 0),
     structuralDrift = Number(a.blocking_drift_edges || 0), hasDrift = structuralDrift > 0 || runtimeDrift.length > 0;
+  const aliases = subsystemAliases(subsystems);
+  const relationEdges = subsystems.flatMap(source => subsystemDependencyTargets(source, aliases).map(target => ({ source, target })));
+  const changedSubsystems = subsystems.filter(item => Number(item.changed_components || 0) > 0);
+  const driftSubsystems = subsystems.filter(item => Number(item.blocking_drift_edges || 0) > 0);
+  const evidenceCount = Number(project.proof?.effective?.total || project.proof?.current_evidence || 0);
   const tiers = systemMapTiers(subsystems);
-  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span>${runtimeDrift.length ? `<span>${uiIcon("chart")} ${num(runtimeDeviation)}% ${esc(localized("runtime drift", "运行时偏离"))}</span>` : ""}</div></div>${pill(hasDrift ? localized("Needs attention", "需要处理") : localized("Healthy", "健康"), hasDrift ? (structuralDrift ? "bad" : "warn") : "good")}</div><div class="root-branch" aria-hidden="true"></div>`;
+  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span>${runtimeDrift.length ? `<span>${uiIcon("chart")} ${num(runtimeDeviation)}% ${esc(localized("runtime drift", "运行时偏离"))}</span>` : ""}</div></div>${pill(hasDrift ? localized("Needs attention", "需要处理") : localized("Healthy", "健康"), hasDrift ? (structuralDrift ? "bad" : "warn") : "good")}</div>`;
+  const overview = `<div class="system-map-kpis"><div><span>${esc(localized("Subsystems", "子系统"))}</span><strong>${num(subsystems.length)}</strong></div><div><span>${esc(localized("Dependency paths", "依赖路径"))}</span><strong>${num(relationEdges.length)}</strong></div><div class="${changedSubsystems.length ? "warn" : ""}"><span>${esc(localized("Changed subsystems", "变更子系统"))}</span><strong>${num(changedSubsystems.length)}</strong></div><div class="${driftSubsystems.length ? "bad" : ""}"><span>${esc(localized("Blocking drift", "阻塞偏离"))}</span><strong>${num(driftSubsystems.length)}</strong></div><div><span>${esc(localized("Verification evidence", "验证证据"))}</span><strong>${num(evidenceCount)}</strong></div></div>`;
+  const priorityRelations = [...relationEdges].sort((left, right) => Number(right.source.blocking_drift_edges || 0) - Number(left.source.blocking_drift_edges || 0) || Number(right.source.changed_components || 0) - Number(left.source.changed_components || 0) || left.source.title.localeCompare(right.source.title)).slice(0, 12);
+  const relationOverview = priorityRelations.length ? `<section class="system-map-relations"><header><div><strong>${esc(localized("Architecture flow", "架构流向"))}</strong><span>${esc(localized("Highest-signal subsystem dependencies; select a path to inspect its source subsystem.", "优先展示高信号子系统依赖；点击路径可检查来源子系统。"))}</span></div><small>${num(relationEdges.length)} ${esc(localized("relations", "条关系"))}</small></header><div class="system-map-relation-grid">${priorityRelations.map(({ source, target }) => `<button type="button" class="system-map-relation ${subsystemBlueprintTone(source)}" data-subsystem-card="${esc(source.id)}"><strong>${esc(source.title)}</strong><span aria-hidden="true">→</span><b>${esc(target.title)}</b><small>L${num(source.layer || 0)} → L${num(target.layer || 0)}</small></button>`).join("")}</div></section>` : "";
   const tierHtml = tiers.map((tier, tierIndex) => {
     const cards = [...tier.items].sort((left, right) => Number(right.layer || 0) - Number(left.layer || 0) || left.title.localeCompare(right.title)).map(subsystem => {
       const [status, tone] = subsystemToneLabel(subsystem), selected = subsystem.id === state.selectedSubsystem;
-      return `<button type="button" class="subsystem-card ${subsystemBlueprintTone(subsystem)}${selected ? " selected" : ""}" data-subsystem-card="${esc(subsystem.id)}" aria-pressed="${selected}"><span class="subsystem-card-top"><span class="subsystem-icon">${uiIcon(subsystemIconName(subsystem, tierIndex))}</span><strong>${esc(subsystem.title)}</strong></span><span class="subsystem-card-state"><span class="depth-chip">L${num(subsystem.layer || 0)}</span>${pill(status, tone)}</span><span class="subsystem-card-bottom"><span class="subsystem-mini-stat">${uiIcon("cube")}<b>${num(subsystem.components || 0)}</b><small>${esc(localized("components", "组件"))}</small></span><span class="subsystem-mini-stat">${uiIcon("document")}<b>${num(subsystem.implementation_files || 0)}</b><small>${esc(localized("files", "文件"))}</small></span><span class="subsystem-mini-stat">${uiIcon("check")}<b>${num(subsystem.requirements || 0)}</b><small>${esc(localized("requirements", "需求"))}</small></span></span></button>`;
+      const outgoing = subsystemDependencyTargets(subsystem, aliases);
+      const incoming = subsystems.filter(item => subsystemDependencyTargets(item, aliases).some(target => target.id === subsystem.id));
+      const relationChips = outgoing.slice(0, 2).map(item => `<span class="subsystem-relation-chip outgoing">→ ${esc(item.title)}</span>`).concat(incoming.slice(0, 2).map(item => `<span class="subsystem-relation-chip incoming">← ${esc(item.title)}</span>`));
+      const hiddenRelations = Math.max(0, outgoing.length + incoming.length - relationChips.length);
+      return `<button type="button" class="subsystem-card ${subsystemBlueprintTone(subsystem)}${selected ? " selected" : ""}" data-subsystem-card="${esc(subsystem.id)}" aria-pressed="${selected}"><span class="subsystem-card-top"><span class="subsystem-icon">${uiIcon(subsystemIconName(subsystem, tierIndex))}</span><strong>${esc(subsystem.title)}</strong></span><span class="subsystem-card-purpose">${esc(subsystem.purpose || localized("Responsibility not declared", "职责尚未声明"))}</span><span class="subsystem-card-state"><span class="depth-chip">L${num(subsystem.layer || 0)}</span>${pill(status, tone)}</span><span class="subsystem-card-relations">${relationChips.join("") || `<span class="subsystem-relation-chip quiet">${esc(localized("No subsystem dependency", "无子系统依赖"))}</span>`}${hiddenRelations ? `<span class="subsystem-relation-chip more">+${hiddenRelations}</span>` : ""}</span><span class="subsystem-card-bottom"><span class="subsystem-mini-stat">${uiIcon("cube")}<b>${num(subsystem.components || 0)}</b><small>${esc(localized("components", "组件"))}</small></span><span class="subsystem-mini-stat">${uiIcon("document")}<b>${num(subsystem.implementation_files || 0)}</b><small>${esc(localized("files", "文件"))}</small></span><span class="subsystem-mini-stat">${uiIcon("check")}<b>${num(subsystem.requirements || 0)}</b><small>${esc(localized("requirements", "需求"))}</small></span><span class="subsystem-mini-stat">${uiIcon("chart")}<b>${num(subsystem.changed_components || 0)}</b><small>${esc(localized("changed", "变更"))}</small></span></span></button>`;
     }).join("");
     const bridge = tierIndex < tiers.length - 1 ? `<div class="tier-flow-bridge" aria-hidden="true"></div>` : "";
     return `<div class="system-tier-block"><section class="system-tier tier-${tier.id}"><header class="system-tier-head"><span class="tier-index">L${tierIndex + 1}</span><div><strong>${esc(tier.label)}</strong><span>${esc(tier.detail)}</span></div><small>${num(tier.items.length)} ${esc(localized("subsystems", "个子系统"))}</small></header><div class="system-tier-grid">${cards}</div></section>${bridge}</div>`;
   }).join("");
-  const html = `<div class="system-map">${root}${tierHtml}</div>`;
+  const html = `<div class="system-map">${root}${overview}${relationOverview}${tierHtml}</div>`;
   setHtml("architectureBlueprint", els.architectureBlueprint, html, () => {
     els.architectureBlueprint.querySelectorAll("[data-subsystem-card]").forEach(button => button.addEventListener("click", () => {
       setSystemMapFull(false);

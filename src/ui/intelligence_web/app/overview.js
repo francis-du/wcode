@@ -214,10 +214,25 @@ function renderActivity() {
     budgetUse = budgetTokens > 0 ? `${Math.min(100, Math.round((modelTokens / budgetTokens) * 100))}%` : "—",
     savedBytes = Number(agent.bytes_avoided || 0), saved = savedBytes >= 1048576 ? `${(savedBytes / 1048576).toFixed(1)} MiB` : savedBytes >= 1024 ? `${(savedBytes / 1024).toFixed(1)} KiB` : `${savedBytes} B`,
     agentEfficiency = agentCalls > 0 ? `<section class="agent-context-efficiency"><header class="resource-telemetry-head"><strong>${esc(localized("Agent context efficiency", "Agent 上下文效率"))}</strong><span>${esc(localized("Session totals · descriptive retrieval telemetry, not a quality score", "会话累计 · 描述性检索遥测，不是质量评分"))}</span></header><div class="proof-counts resource-counts"><div><strong>${num(delivered)} / ${num(candidates)}</strong><span>${esc(localized("RepoMap delivered / candidates", "RepoMap 交付 / 候选"))}</span></div><div><strong>${esc(selection)}</strong><span>${esc(localized("Selection fraction", "候选选择比例"))}</span></div><div><strong>${esc(budgetUse)}</strong><span>${esc(localized("Context budget utilization", "上下文预算利用率"))}</span></div><div><strong>${num(cacheHits)}</strong><span>${esc(localized("RepoMap cache hits", "RepoMap 缓存命中"))}</span></div><div><strong>${esc(duration(avgBuild))}</strong><span>${esc(localized(`Avg build · saved ${saved}`, `平均构建 · 节省 ${saved}`))}</span></div></div></section>` : "";
+  const jev = agent.decision_runtime?.jev || null;
+  const jevStatus = jev?.status || "unknown";
+  const jevStatusText = ({
+    active: localized("Active", "已启用"),
+    disabled: localized("Disabled", "未配置"),
+    unavailable: localized("Unavailable", "不可用"),
+    invalid_configuration: localized("Invalid config", "配置无效"),
+    unknown: localized("Unknown", "未知"),
+  })[jevStatus] || jevStatus;
+  const observed = Number(jev?.calls?.observed || 0), successful = Number(jev?.calls?.successful || 0);
+  const questionSet = jev?.question_set?.id ? `${jev.question_set.id}@${jev.question_set.version ?? "?"}` : "—";
+  const route = jev ? `${jev.baseline_next_action || "—"} → ${jev.candidate_next_action || "—"}` : "—";
+  const comparison = jev ? `${num(jev.comparison?.choice_disagreements || 0)} diff · ${num(jev.comparison?.safety_policy_violations || 0)} safety · ${num(jev.comparison?.shape_mismatches || 0)} shape` : "—";
+  const guidance = Array.isArray(jev?.guidance) && jev.guidance.length ? jev.guidance.join(" · ") : localized("No increase-only guidance", "无 increase-only 建议");
+  const jevRuntime = decision ? `<section class="agent-context-efficiency"><header class="resource-telemetry-head"><strong>${esc(localized("Jev decision runtime", "Jev 决策运行态"))}</strong><span>${esc(localized("Latest real Agent Context outcome · bounded process-memory telemetry", "最近一次真实 Agent Context 结果 · 有界进程内遥测"))}</span></header>${jev ? `<div class="proof-counts resource-counts"><div><strong>${esc(jevStatusText)}</strong><span>${esc(localized(`Jev · ${successful}/${observed} successful · ${duration(Number(jev.observed_ago_ms || 0))} ago`, `Jev · ${successful}/${observed} 成功 · ${duration(Number(jev.observed_ago_ms || 0))} 前`))}</span></div><div><strong>${esc(jev.model || "—")}</strong><span>${esc(questionSet)} · ${esc(jev.authority || "—")}</span></div><div><strong>${esc(route)}</strong><span>${esc(localized("Deterministic → Jev next action", "Deterministic → Jev 下一动作"))}</span></div><div><strong>${esc(comparison)}</strong><span>${num(jev.comparison?.shared_signals || 0)} ${esc(localized("shared signals", "共享信号"))}</span></div><div><strong>${esc(guidance)}</strong><span>${esc(localized("Applied advisory guidance", "已应用的 advisory 建议"))}</span></div></div>` : `<div class="empty">${esc(localized("Unknown — no Jev outcome has been observed for this project in the current process yet.", "未知 — 当前进程尚未观测到这个项目的 Jev 调用结果。"))}</div>`}</section>` : "";
   let bottleneck = "";
   if (limits?.memory_pressure === "critical" || limits?.memory_pressure === "over_limit") bottleneck = localized("Memory pressure is delaying new work.", "内存压力正在延迟新任务进入。");
   else if (limits?.child_queue?.waiting) bottleneck = localized("Commands are waiting for heavy-process capacity.", "命令正在等待重型进程名额。");
   else if (limits?.probe_queue?.waiting) bottleneck = localized("Git inspections are waiting for probe capacity.", "Git 查询正在等待检查名额。");
   else if (activity.queued) bottleneck = localized("Tasks are queued; the exact waiting reason is not tracked here.", "有任务排队；此处尚未追踪每项任务的具体等待原因。");
-  setHtml("resourceStatus", els.resourceStatus, resources + v08Capabilities + agentEfficiency + (bottleneck ? `<p class="risk medium">${esc(bottleneck)}</p>` : ""));
+  setHtml("resourceStatus", els.resourceStatus, resources + v08Capabilities + jevRuntime + agentEfficiency + (bottleneck ? `<p class="risk medium">${esc(bottleneck)}</p>` : ""));
 }

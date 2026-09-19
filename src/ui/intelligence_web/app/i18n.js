@@ -338,6 +338,8 @@ Object.assign(translations["zh-CN"], {
 Object.assign(translations["zh-CN"], {
   "observatory subtitle": "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
   "Task activity": "任务活动", "Verification evidence": "验证证据",
+  "DURABLE EXECUTION": "持久化执行", "Durable execution": "持久化执行",
+  "execution observatory meta": "只读展示目标、进度、计划与证明状态；不保存也不显示聊天记录。",
   "Engineering closed loop": "工程闭环流程",
   "engineering cycle meta": "理解 → 规划 → 实施 → 证明 → 学习 → 观测，并通过版本绑定证据形成持续反馈。",
   "Change impact snapshot": "变更影响快照",
@@ -386,6 +388,7 @@ Object.assign(translations["zh-CN"], {
   "Calls": "调用",
   "Impact": "影响",
   "All evidence": "全部证据",
+  "All code relations": "全部关系",
   "Code graph revision": "代码图谱版本",
   "Code graph depth": "代码图谱深度",
   "Code graph inspector": "代码图谱检查器",

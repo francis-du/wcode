@@ -17,6 +17,39 @@ async function run(){
     assert.equal(s.requests.filter(request=>request.url.startsWith('/intelligence/code-graph')).length,0);
   });
 
+  await test('code-graph suggestions expose source code and never Design State documents',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),changes:[{path:'.wcode/design/acceptance.yaml'},{path:'src/runtime.rs'}],history:[],architecture:{components:[],dependencies:[]},structure:{entries:[{path:'src/runtime.rs',language:'rust'}]}};
+    s.run('state.project=fixture;state.current="A";state.codeGraph=null;state.codeGraphError="";renderCodeGraph();');
+    const html=s.node('#codeGraphMap').innerHTML;
+    assert.match(html,/data-code-graph-query/);
+    assert.match(html,/src\/runtime\.rs/);
+    assert.doesNotMatch(html,/\.wcode\/design\/acceptance\.yaml/);
+    assert.match(html,/Start from observed project signals/);
+  });
+
+  await test('design-only changes do not become the automatic Code Graph focus',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),changes:[{path:'.wcode/design/acceptance.yaml'}],history:[],architecture:{components:[{
+      id:'component:webui',implementation_targets:['src/ui/app.js::renderWidget']
+    }],dependencies:[]},structure:{entries:[]}};
+    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
+    await flush();
+    const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
+    assert.ok(request);
+    assert.match(request.url,/q=renderWidget/);
+    assert.doesNotMatch(request.url,/acceptance/);
+    assert.equal(s.node('#codeGraphSearch').value,'','automatic focus must not write into the user search box');
+  });
+
+  await test('manual Design State paths are rejected locally because Code Graph is code-only',async()=>{
+    const s=sandbox();s.run('state.current="A";');
+    s.node('#codeGraphSearch').value='.wcode/design/acceptance.yaml';
+    assert.equal(await s.run('loadCodeGraph()'),false);
+    assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
+    assert.match(s.run('state.codeGraphError'),/source-code entities/i);
+  });
+
   await test('clean repository auto-focuses the first declared implementation and renders returned graph data',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),changes:[],history:[],architecture:{components:[{
@@ -27,6 +60,7 @@ async function run(){
     const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
     assert.ok(request,'opening Code Graph must issue a real graph request');
     assert.match(request.url,/q=renderWidget/);
+    assert.equal(s.node('#codeGraphSearch').value,'','automatic seed stays internal');
     assert.equal(request.options.headers['X-Wcode-Workspace'],'A');
     respond(request,{workspace:'A',graph:{
       snapshot_id:'GRAPH-test',captured_at_ms:1,provider:'wcode-composite',precision:'mixed',
@@ -62,9 +96,25 @@ async function run(){
     const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
     assert.ok(request);
     assert.match(request.url,/q=src%2Fchanged.rs/);
+    assert.equal(s.node('#codeGraphSearch').value,'','changed-file seed must not become user input');
     request.options.signal?.throwIfAborted?.();
     respond(request,{workspace:'A',graph:{snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'src/changed.rs',mode:'all',depth:2,root_ids:['changed'],nodes:[{node:{id:'changed',kind:'file',label:'src/changed.rs',attributes:{path:'src/changed.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-changed'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
     await flush();
+  });
+
+  await test('auto-seeded graph can reload controls without populating the search box',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),changes:[],history:[],architecture:{components:[{id:'a',implementation_targets:['src/a.rs::alpha']}],dependencies:[]},structure:{entries:[]}};
+    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
+    await flush();
+    const first=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
+    respond(first,{workspace:'A',graph:{snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'alpha',mode:'all',depth:2,root_ids:['a'],nodes:[{node:{id:'a',kind:'function',label:'alpha',attributes:{path:'src/a.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'r'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
+    await flush();await flush();
+    assert.equal(s.node('#codeGraphSearch').value,'');
+    s.run('state.codeGraphDepth=3;reloadCodeGraphFromCurrentContext();');await flush();
+    const second=s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?'))[1];
+    assert.ok(second);assert.match(second.url,/node_id=a/);assert.match(second.url,/depth=3/);
+    assert.equal(s.node('#codeGraphSearch').value,'');
   });
 
   await test('clearing the code-graph search does not resurrect the previous query',async()=>{

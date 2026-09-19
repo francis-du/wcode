@@ -219,7 +219,8 @@ fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first()
     assert!(INTELLIGENCE_JS.contains("function fitSystemMap"));
     assert!(INTELLIGENCE_JS.contains("systemMapFit: true"));
     assert!(INTELLIGENCE_JS.contains("state.systemMapFit = fit"));
-    assert!(INTELLIGENCE_JS.contains("availableHeight = Math.max(420"));
+    assert!(INTELLIGENCE_JS.contains("scale = Math.min(1, availableWidth / Math.max(1, rawWidth))"));
+    assert!(!INTELLIGENCE_JS.contains("availableHeight = Math.max(420"));
     assert!(INTELLIGENCE_JS.contains("els.systemMapFit?.addEventListener(\"click\", fitSystemMap)"));
     assert!(INTELLIGENCE_JS.contains("els.systemMapFit.setAttribute(\"aria-pressed\""));
     assert!(INTELLIGENCE_JS.contains("els.systemMapFull.setAttribute(\"aria-pressed\""));
@@ -479,6 +480,38 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
 }
 
 #[test]
+fn observatory_exposes_execution_state_without_chat_history() {
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"executionStatus\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("DURABLE EXECUTION"));
+    assert!(INTELLIGENCE_APP_PAGE
+        .contains("Read-only projection of objective, progress, plan and proof state."));
+    assert!(INTELLIGENCE_JS.contains("function renderExecutionStatus()"));
+    assert!(INTELLIGENCE_JS.contains("state.project?.execution"));
+    assert!(INTELLIGENCE_JS.contains("checkpoint.reconciliation_plan_id"));
+    assert!(INTELLIGENCE_JS.contains("checkpoint.verification_plan_id"));
+    assert!(INTELLIGENCE_JS.contains("checkpoint.repository_revision"));
+    assert!(INTELLIGENCE_CSS.contains(".execution-observatory-panel"));
+    assert!(INTELLIGENCE_CSS.contains(".execution-shell::before"));
+    assert!(!INTELLIGENCE_APP_PAGE.contains("executionTranscript"));
+    assert!(!INTELLIGENCE_JS.contains("executionTranscript"));
+}
+
+#[test]
+fn observatory_exposes_execution_steering_without_transcript_state() {
+    assert!(INTELLIGENCE_JS.contains("execution.pending_directive"));
+    assert!(INTELLIGENCE_JS.contains("execution.replan_required"));
+    assert!(INTELLIGENCE_JS.contains("execution.verification_floor"));
+    assert!(INTELLIGENCE_JS.contains("execution.lineage"));
+    assert!(INTELLIGENCE_JS.contains("Steering / handoff"));
+    assert!(INTELLIGENCE_JS.contains("Verification floor"));
+    assert!(INTELLIGENCE_JS.contains("Handoff lineage"));
+    assert!(INTELLIGENCE_CSS.contains(".execution-steering-card"));
+    assert!(INTELLIGENCE_CSS.contains(".execution-steering-facts"));
+    assert!(!INTELLIGENCE_JS.contains("execution.messages"));
+    assert!(!INTELLIGENCE_JS.contains("execution.transcript"));
+}
+
+#[test]
 fn observatory_exposes_engineering_digital_twin_code_graph() {
     assert_eq!(
         INTELLIGENCE_APP_PAGE.matches("data-workspace-tab=").count(),
@@ -503,7 +536,9 @@ fn observatory_exposes_engineering_digital_twin_code_graph() {
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"codeGraphSnapshot\""));
     assert!(INTELLIGENCE_JS.contains("snapshot_id"));
     assert!(INTELLIGENCE_JS.contains("Latest graph"));
-    assert!(INTELLIGENCE_CSS.contains(".code-graph-lanes"));
+    assert!(INTELLIGENCE_CSS.contains(".code-graph-diagram"));
+    assert!(INTELLIGENCE_CSS.contains(".code-graph-edge-path"));
+    assert!(INTELLIGENCE_CSS.contains(".code-graph-svg-node"));
     assert!(INTELLIGENCE_CSS.contains(".code-graph-why"));
 }
 
@@ -517,7 +552,7 @@ fn observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable() {
         ".evidence-inspector-section h4::before",
         ".req.selected",
         ".change-table tbody tr:hover",
-        ".code-graph-lane:nth-child(2)",
+        ".code-graph-svg-node.selected rect",
     ] {
         assert!(
             INTELLIGENCE_CSS.contains(selector),

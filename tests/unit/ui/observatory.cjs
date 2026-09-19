@@ -66,6 +66,16 @@ async function run(){
   await test('production concatenated bundle parses as one script',async()=>{new vm.Script(productionBundle(),{filename:'intelligence-app.js'});});
   await test('runtime fixture strips bootstrap after CRLF checkout',async()=>{const source='function ready(){}\r\napplyTheme();\r\napplyLanguage();\r\nstartObservatory();';assert.equal(stripRuntimeBootstrap(source),'function ready(){}');});
   await test('storage denial cannot blank the dashboard',async()=>{const s=sandbox(true);assert.ok(s.run('state.language'));});
+  await test('background refresh stays silent and never commandeers the manual refresh button',async()=>{
+    const s=sandbox();s.run('renderProject=()=>{};renderAttention=()=>{};setSync("ok","steady");');
+    const refresh=s.run('refreshProject({reason:"auto"})');await flush();
+    assert.equal(s.node('#refresh').disabled,false);
+    assert.equal(s.node('#syncState').textContent,'steady','auto refresh must not flash loading state');
+    respond(s.requests.find(request=>request.url==='/intelligence/project'),project());await refresh;
+    assert.equal(s.node('#refresh').disabled,false);
+    s.run('setManualRefreshBusy(true)');assert.equal(s.node('#refresh').disabled,true);assert.equal(s.node('#refresh').attrs['aria-busy'],'true');
+    s.run('setManualRefreshBusy(false)');assert.equal(s.node('#refresh').disabled,false);assert.equal(s.node('#refresh').attrs['aria-busy'],'false');
+  });
   await test('missing proof and unavailable Git are not green success',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;renderStats();renderAttention();');assert.ok(!s.node('#attention').innerHTML.includes('attention-item good'),'no evidence must not produce all-clear');assert.ok(!s.node('#stats').innerHTML.includes('>clean<'),'unavailable review must not look clean');assert.equal(s.run('architectureData().evidence_coverage_percent'),0,'empty architecture evidence must remain zero rather than a fake 100%');});
   await test('runtime drift stays separate from structural drift and exposes deviation percent',async()=>{const s=sandbox();s.context.fixture={...project(),risk:{drift:{findings:[{kind:'runtime_drift',deviation:{deviation_percent:722.1}}]}}};s.run('state.project=fixture;');assert.equal(s.run('runtimeDriftSummary(fixture).maxDeviation'),722.1);const signals=JSON.parse(s.run('JSON.stringify(attentionSignals())'));assert.ok(signals.some(item=>item.title.includes('runtime drift')&&item.detail.includes('722')));assert.equal(s.run('architectureData().observed_drift_percent'),0,'runtime drift must not be folded into dependency drift');});
   await test('failed refresh does not acknowledge the new revision',async()=>{const s=sandbox();s.context.fixture=project();s.run('state.project=fixture;state.revisionKey="old|graph|proof|";renderProject=()=>{};renderAttention=()=>{};');const first=s.run('pollRevision()');await flush();respond(s.requests[0],{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof',pending_authorizations:0});await flush();const req=s.requests.find(r=>r.url==='/intelligence/project');assert.ok(req);respond(req,{error:'offline'},false);await first;assert.equal(s.run('state.revisionKey'),'old|graph|proof|');const second=s.run('pollRevision()');await flush();respond(s.requests.at(-1),{workspace:'A',fingerprint:'new',graph_revision:'graph',proof_revision:'proof'});await flush();assert.equal(s.requests.at(-1).url,'/intelligence/project');respond(s.requests.at(-1),project());await second;});
@@ -81,6 +91,7 @@ async function run(){
   await test('missing UI credentials never send protected requests',async()=>{const s=sandbox(false,false);await assert.rejects(s.run('uiJson("/intelligence/project","GET",undefined,{workspace:"A"})'),/authorize access/);assert.equal(s.requests.length,0);});
   await test('approval double-click emits only one mutation and a failed reread never replays it',async()=>{const s=sandbox();s.run('state.accessLoaded=true;');const first=s.run('decideAuthorization("AUTH-test",true)');const second=s.run('decideAuthorization("AUTH-test",true)');await flush();assert.equal(s.requests.length,1);respond(s.requests[0],{pending:[],request:{status:'approved'}});await flush();assert.equal(s.requests[1].options.method,'GET');respond(s.requests[1],{error:'read failed'},false);await Promise.all([first,second]);assert.equal(s.requests.filter(r=>r.options.method==='POST').length,1);assert.ok(s.node('#authorizationMessage').textContent.includes('Authorization approved'));assert.equal(s.run('state.accessBusy'),false);});
   await test('activity output escapes task labels and unknown telemetry is not idle',async()=>{const s=sandbox();s.run('renderActivity()');assert.ok(s.node('#activity').innerHTML.includes('unavailable'));s.context.fixture={workspace:'A',activity:{available:true,recent:[{id:1,tool:'<img src=x>',status:'running',slot_counted:true,wait_ms:9,run_ms:11}],completed:0,failed:0}};s.run('state.activitySnapshot=fixture;renderActivity();');assert.ok(s.node('#activity').innerHTML.includes('&lt;img src=x&gt;'));assert.ok(!s.node('#activity').innerHTML.includes('<img src=x>'));});
+  await test('Jev runtime shows unknown before observation and latest bounded decision after observation',async()=>{const s=sandbox();s.context.fixture={activity:{available:true,recent:[],agent_context:{}},harness:{software_intelligence:{decision_plane:{authority:'advisory_only',shadow_ab:true}}}};s.run('state.activitySnapshot=fixture;renderActivity();');assert.ok(s.node('#resourceStatus').innerHTML.includes('Jev decision runtime'));assert.ok(s.node('#resourceStatus').innerHTML.includes('Unknown'));s.context.fixture.activity.agent_context.decision_runtime={jev:{status:'active',model:'jev-latest',authority:'increase_only_assist',question_set:{id:'wcode.agent_context',version:3},baseline_next_action:'edit_then_verify',candidate_next_action:'semantic_navigation',guidance:['jev:prefer_semantic_navigation'],comparison:{shared_signals:7,choice_disagreements:1,safety_policy_violations:0,shape_mismatches:0},calls:{observed:2,successful:2},observed_ago_ms:42}};s.run('state.activitySnapshot=fixture;renderActivity();');const html=s.node('#resourceStatus').innerHTML;assert.ok(html.includes('Active'));assert.ok(html.includes('jev-latest'));assert.ok(html.includes('wcode.agent_context@3'));assert.ok(html.includes('edit_then_verify → semantic_navigation'));assert.ok(html.includes('jev:prefer_semantic_navigation'));});
   await test('an independently observed revision cannot certify an earlier project snapshot',async()=>{
     const s=sandbox(false,true,{fakeTimers:true});s.run('renderProject=()=>{};renderAttention=()=>{};');
     const refresh=s.run('refreshProject({reason:"manual"})');await flush();
@@ -323,6 +334,55 @@ async function run(){
     assert.equal(s.run('state.projectCache.has("W0")'),true);
     assert.equal(s.run('state.projectCache.has("W1")'),false);
     assert.equal(s.run('state.projectCache.size'),8);
+  });
+  await test('workspace access keeps long project paths inside the authorized-project column',async()=>{
+    const s=sandbox();s.context.accessFixture={workspace:{id:'A',root:'/fixture/A',write_enabled:true,exec_enabled:true,allowed_commands:[]},workspace_options:[{id:'Code/Other/francis.run/themes/hugo-shortcode-gallery',root:'/Users/francis/Code/Other/francis.run/themes/hugo-shortcode-gallery/<unsafe>'}]};
+    s.run('state.workspaceAccess=accessFixture;state.access={allowed_commands:["cargo"],all_commands_authorized:false};state.accessLoaded=true;state.authorizations=[];renderAccess();');
+    const html=s.node('#workspaceList').innerHTML;
+    assert.ok(html.includes('workspace-chip-root'));assert.ok(html.includes('&lt;unsafe&gt;'));assert.ok(!html.includes('<unsafe>'));
+    const dataCss=fs.readFileSync(path.join(root,'src/ui/intelligence_web/styles/data.css'),'utf8');
+    const shellCss=fs.readFileSync(path.join(root,'src/ui/intelligence_web/styles/shell.css'),'utf8');
+    assert.match(dataCss,/\.workspace-chip\{display:grid;[^}]*max-width:100%;[^}]*min-width:0;/);
+    assert.match(dataCss,/\.workspace-chip-root\{[^}]*overflow-wrap:anywhere;/);
+    assert.match(dataCss,/\.workspace-list\{display:grid;[^}]*align-content:start;/);
+    assert.match(shellCss,/\.access-panel\{[^}]*width:min\(1040px,/);
+  });
+  await test('system map surfaces dependency flow change and drift signals on the primary canvas',async()=>{
+    const s=sandbox();
+    const base=project();
+    s.context.fixture={...base,proof:{...base.proof,current_evidence:4},architecture:{...base.architecture,blocking_drift_edges:1,components:[],dependencies:[],subsystems:[
+      {id:'agent-runtime',title:'Agent Runtime',purpose:'Coordinates agent execution',layer:3,component_ids:[],components:2,implementation_files:12,requirements:3,changed_components:1,blocking_drift_edges:1,designed_depends_on:['core-platform'],observed_depends_on:['Core Platform']},
+      {id:'core-platform',title:'Core Platform',purpose:'Shared runtime and graph services',layer:0,component_ids:[],components:3,implementation_files:21,requirements:5,changed_components:0,blocking_drift_edges:0,depends_on:[]},
+      {id:'core-platform-shadow',title:'Core Platform',purpose:'Same display title must remain ambiguous',layer:0,component_ids:[],components:1,implementation_files:2,requirements:1,changed_components:0,blocking_drift_edges:0,depends_on:[]}
+    ]}};
+    s.run('state.project=fixture;state.selectedSubsystem="";renderArchitectureBlueprint();');
+    const html=s.node('#architectureBlueprint').innerHTML;
+    assert.match(html,/system-map-kpis/);assert.match(html,/Architecture flow/);assert.match(html,/Dependency paths/);
+    assert.match(html,/Agent Runtime/);assert.match(html,/Core Platform/);assert.match(html,/Changed subsystems/);assert.match(html,/Blocking drift/);
+    assert.match(html,/data-subsystem-card="agent-runtime"/);assert.match(html,/→ Core Platform/);
+    assert.equal((html.match(/class="system-map-relation /g)||[]).length,1,'ID/title aliases must not duplicate the same subsystem dependency');
+  });
+
+  await test('code graph renders real SVG nodes and directed edges instead of lane cards',async()=>{
+    const s=sandbox();s.context.fixture=project();s.context.graphFixture={
+      snapshot_id:'snap-1',captured_at_ms:1,provider:'tree-sitter',precision:'syntax',query:'root',mode:'all',depth:2,root_ids:['root'],
+      nodes:[
+        {node:{id:'up',kind:'function',label:'upstream',attributes:{path:'src/up.rs'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'r1'}},distance:1,upstream:true,downstream:false},
+        {node:{id:'root',kind:'function',label:'root',attributes:{path:'src/root.rs'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'r1'}},distance:0,upstream:false,downstream:false},
+        {node:{id:'down',kind:'function',label:'downstream',attributes:{path:'src/down.rs'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'r1'}},distance:1,upstream:false,downstream:true}
+      ],
+      edges:[
+        {from:'up',to:'root',kind:'calls',provenance:{provider:'tree-sitter',precision:'syntax',revision:'r1'}},
+        {from:'root',to:'down',kind:'calls',provenance:{provider:'tree-sitter',precision:'syntax',revision:'r1'}}
+      ],
+      upstream_nodes:1,downstream_nodes:1,truncated:false,precision_counts:{syntax:3}
+    };
+    s.run('state.project=fixture;state.codeGraph=graphFixture;state.selectedCodeNode="root";renderCodeGraph();');
+    const html=s.node('#codeGraphMap').innerHTML;
+    assert.ok(html.includes('<svg class="code-graph-diagram"'));assert.ok(html.includes('marker-end="url(#codeGraphArrow)"'));
+    assert.ok(html.includes('data-code-node="root"'));assert.ok(html.includes('class="code-graph-edge-path selected"'));assert.ok(!html.includes('code-graph-lanes'));
+    const positions=JSON.parse(s.run('JSON.stringify([...codeGraphLayout(graphFixture).positions.entries()].map(([id,p])=>[id,p.x]))'));
+    const xs=Object.fromEntries(positions);assert.ok(xs.up<xs.root&&xs.root<xs.down,'upstream, focus and downstream must occupy ordered graph bands');
   });
   await test('hidden pages cancel in-flight code graph work and clear its loading state',async()=>{
     const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
