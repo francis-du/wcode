@@ -272,12 +272,12 @@ fn prepare_linux(
             .env("XDG_CACHE_HOME", home.join(".cache"))
             .env("XDG_STATE_HOME", home.join(".local/state"))
             .env("WCODE_SANDBOX", "1");
-        return Ok((
+        Ok((
             command,
             SandboxGuard {
                 scratch: Some(scratch),
             },
-        ));
+        ))
     }
     #[cfg(not(target_os = "linux"))]
     {
