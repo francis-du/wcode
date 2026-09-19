@@ -13,14 +13,17 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     let release_workflow = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
 
     assert!(audit.contains("--rounds="));
-    assert!(audit.contains("release-adversarial-30"));
-    assert!(audit.contains("wcode-adversarial-30.json"));
+    assert!(audit.contains("release-adversarial-100"));
+    assert!(audit.contains("wcode-adversarial-100.json"));
     assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
+    assert!(audit.contains("extraRustRounds.length,70"));
+    assert!(audit.contains("rounds.length,100"));
+    assert!(audit.contains("--rounds must stay within 1-100"));
     assert!(webkit.contains("--cases="));
     assert!(webkit.contains("totalCases=scenarios.count"));
     assert!(webkit.contains("for width in [320,720,1024,1440]"));
     assert!(webkit.contains("\"codegraph\""));
-    assert!(audit.contains("112 width/language/theme/view combinations"));
+    assert!(audit.contains("240 WebKit scenarios including Code Graph fullscreen"));
     assert!(audit.contains("tests/unit/ui/code_graph.cjs"));
     assert!(audit.contains("tests/unit/ui/web_i18n.cjs"));
     assert!(audit.contains("positive_harness_tools_flow_through_mcp"));
