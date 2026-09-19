@@ -33,7 +33,9 @@ fn release_metadata_versions_match_the_cargo_package() {
         .find_map(|line| line.trim().strip_prefix("version = \"")?.strip_suffix('"'))
         .expect("package version");
 
-    let lock = fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    let lock = fs::read_to_string(root.join("Cargo.lock"))
+        .unwrap()
+        .replace("\r\n", "\n");
     assert!(
         lock.contains(&format!(
             "[[package]]\nname = \"wcode\"\nversion = \"{version}\""

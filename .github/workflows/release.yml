@@ -127,6 +127,7 @@ jobs:
           cargo test --locked --lib syntax_search_cache_eviction_is_not_reported_as_file_failure
           cargo test --locked --lib workspace_relative_verification_executable_resolves_from_workspace_root
           cargo test --locked --lib engineering_fitness_live_controls_preserve_safety_and_precision
+          cargo test --locked --test release_contract release_metadata_versions_match_the_cargo_package
 
       - name: Test
         run: cargo test --locked
