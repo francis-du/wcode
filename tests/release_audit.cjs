@@ -11,6 +11,7 @@ const {promisify} = require('node:util');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
 const cargo = filter => ({program:'cargo',args:['test','--locked','--quiet','--lib',filter],kind:'rust'});
+const cargoTest = (test,filter) => ({program:'cargo',args:['test','--locked','--quiet','--test',test,filter],kind:'rust'});
 const node = (file, scenario) => ({program:process.execPath,args:[file,'.',...(scenario?[scenario]:[])],kind:'json'});
 const swift = file => ({program:'swift',args:[file],kind:'json'});
 const rustRounds = [
@@ -43,7 +44,7 @@ rounds.push(
   {round:27,name:'Workspace-scoped semantic and authorization responses',lane:'web',steps:[node('tests/unit/ui/release.cjs')]},
   {round:28,name:'Nested grids and long-content geometry across 12 widths',lane:'web',steps:[node('tests/unit/ui/layout.cjs'),swift('tests/unit/ui/layout_webkit.swift')]},
   {round:29,name:'Complete production DOM: 96 width/language/theme/tab combinations',lane:'web',steps:[node('tests/unit/ui/browser.cjs'),swift('tests/unit/ui/browser_webkit.swift')]},
-  {round:30,name:'Release regressions and fail-closed readiness',lane:'rust',steps:[cargo('intelligence::release_gate::tests'),cargo('migration_audit::tests'),cargo('syntax_search_cache_eviction_is_not_reported_as_file_failure'),cargo('workspace_relative_verification_executable_resolves_from_workspace_root'),cargo('syntax_search_defaults_cover_more_than_one_thousand_files_and_skip_comments'),cargo('direct_run_command_revision_flights_coalesce_verification_shape'),cargo('engineering_fitness_live_controls_preserve_safety_and_precision')]},
+  {round:30,name:'Release regressions and fail-closed readiness',lane:'rust',steps:[cargo('intelligence::release_gate::tests'),cargo('migration_audit::tests'),cargo('syntax_search_cache_eviction_is_not_reported_as_file_failure'),cargo('workspace_relative_verification_executable_resolves_from_workspace_root'),cargo('syntax_search_defaults_cover_more_than_one_thousand_files_and_skip_comments'),cargo('direct_run_command_revision_flights_coalesce_verification_shape'),cargo('engineering_fitness_live_controls_preserve_safety_and_precision'),cargoTest('release_contract','release_metadata_versions_match_the_cargo_package')]},
 );
 assert.equal(rounds.length,30);
 assert.equal(new Set(rounds.map(r=>r.round)).size,30);

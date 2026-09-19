@@ -8,17 +8,21 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let audit = fs::read_to_string(root.join("tests/release_audit.cjs")).unwrap();
     let webkit = fs::read_to_string(root.join("tests/unit/ui/browser_webkit.swift")).unwrap();
-    let workflow = fs::read_to_string(root.join(".github/workflows/adversarial.yml")).unwrap();
+    let adversarial_workflow =
+        fs::read_to_string(root.join(".github/workflows/adversarial.yml")).unwrap();
+    let release_workflow = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
 
     assert!(audit.contains("--rounds="));
     assert!(audit.contains("release-adversarial-30"));
     assert!(audit.contains("wcode-adversarial-30.json"));
+    assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(webkit.contains("--cases="));
     assert!(webkit.contains("\"total_cases\":96"));
-    assert!(workflow.contains("node tests/release_audit.cjs --require-clean"));
-    assert!(workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
+    assert!(adversarial_workflow.contains("node tests/release_audit.cjs --require-clean"));
+    assert!(adversarial_workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
+    assert!(release_workflow.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(
-        !workflow.contains("--rounds=") && !workflow.contains("--cases="),
+        !adversarial_workflow.contains("--rounds=") && !adversarial_workflow.contains("--cases="),
         "CI must keep the complete unsharded release audit"
     );
 }
