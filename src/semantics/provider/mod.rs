@@ -927,6 +927,7 @@ fn lsp_node_kind(kind: u64) -> NodeKind {
         2..=4 => NodeKind::Module,
         5 => NodeKind::Class,
         6 | 9 | 12 => NodeKind::Function,
+        10 => NodeKind::Enum,
         11 => NodeKind::Interface,
         23 => NodeKind::Struct,
         _ => NodeKind::Symbol,

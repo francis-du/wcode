@@ -21,6 +21,7 @@ pub enum NodeKind {
     Struct,
     Trait,
     Class,
+    Enum,
     Interface,
     Api,
     Database,

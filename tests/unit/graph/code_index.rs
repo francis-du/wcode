@@ -335,6 +335,48 @@ fn cached_exact_symbol_seed_preserves_multiple_queries_across_files() {
 }
 
 #[test]
+fn software_graph_preserves_rust_module_struct_trait_and_enum_kinds() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "mod nested;\npub struct Packet;\npub trait Worker { fn run(&self); }\npub enum Mode { Fast, Safe }\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("nested.rs"), "pub fn helper() {}\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+
+    let snapshot = index
+        .software_graph("demo", &workspace, ".", 100, 100)
+        .unwrap();
+
+    let find = |label: &str| {
+        snapshot
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.label == label)
+            .unwrap_or_else(|| panic!("missing graph node {label}"))
+    };
+    let module = find("nested");
+    let packet = find("Packet");
+    let worker = find("Worker");
+    let mode = find("Mode");
+
+    assert_eq!(module.kind, NodeKind::Module);
+    assert_eq!(module.attributes["source_kind"], "module");
+    assert_eq!(packet.kind, NodeKind::Struct);
+    assert_eq!(packet.attributes["source_kind"], "struct");
+    assert_eq!(worker.kind, NodeKind::Trait);
+    assert_eq!(worker.attributes["source_kind"], "trait");
+    assert_eq!(mode.kind, NodeKind::Enum);
+    assert_eq!(mode.attributes["source_kind"], "enum");
+    for node in [module, packet, worker, mode] {
+        assert_eq!(node.attributes["language"], "rust");
+    }
+}
+
+#[test]
 fn software_graph_resolves_rust_qualified_calls_without_guessing_ambiguous_bare_calls() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("alpha.rs"), "pub fn helper() -> u8 { 1 }\n").unwrap();

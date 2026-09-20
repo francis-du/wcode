@@ -32,6 +32,8 @@ mod experience_store;
 pub mod graph;
 #[path = "graph/chain.rs"]
 mod graph_chain;
+#[path = "graph/explorer.rs"]
+mod graph_explorer;
 #[path = "graph/provider_store.rs"]
 mod graph_provider_store;
 #[path = "graph/graph_store.rs"]

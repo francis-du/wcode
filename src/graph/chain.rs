@@ -289,6 +289,7 @@ fn code_chain_node_kind(kind: NodeKind) -> bool {
             | NodeKind::Struct
             | NodeKind::Trait
             | NodeKind::Class
+            | NodeKind::Enum
             | NodeKind::Interface
             | NodeKind::Api
             | NodeKind::Test

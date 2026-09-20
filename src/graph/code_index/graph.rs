@@ -146,11 +146,15 @@ pub(super) fn append_file_graph(
         attributes.insert("qualified_name".to_owned(), json!(symbol.qualified_name));
         attributes.insert("signature".to_owned(), json!(symbol.signature));
         attributes.insert("symbol_kind".to_owned(), json!(symbol.kind));
+        attributes.insert(
+            "source_kind".to_owned(),
+            json!(normalized_source_kind(symbol)),
+        );
         attributes.insert("language".to_owned(), json!(symbol.language));
         attributes.insert("range".to_owned(), serde_json::to_value(&symbol.range)?);
         graph.add_node(GraphNode {
             id: node_id.clone(),
-            kind: graph_node_kind(&symbol.kind),
+            kind: graph_node_kind(symbol),
             label: symbol.qualified_name.clone(),
             attributes,
             provenance: provenance.clone(),
@@ -379,12 +383,35 @@ pub(super) fn graph_symbol_id(symbol: &CodeSymbol) -> String {
     format!("symbol:{}", symbol.id)
 }
 
-pub(super) fn graph_node_kind(kind: &str) -> NodeKind {
-    match kind {
+fn normalized_source_kind(symbol: &CodeSymbol) -> &str {
+    if symbol.language == "rust" && matches!(symbol.kind.as_str(), "class" | "interface") {
+        let has_keyword = |keyword: &str| {
+            symbol
+                .signature
+                .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+                .any(|part| part == keyword)
+        };
+        if has_keyword("struct") {
+            return "struct";
+        }
+        if has_keyword("trait") {
+            return "trait";
+        }
+        if has_keyword("enum") {
+            return "enum";
+        }
+    }
+    symbol.kind.as_str()
+}
+
+pub(super) fn graph_node_kind(symbol: &CodeSymbol) -> NodeKind {
+    match normalized_source_kind(symbol) {
         "function" | "method" => NodeKind::Function,
+        "module" => NodeKind::Module,
         "struct" => NodeKind::Struct,
         "trait" => NodeKind::Trait,
         "class" => NodeKind::Class,
+        "enum" => NodeKind::Enum,
         "interface" => NodeKind::Interface,
         _ => NodeKind::Symbol,
     }

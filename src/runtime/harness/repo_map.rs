@@ -671,6 +671,7 @@ fn repo_map_symbol_node(kind: NodeKind) -> bool {
             | NodeKind::Struct
             | NodeKind::Trait
             | NodeKind::Class
+            | NodeKind::Enum
             | NodeKind::Interface
             | NodeKind::Api
             | NodeKind::Test

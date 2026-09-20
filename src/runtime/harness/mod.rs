@@ -6,6 +6,9 @@ use crate::graph::{
     EdgeKind, GraphEdge, GraphNode, GraphPrecision, GraphProvenance, GraphProviderImport, NodeKind,
     SoftwareGraphSnapshot,
 };
+use crate::graph_explorer::{
+    GraphOverviewInput, GraphOverviewResult, GraphSearchInput, GraphSearchResult,
+};
 use crate::graph_provider_store::{self, GraphProviderSummary, StoredGraphProvider};
 use crate::graph_store::{
     self, GraphChainInput, GraphChainResult, GraphDiffInput, GraphDiffResult, GraphHistoryEntry,

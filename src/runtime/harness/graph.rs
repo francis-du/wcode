@@ -47,6 +47,22 @@ impl ToolHarness {
         graph_store::chain(workspace, input)
     }
 
+    pub(crate) fn graph_search(
+        &self,
+        workspace: &Workspace,
+        input: &GraphSearchInput,
+    ) -> Result<GraphSearchResult> {
+        crate::graph_explorer::search(workspace, input)
+    }
+
+    pub(crate) fn graph_overview(
+        &self,
+        workspace: &Workspace,
+        input: &GraphOverviewInput,
+    ) -> Result<GraphOverviewResult> {
+        crate::graph_explorer::overview(workspace, input)
+    }
+
     pub fn graph_diff(
         &self,
         workspace: &Workspace,

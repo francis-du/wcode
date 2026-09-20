@@ -136,7 +136,7 @@ async fn observatory_activity_exposes_latest_jev_decision_without_secrets() {
                 "safety_policy_violations": 0,
                 "shape_mismatches": 0
             },
-            "api_key": "PRIVATE-JEV-KEY",
+            "api_key": "PRIVATE-API-KEY",
             "state": "PRIVATE-RAW-CONTEXT"
         }),
     );
@@ -307,12 +307,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         "- schema_version: 1\n  id: AC-WEB-GRAPH\n  title: Web graph query\n  statement: Design files are graph roots.\n  verification: []\n",
     )
     .unwrap();
-    fs::create_dir_all(root.path().join(".wcode/design/acceptance")).unwrap();
-    fs::write(
-        root.path().join(".wcode/design/acceptance/split.yaml"),
-        "schema_version: 1\nid: AC-WEB-SPLIT\ntitle: Split web graph query\nstatement: Split Design files are graph roots.\nverification: []\n",
-    )
-    .unwrap();
+
     let workspace_id = state.workspaces.default_id().to_owned();
     let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
     let graph = state
@@ -320,6 +315,13 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         .software_graph(workspace_id.clone(), &workspace, ".", 100, 500)
         .unwrap();
     assert!(!graph.graph.edges.is_empty());
+    let target_node_id = graph
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.label.ends_with("target_feature"))
+        .map(|node| node.id.clone())
+        .expect("target_feature graph node");
     let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
         .id
         .clone();
@@ -328,21 +330,77 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         State(state.clone()),
         HeaderMap::new(),
         Query(IntelligenceCodeGraphQuery {
-            q: Some("target_feature".into()),
+            view: Some("overview".into()),
+            q: None,
             node_id: None,
             snapshot_id: None,
-            depth: Some(2),
+            depth: None,
             limit: Some(64),
-            mode: Some(GraphChainMode::Calls),
+            mode: None,
         }),
     )
     .await;
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
 
-    let response = intelligence_web_code_graph(
+    let overview_response = intelligence_web_code_graph(
         State(state.clone()),
         ui_headers(&state, &workspace_id),
         Query(IntelligenceCodeGraphQuery {
+            view: Some("overview".into()),
+            q: None,
+            node_id: None,
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: None,
+            limit: Some(64),
+            mode: None,
+        }),
+    )
+    .await;
+    assert_eq!(overview_response.status(), StatusCode::OK);
+    assert_eq!(
+        overview_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let overview = response_json(overview_response).await;
+    assert_eq!(overview["workspace"], workspace_id);
+    assert_eq!(overview["overview"]["snapshot_id"], snapshot_id);
+    assert!(overview["overview"]["files_indexed"].as_u64().unwrap_or(0) >= 1);
+    assert!(overview["overview"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|node| node["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("file:"))));
+
+    let search_response = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            view: Some("search".into()),
+            q: Some("target_feature".into()),
+            node_id: None,
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: None,
+            limit: Some(20),
+            mode: None,
+        }),
+    )
+    .await;
+    assert_eq!(search_response.status(), StatusCode::OK);
+    let search = response_json(search_response).await;
+    assert_eq!(search["search"]["query"], "target_feature");
+    assert!(search["search"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|result| result["node"]["id"] == target_node_id));
+
+    let fuzzy_focus = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            view: Some("focus".into()),
             q: Some("target_feature".into()),
             node_id: None,
             snapshot_id: Some(snapshot_id.clone()),
@@ -352,15 +410,32 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         }),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    let value = response_json(response).await;
-    assert_eq!(value["workspace"], workspace_id);
-    assert_eq!(value["graph"]["mode"], "calls");
-    assert_eq!(value["graph"]["snapshot_id"], snapshot_id);
-    assert_eq!(value["graph"]["depth"], 2);
-    assert!(value["graph"]["nodes"].as_array().unwrap().len() <= 64);
-    assert!(value["graph"]["edges"]
+    assert_eq!(fuzzy_focus.status(), StatusCode::BAD_REQUEST);
+
+    let focus_response = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            view: Some("focus".into()),
+            q: None,
+            node_id: Some(target_node_id.clone()),
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: Some(2),
+            limit: Some(64),
+            mode: Some(GraphChainMode::Calls),
+        }),
+    )
+    .await;
+    assert_eq!(focus_response.status(), StatusCode::OK);
+    let focus = response_json(focus_response).await;
+    assert_eq!(focus["graph"]["query"], target_node_id);
+    assert!(focus["graph"]["root_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == &target_node_id));
+    assert!(focus["graph"]["nodes"].as_array().unwrap().len() <= 64);
+    assert!(focus["graph"]["edges"]
         .as_array()
         .unwrap()
         .iter()
@@ -373,35 +448,56 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
         State(state.clone()),
         ui_headers(&state, &workspace_id),
         Query(IntelligenceCodeGraphQuery {
+            view: Some("search".into()),
             q: Some("tui".into()),
             node_id: None,
             snapshot_id: Some(snapshot_id.clone()),
-            depth: Some(2),
-            limit: Some(64),
-            mode: Some(GraphChainMode::Calls),
+            depth: None,
+            limit: Some(20),
+            mode: None,
         }),
     )
     .await;
     assert_eq!(keyword_response.status(), StatusCode::OK);
-    let keyword_value = response_json(keyword_response).await;
-    assert_eq!(keyword_value["graph"]["query"], "tui");
-    assert!(keyword_value["graph"]["root_ids"]
+    let keyword = response_json(keyword_response).await;
+    assert!(keyword["search"]["results"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|id| id == "file:src/lib.rs"));
-    assert!(keyword_value["graph"]["nodes"]
+        .any(|result| result["node"]["id"] == "file:src/lib.rs"));
+
+    let design_response = intelligence_web_code_graph(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeGraphQuery {
+            view: Some("search".into()),
+            q: Some(".wcode/design/acceptance.yaml".into()),
+            node_id: None,
+            snapshot_id: Some(snapshot_id.clone()),
+            depth: None,
+            limit: Some(20),
+            mode: None,
+        }),
+    )
+    .await;
+    assert_eq!(design_response.status(), StatusCode::OK);
+    let design = response_json(design_response).await;
+    assert!(design["search"]["results"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["node"]["kind"] == "function"));
+        .all(|result| !result["node"]["id"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("file:.wcode/design/")));
 
     let stale_snapshot = intelligence_web_code_graph(
         State(state.clone()),
         ui_headers(&state, &workspace_id),
         Query(IntelligenceCodeGraphQuery {
-            q: Some("target_feature".into()),
-            node_id: None,
+            view: Some("focus".into()),
+            q: None,
+            node_id: Some(target_node_id),
             snapshot_id: Some("GRAPH-MISSING".into()),
             depth: Some(2),
             limit: Some(64),
@@ -410,31 +506,6 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
     )
     .await;
     assert_eq!(stale_snapshot.status(), StatusCode::CONFLICT);
-
-    for design_path in [
-        ".wcode/design/acceptance.yaml",
-        ".wcode/design/acceptance/split.yaml",
-    ] {
-        let design_response = intelligence_web_code_graph(
-            State(state.clone()),
-            ui_headers(&state, &workspace_id),
-            Query(IntelligenceCodeGraphQuery {
-                q: Some(design_path.into()),
-                node_id: None,
-                snapshot_id: Some(snapshot_id.clone()),
-                depth: Some(2),
-                limit: Some(64),
-                mode: Some(GraphChainMode::All),
-            }),
-        )
-        .await;
-        assert_eq!(design_response.status(), StatusCode::BAD_REQUEST);
-        let design_value = response_json(design_response).await;
-        assert!(design_value["error"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("no code graph symbol matches"));
-    }
 }
 
 #[tokio::test]
