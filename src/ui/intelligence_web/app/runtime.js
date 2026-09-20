@@ -229,7 +229,10 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.syncError = false; state.syncFailure = null;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
   state.codeGraphController?.abort(); state.codeGraphController = null;
-  state.codeGraph = null; state.codeGraphWorkspace = ""; state.codeGraphQuery = ""; state.codeGraphSnapshot = "";
+  state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;
+  clearTimeout(state.codeGraphSearchTimer); state.codeGraphSearchTimer = null;
+  state.codeGraph = null; state.codeGraphOverview = null; state.codeGraphWorkspace = ""; state.codeGraphQuery = ""; state.codeGraphSnapshot = "";
+  state.codeGraphView = "overview"; state.codeGraphSearchResults = [];
   state.codeGraphLoading = false; state.codeGraphError = ""; state.selectedCodeNode = "";
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;

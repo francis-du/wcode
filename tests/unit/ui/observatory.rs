@@ -95,17 +95,20 @@ fn observatory_audit_covers_refresh_access_and_truthful_telemetry() {
 #[test]
 fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let report_path = root.join("target/wcode-observatory-behavior.json");
+    let _ = std::fs::remove_file(&report_path);
     let output = std::process::Command::new("node")
         .arg(root.join("tests/unit/ui/observatory.cjs"))
         .arg(root)
         .output()
         .expect("Node is required for the observatory behavior contract");
-    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    let report = std::fs::read(&report_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     assert!(
         output.status.success()
             && report
                 .as_ref()
-                .ok()
                 .and_then(|value| value["results"].as_array())
                 .is_some_and(|results| results.len() == 53
                     && results.iter().all(|item| item["passed"] == true)),
@@ -130,7 +133,7 @@ fn observatory_code_graph_opens_loads_and_renders_real_graph_data() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 22
+                .is_some_and(|results| results.len() == 24
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

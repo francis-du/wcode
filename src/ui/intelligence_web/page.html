@@ -177,7 +177,14 @@
           <span data-i18n="code graph observatory meta">Trace callers, callees, dependency paths, design ownership and proof context without opening an editor.</span>
         </div>
         <div class="code-graph-controls">
-          <input id="codeGraphSearch" class="code-graph-search" type="search" placeholder="Function, class, module or file…" data-i18n-placeholder="Function, class, module or file…" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search code graph" data-i18n-aria-label="Search code graph">
+          <div class="code-graph-view" role="group" aria-label="Code graph view" data-i18n-aria-label="Code graph view">
+            <button type="button" class="active" data-code-graph-view="overview" data-i18n="Repository">Repository</button>
+            <button type="button" data-code-graph-view="focus" data-i18n="Focus">Focus</button>
+          </div>
+          <div class="code-graph-search-shell">
+            <input id="codeGraphSearch" class="code-graph-search" type="search" placeholder="Function, class, module or file…" data-i18n-placeholder="Function, class, module or file…" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search code graph" data-i18n-aria-label="Search code graph" aria-controls="codeGraphSearchResults" aria-autocomplete="list">
+            <div id="codeGraphSearchResults" class="code-graph-search-results hidden" role="listbox" aria-label="Code graph search results" data-i18n-aria-label="Code graph search results"></div>
+          </div>
           <div class="code-graph-mode" role="group" aria-label="Code graph relation mode" data-i18n-aria-label="Code graph relation mode">
             <button type="button" data-code-graph-mode="calls" data-i18n="Calls">Calls</button>
             <button type="button" data-code-graph-mode="impact" data-i18n="Impact">Impact</button>
@@ -190,6 +197,7 @@
             <option value="3" data-i18n="3 hops">3 hops</option>
             <option value="4" data-i18n="4 hops">4 hops</option>
           </select>
+          <button id="codeGraphInspectorToggle" class="code-graph-inspector-toggle" type="button" aria-pressed="false" data-i18n="Details">Details</button>
           <button id="codeGraphFull" class="code-graph-full-toggle" type="button" aria-pressed="false" aria-label="Full screen code graph" data-i18n-aria-label="Full screen code graph" title="Full screen code graph" data-i18n-title="Full screen code graph"><svg class="control-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg><span class="code-graph-full-enter" data-i18n="Full screen">Full screen</span><span class="code-graph-full-exit" data-i18n="Exit full screen">Exit full screen</span></button>
         </div>
       </header>

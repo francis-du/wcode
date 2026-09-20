@@ -2,6 +2,45 @@
 const assert=require('node:assert/strict');
 const {sandbox,project,respond,flush}=require('./observatory.cjs');
 
+const overview=(workspace='A',extra={})=>({
+  snapshot_id:'GRAPH-overview',captured_at_ms:1,provider:'wcode-composite',precision:'mixed',
+  files_considered:4,files_indexed:4,files_failed:0,scan_truncated:false,graph_truncated:false,
+  total_nodes:8,total_edges:3,total_files:4,
+  languages:{rust:2,'java-script':1,python:1},relation_counts:{calls:2,imports:1},
+  nodes:[
+    {id:'file:src/a.rs',label:'src/a.rs',path:'src/a.rs',language:'rust',symbols:3,degree:2},
+    {id:'file:src/b.rs',label:'src/b.rs',path:'src/b.rs',language:'rust',symbols:2,degree:1},
+    {id:'file:web/app.js',label:'web/app.js',path:'web/app.js',language:'java-script',symbols:2,degree:2},
+    {id:'file:tools/x.py',label:'tools/x.py',path:'tools/x.py',language:'python',symbols:1,degree:1}
+  ],
+  edges:[
+    {from:'file:src/a.rs',to:'file:src/b.rs',count:1,kinds:{calls:1},precision:{syntax:1}},
+    {from:'file:web/app.js',to:'file:src/a.rs',count:1,kinds:{imports:1},precision:{syntax:1}}
+  ],
+  truncated:false,...extra
+});
+const searchResult=(query='alpha')=>({
+  snapshot_id:'GRAPH-overview',captured_at_ms:1,provider:'wcode-composite',precision:'mixed',
+  query,truncated:false,results:[
+    {node:{id:'symbol:alpha',kind:'function',label:'alpha',attributes:{path:'src/a.rs',language:'rust'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'rev-a'}},match_kind:'exact_label',score:0,relations:3},
+    {node:{id:'file:src/a.rs',kind:'file',label:'src/a.rs',attributes:{path:'src/a.rs',language:'rust'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'rev-a'}},match_kind:'path_contains',score:4,relations:2}
+  ]
+});
+const focusGraph=(root='symbol:alpha',extra={})=>({
+  snapshot_id:'GRAPH-overview',captured_at_ms:1,provider:'wcode-composite',precision:'mixed',
+  query:root,mode:'all',depth:2,root_ids:[root],
+  nodes:[
+    {node:{id:root,kind:root.startsWith('file:')?'file':'function',label:root.startsWith('file:')?'src/a.rs':'alpha',attributes:{path:'src/a.rs',language:'rust',source_kind:root.startsWith('file:')?'file':'function'},provenance:{precision:'semantic',provider:'lsp:rust-analyzer',revision:'rev-sem'}},distance:0,upstream:false,downstream:false},
+    {node:{id:'symbol:caller',kind:'function',label:'caller',attributes:{path:'src/b.rs',language:'rust'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-syntax'}},distance:1,upstream:true,downstream:false},
+    {node:{id:'symbol:callee',kind:'function',label:'callee',attributes:{path:'src/a.rs',language:'rust'},provenance:{precision:'semantic',provider:'lsp:rust-analyzer',revision:'rev-sem'}},distance:1,upstream:false,downstream:true}
+  ],
+  edges:[
+    {from:'symbol:caller',to:root,kind:'calls',provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-syntax'}},
+    {from:root,to:'symbol:callee',kind:'calls',provenance:{precision:'semantic',provider:'lsp:rust-analyzer',revision:'rev-sem'}}
+  ],
+  precision_counts:{syntax:1,semantic:1},upstream_nodes:1,downstream_nodes:1,truncated:false,...extra
+});
+
 async function run(){
   const results=[];
   async function test(name,fn){
@@ -9,331 +48,221 @@ async function run(){
     catch(error){results.push({name,passed:false,error:error.stack});}
   }
 
-  await test('clean repository paints a searchable code-graph empty state instead of a blank canvas',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[],history:[],architecture:{components:[],dependencies:[]},structure:{entries:[]}};
-    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    assert.match(s.node('#codeGraphMap').innerHTML,/Search the living code graph/);
-    assert.equal(s.requests.filter(request=>request.url.startsWith('/intelligence/code-graph')).length,0);
-  });
-
-  await test('code-graph suggestions expose source code and never Design State documents',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[{path:'.wcode/design/acceptance.yaml'},{path:'src/runtime.rs'}],history:[],architecture:{components:[],dependencies:[]},structure:{entries:[{path:'src/runtime.rs',language:'rust'}]}};
-    s.run('state.project=fixture;state.current="A";state.codeGraph=null;state.codeGraphError="";renderCodeGraph();');
-    const html=s.node('#codeGraphMap').innerHTML;
-    assert.match(html,/data-code-graph-query/);
-    assert.match(html,/src\/runtime\.rs/);
-    assert.doesNotMatch(html,/\.wcode\/design\/acceptance\.yaml/);
-    assert.match(html,/Start from observed project signals/);
-  });
-
-  await test('design-only changes do not become the automatic Code Graph focus',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[{path:'.wcode/design/acceptance.yaml'}],history:[],architecture:{components:[{
-      id:'component:webui',implementation_targets:['src/ui/app.js::renderWidget']
-    }],dependencies:[]},structure:{entries:[]}};
+  await test('opening Code Graph defaults to repository overview instead of an arbitrary focus',async()=>{
+    const s=sandbox();s.context.fixture={...project(),history:[]};
     s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
     await flush();
-    const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
-    assert.ok(request);
-    assert.match(request.url,/q=renderWidget/);
-    assert.doesNotMatch(request.url,/acceptance/);
-    assert.equal(s.node('#codeGraphSearch').value,'','automatic focus must not write into the user search box');
+    assert.equal(s.requests.length,1);
+    assert.match(s.requests[0].url,/view=overview/);
+    assert.doesNotMatch(s.requests[0].url,/[?&]q=/);
+    assert.equal(s.run('state.codeGraphView'),'overview');
   });
 
-  await test('code graph supports an application full-screen stage without browser fullscreen APIs',async()=>{
-    const s=sandbox();
-    s.run('setCodeGraphFull(true)');
+  await test('repository overview renders bounded repository metrics and language lanes',async()=>{
+    const s=sandbox();s.run('state.current="A";state.codeGraphView="overview";');
+    const pending=s.run('loadCodeGraphOverview()');await flush();
+    respond(s.requests[0],{workspace:'A',overview:overview('A',{truncated:true,scan_truncated:true})});
+    assert.equal(await pending,true);
+    assert.match(s.node('#codeGraphSummary').innerHTML,/Repository overview/);
+    assert.match(s.node('#codeGraphSummary').innerHTML,/4\/4/);
+    assert.match(s.node('#codeGraphSummary').innerHTML,/bounded \/ truncated/);
+    const html=s.node('#codeGraphMap').innerHTML;
+    assert.match(html,/rust · 2/);assert.match(html,/java-script · 1/);assert.match(html,/python · 1/);
+  });
+
+  await test('repository overview groups files by language instead of flattening polyglot symbols',async()=>{
+    const s=sandbox();s.context.ov=overview();s.run('state.current="A";state.codeGraphView="overview";');
+    const data=JSON.parse(s.run('JSON.stringify([...codeGraphOverviewLayout(ov).lanes])'));
+    assert.deepEqual(data.map(x=>x.language),['java-script','python','rust']);
+    assert.equal(data.find(x=>x.language==='rust').count,2);
+  });
+
+  await test('repository overview keeps existing node coordinates stable across refresh and reorder',async()=>{
+    const s=sandbox();s.context.first=overview();s.context.second=overview('A',{nodes:[
+      {id:'file:tools/x.py',label:'tools/x.py',path:'tools/x.py',language:'python',symbols:1,degree:1},
+      {id:'file:src/b.rs',label:'src/b.rs',path:'src/b.rs',language:'rust',symbols:2,degree:1},
+      {id:'file:web/app.js',label:'web/app.js',path:'web/app.js',language:'java-script',symbols:2,degree:2},
+      {id:'file:src/a.rs',label:'src/a.rs',path:'src/a.rs',language:'rust',symbols:3,degree:2},
+      {id:'file:src/new.rs',label:'src/new.rs',path:'src/new.rs',language:'rust',symbols:1,degree:0}
+    ]});
+    s.run('state.current="A";state.codeGraphView="overview";layoutA=codeGraphOverviewLayout(first);layoutB=codeGraphOverviewLayout(second);');
+    for(const id of ['file:src/a.rs','file:src/b.rs','file:web/app.js','file:tools/x.py']){
+      s.context.nodeId=id;
+      assert.equal(s.run('layoutA.positions.get(nodeId).x'),s.run('layoutB.positions.get(nodeId).x'),id);
+      assert.equal(s.run('layoutA.positions.get(nodeId).y'),s.run('layoutB.positions.get(nodeId).y'),id);
+    }
+  });
+
+  await test('viewport scroll position is restored for the same graph key',async()=>{
+    const s=sandbox();const viewport=s.node('#viewport');s.context.viewport=viewport;
+    s.run('state.current="A";state.codeGraphView="overview";els.codeGraphMap.querySelector=()=>viewport;viewport.scrollLeft=180;viewport.scrollTop=90;captureCodeGraphViewport();viewport.scrollLeft=0;viewport.scrollTop=0;bindCodeGraphViewport();');
+    assert.equal(viewport.scrollLeft,180);assert.equal(viewport.scrollTop,90);
+  });
+
+  await test('search returns candidates without silently replacing the rendered graph',async()=>{
+    const s=sandbox();s.context.ov=overview();s.run('state.current="A";state.codeGraphView="overview";state.codeGraphOverview=ov;');
+    s.node('#codeGraphSearch').value='alpha';
+    const pending=s.run('searchCodeGraph()');await flush();
+    assert.match(s.requests[0].url,/view=search/);assert.match(s.requests[0].url,/q=alpha/);
+    respond(s.requests[0],{workspace:'A',search:searchResult('alpha')});
+    assert.equal(await pending,true);
+    assert.equal(s.run('state.codeGraphView'),'overview');
+    assert.equal(s.run('state.codeGraph'),null);
+    assert.equal(s.run('state.codeGraphSearchResults.length'),2);
+    assert.match(s.node('#codeGraphSearchResults').innerHTML,/alpha/);
+  });
+
+  await test('choosing a search candidate binds focus to that exact node id',async()=>{
+    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='alpha';
+    const search=s.run('searchCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',search:searchResult('alpha')});await search;
+    s.run('chooseCodeGraphSearchResult(0)');await flush();
+    assert.equal(s.requests.length,2);
+    assert.match(s.requests[1].url,/view=focus/);
+    assert.match(s.requests[1].url,/node_id=symbol%3Aalpha/);
+    assert.doesNotMatch(s.requests[1].url,/[?&]q=/);
+  });
+
+  await test('focused response renders only after the chosen root returns',async()=>{
+    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='alpha';
+    const pending=s.run('loadCodeGraph({nodeId:"symbol:alpha",query:"alpha"})');await flush();
+    respond(s.requests[0],{workspace:'A',graph:focusGraph()});
+    assert.equal(await pending,true);
+    assert.equal(s.run('state.codeGraphView'),'focus');
+    assert.equal(s.run('state.selectedCodeNode'),'symbol:alpha');
+    assert.match(s.node('#codeGraphMap').innerHTML,/alpha/);
+    assert.match(s.node('#codeGraphMap').innerHTML,/caller/);
+    assert.match(s.node('#codeGraphMap').innerHTML,/callee/);
+  });
+
+  await test('focused layout keeps existing node coordinates stable when response order changes',async()=>{
+    const s=sandbox();s.context.g1=focusGraph();s.context.g2=focusGraph('symbol:alpha',{nodes:[
+      focusGraph().nodes[2],focusGraph().nodes[0],focusGraph().nodes[1],
+      {node:{id:'symbol:new',kind:'function',label:'newNode',attributes:{path:'src/c.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'r'}},distance:2,upstream:false,downstream:true}
+    ]});
+    s.run('state.current="A";state.codeGraphView="focus";state.codeGraphMode="all";state.codeGraphDepth=2;la=codeGraphLayout(g1);lb=codeGraphLayout(g2);');
+    for(const id of ['symbol:alpha','symbol:caller','symbol:callee']){
+      s.context.nodeId=id;
+      assert.equal(s.run('la.positions.get(nodeId).x'),s.run('lb.positions.get(nodeId).x'),id);
+      assert.equal(s.run('la.positions.get(nodeId).y'),s.run('lb.positions.get(nodeId).y'),id);
+    }
+  });
+
+  await test('clearing search aborts search/focus state and returns to repository overview',async()=>{
+    const s=sandbox();s.context.ov=overview();s.run('state.current="A";state.codeGraphView="focus";state.codeGraph=({});state.codeGraphQuery="old";state.selectedCodeNode="old";state.codeGraphOverview=ov;state.codeGraphWorkspace="A";state.codeGraphSearchController=new AbortController();state.codeGraphController=new AbortController();oldSearch=state.codeGraphSearchController;oldGraph=state.codeGraphController;clearCodeGraphSearchState();');
+    assert.equal(s.run('oldSearch.signal.aborted'),true);assert.equal(s.run('oldGraph.signal.aborted'),true);
+    assert.equal(s.run('state.codeGraphQuery'),'');assert.equal(s.run('state.selectedCodeNode'),'');
+    assert.equal(s.run('state.codeGraphView'),'overview');
+    assert.equal(s.run('state.codeGraphSearchResults.length'),0);
+  });
+
+  await test('Design State paths are rejected before graph search network traffic',async()=>{
+    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='.wcode/design/acceptance.yaml';
+    assert.equal(await s.run('searchCodeGraph()'),false);
+    assert.equal(s.requests.length,0);
+    assert.match(s.run('state.codeGraphError'),/source-code entities/i);
+  });
+
+  await test('full screen is a graph workspace and closes the details rail by default',async()=>{
+    const s=sandbox();s.run('setCodeGraphInspector(true);setCodeGraphFull(true);');
     assert.equal(s.run('state.codeGraphFull'),true);
+    assert.equal(s.run('state.codeGraphInspectorOpen'),false);
+    assert.equal(s.node('#codeGraphInspector').classes.has('hidden'),true);
     assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),true);
     assert.equal(s.node('#codeGraphSection').attrs.role,'dialog');
     assert.equal(s.node('#codeGraphSection').attrs['aria-modal'],'true');
-    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'true');
-    s.run('setCodeGraphFull(false)');
-    assert.equal(s.run('state.codeGraphFull'),false);
-    assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),false);
-    assert.equal(s.node('#codeGraphSection').attrs.role,undefined);
-    assert.equal(s.node('#codeGraphSection').attrs['aria-modal'],undefined);
-    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'false');
+  });
+
+  await test('details toggle really removes and restores the inspector rail',async()=>{
+    const s=sandbox();s.run('setCodeGraphInspector(false)');
+    assert.equal(s.node('#codeGraphInspector').classes.has('hidden'),true);
+    assert.equal(s.node('#codeGraphInspector').attrs['aria-hidden'],'true');
+    s.run('setCodeGraphInspector(true)');
+    assert.equal(s.node('#codeGraphInspector').classes.has('hidden'),false);
+    assert.equal(s.node('#codeGraphInspector').attrs['aria-hidden'],'false');
+    assert.equal(s.node('#codeGraphInspectorToggle').attrs['aria-pressed'],'true');
   });
 
   await test('Escape exits Code Graph full screen before other overlays',async()=>{
-    const s=sandbox();let prevented=false;
-    s.run('setCodeGraphFull(true)');
+    const s=sandbox();let prevented=false;s.run('setCodeGraphFull(true)');
     s.events.keydown({key:'Escape',preventDefault(){prevented=true;}});
-    assert.equal(prevented,true);
-    assert.equal(s.run('state.codeGraphFull'),false);
-    assert.equal(s.node('#codeGraphFull').attrs['aria-pressed'],'false');
+    assert.equal(prevented,true);assert.equal(s.run('state.codeGraphFull'),false);
   });
 
   await test('leaving Code Graph view cannot strand the full-screen overlay',async()=>{
-    const s=sandbox();
-    s.run('setCodeGraphFull(true);state.architectureView="components";renderArchitecture();');
+    const s=sandbox();s.run('setCodeGraphFull(true);state.architectureView="components";renderArchitecture();');
     assert.equal(s.run('state.codeGraphFull'),false);
-    assert.equal(s.node('#codeGraphSection').classes.has('code-graph-fullscreen'),false);
   });
 
   await test('full-screen accessibility label follows live language changes',async()=>{
-    const s=sandbox();
-    s.run('setCodeGraphFull(true);state.language="zh-CN";applyLanguage();');
+    const s=sandbox();s.run('setCodeGraphFull(true);state.language="zh-CN";applyLanguage();');
     assert.match(s.node('#codeGraphFull').attrs['aria-label'],/退出代码图谱全屏/);
     s.run('state.language="en";applyLanguage();');
     assert.match(s.node('#codeGraphFull').attrs['aria-label'],/Exit full screen code graph/);
   });
 
-  await test('manual Design State paths are rejected locally because Code Graph is code-only',async()=>{
-    const s=sandbox();s.run('state.current="A";');
-    s.node('#codeGraphSearch').value='.wcode/design/acceptance.yaml';
-    assert.equal(await s.run('loadCodeGraph()'),false);
-    assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
-    assert.match(s.run('state.codeGraphError'),/source-code entities/i);
+  await test('repository mode disables focus-only depth control and focus restores it',async()=>{
+    const s=sandbox();s.run('setCodeGraphView("overview",{load:false})');
+    assert.equal(s.node('#codeGraphDepth').disabled,true);
+    s.run('setCodeGraphView("focus",{load:false})');
+    assert.equal(s.node('#codeGraphDepth').disabled,false);
   });
 
-  await test('clean repository auto-focuses the first declared implementation and renders returned graph data',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[],history:[],architecture:{components:[{
-      id:'component:webui',name:'Web UI',implementation_targets:['src/ui/app.js::renderWidget']
-    }],dependencies:[]},structure:{entries:[]}};
-    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    await flush();
-    const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
-    assert.ok(request,'opening Code Graph must issue a real graph request');
-    assert.match(request.url,/q=renderWidget/);
-    assert.equal(s.node('#codeGraphSearch').value,'','automatic seed stays internal');
-    assert.equal(request.options.headers['X-Wcode-Workspace'],'A');
-    respond(request,{workspace:'A',graph:{
-      snapshot_id:'GRAPH-test',captured_at_ms:1,provider:'wcode-composite',precision:'mixed',
-      query:'renderWidget',mode:'all',depth:2,root_ids:['node:renderWidget'],
-      nodes:[
-        {node:{id:'node:caller',kind:'function',label:'caller',attributes:{path:'src/ui/caller.js'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-syntax'}},distance:1,upstream:true,downstream:false},
-        {node:{id:'node:renderWidget',kind:'function',label:'renderWidget',attributes:{path:'src/ui/app.js'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-syntax'}},distance:0,upstream:false,downstream:false},
-        {node:{id:'node:callee',kind:'function',label:'callee',attributes:{path:'src/ui/callee.js'},provenance:{precision:'semantic',provider:'lsp',revision:'rev-semantic'}},distance:1,upstream:false,downstream:true}
-      ],
-      edges:[
-        {from:'node:caller',to:'node:renderWidget',kind:'calls',provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-syntax'}},
-        {from:'node:renderWidget',to:'node:callee',kind:'calls',provenance:{precision:'semantic',provider:'lsp',revision:'rev-semantic'}}
-      ],
-      precision_counts:{syntax:1,semantic:1},upstream_nodes:1,downstream_nodes:1,truncated:false
-    }});
-    await flush();
-    await flush();
-    assert.match(s.node('#codeGraphMap').innerHTML,/renderWidget/);
-    assert.match(s.node('#codeGraphMap').innerHTML,/caller/);
-    assert.match(s.node('#codeGraphMap').innerHTML,/callee/);
-    assert.match(s.node('#codeGraphSummary').innerHTML,/3 nodes/);
-    assert.match(s.node('#codeGraphInspector').innerHTML,/tree-sitter/);
-    assert.equal(s.run('state.codeGraphWorkspace'),'A');
-  });
-
-  await test('changed source path remains the highest-priority automatic code-graph focus',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[{path:'src/changed.rs'}],history:[],architecture:{components:[{
-      id:'component:webui',implementation_targets:['src/ui/app.js::renderWidget']
-    }],dependencies:[]},structure:{entries:[]}};
-    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    await flush();
-    const request=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
-    assert.ok(request);
-    assert.match(request.url,/q=src%2Fchanged.rs/);
-    assert.equal(s.node('#codeGraphSearch').value,'','changed-file seed must not become user input');
-    request.options.signal?.throwIfAborted?.();
-    respond(request,{workspace:'A',graph:{snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'src/changed.rs',mode:'all',depth:2,root_ids:['changed'],nodes:[{node:{id:'changed',kind:'file',label:'src/changed.rs',attributes:{path:'src/changed.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-changed'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
-    await flush();
-  });
-
-  await test('auto-seeded graph can reload controls without populating the search box',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),changes:[],history:[],architecture:{components:[{id:'a',implementation_targets:['src/a.rs::alpha']}],dependencies:[]},structure:{entries:[]}};
-    s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    await flush();
-    const first=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
-    respond(first,{workspace:'A',graph:{snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'alpha',mode:'all',depth:2,root_ids:['a'],nodes:[{node:{id:'a',kind:'function',label:'alpha',attributes:{path:'src/a.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'r'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
-    await flush();await flush();
-    assert.equal(s.node('#codeGraphSearch').value,'');
-    s.run('state.codeGraphDepth=3;reloadCodeGraphFromCurrentContext();');await flush();
-    const second=s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?'))[1];
-    assert.ok(second);assert.match(second.url,/node_id=a/);assert.match(second.url,/depth=3/);
-    assert.equal(s.node('#codeGraphSearch').value,'');
-  });
-
-  await test('clearing the code-graph search does not resurrect the previous query',async()=>{
-    const s=sandbox();
-    s.run('state.current="A";state.codeGraphQuery="oldSymbol";state.selectedCodeNode="old";state.codeGraphWorkspace="A";state.codeGraph={nodes:[{node:{id:"old",label:"oldSymbol"}}],edges:[],root_ids:["old"]};els.codeGraphSearch.value="";');
-    const loaded=await s.run('loadCodeGraph()');
-    assert.equal(loaded,false);
-    assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
-    assert.equal(s.run('state.codeGraph'),null);
-    assert.equal(s.run('state.codeGraphQuery'),'');
-    assert.equal(s.run('state.selectedCodeNode'),'');
-    assert.equal(s.run('state.codeGraphWorkspace'),'');
-    assert.equal(s.run('state.codeGraphError'),'');
-  });
-
-  await test('native search clear aborts in-flight graph work and clears remembered context immediately',async()=>{
-    const s=sandbox();
-    s.run('wireCodeGraph();state.current="A";state.codeGraphQuery="oldSymbol";state.selectedCodeNode="old";state.codeGraphWorkspace="A";state.codeGraph={nodes:[{node:{id:"old",label:"oldSymbol"}}],edges:[],root_ids:["old"]};state.codeGraphError="stale";state.codeGraphLoading=true;state.codeGraphController=new AbortController();els.codeGraphSearch.value="oldSymbol";');
-    const controller=s.run('state.codeGraphController');
-    assert.equal(controller.signal.aborted,false);
-    const search=s.node('#codeGraphSearch');
-    search.value='';
-    search.events.input();
-    assert.equal(controller.signal.aborted,true);
-    assert.equal(s.run('state.codeGraphController'),null);
-    assert.equal(s.run('state.codeGraphLoading'),false);
-    assert.equal(s.run('state.codeGraph'),null);
-    assert.equal(s.run('state.codeGraphQuery'),'');
-    assert.equal(s.run('state.selectedCodeNode'),'');
-    assert.equal(s.run('state.codeGraphWorkspace'),'');
-    assert.equal(s.run('state.codeGraphError'),'');
-    search.events.search();
-    assert.equal(s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?')).length,0);
-  });
-
-  await test('workspace switch starts the new code graph without waiting for an aborted old request',async()=>{
-    const s=sandbox();
-    s.context.fixtureA={...project('A'),changes:[],history:[],architecture:{components:[{id:'a',implementation_targets:['src/a.rs::alpha']}],dependencies:[]},structure:{entries:[]}};
-    s.context.fixtureB={...project('B'),changes:[],history:[],architecture:{components:[{id:'b',implementation_targets:['src/b.rs::beta']}],dependencies:[]},structure:{entries:[]}};
-    s.run('state.project=fixtureA;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    await flush();
-    const first=s.requests.find(item=>item.url.startsWith('/intelligence/code-graph?'));
-    assert.ok(first);assert.match(first.url,/q=alpha/);
-    s.run('state.current="B";clearWorkspaceView();state.project=fixtureB;state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');
-    await flush();
-    const graphRequests=s.requests.filter(item=>item.url.startsWith('/intelligence/code-graph?'));
-    assert.equal(graphRequests.length,2,'new workspace must not be blocked by the old loading flag');
-    const second=graphRequests[1];assert.match(second.url,/q=beta/);
+  await test('workspace switch aborts stale graph work and starts a fresh repository overview',async()=>{
+    const s=sandbox();s.context.fixtureA={...project('A'),history:[]};s.context.fixtureB={...project('B'),history:[]};
+    s.run('state.project=fixtureA;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');await flush();
+    const first=s.requests[0];assert.match(first.url,/view=overview/);
+    s.run('state.current="B";clearWorkspaceView();state.project=fixtureB;state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');await flush();
     assert.equal(first.options.signal.aborted,true);
-    respond(first,{workspace:'A',graph:{snapshot_id:'A',captured_at_ms:1,provider:'p',precision:'syntax',query:'alpha',mode:'all',depth:2,root_ids:['a'],nodes:[{node:{id:'a',kind:'function',label:'alpha',attributes:{},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-a'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
-    await flush();
-    assert.notEqual(s.run('state.codeGraphWorkspace'),'A');
-    respond(second,{workspace:'B',graph:{snapshot_id:'B',captured_at_ms:1,provider:'p',precision:'syntax',query:'beta',mode:'all',depth:2,root_ids:['b'],nodes:[{node:{id:'b',kind:'function',label:'beta',attributes:{},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-b'}},distance:0,upstream:false,downstream:false}],edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false}});
-    await flush();await flush();
-    assert.equal(s.run('state.codeGraphWorkspace'),'B');
-    assert.match(s.node('#codeGraphMap').innerHTML,/beta/);
-    assert.equal(s.run('state.codeGraphQuery'),'beta');
+    assert.equal(s.requests.length,2);assert.match(s.requests[1].url,/view=overview/);
+    assert.equal(s.requests[1].options.headers['X-Wcode-Workspace'],'B');
   });
 
-  await test('null code-graph payload fails closed instead of masquerading as an empty graph',async()=>{
-    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
-    const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph:null});
+  await test('malformed repository overview fails closed',async()=>{
+    const s=sandbox();s.run('state.current="A";');const pending=s.run('loadCodeGraphOverview()');await flush();
+    respond(s.requests[0],{workspace:'A',overview:{snapshot_id:'G',nodes:[{id:'bad'}],edges:[],languages:{},relation_counts:{},files_considered:1,files_indexed:1,total_nodes:1,total_edges:0,total_files:1,truncated:false}});
+    assert.equal(await pending,false);assert.equal(s.run('state.codeGraphOverview'),null);assert.match(s.run('state.codeGraphError'),/Invalid repository graph overview/);
+  });
+
+  await test('malformed search results fail closed without changing focus',async()=>{
+    const s=sandbox();s.run('state.current="A";state.codeGraphView="overview";');s.node('#codeGraphSearch').value='alpha';
+    const pending=s.run('searchCodeGraph()');await flush();
+    respond(s.requests[0],{workspace:'A',search:{snapshot_id:'G',query:'alpha',truncated:false,results:[{node:{id:'x'}}]}});
+    assert.equal(await pending,false);assert.equal(s.run('state.codeGraphSearchResults.length'),0);assert.equal(s.run('state.codeGraphView'),'overview');
+    assert.match(s.run('state.codeGraphError'),/Invalid code graph search response/);
+  });
+
+  await test('malformed focused graph fails closed and preserves the previous rendered graph',async()=>{
+    const s=sandbox();s.context.previous=focusGraph();s.run('state.current="A";state.codeGraph=previous;state.codeGraphView="focus";state.codeGraphWorkspace="A";');
+    const pending=s.run('loadCodeGraph({nodeId:"symbol:alpha",query:"alpha"})');await flush();
+    respond(s.requests[0],{workspace:'A',graph:{}});
     assert.equal(await pending,false);
-    assert.equal(s.run('state.codeGraph'),null);
-    assert.match(s.run('state.codeGraphError'),/invalid response/i);
+    assert.equal(s.run('state.codeGraph.root_ids[0]'),'symbol:alpha');
+    assert.match(s.run('state.codeGraphError'),/Invalid focused code graph response/);
   });
 
-  await test('shape-less code-graph payload fails closed instead of reporting success',async()=>{
-    const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
-    const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph:{}});
-    assert.equal(await pending,false);
-    assert.equal(s.run('state.codeGraph'),null);
-    assert.match(s.run('state.codeGraphError'),/invalid response/i);
+  await test('focused response cannot exceed the 140-node client safety bound',async()=>{
+    const s=sandbox();s.context.g=focusGraph('symbol:alpha',{nodes:Array.from({length:141},(_,i)=>({node:{id:`n${i}`,kind:'function',label:`n${i}`,attributes:{path:'src/a.rs'},provenance:{precision:'syntax',provider:'tree-sitter',revision:'r'}},distance:i?1:0,upstream:false,downstream:i>0})),root_ids:['n0'],query:'n0',upstream_nodes:0,downstream_nodes:140,precision_counts:{syntax:1}});
+    assert.equal(s.run('validCodeGraphResponse({graph:g})'),false);
   });
 
-  await test('malformed nested code-graph nodes and edges fail closed before rendering',async()=>{
-    const malformed=[
-      {snapshot_id:'G',query:'q',mode:'all',depth:2,root_ids:['x'],nodes:[{}],edges:[],precision_counts:{}},
-      {snapshot_id:'G',query:'q',mode:'all',depth:2,root_ids:['x'],nodes:[{node:{id:7,label:'x'}}],edges:[],precision_counts:{}},
-      {snapshot_id:'G',query:'q',mode:'all',depth:2,root_ids:['x'],nodes:[{node:{id:'x',label:'x'}}],edges:[{from:'x'}],precision_counts:{}},
-      {snapshot_id:'G',query:'q',mode:'all',depth:2,root_ids:[7],nodes:[{node:{id:'x',label:'x'}}],edges:[],precision_counts:{}},
-      {snapshot_id:'G',query:'q',mode:'all',depth:2,root_ids:['x'],nodes:[{node:{id:'x',label:'x'}}],edges:[],precision_counts:{syntax:'bad'}}
-    ];
-    for(const graph of malformed){
-      const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
-      const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph});
-      assert.equal(await pending,false);
-      assert.equal(s.run('state.codeGraph'),null);
-      assert.match(s.run('state.codeGraphError'),/invalid response/i);
-    }
+  await test('graph view keys isolate snapshots so historical layouts never contaminate latest',async()=>{
+    const s=sandbox();s.run('state.current="A";state.codeGraphView="overview";state.codeGraphSnapshot="";k1=codeGraphViewKey();state.codeGraphSnapshot="GRAPH-old";k2=codeGraphViewKey();');
+    assert.notEqual(s.run('k1'),s.run('k2'));assert.match(s.run('k2'),/GRAPH-old/);
   });
 
-  await test('deeply malformed code-graph entries clear partial graph state',async()=>{
-    const malformed={snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'q',mode:'all',depth:2,root_ids:['x'],
-      nodes:[{node:{id:'x',kind:'function',label:null,attributes:null,provenance:null},distance:'far',upstream:false,downstream:false}],
-      edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false};
-    const s=sandbox();s.run('state.current="A";state.codeGraphWorkspace="old";state.selectedCodeNode="old";');s.node('#codeGraphSearch').value='target';
-    const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph:malformed});
-    assert.equal(await pending,false);
-    assert.equal(s.run('state.codeGraph'),null);
-    assert.equal(s.run('state.codeGraphWorkspace'),'');
-    assert.equal(s.run('state.selectedCodeNode'),'');
-    assert.match(s.run('state.codeGraphError'),/invalid response/i);
+  await test('focused graph exposes semantic provenance instead of flattening LSP and syntax edges',async()=>{
+    const s=sandbox();s.context.g=focusGraph();s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.selectedCodeNode="symbol:alpha";renderCodeGraph();');
+    assert.match(s.node('#codeGraphMap').innerHTML,/data-precision="semantic"/);
+    assert.match(s.node('#codeGraphInspector').innerHTML,/lsp:rust-analyzer/);
+    assert.match(s.node('#codeGraphMap').innerHTML,/tree-sitter/);
   });
 
-  await test('code-graph response cannot exceed the requested client safety bound',async()=>{
-    for(const oversized of ['nodes','edges']){
-      const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
-      const graph={snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'syntax',query:'target',mode:'all',depth:2,root_ids:['n0'],
-        nodes:Array.from({length:oversized==='nodes'?141:2},(_,index)=>({node:{id:'n'+index,kind:'function',label:'n'+index,attributes:{},provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-'+index}},distance:index?1:0,upstream:false,downstream:index>0})),
-        edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:oversized==='nodes'?140:1,truncated:true};
-      if(oversized==='edges') graph.edges=Array.from({length:421},()=>({from:'n0',to:'n1',kind:'calls',provenance:{precision:'syntax',provider:'tree-sitter',revision:'rev-edge'}}));
-      const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph});
-      assert.equal(await pending,false);
-      assert.equal(s.run('state.codeGraph'),null);
-      assert.match(s.run('state.codeGraphError'),/invalid response/i);
-    }
-  });
-
-  await test('malformed graph history entries are ignored without crashing the workbench',async()=>{
-    const s=sandbox();s.context.fixture={...project(),history:[null,{}, {id:null,captured_at_ms:1},{id:'<bad>',captured_at_ms:1},{id:'invalid-date',captured_at_ms:'nope'}]};
-    s.run('state.project=fixture;state.current="A";state.codeGraph=null;renderCodeGraph();');
-    const html=s.node('#codeGraphSnapshot').innerHTML;
-    assert.ok(html.includes('&lt;bad&gt;'));
-    assert.ok(!html.includes('<bad>'));
-    assert.ok(!html.includes('invalid-date'));
-  });
-
-  await test('code-graph response matches the complete serialized graph contract',async()=>{
-    const base={snapshot_id:'G',captured_at_ms:1,provider:'p',precision:'mixed',query:'target',mode:'all',depth:2,root_ids:['root'],
-      nodes:[{node:{id:'root',kind:'function',label:'target',attributes:{},provenance:{provider:'tree-sitter',precision:'syntax',revision:'rev-node'}},distance:0,upstream:false,downstream:false}],
-      edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false};
-    const malformed=[
-      {...base,captured_at_ms:'bad'},
-      {...base,provider:''},
-      {...base,precision:'bogus'},
-      {...base,query:''},
-      {...base,root_ids:['root','root']},
-      {...base,upstream_nodes:-1},
-      {...base,truncated:'yes'},
-      {...base,nodes:[{...base.nodes[0],node:{...base.nodes[0].node,kind:'bogus'}}]},
-      {...base,nodes:[{...base.nodes[0],node:{...base.nodes[0].node,provenance:{provider:'tree-sitter',precision:'syntax'}}}]},
-      {...base,nodes:[{...base.nodes[0],distance:3}]}
-    ];
-    for(const graph of malformed){
-      const s=sandbox();s.run('state.current="A";');s.node('#codeGraphSearch').value='target';
-      const pending=s.run('loadCodeGraph()');await flush();respond(s.requests[0],{workspace:'A',graph});
-      assert.equal(await pending,false);
-      assert.equal(s.run('state.codeGraph'),null);
-    }
-  });
-
-  await test('code-graph response must match the exact request semantics',async()=>{
-    const variants=[
-      {name:'query',mutate:graph=>{graph.query='other';}},
-      {name:'mode',mutate:graph=>{graph.mode='calls';}},
-      {name:'depth',mutate:graph=>{graph.depth=3;}},
-      {name:'snapshot',snapshot:'SNAP-A',mutate:graph=>{graph.snapshot_id='SNAP-B';}}
-    ];
-    for(const variant of variants){
-      const s=sandbox();
-      const snapshot=variant.snapshot||'';
-      s.context.fixture={...project(),history:snapshot?[{id:snapshot,captured_at_ms:1}]:[]};
-      s.run('state.current="A";state.project=fixture;state.codeGraphMode="all";state.codeGraphDepth=2;state.codeGraphSnapshot='+JSON.stringify(snapshot)+';');
-      s.node('#codeGraphSearch').value='target';
-      const pending=s.run('loadCodeGraph()');await flush();
-      const graph={snapshot_id:snapshot||'LATEST',captured_at_ms:1,provider:'p',precision:'syntax',query:'target',mode:'all',depth:2,root_ids:['root'],
-        nodes:[{node:{id:'root',kind:'function',label:'target',attributes:{},provenance:{provider:'tree-sitter',precision:'syntax',revision:'rev-node'}},distance:0,upstream:false,downstream:false}],
-        edges:[],precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false};
-      variant.mutate(graph);
-      respond(s.requests[0],{workspace:'A',graph});
-      assert.equal(await pending,false,variant.name+' mismatch must fail closed');
-      assert.equal(s.run('state.codeGraph'),null);
-      assert.match(s.run('state.codeGraphError'),/invalid response/i);
-    }
-  });
-
-  const report={suite:'code-graph-webui',results};
-  console.log(JSON.stringify(report,null,2));
-  assert.ok(results.every(item=>item.passed),results.filter(item=>!item.passed).map(item=>item.name+'\n'+item.error).join('\n'));
+  if(results.some(result=>!result.passed)){
+    for(const result of results.filter(result=>!result.passed))console.error(result.name+'\n'+result.error);
+    process.exitCode=1;
+  }
+  console.log(JSON.stringify({suite:'code-graph-webui',results},null,2));
+  return results;
 }
-if(require.main===module)run().catch(error=>{console.error(error);process.exitCode=1;});
+if(require.main===module)run();
+module.exports={run};

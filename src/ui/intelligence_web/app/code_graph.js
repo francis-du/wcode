@@ -1,9 +1,17 @@
+function setCodeGraphInspector(open) {
+  state.codeGraphInspectorOpen = Boolean(open);
+  els.codeGraphSection?.classList.toggle("code-graph-inspector-open", state.codeGraphInspectorOpen);
+  els.codeGraphInspector?.classList.toggle("hidden", !state.codeGraphInspectorOpen);
+  els.codeGraphInspector?.setAttribute("aria-hidden", String(!state.codeGraphInspectorOpen));
+  els.codeGraphInspectorToggle?.setAttribute("aria-pressed", String(state.codeGraphInspectorOpen));
+}
 function setCodeGraphFull(full) {
   const active = Boolean(full);
   state.codeGraphFull = active;
   const section = els.codeGraphSection;
   section?.classList.toggle("code-graph-fullscreen", active);
   if (active) {
+    setCodeGraphInspector(false);
     section?.setAttribute("role", "dialog");
     section?.setAttribute("aria-modal", "true");
   } else {
@@ -20,6 +28,9 @@ function setCodeGraphFull(full) {
 }
 function codeGraphPath(node) {
   return node?.attributes?.path || "";
+}
+function codeGraphDisplayKind(node) {
+  return node?.attributes?.source_kind || node?.kind || "symbol";
 }
 function codeGraphPrecisionCounts(graph) {
   return Object.entries(graph?.precision_counts || {}).sort((a, b) => b[1] - a[1]);
@@ -59,6 +70,35 @@ function codeGraphLayer(item, roots) {
   const distance = Math.max(1, Number(item.distance) || 1);
   return item.upstream ? -distance : distance;
 }
+function codeGraphViewKey(graph = state.codeGraph) {
+  if (state.codeGraphView === "overview") return `${state.current}|overview|${state.codeGraphSnapshot || "latest"}`;
+  const roots = [...(graph?.root_ids || [])].sort().join(",");
+  return `${state.current}|focus|${state.codeGraphSnapshot || "latest"}|${roots}|${graph?.mode || state.codeGraphMode}|${graph?.depth || state.codeGraphDepth}`;
+}
+function captureCodeGraphViewport(graph = state.codeGraph) {
+  const viewport = els.codeGraphMap?.querySelector(".code-graph-viewport");
+  if (!viewport) return;
+  state.codeGraphViewports.set(codeGraphViewKey(graph), {
+    left: viewport.scrollLeft,
+    top: viewport.scrollTop,
+  });
+}
+function bindCodeGraphViewport(graph = state.codeGraph) {
+  const viewport = els.codeGraphMap?.querySelector(".code-graph-viewport");
+  if (!viewport) return;
+  const key = codeGraphViewKey(graph);
+  const saved = state.codeGraphViewports.get(key);
+  if (saved) {
+    viewport.scrollLeft = saved.left;
+    viewport.scrollTop = saved.top;
+  }
+  viewport.addEventListener("scroll", () => {
+    state.codeGraphViewports.set(key, {
+      left: viewport.scrollLeft,
+      top: viewport.scrollTop,
+    });
+  }, { passive: true });
+}
 function codeGraphLayout(graph) {
   const roots = new Set(graph.root_ids || []);
   const groups = new Map();
@@ -70,37 +110,54 @@ function codeGraphLayout(graph) {
   const layers = [...groups.keys()].sort((a, b) => a - b);
   const nodeWidth = 210, nodeHeight = 72, rowGap = 26, columnGap = 38, layerGap = 86;
   const maxRows = 8, padX = 44, padY = 44;
-  const positions = new Map();
-  let cursorX = padX, maxRowsUsed = 1;
+  const fresh = new Map();
+  let cursorX = padX;
   for (const layer of layers) {
     const items = groups.get(layer);
-    items.sort((a, b) => {
-      const left = String(a.node?.label || a.node?.id || "");
-      const right = String(b.node?.label || b.node?.id || "");
-      return left < right ? -1 : left > right ? 1 : 0;
-    });
+    items.sort((a, b) => String(a.node?.id || "").localeCompare(String(b.node?.id || "")));
     const columns = Math.max(1, Math.ceil(items.length / maxRows));
     const bandWidth = columns * nodeWidth + Math.max(0, columns - 1) * columnGap;
     items.forEach((item, index) => {
       const column = Math.floor(index / maxRows), row = index % maxRows;
-      positions.set(item.node.id, {
+      fresh.set(item.node.id, {
         x: cursorX + column * (nodeWidth + columnGap),
         y: padY + row * (nodeHeight + rowGap),
         layer,
         item,
       });
     });
-    maxRowsUsed = Math.max(maxRowsUsed, Math.min(maxRows, items.length));
     cursorX += bandWidth + layerGap;
   }
-  return {
-    roots,
-    positions,
-    nodeWidth,
-    nodeHeight,
-    width: Math.max(760, cursorX - layerGap + padX),
-    height: Math.max(420, padY * 2 + maxRowsUsed * nodeHeight + Math.max(0, maxRowsUsed - 1) * rowGap),
-  };
+  const key = codeGraphViewKey(graph), cached = state.codeGraphLayouts.get(key) || new Map();
+  const positions = new Map(), used = new Set();
+  for (const item of graph.nodes || []) {
+    const id = item.node?.id, next = fresh.get(id), previous = cached.get(id);
+    if (!id || !next) continue;
+    if (previous && previous.layer === next.layer) {
+      positions.set(id, { ...previous, item });
+      used.add(`${previous.x}:${previous.y}`);
+    }
+  }
+  for (const item of graph.nodes || []) {
+    const id = item.node?.id, base = fresh.get(id);
+    if (!id || !base || positions.has(id)) continue;
+    let x = base.x, y = base.y, attempts = 0;
+    while (used.has(`${x}:${y}`) && attempts++ < 64) {
+      y += nodeHeight + rowGap;
+      if (y > padY + 11 * (nodeHeight + rowGap)) {
+        y = padY;
+        x += nodeWidth + columnGap;
+      }
+    }
+    positions.set(id, { x, y, layer: base.layer, item });
+    used.add(`${x}:${y}`);
+  }
+  state.codeGraphLayouts.set(key, new Map([...positions].map(([id, p]) => [id, { x:p.x, y:p.y, layer:p.layer }])));
+  if (state.codeGraphLayouts.size > 24) state.codeGraphLayouts.delete(state.codeGraphLayouts.keys().next().value);
+  const values = [...positions.values()];
+  const width = values.reduce((max, p) => Math.max(max, p.x + nodeWidth + padX), 760);
+  const height = values.reduce((max, p) => Math.max(max, p.y + nodeHeight + padY), 420);
+  return { roots, positions, nodeWidth, nodeHeight, width, height };
 }
 function codeGraphEdgePath(edge, layout) {
   const from = layout.positions.get(edge.from), to = layout.positions.get(edge.to);
@@ -141,12 +198,12 @@ function codeGraphDiagram(graph) {
     const direction = root ? localized("focus", "中心") : item.upstream ? `↑${item.distance || 1}` : `↓${item.distance || 1}`;
     const label = codeGraphShortText(node.label || node.id || "—", 27);
     const path = codeGraphShortText(codeGraphPath(node), 34);
-    const title = [node.label || node.id, codeGraphPath(node), statusLabel(node.kind || "symbol")].filter(Boolean).join(" · ");
+    const title = [node.label || node.id, codeGraphPath(node), statusLabel(codeGraphDisplayKind(node))].filter(Boolean).join(" · ");
     return `<g class="${classes}" transform="translate(${position.x} ${position.y})" data-code-node="${esc(node.id || "")}" role="button" tabindex="0" aria-label="${esc(title)}">
       <title>${esc(title)}</title>
       <rect width="${layout.nodeWidth}" height="${layout.nodeHeight}" rx="14"></rect>
       ${changed ? `<line class="code-graph-node-change" x1="1" y1="14" x2="1" y2="${layout.nodeHeight - 14}"></line>` : ""}
-      <text class="code-graph-svg-kind" x="14" y="19">${esc(statusLabel(node.kind || "symbol"))}</text>
+      <text class="code-graph-svg-kind" x="14" y="19">${esc(statusLabel(codeGraphDisplayKind(node)))}</text>
       <text class="code-graph-svg-distance" x="${layout.nodeWidth - 14}" y="19" text-anchor="end">${esc(direction)}</text>
       <text class="code-graph-svg-label" x="14" y="43">${esc(label)}</text>
       ${path ? `<text class="code-graph-svg-path" x="14" y="61">${esc(path)}</text>` : ""}
@@ -201,7 +258,7 @@ function renderCodeGraphInspector() {
       : item.upstream
         ? localized("upstream / blast radius", "上游 / 影响半径")
         : localized("downstream / dependency", "下游 / 依赖");
-  els.codeGraphInspector.innerHTML = `<div class="inspector-kind">${esc(statusLabel(node.kind || "symbol"))}</div>
+  els.codeGraphInspector.innerHTML = `<div class="inspector-kind">${esc(statusLabel(codeGraphDisplayKind(node)))}</div>
     <h3>${esc(node.label || node.id)}</h3>
     <div class="inspector-path">${esc(codeGraphPath(node) || node.id)}</div>
     <div class="pills">
@@ -271,12 +328,21 @@ function wireCodeGraphEmptyActions() {
     const query = button.dataset.codeGraphQuery || "";
     if (!query || !els.codeGraphSearch) return;
     els.codeGraphSearch.value = query;
-    void loadCodeGraph();
+    void searchCodeGraph(query);
   }));
 }
+
+
 function renderCodeGraph() {
   if (!els.codeGraphMap || !els.codeGraphSummary) return;
   syncCodeGraphSnapshots();
+  els.codeGraphSection?.classList.toggle("code-graph-overview-mode", state.codeGraphView === "overview");
+  document.querySelectorAll("[data-code-graph-view]").forEach(button =>
+    button.classList.toggle("active", button.dataset.codeGraphView === state.codeGraphView));
+  if (state.codeGraphView === "overview") {
+    renderCodeGraphOverview();
+    return;
+  }
   const graph = state.codeGraph;
   if (state.codeGraphLoading && !graph) {
     els.codeGraphMap.innerHTML = `<div class="code-graph-empty code-graph-loading"><div><strong>${esc(localized("Building the engineering graph…", "正在构建工程图谱…"))}</strong><span>${esc(localized("Calls, impact and provenance stay bounded by the selected depth.", "调用、影响与来源关系会按选定深度有界展开。"))}</span></div></div>`;
@@ -290,6 +356,7 @@ function renderCodeGraph() {
     renderCodeGraphInspector();
     return;
   }
+  captureCodeGraphViewport(graph);
   const precision = codeGraphPrecisionCounts(graph), relations = codeGraphRelationSummary(graph);
   els.codeGraphSummary.innerHTML = `<div class="code-graph-summary-main">
     <strong>${graph.nodes.length} ${esc(localized("nodes", "个节点"))} · ${graph.edges.length} ${esc(localized("edges", "条边"))}</strong>
@@ -314,12 +381,13 @@ function renderCodeGraph() {
       void loadCodeGraph({ nodeId: node.dataset.codeNode });
     });
   });
+  bindCodeGraphViewport(graph);
   renderCodeGraphInspector();
 }
 function validCodeGraphResponse(data) {
   const graph = data?.graph;
   const precisions = ["declared", "syntax", "semantic", "runtime", "deterministic", "heuristic", "mixed"];
-  const nodeKinds = ["package", "module", "file", "symbol", "function", "struct", "trait", "class", "interface", "api", "test"];
+  const nodeKinds = ["package", "module", "file", "symbol", "function", "struct", "trait", "class", "enum", "interface", "api", "test"];
   const edgeKinds = ["contains", "defines", "references", "calls", "imports", "depends_on", "implements", "extends", "runtime_calls"];
   const nonNegativeInteger = value => Number.isInteger(Number(value)) && Number(value) >= 0;
   if (!(
@@ -387,51 +455,56 @@ function codeGraphResponseMatchesRequest(graph, expected) {
     Number(graph.depth) === expected.depth &&
     (!expected.snapshot || graph.snapshot_id === expected.snapshot);
 }
+
+
 function clearCodeGraphSearchState() {
-  const controller = state.codeGraphController;
+  clearTimeout(state.codeGraphSearchTimer);
+  state.codeGraphSearchTimer = null;
+  state.codeGraphSearchController?.abort();
+  state.codeGraphSearchController = null;
+  state.codeGraphController?.abort();
   state.codeGraphController = null;
   state.codeGraphLoading = false;
-  controller?.abort();
-  state.codeGraph = null;
-  state.codeGraphWorkspace = "";
   state.codeGraphQuery = "";
+  state.codeGraphSearchResults = [];
   state.selectedCodeNode = "";
   state.codeGraphError = "";
-  renderCodeGraph();
+  renderCodeGraphSearchResults();
+  setCodeGraphView("overview", { load: false });
+  if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) renderCodeGraph();
+  else void loadCodeGraphOverview();
 }
 async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
-  const inputQuery = (els.codeGraphSearch?.value || "").trim();
-  const query = nodeId
-    ? (state.codeGraphQuery || inputQuery).trim()
-    : String(requestedQuery ?? inputQuery).trim();
-  if (!nodeId && query.length < 2) {
-    clearCodeGraphSearchState();
-    return false;
-  }
-  if (!nodeId && codeGraphLooksLikeDesignPath(query)) {
-    state.codeGraph = null;
-    state.codeGraphWorkspace = "";
-    state.selectedCodeNode = "";
-    state.codeGraphError = localized("Code Graph only shows source-code entities and relationships. Search a source file, function, type or module instead.", "代码图谱只展示源码实体和代码关系。请搜索源码文件、函数、类型或模块。");
-    renderCodeGraph();
-    return false;
+  const query = String(requestedQuery ?? els.codeGraphSearch?.value ?? "").trim();
+  if (!nodeId) {
+    if (query.length < 2) {
+      clearCodeGraphSearchState();
+      return false;
+    }
+    return searchCodeGraph(query);
   }
   const expected = {
-    query: nodeId || query,
+    query: nodeId,
     mode: state.codeGraphMode || "all",
     depth: Number(state.codeGraphDepth || 2),
     snapshot: state.codeGraphSnapshot || "",
   };
+  captureCodeGraphViewport(state.codeGraph);
   state.codeGraphController?.abort();
   const controller = new AbortController();
   state.codeGraphController = controller;
-  state.codeGraphLoading = true; state.codeGraphError = ""; renderCodeGraph();
-  const params = new URLSearchParams();
-  if (nodeId) params.set("node_id", nodeId); else params.set("q", query);
-  params.set("mode", expected.mode);
+  state.codeGraphLoading = true;
+  state.codeGraphError = "";
+  state.codeGraphView = "focus";
+  renderCodeGraph();
+  const params = new URLSearchParams({
+    view: "focus",
+    node_id: nodeId,
+    mode: expected.mode,
+    depth: String(expected.depth),
+    limit: "140",
+  });
   if (expected.snapshot) params.set("snapshot_id", expected.snapshot);
-  params.set("depth", String(expected.depth));
-  params.set("limit", "140");
   try {
     const data = await uiJson(`/intelligence/code-graph?${params}`, "GET", undefined, {
       workspace: state.current,
@@ -440,29 +513,28 @@ async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
     });
     if (controller.signal.aborted || data.workspace !== state.current) return false;
     if (!validCodeGraphResponse(data) || !codeGraphResponseMatchesRequest(data.graph, expected)) {
-      const invalid = new Error(localized("Invalid code graph response", "代码图谱响应无效"));
-      invalid.code = "invalid_response";
-      throw invalid;
+      throw new Error(localized("Invalid focused code graph response", "聚焦代码图谱响应无效"));
     }
-    state.codeGraph = data.graph; state.codeGraphWorkspace = data.workspace;
-    state.codeGraphQuery = nodeId ? data.graph?.query || query : query;
-    state.selectedCodeNode = data.graph?.root_ids?.[0] || "";
+    const previousSelected = state.selectedCodeNode;
+    state.codeGraph = data.graph;
+    state.codeGraphWorkspace = data.workspace;
+    state.codeGraphQuery = query || data.graph.query;
+    state.codeGraphView = "focus";
+    state.selectedCodeNode = data.graph.nodes.some(item => item.node?.id === previousSelected)
+      ? previousSelected
+      : data.graph.root_ids?.[0] || "";
     renderCodeGraph();
     return true;
   } catch (error) {
     if (!controller.signal.aborted) {
-      state.codeGraph = null;
-      state.codeGraphWorkspace = "";
-      state.selectedCodeNode = "";
-      state.codeGraphError = error?.status === 400 && /no code graph symbol matches the requested chain root/i.test(error?.message || "")
-        ? localized("No observable graph node matches this query yet. Try a project signal below or refresh the latest graph.", "当前还没有可观测图谱节点匹配该查询。可从下方项目真实信号进入，或刷新最新图谱。")
-        : requestFailureMessage(error);
+      state.codeGraphError = requestFailureMessage(error);
       renderCodeGraph();
     }
     return false;
   } finally {
     if (state.codeGraphController === controller) {
-      state.codeGraphController = null; state.codeGraphLoading = false;
+      state.codeGraphController = null;
+      state.codeGraphLoading = false;
       renderCodeGraph();
     }
   }
@@ -488,54 +560,84 @@ function codeGraphDefaultQuery() {
 }
 function maybeLoadCodeGraph() {
   if (state.workspaceTab !== "architecture" || state.architectureView !== "codegraph" || state.codeGraphLoading) return;
-  if (state.codeGraph && state.codeGraphWorkspace === state.current) {
-    renderCodeGraph();
+  if (state.codeGraphView === "overview") {
+    if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) renderCodeGraph();
+    else void loadCodeGraphOverview();
     return;
   }
-  // Paint the empty/loading state first. Automatic discovery may use a bounded
-  // source-code seed internally, but the search box remains user-owned input.
-  renderCodeGraph();
-  const inputQuery = (els.codeGraphSearch?.value || "").trim();
-  if (inputQuery.length >= 2) {
-    void loadCodeGraph();
-    return;
-  }
-  const seed = codeGraphDefaultQuery();
-  if (seed) void loadCodeGraph({ query: seed });
+  if (state.codeGraph && state.codeGraphWorkspace === state.current) renderCodeGraph();
+  else renderCodeGraph();
 }
 function reloadCodeGraphFromCurrentContext() {
-  const inputQuery = (els.codeGraphSearch?.value || "").trim();
-  if (inputQuery) return void loadCodeGraph();
-  if (state.selectedCodeNode) return void loadCodeGraph({ nodeId: state.selectedCodeNode });
-  if (state.codeGraphQuery) void loadCodeGraph({ query: state.codeGraphQuery });
+  if (state.codeGraphView === "overview") return void loadCodeGraphOverview();
+  const root = state.codeGraph?.root_ids?.[0] || state.selectedCodeNode;
+  if (root) return void loadCodeGraph({ nodeId: root, query: state.codeGraphQuery });
+  renderCodeGraph();
 }
 function wireCodeGraph() {
   if (!els.codeGraphSearch) return;
+  document.querySelectorAll("[data-code-graph-view]").forEach(button => {
+    button.addEventListener("click", () => {
+      const view = button.dataset.codeGraphView;
+      if (view === "focus" && !state.codeGraph?.nodes?.length && state.selectedCodeNode) {
+        void loadCodeGraph({ nodeId: state.selectedCodeNode, query: state.codeGraphQuery });
+        return;
+      }
+      setCodeGraphView(view);
+    });
+  });
   els.codeGraphSearch.addEventListener("keydown", event => {
-    if (event.key === "Enter") { event.preventDefault(); void loadCodeGraph(); }
+    if (event.key === "Escape") {
+      state.codeGraphSearchResults = [];
+      renderCodeGraphSearchResults();
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (state.codeGraphSearchResults.length) {
+      chooseCodeGraphSearchResult(0);
+      return;
+    }
+    void searchCodeGraph().then(() => {
+      if (state.codeGraphSearchResults.length) chooseCodeGraphSearchResult(0);
+    });
   });
   els.codeGraphSearch.addEventListener("input", () => {
-    if (!(els.codeGraphSearch.value || "").trim()) clearCodeGraphSearchState();
+    clearTimeout(state.codeGraphSearchTimer);
+    const query = (els.codeGraphSearch.value || "").trim();
+    if (!query) {
+      clearCodeGraphSearchState();
+      return;
+    }
+    state.codeGraphSearchTimer = setTimeout(() => void searchCodeGraph(query), 180);
   });
   els.codeGraphSearch.addEventListener("search", () => {
-    if ((els.codeGraphSearch.value || "").trim()) void loadCodeGraph();
+    const query = (els.codeGraphSearch.value || "").trim();
+    if (query) void searchCodeGraph(query);
     else clearCodeGraphSearchState();
   });
   document.querySelectorAll("[data-code-graph-mode]").forEach(button => {
     button.addEventListener("click", () => {
+      if (state.codeGraphView !== "focus") return;
       state.codeGraphMode = button.dataset.codeGraphMode;
       document.querySelectorAll("[data-code-graph-mode]").forEach(item => item.classList.toggle("active", item === button));
       reloadCodeGraphFromCurrentContext();
     });
   });
   els.codeGraphSnapshot?.addEventListener("change", () => {
+    captureCodeGraphViewport();
     state.codeGraphSnapshot = els.codeGraphSnapshot.value || "";
+    state.codeGraphSearchResults = [];
     state.selectedCodeNode = "";
+    renderCodeGraphSearchResults();
     reloadCodeGraphFromCurrentContext();
   });
   els.codeGraphDepth?.addEventListener("change", () => {
+    if (state.codeGraphView !== "focus") return;
     state.codeGraphDepth = Number(els.codeGraphDepth.value) || 2;
     reloadCodeGraphFromCurrentContext();
   });
+  els.codeGraphInspectorToggle?.addEventListener("click", () => setCodeGraphInspector(!state.codeGraphInspectorOpen));
   els.codeGraphFull?.addEventListener("click", () => setCodeGraphFull(!state.codeGraphFull));
+  setCodeGraphView(state.codeGraphView || "overview", { load: false });
 }

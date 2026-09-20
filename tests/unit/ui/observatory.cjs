@@ -377,7 +377,7 @@ async function run(){
       ],
       upstream_nodes:1,downstream_nodes:1,truncated:false,precision_counts:{syntax:3}
     };
-    s.run('state.project=fixture;state.codeGraph=graphFixture;state.selectedCodeNode="root";renderCodeGraph();');
+    s.run('state.project=fixture;state.codeGraphView="focus";state.codeGraph=graphFixture;state.selectedCodeNode="root";renderCodeGraph();');
     const html=s.node('#codeGraphMap').innerHTML;
     assert.ok(html.includes('<svg class="code-graph-diagram"'));assert.ok(html.includes('marker-end="url(#codeGraphArrow)"'));
     assert.ok(html.includes('data-code-node="root"'));assert.ok(html.includes('class="code-graph-edge-path selected"'));assert.ok(!html.includes('code-graph-lanes'));
@@ -475,5 +475,10 @@ async function run(){
   console.log(JSON.stringify(report,null,2));
   assert.ok(results.every(r=>r.passed),results.filter(r=>!r.passed).map(r=>r.name).join('\n'));
 }
-if(require.main===module)run().catch(error=>{console.error(error);process.exitCode=1;});
+if(require.main===module){
+  const keepAlive=setInterval(()=>{},1000);
+  run()
+    .catch(error=>{console.error(error);process.exitCode=1;})
+    .finally(()=>clearInterval(keepAlive));
+}
 module.exports={sandbox,project,respond,flush,stripRuntimeBootstrap};
