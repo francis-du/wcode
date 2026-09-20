@@ -72,11 +72,38 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
 }
 
 pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> bool {
+    if bounded_full_access_command(program, args) {
+        return false;
+    }
     let bounded = WorkspaceSecurity {
         allow_risky_exec: LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program),
         ..WorkspaceSecurity::default()
     };
     validate_command_policy(program, args, bounded).is_err()
+}
+
+fn bounded_full_access_command(program: &str, args: &[String]) -> bool {
+    if program == "git" {
+        if matches!(args, [command, flag] if command == "describe" && flag == "--always") {
+            return true;
+        }
+        let bounded = WorkspaceSecurity {
+            allow_risky_exec: true,
+            ..WorkspaceSecurity::default()
+        };
+        return validate_command_policy(program, args, bounded).is_ok();
+    }
+    matches!(
+        (program, args),
+        (
+            "sh" | "bash" | "dash" | "zsh",
+            [flag, path]
+        ) if flag == "-n"
+            && !path.is_empty()
+            && !path.starts_with('-')
+            && !path.contains(['/', '\\'])
+            && !path.chars().any(char::is_control)
+    )
 }
 
 pub(super) fn validate_command_policy(

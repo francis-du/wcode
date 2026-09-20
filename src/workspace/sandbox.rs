@@ -61,22 +61,20 @@ pub(super) fn broad_execution_requires_sandbox(
 
 pub(super) fn command_requires_sandbox(
     unrestricted_commands: bool,
-    allow_exec: bool,
-    allow_write: bool,
+    _allow_exec: bool,
+    _allow_write: bool,
     program: &str,
     args: &[String],
 ) -> bool {
     if !unrestricted_commands {
         return false;
     }
+    // Full Access is the explicit authority to cross the base exec/write
+    // switches. The strong sandbox is only for command shapes that still fall
+    // outside wcode's bounded policy, never as a second authorization layer for
+    // already validated Git/development operations.
     let policy_bypass = super::command_requires_broad_sandbox(program, args);
-    let write_bypass = !allow_write
-        && super::command_requires_workspace_write(program, args)
-        && super::validate_verification_command_shape(program, args).is_err();
-    broad_execution_requires_sandbox(
-        unrestricted_commands,
-        allow_exec && !policy_bypass && !write_bypass,
-    )
+    broad_execution_requires_sandbox(unrestricted_commands, !policy_bypass)
 }
 
 pub(crate) fn status() -> ExecutionSandboxStatus {

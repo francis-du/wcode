@@ -30,19 +30,36 @@ fn broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only()
         "cargo",
         &["test".into()],
     ));
-    assert!(command_requires_sandbox(
+    assert!(!command_requires_sandbox(
         true,
         false,
         true,
         "cargo",
         &["--version".into()],
     ));
-    assert!(command_requires_sandbox(
+    assert!(!command_requires_sandbox(
         true,
         true,
         false,
         "cargo",
         &["fmt".into()],
+    ));
+    for git_args in [
+        vec!["add".into(), "-A".into()],
+        vec!["describe".into(), "--always".into()],
+        vec!["tag".into()],
+    ] {
+        assert!(
+            !command_requires_sandbox(true, false, false, "git", &git_args),
+            "bounded Git must stay direct under Full Access: {git_args:?}"
+        );
+    }
+    assert!(!command_requires_sandbox(
+        true,
+        false,
+        false,
+        "sh",
+        &["-n".into(), "syntax.sh".into()],
     ));
 }
 
