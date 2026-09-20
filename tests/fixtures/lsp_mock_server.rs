@@ -18,7 +18,7 @@ fn main() -> io::Result<()> {
                 respond(
                     &mut output,
                     &format!(
-                        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"capabilities":{{"positionEncoding":"utf-8","textDocumentSync":{{"openClose":true,"change":2}},"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true,"implementationProvider":true,"hoverProvider":true,"callHierarchyProvider":true}}}}}}"#
+                        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"capabilities":{{"positionEncoding":"utf-8","textDocumentSync":{{"openClose":true,"change":2}},"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true,"implementationProvider":true,"hoverProvider":true,"callHierarchyProvider":true,"renameProvider":{{"prepareProvider":true}}}}}}}}"#
                     ),
                 )?;
             }
@@ -31,6 +31,30 @@ fn main() -> io::Result<()> {
                         &mut output,
                         &format!(
                             r#"{{"jsonrpc":"2.0","id":{id},"result":{{"contents":"mock-hover"}}}}"#
+                        ),
+                    )?;
+                }
+            }
+            "textDocument/prepareRename" => {
+                if let Some(id) = id {
+                    respond(
+                        &mut output,
+                        &format!(
+                            r#"{{"jsonrpc":"2.0","id":{id},"result":{{"range":{{"start":{{"line":0,"character":0}},"end":{{"line":0,"character":3}}}},"placeholder":"one"}}}}"#
+                        ),
+                    )?;
+                }
+            }
+            "textDocument/rename" => {
+                if let Some(id) = id {
+                    let uri = json_string_field(&body, "uri")
+                        .unwrap_or_else(|| "file:///wcode-conformance/mock.txt".to_owned());
+                    let new_name =
+                        json_string_field(&body, "newName").unwrap_or_else(|| "renamed".to_owned());
+                    respond(
+                        &mut output,
+                        &format!(
+                            r#"{{"jsonrpc":"2.0","id":{id},"result":{{"changes":{{"{uri}":[{{"range":{{"start":{{"line":0,"character":0}},"end":{{"line":0,"character":3}}}},"newText":"{new_name}"}}]}}}}}}"#
                         ),
                     )?;
                 }

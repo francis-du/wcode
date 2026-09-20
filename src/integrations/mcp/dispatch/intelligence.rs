@@ -233,6 +233,8 @@ pub(super) async fn call(
                 character,
                 intent,
                 max_results,
+                new_name: string_arg(args, "new_name").map(str::to_owned),
+                max_files: usize_arg(args, "max_files").unwrap_or(32),
             };
             state
                 .harness

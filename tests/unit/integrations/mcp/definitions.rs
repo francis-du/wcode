@@ -452,6 +452,17 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
         .is_none());
     assert!(names.contains("agent_context"));
     assert!(names.contains("semantic_navigation"));
+    let semantic_navigation = first
+        .iter()
+        .find(|tool| tool["name"] == "semantic_navigation")
+        .unwrap();
+    assert!(
+        semantic_navigation["inputSchema"]["properties"]["intent"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|intent| intent == "rename_plan")
+    );
     assert!(names.contains("verify_project"));
     assert!(names.contains("apply_file_edits"));
     let review = first

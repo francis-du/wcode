@@ -81,6 +81,10 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .get("query")
         .and_then(Value::as_str)
         .is_some_and(query_needs_semantic_relationships);
+    let semantic_rename_task = value
+        .get("query")
+        .and_then(Value::as_str)
+        .is_some_and(query_requests_semantic_rename);
     let recommend_semantic_navigation =
         semantic_relationship_task && graph_precision == "syntax" && targets > 0;
     let semantic_provider_actions = value
@@ -159,6 +163,9 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     if recommend_semantic_navigation {
         advisories.push("semantic_navigation_recommended");
     }
+    if semantic_rename_task {
+        advisories.push("semantic_rename_plan_required");
+    }
     if semantic_provider_authorization {
         advisories.push("lsp_authorization_required");
     }
@@ -189,6 +196,11 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     } else {
         "apply_file_edits"
     };
+    let guarded_edit_tool = if semantic_rename_task {
+        "apply_file_edits"
+    } else {
+        edit_tool
+    };
     let mut next_actions = Vec::<&str>::new();
     let push_semantic_setup = |next_actions: &mut Vec<&'static str>| {
         if !recommend_semantic_navigation {
@@ -211,7 +223,7 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     match edit {
         "ready" => {
             push_semantic_setup(&mut next_actions);
-            next_actions.push(edit_tool);
+            next_actions.push(guarded_edit_tool);
         }
         "needs_source" => {
             push_semantic_setup(&mut next_actions);
@@ -220,18 +232,18 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
             } else {
                 "symbol_context"
             });
-            next_actions.push(edit_tool);
+            next_actions.push(guarded_edit_tool);
         }
         "needs_target" => {
             next_actions.push("find_symbol");
             push_semantic_setup(&mut next_actions);
             next_actions.push("symbol_context");
-            next_actions.push(edit_tool);
+            next_actions.push(guarded_edit_tool);
         }
         "needs_sha" => {
             push_semantic_setup(&mut next_actions);
             next_actions.push("path_info");
-            next_actions.push(edit_tool);
+            next_actions.push(guarded_edit_tool);
         }
         "read_only_workspace" | "read_only_target" => {}
         _ => {}
@@ -355,7 +367,7 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "direct_target_files": target_paths.len(),
         "sha_targets": sha_files,
         "editable_sha_targets": editable_files,
-        "recommended_edit_tool": edit_tool,
+        "recommended_edit_tool": guarded_edit_tool,
         "verification_refs": tests.len(),
         "resolved_verification_refs": resolved_tests,
         "graph_truncated": graph_truncated,
@@ -363,6 +375,9 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "convention_scan_truncated": convention_scan_truncated,
         "advisories": advisories,
     });
+    if semantic_rename_task {
+        value["readiness"]["semantic_navigation_intent"] = json!("rename_plan");
+    }
     if compact_output {
         let readiness = value["readiness"]
             .as_object_mut()
@@ -463,6 +478,10 @@ pub(super) fn query_requests_architecture_change(query: &str) -> bool {
 
 pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
     super::super::harness_retrieval::query_needs_semantic_relationships(query)
+}
+
+pub(super) fn query_requests_semantic_rename(query: &str) -> bool {
+    super::super::harness_retrieval::query_requests_semantic_rename(query)
 }
 
 pub(super) fn covered_repo_map_precision(value: &Value) -> &'static str {

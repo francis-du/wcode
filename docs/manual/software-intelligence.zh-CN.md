@@ -382,7 +382,7 @@ Auto Execution 是 Provider-specific Safety Profile，不是“LSP 全部免授�
 
 ### `semantic_navigation`
 
-`semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee，或一组有界的 Impact 关系。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 LSP Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。
+`semantic_navigation` 专门解决纯文本搜索不完整的 Relationship 问题：需要语义解析的 Definition / Hover、Reference、Implementation、Incoming Caller、Outgoing Callee、有界 Impact 关系，以及受保护的语义 Rename 计划。优先传 `path + symbol`；wcode 先用 Tree-sitter 定位 Symbol，再把 1-based UTF-8 Byte Position 转成 LSP Server 协商出的 Position Encoding，因此 Agent 不需要自己算 UTF-16 Offset。已经掌握精确源码位置的调用方也可以直接传 `line + character`。Rename 使用 `intent=rename_plan` 并传 `new_name`：wcode 向 Live LSP 请求完整 WorkspaceEdit，拒绝外部路径、Resource Operation、部分 / 截断结果与过期 Range，把可接受范围转换成带当前 SHA 的 `apply_file_edits` 参数，但绝不自动落盘。Rename 不存在 Syntax Fallback；缺少语义完整性时直接 Fail Closed，不猜跨文件修改目标。
 
 `intent` 决定实际发哪些 LSP Request：`definition`、`hover`、`references`、`incoming_calls`、`outgoing_calls`、`calls`、`implementations`、`impact`。其中 `impact` 偏向跨文件完整性，只查询 Reference、Incoming Caller 和 Implementation，而不是把所有 LSP 能力都扫一遍。Result 会把 `unsupported` 与 `failures` 分开：空 Relationship List 只表示“这个能力受支持、请求成功、没有匹配关系”；LSP Timeout/Error 会单独暴露，绝不会被当成 Negative Semantic Evidence。没有可信 LSP Server 时，Tool 明确返回 `precision=syntax` 与 `routing=tree_sitter_fallback`，不会伪装成 Semantic Precision。普通“这个 Symbol 在哪”仍然使用 `find_symbol` / `search_code`，让 LSP 成本只花在真正需要 Semantic Completeness 的任务上。
 

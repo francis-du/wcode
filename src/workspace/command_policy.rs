@@ -808,6 +808,17 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     hardened
 }
 
+fn python_cache_isolation_prefix() -> &'static PathBuf {
+    static PREFIX: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PREFIX.get_or_init(|| {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!("wcode-python-cache-{}-{nonce}", std::process::id()))
+    })
+}
+
 pub(super) fn scrub_sensitive_environment(
     command: &mut Command,
     program: &str,
@@ -874,6 +885,11 @@ pub(super) fn scrub_sensitive_environment(
         }
     }
     command.env("NO_COLOR", "1");
+    if matches!(program, "python" | "python3" | "pytest") {
+        command
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("PYTHONPYCACHEPREFIX", python_cache_isolation_prefix());
+    }
     if program == "gh" {
         command
             .env("GH_PROMPT_DISABLED", "1")
@@ -929,6 +945,9 @@ where
     Ok((String::from_utf8_lossy(&stored).to_string(), truncated))
 }
 
+#[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_environment.rs"]
+mod environment_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/policy_polyglot.rs"]
 mod polyglot_tests;

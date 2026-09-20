@@ -16,6 +16,7 @@ pub enum SemanticNavigationIntent {
     Calls,
     Implementations,
     Impact,
+    RenamePlan,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -414,7 +415,7 @@ fn record_query_status(
     }
 }
 
-fn capability_enabled(capabilities: &Value, key: &str) -> bool {
+pub(super) fn capability_enabled(capabilities: &Value, key: &str) -> bool {
     capabilities
         .get(key)
         .is_some_and(|value| value.as_bool().unwrap_or(!value.is_null()))
@@ -526,7 +527,12 @@ fn same_location(left: &SemanticLocation, right: &SemanticLocation) -> bool {
     left.path == right.path && left.line == right.line && left.character == right.character
 }
 
-fn byte_column_to_lsp(content: &str, line: u64, column: u64, encoding: &str) -> Result<u64> {
+pub(super) fn byte_column_to_lsp(
+    content: &str,
+    line: u64,
+    column: u64,
+    encoding: &str,
+) -> Result<u64> {
     let text = content
         .split('\n')
         .nth(usize::try_from(line - 1).unwrap_or(usize::MAX))

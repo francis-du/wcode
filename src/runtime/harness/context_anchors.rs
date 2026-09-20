@@ -11,6 +11,7 @@ const MAX_ANCHOR_CHARS: usize = 1_600;
 struct Anchor {
     path: String,
     line: Option<usize>,
+    column: Option<usize>,
 }
 
 // Locations are evidence supplied by the caller, never an authorization grant
@@ -45,15 +46,40 @@ fn query_anchors(query: &str) -> Vec<Anchor> {
                 // silently become a valid line-one inspection.
                 anchor.line = Some(location_number(following(offset)));
             }
-            if seen.insert((anchor.path.clone(), anchor.line)) {
+            let identity = (anchor.path.clone(), anchor.line);
+            if seen.insert(identity.clone()) {
                 anchors.push(anchor);
                 if anchors.len() == MAX_ANCHORS {
                     return anchors;
+                }
+            } else if anchor.column.is_some() {
+                if let Some(existing) = anchors
+                    .iter_mut()
+                    .find(|existing| (existing.path.clone(), existing.line) == identity)
+                {
+                    if existing.column.is_none() {
+                        existing.column = anchor.column;
+                    }
                 }
             }
         }
     }
     anchors
+}
+
+pub(super) fn diagnostic_locations(query: &str) -> Vec<Value> {
+    query_anchors(query)
+        .into_iter()
+        .filter(|anchor| anchor.line.is_some())
+        .map(|anchor| {
+            json!({
+                "path": anchor.path,
+                "line": anchor.line,
+                "column": anchor.column,
+                "precision": "diagnostic_text"
+            })
+        })
+        .collect()
 }
 
 // Keep quoted paths (including whitespace) as one token. Do not decode escapes,
@@ -146,7 +172,7 @@ fn parse_anchor_word(word: &str) -> Option<Anchor> {
         return None;
     }
     let word = unquote_location(word);
-    let (path, line) = if let Some((path, point)) = word
+    let (path, line, column) = if let Some((path, point)) = word
         .rsplit_once('(')
         .filter(|(_, point)| point.ends_with(')'))
     {
@@ -160,11 +186,14 @@ fn parse_anchor_word(word: &str) -> Option<Anchor> {
             } else {
                 0
             }),
+            valid
+                .then(|| coordinates.get(1).map(|value| location_number(value)))
+                .flatten(),
         )
     } else {
         let word = word.trim_end_matches(')');
         if let Some((path, line)) = word.split_once("#L") {
-            (path, Some(location_number(line)))
+            (path, Some(location_number(line)), None)
         } else {
             let mut path = word;
             let mut numbers = Vec::new();
@@ -178,7 +207,11 @@ fn parse_anchor_word(word: &str) -> Option<Anchor> {
                 numbers.push(location_number(suffix));
                 path = prefix;
             }
-            (path, numbers.last().copied())
+            (
+                path,
+                numbers.last().copied(),
+                (numbers.len() == 2).then(|| numbers[0]),
+            )
         }
     };
     let path = unquote_location(path).replace('\\', "/");
@@ -193,7 +226,7 @@ fn parse_anchor_word(word: &str) -> Option<Anchor> {
         "env", "ini", "cfg", "xml", "sql", "proto", "graphql", "gql",
     ]
     .contains(&extension.as_str());
-    (canonical_source || auxiliary_source_or_config).then_some(Anchor { path, line })
+    (canonical_source || auxiliary_source_or_config).then_some(Anchor { path, line, column })
 }
 
 fn relative_anchor(workspace: &Workspace, path: &str) -> Option<String> {

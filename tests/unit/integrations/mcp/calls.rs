@@ -711,6 +711,26 @@ async fn syntax_index_tools_flow_through_mcp() {
             .unwrap()
             .contains("pub fn run")
     );
+
+    let rename = call_tool(
+        &state,
+        json!({
+            "name": "semantic_navigation",
+            "arguments": {
+                "path": "service.rs",
+                "symbol": "Service::run",
+                "intent": "rename_plan",
+                "new_name": "execute"
+            }
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rename["isError"], true);
+    assert!(rename["structuredContent"]["error"]
+        .as_str()
+        .unwrap()
+        .contains("no syntax fallback"));
 }
 
 #[tokio::test]

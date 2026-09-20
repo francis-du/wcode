@@ -299,7 +299,7 @@ evidence_status
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
 | `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / 自动运行资格，或强制执行一次有界 Refresh。只有真实完成 Initialize 后 `runnable` 才为 true。 |
-| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation 或跨文件 Impact。普通定位继续优先 Syntax/Search；无可信 LSP Server 时明确回退 Tree-sitter；`unsupported` Capability、LSP `failures` 与成功但为空的 Relationship Set 会明确区分。 |
+| `semantic_navigation` | 复用 Warm LSP Session，以 Symbol-first 方式查询 Definition/Hover、Reference、Incoming/Outgoing Call、Implementation、跨文件 Impact，或生成 `rename_plan`。只读 Navigation 可明确回退 Tree-sitter/Search；Rename 绝不回退猜测。`rename_plan` 要求 `symbol + new_name`，返回完整、带当前 SHA 的 `apply_file_edits` 计划，拒绝外部路径、Resource Operation、过期或部分编辑，并且不会自动写文件。 |
 | `language_quality_status` / `language_quality_run` | 22 语言 Syntax / 已 Initialize Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵；只有 declared + available + check-only + runnable Provider 才算 Covered，一个 Provider 可用有界 `covers` 同时贡献多个 Dimension 而不重复执行。 |
 
 `semantic_provider_status` 的细节：它会暴露选中 Provider、Discovery 来源、`action`、`canonical`、`available_candidates`、`launch_ready` 与 `session_validated`；Go 在 PATH 未找到 `gopls` 时还会检查 `$GOBIN`、`$GOPATH/bin` 与 `~/go/bin`。Provider 失败会区分 Discovery / Authorization / Spawn / Initialize / Protocol 阶段并给出下一步，不再只暴露裸 OS 错误；Refresh 用 `fallbacks` 报告 Canonical→Alternate 恢复。22 种索引语言每一种都有一个经过测试的 Canonical Launch Profile。只有拥有显式 Automatic Hardening Profile 的 Provider 才会后台自动维护；当前自动 Profile 是 `rust-analyzer`，其余 Provider 在未来新增 Hardened Profile 前继续要求显式信任。

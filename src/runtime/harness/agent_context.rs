@@ -28,6 +28,10 @@ use context_budget::{serialized_json_bytes, trim_agent_context_from_tokens};
 mod fast_context_tests;
 
 const MIN_AGENT_CONTEXT_BUDGET: usize = 1_000;
+
+pub(crate) fn diagnostic_locations(query: &str) -> Vec<Value> {
+    context_anchors::diagnostic_locations(query)
+}
 const MAX_AGENT_CONTEXT_BUDGET: usize = 12_000;
 const MAX_AGENT_GUIDANCE: usize = 2;
 const MAX_AGENT_DESIGN_ITEMS: usize = 6;

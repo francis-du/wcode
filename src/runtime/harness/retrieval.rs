@@ -303,6 +303,17 @@ pub(super) fn explicit_query_paths(context: &SoftwareContext, query: &str) -> Ve
         .collect()
 }
 
+pub(super) fn query_requests_semantic_rename(query: &str) -> bool {
+    let query = intent_query(query);
+    (query.contains("rename")
+        && (query.contains(" to ")
+            || query.contains(" as ")
+            || query.contains("->")
+            || query.contains('→')))
+        || (query.contains("重命名")
+            && (query.contains('为') || query.contains('成') || query.contains('到')))
+}
+
 pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
     let query = intent_query(query);
     [

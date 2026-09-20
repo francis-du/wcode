@@ -185,6 +185,7 @@
     - ingest real Document Symbol Call Hierarchy and Implementation facts through the global concurrency boundary
     - discover provider binaries from trusted PATH plus bounded language-native install locations where defined, and expose discovery source, actionable authorization/install/init state, launch readiness, live session validation and runnable semantic precision as distinct provider states so executable presence cannot masquerade as an initialized LSP or a raw OS error
     - expose symbol-first semantic navigation for definition, hover, references, incoming/outgoing calls and implementations while keeping simple localization on Tree-sitter/search, trying an installed alternate when the canonical provider fails initialization, falling back honestly when no trusted provider exists, and reporting unsupported capabilities separately from failed LSP subrequests
+    - plan semantic rename through LSP without granting the provider write authority; reject resource/external/partial/stale edits and translate accepted ranges into bounded SHA-pinned apply_file_edits arguments
     - reject Workspace-local provider executables, scrub execution-injection environment state, and retain explicit trust for providers without an automatic safety profile
     - reject stale semantic revisions from composite graph use
   constraints:
@@ -210,6 +211,8 @@
     - kind: symbol
       path: src/semantics/provider/navigation.rs
       symbol: navigate
+    - kind: file
+      path: src/semantics/provider/rename.rs
     - kind: symbol
       path: src/runtime/harness/core.rs
       symbol: ToolHarness::semantic_navigation

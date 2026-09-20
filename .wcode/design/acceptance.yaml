@@ -51,7 +51,13 @@
     all lanes retain bounded queue waits, hardened arguments, child CPU/thread limits and unchanged verification
     semantics. Foreground CPU/process capacity remains hardware- and memory-bounded but no longer hard-caps all profiles
     at eight CPU burst lanes. 1 GiB+ profiles can scale toward sixteen CPU burst lanes and eight heavy children on
-    capable hosts while the 512 MiB balanced profile remains bounded by its memory budget.
+    capable hosts while the 512 MiB balanced profile remains bounded by its memory budget. Failed verification exposes
+    bounded workspace-relative diagnostic file/line/column locations plus redaction-aware nearby source windows and
+    current SHA edit preconditions, so an agent can repair ordinary compiler/test failures without another source read.
+    Runtime file:// stack locations are accepted only from local verification output, canonicalized back into the selected
+    Workspace, and rejected when they escape it; generic Agent Context text keeps its stricter URL rejection. Redacted
+    source windows are never marked editable. Python verification isolates bytecode caches so checks neither dirty the
+    repository with __pycache__ nor reuse same-second stale project bytecode after guarded edits.
   verification:
     - {kind: test, path: tests/unit/workspace/mod.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
     - {kind: test, path: tests/unit/workspace/execution.rs, symbol: git_probe_finishes_while_repository_process_capacity_is_occupied}
@@ -61,6 +67,10 @@
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: cost_backtest_circuit_breaker_stops_proven_regressions_but_allows_cold_start}
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: duplicate_retry_evidence_cannot_manufacture_revision_sample_confidence}
     - {kind: test, path: tests/unit/runtime/harness/focus.rs, symbol: quick_verification_prioritizes_one_resolved_design_test_after_static_checks}
+    - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_reaches_verified_edit_and_recovers_from_failures}
+    - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node}
+    - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: verification_failure_context_redacts_secrets_and_never_claims_edit_ready}
+    - {kind: test, path: tests/unit/workspace/policy_environment.rs, symbol: python_execution_uses_one_isolated_nonwriting_bytecode_namespace}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: exact_revision_static_pass_reuses_without_minting_duplicate_evidence}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: source_design_and_command_changes_invalidate_static_reuse}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: failures_behavioral_tests_and_unknown_checks_are_never_reused}
@@ -429,7 +439,7 @@
 - schema_version: 1
   id: AC-SEMANTIC-001
   title: Semantic providers and scoped registry cover indexed languages
-  statement: All 22 indexed languages have exactly one canonical tested LSP launch profile with current provider-specific commands and only real bounded alternates; every canonical profile completes a spawned stdio mock-LSP initialize handshake, language-native discovery can find supported provider binaries outside PATH without widening execution trust, and provider availability requires a runnable executable rather than mere path existence. Rustup symlink or hardlink proxies without an installed rust-analyzer component are treated as unavailable through a cached bounded viability probe, so automatic semantics degrade to syntax instead of repeatedly generating semantic_auto failures. Provider status/failures expose actionable discovery/authorization/spawn/initialize/protocol stages, and navigation and refresh can fall back to an installed alternate after canonical initialization failure. Scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing physically bounded provider sessions without evicting leased slots, pruning idle sessions in headless runtimes, waiting for leased sessions before provider-identity replacement, converting LSP positions correctly, requiring successful session initialization before semantic `runnable`/precision, reporting failed semantic subrequests separately from unsupported/valid-empty results, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization. When LSP is unavailable, bounded fallback search must prioritize same-language source matches ahead of documentation/non-source noise before building the syntax call graph, so a small requested result budget still preserves useful callers in documentation-heavy repositories.
+  statement: All 22 indexed languages have exactly one canonical tested LSP launch profile with current provider-specific commands and only real bounded alternates; every canonical profile completes a spawned stdio mock-LSP initialize handshake, language-native discovery can find supported provider binaries outside PATH without widening execution trust, and provider availability requires a runnable executable rather than mere path existence. Rustup symlink or hardlink proxies without an installed rust-analyzer component are treated as unavailable through a cached bounded viability probe, so automatic semantics degrade to syntax instead of repeatedly generating semantic_auto failures. Provider status/failures expose actionable discovery/authorization/spawn/initialize/protocol stages, and navigation and refresh can fall back to an installed alternate after canonical initialization failure. Scoped semantic queries preserve global facts, and the semantic runtime automatically maintains only providers with an explicit hardened profile while preserving syntax fallback, rejecting Workspace-local provider executables, supporting a global semantic opt-out, retaining explicit RiskyExecution trust for non-automatic providers, reusing physically bounded provider sessions without evicting leased slots, pruning idle sessions in headless runtimes, waiting for leased sessions before provider-identity replacement, converting LSP positions correctly, requiring successful session initialization before semantic `runnable`/precision, reporting failed semantic subrequests separately from unsupported/valid-empty results, and routing cross-file relationship tasks to symbol-first semantic navigation instead of forcing LSP onto simple localization. When LSP is unavailable, bounded fallback search must prioritize same-language source matches ahead of documentation/non-source noise before building the syntax call graph, so a small requested result budget still preserves useful callers in documentation-heavy repositories. Semantic rename is exposed as a semantic_navigation planning intent, never a provider write; the plan is all-or-nothing, workspace-relative, SHA-pinned and directly consumable by apply_file_edits; resource operations, external paths, stale/range-mismatched edits, split UTF-16 positions and bounded-cap overflows fail closed with no syntax rename fallback.
   verification:
     - kind: test
       path: tests/unit/semantics/provider.rs
@@ -515,6 +525,18 @@
     - kind: test
       path: tests/unit/runtime/semantic.rs
       symbol: semantic_navigation_recovers_calls_beyond_repo_map_file_cap
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: semantic_rename_plan_merges_same_line_and_applies_sha_guarded_multi_file_edits
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: semantic_rename_plan_rejects_external_files_and_resource_operations
+    - kind: test
+      path: tests/unit/semantics/provider.rs
+      symbol: semantic_rename_plan_rejects_utf16_ranges_that_split_surrogate_pairs
+    - kind: test
+      path: tests/unit/runtime/harness/readiness.rs
+      symbol: rename_task_routes_through_semantic_navigation_before_guarded_edit
 
 - schema_version: 1
   id: AC-ACTUAL-001

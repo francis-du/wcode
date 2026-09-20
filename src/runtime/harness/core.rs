@@ -264,6 +264,45 @@ impl ToolHarness {
         if semantic_provider::language_for_path(path).is_none() {
             bail!("semantic navigation does not support this source language");
         }
+        if request.intent == SemanticNavigationIntent::RenamePlan {
+            let symbol = resolved.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "semantic rename requires symbol; call find_symbol first and pass a unique name or qualified name"
+                )
+            })?;
+            let new_name = request
+                .new_name
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("new_name is required for rename_plan"))?;
+            if !semantic_provider::provider_available_for_path(workspace, path) {
+                bail!(
+                    "LSP semantic rename is unavailable; mutation has no syntax fallback because wcode will not guess cross-file rename targets"
+                );
+            }
+            let mut value = semantic_provider::rename_plan(
+                &self.semantic_sessions,
+                workspace,
+                semantic_provider::RenamePlanRequest {
+                    path,
+                    line: u64::try_from(line).unwrap_or(u64::MAX),
+                    character: u64::try_from(character).unwrap_or(u64::MAX),
+                    old_name: &symbol.name,
+                    new_name,
+                    max_files: request.max_files,
+                },
+            )
+            .await?;
+            value["workspace"] = json!(workspace_id);
+            value["selector"] = json!({
+                "name": symbol.name,
+                "qualified_name": symbol.qualified_name,
+                "kind": symbol.kind,
+                "line": symbol.start_line,
+                "character": symbol.start_column,
+                "revision": symbol.revision,
+            });
+            return Ok(value);
+        }
         let degraded = |reason: String| {
             let syntax_context = resolved.as_ref().and_then(|symbol| {
                 self.code_index

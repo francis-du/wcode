@@ -166,6 +166,164 @@ fn lsp_install_authorization_denial_and_retry_are_fail_closed_before_side_effect
 }
 
 #[test]
+fn semantic_rename_plan_merges_same_line_and_applies_sha_guarded_multi_file_edits() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.rs"), "old old\n").unwrap();
+    std::fs::write(root.path().join("b.rs"), "old\n").unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let target = workspace.load_source("a.rs").unwrap();
+    let a_uri = Url::from_file_path(root.path().join("a.rs"))
+        .unwrap()
+        .to_string();
+    let b_uri = Url::from_file_path(root.path().join("b.rs"))
+        .unwrap()
+        .to_string();
+    let mut workspace_edit = json!({"changes": {}});
+    let changes = workspace_edit["changes"].as_object_mut().unwrap();
+    changes.insert(
+        a_uri,
+        json!([
+            {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"new"},
+            {"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":7}},"newText":"new"}
+        ]),
+    );
+    changes.insert(
+        b_uri,
+        json!([
+            {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"new"}
+        ]),
+    );
+
+    let files = rename::workspace_edit_to_guarded_files(
+        &workspace,
+        &workspace_edit,
+        rename::GuardedRenameRequest {
+            old_name: "old",
+            new_name: "new",
+            target_path: "a.rs",
+            target_sha: &target.sha256,
+            encoding: "utf-8",
+            max_files: 32,
+        },
+    )
+    .unwrap();
+    assert_eq!(files.len(), 2);
+    let a = files.iter().find(|file| file["path"] == "a.rs").unwrap();
+    assert_eq!(a["edits"].as_array().unwrap().len(), 1);
+    assert_eq!(a["edits"][0]["old_text"], "old old");
+    assert_eq!(a["edits"][0]["new_text"], "new new");
+    assert_eq!(a["edits"][0]["start_line"], 1);
+    assert_eq!(a["edits"][0]["end_line"], 1);
+
+    let requests =
+        serde_json::from_value::<Vec<crate::workspace::FileEditRequest>>(Value::Array(files))
+            .unwrap();
+    let applied = workspace.apply_file_edits(&requests).unwrap();
+    assert!(applied.iter().all(|item| item.ok));
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("a.rs")).unwrap(),
+        "new new\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("b.rs")).unwrap(),
+        "new\n"
+    );
+}
+
+#[test]
+fn semantic_rename_plan_rejects_external_files_and_resource_operations() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.rs"), "old\n").unwrap();
+    std::fs::write(outside.path().join("outside.rs"), "old\n").unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let target = workspace.load_source("a.rs").unwrap();
+    let outside_uri = Url::from_file_path(outside.path().join("outside.rs"))
+        .unwrap()
+        .to_string();
+    let mut external = json!({"changes": {}});
+    external["changes"].as_object_mut().unwrap().insert(
+        outside_uri,
+        json!([
+            {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"new"}
+        ]),
+    );
+    let error = rename::workspace_edit_to_guarded_files(
+        &workspace,
+        &external,
+        rename::GuardedRenameRequest {
+            old_name: "old",
+            new_name: "new",
+            target_path: "a.rs",
+            target_sha: &target.sha256,
+            encoding: "utf-8",
+            max_files: 32,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("outside the selected workspace"));
+
+    let a_uri = Url::from_file_path(root.path().join("a.rs"))
+        .unwrap()
+        .to_string();
+    let resource = json!({
+        "documentChanges":[{
+            "kind":"rename",
+            "oldUri":a_uri,
+            "newUri":format!("{}/renamed.rs", Url::from_directory_path(root.path()).unwrap())
+        }]
+    });
+    let error = rename::workspace_edit_to_guarded_files(
+        &workspace,
+        &resource,
+        rename::GuardedRenameRequest {
+            old_name: "old",
+            new_name: "new",
+            target_path: "a.rs",
+            target_sha: &target.sha256,
+            encoding: "utf-8",
+            max_files: 32,
+        },
+    )
+    .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("resource operations are not supported"));
+}
+
+#[test]
+fn semantic_rename_plan_rejects_utf16_ranges_that_split_surrogate_pairs() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("a.rs"), "😀old\n").unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let target = workspace.load_source("a.rs").unwrap();
+    let uri = Url::from_file_path(root.path().join("a.rs"))
+        .unwrap()
+        .to_string();
+    let mut workspace_edit = json!({"changes": {}});
+    workspace_edit["changes"].as_object_mut().unwrap().insert(
+        uri,
+        json!([
+            {"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":4}},"newText":"new"}
+        ]),
+    );
+    let error = rename::workspace_edit_to_guarded_files(
+        &workspace,
+        &workspace_edit,
+        rename::GuardedRenameRequest {
+            old_name: "old",
+            new_name: "new",
+            target_path: "a.rs",
+            target_sha: &target.sha256,
+            encoding: "utf-16",
+            max_files: 32,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("splits a surrogate pair"));
+}
+
+#[test]
 fn managed_lsp_destinations_stay_in_wcode_state_outside_the_repository() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.py"), "def f():\n    return 1\n").unwrap();
@@ -336,6 +494,41 @@ async fn every_canonical_profile_completes_stdio_lsp_initialize() {
         assert_eq!(
             hover.pointer("/contents").and_then(Value::as_str),
             Some("mock-hover")
+        );
+        assert!(capabilities
+            .pointer("/renameProvider/prepareProvider")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
+        let prepared = client
+            .request(
+                "textDocument/prepareRename",
+                json!({"textDocument":{"uri":uri},"position":{"line":0,"character":0}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            prepared
+                .pointer("/range/end/character")
+                .and_then(Value::as_u64),
+            Some(3)
+        );
+        let rename = client
+            .request(
+                "textDocument/rename",
+                json!({"textDocument":{"uri":uri},"position":{"line":0,"character":0},"newName":"three"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rename
+                .get("changes")
+                .and_then(Value::as_object)
+                .and_then(|changes| changes.get(&uri))
+                .and_then(Value::as_array)
+                .and_then(|edits| edits.first())
+                .and_then(|edit| edit.get("newText"))
+                .and_then(Value::as_str),
+            Some("three")
         );
         client
             .notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))

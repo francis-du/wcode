@@ -7,6 +7,13 @@ fn locations(query: &str) -> Vec<(String, Option<usize>)> {
         .collect()
 }
 
+fn detailed_locations(query: &str) -> Vec<(String, Option<usize>, Option<usize>)> {
+    query_anchors(query)
+        .into_iter()
+        .map(|anchor| (anchor.path, anchor.line, anchor.column))
+        .collect()
+}
+
 #[test]
 fn trace_format_wrappers_preserve_quoted_locations() {
     for quote in ['\"', '\'', '`'] {
@@ -140,9 +147,11 @@ fn trace_format_python_frames_keep_line_and_quoted_spaces() {
 #[test]
 fn trace_format_compilers_keep_parenthesized_line_and_column() {
     for path in ["src/worker.ts", "src/worker.tsx", "src/service.cs"] {
+        let query = format!("{path}(23,7): error: invalid argument");
+        assert_eq!(locations(&query), vec![(path.to_owned(), Some(23))]);
         assert_eq!(
-            locations(&format!("{path}(23,7): error: invalid argument")),
-            vec![(path.to_owned(), Some(23))]
+            detailed_locations(&query),
+            vec![(path.to_owned(), Some(23), Some(7))]
         );
     }
 }

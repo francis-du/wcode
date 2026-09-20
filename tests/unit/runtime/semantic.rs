@@ -60,6 +60,8 @@ async fn semantic_navigation_degrades_to_cross_file_syntax_calls() {
         character: None,
         intent: crate::semantic_provider::SemanticNavigationIntent::IncomingCalls,
         max_results: 10,
+        new_name: None,
+        max_files: 32,
     };
     let result = harness
         .semantic_navigation("demo", &workspace, &request)
@@ -111,6 +113,8 @@ async fn semantic_navigation_prioritizes_source_matches_over_documentation_noise
         character: None,
         intent: crate::semantic_provider::SemanticNavigationIntent::References,
         max_results: 5,
+        new_name: None,
+        max_files: 32,
     };
     let result = harness
         .semantic_navigation("demo", &workspace, &request)
@@ -163,6 +167,8 @@ async fn semantic_navigation_recovers_calls_beyond_repo_map_file_cap() {
         character: None,
         intent: crate::semantic_provider::SemanticNavigationIntent::IncomingCalls,
         max_results: 10,
+        new_name: None,
+        max_files: 32,
     };
     let result = harness
         .semantic_navigation("demo", &workspace, &request)

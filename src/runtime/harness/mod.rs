@@ -134,6 +134,8 @@ pub(crate) struct SemanticNavigationRequest {
     pub character: Option<usize>,
     pub intent: SemanticNavigationIntent,
     pub max_results: usize,
+    pub new_name: Option<String>,
+    pub max_files: usize,
 }
 
 type RepoMapCacheKey = (PathBuf, String);
@@ -649,6 +651,7 @@ mod harness_memory;
 
 #[path = "agent_context.rs"]
 mod harness_agent_context;
+pub(crate) use harness_agent_context::diagnostic_locations;
 
 #[path = "retrieval.rs"]
 mod harness_retrieval;

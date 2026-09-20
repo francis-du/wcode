@@ -55,6 +55,9 @@ pub(crate) use session::{SemanticSessionPool, SemanticSessionPoolStatus};
 mod navigation;
 pub(crate) use navigation::navigate;
 pub use navigation::SemanticNavigationIntent;
+#[path = "rename.rs"]
+mod rename;
+pub(crate) use rename::{rename_plan, RenamePlanRequest};
 
 #[path = "index.rs"]
 mod index;
