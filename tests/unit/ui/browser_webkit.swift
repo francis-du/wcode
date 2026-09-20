@@ -62,10 +62,15 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       if(state.workspaceTab==='architecture'&&state.architectureView==='components') check(visible(document.getElementById('componentCards')),'component cards hidden',document.getElementById('componentCards'));
       if(state.workspaceTab==='architecture'&&state.architectureView==='graph') check(visible(document.getElementById('architectureGraph')),'dependency graph hidden',document.getElementById('architectureGraph'));
       if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'){
-        const section=document.getElementById('codeGraphSection'),viewport=section?.querySelector('.code-graph-viewport'),canvas=section?.querySelector('.code-graph-canvas'),inspector=document.getElementById('codeGraphInspector'),full=state.codeGraphFull===true;
+        const section=document.getElementById('codeGraphSection'),viewport=section?.querySelector('.code-graph-viewport'),canvas=section?.querySelector('.code-graph-canvas'),inspector=document.getElementById('codeGraphInspector'),full=state.codeGraphFull===true,overview=state.codeGraphView==='overview';
         check(section&&visible(section),'code graph hidden',section);
-        check(document.querySelectorAll('[data-code-node]').length>=17,'missing dense populated code graph',section);
-        check((inspector?.textContent||'').includes('renderProject'),'missing code graph inspector focus',inspector);
+        if(overview){
+          check(document.querySelectorAll('[data-code-overview-node]').length>=6,'missing repository overview nodes',section);
+          check((document.getElementById('codeGraphSummary')?.textContent||'').includes(state.language==='zh-CN'?'仓库概览':'Repository overview'),'missing repository overview summary',document.getElementById('codeGraphSummary'));
+        }else{
+          check(document.querySelectorAll('[data-code-node]').length>=17,'missing dense populated code graph',section);
+          check((inspector?.textContent||'').includes('renderProject'),'missing code graph inspector focus',inspector);
+        }
         check(viewport&&viewport.scrollWidth>=viewport.clientWidth,'code graph viewport invalid',viewport);
         check(canvas&&canvas.scrollWidth<=canvas.clientWidth+1,'code graph canvas outer overflow',canvas);
         check(section?.querySelector('.code-graph-search')?.value==='','automatic graph seed leaked into search box',section?.querySelector('.code-graph-search'));
@@ -76,7 +81,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
           check(button?.getAttribute('aria-pressed')==='true','full-screen toggle state missing',button);
           check(Math.abs(box.left)<=1&&Math.abs(box.top)<=1&&Math.abs(box.right-innerWidth)<=1&&Math.abs(box.bottom-innerHeight)<=1,'full-screen stage does not cover viewport',section);
           check(viewport&&viewport.clientHeight>=Math.min(320,innerHeight*.45),'full-screen graph viewport too short',viewport);
-          if(innerWidth>980&&canvas&&inspector){const a=r(canvas),b=r(inspector);check(a.right<=b.left+1,'full-screen inspector overlaps canvas',canvas,inspector);}
+          if(innerWidth>980&&canvas&&inspector&&visible(inspector)){const a=r(canvas),b=r(inspector);check(a.right<=b.left+1,'full-screen inspector overlaps canvas',canvas,inspector);}
         } else {
           check(!section.classList.contains('code-graph-fullscreen'),'regular graph leaked full-screen state',section);
         }
@@ -148,7 +153,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
+        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';state.codeGraphView=scenario==='codegraph-full'?'focus':'overview';state.selectedCodeNode=scenario==='codegraph-full'?'node:focus':'';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
         """
         web.evaluateJavaScript(setup){value,error in
             if let error {self.finish("Browser setup failed: \(error)");return}
