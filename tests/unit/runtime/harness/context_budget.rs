@@ -140,8 +140,10 @@ fn tight_context_compacts_provider_prose_before_source() {
     let mut pack = json!({
         "hot_source": [{"id":"ts:target", "path":"src/target.rs", "qualified_name":"target", "sha256":"a".repeat(64),
             "body":{"content":original,"start_line":1,"end_line":3,"redacted":false,"truncated":false}}],
-        "semantic_provider_hints": [{"language":"rust", "provider":"rust-analyzer", "action":"authorize_lsp",
-            "discovery":"available", "precision":"syntax", "reason":"Explanatory provider details. ".repeat(200)}]
+        "semantic_provider_hints": [{"language":"rust", "provider":"rust-analyzer", "action":"install_lsp",
+            "discovery":"missing", "precision":"syntax",
+            "install":{"mode":"model","manager":"rustup","program":"rustup","args":["component","add","rust-analyzer","rust-src"],"guidance":"Canonical install detail. ".repeat(80)},
+            "reason":"Explanatory provider details. ".repeat(200)}]
     });
     context_budget::trim_agent_context(&mut pack, 1_000).unwrap();
     assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 1_000);
@@ -151,10 +153,11 @@ fn tight_context_compacts_provider_prose_before_source() {
     let hint = &pack["semantic_provider_hints"][0];
     assert_eq!(hint["language"], "rust");
     assert_eq!(hint["provider"], "rust-analyzer");
-    assert_eq!(hint["action"], "authorize_lsp");
-    assert_eq!(hint["discovery"], "available");
+    assert_eq!(hint["action"], "install_lsp");
+    assert_eq!(hint["discovery"], "missing");
     assert_eq!(hint["precision"], "syntax");
     assert!(hint.get("reason").is_none());
+    assert!(hint.get("install").is_none());
     let once = pack.clone();
     context_budget::trim_agent_context(&mut pack, 1_000).unwrap();
     assert_eq!(pack, once);

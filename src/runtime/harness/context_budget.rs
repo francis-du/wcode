@@ -339,9 +339,11 @@ fn compact_semantic_hint_explanations(value: &mut Value) -> bool {
         .flatten()
     {
         if let Some(object) = hint.as_object_mut() {
-            // Keep language/provider/action/discovery and executable identity.
-            // Repeated explanatory prose must yield before edit-critical data.
+            // Keep only identity/routing under pressure. The detailed
+            // canonical install plan can be re-read through semantic provider
+            // status/install; it must not evict edit-critical source/SHA/test data.
             changed |= object.remove("reason").is_some();
+            changed |= object.remove("install").is_some();
         }
     }
     changed

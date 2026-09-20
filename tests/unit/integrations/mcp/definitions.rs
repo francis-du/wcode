@@ -385,6 +385,32 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
 
     let bytes = serde_json::to_vec(first).unwrap().len();
     assert!(bytes <= 60_000, "tool catalog is {bytes} bytes");
+    for compact_name in [
+        "software_graph",
+        "graph_provider_import",
+        "graph_provider_status",
+        "semantic_provider_status",
+        "semantic_provider_install",
+        "semantic_provider_refresh",
+        "semantic_navigation",
+        "graph_history",
+        "graph_query",
+        "graph_diff",
+    ] {
+        let tool = first
+            .iter()
+            .find(|tool| tool["name"] == compact_name)
+            .expect("compact graph/LSP tool");
+        assert!(
+            tool["description"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .count()
+                <= 100,
+            "{compact_name} description grew beyond its compact catalog budget"
+        );
+    }
 
     let mut names = HashSet::new();
     for tool in first {
