@@ -444,6 +444,19 @@ impl SemanticSession {
         self.client.request(method, params).await
     }
 
+    pub(super) async fn drain_notifications(&mut self, max_wait: Duration) -> Result<usize> {
+        self.client.drain_notifications(max_wait).await
+    }
+
+    pub(super) fn current_diagnostics(&self, path: &str, uri: &str) -> Option<(Vec<Value>, bool)> {
+        let document = self.documents.get(path)?;
+        if document.uri != uri {
+            return None;
+        }
+        self.client
+            .diagnostics_snapshot_for_uri(uri, document.version)
+    }
+
     async fn notify(&mut self, method: &str, params: Value) -> Result<()> {
         self.metrics.last_used_ms.store(now_ms(), Ordering::Relaxed);
         self.client.notify(method, params).await

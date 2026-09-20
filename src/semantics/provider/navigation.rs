@@ -17,6 +17,8 @@ pub enum SemanticNavigationIntent {
     Implementations,
     Impact,
     RenamePlan,
+    OrganizeImportsPlan,
+    QuickFixPlan,
 }
 
 #[derive(Clone, Debug, Serialize)]

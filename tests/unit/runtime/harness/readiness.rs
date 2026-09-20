@@ -141,6 +141,108 @@ fn rename_with_missing_lsp_routes_install_refresh_plan_and_guarded_apply_in_orde
 }
 
 #[test]
+fn organize_imports_requires_live_plan_even_with_semantic_graph_precision() {
+    let mut value = json!({
+        "query": "organize imports in the target file",
+        "targets": [{"id":"src/a.rs","kind":"file","path":"src/a.rs"}],
+        "files": [{"path":"src/a.rs","sha256":"sha256:a","readonly":false}],
+        "hot_source": [{
+            "id":"src/a.rs",
+            "path":"src/a.rs",
+            "sha256":"sha256:a",
+            "body":{"content":"use z::Z;\nuse a::A;\n","redacted":false}
+        }],
+        "project": {"write_enabled":true},
+        "tests": [{"resolved":true}],
+        "conventions": {"errors":0,"truncated":false},
+        "repo_map": {"precision":"semantic","truncated":false},
+        "semantic_provider_hints": [{
+            "language":"rust",
+            "provider":null,
+            "action":"install_lsp",
+            "install":{"provider":"rust-analyzer","model_can_install":true}
+        }],
+        "readiness": {"parallelism":{"max_parallel":1}},
+        "scopes": []
+    });
+    update_agent_readiness(&mut value);
+    let actions = value["readiness"]["next_actions"].as_array().unwrap();
+    let index = |name: &str| {
+        actions
+            .iter()
+            .position(|action| action == name)
+            .unwrap_or_else(|| panic!("missing next action {name}: {actions:?}"))
+    };
+    assert!(index("semantic_provider_install") < index("semantic_provider_refresh"));
+    assert!(index("semantic_provider_refresh") < index("semantic_navigation"));
+    assert!(index("semantic_navigation") < index("apply_file_edits"));
+    assert_eq!(
+        value["readiness"]["semantic_navigation_intent"],
+        "organize_imports_plan"
+    );
+    assert_eq!(
+        value["readiness"]["recommended_edit_tool"],
+        "apply_file_edits"
+    );
+    assert!(value["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|advisory| advisory == "semantic_organize_imports_plan_required"));
+}
+
+#[test]
+fn quick_fix_task_routes_current_diagnostic_through_live_lsp_before_guarded_edit() {
+    let mut value = json!({
+        "query": "apply the quick fix for src/a.rs:1:1 diagnostic",
+        "targets": [{"id":"src/a.rs","kind":"file","path":"src/a.rs"}],
+        "files": [{"path":"src/a.rs","sha256":"sha256:a","readonly":false}],
+        "hot_source": [{
+            "id":"src/a.rs",
+            "path":"src/a.rs",
+            "sha256":"sha256:a",
+            "body":{"content":"let value = broken();","redacted":false}
+        }],
+        "project": {"write_enabled":true},
+        "tests": [{"resolved":true}],
+        "conventions": {"errors":0,"truncated":false},
+        "repo_map": {"precision":"semantic","truncated":false},
+        "semantic_provider_hints": [{
+            "language":"rust",
+            "provider":null,
+            "action":"install_lsp",
+            "install":{"provider":"rust-analyzer","model_can_install":true}
+        }],
+        "readiness": {"parallelism":{"max_parallel":1}},
+        "scopes": []
+    });
+    update_agent_readiness(&mut value);
+    let actions = value["readiness"]["next_actions"].as_array().unwrap();
+    let index = |name: &str| {
+        actions
+            .iter()
+            .position(|action| action == name)
+            .unwrap_or_else(|| panic!("missing next action {name}: {actions:?}"))
+    };
+    assert!(index("semantic_provider_install") < index("semantic_provider_refresh"));
+    assert!(index("semantic_provider_refresh") < index("semantic_navigation"));
+    assert!(index("semantic_navigation") < index("apply_file_edits"));
+    assert_eq!(
+        value["readiness"]["semantic_navigation_intent"],
+        "quick_fix_plan"
+    );
+    assert_eq!(
+        value["readiness"]["recommended_edit_tool"],
+        "apply_file_edits"
+    );
+    assert!(value["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|advisory| advisory == "semantic_quick_fix_plan_required"));
+}
+
+#[test]
 fn initialized_lsp_does_not_recommend_installation() {
     let mut value = json!({
         "query": "find callers and references for target",

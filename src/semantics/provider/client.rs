@@ -1,9 +1,15 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::env;
 use std::sync::{Arc, Mutex, PoisonError};
 
 const MAX_LSP_HEADER_BYTES: usize = 8 * 1024;
 const MAX_LSP_STDERR_BYTES: usize = 16 * 1024;
+const MAX_LSP_DIAGNOSTIC_DOCUMENTS: usize = 32;
+const MAX_LSP_DIAGNOSTICS_PER_DOCUMENT: usize = 64;
+const MAX_LSP_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 64 * 1024;
+const MAX_LSP_DIAGNOSTIC_MESSAGE_CHARS: usize = 2_000;
+const MAX_LSP_DIAGNOSTIC_DATA_BYTES: usize = 4 * 1024;
 const LSP_STDERR_SETTLE_DELAY: Duration = Duration::from_millis(100);
 
 pub(super) fn render_error_chain(error: &anyhow::Error) -> String {
@@ -17,6 +23,13 @@ pub(super) fn render_error_chain(error: &anyhow::Error) -> String {
     rendered
 }
 
+#[derive(Clone, Debug)]
+struct PublishedDiagnostics {
+    version: Option<i64>,
+    diagnostics: Vec<Value>,
+    truncated: bool,
+}
+
 pub(super) struct LspClient {
     child: Child,
     child_group: crate::resource::ChildProcessGuard,
@@ -28,6 +41,7 @@ pub(super) struct LspClient {
     next_id: u64,
     provider_id: &'static str,
     workspace_uri: Option<String>,
+    published_diagnostics: BTreeMap<String, PublishedDiagnostics>,
 }
 
 impl LspClient {
@@ -98,6 +112,7 @@ impl LspClient {
             next_id: 1,
             provider_id: provider.id,
             workspace_uri: None,
+            published_diagnostics: BTreeMap::new(),
         })
     }
 
@@ -125,7 +140,21 @@ impl LspClient {
                             "references":{"dynamicRegistration":false},
                             "implementation":{"dynamicRegistration":false,"linkSupport":true},
                             "hover":{"dynamicRegistration":false},
-                            "callHierarchy":{"dynamicRegistration":false}
+                            "callHierarchy":{"dynamicRegistration":false},
+                            "publishDiagnostics":{
+                                "relatedInformation":true,
+                                "versionSupport":true,
+                                "codeDescriptionSupport":true,
+                                "dataSupport":true
+                            },
+                            "codeAction":{
+                                "dynamicRegistration":false,
+                                "dataSupport":true,
+                                "resolveSupport":{"properties":["edit"]},
+                                "codeActionLiteralSupport":{
+                                    "codeActionKind":{"valueSet":["quickfix","source.organizeImports"]}
+                                }
+                            }
                         }
                     },
                     "clientInfo":{"name":"wcode","version":env!("CARGO_PKG_VERSION")},
@@ -157,6 +186,8 @@ impl LspClient {
                 }
                 if message.get("method").is_some() && message.get("id").is_some() {
                     self.answer_server_request(&message).await?;
+                } else if message.get("method").is_some() {
+                    self.capture_notification(&message);
                 }
             }
         })
@@ -167,6 +198,73 @@ impl LspClient {
     pub(super) async fn notify(&mut self, method: &str, params: Value) -> Result<()> {
         self.write_message(&json!({"jsonrpc":"2.0","method":method,"params":params}))
             .await
+    }
+
+    pub(super) async fn drain_notifications(&mut self, max_wait: Duration) -> Result<usize> {
+        let deadline = tokio::time::Instant::now() + max_wait;
+        let mut captured = 0usize;
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            let message = match timeout(remaining, self.read_message()).await {
+                Ok(message) => message?,
+                Err(_) => break,
+            };
+            if message.get("method").is_some() && message.get("id").is_some() {
+                self.answer_server_request(&message).await?;
+            } else if message.get("method").is_some() && self.capture_notification(&message) {
+                captured = captured.saturating_add(1);
+            }
+        }
+        Ok(captured)
+    }
+
+    #[cfg(test)]
+    pub(super) fn diagnostics_for_uri(&self, uri: &str, version: i64) -> Vec<Value> {
+        self.diagnostics_snapshot_for_uri(uri, version)
+            .map(|(diagnostics, _)| diagnostics)
+            .unwrap_or_default()
+    }
+
+    pub(super) fn diagnostics_snapshot_for_uri(
+        &self,
+        uri: &str,
+        version: i64,
+    ) -> Option<(Vec<Value>, bool)> {
+        self.published_diagnostics
+            .get(uri)
+            .filter(|published| published.version == Some(version))
+            .map(|published| (published.diagnostics.clone(), published.truncated))
+    }
+
+    fn capture_notification(&mut self, message: &Value) -> bool {
+        if message.get("method").and_then(Value::as_str) != Some("textDocument/publishDiagnostics")
+        {
+            return false;
+        }
+        let Some(uri) = message.pointer("/params/uri").and_then(Value::as_str) else {
+            return false;
+        };
+        let version = message.pointer("/params/version").and_then(Value::as_i64);
+        let Some(raw) = message
+            .pointer("/params/diagnostics")
+            .and_then(Value::as_array)
+        else {
+            return false;
+        };
+        let published = compact_published_diagnostics(version, raw);
+        if !self.published_diagnostics.contains_key(uri)
+            && self.published_diagnostics.len() >= MAX_LSP_DIAGNOSTIC_DOCUMENTS
+        {
+            if let Some(oldest) = self.published_diagnostics.keys().next().cloned() {
+                self.published_diagnostics.remove(&oldest);
+            }
+        }
+        self.published_diagnostics.insert(uri.to_owned(), published);
+        true
     }
 
     async fn answer_server_request(&mut self, message: &Value) -> Result<()> {
@@ -293,6 +391,66 @@ impl LspClient {
         }
     }
 }
+
+fn compact_published_diagnostics(version: Option<i64>, raw: &[Value]) -> PublishedDiagnostics {
+    let mut diagnostics = Vec::new();
+    let mut bytes = 0usize;
+    let mut truncated = raw.len() > MAX_LSP_DIAGNOSTICS_PER_DOCUMENT;
+    for diagnostic in raw.iter().take(MAX_LSP_DIAGNOSTICS_PER_DOCUMENT) {
+        let Some(diagnostic) = compact_diagnostic(diagnostic) else {
+            continue;
+        };
+        let size = serde_json::to_vec(&diagnostic)
+            .map(|value| value.len())
+            .unwrap_or(0);
+        if bytes.saturating_add(size) > MAX_LSP_DIAGNOSTIC_BYTES_PER_DOCUMENT {
+            truncated = true;
+            break;
+        }
+        bytes = bytes.saturating_add(size);
+        diagnostics.push(diagnostic);
+    }
+    PublishedDiagnostics {
+        version,
+        diagnostics,
+        truncated,
+    }
+}
+
+fn compact_diagnostic(value: &Value) -> Option<Value> {
+    let range = value.get("range")?.clone();
+    if !range.is_object() {
+        return None;
+    }
+    let message = value.get("message")?.as_str()?;
+    let mut object = serde_json::Map::new();
+    object.insert("range".into(), range);
+    object.insert(
+        "message".into(),
+        Value::String(
+            message
+                .chars()
+                .take(MAX_LSP_DIAGNOSTIC_MESSAGE_CHARS)
+                .collect(),
+        ),
+    );
+    for key in ["severity", "code", "source", "tags"] {
+        if let Some(field) = value.get(key) {
+            object.insert(key.to_owned(), field.clone());
+        }
+    }
+    if let Some(data) = value.get("data") {
+        if serde_json::to_vec(data).is_ok_and(|bytes| bytes.len() <= MAX_LSP_DIAGNOSTIC_DATA_BYTES)
+        {
+            object.insert("data".into(), data.clone());
+        }
+    }
+    Some(Value::Object(object))
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/semantics/client.rs"]
+mod tests;
 
 impl Drop for LspClient {
     fn drop(&mut self) {

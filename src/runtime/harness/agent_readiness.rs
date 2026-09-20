@@ -85,8 +85,18 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .get("query")
         .and_then(Value::as_str)
         .is_some_and(query_requests_semantic_rename);
-    let recommend_semantic_navigation =
-        semantic_relationship_task && graph_precision == "syntax" && targets > 0;
+    let semantic_organize_imports_task = value
+        .get("query")
+        .and_then(Value::as_str)
+        .is_some_and(query_requests_organize_imports);
+    let semantic_quick_fix_task = value
+        .get("query")
+        .and_then(Value::as_str)
+        .is_some_and(query_requests_quick_fix);
+    let semantic_mutation_task =
+        semantic_rename_task || semantic_organize_imports_task || semantic_quick_fix_task;
+    let recommend_semantic_navigation = targets > 0
+        && (semantic_mutation_task || (semantic_relationship_task && graph_precision == "syntax"));
     let semantic_provider_actions = value
         .get("semantic_provider_hints")
         .and_then(Value::as_array)
@@ -166,6 +176,12 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     if semantic_rename_task {
         advisories.push("semantic_rename_plan_required");
     }
+    if semantic_organize_imports_task {
+        advisories.push("semantic_organize_imports_plan_required");
+    }
+    if semantic_quick_fix_task {
+        advisories.push("semantic_quick_fix_plan_required");
+    }
     if semantic_provider_authorization {
         advisories.push("lsp_authorization_required");
     }
@@ -196,7 +212,7 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     } else {
         "apply_file_edits"
     };
-    let guarded_edit_tool = if semantic_rename_task {
+    let guarded_edit_tool = if semantic_mutation_task {
         "apply_file_edits"
     } else {
         edit_tool
@@ -377,6 +393,10 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     });
     if semantic_rename_task {
         value["readiness"]["semantic_navigation_intent"] = json!("rename_plan");
+    } else if semantic_organize_imports_task {
+        value["readiness"]["semantic_navigation_intent"] = json!("organize_imports_plan");
+    } else if semantic_quick_fix_task {
+        value["readiness"]["semantic_navigation_intent"] = json!("quick_fix_plan");
     }
     if compact_output {
         let readiness = value["readiness"]
@@ -482,6 +502,14 @@ pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
 
 pub(super) fn query_requests_semantic_rename(query: &str) -> bool {
     super::super::harness_retrieval::query_requests_semantic_rename(query)
+}
+
+pub(super) fn query_requests_quick_fix(query: &str) -> bool {
+    super::super::harness_retrieval::query_requests_quick_fix(query)
+}
+
+pub(super) fn query_requests_organize_imports(query: &str) -> bool {
+    super::super::harness_retrieval::query_requests_organize_imports(query)
 }
 
 pub(super) fn covered_repo_map_precision(value: &Value) -> &'static str {

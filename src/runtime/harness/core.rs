@@ -250,6 +250,21 @@ impl ToolHarness {
         if request.symbol.is_some() && resolved.is_none() {
             bail!("symbol is ambiguous or was not found in path; call find_symbol first and pass a unique name or qualified name");
         }
+        if semantic_provider::language_for_path(path).is_none() {
+            bail!("semantic navigation does not support this source language");
+        }
+        if request.intent == SemanticNavigationIntent::OrganizeImportsPlan {
+            if !semantic_provider::provider_available_for_path(workspace, path) {
+                bail!(
+                    "LSP organize imports is unavailable; mutation has no syntax fallback because wcode will not guess import edits"
+                );
+            }
+            let mut value =
+                semantic_provider::organize_imports_plan(&self.semantic_sessions, workspace, path)
+                    .await?;
+            value["workspace"] = json!(workspace_id);
+            return Ok(value);
+        }
         let (line, character) = match resolved.as_ref() {
             Some(symbol) => (symbol.start_line, symbol.start_column),
             None => (
@@ -261,8 +276,23 @@ impl ToolHarness {
                 })?,
             ),
         };
-        if semantic_provider::language_for_path(path).is_none() {
-            bail!("semantic navigation does not support this source language");
+        if request.intent == SemanticNavigationIntent::QuickFixPlan {
+            if !semantic_provider::provider_available_for_path(workspace, path) {
+                bail!(
+                    "LSP quick fix is unavailable; mutation has no syntax fallback because wcode will not invent provider diagnostics or edits"
+                );
+            }
+            let mut value = semantic_provider::quick_fix_plan(
+                &self.semantic_sessions,
+                workspace,
+                path,
+                u64::try_from(line).unwrap_or(u64::MAX),
+                u64::try_from(character).unwrap_or(u64::MAX),
+                request.max_results,
+            )
+            .await?;
+            value["workspace"] = json!(workspace_id);
+            return Ok(value);
         }
         if request.intent == SemanticNavigationIntent::RenamePlan {
             let symbol = resolved.as_ref().ok_or_else(|| {

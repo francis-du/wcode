@@ -314,7 +314,43 @@ pub(super) fn query_requests_semantic_rename(query: &str) -> bool {
             && (query.contains('为') || query.contains('成') || query.contains('到')))
 }
 
+pub(super) fn query_requests_quick_fix(query: &str) -> bool {
+    let query = intent_query(query);
+    [
+        "quick fix",
+        "code action",
+        "fix diagnostic",
+        "fix this diagnostic",
+        "fix compiler diagnostic",
+        "快速修复",
+        "代码操作",
+        "修复诊断",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle))
+}
+
+pub(super) fn query_requests_organize_imports(query: &str) -> bool {
+    let query = intent_query(query);
+    [
+        "organize imports",
+        "organise imports",
+        "sort imports",
+        "optimize imports",
+        "optimise imports",
+        "整理导入",
+        "整理 imports",
+        "排序导入",
+        "优化导入",
+    ]
+    .iter()
+    .any(|needle| query.contains(needle))
+}
+
 pub(super) fn query_needs_semantic_relationships(query: &str) -> bool {
+    if query_requests_organize_imports(query) || query_requests_quick_fix(query) {
+        return true;
+    }
     let query = intent_query(query);
     [
         "reference",

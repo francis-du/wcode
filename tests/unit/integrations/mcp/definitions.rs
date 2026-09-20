@@ -463,6 +463,13 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             .iter()
             .any(|intent| intent == "rename_plan")
     );
+    assert!(
+        semantic_navigation["inputSchema"]["properties"]["intent"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|intent| intent == "organize_imports_plan")
+    );
     assert!(names.contains("verify_project"));
     assert!(names.contains("apply_file_edits"));
     let review = first

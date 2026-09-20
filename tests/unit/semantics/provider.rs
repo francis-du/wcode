@@ -324,6 +324,44 @@ fn semantic_rename_plan_rejects_utf16_ranges_that_split_surrogate_pairs() {
 }
 
 #[test]
+fn semantic_rename_plan_withholds_sensitive_guarded_source() {
+    let root = tempfile::tempdir().unwrap();
+    let sentinel = "synthetic-private-fixture";
+    std::fs::write(
+        root.path().join("a.rs"),
+        format!("let password = \"{sentinel}\"; old();\n"),
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let target = workspace.load_source("a.rs").unwrap();
+    let uri = Url::from_file_path(root.path().join("a.rs"))
+        .unwrap()
+        .to_string();
+    let mut workspace_edit = json!({"changes": {}});
+    workspace_edit["changes"].as_object_mut().unwrap().insert(
+        uri,
+        json!([
+            {"range":{"start":{"line":0,"character":44},"end":{"line":0,"character":47}},"newText":"new"}
+        ]),
+    );
+    let error = rename::workspace_edit_to_guarded_files(
+        &workspace,
+        &workspace_edit,
+        rename::GuardedRenameRequest {
+            old_name: "old",
+            new_name: "new",
+            target_path: "a.rs",
+            target_sha: &target.sha256,
+            encoding: "utf-8",
+            max_files: 32,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("sensitive source"));
+    assert!(!error.to_string().contains(sentinel));
+}
+
+#[test]
 fn managed_lsp_destinations_stay_in_wcode_state_outside_the_repository() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.py"), "def f():\n    return 1\n").unwrap();
@@ -495,6 +533,17 @@ async fn every_canonical_profile_completes_stdio_lsp_initialize() {
             hover.pointer("/contents").and_then(Value::as_str),
             Some("mock-hover")
         );
+        let diagnostics = client.diagnostics_for_uri(&uri, 2);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].get("code").and_then(Value::as_str),
+            Some("mock.quickfix")
+        );
+        assert_eq!(
+            diagnostics[0].pointer("/data/fix").and_then(Value::as_str),
+            Some("mock")
+        );
+        assert!(client.diagnostics_for_uri(&uri, 1).is_empty());
         assert!(capabilities
             .pointer("/renameProvider/prepareProvider")
             .and_then(Value::as_bool)
@@ -529,6 +578,60 @@ async fn every_canonical_profile_completes_stdio_lsp_initialize() {
                 .and_then(|edit| edit.get("newText"))
                 .and_then(Value::as_str),
             Some("three")
+        );
+        assert!(capabilities.get("codeActionProvider").is_some());
+        let code_actions = client
+            .request(
+                "textDocument/codeAction",
+                json!({
+                    "textDocument":{"uri":uri},
+                    "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},
+                    "context":{"diagnostics":[],"only":["source.organizeImports"],"triggerKind":1}
+                }),
+            )
+            .await
+            .unwrap();
+        let action = code_actions
+            .as_array()
+            .and_then(|actions| actions.first())
+            .unwrap();
+        assert_eq!(action["kind"], "source.organizeImports");
+        assert_eq!(
+            action["edit"]["changes"]
+                .as_object()
+                .and_then(|changes| changes.get(&uri))
+                .and_then(Value::as_array)
+                .and_then(|edits| edits.first())
+                .and_then(|edit| edit.get("newText"))
+                .and_then(Value::as_str),
+            Some("two")
+        );
+        let quick_fixes = client
+            .request(
+                "textDocument/codeAction",
+                json!({
+                    "textDocument":{"uri":uri},
+                    "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},
+                    "context":{"diagnostics":diagnostics,"only":["quickfix"],"triggerKind":1}
+                }),
+            )
+            .await
+            .unwrap();
+        let quick_fix = quick_fixes
+            .as_array()
+            .and_then(|actions| actions.first())
+            .unwrap();
+        assert_eq!(quick_fix["kind"], "quickfix");
+        assert_eq!(quick_fix["isPreferred"], true);
+        assert_eq!(
+            quick_fix["edit"]["changes"]
+                .as_object()
+                .and_then(|changes| changes.get(&uri))
+                .and_then(Value::as_array)
+                .and_then(|edits| edits.first())
+                .and_then(|edit| edit.get("newText"))
+                .and_then(Value::as_str),
+            Some("fixed")
         );
         client
             .notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))

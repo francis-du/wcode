@@ -18,12 +18,23 @@ fn main() -> io::Result<()> {
                 respond(
                     &mut output,
                     &format!(
-                        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"capabilities":{{"positionEncoding":"utf-8","textDocumentSync":{{"openClose":true,"change":2}},"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true,"implementationProvider":true,"hoverProvider":true,"callHierarchyProvider":true,"renameProvider":{{"prepareProvider":true}}}}}}}}"#
+                        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"capabilities":{{"positionEncoding":"utf-8","textDocumentSync":{{"openClose":true,"change":2}},"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true,"implementationProvider":true,"hoverProvider":true,"callHierarchyProvider":true,"renameProvider":{{"prepareProvider":true}},"codeActionProvider":{{"resolveProvider":true}}}}}}}}"#
                     ),
                 )?;
             }
-            "textDocument/didOpen" => opened += 1,
-            "textDocument/didChange" => changed += 1,
+            "textDocument/didOpen" => {
+                opened += 1;
+                if let Some(uri) = json_string_field(&body, "uri") {
+                    publish_diagnostics(&mut output, &uri, 1)?;
+                }
+            }
+            "textDocument/didChange" => {
+                changed += 1;
+                if let Some(uri) = json_string_field(&body, "uri") {
+                    let version = json_u64_field(&body, "version").unwrap_or(2);
+                    publish_diagnostics(&mut output, &uri, version)?;
+                }
+            }
             "textDocument/didClose" => closed += 1,
             "textDocument/hover" => {
                 if let Some(id) = id {
@@ -55,6 +66,23 @@ fn main() -> io::Result<()> {
                         &mut output,
                         &format!(
                             r#"{{"jsonrpc":"2.0","id":{id},"result":{{"changes":{{"{uri}":[{{"range":{{"start":{{"line":0,"character":0}},"end":{{"line":0,"character":3}}}},"newText":"{new_name}"}}]}}}}}}"#
+                        ),
+                    )?;
+                }
+            }
+            "textDocument/codeAction" => {
+                if let Some(id) = id {
+                    let uri = json_string_field(&body, "uri")
+                        .unwrap_or_else(|| "file:///wcode-conformance/mock.txt".to_owned());
+                    let (title, kind, new_text) = if body.contains("\"quickfix\"") {
+                        ("Quick Fix", "quickfix", "fixed")
+                    } else {
+                        ("Organize Imports", "source.organizeImports", "two")
+                    };
+                    respond(
+                        &mut output,
+                        &format!(
+                            r#"{{"jsonrpc":"2.0","id":{id},"result":[{{"title":"{title}","kind":"{kind}","isPreferred":true,"edit":{{"changes":{{"{uri}":[{{"range":{{"start":{{"line":0,"character":0}},"end":{{"line":0,"character":3}}}},"newText":"{new_text}"}}]}}}}}}]}}"#
                         ),
                     )?;
                 }
@@ -121,6 +149,15 @@ fn read_message(input: &mut impl BufRead) -> io::Result<Option<String>> {
     String::from_utf8(body)
         .map(Some)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn publish_diagnostics(output: &mut impl Write, uri: &str, version: u64) -> io::Result<()> {
+    respond(
+        output,
+        &format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{{"uri":"{uri}","version":{version},"diagnostics":[{{"range":{{"start":{{"line":0,"character":0}},"end":{{"line":0,"character":3}}}},"severity":1,"code":"mock.quickfix","source":"wcode-mock","message":"mock diagnostic","data":{{"fix":"mock"}}}}]}}}}"#
+        ),
+    )
 }
 
 fn respond(output: &mut impl Write, body: &str) -> io::Result<()> {

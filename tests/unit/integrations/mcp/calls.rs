@@ -712,25 +712,23 @@ async fn syntax_index_tools_flow_through_mcp() {
             .contains("pub fn run")
     );
 
-    let rename = call_tool(
-        &state,
-        json!({
-            "name": "semantic_navigation",
-            "arguments": {
-                "path": "service.rs",
-                "symbol": "Service::run",
-                "intent": "rename_plan",
-                "new_name": "execute"
-            }
-        }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(rename["isError"], true);
-    assert!(rename["structuredContent"]["error"]
-        .as_str()
-        .unwrap()
-        .contains("no syntax fallback"));
+    for arguments in [
+        json!({"path":"service.rs","symbol":"Service::run","intent":"rename_plan","new_name":"execute"}),
+        json!({"path":"service.rs","intent":"organize_imports_plan"}),
+        json!({"path":"service.rs","line":2,"character":5,"intent":"quick_fix_plan"}),
+    ] {
+        let plan = call_tool(
+            &state,
+            json!({"name":"semantic_navigation","arguments":arguments}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(plan["isError"], true);
+        assert!(plan["structuredContent"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("no syntax fallback"));
+    }
 }
 
 #[tokio::test]

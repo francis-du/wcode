@@ -58,6 +58,9 @@ pub use navigation::SemanticNavigationIntent;
 #[path = "rename.rs"]
 mod rename;
 pub(crate) use rename::{rename_plan, RenamePlanRequest};
+#[path = "code_action.rs"]
+mod code_action;
+pub(crate) use code_action::{organize_imports_plan, quick_fix_plan};
 
 #[path = "index.rs"]
 mod index;

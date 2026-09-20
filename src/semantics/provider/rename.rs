@@ -426,6 +426,14 @@ fn guarded_line_edits(
             copied = end;
         }
         updated.push_str(&original[copied..]);
+        let (_, original_redacted) = redact_sensitive_text(original);
+        let (_, updated_redacted) = redact_sensitive_text(&updated);
+        if original_redacted || updated_redacted {
+            bail!(
+                "semantic rename intersects sensitive source on line {}; guarded edit is withheld",
+                zero_line + 1
+            );
+        }
         guarded.push(json!({
             "old_text": original,
             "new_text": updated,
@@ -443,7 +451,7 @@ fn rename_text_matches_requested(text: &str, requested: &str) -> bool {
         || text.strip_prefix('#') == Some(requested)
 }
 
-fn source_line(content: &str, zero_line: u64) -> Result<&str> {
+pub(super) fn source_line(content: &str, zero_line: u64) -> Result<&str> {
     let index = usize::try_from(zero_line).map_err(|_| anyhow!("LSP rename line is too large"))?;
     let raw = content
         .split('\n')
@@ -452,7 +460,7 @@ fn source_line(content: &str, zero_line: u64) -> Result<&str> {
     Ok(raw.strip_suffix('\r').unwrap_or(raw))
 }
 
-fn strict_lsp_byte_offset(text: &str, character: u64, encoding: &str) -> Result<usize> {
+pub(super) fn strict_lsp_byte_offset(text: &str, character: u64, encoding: &str) -> Result<usize> {
     let target =
         usize::try_from(character).map_err(|_| anyhow!("LSP rename character is too large"))?;
     match encoding {
@@ -492,7 +500,7 @@ fn strict_lsp_byte_offset(text: &str, character: u64, encoding: &str) -> Result<
     }
 }
 
-fn workspace_path_for_uri(workspace: &Workspace, uri: &str) -> Result<String> {
+pub(super) fn workspace_path_for_uri(workspace: &Workspace, uri: &str) -> Result<String> {
     let url = Url::parse(uri).context("LSP rename returned an invalid URI")?;
     if url.scheme() != "file" {
         bail!("LSP rename returned non-file URI {uri:?}; external/resource edits are rejected");
