@@ -82,10 +82,11 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     assert!(profile.contains("(deny default)"));
     assert!(profile.contains("(allow file-read*)"));
     assert!(profile.contains("(allow file-write*"));
-    assert!(profile.contains(workspace.to_str().unwrap()));
-    assert!(profile.contains(scratch.to_str().unwrap()));
-    assert!(profile.contains(workspace.join(".ssh").to_str().unwrap()));
-    assert!(profile.contains(workspace.join(".env").to_str().unwrap()));
+    let sandbox_path = |path: &std::path::Path| path.to_string_lossy().replace('\\', "\\\\");
+    assert!(profile.contains(&sandbox_path(&workspace)));
+    assert!(profile.contains(&sandbox_path(&scratch)));
+    assert!(profile.contains(&sandbox_path(&canonical_workspace.join(".ssh"))));
+    assert!(profile.contains(&sandbox_path(&canonical_workspace.join(".env"))));
     assert!(!profile.contains(&format!(
         "deny file-read* file-write* (subpath \"{}\")",
         canonical_workspace.join(".git").to_string_lossy()
@@ -96,7 +97,9 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
             .join("packages/api/.git")
             .to_string_lossy()
     )));
-    assert!(profile.contains(workspace.join("packages/api/.env.local").to_str().unwrap()));
+    assert!(profile.contains(&sandbox_path(
+        &canonical_workspace.join("packages/api/.env.local")
+    )));
     assert!(profile.contains("deny file-read* file-write*"));
     assert!(!profile.contains("(allow network"));
 
