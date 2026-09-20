@@ -168,6 +168,7 @@ const state = {
   codeGraphSearchResults: [],
   codeGraphLayouts: new Map(),
   codeGraphViewports: new Map(),
+  codeGraphPaintKey: "",
   selectedCodeNode: "",
   filter: "all",
   architectureMode: "overlay",

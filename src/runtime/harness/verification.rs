@@ -79,7 +79,7 @@ pub(super) async fn run_verification_check(
             report
         }
         Err(error) => {
-            let message = error.to_string();
+            let message = verification_command_error(&check, &error);
             let report = verification_error(check, message.clone(), started.elapsed().as_millis());
             task.finish(false, message.len() as u64);
             report
@@ -114,6 +114,23 @@ pub(super) fn verification_output(text: &str, success: bool) -> (String, bool) {
     )
 }
 
+fn verification_command_error(check: &CheckSpec, error: &anyhow::Error) -> String {
+    let details = format!("{error:#}");
+    let missing = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    });
+    if missing {
+        format!(
+            "verification executable `{}` is unavailable; install the project toolchain or declare a runnable verification provider, then retry verify_project. {details}",
+            check.program
+        )
+    } else {
+        details
+    }
+}
+
 fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> VerificationCheck {
     let command = verification_command_text(&check);
     VerificationCheck {
@@ -132,3 +149,7 @@ fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> Veri
         output_truncated: false,
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/verification_errors.rs"]
+mod tests;

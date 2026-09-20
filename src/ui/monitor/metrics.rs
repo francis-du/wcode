@@ -36,6 +36,10 @@ impl TaskMonitor {
     }
 
     pub(crate) fn record_agent_context_decision(&self, workspace: &str, telemetry: &Value) {
+        self.record_jev_decision(workspace, "agent_context", telemetry);
+    }
+
+    pub(crate) fn record_jev_decision(&self, workspace: &str, checkpoint: &str, telemetry: &Value) {
         if telemetry.get("provider").and_then(Value::as_str) != Some("jev") {
             return;
         }
@@ -61,8 +65,35 @@ impl TaskMonitor {
             .take(8)
             .map(|value| value.chars().take(128).collect::<String>())
             .collect::<Vec<_>>();
+        let checkpoint = checkpoint.chars().take(64).collect::<String>();
+        let call_request_bytes = telemetry
+            .pointer("/call/request_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let call_response_bytes = telemetry
+            .pointer("/call/response_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let call_elapsed_ms = telemetry
+            .pointer("/call/elapsed_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let call_input_tokens = telemetry
+            .pointer("/call/tokens/input")
+            .and_then(Value::as_u64);
+        let call_output_tokens = telemetry
+            .pointer("/call/tokens/output")
+            .and_then(Value::as_u64);
+        let call_total_tokens = telemetry
+            .pointer("/call/tokens/total")
+            .and_then(Value::as_u64);
         let latest = JevRuntimeStats {
             observed_at: Instant::now(),
+            checkpoint: if checkpoint.is_empty() {
+                "unknown".to_owned()
+            } else {
+                checkpoint.clone()
+            },
             status: status.clone(),
             model: bounded(telemetry.get("model").and_then(Value::as_str), 128),
             authority: bounded(telemetry.get("authority").and_then(Value::as_str), 64),
@@ -104,26 +135,51 @@ impl TaskMonitor {
                 .pointer("/comparison/shape_mismatches")
                 .and_then(Value::as_u64)
                 .unwrap_or_default(),
+            call_request_bytes,
+            call_response_bytes,
+            call_elapsed_ms,
+            call_input_tokens,
+            call_output_tokens,
+            call_total_tokens,
         };
         let mut state = self.state.lock().expect("task monitor lock poisoned");
         let stats = state.workspaces.entry(workspace.to_owned()).or_default();
-        stats.agent_context_jev_observed = stats.agent_context_jev_observed.saturating_add(1);
+        stats.jev_observed = stats.jev_observed.saturating_add(1);
+        let checkpoint_count = stats
+            .jev_checkpoints
+            .entry(latest.checkpoint.clone())
+            .or_default();
+        *checkpoint_count = checkpoint_count.saturating_add(1);
+        if telemetry.get("call").is_some() {
+            stats.jev_call_samples = stats.jev_call_samples.saturating_add(1);
+            stats.jev_request_bytes = stats.jev_request_bytes.saturating_add(call_request_bytes);
+            stats.jev_response_bytes = stats.jev_response_bytes.saturating_add(call_response_bytes);
+            stats.jev_elapsed_ms = stats.jev_elapsed_ms.saturating_add(call_elapsed_ms);
+        }
+        if call_input_tokens.is_some()
+            || call_output_tokens.is_some()
+            || call_total_tokens.is_some()
+        {
+            stats.jev_token_observations = stats.jev_token_observations.saturating_add(1);
+            stats.jev_input_tokens = stats
+                .jev_input_tokens
+                .saturating_add(call_input_tokens.unwrap_or_default());
+            stats.jev_output_tokens = stats
+                .jev_output_tokens
+                .saturating_add(call_output_tokens.unwrap_or_default());
+            stats.jev_total_tokens = stats
+                .jev_total_tokens
+                .saturating_add(call_total_tokens.unwrap_or_default());
+        }
         match status.as_str() {
-            "active" => {
-                stats.agent_context_jev_successful =
-                    stats.agent_context_jev_successful.saturating_add(1);
-            }
-            "disabled" => {
-                stats.agent_context_jev_disabled =
-                    stats.agent_context_jev_disabled.saturating_add(1);
-            }
+            "active" => stats.jev_successful = stats.jev_successful.saturating_add(1),
+            "disabled" => stats.jev_disabled = stats.jev_disabled.saturating_add(1),
             "unavailable" | "invalid_configuration" | "unknown" => {
-                stats.agent_context_jev_degraded =
-                    stats.agent_context_jev_degraded.saturating_add(1);
+                stats.jev_degraded = stats.jev_degraded.saturating_add(1);
             }
             _ => {}
         }
-        stats.agent_context_jev_latest = Some(latest);
+        stats.jev_latest = Some(latest);
     }
 }
 

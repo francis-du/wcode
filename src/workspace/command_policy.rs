@@ -338,6 +338,7 @@ pub(super) fn validate_verification_command_shape(program: &str, args: &[String]
         }
         "go" => args_equal(args, &["vet", "./..."]) || args_equal(args, &["test", "./..."]),
         "pytest" => args_equal(args, &["-q"]),
+        "python3" => args_equal(args, &["-m", "unittest", "discover"]),
         "mvn" => args_equal(args, &["-q", "-DskipTests", "compile"]) || args_equal(args, &["test"]),
         "gradle" => args_equal(args, &["classes"]) || args_equal(args, &["check"]),
         "swift" => args_equal(args, &["build"]) || args_equal(args, &["test"]),

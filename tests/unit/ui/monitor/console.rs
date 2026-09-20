@@ -249,7 +249,7 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
             "status": "active",
             "model": "jev-latest",
             "authority": "increase_only_assist",
-            "question_set": {"id": "wcode.agent_context", "version": 3},
+            "question_set": {"id": "wcode.agent_context", "version": 4},
             "baseline_next_action": "edit_then_verify",
             "candidate_next_action": "semantic_navigation",
             "guidance": ["jev:prefer_semantic_navigation"],
@@ -259,6 +259,17 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
                 "safety_policy_violations": 0,
                 "shape_mismatches": 0
             },
+            "call": {
+                "request_bytes": 4096,
+                "response_bytes": 1024,
+                "elapsed_ms": 240,
+                "tokens": {
+                    "input": 900,
+                    "output": 180,
+                    "total": 1080,
+                    "source": "provider_reported"
+                }
+            },
             "api_key": "PRIVATE-JEV-KEY",
             "raw_response": "PRIVATE-JEV-RESPONSE"
         }),
@@ -266,10 +277,12 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
 
     let snapshot = monitor.snapshot();
     let stats = &snapshot.workspaces["web"];
-    assert_eq!(stats.agent_context_jev_observed, 1);
-    assert_eq!(stats.agent_context_jev_successful, 1);
-    assert_eq!(stats.agent_context_jev_degraded, 0);
-    let latest = stats.agent_context_jev_latest.as_ref().unwrap();
+    assert_eq!(stats.jev_observed, 1);
+    assert_eq!(stats.jev_successful, 1);
+    assert_eq!(stats.jev_degraded, 0);
+    assert_eq!(stats.jev_checkpoints["agent_context"], 1);
+    let latest = stats.jev_latest.as_ref().unwrap();
+    assert_eq!(latest.checkpoint, "agent_context");
     assert_eq!(latest.status, "active");
     assert_eq!(latest.model.as_deref(), Some("jev-latest"));
     assert_eq!(latest.choice_disagreements, 1);
@@ -279,16 +292,77 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
     assert_eq!(jev["status"], "active");
     assert_eq!(jev["model"], "jev-latest");
     assert_eq!(jev["question_set"]["id"], "wcode.agent_context");
-    assert_eq!(jev["question_set"]["version"], 3);
+    assert_eq!(jev["question_set"]["version"], 4);
+    assert_eq!(jev["checkpoint"], "agent_context");
+    assert_eq!(jev["calls"]["by_checkpoint"]["agent_context"], 1);
     assert_eq!(jev["baseline_next_action"], "edit_then_verify");
     assert_eq!(jev["candidate_next_action"], "semantic_navigation");
     assert_eq!(jev["comparison"]["shared_signals"], 7);
     assert_eq!(jev["calls"]["observed"], 1);
     assert_eq!(jev["calls"]["successful"], 1);
+    assert_eq!(jev["call"]["request_bytes"], 4096);
+    assert_eq!(jev["call"]["response_bytes"], 1024);
+    assert_eq!(jev["call"]["elapsed_ms"], 240);
+    assert_eq!(jev["call"]["tokens"]["total"], 1080);
+    assert_eq!(jev["call"]["tokens"]["source"], "provider_reported");
+    assert_eq!(jev["calls"]["metered"], 1);
+    assert_eq!(jev["calls"]["request_bytes"], 4096);
+    assert_eq!(jev["calls"]["response_bytes"], 1024);
+    assert_eq!(jev["calls"]["avg_elapsed_ms"], 240);
+    assert_eq!(jev["calls"]["tokens"]["input"], 900);
+    assert_eq!(jev["calls"]["tokens"]["output"], 180);
+    assert_eq!(jev["calls"]["tokens"]["total"], 1080);
+    assert_eq!(jev["calls"]["tokens"]["source"], "provider_reported");
     assert!(jev["observed_ago_ms"].as_u64().is_some());
     let serialized = activity.to_string();
     assert!(!serialized.contains("PRIVATE-JEV-KEY"));
     assert!(!serialized.contains("PRIVATE-JEV-RESPONSE"));
+
+    monitor.record_jev_decision(
+        "web",
+        "post_edit_review",
+        &serde_json::json!({
+            "provider": "jev",
+            "status": "active",
+            "model": "jev-latest",
+            "authority": "increase_only_assist",
+            "question_set": {"id": "wcode.runtime_checkpoint", "version": 1},
+            "baseline_next_action": "verify_project",
+            "candidate_next_action": "verify_project",
+            "guidance": [],
+            "comparison": {
+                "shared_signals": 4,
+                "choice_disagreements": 0,
+                "safety_policy_violations": 0,
+                "shape_mismatches": 0
+            },
+            "call": {
+                "request_bytes": 800,
+                "response_bytes": 200,
+                "elapsed_ms": 160,
+                "tokens": {
+                    "input": null,
+                    "output": null,
+                    "total": null,
+                    "source": "unavailable"
+                }
+            }
+        }),
+    );
+    let mixed = monitor.observatory_activity("web");
+    let mixed_jev = &mixed["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(mixed_jev["checkpoint"], "post_edit_review");
+    assert_eq!(mixed_jev["calls"]["by_checkpoint"]["agent_context"], 1);
+    assert_eq!(mixed_jev["calls"]["by_checkpoint"]["post_edit_review"], 1);
+    assert_eq!(mixed_jev["call"]["tokens"]["source"], "byte_estimate");
+    assert_eq!(mixed_jev["call"]["tokens"]["input"], 200);
+    assert_eq!(mixed_jev["call"]["tokens"]["output"], 50);
+    assert_eq!(
+        mixed_jev["calls"]["tokens"]["source"],
+        "mixed_provider_and_byte_estimate"
+    );
+    assert_eq!(mixed_jev["calls"]["tokens"]["input"], 1224);
+    assert_eq!(mixed_jev["calls"]["tokens"]["output"], 306);
 
     monitor.record_agent_context_decision(
         "web",
@@ -297,15 +371,15 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
             "status": "unavailable",
             "model": "jev-latest",
             "authority": "increase_only_assist",
-            "question_set": {"id": "wcode.agent_context", "version": 3},
+            "question_set": {"id": "wcode.agent_context", "version": 4},
             "baseline_next_action": "retrieve"
         }),
     );
     let latest = monitor.observatory_activity("web");
     let jev = &latest["agent_context"]["decision_runtime"]["jev"];
     assert_eq!(jev["status"], "unavailable");
-    assert_eq!(jev["calls"]["observed"], 2);
-    assert_eq!(jev["calls"]["successful"], 1);
+    assert_eq!(jev["calls"]["observed"], 3);
+    assert_eq!(jev["calls"]["successful"], 2);
     assert_eq!(jev["calls"]["degraded"], 1);
 }
 

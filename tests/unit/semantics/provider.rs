@@ -133,6 +133,39 @@ fn install_plans_cover_every_canonical_language_without_arbitrary_commands() {
 }
 
 #[test]
+fn lsp_install_authorization_denial_and_retry_are_fail_closed_before_side_effects() {
+    let root = tempfile::tempdir().unwrap();
+    let workspaces = crate::workspace::Workspaces::new([root.path()], false, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let (_, workspace) = workspaces.select(Some(&workspace_id)).unwrap();
+    let language = SemanticLanguage::Python;
+    let provider = install::canonical_provider(language).unwrap();
+    let plan = install::install_plan(&workspace, language).unwrap();
+    let destination = PathBuf::from(plan.destination.as_deref().unwrap());
+    assert!(!destination.exists());
+
+    let first = install::authorize_install_plan(&workspace, language, provider, &plan).unwrap_err();
+    assert!(first.to_string().contains("authorization required"));
+    let first_request = workspaces.latest_pending_authorization().unwrap();
+    assert_eq!(
+        first_request.kind,
+        crate::authorization::AuthorizationKind::RiskyExecution
+    );
+    assert_eq!(first_request.workspace, workspace_id);
+    assert!(workspaces.deny_authorization(&first_request.id));
+    assert!(!destination.exists());
+
+    let second =
+        install::authorize_install_plan(&workspace, language, provider, &plan).unwrap_err();
+    assert!(second.to_string().contains("authorization required"));
+    let second_request = workspaces.latest_pending_authorization().unwrap();
+    assert_ne!(second_request.id, first_request.id);
+    assert!(workspaces.approve_authorization_session(&second_request.id));
+    install::authorize_install_plan(&workspace, language, provider, &plan).unwrap();
+    assert!(!destination.exists());
+}
+
+#[test]
 fn managed_lsp_destinations_stay_in_wcode_state_outside_the_repository() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.py"), "def f():\n    return 1\n").unwrap();

@@ -885,3 +885,6 @@ mod test_support;
 #[cfg(test)]
 #[path = "../../../tests/unit/integrations/mcp/calls.rs"]
 mod tool_tests;
+#[cfg(test)]
+#[path = "../../../tests/unit/integrations/mcp/workflow.rs"]
+mod workflow_tests;

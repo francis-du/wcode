@@ -360,20 +360,63 @@ impl VerificationState {
         capabilities: &BTreeSet<String>,
         requested_role: Option<ReviewerRole>,
     ) -> Result<VerificationJob, VerificationError> {
+        self.claim_matching(workspace, reviewer, capabilities, requested_role, None)
+    }
+
+    pub fn claim_for_revision(
+        &mut self,
+        workspace: &str,
+        reviewer: &str,
+        capabilities: &BTreeSet<String>,
+        requested_role: Option<ReviewerRole>,
+        revision: &Revision,
+    ) -> Result<VerificationJob, VerificationError> {
+        self.claim_matching(
+            workspace,
+            reviewer,
+            capabilities,
+            requested_role,
+            Some(revision),
+        )
+    }
+
+    fn claim_matching(
+        &mut self,
+        workspace: &str,
+        reviewer: &str,
+        capabilities: &BTreeSet<String>,
+        requested_role: Option<ReviewerRole>,
+        revision: Option<&Revision>,
+    ) -> Result<VerificationJob, VerificationError> {
         if reviewer.trim().is_empty() || reviewer.len() > 256 {
             return Err(VerificationError::InvalidReviewer);
         }
-        let Some(job) = self.jobs.values_mut().find(|job| {
-            job.workspace == workspace
-                && job.status == VerificationJobStatus::Queued
-                && requested_role.is_none_or(|role| role == job.role)
-                && job
-                    .required_capabilities
-                    .iter()
-                    .all(|required| capabilities.contains(required))
-        }) else {
+        let Some(job_id) = self
+            .jobs
+            .values()
+            .find(|job| {
+                job.workspace == workspace
+                    && job.status == VerificationJobStatus::Queued
+                    && requested_role.is_none_or(|role| role == job.role)
+                    && job
+                        .required_capabilities
+                        .iter()
+                        .all(|required| capabilities.contains(required))
+                    && revision.is_none_or(|revision| {
+                        self.plans
+                            .get(&job.plan_id)
+                            .and_then(|plan| plan.revision.as_ref())
+                            == Some(revision)
+                    })
+            })
+            .map(|job| job.id.clone())
+        else {
             return Err(VerificationError::NoMatchingJob);
         };
+        let job = self
+            .jobs
+            .get_mut(&job_id)
+            .ok_or(VerificationError::UnknownJob)?;
         job.status = VerificationJobStatus::Claimed;
         job.claimed_by = Some(reviewer.to_owned());
         Ok(job.clone())

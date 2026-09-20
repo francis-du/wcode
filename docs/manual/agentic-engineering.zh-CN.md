@@ -106,7 +106,7 @@ Host 具体接入方式见 [Agent 与 MCP 集成](../code-agent-integrations/)�
 1. `review_changes`；
 2. 按需执行 Drift / Impact / Risk；
 3. 按需运行仓库声明且 Check-only 的 `language_quality_run`；
-4. `verify_project`；
+4. `verify_project`；若返回 `VERIFICATION_REVISION_DRIFT`，表示没有写入过期 Evidence：按返回的 `review_changes` 动作审查新 Revision，再重跑 `verify_project`；
 5. 必需的 Property / Mutation / Fuzz / Runtime Stage 与独立 Review；
 6. 检查当前 Revision 的 `evidence_status` 与 Convergence 状态。
 

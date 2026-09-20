@@ -270,11 +270,25 @@ impl ToolHarness {
                     .symbol_context(workspace_id, workspace, &symbol.id, 120)
                     .ok()
             });
-            let keyword_matches = request
+            let candidate_limit = 500;
+            let target_language = semantic_provider::language_for_path(path);
+            let mut keyword_matches = request
                 .symbol
                 .as_deref()
-                .and_then(|symbol| workspace.search(symbol, ".", request.max_results).ok())
+                .and_then(|symbol| workspace.search(symbol, ".", candidate_limit).ok())
                 .unwrap_or_default();
+            keyword_matches.sort_by_key(|item| {
+                let language = item
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .and_then(semantic_provider::language_for_path);
+                match language {
+                    Some(language) if Some(language) == target_language => 0,
+                    Some(_) => 1,
+                    None => 2,
+                }
+            });
+            keyword_matches.truncate(request.max_results);
             let syntax_calls = resolved.as_ref().and_then(|symbol| {
                 self.code_index
                     .syntax_call_navigation_from_matches(

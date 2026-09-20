@@ -70,6 +70,14 @@ async function run(){
     assert.match(html,/rust · 2/);assert.match(html,/java-script · 1/);assert.match(html,/python · 1/);
   });
 
+  await test('repository overview repaint cache follows live language changes',async()=>{
+    const s=sandbox();s.context.ov=overview();
+    s.run('state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";state.codeGraphView="overview";state.codeGraphOverview=ov;state.codeGraphWorkspace="A";state.language="en";maybeLoadCodeGraph();');
+    assert.match(s.node('#codeGraphSummary').innerHTML,/Repository overview/);
+    s.run('state.language="zh-CN";maybeLoadCodeGraph();');
+    assert.match(s.node('#codeGraphSummary').innerHTML,/仓库概览/);
+  });
+
   await test('repository overview groups files by language instead of flattening polyglot symbols',async()=>{
     const s=sandbox();s.context.ov=overview();s.run('state.current="A";state.codeGraphView="overview";');
     const data=JSON.parse(s.run('JSON.stringify([...codeGraphOverviewLayout(ov).lanes])'));

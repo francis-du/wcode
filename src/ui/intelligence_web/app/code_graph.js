@@ -561,12 +561,22 @@ function codeGraphDefaultQuery() {
 function maybeLoadCodeGraph() {
   if (state.workspaceTab !== "architecture" || state.architectureView !== "codegraph" || state.codeGraphLoading) return;
   if (state.codeGraphView === "overview") {
-    if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) renderCodeGraph();
-    else void loadCodeGraphOverview();
+    if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) {
+      // Reuse the painted overview when the workspace snapshot is unchanged.
+      const paintKey = `overview|${state.current}|${state.codeGraphSnapshot || "latest"}|lang:${state.language}`;
+      if (state.codeGraphPaintKey !== paintKey) {
+        renderCodeGraph();
+        state.codeGraphPaintKey = paintKey;
+      }
+    } else {
+      void loadCodeGraphOverview();
+    }
     return;
   }
-  if (state.codeGraph && state.codeGraphWorkspace === state.current) renderCodeGraph();
-  else renderCodeGraph();
+  const paintKey = `${codeGraphViewKey()}|lang:${state.language}`;
+  if (state.codeGraphPaintKey === paintKey && state.codeGraphWorkspace === state.current) return;
+  renderCodeGraph();
+  state.codeGraphPaintKey = paintKey;
 }
 function reloadCodeGraphFromCurrentContext() {
   if (state.codeGraphView === "overview") return void loadCodeGraphOverview();

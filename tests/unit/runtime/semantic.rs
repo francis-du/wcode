@@ -80,6 +80,59 @@ async fn semantic_navigation_degrades_to_cross_file_syntax_calls() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn semantic_navigation_prioritizes_source_matches_over_documentation_noise() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("a_docs")).unwrap();
+    std::fs::create_dir_all(root.path().join("z_domain")).unwrap();
+    for index in 0..300 {
+        std::fs::write(
+            root.path().join(format!("a_docs/note_{index:03}.md")),
+            "target_feature is documented here\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        root.path().join("z_domain/target.rs"),
+        "pub fn target_feature() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("z_domain/caller.rs"),
+        "pub fn invoke_target() {\n    target_feature();\n}\n",
+    )
+    .unwrap();
+
+    let workspace = crate::workspace::Workspace::new(root.path(), false, false).unwrap();
+    let harness = crate::harness::ToolHarness::new(4).unwrap();
+    let request = crate::harness::SemanticNavigationRequest {
+        path: "z_domain/target.rs".into(),
+        symbol: Some("target_feature".into()),
+        line: None,
+        character: None,
+        intent: crate::semantic_provider::SemanticNavigationIntent::References,
+        max_results: 5,
+    };
+    let result = harness
+        .semantic_navigation("demo", &workspace, &request)
+        .await
+        .unwrap();
+
+    assert!(result["keyword_matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .take(2)
+        .all(|item| item["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with(".rs"))));
+    assert!(result["syntax_calls"]["incoming_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|caller| caller["name"] == "invoke_target"));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn semantic_navigation_recovers_calls_beyond_repo_map_file_cap() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("a_noise")).unwrap();

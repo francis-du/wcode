@@ -151,6 +151,15 @@ impl ToolHarness {
         // the final byte-aware packer decides what fits, not a 2K cliff.
         let hot_source_items = explicit_ids.len().max(2);
         let mut hot_source_ids = explicit_ids.clone();
+        if hot_source_ids.len() < hot_source_items
+            && !contains_implementation_hot_source(&context.symbols, &hot_source_ids)
+        {
+            if let Some(id) =
+                primary_implementation_hot_source_id(&context.symbols, &hot_source_ids)
+            {
+                hot_source_ids.push(id);
+            }
+        }
         // Bodies are an edit/debugging resource, so executable/type definitions
         // should consume the tiny Hot Source budget before module/import wrappers.
         // Keep retrieval identity order unchanged; this only chooses which already
@@ -628,6 +637,36 @@ fn compact_hot_source(source: &Value, max_chars: usize) -> Value {
             "truncated": body.get("truncated").and_then(Value::as_bool).unwrap_or(false),
         },
         "calls": calls,
+    })
+}
+
+fn implementation_hot_source(symbol: &Value) -> bool {
+    if symbol["kind"].as_str() == Some("module") {
+        return false;
+    }
+    let Some(path) = symbol["path"].as_str() else {
+        return false;
+    };
+    let kind = symbol["kind"].as_str().unwrap_or_default();
+    !super::harness_retrieval::test_path(path, kind)
+}
+
+fn contains_implementation_hot_source(symbols: &[Value], ids: &[String]) -> bool {
+    symbols.iter().any(|symbol| {
+        implementation_hot_source(symbol)
+            && symbol["id"]
+                .as_str()
+                .is_some_and(|id| ids.iter().any(|selected| selected == id))
+    })
+}
+
+fn primary_implementation_hot_source_id(symbols: &[Value], existing: &[String]) -> Option<String> {
+    symbols.iter().find_map(|symbol| {
+        implementation_hot_source(symbol)
+            .then(|| symbol["id"].as_str())
+            .flatten()
+            .filter(|id| !existing.iter().any(|selected| selected == id))
+            .map(str::to_owned)
     })
 }
 

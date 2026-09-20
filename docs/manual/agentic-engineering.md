@@ -106,7 +106,7 @@ After edits:
 1. `review_changes`;
 2. drift / impact / risk when applicable;
 3. repository-declared check-only `language_quality_run` providers as needed;
-4. `verify_project`;
+4. `verify_project`; if it returns `VERIFICATION_REVISION_DRIFT`, no stale Evidence was recorded: run the returned `review_changes` action against the new revision and then rerun `verify_project`;
 5. required Property / Mutation / Fuzz / Runtime stages and independent review;
 6. inspect current-revision `evidence_status` and convergence state.
 

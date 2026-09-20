@@ -221,7 +221,7 @@ async fn oversized_verification_plan_fails_before_dispatch() {
 }
 
 #[tokio::test]
-async fn mixed_language_verification_accounts_for_every_inferred_check() {
+async fn mixed_language_verification_fails_closed_on_unresolved_python_runner() {
     let root = tempfile::tempdir().unwrap();
     for (path, content) in [
         ("Cargo.toml", "[package]\nname='fixture'\nversion='0.1.0'\n"),
@@ -248,7 +248,6 @@ async fn mixed_language_verification_accounts_for_every_inferred_check() {
     for required in [
         "rust-check",
         "node-lint",
-        "python-tests",
         "go-vet",
         "go-tests",
         "make-check",
@@ -258,28 +257,27 @@ async fn mixed_language_verification_accounts_for_every_inferred_check() {
             "mixed-language profile must retain native check {required}"
         );
     }
-    assert!(expected.len() >= 16);
+    assert!(
+        !expected.iter().any(|id| id.contains("python")),
+        "Python verification must not be invented without pytest/unittest evidence"
+    );
+    assert!(expected.len() >= 15);
     let monitor = TaskMonitor::new([id.clone()]);
     let report = harness
         .verify_project_mode(id, &workspace, ("full", false), 1, &monitor)
         .await
         .unwrap();
-    let actual = report
-        .checks
-        .iter()
-        .map(|check| check.id.clone())
-        .collect::<BTreeSet<_>>();
-    eprintln!(
-        "mixed_verification inferred={} accounted={}",
-        expected.len(),
-        actual.len()
-    );
-    assert_eq!(
-        actual, expected,
-        "full diagnostics must not silently drop inferred checks"
-    );
     assert!(!report.passed);
-    assert!(report.skipped_checks.is_empty());
+    assert_eq!(report.execution, "polyglot-gap");
+    assert_eq!(report.checks_run, 1);
+    assert_eq!(report.checks_failed, 1);
+    assert_eq!(report.checks[0].id, "polyglot-gap:.");
+    assert!(report.checks[0].reason.contains("python"));
+    assert_eq!(
+        report.skipped_checks.into_iter().collect::<BTreeSet<_>>(),
+        expected,
+        "fail-closed polyglot coverage must preserve every deferred native check"
+    );
 }
 
 #[test]
@@ -394,7 +392,7 @@ fn polyglot_language_islands_bind_checks_to_manifest_roots_and_changed_islands()
     .unwrap();
     fs::write(
         root.path().join("tools/pyproject.toml"),
-        "[project]\nname='tools'\nversion='0.1.0'\n",
+        "[project]\nname='tools'\nversion='0.1.0'\n[project.optional-dependencies]\ntest=['pytest>=8']\n",
     )
     .unwrap();
     fs::write(
@@ -664,7 +662,7 @@ fn polyglot_verification_gaps_are_scoped_to_the_affected_island() {
 }
 
 #[test]
-fn polyglot_quick_verification_promotes_a_bounded_full_fallback_and_full_stays_strict() {
+fn polyglot_quick_verification_reports_unknown_python_runner_and_full_stays_strict() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir(root.path().join(".git")).unwrap();
     fs::create_dir_all(root.path().join("py/src")).unwrap();
@@ -700,17 +698,21 @@ fn polyglot_quick_verification_promotes_a_bounded_full_fallback_and_full_stays_s
         Some(&py_snapshot),
         "quick",
     );
-    assert!(quick.iter().any(|check| {
-        check.id == "py:python-tests" && check.reason.starts_with("Quick fallback for python:")
-    }));
     assert!(
-        super::super::harness_profile::verification_gaps_for_snapshot(
-            &profile,
-            Some(&py_snapshot),
-            "quick",
-        )
-        .is_empty()
+        quick
+            .iter()
+            .all(|check| !check.languages.contains(&"python".to_owned())),
+        "quick verification must not fabricate a Python runner"
     );
+    let python_gaps = super::super::harness_profile::verification_gaps_for_snapshot(
+        &profile,
+        Some(&py_snapshot),
+        "quick",
+    );
+    assert_eq!(python_gaps.len(), 1);
+    assert_eq!(python_gaps[0].root, "py");
+    assert_eq!(python_gaps[0].project_types, vec!["python"]);
+    assert_eq!(python_gaps[0].level, "quick");
 
     let web_snapshot = json!({
         "available": true,

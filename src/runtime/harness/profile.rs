@@ -9,6 +9,8 @@ mod contracts;
 mod islands;
 #[path = "profile_polyglot.rs"]
 mod profile_polyglot;
+#[path = "profile_python.rs"]
+mod profile_python;
 #[path = "profile_scan.rs"]
 mod profile_scan;
 pub(super) use contracts::contract_freshness_advisories;
@@ -356,14 +358,7 @@ fn add_island_checks(root: &Path, project_types: &[String], checks: &mut Vec<Che
         add_node_checks(root, checks);
     }
     if has_type("python") {
-        push_check(
-            checks,
-            "python-tests",
-            "full",
-            "pytest",
-            &["-q"],
-            "Run the Python test suite with concise output.",
-        );
+        profile_python::add_python_checks(root, checks);
     }
     if has_type("go") {
         push_check(

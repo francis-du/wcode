@@ -165,6 +165,8 @@ pub(super) fn run_dashboard(
     let mut ui = DashboardState::default();
     let mut status_snapshot: Option<String> = None;
     let mut status_deadline: Option<Instant> = None;
+    // Compact fingerprint (avoids >12-field tuple PartialEq limits).
+    let mut last_draw_key: Option<(u64, u64, Option<String>)> = None;
     let initial_snapshot = monitor.snapshot();
     let initial_workspaces = ordered_workspaces(&config, &initial_snapshot);
     ui.sync_workspace_order(&initial_workspaces, initial_workspaces.len().max(1));
@@ -210,21 +212,8 @@ pub(super) fn run_dashboard(
             );
         }
         let snapshot = monitor.snapshot();
-        let workspaces = ordered_workspaces(&config, &snapshot);
-        let workspace_count = workspaces.len();
-        let visible = workspace_column_count(size.width, workspace_count);
-        ui.sync_workspace_order(&workspaces, visible);
-        if ui.commands_open && !commands_overlay_visible(area) {
-            ui.commands_open = false;
-            ui.command_offset = 0;
-            ui.workspace_message = Some(
-                ui.language
-                    .tr("command view requires a larger terminal")
-                    .to_owned(),
-            );
-        }
-        // Render and decide against the same request IDs, even if the queue changes
-        // while waiting for keyboard input.
+        // Compute pending authorizations once per frame and reuse for ordering +
+        // overlay state so the authorization store is not scanned three times.
         let previous_request = ui
             .pending_authorizations
             .get(ui.authorization_focus)
@@ -239,19 +228,60 @@ pub(super) fn run_dashboard(
         {
             ui.authorization_scroll = 0;
         }
+        let approvals = approval_counts(&ui.pending_authorizations);
+        let workspaces = ordered_workspaces_with_approvals(&config, &snapshot, &approvals);
+        let workspace_count = workspaces.len();
+        let visible = workspace_column_count(size.width, workspace_count);
+        ui.sync_workspace_order(&workspaces, visible);
+        if ui.commands_open && !commands_overlay_visible(area) {
+            ui.commands_open = false;
+            ui.command_offset = 0;
+            ui.workspace_message = Some(
+                ui.language
+                    .tr("command view requires a larger terminal")
+                    .to_owned(),
+            );
+        }
         if ui.commands_open {
-            if let Some(workspace_id) = focused_workspace_id(&config, &snapshot, ui.workspace_focus)
-            {
+            if let Some(workspace_id) = focused_workspace_id_from(&workspaces, ui.workspace_focus) {
                 let total = command_count(&config.workspaces, &workspace_id);
                 ui.command_offset = ui
                     .command_offset
                     .min(total.saturating_sub(command_page_size(area)));
             }
         }
-        session
-            .terminal
-            .draw(|frame| draw_dashboard(frame, &snapshot, &config, tick, &ui))?;
-        tick = tick.wrapping_add(1);
+        let busy = dashboard_refresh_interval(&snapshot) == ACTIVE_REFRESH_INTERVAL;
+        // Coarse frame key: skip terminal paint when the operator-visible state
+        // did not change and no spinner needs to advance.
+        let flags = (u64::from(ui.help_open))
+            | (u64::from(ui.intelligence_open) << 1)
+            | (u64::from(ui.commands_open) << 2)
+            | (u64::from(ui.full_access_confirm) << 3)
+            | (u64::from(ui.workspace_input.is_some()) << 4);
+        let draw_key = (
+            (u64::from(size.width) << 48)
+                | (u64::from(size.height) << 32)
+                | (snapshot
+                    .observed_active
+                    .saturating_add(snapshot.observed_queued << 16)
+                    & 0xffff_ffff),
+            ((snapshot.tasks.len() as u64) << 48)
+                | ((ui.pending_authorizations.len() as u64) << 32)
+                | ((ui.workspace_focus as u64) << 24)
+                | ((ui.command_offset as u64) << 16)
+                | ((ui.authorization_focus as u64) << 8)
+                | ((ui.authorization_scroll as u64) & 0xff)
+                | (flags << 56),
+            ui.workspace_message.clone(),
+        );
+        let changed = last_draw_key.as_ref() != Some(&draw_key);
+        if busy || changed {
+            session
+                .terminal
+                .draw(|frame| draw_dashboard(frame, &snapshot, &config, tick, &ui))?;
+            last_draw_key = Some(draw_key);
+            tick = tick.wrapping_add(1);
+        }
 
         let refresh_interval = dashboard_refresh_interval(&snapshot);
         if event::poll(refresh_interval)? {
@@ -887,11 +917,18 @@ pub(super) fn point_in_rect((x, y): (u16, u16), rect: Rect) -> bool {
 mod key_tests;
 
 pub(super) fn dashboard_refresh_interval(snapshot: &MonitorSnapshot) -> Duration {
-    if snapshot
+    let tasks_busy = snapshot
         .tasks
         .iter()
-        .any(|task| matches!(task.status, TaskStatus::Queued | TaskStatus::Running))
-    {
+        .any(|task| matches!(task.status, TaskStatus::Queued | TaskStatus::Running));
+    let intelligence_busy = snapshot.intelligence.values().any(|stats| stats.refreshing);
+    let tunnel_busy = matches!(snapshot.tunnel_running, Some(false))
+        || snapshot.public_endpoint.as_deref() == Some("pending")
+        || snapshot
+            .tunnel_runtime
+            .iter()
+            .any(|tunnel| tunnel.circuit_open || tunnel.state == "connecting");
+    if tasks_busy || intelligence_busy || tunnel_busy {
         ACTIVE_REFRESH_INTERVAL
     } else {
         IDLE_REFRESH_INTERVAL

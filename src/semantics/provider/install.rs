@@ -242,6 +242,30 @@ pub(super) fn invalidate_discovery_cache() {
     super::discovery::invalidate_rustup_component_cache();
 }
 
+pub(super) fn authorize_install_plan(
+    workspace: &Workspace,
+    language: SemanticLanguage,
+    provider: ProviderCandidate,
+    plan: &SemanticProviderInstallPlan,
+) -> Result<()> {
+    let operation = format!(
+        "semantic_provider_install\0{}\0{}\0{}",
+        language.as_str(),
+        provider.id,
+        plan.args.join("\0")
+    );
+    workspace.authorize_risky_operation(
+        AuthorizationKind::RiskyExecution,
+        &operation,
+        &format!(
+            "install canonical LSP {} for {} using {}",
+            provider.id,
+            language.as_str(),
+            plan.manager
+        ),
+    )
+}
+
 pub async fn install(
     workspace: &Workspace,
     language: SemanticLanguage,
@@ -286,22 +310,7 @@ pub async fn install(
         .program
         .as_deref()
         .ok_or_else(|| anyhow!("model-installable LSP plan is missing a program"))?;
-    let operation = format!(
-        "semantic_provider_install\0{}\0{}\0{}",
-        language.as_str(),
-        provider.id,
-        plan.args.join("\0")
-    );
-    workspace.authorize_risky_operation(
-        AuthorizationKind::RiskyExecution,
-        &operation,
-        &format!(
-            "install canonical LSP {} for {} using {}",
-            provider.id,
-            language.as_str(),
-            plan.manager
-        ),
-    )?;
+    authorize_install_plan(workspace, language, provider, &plan)?;
     if let Some(destination) = plan.destination.as_deref() {
         std::fs::create_dir_all(destination)
             .with_context(|| format!("cannot create LSP tool directory {destination}"))?;

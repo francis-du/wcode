@@ -16,7 +16,13 @@ pub(super) fn draw_dashboard(
     render_dashboard_body(frame, area, snapshot, config, tick, ui);
 
     if ui.commands_open {
-        if let Some(workspace_id) = focused_workspace_id(config, snapshot, ui.workspace_focus) {
+        // Prefer the focus id already tracked by DashboardState to avoid
+        // re-sorting the full workspace list on every paint of the overlay.
+        let workspace_id = ui
+            .workspace_focus_id
+            .clone()
+            .or_else(|| focused_workspace_id(config, snapshot, ui.workspace_focus));
+        if let Some(workspace_id) = workspace_id {
             render_commands_overlay(
                 frame,
                 area,

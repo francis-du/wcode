@@ -144,5 +144,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
   outline-offset:3px;
 }
 .app{width:min(1920px,100%);margin:0 auto calc(var(--page-gutter-bottom) + env(safe-area-inset-bottom));padding-inline:var(--page-gutter-x);}
+/* Skip layout/paint for off-screen panels while reserving approximate height. */
+.panel,.workspace-panel{
+  content-visibility:auto;
+  contain-intrinsic-size:auto 420px;
+}
 .hidden,[hidden]{display:none!important;}
 .good{color:var(--good)!important;}.warn{color:var(--warn)!important;}.bad{color:var(--bad)!important;}.info{color:var(--info)!important;}.accent{color:var(--accent)!important;}

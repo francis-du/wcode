@@ -501,17 +501,29 @@ pub(super) fn workspace_activity_tasks<'a>(
     workspace: &str,
     capacity: usize,
 ) -> Vec<&'a TaskRecord> {
+    if capacity == 0 {
+        return Vec::new();
+    }
     let mut tasks = snapshot
         .tasks
         .iter()
         .filter(|task| task.workspace == workspace)
         .collect::<Vec<_>>();
+    // Only fully sort the visible window. For large task histories this avoids
+    // O(n log n) work every frame when the card only shows a handful of rows.
+    if tasks.len() > capacity {
+        tasks.select_nth_unstable_by(capacity - 1, |a, b| {
+            activity_rank(a.status)
+                .cmp(&activity_rank(b.status))
+                .then_with(|| task_time(b).cmp(&task_time(a)))
+        });
+        tasks.truncate(capacity);
+    }
     tasks.sort_by(|a, b| {
         activity_rank(a.status)
             .cmp(&activity_rank(b.status))
             .then_with(|| task_time(b).cmp(&task_time(a)))
     });
-    tasks.truncate(capacity);
     tasks
 }
 

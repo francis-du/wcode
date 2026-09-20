@@ -74,6 +74,8 @@ use monitor_metrics::*;
 
 #[path = "state.rs"]
 mod monitor_state;
+#[path = "state_jev.rs"]
+mod monitor_state_jev;
 #[cfg(test)]
 use monitor_state::trim_history;
 
@@ -153,6 +155,7 @@ pub(crate) struct AgentContextMetrics {
 #[derive(Clone)]
 struct JevRuntimeStats {
     observed_at: Instant,
+    checkpoint: String,
     status: String,
     model: Option<String>,
     authority: Option<String>,
@@ -165,6 +168,12 @@ struct JevRuntimeStats {
     choice_disagreements: u64,
     safety_policy_violations: u64,
     shape_mismatches: u64,
+    call_request_bytes: u64,
+    call_response_bytes: u64,
+    call_elapsed_ms: u64,
+    call_input_tokens: Option<u64>,
+    call_output_tokens: Option<u64>,
+    call_total_tokens: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -186,11 +195,20 @@ struct WorkspaceStats {
     agent_repo_map_candidates: u64,
     agent_repo_map_delivered: u64,
     agent_context_build_ms: u64,
-    agent_context_jev_observed: u64,
-    agent_context_jev_successful: u64,
-    agent_context_jev_degraded: u64,
-    agent_context_jev_disabled: u64,
-    agent_context_jev_latest: Option<JevRuntimeStats>,
+    jev_observed: u64,
+    jev_successful: u64,
+    jev_degraded: u64,
+    jev_disabled: u64,
+    jev_checkpoints: BTreeMap<String, u64>,
+    jev_call_samples: u64,
+    jev_request_bytes: u64,
+    jev_response_bytes: u64,
+    jev_elapsed_ms: u64,
+    jev_token_observations: u64,
+    jev_input_tokens: u64,
+    jev_output_tokens: u64,
+    jev_total_tokens: u64,
+    jev_latest: Option<JevRuntimeStats>,
 }
 
 #[derive(Clone, Default)]

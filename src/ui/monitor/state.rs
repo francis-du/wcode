@@ -156,34 +156,7 @@ impl TaskMonitor {
                 "finished_ago_ms": task.finished_at.map(|finished| now.saturating_duration_since(finished).as_millis()),
             })
         }).collect::<Vec<_>>();
-        let jev_runtime = stats.agent_context_jev_latest.as_ref().map(|jev| {
-            serde_json::json!({
-                "provider": "jev",
-                "status": jev.status,
-                "model": jev.model,
-                "authority": jev.authority,
-                "question_set": {
-                    "id": jev.question_set_id,
-                    "version": jev.question_set_version,
-                },
-                "baseline_next_action": jev.baseline_next_action,
-                "candidate_next_action": jev.candidate_next_action,
-                "guidance": jev.guidance,
-                "comparison": {
-                    "shared_signals": jev.shared_signals,
-                    "choice_disagreements": jev.choice_disagreements,
-                    "safety_policy_violations": jev.safety_policy_violations,
-                    "shape_mismatches": jev.shape_mismatches,
-                },
-                "calls": {
-                    "observed": stats.agent_context_jev_observed,
-                    "successful": stats.agent_context_jev_successful,
-                    "degraded": stats.agent_context_jev_degraded,
-                    "disabled": stats.agent_context_jev_disabled,
-                },
-                "observed_ago_ms": now.saturating_duration_since(jev.observed_at).as_millis(),
-            })
-        });
+        let jev_runtime = super::monitor_state_jev::jev_runtime_json(&stats, now);
         serde_json::json!({
             "workspace": workspace, "available": true,
             "active": stats.active, "queued": stats.queued,

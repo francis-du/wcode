@@ -395,15 +395,20 @@ impl SoftwareIntelligenceRuntime {
         role: Option<ReviewerRole>,
     ) -> Result<VerificationJob> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
+        let revision = self.current_revision(workspace)?;
         let capabilities = capabilities.iter().cloned().collect::<BTreeSet<_>>();
         let (job, snapshot) = {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| anyhow!("software intelligence state poisoned"))?;
-            let job = state
-                .verification
-                .claim(workspace_id, reviewer, &capabilities, role)?;
+            let job = state.verification.claim_for_revision(
+                workspace_id,
+                reviewer,
+                &capabilities,
+                role,
+                &revision,
+            )?;
             let snapshot = state.verification.workspace_snapshot(workspace_id);
             (job, snapshot)
         };

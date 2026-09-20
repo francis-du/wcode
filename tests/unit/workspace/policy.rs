@@ -285,6 +285,7 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
     let safe = WorkspaceSecurity::default();
     for (program, values) in [
         ("go", vec!["vet", "./..."]),
+        ("python3", vec!["-m", "unittest", "discover"]),
         ("mvn", vec!["-q", "-DskipTests", "compile"]),
         ("mvn", vec!["test"]),
         ("gradle", vec!["classes"]),
@@ -341,6 +342,7 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
         assert!(validate_command_policy(program, &command, safe).is_ok());
     }
     for (program, values) in [
+        ("python3", vec!["-m", "unittest", "discover", "../outside"]),
         ("mvn", vec!["deploy"]),
         ("gradle", vec!["publish"]),
         ("swift", vec!["sdk", "list"]),

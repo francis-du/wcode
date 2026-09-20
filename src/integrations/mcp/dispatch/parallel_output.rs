@@ -79,3 +79,18 @@ pub(super) fn parallel_item_error(
         "error": error.into(),
     })
 }
+
+pub(super) fn verification_error_payload(error: impl Into<String>) -> Value {
+    let error = error.into();
+    if error.starts_with("verification revision changed during execution") {
+        json!({
+            "error": error,
+            "error_code": "VERIFICATION_REVISION_DRIFT",
+            "retryable": true,
+            "next_actions": ["review_changes", "verify_project"],
+            "guidance": "Verification observed a different repository revision after commands ran, so no stale Evidence was recorded. Review the new change set, then rerun verification once the workspace is stable."
+        })
+    } else {
+        json!({"error": error})
+    }
+}

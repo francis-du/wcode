@@ -115,6 +115,39 @@ pub(super) fn automatic_scan_limit(file_limit: usize) -> usize {
         .clamp(file_limit, MAX_AUTO_DISCOVERY_FILES)
 }
 
+type ProviderAssignments =
+    BTreeMap<String, (ProviderCandidate, PathBuf, Vec<(String, SemanticLanguage)>)>;
+
+pub(super) fn trim_provider_assignments(
+    assignments: &mut ProviderAssignments,
+    max_files: usize,
+) -> bool {
+    let total = assignments
+        .values()
+        .map(|(_, _, files)| files.len())
+        .sum::<usize>();
+    if total <= max_files {
+        return false;
+    }
+    let mut providers = assignments
+        .iter()
+        .map(|(id, (_, _, files))| (id.clone(), files.len()))
+        .collect::<Vec<_>>();
+    providers.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+    let mut remaining = max_files;
+    let mut active = providers.len();
+    for (id, _) in providers {
+        let quota = remaining.div_ceil(active);
+        let files = &mut assignments.get_mut(&id).expect("provider exists").2;
+        let keep = files.len().min(quota);
+        files.truncate(keep);
+        remaining = remaining.saturating_sub(keep);
+        active = active.saturating_sub(1);
+    }
+    assignments.retain(|_, (_, _, files)| !files.is_empty());
+    true
+}
+
 fn automatic_source_groups(
     paths: Vec<StampedSourcePath>,
 ) -> BTreeMap<SemanticLanguage, Vec<StampedSourcePath>> {

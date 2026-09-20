@@ -244,13 +244,39 @@ pub(super) fn focused_test_check(
         FocusedTestRunner::Python => {
             let base = python_test_check(profile, &candidate.island)?;
             let relative = island_relative_path(&island.root, &candidate.test_path)?;
-            (
-                base,
+            let args = if base.program == "pytest" {
                 vec![
                     "-q".to_owned(),
                     format!("{relative}::{}", candidate.test_symbol),
-                ],
-            )
+                ]
+            } else if base.program == "python3"
+                && base
+                    .args
+                    .iter()
+                    .map(String::as_str)
+                    .eq(["-m", "unittest", "discover"])
+            {
+                let path = Path::new(&relative);
+                let pattern = path.file_name()?.to_str()?.to_owned();
+                let start = path
+                    .parent()
+                    .and_then(|parent| parent.to_str())
+                    .filter(|parent| !parent.is_empty())
+                    .unwrap_or(".")
+                    .to_owned();
+                vec![
+                    "-m".to_owned(),
+                    "unittest".to_owned(),
+                    "discover".to_owned(),
+                    "-s".to_owned(),
+                    start,
+                    "-p".to_owned(),
+                    pattern,
+                ]
+            } else {
+                return None;
+            };
+            (base, args)
         }
         FocusedTestRunner::Go => {
             let base = go_test_check(profile, &candidate.island)?;
@@ -305,8 +331,13 @@ fn rust_test_check<'a>(profile: &'a ProjectProfile, island: &str) -> Option<&'a 
 fn python_test_check<'a>(profile: &'a ProjectProfile, island: &str) -> Option<&'a CheckSpec> {
     profile.recommended_checks.iter().find(|check| {
         check.island == island
-            && check.program == "pytest"
-            && check.args.iter().map(String::as_str).eq(["-q"])
+            && ((check.program == "pytest" && check.args.iter().map(String::as_str).eq(["-q"]))
+                || (check.program == "python3"
+                    && check
+                        .args
+                        .iter()
+                        .map(String::as_str)
+                        .eq(["-m", "unittest", "discover"])))
     })
 }
 

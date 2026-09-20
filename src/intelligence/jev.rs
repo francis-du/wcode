@@ -12,7 +12,11 @@ use reqwest::Url;
 use serde_json::{json, Value};
 use std::net::IpAddr;
 #[cfg(not(test))]
-use std::{env, fs, path::PathBuf, time::Duration};
+use std::{
+    env, fs,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 #[cfg(not(test))]
 pub(crate) const JEV_API_KEY_ENV: &str = "JEV_API_KEY";
@@ -24,6 +28,13 @@ pub(crate) const JEV_DEFAULT_BASE_URL: &str = "https://api.typesafe.ai";
 pub(crate) const JEV_DEFAULT_MODEL: &str = "jev-latest";
 const AGENT_CONTEXT_QUESTION_SET_ID: &str = "wcode.agent_context";
 const AGENT_CONTEXT_QUESTION_SET_VERSION: u16 = 4;
+#[path = "jev_checkpoint.rs"]
+mod checkpoint;
+pub(crate) use checkpoint::{checkpoint_actions, evaluate_checkpoint};
+#[path = "jev_metrics.rs"]
+mod metrics;
+#[cfg(not(test))]
+use metrics::{provider_usage, JevCallMetrics, JevEvaluation};
 #[cfg(not(test))]
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
 #[cfg(not(test))]
@@ -182,26 +193,48 @@ impl JevDecisionProvider {
     pub(crate) async fn evaluate(
         &self,
         request: &DecisionRequest,
-    ) -> Result<DecisionBatch, String> {
+    ) -> Result<JevEvaluation, String> {
+        self.evaluate_with_questions(
+            request,
+            AGENT_CONTEXT_QUESTION_SET_ID,
+            AGENT_CONTEXT_QUESTION_SET_VERSION,
+            agent_context_questions(),
+        )
+        .await
+    }
+
+    pub(super) async fn evaluate_with_questions(
+        &self,
+        request: &DecisionRequest,
+        question_set_id: &str,
+        question_set_version: u16,
+        questions: Value,
+    ) -> Result<JevEvaluation, String> {
         let mut state = request.state.clone();
         if let Some(object) = state.as_object_mut() {
             object.insert(
                 "_jev_question_set".into(),
                 json!({
-                    "id": AGENT_CONTEXT_QUESTION_SET_ID,
-                    "version": AGENT_CONTEXT_QUESTION_SET_VERSION
+                    "id": question_set_id,
+                    "version": question_set_version
                 }),
             );
         }
+        let payload = json!({
+            "model": self.config.model,
+            "state": state,
+            "questions": questions,
+        });
+        let payload = serde_json::to_vec(&payload)
+            .map_err(|error| format!("Jev request serialization failed: {error}"))?;
+        let request_bytes = u64::try_from(payload.len()).unwrap_or(u64::MAX);
+        let started = Instant::now();
         let response = self
             .client
             .post(endpoint_url(&self.config.base_url)?)
             .bearer_auth(&self.config.api_key)
-            .json(&json!({
-                "model": self.config.model,
-                "state": state,
-                "questions": agent_context_questions(),
-            }))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(payload)
             .send()
             .await
             .map_err(|error| format!("Jev request failed: {error}"))?;
@@ -222,17 +255,29 @@ impl JevDecisionProvider {
         if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
             return Err("Jev response exceeded the size budget".into());
         }
+        let response_bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|error| format!("Jev returned invalid JSON: {error}"))?;
+        let usage = provider_usage(&value);
         let mut batch = response_to_batch(request, &value)?;
         for signal in &mut batch.signals {
             signal.evidence.push(format!("model:{}", self.config.model));
             signal.evidence.push(format!(
                 "question_set:{}@{}",
-                AGENT_CONTEXT_QUESTION_SET_ID, AGENT_CONTEXT_QUESTION_SET_VERSION
+                question_set_id, question_set_version
             ));
         }
-        Ok(batch)
+        Ok(JevEvaluation {
+            batch,
+            metrics: JevCallMetrics {
+                request_bytes,
+                response_bytes,
+                elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                total_tokens: usage.total_tokens,
+            },
+        })
     }
 }
 
@@ -291,7 +336,8 @@ pub(crate) async fn augment_agent_context(
         };
         let request = agent_context_decision_request(context, query);
         match provider.evaluate(&request).await {
-            Ok(candidate) => {
+            Ok(evaluation) => {
+                let candidate = evaluation.batch;
                 let comparison = compare_decision_batches(&baseline, &candidate);
                 let guidance = advisory_guidance(&baseline, &candidate);
                 let mut telemetry = json!({
@@ -323,6 +369,7 @@ pub(crate) async fn augment_agent_context(
                             + usize::from(comparison.schema_mismatch)
                     },
                     "guidance": guidance,
+                    "call": evaluation.metrics.as_json(),
                     "fallback": "deterministic"
                 });
                 let routing = apply_agent_context_guidance(context, &telemetry);

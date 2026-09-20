@@ -6,6 +6,7 @@ use super::mcp_tools::{
 };
 use super::*;
 use crate::scopes;
+mod checkpoint;
 
 #[path = "intelligence.rs"]
 mod leaf_intelligence;
@@ -516,6 +517,7 @@ async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, St
     {
         Ok(report) => {
             let mut value = serde_json::to_value(&report).map_err(|error| error.to_string())?;
+            checkpoint::augment_review_checkpoint(state, &report, adversarial, &mut value).await;
             if adversarial {
                 let permit = acquire_tool_permit(state, false).await?;
                 let harness = state.harness.clone();
@@ -586,13 +588,11 @@ async fn verify_project_tool(state: &AppState, args: &Value) -> Result<Value, St
             .await
     };
     match outcome {
-        Ok(report) => {
-            let is_error = !report.passed;
-            serde_json::to_value(report)
-                .map(|value| tool_result(value, is_error))
-                .map_err(|error| error.to_string())
-        }
-        Err(error) => Ok(tool_result(json!({"error": error.to_string()}), true)),
+        Ok(report) => checkpoint::verification_tool_result(state, report).await,
+        Err(error) => Ok(tool_result(
+            parallel_output::verification_error_payload(error.to_string()),
+            true,
+        )),
     }
 }
 

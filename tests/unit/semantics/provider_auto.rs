@@ -9,6 +9,51 @@ fn automatic_discovery_scans_beyond_the_index_output_limit() {
 }
 
 #[test]
+fn provider_file_budget_preserves_rare_languages() {
+    let rust = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "rust-analyzer")
+        .unwrap();
+    let swift = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "sourcekit-lsp")
+        .unwrap();
+    let mut assignments = BTreeMap::from([
+        (
+            rust.id.to_owned(),
+            (
+                rust,
+                PathBuf::from("/tmp/rust-analyzer"),
+                (0..200)
+                    .map(|index| (format!("src/item_{index:03}.rs"), SemanticLanguage::Rust))
+                    .collect(),
+            ),
+        ),
+        (
+            swift.id.to_owned(),
+            (
+                swift,
+                PathBuf::from("/tmp/sourcekit-lsp"),
+                vec![("tests/late.swift".to_owned(), SemanticLanguage::Swift)],
+            ),
+        ),
+    ]);
+
+    assert!(trim_provider_assignments(&mut assignments, 128));
+    assert_eq!(
+        assignments
+            .values()
+            .map(|(_, _, files)| files.len())
+            .sum::<usize>(),
+        128
+    );
+    assert_eq!(assignments[swift.id].2.len(), 1);
+    assert_eq!(assignments[rust.id].2.len(), 127);
+}
+
+#[test]
 fn automatic_fingerprint_tracks_workspace_configuration_inputs() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(

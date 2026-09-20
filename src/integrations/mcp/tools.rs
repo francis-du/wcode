@@ -94,7 +94,7 @@ fn build_tools() -> Vec<Value> {
             false,
             true,
         ),
-        tool("verify_project", "Run quick/full checks; fail_fast=false collects all failures. Tasks-capable modern clients get a durable taskId: poll tasks/get, never rerun to poll. Other clients receive synchronous results.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"fail_fast":{"type":"boolean"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &[]), false, false),
+        tool("verify_project", "Run quick/full checks. Revision drift rejects stale Evidence and returns review_changes -> verify_project recovery. Task-capable clients get taskId; poll tasks/get, never rerun to poll.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"fail_fast":{"type":"boolean"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &[]), false, false),
         tool("list_files", "Fast recursive file listing inside one workspace root. All regular files are visible except protected credential, repository-control, and wcode-internal paths; symlinks are not followed.", schema(json!({"path":{"type":"string"},"max_entries":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}), &[]), true, false),
         tool("search_code", "Search text with exact/regex/token modes; returns SHA, counts, coverage and pagination.", search_schema("query"), true, false),
         tool("search_many", "Batch up to 32 text queries in one scan; returns provenance, SHA, counts and coverage.", search_schema("queries"), true, false),

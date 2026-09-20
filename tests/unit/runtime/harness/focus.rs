@@ -417,6 +417,47 @@ async fn quick_verification_prioritizes_one_resolved_design_test_after_static_ch
     assert_eq!(preview.precision, "declared+syntax");
 }
 
+#[test]
+fn focused_python_unittest_runs_the_declared_test_file_without_pytest() {
+    let mut profile = polyglot_focus_profile();
+    let python = profile
+        .recommended_checks
+        .iter_mut()
+        .find(|check| check.id == "python-tests")
+        .unwrap();
+    python.id = "python-unittest".into();
+    python.program = "python3".into();
+    python.args = vec!["-m".into(), "unittest".into(), "discover".into()];
+    profile.islands[0].check_ids = vec!["python-unittest".into()];
+
+    let candidate = harness_test_focus::FocusedTestCandidate {
+        priority: 4,
+        source_path: "py/app.py".into(),
+        requirement: "REQ-PY-001".into(),
+        acceptance: "AC-PY-001".into(),
+        test_path: "py/tests/test_app.py".into(),
+        test_symbol: "test_run".into(),
+        island: "py".into(),
+        runner: harness_test_focus::FocusedTestRunner::Python,
+    };
+    let focused = harness_test_focus::focused_test_check(&profile, &candidate).unwrap();
+
+    assert_eq!(focused.id, "focused-python-unittest");
+    assert_eq!(focused.program, "python3");
+    assert_eq!(
+        focused.args,
+        vec![
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_app.py"
+        ]
+    );
+}
+
 fn polyglot_focus_profile() -> ProjectProfile {
     let python = CheckSpec {
         id: "python-tests".into(),

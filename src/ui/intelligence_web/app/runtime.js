@@ -4,14 +4,58 @@ function renderWorkspaceOptions() {
   ).join("");
   setHtml("workspaceOptions", els.workspace, options);
 }
+function renderSharedChrome() {
+  renderWorkspaceOptions();
+  renderLive(); renderStats(); renderAttention(); renderProjectNavigator();
+}
+function renderTabPanels(tab) {
+  switch (tab) {
+    case "architecture":
+      renderArchitecture(); renderTraceabilityMap(); renderChangeConvergenceMap();
+      // Code graph paint is owned by renderArchitecture → maybeLoadCodeGraph
+      // so we do not rebuild the SVG tree on every architecture poll tick.
+      break;
+    case "overview":
+      renderCodeStats(); renderRevisions(); renderLanguageQuality();
+      renderExecutionStatus(); renderAdaptiveVerification(); renderVerifiedLearning();
+      break;
+    case "activity":
+      renderActivity(); renderExecutionStatus();
+      break;
+    case "proof":
+      renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
+      break;
+    case "requirements":
+      renderRequirements(); renderDetail(); renderVerificationImpact();
+      break;
+    case "changes":
+      renderChanges(); renderVerificationImpact();
+      break;
+    case "files":
+      renderProjectStructure();
+      break;
+    default:
+      break;
+  }
+}
 function renderProject(force = false) {
   if (!state.project) return;
   if (force) state.rendered.clear();
-  renderWorkspaceOptions();
-  renderLive(); renderStats(); renderAttention(); renderArchitecture(); renderTraceabilityMap(); renderChangeConvergenceMap(); renderProjectNavigator();
-  renderRequirements(); renderDetail(); renderVerificationImpact(); renderChanges(); renderProjectStructure();
-  if (state.codeGraph) renderCodeGraph();
-  renderCodeStats(); renderRevisions(); renderLanguageQuality(); renderExecutionStatus(); renderActivity(); renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
+  renderSharedChrome();
+  // Full force still paints every surface so hidden tabs are warm when opened.
+  // Incremental refreshes only repaint the active tab plus shared chrome.
+  if (force) {
+    renderArchitecture(); renderTraceabilityMap(); renderChangeConvergenceMap();
+    renderRequirements(); renderDetail(); renderVerificationImpact(); renderChanges();
+    renderProjectStructure();
+    // Code graph is mounted lazily via maybeLoadCodeGraph when the operator
+    // is on the codegraph architecture surface — not on every force refresh.
+    renderCodeStats(); renderRevisions(); renderLanguageQuality();
+    renderExecutionStatus(); renderActivity(); renderProofSummary();
+    renderAdaptiveVerification(); renderVerifiedLearning();
+    return;
+  }
+  renderTabPanels(state.workspaceTab);
 }
 function renderExecutionStatus() {
   const execution = state.project?.execution;
@@ -106,6 +150,9 @@ function activateWorkspaceTab(tab, { scroll = false } = {}) {
     const hasSelection = state.architectureView === "blueprint" ? state.selectedSubsystem : state.selectedComponent;
     if (hasSelection) els.componentInspector?.classList.add("open");
   }
+  // Paint the newly visible surface from the latest snapshot without forcing a
+  // full multi-panel cascade across every hidden tab.
+  if (state.project) renderTabPanels(next);
   if (scroll) document.querySelector(".observatory-main")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function revealSection(id) {
@@ -234,6 +281,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.codeGraph = null; state.codeGraphOverview = null; state.codeGraphWorkspace = ""; state.codeGraphQuery = ""; state.codeGraphSnapshot = "";
   state.codeGraphView = "overview"; state.codeGraphSearchResults = [];
   state.codeGraphLoading = false; state.codeGraphError = ""; state.selectedCodeNode = "";
+  state.codeGraphPaintKey = "";
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;
   state.activitySnapshot = null; state.activityUpdated = 0; state.activityError = false;
@@ -420,7 +468,11 @@ async function refreshActivity() {
     state.activitySnapshot = data; state.activityUpdated = Date.now(); state.activityError = false;
     if (state.project) state.project.activity = data.activity;
     published = true;
-    renderActivity(); if (state.project) { renderStats(); renderAttention(); renderEngineeringFlow(); renderChangeConvergenceMap(); renderRuntimeTopology(); renderEngineeringTimeline(); }
+    renderActivity();
+    if (state.project) {
+      renderStats(); renderAttention(); renderEngineeringFlow();
+      renderChangeConvergenceMap(); renderRuntimeTopology(); renderEngineeringTimeline();
+    }
   } catch (error) {
     if (!controller.signal.aborted && observationCurrent(stamp)) {
       if (published) {
@@ -470,12 +522,21 @@ async function refreshSemantics() {
 function autoEnabled() { return state.autoRefresh && !document.hidden; }
 function activityInterval() {
   const activity = state.activitySnapshot?.activity;
+  // Keep a stable idle cadence so single-flight reschedule contracts stay
+  // predictable; only accelerate while work is visibly in flight.
   return !state.activityError && activity?.available === true &&
     (activity.active > 0 || activity.queued > 0 || pendingCount() > 0) ? 2000 : 8000;
 }
 function scheduleProject() {
   clearTimeout(state.timer); state.timer = null;
-  if (autoEnabled() && !state.projectTickActive) state.timer = setTimeout(refreshTick, 8000);
+  if (autoEnabled() && !state.projectTickActive) {
+    // Architecture/overview stay on the 8s cadence; other surfaces can wait longer.
+    if (["architecture", "overview"].includes(state.workspaceTab)) {
+      state.timer = setTimeout(refreshTick, 8000);
+    } else {
+      state.timer = setTimeout(refreshTick, 12000);
+    }
+  }
 }
 function scheduleActivity() {
   clearTimeout(state.activityTimer); state.activityTimer = null;

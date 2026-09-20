@@ -57,29 +57,40 @@ pub(super) fn workspace_recent_failure(snapshot: &MonitorSnapshot, workspace_id:
             .is_some_and(|task| task.status == TaskStatus::Failed)
 }
 
+pub(super) fn approval_counts(pending: &[AuthorizationRequest]) -> BTreeMap<String, usize> {
+    let mut approvals = BTreeMap::<String, usize>::new();
+    for request in pending {
+        *approvals.entry(request.workspace.clone()).or_default() += 1;
+    }
+    approvals
+}
+
 pub(super) fn ordered_workspaces(
     config: &MonitorConfig,
     snapshot: &MonitorSnapshot,
 ) -> Vec<(String, String, bool)> {
-    let mut approvals = BTreeMap::<String, usize>::new();
-    for request in pending_authorizations(config) {
-        *approvals.entry(request.workspace).or_default() += 1;
-    }
+    ordered_workspaces_with_approvals(
+        config,
+        snapshot,
+        &approval_counts(&pending_authorizations(config)),
+    )
+}
+
+pub(super) fn ordered_workspaces_with_approvals(
+    config: &MonitorConfig,
+    snapshot: &MonitorSnapshot,
+    approvals: &BTreeMap<String, usize>,
+) -> Vec<(String, String, bool)> {
     let mut workspaces = configured_workspaces(config)
         .into_iter()
         .enumerate()
         .collect::<Vec<_>>();
     workspaces.sort_by(|(left_index, left), (right_index, right)| {
-        let left_stats = snapshot
-            .workspaces
-            .get(&left.0)
-            .cloned()
-            .unwrap_or_default();
-        let right_stats = snapshot
-            .workspaces
-            .get(&right.0)
-            .cloned()
-            .unwrap_or_default();
+        // Borrow stats instead of cloning the full WorkspaceStats record on
+        // every comparison during the sort.
+        let empty = WorkspaceStats::default();
+        let left_stats = snapshot.workspaces.get(&left.0).unwrap_or(&empty);
+        let right_stats = snapshot.workspaces.get(&right.0).unwrap_or(&empty);
         let left_approvals = approvals.get(&left.0).copied().unwrap_or(0);
         let right_approvals = approvals.get(&right.0).copied().unwrap_or(0);
         right_stats
@@ -103,13 +114,19 @@ pub(super) fn ordered_workspaces(
         .collect()
 }
 
+pub(super) fn focused_workspace_id_from(
+    workspaces: &[(String, String, bool)],
+    focus: usize,
+) -> Option<String> {
+    workspaces
+        .get(focus.min(workspaces.len().saturating_sub(1)))
+        .map(|workspace| workspace.0.clone())
+}
+
 pub(super) fn focused_workspace_id(
     config: &MonitorConfig,
     snapshot: &MonitorSnapshot,
     focus: usize,
 ) -> Option<String> {
-    let workspaces = ordered_workspaces(config, snapshot);
-    workspaces
-        .get(focus.min(workspaces.len().saturating_sub(1)))
-        .map(|workspace| workspace.0.clone())
+    focused_workspace_id_from(&ordered_workspaces(config, snapshot), focus)
 }
