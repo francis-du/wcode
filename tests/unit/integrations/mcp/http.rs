@@ -60,19 +60,34 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
             .status(),
         StatusCode::UNAUTHORIZED
     );
-    for (key, value) in [
-        ("host", "untrusted.example"),
-        ("origin", "https://untrusted.example"),
-    ] {
-        let mut headers = ui_headers(&state, &workspace);
-        headers.insert(key, value.parse().unwrap());
-        assert_eq!(
-            intelligence_web_activity(State(state.clone()), headers)
-                .await
-                .status(),
-            StatusCode::FORBIDDEN
-        );
-    }
+    let mut custom_host = ui_headers(&state, &workspace);
+    custom_host.insert("host", "custom.example".parse().unwrap());
+    assert_eq!(
+        intelligence_web_activity(State(state.clone()), custom_host)
+            .await
+            .status(),
+        StatusCode::OK,
+        "a syntactically valid reverse-proxy Host stays usable when Origin and UI authorization remain valid"
+    );
+
+    let mut untrusted_origin = ui_headers(&state, &workspace);
+    untrusted_origin.insert("origin", "https://untrusted.example".parse().unwrap());
+    assert_eq!(
+        intelligence_web_activity(State(state.clone()), untrusted_origin)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+
+    let mut duplicate_host = ui_headers(&state, &workspace);
+    duplicate_host.append("host", "second.example".parse().unwrap());
+    assert_eq!(
+        intelligence_web_activity(State(state.clone()), duplicate_host)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "ambiguous Host headers must still fail closed"
+    );
     for _ in 0..16 {
         state
             .monitor
@@ -612,52 +627,33 @@ async fn mcp_and_webui_accept_verified_alias_origins_without_skipping_authentica
 }
 
 #[tokio::test]
-async fn transport_rejections_distinguish_host_origin_and_retired_aliases() {
+async fn custom_hosts_are_accepted_without_weakening_origin_or_authentication() {
     let (state, _root) = origin_test_state();
-    for (host, origin, reason) in [
-        (
-            "attacker.example",
-            "https://primary.example",
-            "untrusted_host",
-        ),
-        (
-            "primary.example",
-            "https://attacker.example",
-            "untrusted_origin",
-        ),
-    ] {
-        let mut headers = HeaderMap::new();
-        headers.insert("host", host.parse().unwrap());
-        headers.insert("origin", origin.parse().unwrap());
-        headers.insert("x-forwarded-host", "primary.example".parse().unwrap());
-        headers.insert(
-            "authorization",
-            "Bearer test-origin-access".parse().unwrap(),
-        );
-        let response = mcp_get(State(state.clone()), headers.clone()).await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let body = response_json(response).await;
-        assert_eq!(body["error"]["data"]["reason"], reason);
-        assert!(!body.to_string().contains("test-origin-access"));
-        let response = mcp(
-            State(state.clone()),
-            headers.clone(),
-            Json(json!({"jsonrpc":"2.0","id":1,"method":"ping"})),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert_eq!(
-            response_json(response).await["error"]["data"]["reason"],
-            reason
-        );
-        headers.insert("x-wcode-ui-token", state.auth.ui_token().parse().unwrap());
-        assert_eq!(
-            intelligence_ui_authorized(&state, &headers)
-                .unwrap_err()
-                .status(),
-            StatusCode::FORBIDDEN
-        );
-    }
+    state.auth.insert_test_access_token(
+        "custom-host-access",
+        "custom-client",
+        "https://custom.example/mcp",
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "custom.example".parse().unwrap());
+    headers.insert(
+        "authorization",
+        "Bearer custom-host-access".parse().unwrap(),
+    );
+    assert_eq!(
+        mcp_get(State(state.clone()), headers.clone())
+            .await
+            .status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    headers.insert("origin", "https://attacker.example".parse().unwrap());
+    let response = mcp_get(State(state.clone()), headers).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(response).await["error"]["data"]["reason"],
+        "untrusted_origin"
+    );
+
     state
         .auth
         .unregister_public_url("https://secondary.example");

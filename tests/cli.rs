@@ -71,6 +71,7 @@ fn help_exposes_the_stable_agent_and_transport_commands() {
         "--host",
         "--port",
         "--public-url",
+        "--password",
         "--tunnel-provider",
         "--allow-risky-exec",
         "--allow-destructive-writes",

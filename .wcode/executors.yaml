@@ -21,6 +21,13 @@ executors:
     args: [test, --locked, --lib, batch_edit_fuzz_corpus_is_bounded_and_never_panics]
     cwd: .
     timeout_seconds: 300
+  - id: wcode-rust-runtime-canary-managed-task
+    stage: runtime_canary
+    languages: [rust]
+    program: cargo
+    args: [test, --locked, --lib, task_mode_applies_bounded_non_secret_launch_environment]
+    cwd: .
+    timeout_seconds: 60
   - id: wcode-js-property-system-map
     stage: property
     languages: [java-script]

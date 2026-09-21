@@ -18,7 +18,20 @@ statement: >-
   subspace's local permits, while aggregate process count remains bounded by the host cap and local waiters cannot
   bypass resource-pressure admission. Git-worktree writer ownership remains a separate mutation-domain constraint.
   Cargo queue wait does not consume the subsequent command execution timeout. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string;
-  malformed routing never silently selects the default Workspace.
+  malformed routing never silently selects the default Workspace. Modern task-capable clients may opt an individual
+  run_command into durable task mode; ordinary commands remain synchronous, task mode never weakens command policy,
+  authorization, sandbox, timeout or resource bounds, and clients without the Tasks capability fail rather than silently
+  falling back to synchronous execution. Optional launch environment overrides are limited to five typed non-secret keys,
+  require numeric loopback/unprivileged-port and bounded mode/log values, clear inherited values for those managed keys before
+  applying explicit overrides, and keep common runtime/loader execution-injection environment variables scrubbed. tasks/cancel owns the task worker and therefore terminates the supervised child
+  process tree before persisting cancellation, so bounded application/dev-server runs cannot become detached background
+  processes. While a task-mode command is working, tasks/get exposes only a redacted 32 KiB-per-stream tail of the already
+  bounded command capture, with separate capture-truncation and dropped-prefix provenance; repeated polling therefore
+  cannot replay the full 256 KiB capture into model context on every read. workspace_info may surface bounded read-only launch hints from recognized manifests, but discovery never
+  executes them, never exposes package/Python/task-runner script bodies as command arguments, never infers network trust,
+  rejects oversized/symlink manifests, and fails closed on ambiguous native entrypoints or competing task-runner manifests.
+  Common Just/Make/Task launch names and a unique Dart bin entry may be surfaced only from bounded declarations. A Docker
+  Compose launch hint is exposed only for one bounded manifest with no host interpolation, custom top-level project name, build/host-mount/privilege/API-socket/lifecycle-hook/external-resource surface, loopback-only published ports, and an attached `up --no-build --pull never` command requiring exact RiskyExecution authorization. The Compose profile includes a non-automatic bounded status probe that returns only service/state/reported-health/exit-code fields; generic `compose ps` rendering remains blocked so container command text cannot leak through inspection. Reported Health may be empty and must then remain unknown rather than being promoted to healthy. Every discovered profile also reports a bounded bare-program PATH presence preflight without executing it; `false` is a stop rather than permission to guess/substitute a runner, while `true` does not claim plugin/subcommand readiness. Exact launch-only Agent Context requests may route directly to workspace_info then run_command without source indexing; any chosen launch still goes through the existing command policy and supervised task-mode boundary.
 verification:
   - kind: test
     path: tests/unit/workspace/mod.rs
@@ -107,3 +120,51 @@ verification:
   - kind: test
     path: tests/unit/integrations/mcp/dispatch.rs
     symbol: strict_tool_envelopes_and_workspace_types_never_write
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: run_command_task_mode_requires_task_capability_and_completes_durably
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_rejected
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: cancelling_long_run_command_task_terminates_the_supervised_server
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: long_run_live_output_exposes_only_a_bounded_redacted_stream_tail
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: long_run_live_output_keeps_advancing_after_final_capture_saturates
+  - kind: test
+    path: tests/unit/integrations/mcp/resume.rs
+    symbol: task_mode_applies_bounded_non_secret_launch_environment
+  - kind: test
+    path: tests/unit/workspace/policy_environment.rs
+    symbol: managed_launch_environment_accepts_only_typed_non_secret_values
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_exposes_only_bounded_package_script_names
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_finds_unambiguous_rust_go_and_uv_entrypoints
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_fails_closed_on_ambiguous_or_oversized_inputs
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_finds_bounded_repository_task_runners
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_finds_make_and_dart_entrypoints
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_fails_closed_on_ambiguous_task_runner_manifests
+  - kind: test
+    path: tests/unit/workspace/launch_profiles.rs
+    symbol: launch_discovery_exposes_only_bounded_attached_compose_stacks
+  - kind: test
+    path: tests/unit/workspace/policy/docker.rs
+    symbol: compose_mutations_require_exact_risky_authorization_and_keep_task_lifecycle_attached
+  - kind: test
+    path: tests/unit/runtime/harness/fast_context.rs
+    symbol: fast_context_routes_launch_requests_through_bounded_profiles

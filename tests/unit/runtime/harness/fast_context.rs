@@ -33,6 +33,33 @@ fn fixture() -> (tempfile::TempDir, Workspace) {
 }
 
 #[test]
+fn fast_context_routes_launch_requests_through_bounded_profiles() {
+    let (root, _) = fixture();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    for query in ["run app", "start server", "启动项目"] {
+        let pack = harness
+            .agent_context("demo", &workspace, query, 0, &[])
+            .unwrap();
+        assert_eq!(pack["intent"], "launch");
+        assert_eq!(
+            pack["readiness"]["next_actions"],
+            serde_json::json!(["workspace_info", "run_command"])
+        );
+        assert!(pack["targets"].as_array().unwrap().is_empty());
+        assert!(pack["files"].as_array().unwrap().is_empty());
+        assert!(pack["hot_source"].as_array().unwrap().is_empty());
+        let workflow = serde_json::to_string(&pack["workflow"]).unwrap();
+        assert!(workflow.contains("launch_profiles"));
+        assert!(workflow.contains("program_available=false"));
+        assert!(workflow.contains("task_mode=true"));
+        assert!(workflow.contains("status_probe"));
+        assert!(workflow.contains("unknown rather than healthy"));
+        assert!(!workflow.contains("Stage only reviewed files"));
+    }
+}
+
+#[test]
 fn fast_context_covers_every_explicit_target_without_followup_reads() {
     let (_root, workspace) = fixture();
     let harness = ToolHarness::new(4).unwrap();

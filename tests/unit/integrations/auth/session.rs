@@ -163,7 +163,7 @@ async fn bearer_and_refresh_sessions_survive_restart_and_tunnel_change() {
 }
 
 #[tokio::test]
-async fn old_tunnel_resource_does_not_make_old_host_active_after_restart() {
+async fn historical_resource_does_not_block_a_custom_host_after_restart() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("oauth.json");
     let first = persistent_state("https://old-tunnel.example", &path);
@@ -182,7 +182,11 @@ async fn old_tunnel_resource_does_not_make_old_host_active_after_restart() {
     let restarted = Arc::new(persistent_state("https://current-tunnel.example", &path));
     let response =
         authorization_server_metadata(State(restarted), host_headers("old-tunnel.example")).await;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(response).await["issuer"],
+        "https://old-tunnel.example"
+    );
 }
 
 #[test]

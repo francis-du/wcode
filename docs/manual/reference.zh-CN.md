@@ -229,7 +229,7 @@ agent_context(goal, scopes=...)
 apply_edits 或 apply_file_edits
 ```
 
-`agent_context` 省略 `budget` 时使用有界自适应预算。`workspace_info`、`scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status` 用于按需深入检查，不再作为每次编码的固定启动序列。
+`agent_context` 省略 `budget` 时使用有界自适应预算。`workspace_info`、`scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status` 用于按需深入检查，不再作为每次编码的固定启动序列。对于“启动项目 / 运行应用 / start server”这类纯启动请求，会走不扫描源码的 Operator Fast Route：先读取 `workspace_info` 的启动 Profile，再把选中的 Profile 交给 `run_command`；长驻进程建议使用 `task_mode=true`，让实时输出与取消继续归 Tasks 所有。
 
 改动后：
 
@@ -251,7 +251,7 @@ evidence_status
 
 | Tool | 用途 |
 | --- | --- |
-| `workspace_info` | Workspace、权限、安全策略、调度能力、Product Scope Registry。 |
+| `workspace_info` | Workspace、权限、安全策略、调度能力、Product Scope Registry，以及有界只读启动 Profile。每个 Profile 都带 `program_available`：它只对裸 Runner 可执行文件做有界 PATH 存在性预检；`false` 表示不要执行、也不要静默换成别的 Runner，`true` 也不代表对应插件或子命令一定存在。启动发现保守识别 Cargo / Go / 包管理器 / Deno / uv / Dart，以及直接声明的 Just / Make / Task Runner 入口；另外只有在唯一且有界的 Compose 清单满足“字面量镜像、无宿主变量插值、无顶层自定义 project name、无 build / host mount / privileged / host namespace / API socket / lifecycle hook / external resource、发布端口仅绑定 loopback”等条件时，才暴露附着式 Docker Compose Profile。生成的 Compose 命令固定带 `--no-build --pull never`，因此启动发现不会隐式下载镜像；Compose 启动仍必须经过精确 RiskyExecution 授权，保持在受监督进程组内，不会自动执行；长驻任务建议使用 `task_mode=true`。可选的 `status_probe` 同样是有界的，只输出 service、容器 state、Docker 报告的 health 与 exit code。普通 `docker compose ps`、JSON 或任意模板渲染不会被当作安全的模型侧探针，因为其中可能包含容器 command；Health 为空时必须保持“未知”，不能冒充 healthy。显式且已知的 `packageManager` 优先于 lockfile 推断，冲突 lockfile 或歧义清单会 fail closed，发现过程不会把脚本正文复制进命令参数。 |
 | `project_context` | 项目类型、仓库指导、推断检查、Convention Report。 |
 | `scope_status` | Product Scope 映射与有界未映射源码。 |
 | `convention_status` | 命名、Architecture Domain、过大模块和仓库结构 Finding。 |
@@ -287,7 +287,7 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
-| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。 |
+| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。现代且支持 Tasks 的客户端可设置 `task_mode=true` 启动可取消的有界长任务；普通调用仍保持同步。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
 
 ### Graph、Semantic 与 Language Quality
 

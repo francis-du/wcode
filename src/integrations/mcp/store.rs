@@ -51,6 +51,8 @@ pub(crate) struct TaskRecord {
     pub result: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_output: Option<Value>,
 }
 
 impl TaskRecord {
@@ -76,7 +78,13 @@ impl TaskRecord {
             poll_interval_ms: DEFAULT_POLL_INTERVAL_MS,
             result: None,
             error: None,
+            live_output: None,
         }
+    }
+
+    pub(crate) fn update_command_output(&mut self, live_output: Value) {
+        self.updated_at_ms = next_update_ms(self.updated_at_ms);
+        self.live_output = Some(live_output);
     }
 
     pub(crate) fn complete(&mut self, result: Value) {
@@ -85,6 +93,7 @@ impl TaskRecord {
         self.updated_at_ms = next_update_ms(self.updated_at_ms);
         self.result = Some(result);
         self.error = None;
+        self.live_output = None;
     }
 
     pub(crate) fn fail(&mut self, code: i64, message: String) {
@@ -133,6 +142,12 @@ impl TaskRecord {
             "pollIntervalMs": self.poll_interval_ms,
         });
         if let Some(object) = value.as_object_mut() {
+            if let Some(live_output) = &self.live_output {
+                object.insert(
+                    "_meta".to_owned(),
+                    json!({"dev.wcode/liveCommandOutput": live_output}),
+                );
+            }
             if self.status == TaskStatus::Completed {
                 if let Some(result) = &self.result {
                     object.insert("result".to_owned(), result.clone());

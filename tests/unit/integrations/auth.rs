@@ -71,6 +71,28 @@ fn pairing_code_is_always_six_ascii_digits() {
 }
 
 #[test]
+fn startup_password_is_an_alternative_to_the_pairing_code() {
+    let state = AuthState::from_parts(
+        "https://example.com".to_owned(),
+        None,
+        Some("correct horse battery staple".to_owned()),
+    )
+    .unwrap();
+    assert_eq!(
+        check_pairing_code(&state, "password-client", "wrong password"),
+        PairingCodeCheck::Rejected
+    );
+    assert_eq!(
+        check_pairing_code(&state, "password-client", "correct horse battery staple"),
+        PairingCodeCheck::Accepted
+    );
+    assert_eq!(
+        check_pairing_code(&state, "pairing-client", state.pairing_code()),
+        PairingCodeCheck::Accepted
+    );
+}
+
+#[test]
 fn ui_token_is_high_entropy_and_constant_time_checked() {
     let state = AuthState::new("https://example.com".to_owned());
     assert_eq!(state.ui_token().len(), 64);

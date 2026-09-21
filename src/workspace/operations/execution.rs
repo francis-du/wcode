@@ -301,6 +301,19 @@ impl Workspace {
         cwd: &str,
         timeout_seconds: u64,
     ) -> Result<CommandResult> {
+        self.run_command_with_environment(program, args, cwd, timeout_seconds, &[])
+            .await
+    }
+
+    pub(crate) async fn run_command_with_environment(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+        environment: &[(String, String)],
+    ) -> Result<CommandResult> {
+        let environment = validate_command_environment(environment)?;
         let unrestricted_commands =
             self.security.allow_unrestricted_commands || self.workspace_commands_granted();
         if !self.allow_exec && !unrestricted_commands {
@@ -374,7 +387,19 @@ impl Workspace {
             let mut elevated = effective_security;
             elevated.allow_risky_exec = true;
             if validate_command_policy(program, args, elevated).is_ok() {
-                let operation = format!("run_command\0{program}\0{}\0{cwd}", args.join("\0"));
+                let operation = if environment.is_empty() {
+                    format!("run_command\0{program}\0{}\0{cwd}", args.join("\0"))
+                } else {
+                    let environment_fingerprint = environment
+                        .iter()
+                        .map(|(key, value)| format!("{key}={value}"))
+                        .collect::<Vec<_>>()
+                        .join("\0");
+                    format!(
+                        "run_command\0{program}\0{}\0{cwd}\0env\0{environment_fingerprint}",
+                        args.join("\0")
+                    )
+                };
                 self.authorize_risky_operation(
                     AuthorizationKind::RiskyExecution,
                     &operation,
@@ -456,6 +481,7 @@ impl Workspace {
                 && (effective_security.allow_risky_exec
                     || (program == "git" && is_git_push_command(args))),
         );
+        apply_command_environment(&mut command, &environment);
         if program == "git" {
             command
                 .env("GIT_CEILING_DIRECTORIES", &self.root)
@@ -724,9 +750,18 @@ async fn collect_command_result(
         .take()
         .ok_or_else(|| anyhow!("command stderr is unavailable"))?;
     // Dropping the request must also cancel its pipe readers, not detach them.
+    // Task-mode callers may install a bounded progress sink so a long-running
+    // application remains observable without changing normal command behavior.
+    let progress = command_output_progress_sender();
     let mut readers = tokio::task::JoinSet::new();
-    readers.spawn(async move { (true, read_bounded_stream(stdout).await) });
-    readers.spawn(async move { (false, read_bounded_stream(stderr).await) });
+    let stdout_progress = progress.clone();
+    readers.spawn(async move {
+        (
+            true,
+            read_bounded_stream(stdout, stdout_progress, false).await,
+        )
+    });
+    readers.spawn(async move { (false, read_bounded_stream(stderr, progress, true).await) });
     let waited = tokio::time::timeout_at(deadline, child.wait()).await;
     let timed_out = waited.is_err();
     let wait_failed = matches!(&waited, Ok(Err(_)));

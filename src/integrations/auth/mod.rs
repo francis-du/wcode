@@ -47,6 +47,7 @@ pub struct AuthState {
     instance_id: String,
     public_endpoints: PublicEndpoints,
     pairing_code: String,
+    authorization_password: Option<String>,
     ui_token: String,
     pairing_attempts: Arc<Mutex<HashMap<String, PairingAttempt>>>,
     clients: Arc<Mutex<HashMap<String, Client>>>,
@@ -103,10 +104,14 @@ struct AuthorizeForm {
 
 impl AuthState {
     pub fn new(initial_public_url: String) -> Self {
-        Self::from_parts(initial_public_url, None).expect("ephemeral auth state cannot fail")
+        Self::from_parts(initial_public_url, None, None).expect("ephemeral auth state cannot fail")
     }
 
-    fn from_parts(initial_public_url: String, store: Option<AuthStore>) -> Result<Self> {
+    fn from_parts(
+        initial_public_url: String,
+        store: Option<AuthStore>,
+        authorization_password: Option<String>,
+    ) -> Result<Self> {
         let pairing_code = format!("{:06}", Uuid::new_v4().as_u128() % 1_000_000);
         let ui_token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let saved = store
@@ -133,6 +138,7 @@ impl AuthState {
             instance_id: Uuid::new_v4().simple().to_string(),
             public_endpoints,
             pairing_code,
+            authorization_password,
             ui_token,
             pairing_attempts: Default::default(),
             clients: Arc::new(Mutex::new(saved.clients)),
@@ -149,10 +155,12 @@ impl AuthState {
         initial_public_url: String,
         monitor: TaskMonitor,
         workspace_roots: &[PathBuf],
+        authorization_password: Option<String>,
     ) -> Result<Self> {
         let mut state = Self::from_parts(
             initial_public_url,
             Some(AuthStore::for_workspaces(workspace_roots)?),
+            authorization_password,
         )?;
         state.attach_monitor(monitor);
         Ok(state)
@@ -160,7 +168,7 @@ impl AuthState {
 
     #[cfg(test)]
     fn new_persistent(initial_public_url: String, path: PathBuf) -> Result<Self> {
-        Self::from_parts(initial_public_url, Some(AuthStore::at_path(path)))
+        Self::from_parts(initial_public_url, Some(AuthStore::at_path(path)), None)
     }
 
     #[cfg(test)]
@@ -500,7 +508,12 @@ fn check_pairing_code(state: &AuthState, client_id: &str, pairing_code: &str) ->
         }
     }
 
-    if pairing_code == state.pairing_code {
+    let pairing_code_matches = constant_time_text_eq(pairing_code, &state.pairing_code);
+    let password_matches = state
+        .authorization_password
+        .as_deref()
+        .is_some_and(|password| constant_time_text_eq(pairing_code, password));
+    if pairing_code_matches | password_matches {
         attempts.remove(client_id);
         return PairingCodeCheck::Accepted;
     }
@@ -556,7 +569,7 @@ async fn authorize_submit(
                 Html(authorize_html(
                     &query,
                     Some(
-                        "That pairing code is not valid. Check the code shown in your wcode terminal.",
+                        "That pairing code or password is not valid. Check the code shown in your wcode terminal or the password supplied at startup.",
                     ),
                 )),
             )

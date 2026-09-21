@@ -47,6 +47,36 @@ fn successful_task_result_is_not_replaced_by_recovery() {
     assert_eq!(loaded.result, Some(result));
 }
 
+fn snapshot_live_command_stream(bytes: &[u8]) -> (String, usize, bool) {
+    let mut stream = LiveCommandStream::default();
+    stream.push(bytes, false);
+    stream.snapshot()
+}
+
+#[test]
+fn live_command_window_is_utf8_safe_bounded_and_redacts_before_tailing() {
+    let input = format!(
+        "{}\nmarker=尾部\n",
+        "x".repeat(MAX_LIVE_COMMAND_STREAM_BYTES + 128)
+    );
+    let (tail, dropped, redacted) = snapshot_live_command_stream(input.as_bytes());
+    assert!(tail.len() <= MAX_LIVE_COMMAND_STREAM_BYTES);
+    assert!(dropped > 0);
+    assert!(tail.trim_end().ends_with("marker=尾部"));
+    assert!(!redacted);
+
+    let secret = format!(
+        "api_key={}\n",
+        "s".repeat(MAX_LIVE_COMMAND_STREAM_BYTES + 128)
+    );
+    let (tail, dropped, redacted) = snapshot_live_command_stream(secret.as_bytes());
+    let tail = tail.trim_end();
+    assert_eq!(tail, "api_key= [REDACTED]");
+    assert_eq!(dropped, 0);
+    assert!(redacted);
+    assert!(!tail.contains(&"s".repeat(128)));
+}
+
 #[tokio::test]
 async fn finished_task_handle_is_not_a_live_worker() {
     let runtime = TaskRuntime::default();

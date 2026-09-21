@@ -450,6 +450,8 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     assert!(run_command["inputSchema"]["properties"]["program"]
         .get("maxLength")
         .is_none());
+    let launch_env = &run_command["inputSchema"]["properties"]["env"];
+    assert_eq!(launch_env["maxProperties"], 5);
     assert!(names.contains("agent_context"));
     assert!(names.contains("semantic_navigation"));
     let semantic_navigation = first

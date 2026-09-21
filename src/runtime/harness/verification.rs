@@ -1,5 +1,21 @@
 use super::*;
 
+const DEFAULT_VERIFICATION_TIMEOUT_SECONDS: u64 = 120;
+const COLD_BUILD_TIMEOUT_FLOOR_SECONDS: u64 = 300;
+
+fn verification_check_timeout_seconds(check: &CheckSpec, requested: u64) -> u64 {
+    let requested = requested.clamp(1, 1800);
+    if check.id == "rust-release-build"
+        && check.level == "full"
+        && check.phase == 3
+        && requested == DEFAULT_VERIFICATION_TIMEOUT_SECONDS
+    {
+        COLD_BUILD_TIMEOUT_FLOOR_SECONDS
+    } else {
+        requested
+    }
+}
+
 impl ToolHarness {
     pub(crate) fn current_workspace_revision_key(
         &self,
@@ -46,6 +62,7 @@ pub(super) async fn run_verification_check(
     task.start();
     let started = Instant::now();
 
+    let check_timeout_seconds = verification_check_timeout_seconds(&check, timeout_seconds);
     let result = match revision_key.as_deref() {
         Some(revision) => {
             workspace
@@ -53,7 +70,7 @@ pub(super) async fn run_verification_check(
                     &check.program,
                     &check.args,
                     &check.cwd,
-                    timeout_seconds.clamp(1, 1800),
+                    check_timeout_seconds,
                     revision,
                 )
                 .await
@@ -64,7 +81,7 @@ pub(super) async fn run_verification_check(
                     &check.program,
                     &check.args,
                     &check.cwd,
-                    timeout_seconds.clamp(1, 1800),
+                    check_timeout_seconds,
                 )
                 .await
         }

@@ -253,7 +253,7 @@ symbol_context only when more source is required
 apply_edits or apply_file_edits
 ```
 
-`agent_context` uses adaptive bounded sizing when `budget` is omitted. Use `workspace_info`, `scope_status`, `design_status`, `project_context`, `software_context`, and `language_quality_status` only for deeper inspection rather than as a mandatory startup sequence.
+`agent_context` uses adaptive bounded sizing when `budget` is omitted. Use `workspace_info`, `scope_status`, `design_status`, `project_context`, `software_context`, and `language_quality_status` only for deeper inspection rather than as a mandatory startup sequence. Exact launch-only requests such as `run app` / `start server` use a source-free operator route: inspect `workspace_info` launch profiles, then pass the selected profile through `run_command`; long-lived runs should use `task_mode=true` so output and cancellation stay owned by Tasks.
 
 After the edit:
 
@@ -275,7 +275,7 @@ evidence_status
 
 | Tool | Use it for |
 | --- | --- |
-| `workspace_info` | Workspace roots, permissions, security policy, scheduler capabilities, Product Scope registry. |
+| `workspace_info` | Workspace roots, permissions, security policy, scheduler capabilities, Product Scope registry, and bounded read-only launch profiles. Each profile includes `program_available`, a bounded PATH-presence preflight for the bare runner executable; `false` means do not execute or silently substitute another runner, while `true` does not claim a plugin/subcommand is installed. Launch discovery recognizes conservative Cargo/Go/package-manager/Deno/uv/Dart plus directly declared Just/Make/Task runner entrypoints. It can also expose an attached Docker Compose profile only for one bounded manifest whose services use literal images, no host interpolation or custom top-level project name, no build/host-mount/privileged/host-namespace/API-socket/lifecycle-hook/external-resource features, and loopback-only published ports. The generated Compose command adds `--no-build --pull never`, so discovery never triggers an implicit image download; launch still requires exact RiskyExecution authorization, stays attached to the supervised process group, never auto-runs, and long-lived execution should use `task_mode=true`. Its optional `status_probe` is also bounded: it renders only service, container state, Docker-reported health, and exit code. Generic `docker compose ps`/JSON/template rendering is not treated as a safe model-facing probe because it can include the container command; an empty Health field remains unknown rather than being called healthy. Explicit known `packageManager` values take precedence over lockfile inference; conflicting package-manager locks or ambiguous manifests fail closed, and discovery never copies script bodies into command arguments. |
 | `project_context` | Project type, repository guidance, inferred checks, bounded convention report. |
 | `scope_status` | Product Scope mapping and bounded unmapped source paths. |
 | `convention_status` | Naming, architecture-domain, oversized-module and repository-structure findings. |
@@ -311,7 +311,7 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | Create new workspace content without overwrite. |
 | `move_path` / `move_paths` | Move/rename bounded workspace paths without destination overwrite. |
 | `delete_path` | Delete one file or empty directory after exact one-shot local authorization. |
-| `run_command` | No-shell policy-checked execution. Non-default/risky operations remain authorization-bound. |
+| `run_command` | No-shell policy-checked execution. Non-default/risky operations remain authorization-bound. Modern task-capable clients may set `task_mode=true` for a cancellable bounded long run; normal calls stay synchronous. Optional `env` is not arbitrary process environment: it accepts at most five typed non-secret launch overrides from unprivileged `PORT=1024..65535`, numeric-loopback `HOST`, `NODE_ENV=development|test`, `RUST_LOG`, and `LOG_LEVEL`. Supplying `env` clears inherited values for those managed keys before applying the validated overrides; unknown names, credentials, PATH/config redirects, non-loopback hosts, control characters, and arbitrary values fail closed. Common runtime/loader injection variables are scrubbed from policy-checked child processes. |
 
 ### Graph, semantics, and language quality
 

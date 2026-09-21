@@ -124,6 +124,40 @@ fn release_ci_runs_rustsec_dependency_audit() {
 }
 
 #[test]
+fn repository_verification_executors_include_a_real_managed_runtime_canary() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let config: serde_yaml::Value =
+        serde_yaml::from_str(&fs::read_to_string(root.join(".wcode/executors.yaml")).unwrap())
+            .unwrap();
+    let executors = config["executors"].as_sequence().unwrap();
+    let canary = executors
+        .iter()
+        .find(|executor| executor["id"].as_str() == Some("wcode-rust-runtime-canary-managed-task"))
+        .expect("repository verification must retain the managed runtime canary");
+
+    assert_eq!(canary["stage"].as_str(), Some("runtime_canary"));
+    assert_eq!(canary["languages"][0].as_str(), Some("rust"));
+    assert_eq!(canary["program"].as_str(), Some("cargo"));
+    let args = canary["args"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        args,
+        [
+            "test",
+            "--locked",
+            "--lib",
+            "task_mode_applies_bounded_non_secret_launch_environment"
+        ]
+    );
+    assert_eq!(canary["cwd"].as_str(), Some("."));
+    assert_eq!(canary["timeout_seconds"].as_u64(), Some(60));
+}
+
+#[test]
 fn release_ci_installs_the_javascript_behavior_runtime() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow: serde_yaml::Value = serde_yaml::from_str(

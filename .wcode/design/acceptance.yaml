@@ -49,7 +49,9 @@
     cargo test commands may run concurrently as shared readers only up to the resource governor child-process capacity.
     Exclusive commands wait for active test readers, new test readers wait behind an acquired exclusive command, and
     all lanes retain bounded queue waits, hardened arguments, child CPU/thread limits and unchanged verification
-    semantics. Foreground CPU/process capacity remains hardware- and memory-bounded but no longer hard-caps all profiles
+    semantics. The default 120-second verification timeout remains unchanged for ordinary checks; only the canonical full Rust release-build gate
+    receives a deterministic 300-second cold-build floor at that default, while explicit non-default timeouts keep their requested bound and every check remains capped at 1800 seconds.
+    Foreground CPU/process capacity remains hardware- and memory-bounded but no longer hard-caps all profiles
     at eight CPU burst lanes. 1 GiB+ profiles can scale toward sixteen CPU burst lanes and eight heavy children on
     capable hosts while the 512 MiB balanced profile remains bounded by its memory budget. Failed verification exposes
     bounded workspace-relative diagnostic file/line/column locations plus redaction-aware nearby source windows and
@@ -67,6 +69,7 @@
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: cost_backtest_circuit_breaker_stops_proven_regressions_but_allows_cold_start}
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: duplicate_retry_evidence_cannot_manufacture_revision_sample_confidence}
     - {kind: test, path: tests/unit/runtime/harness/focus.rs, symbol: quick_verification_prioritizes_one_resolved_design_test_after_static_checks}
+    - {kind: test, path: tests/unit/runtime/harness/verification_errors.rs, symbol: default_verification_timeout_gives_only_rust_release_a_bounded_cold_build_floor}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_reaches_verified_edit_and_recovers_from_failures}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: verification_failure_context_redacts_secrets_and_never_claims_edit_ready}
@@ -85,7 +88,7 @@
     - {kind: test, path: tests/unit/runtime/parallelism.rs, symbol: perf_foreground_capacity_scales_beyond_eight_lanes_when_memory_and_host_allow}
     - {kind: test, path: tests/unit/workspace/policy.rs, symbol: focused_rust_test_filter_is_exact_and_does_not_open_arbitrary_test_arguments}
     - {kind: test, path: tests/unit/workspace/policy/focused.rs, symbol: focused_rust_lib_test_filter_is_exact_and_bounded}
-    - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: mixed_language_verification_accounts_for_every_inferred_check}
+    - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: mixed_language_verification_fails_closed_on_unresolved_python_runner}
     - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: independent_process_queues_keep_compiler_and_probe_limits}
     - {kind: test, path: tests/unit/runtime/process_admission.rs, symbol: inspection_queue_still_obeys_resource_pressure_admission}
     - {kind: test, path: tests/unit/runtime/harness/selective.rs, symbol: oversized_verification_plan_fails_before_dispatch}
@@ -367,7 +370,7 @@
 - schema_version: 1
   id: AC-MCP-003
   title: OAuth discovery and registration remain resource-bound
-  statement: OAuth metadata and redirects use the verified Host that received the request. DCR clients and resource-bound tokens survive a fresh runtime load for the same configured Workspace roots without clock expiry; a verified replacement tunnel can continue the session, while malformed or symlinked state, unknown Hosts, stale historical Hosts and different Workspace scopes remain outside the boundary. MCP GET/POST, legacy SSE and protected WebUI share active-alias Origin validation without skipping authentication or trusting arbitrary client origins; malformed, duplicate and credential-bearing headers fail closed, historical token resources do not authorize browser origins, and diagnostics distinguish untrusted_host from untrusted_origin without exposing credentials.
+  statement: OAuth metadata and redirects use the syntactically valid Host that received the request, including stable custom HTTPS reverse-proxy domains without requiring managed-tunnel registration. DCR clients and resource-bound tokens survive a fresh runtime load for the same configured Workspace roots without clock expiry; malformed or duplicate Host headers, symlinked state and different Workspace scopes remain outside the boundary. The OAuth authorization page accepts either the ephemeral six-digit pairing code or an optional startup password, applies the same bounded lockout to both, compares secrets without early byte mismatch, and never persists or returns the startup password. MCP GET/POST, legacy SSE and protected WebUI retain active-alias Origin validation, authentication and Workspace authorization; historical token resources do not authorize browser origins.
   verification:
     - kind: test
       path: tests/unit/integrations/auth.rs
@@ -392,7 +395,7 @@
       symbol: bearer_and_refresh_sessions_survive_restart_and_tunnel_change
     - kind: test
       path: tests/unit/integrations/auth/session.rs
-      symbol: old_tunnel_resource_does_not_make_old_host_active_after_restart
+      symbol: historical_resource_does_not_block_a_custom_host_after_restart
     - kind: test
       path: tests/unit/integrations/auth/origin.rs
       symbol: removed_tunnel_is_historical_only
@@ -407,7 +410,7 @@
       symbol: malformed_and_duplicate_origin_headers_are_not_treated_as_absent
     - kind: test
       path: tests/unit/integrations/auth/origin.rs
-      symbol: request_hosts_reject_duplicates_spoofed_forwarding_and_url_syntax
+      symbol: request_hosts_accept_custom_domains_but_reject_duplicates_and_url_syntax
     - kind: test
       path: tests/unit/integrations/auth/origin.rs
       symbol: missing_host_does_not_resurrect_an_unregistered_primary
@@ -416,7 +419,7 @@
       symbol: mcp_and_webui_accept_verified_alias_origins_without_skipping_authentication
     - kind: test
       path: tests/unit/integrations/mcp/http.rs
-      symbol: transport_rejections_distinguish_host_origin_and_retired_aliases
+      symbol: custom_hosts_are_accepted_without_weakening_origin_or_authentication
     - kind: test
       path: tests/unit/integrations/auth/session.rs
       symbol: persistent_oauth_state_is_owner_only_and_rejects_symlinks

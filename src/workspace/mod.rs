@@ -25,6 +25,32 @@ const MAX_READ_BYTES: u64 = 1024 * 1024;
 const MAX_MODEL_READ_LINES: usize = 1_000;
 const MAX_WRITE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
+
+#[derive(Clone, Debug)]
+pub(crate) struct CommandOutputChunk {
+    pub stderr: bool,
+    pub bytes: Vec<u8>,
+    pub truncated: bool,
+}
+
+tokio::task_local! {
+    static COMMAND_OUTPUT_PROGRESS: tokio::sync::mpsc::Sender<CommandOutputChunk>;
+}
+
+pub(crate) async fn with_command_output_progress<F>(
+    sender: tokio::sync::mpsc::Sender<CommandOutputChunk>,
+    future: F,
+) -> F::Output
+where
+    F: std::future::Future,
+{
+    COMMAND_OUTPUT_PROGRESS.scope(sender, future).await
+}
+
+fn command_output_progress_sender() -> Option<tokio::sync::mpsc::Sender<CommandOutputChunk>> {
+    COMMAND_OUTPUT_PROGRESS.try_with(Clone::clone).ok()
+}
+
 const MAX_SAFE_REMOVAL_BYTES: usize = 4 * 1024;
 const MAX_SAFE_REDUCTION_PERCENT: usize = 60;
 const MAX_TEXT_EDITS: usize = 128;
@@ -519,6 +545,7 @@ mod media;
 #[path = "ignore.rs"]
 mod walk_ignore;
 pub(crate) use walk_ignore::{repository_ignore_builder, repository_walk_builder};
+mod launch_profiles;
 #[path = "registry.rs"]
 mod registry;
 #[path = "roots.rs"]

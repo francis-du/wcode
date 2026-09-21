@@ -1,13 +1,13 @@
 use crate::mcp::{call_tool_owned, jsonrpc_error, modern_result, selected_workspace, AppState};
 use crate::task_store::{self, TaskRecord, TaskStatus};
-use crate::workspace::Workspace;
+use crate::workspace::{CommandOutputChunk, Workspace};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tokio::task::{AbortHandle, JoinSet};
-use tokio::time::{timeout_at, Instant};
+use tokio::time::Instant;
 
 pub(crate) const TASK_EXTENSION_ID: &str = "io.modelcontextprotocol/tasks";
 const TASK_AUGMENTED_TOOLS: &[&str] = &[
@@ -16,10 +16,29 @@ const TASK_AUGMENTED_TOOLS: &[&str] = &[
     "verification_execute_stages",
     "verify_project",
 ];
+const CONDITIONAL_TASK_TOOL: &str = "run_command";
+const MAX_LIVE_COMMAND_STREAM_BYTES: usize = 32 * 1024;
+const MAX_LIVE_COMMAND_LINE_BYTES: usize = 64 * 1024;
+const COMMAND_OUTPUT_PROGRESS_CHANNEL_CAPACITY: usize = 32;
+const LIVE_COMMAND_PERSIST_INTERVAL: Duration = Duration::from_millis(100);
 
 pub(super) fn capabilities() -> Value {
     let mut capabilities = task_store::capabilities();
-    capabilities["task_augmented_tools"] = json!(TASK_AUGMENTED_TOOLS);
+    let mut tools = TASK_AUGMENTED_TOOLS.to_vec();
+    tools.push(CONDITIONAL_TASK_TOOL);
+    capabilities["task_augmented_tools"] = json!(tools);
+    capabilities["task_augmented_conditions"] = json!({
+        "run_command": "arguments.task_mode=true"
+    });
+    capabilities["live_command_output"] = json!({
+        "window": "stream_tail",
+        "max_bytes_per_stream": MAX_LIVE_COMMAND_STREAM_BYTES,
+        "max_pending_line_bytes": MAX_LIVE_COMMAND_LINE_BYTES,
+        "progress_channel_capacity": COMMAND_OUTPUT_PROGRESS_CHANNEL_CAPACITY,
+        "redacted": true,
+        "durable": true,
+        "final_result_contract": "bounded_prefix_unchanged",
+    });
     capabilities
 }
 
@@ -148,7 +167,22 @@ pub(super) fn task_augmented_tool(params: &Value) -> bool {
     params
         .get("name")
         .and_then(Value::as_str)
-        .is_some_and(|name| TASK_AUGMENTED_TOOLS.contains(&name))
+        .is_some_and(|name| {
+            TASK_AUGMENTED_TOOLS.contains(&name)
+                || (name == CONDITIONAL_TASK_TOOL && run_command_task_mode(params))
+        })
+}
+
+pub(super) fn requires_task_capability(params: &Value) -> bool {
+    params.get("name").and_then(Value::as_str) == Some(CONDITIONAL_TASK_TOOL)
+        && run_command_task_mode(params)
+}
+
+fn run_command_task_mode(params: &Value) -> bool {
+    params
+        .pointer("/arguments/task_mode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 pub(super) async fn create_tool_task(
@@ -161,9 +195,9 @@ pub(super) async fn create_tool_task(
         .and_then(Value::as_str)
         .ok_or_else(|| TaskRpcError::invalid("tools/call is missing params.name"))?
         .to_owned();
-    if !TASK_AUGMENTED_TOOLS.contains(&tool_name.as_str()) {
+    if !task_augmented_tool(&params) {
         return Err(TaskRpcError::invalid(
-            "tool does not support task augmentation",
+            "tool does not support task augmentation for these arguments",
         ));
     }
     let args = params
@@ -234,16 +268,71 @@ async fn run_task_worker(
     let outcome = if Instant::now() >= deadline {
         Err(TaskRpcError::internal("task exceeded its durable TTL"))
     } else {
+        let progress_enabled = run_command_task_mode(&params);
+        let (progress_tx, mut progress_rx) =
+            tokio::sync::mpsc::channel(COMMAND_OUTPUT_PROGRESS_CHANNEL_CAPACITY);
         let tool_state = state.clone();
         let mut tools = JoinSet::new();
-        tools.spawn(async move { call_tool_owned(&tool_state, params, &owner).await });
-        match timeout_at(deadline, tools.join_next()).await {
-            Ok(Some(Ok(outcome))) => outcome.map_err(TaskRpcError::invalid),
-            Ok(Some(Err(error))) => Err(TaskRpcError::internal(format!(
-                "task tool worker failed to join: {error}"
-            ))),
-            Ok(None) => Err(TaskRpcError::internal("task tool worker did not start")),
-            Err(_) => Err(TaskRpcError::internal("task exceeded its durable TTL")),
+        tools.spawn(async move {
+            let call = call_tool_owned(&tool_state, params, &owner);
+            if progress_enabled {
+                crate::workspace::with_command_output_progress(progress_tx, call).await
+            } else {
+                drop(progress_tx);
+                call.await
+            }
+        });
+        let mut stdout = LiveCommandStream::default();
+        let mut stderr = LiveCommandStream::default();
+        let mut progress_open = progress_enabled;
+        let mut progress_dirty = false;
+        let mut persist_tick = tokio::time::interval(LIVE_COMMAND_PERSIST_INTERVAL);
+        persist_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let _ = persist_tick.tick().await;
+        loop {
+            tokio::select! {
+                joined = tools.join_next() => {
+                    while let Ok(chunk) = progress_rx.try_recv() {
+                        apply_live_command_chunk(&mut stdout, &mut stderr, chunk);
+                        progress_dirty = true;
+                    }
+                    if progress_dirty {
+                        persist_live_command_output(&state, &workspace, &task_id, &stdout, &stderr);
+                    }
+                    break match joined {
+                        Some(Ok(outcome)) => outcome.map_err(TaskRpcError::invalid),
+                        Some(Err(error)) => Err(TaskRpcError::internal(format!(
+                            "task tool worker failed to join: {error}"
+                        ))),
+                        None => Err(TaskRpcError::internal("task tool worker did not start")),
+                    };
+                }
+                chunk = progress_rx.recv(), if progress_open => {
+                    match chunk {
+                        Some(chunk) => {
+                            apply_live_command_chunk(&mut stdout, &mut stderr, chunk);
+                            progress_dirty = true;
+                        }
+                        None => {
+                            progress_open = false;
+                            if progress_dirty {
+                                persist_live_command_output(&state, &workspace, &task_id, &stdout, &stderr);
+                                progress_dirty = false;
+                            }
+                        }
+                    }
+                }
+                _ = persist_tick.tick(), if progress_open && progress_dirty => {
+                    persist_live_command_output(&state, &workspace, &task_id, &stdout, &stderr);
+                    progress_dirty = false;
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    if progress_dirty {
+                        persist_live_command_output(&state, &workspace, &task_id, &stdout, &stderr);
+                    }
+                    break Err(TaskRpcError::internal("task exceeded its durable TTL"));
+                }
+            }
         }
     };
     let Ok(_guard) = state.tasks.state_lock.lock() else {
@@ -267,6 +356,173 @@ async fn run_task_worker(
         tracing::warn!(%task_id, %error, "MCP task final state was not persisted");
     }
     state.tasks.remove(&task_id);
+}
+
+#[derive(Default)]
+struct LiveCommandStream {
+    tail: String,
+    pending_line: Vec<u8>,
+    dropped_prefix_bytes: usize,
+    redacted: bool,
+    oversized_line: bool,
+    in_private_key: bool,
+    capture_truncated: bool,
+}
+
+impl LiveCommandStream {
+    fn push(&mut self, bytes: &[u8], capture_truncated: bool) {
+        self.capture_truncated |= capture_truncated;
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            if self.oversized_line {
+                let Some(relative_end) = bytes[offset..].iter().position(|byte| *byte == b'\n')
+                else {
+                    return;
+                };
+                self.append_visible("[wcode: oversized live output line redacted]\n");
+                self.redacted = true;
+                self.oversized_line = false;
+                offset += relative_end + 1;
+                continue;
+            }
+
+            let newline = bytes[offset..].iter().position(|byte| *byte == b'\n');
+            let end = newline.map_or(bytes.len(), |relative| offset + relative);
+            let segment = &bytes[offset..end];
+            if self.pending_line.len().saturating_add(segment.len()) > MAX_LIVE_COMMAND_LINE_BYTES {
+                self.pending_line.clear();
+                self.redacted = true;
+                self.oversized_line = true;
+                if newline.is_some() {
+                    self.append_visible("[wcode: oversized live output line redacted]\n");
+                    self.oversized_line = false;
+                    offset = end + 1;
+                    continue;
+                }
+                return;
+            }
+            self.pending_line.extend_from_slice(segment);
+            if newline.is_some() {
+                self.finish_line();
+                offset = end + 1;
+            } else {
+                return;
+            }
+        }
+    }
+
+    fn finish_line(&mut self) {
+        let line = String::from_utf8_lossy(&self.pending_line).into_owned();
+        self.pending_line.clear();
+        let upper = line.to_ascii_uppercase();
+        if self.in_private_key {
+            self.redacted = true;
+            if upper.contains("-----END") && upper.contains("PRIVATE KEY") {
+                self.in_private_key = false;
+            }
+            return;
+        }
+        if upper.contains("-----BEGIN") && upper.contains("PRIVATE KEY") {
+            self.redacted = true;
+            self.in_private_key = true;
+            self.append_visible("[REDACTED PRIVATE KEY]\n");
+            return;
+        }
+        let (safe, redacted) = crate::workspace::redact_sensitive_text(&line);
+        self.redacted |= redacted;
+        self.append_visible(&safe);
+        self.append_visible("\n");
+    }
+
+    fn append_visible(&mut self, text: &str) {
+        self.tail.push_str(text);
+        if self.tail.len() <= MAX_LIVE_COMMAND_STREAM_BYTES {
+            return;
+        }
+        let mut start = self.tail.len() - MAX_LIVE_COMMAND_STREAM_BYTES;
+        while !self.tail.is_char_boundary(start) {
+            start += 1;
+        }
+        self.tail.drain(..start);
+        self.dropped_prefix_bytes = self.dropped_prefix_bytes.saturating_add(start);
+    }
+
+    fn snapshot(&self) -> (String, usize, bool) {
+        let (pending, pending_redacted) = if self.oversized_line {
+            (
+                "[wcode: oversized live output line redacted]".to_owned(),
+                true,
+            )
+        } else if self.in_private_key {
+            (String::new(), true)
+        } else {
+            let pending = String::from_utf8_lossy(&self.pending_line);
+            let upper = pending.to_ascii_uppercase();
+            if upper.contains("-----BEGIN") && upper.contains("PRIVATE KEY") {
+                ("[REDACTED PRIVATE KEY]".to_owned(), true)
+            } else {
+                crate::workspace::redact_sensitive_text(&pending)
+            }
+        };
+        let mut visible = self.tail.clone();
+        visible.push_str(&pending);
+        let mut dropped = self.dropped_prefix_bytes;
+        if visible.len() > MAX_LIVE_COMMAND_STREAM_BYTES {
+            let mut start = visible.len() - MAX_LIVE_COMMAND_STREAM_BYTES;
+            while !visible.is_char_boundary(start) {
+                start += 1;
+            }
+            visible = visible[start..].to_owned();
+            dropped = dropped.saturating_add(start);
+        }
+        (visible, dropped, self.redacted || pending_redacted)
+    }
+}
+
+fn apply_live_command_chunk(
+    stdout: &mut LiveCommandStream,
+    stderr: &mut LiveCommandStream,
+    chunk: CommandOutputChunk,
+) {
+    let stream = if chunk.stderr { stderr } else { stdout };
+    stream.push(&chunk.bytes, chunk.truncated);
+}
+
+fn persist_live_command_output(
+    state: &AppState,
+    workspace: &Workspace,
+    task_id: &str,
+    stdout: &LiveCommandStream,
+    stderr: &LiveCommandStream,
+) {
+    let Ok(_guard) = state.tasks.state_lock.lock() else {
+        return;
+    };
+    let Ok(Some(mut current)) = task_store::load(workspace, task_id) else {
+        return;
+    };
+    if current.status != TaskStatus::Working {
+        return;
+    }
+    let (stdout_text, stdout_dropped_prefix_bytes, stdout_redacted) = stdout.snapshot();
+    let (stderr_text, stderr_dropped_prefix_bytes, stderr_redacted) = stderr.snapshot();
+    current.update_command_output(json!({
+        "stdout": stdout_text,
+        "stderr": stderr_text,
+        "stdoutTruncated": stdout.capture_truncated || stdout_dropped_prefix_bytes > 0,
+        "stderrTruncated": stderr.capture_truncated || stderr_dropped_prefix_bytes > 0,
+        "stdoutCaptureTruncated": stdout.capture_truncated,
+        "stderrCaptureTruncated": stderr.capture_truncated,
+        "stdoutDroppedPrefixBytes": stdout_dropped_prefix_bytes,
+        "stderrDroppedPrefixBytes": stderr_dropped_prefix_bytes,
+        "window": "stream_tail",
+        "maxBytesPerStream": MAX_LIVE_COMMAND_STREAM_BYTES,
+        "maxPendingLineBytes": MAX_LIVE_COMMAND_LINE_BYTES,
+        "redacted": stdout_redacted || stderr_redacted,
+    }));
+    if let Err(error) = task_store::persist(workspace, &current) {
+        tracing::warn!(%task_id, %error, "MCP live command output was not persisted");
+    }
 }
 
 fn persist_task_result(workspace: &Workspace, record: &mut TaskRecord) -> anyhow::Result<()> {

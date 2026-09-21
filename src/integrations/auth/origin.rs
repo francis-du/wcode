@@ -6,9 +6,9 @@ static NEXT_ENDPOINT_EPOCH: AtomicU64 = AtomicU64::new(1);
 use std::sync::{Arc, RwLock};
 use url::Url;
 
-/// Tracks public origins verified by this runtime. Request headers may only
-/// select an origin from this allow-list, so an arbitrary Host cannot rewrite
-/// OAuth metadata or weaken resource binding.
+/// Tracks public origins verified by this runtime. Registered endpoints retain
+/// lifecycle and browser-Origin semantics, while a syntactically valid request
+/// Host may identify a stable custom HTTPS reverse-proxy endpoint.
 #[derive(Clone)]
 pub(crate) struct PublicEndpoints {
     primary: Arc<RwLock<String>>,
@@ -117,12 +117,35 @@ impl PublicEndpoints {
             return None;
         }
         let authority = authority.to_str().ok()?;
-        self.active
+        if authority.contains(['/', '\\', '?', '#', '@'])
+            || authority
+                .bytes()
+                .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+        {
+            return None;
+        }
+        if let Some(origin) = self
+            .active
             .read()
             .expect("public endpoint lock poisoned")
             .keys()
             .find(|origin| authority_matches(origin, authority))
             .cloned()
+        {
+            return Some(origin);
+        }
+
+        // Custom reverse proxies are not part of the managed-tunnel lifecycle.
+        // Accept their request authority without adding it to the active Origin
+        // allow-list or to historical OAuth resource equivalence.
+        let request = Url::parse(&format!("https://{authority}")).ok()?;
+        (request.username().is_empty()
+            && request.password().is_none()
+            && request.path() == "/"
+            && request.query().is_none()
+            && request.fragment().is_none()
+            && request.host_str().is_some())
+        .then(|| request.origin().ascii_serialization())
     }
 
     pub(crate) fn origin_allowed(&self, headers: &HeaderMap) -> bool {

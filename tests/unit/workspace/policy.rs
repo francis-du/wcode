@@ -108,6 +108,8 @@ fn focused_rust_test_filter_is_exact_and_does_not_open_arbitrary_test_arguments(
     }
 }
 
+#[path = "policy/docker.rs"]
+mod docker;
 #[path = "policy/focused.rs"]
 mod focused;
 
@@ -647,8 +649,9 @@ fn common_development_tools_have_bounded_read_verify_and_mutation_policies() {
         );
     }
 
-    assert!(validate_docker_command(&args(&["compose", "config"]), false).is_ok());
-    assert!(validate_docker_command(&args(&["compose", "up", "-d"]), false).is_ok());
+    assert!(validate_docker_command(&args(&["compose", "config", "--quiet"]), false).is_ok());
+    assert!(validate_docker_command(&args(&["compose", "up"]), false).is_err());
+    assert!(validate_docker_command(&args(&["compose", "up"]), true).is_ok());
     assert!(validate_docker_command(&args(&["compose", "down", "--volumes"]), true).is_err());
     assert!(validate_kubectl_command(&args(&["api-resources"]), false).is_ok());
     assert!(validate_kubectl_command(&args(&["get", "pods"]), false).is_err());

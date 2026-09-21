@@ -30,7 +30,7 @@ fn git(root: &std::path::Path, args: &[&str]) {
     );
 }
 
-fn request(arguments: Value, capable: bool) -> Value {
+fn tool_request(name: &str, arguments: Value, capable: bool) -> Value {
     let capabilities = if capable {
         json!({"extensions": {(TASK_EXTENSION_ID): {}}})
     } else {
@@ -39,13 +39,17 @@ fn request(arguments: Value, capable: bool) -> Value {
     json!({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {
-            "name": "verify_project", "arguments": arguments,
+            "name": name, "arguments": arguments,
             "_meta": {
                 "io.modelcontextprotocol/protocolVersion": crate::mcp::MODERN_PROTOCOL_VERSION,
                 "io.modelcontextprotocol/clientCapabilities": capabilities
             }
         }
     })
+}
+
+fn request(arguments: Value, capable: bool) -> Value {
+    tool_request("verify_project", arguments, capable)
 }
 
 async fn queued(state: &AppState, expected: u64) {
@@ -72,17 +76,487 @@ async fn terminal(state: &AppState, id: &str, owner: &str) -> Value {
     .expect("verification did not finish")
 }
 
+async fn managed_server_port(state: &AppState, id: &str, owner: &str) -> u16 {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = get_task(state, id, owner).unwrap();
+            assert_eq!(
+                task["status"], "working",
+                "managed server terminated before exposing live output: {task}"
+            );
+            let live = &task["_meta"]["dev.wcode/liveCommandOutput"];
+            let stdout = live["stdout"].as_str().unwrap_or_default();
+            let stderr = live["stderr"].as_str().unwrap_or_default();
+            if stderr.contains("server-stderr") {
+                if let Some(port) = stdout.lines().find_map(|line| {
+                    line.strip_prefix("server-ready:")
+                        .and_then(|port| port.parse::<u16>().ok())
+                }) {
+                    assert!(!stderr.contains("fixture-live-secret"));
+                    assert_eq!(live["redacted"], true);
+                    assert_eq!(live["stdoutTruncated"], false);
+                    assert_eq!(live["stderrTruncated"], false);
+                    break port;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("managed run task never exposed bounded live command output")
+}
+
 #[test]
-fn verification_is_task_eligible_without_making_mutations_task_eligible() {
+fn verification_and_explicit_long_runs_are_task_eligible_without_backgrounding_mutations() {
     assert!(task_augmented_tool(&json!({"name": "verify_project"})));
-    for name in [
-        "run_command",
-        "create_file",
-        "apply_file_edits",
-        "delete_path",
-    ] {
+    assert!(!task_augmented_tool(&json!({"name": "run_command"})));
+    assert!(!task_augmented_tool(&json!({
+        "name": "run_command",
+        "arguments": {"program":"cargo","args":["--version"],"task_mode":false}
+    })));
+    assert!(task_augmented_tool(&json!({
+        "name": "run_command",
+        "arguments": {"program":"cargo","args":["--version"],"task_mode":true}
+    })));
+    assert!(requires_task_capability(&json!({
+        "name": "run_command",
+        "arguments": {"program":"cargo","task_mode":true}
+    })));
+    for name in ["create_file", "apply_file_edits", "delete_path"] {
         assert!(!task_augmented_tool(&json!({"name": name})));
     }
+}
+
+#[tokio::test]
+async fn run_command_task_mode_requires_task_capability_and_completes_durably() {
+    let root = tempfile::tempdir().unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let arguments = json!({
+        "program":"cargo",
+        "args":["--version"],
+        "timeout_seconds":30,
+        "task_mode":true
+    });
+
+    let rejected = crate::mcp::handle_message_isolated(
+        state.clone(),
+        tool_request("run_command", arguments.clone(), false),
+        crate::mcp::MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert_eq!(rejected["error"]["code"], -32021);
+    assert!(rejected.get("result").is_none());
+
+    let created = crate::mcp::handle_message_isolated(
+        state.clone(),
+        tool_request("run_command", arguments, true),
+        crate::mcp::MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert_eq!(created["result"]["resultType"], "task");
+    let id = created["result"]["taskId"].as_str().unwrap();
+    let completed = terminal(&state, id, &owner).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["result"]["isError"], false);
+    assert_eq!(completed["result"]["structuredContent"]["success"], true);
+    assert!(completed["result"]["structuredContent"]["stdout"]
+        .as_str()
+        .is_some_and(|stdout| stdout.contains("cargo")));
+    for _ in 0..2 {
+        assert_eq!(get_task(&state, id, &owner).unwrap(), completed);
+    }
+}
+
+#[tokio::test]
+async fn task_mode_applies_bounded_non_secret_launch_environment() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("launch-env.js"),
+        "console.log([process.env.HOST,process.env.PORT,process.env.NODE_ENV,process.env.LOG_LEVEL].join('|')); setInterval(()=>{},1000);\n",
+    )
+    .unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let created = crate::mcp::handle_message_isolated(
+        state.clone(),
+        tool_request(
+            "run_command",
+            json!({
+                "program":"node",
+                "args":["launch-env.js"],
+                "timeout_seconds":30,
+                "task_mode":true,
+                "env":{
+                    "HOST":"127.0.0.1",
+                    "PORT":"4317",
+                    "NODE_ENV":"test",
+                    "LOG_LEVEL":"debug"
+                }
+            }),
+            true,
+        ),
+        crate::mcp::MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert_eq!(created["result"]["resultType"], "task");
+    let id = created["result"]["taskId"].as_str().unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = get_task(&state, id, &owner).unwrap();
+            assert_eq!(task["status"], "working");
+            if task["_meta"]["dev.wcode/liveCommandOutput"]["stdout"]
+                .as_str()
+                .is_some_and(|stdout| stdout.contains("127.0.0.1|4317|test|debug"))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("managed command did not receive bounded launch environment");
+    cancel_task(&state, id, &owner).unwrap();
+}
+
+#[tokio::test]
+async fn run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+
+    let synchronous = crate::mcp::handle_message_isolated(
+        state.clone(),
+        tool_request(
+            "run_command",
+            json!({"program":"cargo","args":["--version"],"task_mode":false}),
+            true,
+        ),
+        crate::mcp::MODERN_PROTOCOL_VERSION,
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert!(synchronous["result"].get("taskId").is_none());
+    assert_eq!(synchronous["result"]["isError"], false);
+    assert_eq!(synchronous["result"]["structuredContent"]["success"], true);
+
+    let legacy = crate::mcp::handle_message_isolated(
+        state,
+        tool_request(
+            "run_command",
+            json!({"program":"cargo","args":["--version"],"task_mode":true}),
+            true,
+        ),
+        "2025-11-25",
+        &owner,
+    )
+    .await
+    .unwrap();
+    assert_eq!(legacy["error"]["code"], -32021);
+    assert!(legacy.get("result").is_none());
+}
+
+#[tokio::test]
+async fn cancelling_long_run_command_task_terminates_the_supervised_server() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("server.js"),
+        "const net=require('net'); console.error('server-stderr'); console.error('api_key=fixture-live-secret'); const server=net.createServer(s=>s.end('ok')); server.listen(0,'127.0.0.1',()=>console.log('server-ready:'+server.address().port)); setInterval(()=>{},1000);\n",
+    )
+    .unwrap();
+
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({
+            "name":"run_command",
+            "arguments":{
+                "program":"node",
+                "args":["server.js"],
+                "timeout_seconds":30,
+                "task_mode":true
+            }
+        }),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let id = created["taskId"].as_str().unwrap();
+
+    let port = managed_server_port(&state, id, &owner).await;
+    assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok());
+    let live_observed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = get_task(&state, id, &owner).unwrap();
+            let live = &task["_meta"]["dev.wcode/liveCommandOutput"];
+            if live["stdout"]
+                .as_str()
+                .is_some_and(|stdout| stdout.contains("server-ready:"))
+                && live["stderr"]
+                    .as_str()
+                    .is_some_and(|stderr| stderr.contains("server-stderr"))
+            {
+                let stderr = live["stderr"].as_str().unwrap();
+                assert!(stderr.contains("api_key= [REDACTED]"));
+                assert!(!stderr.contains("fixture-live-secret"));
+                assert_eq!(live["redacted"], true);
+                assert_eq!(live["stdoutTruncated"], false);
+                assert_eq!(live["stderrTruncated"], false);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    if live_observed.is_err() {
+        panic!(
+            "managed run task never exposed bounded live command output; final task: {}",
+            get_task(&state, id, &owner).unwrap()
+        );
+    }
+    assert_eq!(get_task(&state, id, &owner).unwrap()["status"], "working");
+
+    cancel_task(&state, id, &owner).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("cancelling the task must terminate the supervised server");
+    assert_eq!(get_task(&state, id, &owner).unwrap()["status"], "cancelled");
+
+    let restarted = create_tool_task(
+        state.clone(),
+        json!({
+            "name":"run_command",
+            "arguments":{
+                "program":"node",
+                "args":["server.js"],
+                "timeout_seconds":30,
+                "task_mode":true
+            }
+        }),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let restarted_id = restarted["taskId"].as_str().unwrap();
+    assert_ne!(restarted_id, id);
+    let restarted_port = managed_server_port(&state, restarted_id, &owner).await;
+    assert!(std::net::TcpStream::connect(("127.0.0.1", restarted_port)).is_ok());
+    assert_eq!(
+        get_task(&state, restarted_id, &owner).unwrap()["status"],
+        "working"
+    );
+    cancel_task(&state, restarted_id, &owner).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if std::net::TcpStream::connect(("127.0.0.1", restarted_port)).is_err() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("restarted managed run must still be owned by task cancellation");
+}
+
+#[tokio::test]
+async fn long_run_live_output_exposes_only_a_bounded_redacted_stream_tail() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("logs.js"),
+        "process.stdout.write('x'.repeat(40000)+'\\ntail-marker\\n'); console.error('api_key=fixture-live-tail-secret'); setInterval(()=>{},1000);\n",
+    )
+    .unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({
+            "name":"run_command",
+            "arguments":{
+                "program":"node",
+                "args":["logs.js"],
+                "timeout_seconds":30,
+                "task_mode":true
+            }
+        }),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let id = created["taskId"].as_str().unwrap();
+    let live = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = get_task(&state, id, &owner).unwrap();
+            let live = &task["_meta"]["dev.wcode/liveCommandOutput"];
+            if live["stdout"]
+                .as_str()
+                .is_some_and(|stdout| stdout.contains("tail-marker"))
+                && live["stderr"]
+                    .as_str()
+                    .is_some_and(|stderr| stderr.contains("[REDACTED]"))
+                && live["redacted"] == true
+            {
+                break live.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("managed run never exposed the bounded tail window");
+    assert!(live["stdout"].as_str().unwrap().len() <= MAX_LIVE_COMMAND_STREAM_BYTES);
+    assert!(live["stdoutDroppedPrefixBytes"].as_u64().unwrap() > 0);
+    assert_eq!(live["stdoutCaptureTruncated"], false);
+    assert_eq!(live["stdoutTruncated"], true);
+    assert_eq!(live["window"], "stream_tail");
+    assert_eq!(
+        live["maxBytesPerStream"],
+        u64::try_from(MAX_LIVE_COMMAND_STREAM_BYTES).unwrap()
+    );
+    assert!(live["stderr"].as_str().unwrap().contains("[REDACTED]"));
+    assert!(!serde_json::to_string(&live)
+        .unwrap()
+        .contains("fixture-live-tail-secret"));
+    assert_eq!(live["redacted"], true);
+    cancel_task(&state, id, &owner).unwrap();
+}
+
+#[tokio::test]
+async fn long_run_live_output_keeps_advancing_after_final_capture_saturates() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("continuous-logs.js"),
+        "for(let i=0;i<40;i++) process.stdout.write('x'.repeat(8192)+'\\n'); setTimeout(()=>{console.log('post-capture-marker'); console.error('api_key=post-capture-secret');},100); setInterval(()=>{},1000);\n",
+    )
+    .unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({
+            "name":"run_command",
+            "arguments":{
+                "program":"node",
+                "args":["continuous-logs.js"],
+                "timeout_seconds":30,
+                "task_mode":true
+            }
+        }),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let id = created["taskId"].as_str().unwrap();
+    let live = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let task = get_task(&state, id, &owner).unwrap();
+            assert_eq!(task["status"], "working");
+            let live = &task["_meta"]["dev.wcode/liveCommandOutput"];
+            if live["stdoutCaptureTruncated"] == true
+                && live["stdout"]
+                    .as_str()
+                    .is_some_and(|stdout| stdout.contains("post-capture-marker"))
+                && live["stderr"]
+                    .as_str()
+                    .is_some_and(|stderr| stderr.contains("[REDACTED]"))
+            {
+                break live.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("live stream tail stopped advancing after final command capture saturated");
+    assert_eq!(live["window"], "stream_tail");
+    assert_eq!(live["stdoutCaptureTruncated"], true);
+    assert_eq!(live["stdoutTruncated"], true);
+    assert!(live["stdoutDroppedPrefixBytes"].as_u64().unwrap() > 0);
+    assert!(live["stdout"]
+        .as_str()
+        .unwrap()
+        .contains("post-capture-marker"));
+    assert!(!serde_json::to_string(&live)
+        .unwrap()
+        .contains("post-capture-secret"));
+    assert_eq!(live["redacted"], true);
+    cancel_task(&state, id, &owner).unwrap();
+}
+
+#[tokio::test]
+async fn task_mode_never_bypasses_command_policy() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let state = fixture(root.path());
+    let owner = "a".repeat(64);
+    let created = create_tool_task(
+        state.clone(),
+        json!({
+            "name":"run_command",
+            "arguments":{
+                "program":"node",
+                "args":["--eval","process.exit(0)"],
+                "timeout_seconds":30,
+                "task_mode":true
+            }
+        }),
+        owner.clone(),
+    )
+    .await
+    .unwrap();
+    let id = created["taskId"].as_str().unwrap();
+    let completed = terminal(&state, id, &owner).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["result"]["isError"], true);
+    let serialized = serde_json::to_string(&completed).unwrap();
+    assert!(serialized.contains("inline or interactive Node execution is blocked"));
 }
 
 #[tokio::test]

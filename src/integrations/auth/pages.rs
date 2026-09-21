@@ -67,7 +67,7 @@ button{{width:100%;height:44px;margin-top:10px;border:1px solid color-mix(in srg
 <form method="post" action="/authorize">
 <input type="hidden" name="client_id" value="{}"><input type="hidden" name="redirect_uri" value="{}"><input type="hidden" name="state" value="{}"><input type="hidden" name="code_challenge" value="{}">
 <input type="hidden" name="resource" value="{}"><input type="hidden" name="scope" value="{}">
-<label for="pairing_code">6-digit pairing code</label><input class="code" id="pairing_code" name="pairing_code" inputmode="numeric" pattern="[0-9]{{6}}" maxlength="6" autocomplete="one-time-code" placeholder="Enter code" required autofocus spellcheck="false">
+<label for="pairing_code">Pairing code or startup password</label><input class="code" type="password" id="pairing_code" name="pairing_code" maxlength="1024" autocomplete="current-password" placeholder="Enter code or password" required autofocus spellcheck="false">
 <button type="submit">Authorize connection</button></form></section>
 <div class="foot"><span><i class="dot"></i>OAuth 2.1 · PKCE</span><span><a href="{project_url}" target="_blank" rel="noreferrer">Project ↗</a> · <a href="{author_url}" target="_blank" rel="noreferrer">{author_handle}</a></span></div>
 </main></body></html>"##,

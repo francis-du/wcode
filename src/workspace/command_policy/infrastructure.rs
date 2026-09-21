@@ -23,25 +23,112 @@ pub(super) fn validate_docker_command(args: &[String], allow_risky_exec: bool) -
 
 fn validate_docker_compose(args: &[String], allow_risky_exec: bool) -> Result<()> {
     let action = args
-        .iter()
-        .find(|arg| !arg.starts_with('-'))
+        .first()
         .map(String::as_str)
         .ok_or_else(|| anyhow!("docker compose subcommand is required"))?;
+    if action.starts_with('-') {
+        bail!("docker compose global options before the subcommand are blocked; use the selected workspace, default Compose file, and operator-selected Docker context");
+    }
+    if compose_has_option(
+        args,
+        &[
+            "-f",
+            "--file",
+            "--env-file",
+            "--project-directory",
+            "-p",
+            "--project-name",
+            "--profile",
+            "--all-resources",
+            "--compatibility",
+        ],
+    ) {
+        bail!("docker compose file/environment/project/profile redirection is blocked; use repository defaults in the selected workspace");
+    }
+
+    let action_args = &args[1..];
     match action {
-        "config" | "ps" | "ls" | "build" | "up" | "start" | "stop" | "restart" | "pull" => Ok(()),
+        "config" => {
+            if action_args.is_empty()
+                || !action_args.iter().all(|arg| {
+                    matches!(arg.as_str(), "-q" | "--quiet" | "--services" | "--profiles")
+                })
+            {
+                bail!("docker compose config rendering is blocked because interpolation may expose environment values; use --quiet, --services, or --profiles only");
+            }
+            Ok(())
+        }
+        "ps" => validate_docker_compose_ps(action_args),
+        "ls" => Ok(()),
+        "build" => {
+            if compose_has_option(
+                action_args,
+                &["--push", "--ssh", "--builder", "--build-arg"],
+            ) {
+                bail!("docker compose build push/SSH/builder/build-arg expansion is blocked");
+            }
+            require_risky_exec("docker compose build", allow_risky_exec)
+        }
+        "up" => {
+            if compose_has_option(
+                action_args,
+                &[
+                    "-d",
+                    "--detach",
+                    "--wait",
+                    "--remove-orphans",
+                    "-V",
+                    "--renew-anon-volumes",
+                    "--scale",
+                ],
+            ) {
+                bail!("docker compose up detach/orphan-removal/anonymous-volume-renewal/scale flags are blocked; keep the stack attached to the supervised task lifecycle");
+            }
+            require_risky_exec("docker compose up", allow_risky_exec)
+        }
+        "start" | "stop" | "restart" | "pull" => {
+            require_risky_exec(&format!("docker compose {action}"), allow_risky_exec)
+        }
         "down" => {
-            if args.iter().any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "-v" | "--volumes" | "--remove-orphans" | "--rmi"
-                ) || arg.starts_with("--rmi=")
-            }) {
+            if compose_has_option(
+                action_args,
+                &["-v", "--volumes", "--remove-orphans", "--rmi"],
+            ) {
                 bail!("docker compose down volume/image/orphan deletion flags are permanently blocked");
             }
             require_risky_exec("docker compose down", allow_risky_exec)
         }
         _ => bail!("docker compose {action} is blocked by the bounded Compose policy"),
     }
+}
+
+fn validate_docker_compose_ps(args: &[String]) -> Result<()> {
+    const STATUS_FORMAT: &str = "{{.Service}}\t{{.State}}\t{{.Health}}\t{{.ExitCode}}";
+    let safe_status = matches!(
+        args,
+        [all, orphans, format, template]
+            if all == "--all"
+                && orphans == "--orphans=false"
+                && format == "--format"
+                && template == STATUS_FORMAT
+    );
+    if args == ["--services"] || safe_status {
+        Ok(())
+    } else {
+        bail!("docker compose ps output is restricted to service names or the bounded state/health status format so container commands are not exposed")
+    }
+}
+
+fn compose_has_option(args: &[String], options: &[&str]) -> bool {
+    args.iter().any(|arg| {
+        options.iter().any(|option| {
+            arg == option
+                || option.starts_with("--")
+                    && arg
+                        .strip_prefix(option)
+                        .is_some_and(|suffix| suffix.starts_with('='))
+        })
+    })
 }
 
 pub(super) fn validate_kubectl_command(args: &[String], allow_risky_exec: bool) -> Result<()> {

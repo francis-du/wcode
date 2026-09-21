@@ -138,6 +138,15 @@ struct Args {
     )]
     public_url: Option<String>,
 
+    /// Fixed password accepted by the OAuth authorization page in addition to the pairing code.
+    #[arg(
+        long,
+        value_name = "PASSWORD",
+        help_heading = "Connection",
+        hide = true
+    )]
+    password: Option<String>,
+
     /// Managed tunnel provider. auto falls back across free providers when startup or health checks fail.
     #[arg(long, value_enum, default_value_t = TunnelProvider::Auto, help_heading = "Connection", hide = true)]
     tunnel_provider: TunnelProvider,
@@ -446,6 +455,9 @@ pub async fn run() -> Result<()> {
         local_url.clone(),
         monitor.clone(),
         &workspaces.configured_roots(),
+        args.password
+            .clone()
+            .filter(|password| !password.is_empty()),
     )?);
     let app_state = Arc::new(AppState {
         auth: auth.clone(),

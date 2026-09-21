@@ -25,7 +25,7 @@ fn stale_endpoint_cleanup_cannot_remove_a_new_same_url_registration() {
     assert!(endpoints.unregister_if_epoch(url, new_epoch));
     assert!(!endpoints.unregister_if_epoch(url, new_epoch));
     endpoints.trust_resource("https://stable.example/mcp");
-    assert!(endpoints.for_headers(&request).is_none());
+    assert_eq!(endpoints.for_headers(&request).as_deref(), Some(url));
     assert!(!endpoints.origin_allowed(&request));
 }
 
@@ -125,7 +125,7 @@ fn malformed_and_duplicate_origin_headers_are_not_treated_as_absent() {
 }
 
 #[test]
-fn request_hosts_reject_duplicates_spoofed_forwarding_and_url_syntax() {
+fn request_hosts_accept_custom_domains_but_reject_duplicates_and_url_syntax() {
     let endpoints = PublicEndpoints::new("https://one.example".to_owned());
     for host in [
         "one.example/",
@@ -134,13 +134,18 @@ fn request_hosts_reject_duplicates_spoofed_forwarding_and_url_syntax() {
         "one.example#x",
         "one.example?x",
         " one.example",
-        "attacker.example",
     ] {
         let mut request = headers(host);
         request.insert("x-forwarded-host", "one.example".parse().unwrap());
         request.insert("forwarded", "host=one.example;proto=https".parse().unwrap());
         assert!(endpoints.for_headers(&request).is_none(), "accepted {host}");
     }
+    assert_eq!(
+        endpoints
+            .for_headers(&headers("custom.example:8443"))
+            .as_deref(),
+        Some("https://custom.example:8443")
+    );
     let mut request = headers("one.example");
     request.append(header::HOST, "one.example".parse().unwrap());
     assert!(endpoints.for_headers(&request).is_none());
@@ -154,7 +159,7 @@ fn missing_host_does_not_resurrect_an_unregistered_primary() {
 }
 
 #[test]
-fn selects_only_registered_request_origins() {
+fn selects_registered_origins_and_accepts_custom_request_hosts() {
     let endpoints = PublicEndpoints::new("http://127.0.0.1:9999".to_owned());
     endpoints.set_primary("https://one.example".to_owned());
     endpoints.register("https://two.example".to_owned());
@@ -169,9 +174,10 @@ fn selects_only_registered_request_origins() {
             .as_deref(),
         Some("https://two.example")
     );
-    assert!(endpoints
-        .for_headers(&headers("attacker.example"))
-        .is_none());
+    assert_eq!(
+        endpoints.for_headers(&headers("custom.example")).as_deref(),
+        Some("https://custom.example")
+    );
 }
 
 #[test]
@@ -195,7 +201,10 @@ fn removed_tunnel_is_historical_only() {
     endpoints.set_primary("https://current.example".to_owned());
     endpoints.unregister("https://old.example");
 
-    assert!(endpoints.for_headers(&headers("old.example")).is_none());
+    assert_eq!(
+        endpoints.for_headers(&headers("old.example")).as_deref(),
+        Some("https://old.example")
+    );
     assert_eq!(
         endpoints
             .for_headers(&headers("current.example"))

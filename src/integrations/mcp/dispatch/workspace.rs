@@ -37,6 +37,27 @@ pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {
     }
 }
 
+fn command_environment(args: &Value) -> Result<Vec<(String, String)>, String> {
+    let Some(value) = args.get("env") else {
+        return Ok(Vec::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or("env must be an object of bounded string overrides when provided")?;
+    if object.len() > 5 {
+        return Err("env accepts at most 5 bounded overrides".to_owned());
+    }
+    object
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|value| (key.clone(), value.to_owned()))
+                .ok_or_else(|| "env values must be strings".to_owned())
+        })
+        .collect()
+}
+
 fn bug_pattern_selection(args: &Value) -> Result<Option<(String, Vec<String>)>, String> {
     const GO_COMMON_BUGS: &[&str] = &[
         "nil_deref",
@@ -543,6 +564,7 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let program = required_string(args, "program")?.to_owned();
             let command_args = command_arguments(args)?;
+            let command_environment = command_environment(args)?;
             let cwd = match args.get("cwd") {
                 None => ".",
                 Some(value) => value
@@ -557,15 +579,16 @@ pub(super) async fn call(
                     .filter(|seconds| (1..=1800).contains(seconds))
                     .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
             };
-            let revision_key =
-                if workspace.verification_command_shape_allowed(&program, &command_args) {
-                    state
-                        .harness
-                        .current_workspace_revision_key(&workspace)
-                        .map_err(|error| error.to_string())?
-                } else {
-                    None
-                };
+            let revision_key = if command_environment.is_empty()
+                && workspace.verification_command_shape_allowed(&program, &command_args)
+            {
+                state
+                    .harness
+                    .current_workspace_revision_key(&workspace)
+                    .map_err(|error| error.to_string())?
+            } else {
+                None
+            };
             let result = match revision_key.as_deref() {
                 Some(revision) => {
                     workspace
@@ -580,7 +603,13 @@ pub(super) async fn call(
                 }
                 None => {
                     workspace
-                        .run_command(&program, &command_args, cwd, timeout_seconds)
+                        .run_command_with_environment(
+                            &program,
+                            &command_args,
+                            cwd,
+                            timeout_seconds,
+                            &command_environment,
+                        )
                         .await
                 }
             };

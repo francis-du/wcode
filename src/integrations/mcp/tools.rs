@@ -9,7 +9,7 @@ pub(super) fn tools() -> &'static [Value] {
 
 fn build_tools() -> Vec<Value> {
     vec![
-        tool("workspace_info", "Show configured workspaces/subspaces and choose the most specific project scope.", json!({"type":"object","properties":{},"additionalProperties":false}), true, false),
+        tool("workspace_info", "Show workspaces/subspaces, security, and bounded read-only launch profiles.", json!({"type":"object","properties":{},"additionalProperties":false}), true, false),
         tool("design_status", "Validate .wcode Desired Software State and return bounded counts/diagnostics.", schema(json!({}), &[]), true, false),
         tool("convention_status", "Inspect cross-language conventions, architecture findings, oversized modules, language coverage, and truncation.", schema(json!({}), &[]), true, false),
         tool("scope_status", "Audit repository files against canonical Product Scopes, including mapped/unmapped counts and paths.", schema(json!({}), &[]), true, false),
@@ -146,7 +146,7 @@ fn build_tools() -> Vec<Value> {
         tool("move_path", "Move or rename one file or directory inside the workspace without overwriting the destination. File moves may include expected_source_sha256 to pin the exact source revision; directories reject that file-only precondition. Source trees containing symlinks, hard-linked files, protected paths, or workspace escapes are rejected.", schema(json!({"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}}), &["source","destination"]), false, true),
         tool("move_paths", "Move up to 64 independent, non-overlapping files/directories concurrently without destination overwrite. Each file move may pin expected_source_sha256; overlapping or dependent paths are rejected before execution.", schema(json!({"moves":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}},"required":["source","destination"],"additionalProperties":false}}}), &["moves"]), false, true),
         tool("delete_path", "Delete one file or empty directory with exact human authorization; files require expected_sha256. Recursive/root/protected/symlink/hard-link deletion stays blocked.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"}}), &["path"]), false, true),
-        tool("run_command", "Run a command under Workspace policy; explicit all-command/Full Access grants relax command-shape filtering, not resource/cwd/timeout bounds.", schema(json!({"program":{"type":"string","minLength":1},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800}}), &["program"]), false, true),
+        tool("run_command", "Policy-checked execution; task_mode uses Tasks; env has five launch-only keys.", schema(json!({"program":{"type":"string","minLength":1},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800},"task_mode":{"type":"boolean","default":false},"env":{"type":"object","maxProperties":5}}), &["program"]), false, true),
     ]
 }
 

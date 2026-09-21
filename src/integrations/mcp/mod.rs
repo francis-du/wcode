@@ -9,7 +9,8 @@ pub(crate) use crate::mcp_tasks::TaskRuntime;
 use crate::mcp_tasks::TASK_EXTENSION_ID;
 use crate::mcp_tasks::{
     cancel_task, capabilities as task_capabilities, client_supports_tasks, create_tool_task,
-    get_task, task_augmented_tool, task_rpc_error, update_task, TaskRpcError,
+    get_task, requires_task_capability, task_augmented_tool, task_rpc_error, update_task,
+    TaskRpcError,
 };
 use crate::monitor::TaskMonitor;
 use crate::reconcile::{ReconciliationTaskKind, ReconciliationTaskSubmission};
@@ -675,9 +676,12 @@ pub(crate) async fn handle_message(
             Err(error) => return Some(jsonrpc_error(id, -32602, error)),
         }
     }
-    if modern && method == "tools/call" && client_supports_tasks(&message) {
+    if method == "tools/call" {
         let params = message.get("params").cloned().unwrap_or_default();
-        if task_augmented_tool(&params) {
+        if requires_task_capability(&params) && (!modern || !client_supports_tasks(&message)) {
+            return Some(task_rpc_error(id, TaskRpcError::missing_capability()));
+        }
+        if modern && client_supports_tasks(&message) && task_augmented_tool(&params) {
             return Some(
                 match create_tool_task(state, params, owner.to_owned()).await {
                     Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),

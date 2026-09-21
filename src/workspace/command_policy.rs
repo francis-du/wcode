@@ -4,6 +4,8 @@ use super::*;
 mod autonomy;
 #[path = "command_policy/dev_tools.rs"]
 mod dev_tools;
+#[path = "command_policy/environment.rs"]
+mod environment;
 #[path = "command_policy/focused.rs"]
 mod focused;
 #[path = "command_policy/git.rs"]
@@ -23,6 +25,9 @@ use autonomy::{
     validate_php_quality_command, validate_python_command,
 };
 use dev_tools::{validate_fd_command, validate_jq_command};
+pub(super) use environment::{
+    apply_command_environment, command_environment_injection_key, validate_command_environment,
+};
 use git::validate_git_command;
 use github::validate_gh_command;
 use infrastructure::{
@@ -856,10 +861,11 @@ pub(super) fn scrub_sensitive_environment(
                 "GH_REPO" | "GH_HOST" | "GH_CONFIG_DIR" | "GH_EDITOR" | "GH_BROWSER"
             ))
             || (program == "docker"
-                && matches!(
-                    upper.as_str(),
-                    "DOCKER_HOST" | "DOCKER_CONTEXT" | "DOCKER_CERT_PATH" | "DOCKER_TLS_VERIFY"
-                ))
+                && (upper.starts_with("COMPOSE_")
+                    || matches!(
+                        upper.as_str(),
+                        "DOCKER_HOST" | "DOCKER_CONTEXT" | "DOCKER_CERT_PATH" | "DOCKER_TLS_VERIFY"
+                    )))
             || (program == "kubectl" && upper == "KUBECTL_EXTERNAL_DIFF")
             || (program == "terraform"
                 && (upper.starts_with("TF_CLI_ARGS")
@@ -880,7 +886,10 @@ pub(super) fn scrub_sensitive_environment(
                         | "UV_KEYRING_PROVIDER"
                         | "UV_CACHE_DIR"
                 ));
-        if (!gh_auth && !git_ssh_agent && generic_secret) || tool_redirect {
+        if (!gh_auth && !git_ssh_agent && generic_secret)
+            || tool_redirect
+            || command_environment_injection_key(&upper)
+        {
             command.env_remove(key);
         }
     }
@@ -925,7 +934,11 @@ pub(super) fn is_git_push_command(args: &[String]) -> bool {
         || (args[index] == "lfs" && args.get(index + 1).is_some_and(|arg| arg == "push"))
 }
 
-pub(super) async fn read_bounded_stream<R>(mut reader: R) -> std::io::Result<(String, bool)>
+pub(super) async fn read_bounded_stream<R>(
+    mut reader: R,
+    progress: Option<tokio::sync::mpsc::Sender<CommandOutputChunk>>,
+    stderr: bool,
+) -> std::io::Result<(String, bool)>
 where
     R: AsyncRead + Unpin,
 {
@@ -941,6 +954,15 @@ where
         let keep = remaining.min(read);
         stored.extend_from_slice(&buffer[..keep]);
         truncated |= keep < read;
+        if let Some(progress) = &progress {
+            let _ = progress
+                .send(CommandOutputChunk {
+                    stderr,
+                    bytes: buffer[..read].to_vec(),
+                    truncated,
+                })
+                .await;
+        }
     }
     Ok((String::from_utf8_lossy(&stored).to_string(), truncated))
 }

@@ -465,9 +465,9 @@ executors:
 
 ### MCP 2026 长任务 Tasks
 
-在 MCP `2026-07-28` 下，wcode 已支持官方 `io.modelcontextprotocol/tasks` Extension，而且严格按**每个请求显式 opt-in**：客户端必须在该请求的 `_meta.io.modelcontextprotocol/clientCapabilities.extensions` 中声明 Tasks。当前只把两个明确的长耗时工具 Task 化：`semantic_provider_refresh` 和 `verification_execute_stages`；没有声明 Tasks 的客户端继续走原来的同步 `tools/call`，兼容行为不变。
+在 MCP `2026-07-28` 下，wcode 已支持官方 `io.modelcontextprotocol/tasks` Extension，而且严格按**每个请求显式 opt-in**：客户端必须在该请求的 `_meta.io.modelcontextprotocol/clientCapabilities.extensions` 中声明 Tasks。长耗时的语义安装/刷新、验证阶段执行与 `verify_project` 支持 Task；`run_command` 只有调用方显式设置 `task_mode=true` 时才进入 Task，普通命令即使客户端支持 Tasks 也继续同步执行。若客户端/协议不支持 Tasks 却请求 `task_mode=true`，会明确失败，不会悄悄退回阻塞式执行。
 
-Task Handle 返回前状态已经持久化；Owner 使用当前 OAuth `client_id` 的 SHA-256 Fingerprint，不保存原始 Bearer Token。`tasks/get` 轮询并在完成时返回原始 Tool Result；`tasks/update` 当前是 ack-only，因为这两个任务不会发 Input Request；`tasks/cancel` 先持久化 `cancelled`，再 Abort Worker，避免迟到的 Completed 覆盖取消。Task Store 有 Workspace 级容量上限，只会在创建新 Task 前回收 Terminal Task，Active Task 不会为了腾空间被删。如果 Runtime 在 Task 仍是 `working` 时被替换，下一次读取会把它标成 Failed，而不是假装 Worker 跨进程存活。
+Task Handle 返回前状态已经持久化；Owner 使用当前 OAuth `client_id` 的 SHA-256 Fingerprint，不保存原始 Bearer Token。`tasks/get` 轮询并在完成时返回原始 Tool Result；当 task-mode 命令仍在运行时，私有 `dev.wcode/liveCommandOutput` 元数据只暴露每路 32 KiB 的**独立有界 Progress Stream 尾窗**，不会每次轮询都把完整累计输出重放进模型上下文。即使最终 Tool Result 的每路 256 KiB 前缀 Capture 已经饱和，Pipe Reader 仍会继续排空子进程输出并通过有容量上限的 Progress Channel 交给 Task Worker；Worker 会先按完整行脱敏再形成尾窗，未换行内容也有独立上限，超长行直接 Fail Closed 为已脱敏占位，因此不会靠无限内存换取实时日志，也不会先丢掉敏感 Key 前缀再暴露后续 Value。元数据会分别标记最终结果 Capture 是否截断，以及仅为了形成当前已脱敏尾窗而丢弃了多少前缀字节；Completed Tool Result 仍保持原有有界前缀 Capture Contract 不变。`tasks/update` 当前是 ack-only，因为这些任务不会发 Input Request；`tasks/cancel` 先持久化 `cancelled`，再 Abort Worker，避免迟到的 Completed 覆盖取消。对 `run_command`，Task Worker 与同步命令共享同一套受监管子进程/进程树所有权，因此取消 Task 会终止有界 Dev Server，而不是留下 Detached Background Process；命令策略、授权、Sandbox、CWD/资源/输出上限以及 1800 秒命令上限都不放宽。Task Store 有 Workspace 级容量上限，只会在创建新 Task 前回收 Terminal Task，Active Task 不会为了腾空间被删。如果 Runtime 在 Task 仍是 `working` 时被替换，下一次读取会把它标成 Failed，而不是假装 Worker 跨进程存活。
 
 ### Independent Reviewer Job
 

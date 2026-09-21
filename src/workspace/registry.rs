@@ -525,6 +525,18 @@ impl Workspaces {
                 "routing": "select the most specific discovered workspace id for project-scoped work",
                 "markers": [".git", ".wcode/project.yaml", "Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "Package.swift"],
             },
+            "launch_discovery": {
+                "read_only": true,
+                "auto_run": false,
+                "max_manifest_bytes": launch_profiles::MAX_MANIFEST_BYTES,
+                "max_profiles_per_workspace": launch_profiles::MAX_PROFILES,
+                "execution_tool": "run_command",
+                "long_run_mode": "task_mode=true when the MCP client supports Tasks",
+                "policy": "profiles are bounded hints only; execution still passes through normal command authorization, sandboxing, timeout, and process supervision",
+                "network_trust": "never inferred",
+                "script_bodies": "never exposed or copied into command arguments",
+                "program_preflight": "program_available is a bounded PATH-presence check only; it never executes project code or proves a subcommand/plugin is installed",
+            },
             "workspaces": roots.iter().map(|root| serde_json::json!({
                 "id": root.id,
                 "root": root.workspace.root,
@@ -537,6 +549,7 @@ impl Workspaces {
                 "semantic_exec_enabled": root.workspace.semantic_exec_enabled(),
                 "destructive_writes_enabled": root.workspace.security.allow_destructive_writes,
                 "allowed_commands": root.workspace.allowed_commands(),
+                "launch_profiles": launch_profiles::discover(root.workspace.root()),
             })).collect::<Vec<_>>(),
         })
     }

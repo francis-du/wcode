@@ -6,6 +6,7 @@ mod access;
 mod files;
 #[path = "ignore.rs"]
 mod ignore;
+mod launch_profiles;
 #[path = "search.rs"]
 mod search;
 #[test]

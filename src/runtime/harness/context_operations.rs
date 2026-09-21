@@ -17,17 +17,46 @@ pub(super) fn build(
         }
         "git status" | "查看git状态" | "检查git状态" | "工作区状态" => "git_status",
         "verify project" | "运行检查" | "全量检查" => "verification",
+        "run app" | "run the app" | "run project" | "start app" | "start the app"
+        | "start project" | "start server" | "run server" | "启动项目" | "运行项目"
+        | "启动应用" | "运行应用" | "启动服务" | "运行服务" => "launch",
         _ => return Ok(None),
     };
     let budget = requested_budget.unwrap_or(MIN_AGENT_CONTEXT_BUDGET);
     let next_actions = if !profile.exec_enabled {
         Vec::new()
-    } else if intent == "verification" {
-        vec!["review_changes", "verify_project"]
-    } else if intent == "git_commit" {
-        vec!["run_command", "review_changes"]
     } else {
-        vec!["run_command"]
+        match intent {
+            "verification" => vec!["review_changes", "verify_project"],
+            "git_commit" => vec!["run_command", "review_changes"],
+            "launch" => vec!["workspace_info", "run_command"],
+            _ => vec!["run_command"],
+        }
+    };
+    let workflow = match intent {
+        "launch" => vec![
+            "This is an operator launch workflow, not a source-edit task. No source index or Design scan was requested.",
+            "Call workspace_info and inspect only the selected Workspace's bounded launch_profiles. Discovery is read-only, never auto-runs a profile, and never transfers script bodies into command arguments.",
+            "Treat program_available=false as a preflight stop: do not call run_command and do not silently substitute another runner. program_available=true proves only bounded PATH presence of the bare executable, not that a subcommand/plugin is installed.",
+            "Execute only the selected profile's program and args through run_command; do not guess a hidden script body or infer network trust from a discovered entry.",
+            "For a long-lived app or development server, prefer task_mode=true so Tasks owns live output, cancellation and the supervised process tree; never detach a background process.",
+            "If the selected profile exposes status_probe, use only that exact bounded probe for follow-up runtime observation. Report its declared precision literally: Docker Health may be empty, which means unknown rather than healthy.",
+            "If discovery yields no unambiguous profile, inspect the relevant recognized manifest with bounded repository reads before choosing an explicit command.",
+        ],
+        "verification" => vec![
+            "This is an operator verification workflow, not a source-edit task. No source index or Design scan was requested.",
+            "Review the current change set first, then run verify_project at the required level. Repair deterministic failures before retrying and never weaken a gate to obtain green output.",
+        ],
+        "git_commit" => vec![
+            "This is an operator Git workflow, not a source-edit task. No source index or Design scan was requested.",
+            "First run git status --short --branch and review the actual diff; avoid duplicate commits and preserve unrelated changes.",
+            "Stage only reviewed files, request exact human approval when required, commit, then inspect the new commit and worktree state.",
+            "A commit does not imply permission to push, tag, publish, install or restart. Do those only when the user requests them.",
+        ],
+        _ => vec![
+            "This is an operator Git status workflow, not a source-edit task. No source index or Design scan was requested.",
+            "Run git status --short --branch and report the observed repository state without mutating it.",
+        ],
     };
     let mut pack = json!({
         "workspace":workspace_id,
@@ -59,14 +88,7 @@ pub(super) fn build(
                 vec!["workspace_exec_disabled"]
             },
         },
-        "workflow":[
-            "This is an operator workflow, not a source-edit task. No source index or Design scan was requested.",
-            "core_constraints remain mandatory wcode policy even on this fast operator route; verification must fail closed on deterministically detectable violations.",
-            "For Git, first run git status --short --branch and review the actual diff; avoid duplicate commits and preserve unrelated changes.",
-            "Stage only reviewed files, request exact human approval when required, commit, then inspect the new commit and worktree state.",
-            "A commit does not imply permission to push, tag, publish, install or restart. Do those only when the user requests them.",
-            "Use verify_project for checks; fix failed gates before repeating. Do not call source-search tools unless the operation reveals a source problem."
-        ],
+        "workflow":workflow,
     });
     // There is no measured full-context baseline on this fast route. Report
     // zero savings rather than manufacturing a comparison without building it.
