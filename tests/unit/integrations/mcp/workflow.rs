@@ -307,6 +307,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
         old_text: &'static str,
         new_text: &'static str,
         start_line: u64,
+        required_program: &'static str,
         expected_checks: &'static [&'static str],
     }
 
@@ -322,6 +323,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
             old_text: "    return 1",
             new_text: "    return 2",
             start_line: 4,
+            required_program: "go",
             expected_checks: &["go-vet", "go-tests"],
         },
         Fixture {
@@ -335,6 +337,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
             old_text: "  return 1;",
             new_text: "  return 2;",
             start_line: 2,
+            required_program: "deno",
             expected_checks: &["deno-format", "deno-lint", "deno-check", "deno-test"],
         },
         Fixture {
@@ -348,6 +351,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
             old_text: "    return 1",
             new_text: "    return 2",
             start_line: 2,
+            required_program: "python3",
             expected_checks: &["python-unittest"],
         },
         Fixture {
@@ -361,6 +365,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
             old_text: "  return 1;",
             new_text: "  return 2;",
             start_line: 2,
+            required_program: "node",
             expected_checks: &["node-test"],
         },
     ];
@@ -405,30 +410,58 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
         .await
         .unwrap();
         assert_eq!(failed["isError"], true, "{failed}");
-        assert!(
-            failed["structuredContent"]["failure_locations"]
-                .as_array()
-                .is_some_and(|locations| locations.iter().any(|location| {
-                    location["path"] == fixture.test_path
-                        && location["line"].as_u64().is_some_and(|line| line >= 1)
-                        && location["precision"] == "diagnostic_text"
-                })),
-            "missing runtime diagnostic location for {}: {failed}",
-            fixture.test_path
+        let unavailable = format!(
+            "verification executable `{}` is unavailable",
+            fixture.required_program
         );
-        assert!(
-            failed["structuredContent"]["failure_context"]
-                .as_array()
-                .is_some_and(|contexts| contexts.iter().any(|context| {
-                    context["path"] == fixture.test_path
-                        && context["sha256"]
-                            .as_str()
-                            .is_some_and(|sha| sha.len() == 64)
-                        && context["precision"] == "diagnostic_text+source_window"
-                })),
-            "missing runtime diagnostic context for {}: {failed}",
-            fixture.test_path
-        );
+        let toolchain_unavailable = failed["structuredContent"]["checks"]
+            .as_array()
+            .is_some_and(|checks| {
+                checks.iter().any(|check| {
+                    check["stderr_tail"]
+                        .as_str()
+                        .is_some_and(|stderr| stderr.contains(&unavailable))
+                })
+            });
+        if toolchain_unavailable {
+            assert!(
+                failed["structuredContent"]["checks"]
+                    .as_array()
+                    .is_some_and(|checks| checks.iter().any(|check| {
+                        check["stderr_tail"].as_str().is_some_and(|stderr| {
+                            stderr.contains("install the project toolchain")
+                                && stderr.contains("retry verify_project")
+                        })
+                    })),
+                "missing fail-closed toolchain recovery for {}: {failed}",
+                fixture.required_program
+            );
+        } else {
+            assert!(
+                failed["structuredContent"]["failure_locations"]
+                    .as_array()
+                    .is_some_and(|locations| locations.iter().any(|location| {
+                        location["path"] == fixture.test_path
+                            && location["line"].as_u64().is_some_and(|line| line >= 1)
+                            && location["precision"] == "diagnostic_text"
+                    })),
+                "missing runtime diagnostic location for {}: {failed}",
+                fixture.test_path
+            );
+            assert!(
+                failed["structuredContent"]["failure_context"]
+                    .as_array()
+                    .is_some_and(|contexts| contexts.iter().any(|context| {
+                        context["path"] == fixture.test_path
+                            && context["sha256"]
+                                .as_str()
+                                .is_some_and(|sha| sha.len() == 64)
+                            && context["precision"] == "diagnostic_text+source_window"
+                    })),
+                "missing runtime diagnostic context for {}: {failed}",
+                fixture.test_path
+            );
+        }
         if fixture.source_path == "answer.py" {
             assert!(
                 !root.path().join("__pycache__").exists(),
@@ -501,8 +534,23 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
         )
         .await
         .unwrap();
-        assert_eq!(verified["isError"], false, "{verified}");
-        assert_eq!(verified["structuredContent"]["passed"], true, "{verified}");
+        if toolchain_unavailable {
+            assert_eq!(verified["isError"], true, "{verified}");
+            assert!(
+                verified["structuredContent"]["checks"]
+                    .as_array()
+                    .is_some_and(|checks| checks.iter().any(|check| {
+                        check["stderr_tail"]
+                            .as_str()
+                            .is_some_and(|stderr| stderr.contains(&unavailable))
+                    })),
+                "missing persistent toolchain gap for {} after edit: {verified}",
+                fixture.required_program
+            );
+        } else {
+            assert_eq!(verified["isError"], false, "{verified}");
+            assert_eq!(verified["structuredContent"]["passed"], true, "{verified}");
+        }
     }
 }
 
