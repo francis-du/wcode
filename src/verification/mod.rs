@@ -303,9 +303,10 @@ impl VerificationState {
         let profile = VerificationProfile::for_risk(risk_level);
         let roles = reviewer_roles(&profile);
         let ids = job_ids.take(roles.len()).collect::<Vec<_>>();
-        if ids.len() != roles.len()
-            || self.jobs.len().saturating_add(ids.len()) > MAX_VERIFICATION_JOBS
-        {
+        if ids.len() != roles.len() {
+            return Err(VerificationError::CapacityExceeded);
+        }
+        if !self.reclaim_superseded_capacity(&workspace, &binding.revision, ids.len()) {
             return Err(VerificationError::CapacityExceeded);
         }
         let deterministic_level = if risk_level >= RiskLevel::Medium {
@@ -351,6 +352,80 @@ impl VerificationState {
         }
         self.plans.insert(plan_id, plan.clone());
         Ok(plan)
+    }
+
+    fn reclaim_superseded_capacity(
+        &mut self,
+        workspace: &str,
+        current_revision: &Revision,
+        additional_jobs: usize,
+    ) -> bool {
+        let mut jobs = self
+            .jobs
+            .values()
+            .filter(|job| job.workspace == workspace)
+            .count();
+        let mut plans = self
+            .plans
+            .values()
+            .filter(|plan| plan.workspace == workspace)
+            .count();
+        let within_capacity = |jobs: usize, plans: usize| {
+            jobs.saturating_add(additional_jobs) <= MAX_VERIFICATION_JOBS
+                && plans.saturating_add(1) <= MAX_VERIFICATION_JOBS
+        };
+        if within_capacity(jobs, plans) {
+            return true;
+        }
+
+        let mut reclaimable = self
+            .plans
+            .values()
+            .filter(|plan| plan.workspace == workspace)
+            .filter(|plan| plan.revision.as_ref() != Some(current_revision))
+            .filter_map(|plan| {
+                let jobs = plan
+                    .job_ids
+                    .iter()
+                    .filter_map(|id| self.jobs.get(id))
+                    .collect::<Vec<_>>();
+                if jobs
+                    .iter()
+                    .any(|job| job.status == VerificationJobStatus::Claimed)
+                {
+                    return None;
+                }
+                let priority = usize::from(
+                    !jobs
+                        .iter()
+                        .any(|job| job.status == VerificationJobStatus::Queued),
+                );
+                Some((priority, plan.id.clone(), jobs.len()))
+            })
+            .collect::<Vec<_>>();
+        reclaimable.sort();
+
+        let mut selected = Vec::new();
+        for (_, plan_id, job_count) in reclaimable {
+            if within_capacity(jobs, plans) {
+                break;
+            }
+            jobs = jobs.saturating_sub(job_count);
+            plans = plans.saturating_sub(1);
+            selected.push(plan_id);
+        }
+        // A rejected plan must leave review history and in-flight jobs intact.
+        if !within_capacity(jobs, plans) {
+            return false;
+        }
+        for plan_id in selected {
+            if let Some(plan) = self.plans.remove(&plan_id) {
+                for job_id in plan.job_ids {
+                    self.jobs.remove(&job_id);
+                }
+            }
+        }
+        true
     }
 
     pub fn claim(

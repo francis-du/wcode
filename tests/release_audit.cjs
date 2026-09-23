@@ -1,5 +1,5 @@
 'use strict';
-// One hundred distinct adversarial rounds, not repetitions of a green suite.
+// Three hundred distinct adversarial rounds, not repetitions of a green suite.
 // Run from the repository root: node tests/release_audit.cjs
 // No publishing, credentials, arbitrary commands, or source mutations.
 const assert = require('node:assert/strict');
@@ -10,6 +10,8 @@ const {execFile, execFileSync} = require('node:child_process');
 const {promisify} = require('node:util');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
+const FULL_AUDIT_ROUNDS = 300;
+const POSTLUDE_RUST_ROUNDS = 200;
 const cargo = filter => ({program:'cargo',args:['test','--locked','--quiet','--lib',filter],kind:'rust'});
 const cargoExact = filter => ({program:'cargo',args:['test','--locked','--quiet','--lib',filter,'--','--exact'],kind:'rust'});
 const cargoTest = (test,filter) => ({program:'cargo',args:['test','--locked','--quiet','--test',test,filter],kind:'rust'});
@@ -24,8 +26,8 @@ const rustRounds = [
   ['Retained aliases are probed without a provider child','retained_aliases_receive_instance_matched_probes_without_a_provider_child'],
   ['Bounded aliases survive unrelated startup failures','retained_aliases_are_bounded_and_reconnect_failure_is_not_revocation_evidence'],
   ['Retired alias cleanup preserves its live provider','retired_alias_cleanup_does_not_recycle_its_live_replacement_provider'],
-  ['Host and Origin parsing rejects spoofing and duplicates','auth_origin::tests::request_hosts_reject_duplicates_spoofed_forwarding_and_url_syntax'],
-  ['Historical OAuth resources cannot reactivate a Host','old_tunnel_resource_does_not_make_old_host_active_after_restart'],
+  ['Host and Origin parsing rejects spoofing and duplicates','request_hosts_accept_custom_domains_but_reject_duplicates_and_url_syntax'],
+  ['Historical OAuth resources cannot reactivate a Host','historical_resource_does_not_block_a_custom_host_after_restart'],
   ['Late endpoint health cannot poison a replacement lease','stale_endpoint_probe_result_cannot_mutate_a_replacement_lease'],
   ['Health hysteresis requires real failure/recovery sequences','public_url_health_requires_three_failures_and_two_successes_to_recover'],
   ['Cancelled tunnel startup cleans descendants without collateral kills','cancelled_tunnel_startup_closes_descendant_pipes_without_touching_other_children'],
@@ -55,7 +57,7 @@ const extraRustRounds = [
   "auth_origin::tests::origin_headers_reject_url_repairs_credentials_and_untrusted_origins",
   "auth_origin::tests::primary_promotion_preserves_the_endpoint_owner_epoch",
   "auth_origin::tests::removed_tunnel_is_historical_only",
-  "auth_origin::tests::selects_only_registered_request_origins",
+  "auth_origin::tests::selects_registered_origins_and_accepts_custom_request_hosts",
   "auth_origin::tests::stale_endpoint_cleanup_cannot_remove_a_new_same_url_registration",
   "auth_origin::tests::unknown_epoch_never_removes_another_endpoint",
   "auth::tests::authorization_metadata_prefers_dcr_until_cimd_is_safely_supported",
@@ -128,8 +130,61 @@ extraRustRounds.forEach((filter,index)=>rounds.push({
 assert.equal(extraRustRounds.length,70);
 assert.equal(new Set(extraRustRounds).size,70);
 assert.equal(rounds.length,100);
-assert.equal(new Set(rounds.map(r=>r.round)).size,100);
-assert.equal(new Set(rounds.map(r=>r.name)).size,100);
+
+function listedLibTests() {
+  const list = extra => execFileSync(
+    'cargo',['test','--locked','--quiet','--lib','--',...extra,'--list'],
+    {cwd:root,encoding:'utf8',maxBuffer:4*1024*1024,windowsHide:true},
+  ).split(/\r?\n/)
+    .filter(line=>line.endsWith(': test'))
+    .map(line=>line.slice(0,-6));
+  const ignored=new Set(list(['--ignored']));
+  return list([]).filter(testName=>!ignored.has(testName)).sort();
+}
+function existingRustRoundCovers(testName) {
+  return rounds.some(round=>round.steps.some(step=>{
+    if(step.program!=='cargo'||!step.args.includes('--lib')) return false;
+    const libIndex=step.args.indexOf('--lib');
+    const filter=step.args[libIndex+1];
+    if(!filter||filter==='--') return false;
+    return step.args.includes('--exact') ? testName===filter : testName.includes(filter);
+  }));
+}
+function selectPostludeRustRounds() {
+  const buckets=new Map();
+  for(const testName of listedLibTests()) {
+    if(existingRustRoundCovers(testName)) continue;
+    const group=testName.split('::')[0]||'root';
+    if(!buckets.has(group)) buckets.set(group,[]);
+    buckets.get(group).push(testName);
+  }
+  const groups=[...buckets.keys()].sort();
+  const selected=[];
+  for(let index=0;selected.length<POSTLUDE_RUST_ROUNDS;index++) {
+    let progressed=false;
+    for(const group of groups) {
+      const candidate=buckets.get(group)[index];
+      if(!candidate) continue;
+      selected.push(candidate);
+      progressed=true;
+      if(selected.length===POSTLUDE_RUST_ROUNDS) break;
+    }
+    assert.ok(progressed,`Need ${POSTLUDE_RUST_ROUNDS} uncovered lib tests for the 300-round audit`);
+  }
+  return selected;
+}
+const postludeRustRounds=selectPostludeRustRounds();
+assert.equal(postludeRustRounds.length,POSTLUDE_RUST_ROUNDS);
+assert.equal(new Set(postludeRustRounds).size,POSTLUDE_RUST_ROUNDS);
+postludeRustRounds.forEach((filter,index)=>rounds.push({
+  round:101+index,
+  name:`Postlude ${101+index}: ${filter.replaceAll('::',' / ').replaceAll('_',' ')}`,
+  lane:'rust',
+  steps:[cargoExact(filter)],
+}));
+assert.equal(rounds.length,FULL_AUDIT_ROUNDS);
+assert.equal(new Set(rounds.map(r=>r.round)).size,FULL_AUDIT_ROUNDS);
+assert.equal(new Set(rounds.map(r=>r.name)).size,FULL_AUDIT_ROUNDS);
 
 function selectedRounds() {
   const option=process.argv.find(value=>value.startsWith('--rounds='));
@@ -137,7 +192,7 @@ function selectedRounds() {
   const match=/^--rounds=(\d+)-(\d+)$/.exec(option);
   assert.ok(match,'--rounds must use START-END');
   const start=Number(match[1]), end=Number(match[2]);
-  assert.ok(Number.isInteger(start)&&Number.isInteger(end)&&start>=1&&end<=100&&start<=end,'--rounds must stay within 1-100');
+  assert.ok(Number.isInteger(start)&&Number.isInteger(end)&&start>=1&&end<=FULL_AUDIT_ROUNDS&&start<=end,'--rounds must stay within 1-300');
   const selected=rounds.filter(round=>round.round>=start&&round.round<=end);
   assert.equal(selected.length,end-start+1,'selected release-audit range must be contiguous');
   return selected;
@@ -212,7 +267,7 @@ async function main() {
   const start=selected[0].round, end=selected[selected.length-1].round;
   const complete=selected.length===rounds.length;
   const report={
-    suite:complete?'release-adversarial-100':'release-adversarial-shard',
+    suite:complete?'release-adversarial-300':'release-adversarial-shard',
     started_at,finished_at:new Date().toISOString(),
     git:{before:git_before,after:git_after,require_clean:requireClean},
     input:before,stable_inputs:stable,
@@ -222,7 +277,7 @@ async function main() {
   const target=path.join(root,'target');
   if(!fs.existsSync(target)) fs.mkdirSync(target);
   assert.ok(fs.lstatSync(target).isDirectory()&&!fs.lstatSync(target).isSymbolicLink());
-  const filename=path.join(target,complete?'wcode-adversarial-100.json':`wcode-adversarial-${start}-${end}.json`);
+  const filename=path.join(target,complete?'wcode-adversarial-300.json':`wcode-adversarial-${start}-${end}.json`);
   if(fs.existsSync(filename)) {const st=fs.lstatSync(filename);assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.nlink===1);}
   fs.writeFileSync(filename,JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));

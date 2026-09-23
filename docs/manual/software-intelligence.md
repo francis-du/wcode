@@ -272,6 +272,14 @@ The router is `provider=query-intent-rules-v1`, `precision=heuristic`. It specia
 
 Routing changes only weak priors. An exact literal or qualified symbol target remains stronger than recall-oriented retrieval seeds, and fresh semantic, deterministic, or runtime relationships retain their stronger provenance. Under a tight token budget, routing explanation is discarded before direct SHA edit targets, verification references, the strongest repo-map item, or diagnostic Hot Source. This keeps task awareness useful without letting metadata crowd out the material needed to edit safely.
 
+### Task capability recommendations
+
+`agent_context.capabilities` recommends a bounded tool set for the task and Execution phase. `recommended_actions` groups the actions; compacted packs retain ordered `recommended_tools` names when action metadata is omitted. A concentrated Jev capability-group choice may add safe read/advisory actions to the deterministic baseline. It cannot add write or command authority, remove deterministic work, or relax runtime checks.
+
+The `metadata_first` disclosure policy is a Host recommendation. `dev.wcode/preloadRecommended` marks the small bootstrap set; a Host with deferred tool discovery can then load exact schemas for task recommendations and required explicit, safety, authorization, verification or recovery actions. Tools omitted from a recommendation remain callable through normal dispatch and authorization. A Host that ignores the hints still receives the same complete, deterministic `tools/list` catalog. Task changes do not mutate that catalog or emit list-changed notifications.
+
+Catalog telemetry compares serialized bytes for the full catalog, preload set and proposed task selection. These are local size measurements, not evidence that the Host deferred schemas or reduced model tokens, cache misses or end-to-end latency. Actual Host behavior needs separate observation.
+
 ### Product Scopes
 
 wcode has one canonical registry for its own product/control-plane boundaries: `runtime`, `integrations`, `workspace`, `design`, `graph`, `semantics`, `traceability`, `risk`, `verification`, `evidence`, `reconciliation`, and `experience`. `workspace_info` and `project_context` expose the registry. `scope_status` applies it to the selected repository and reports per-scope source counts plus bounded unmapped supported-source paths. `tools/list` attaches `dev.wcode/productScopes` to each Tool `_meta`, and MCP Resource clients can read `wcode://runtime/product-scopes`. The same live scope audit is surfaced through the Intelligence operator views.

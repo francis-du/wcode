@@ -107,6 +107,7 @@ impl ProductScope {
                 "src/intelligence/jev.rs",
                 "src/intelligence/jev_checkpoint.rs",
                 "src/intelligence/jev_metrics.rs",
+                "src/intelligence/jev_policy.rs",
                 "src/intelligence/runtime_drift.rs",
                 "src/intelligence/observatory.rs",
                 "src/intelligence/observatory/",

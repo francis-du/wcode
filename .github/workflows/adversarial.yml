@@ -52,7 +52,7 @@ jobs:
           retention-days: 14
 
   adversarial:
-    name: 100 distinct adversarial rounds
+    name: 300 distinct adversarial rounds
     needs: webkit
     runs-on: macos-latest
     timeout-minutes: 35
@@ -73,7 +73,7 @@ jobs:
           package-manager-cache: false
       - name: Compile adversarial Rust cases
         run: cargo test --locked --lib --no-run
-      - name: Run all 100 rounds against stable inputs
+      - name: Run all 300 rounds against stable inputs
         run: |
           git rev-parse HEAD > target/wcode-audit-revision.txt
           node tests/release_audit.cjs --require-clean
@@ -81,10 +81,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: wcode-adversarial-100-${{ github.run_id }}-${{ github.run_attempt }}
+          name: wcode-adversarial-300-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             target/wcode-audit-revision.txt
-            target/wcode-adversarial-100.json
+            target/wcode-adversarial-300.json
             target/wcode-webkit-layout.json
             target/wcode-browser-audit.json
           if-no-files-found: error

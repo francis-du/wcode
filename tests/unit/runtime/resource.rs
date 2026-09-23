@@ -7,10 +7,7 @@ mod parallelism;
 fn burst_friendly_limits_keep_tool_concurrency_and_bound_cpu_workers() {
     let limits = ResourceLimits::new(10.0, 512, DEFAULT_MAX_PARALLEL_TOOLS).unwrap();
     assert_eq!(limits.effective_parallel_tools, 32);
-    assert_eq!(
-        limits.interactive_cpu_percent,
-        limits.cpu_burst_threads as f64 * 100.0
-    );
+    assert_eq!(limits.interactive_cpu_percent, 100.0);
     assert!((1..=16).contains(&limits.cpu_burst_threads));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
     assert!(limits.child_processes >= limits.cpu_burst_threads.div_ceil(limits.child_threads));
@@ -40,7 +37,9 @@ fn foreground_cpu_budget_is_latency_biased_without_raising_background_target() {
     assert_eq!(limits.interactive_debt_seconds(), 4.0);
     assert_eq!(limits.background_burst_seconds(), 0.5);
     assert_eq!(limits.max_cpu_percent, 10.0);
-    assert!(limits.interactive_cpu_percent > limits.max_cpu_percent);
+    assert_eq!(limits.interactive_cpu_percent, 100.0);
+    let high_target = ResourceLimits::new(80.0, 512, 32).unwrap();
+    assert_eq!(high_target.interactive_cpu_percent, 100.0);
 }
 
 #[test]
@@ -72,7 +71,8 @@ fn credit_refill_respects_interactive_and_background_caps() {
     refill_budget(&mut budget, limits);
     assert!(budget.tokens <= limits.interactive_burst_seconds());
     assert!(budget.background_credit_seconds <= limits.background_burst_seconds());
-    assert!(budget.tokens > budget.background_credit_seconds);
+    assert_eq!(limits.interactive_cpu_ratio(), 1.0);
+    assert_eq!(limits.background_cpu_ratio(), 0.1);
 }
 
 #[test]

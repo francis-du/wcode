@@ -418,9 +418,7 @@ pub(crate) fn validate_modern_payload(payload: &Value) -> Result<(), &'static st
         .get("method")
         .and_then(Value::as_str)
         .ok_or("missing JSON-RPC method")?;
-    if method == "server/discover" {
-        return Ok(());
-    }
+
     let meta = payload
         .pointer("/params/_meta")
         .and_then(Value::as_object)
@@ -590,7 +588,7 @@ fn unsupported_protocol_response(payload: &Value, requested: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(error)).into_response()
 }
 
-const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or protected paths. Omit default Workspace/path/limit/timeout/budget arguments. For coding call agent_context first (it prefers the most specific subspace matching the query when workspace is omitted); obey core_constraints and readiness/next_actions/parallelism, and resume active Worklist items without dropping unfinished work. When readiness marks parallelism required, run independent lanes concurrently. Prefer one-traversal bulk tools for known inputs; use parallel_tools only when no bulk primitive fits. Use find_symbol/search_code to localize, semantic_navigation for needed cross-file relations, and symbol_context/read_file only for missing source. Use guarded edits, then review_changes and verify_project. Tree-sitter is syntax unless fresh stronger evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
+const SERVER_INSTRUCTIONS: &str = "Stay inside configured Workspaces; never bypass authorization or protected paths. For coding call agent_context first. Treat capabilities.recommended_actions, or recommended_tools when compacted, as the active model tool set; the complete tools/list is a compatibility catalog, not a per-turn action menu. Obey core_constraints, readiness/next_actions/parallelism, and resume active Worklist items. Load other tools on demand only for explicit user intent or required recovery. Omit default Workspace/path/limit/timeout/budget arguments. Prefer bulk tools before parallel_tools. Localize with find_symbol/search_code; use semantic_navigation only for required relations and read bodies only when missing. Use guarded edits, review_changes, then verify_project. Tree-sitter is syntax unless stronger fresh evidence exists. Never fabricate Evidence, stage success, semantic precision, HumanApproval, authorization, or Worklist completion.";
 
 fn join_error_message(scope: &str, error: &JoinError) -> String {
     let kind = if error.is_cancelled() {
@@ -721,17 +719,17 @@ pub(crate) async fn handle_message(
                 "instructions": SERVER_INSTRUCTIONS,
             }))
         }
-        "ping" => Ok(if modern {
-            modern_result(json!({}))
-        } else {
-            json!({})
-        }),
+        "ping" if !modern => Ok(json!({})),
         "tools/list" => {
             let catalog = mcp_tools::tools();
+            let value = json!({
+                "tools": catalog,
+                "_meta": {"dev.wcode/catalog": mcp_tools::catalog_metrics().clone()}
+            });
             Ok(if modern {
-                modern_cacheable_result(json!({"tools": catalog}))
+                modern_cacheable_result(value)
             } else {
-                json!({"tools": catalog})
+                value
             })
         }
         "prompts/list" => Ok(if modern {

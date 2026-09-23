@@ -2,12 +2,17 @@ schema_version: 1
 id: REQ-CAPABILITY-ROUTING-001
 title: Task-scoped capability and Skill loading
 intent: >-
-  Model-visible capability discovery must progressively disclose only the tools, Skills, Product Scopes and
-  expensive schemas relevant to the current task and active Execution phase. The stable core catalog stays
-  discoverable, but low-frequency or specialized capabilities are represented first by compact metadata and loaded
-  in full only when Agent Context, explicit user intent or a runtime state transition requires them. Dynamic routing
-  must be provider-neutral, deterministic from declared capability metadata and current state, preserve explicit user
-  tool requests, and never hide a required safety, authorization, verification or recovery capability.
+  Model-visible capability discovery must progressively disclose the tools, Skills, Product Scopes and expensive
+  schemas relevant to the current task and active Execution phase. Compatibility-first hosts may keep the complete MCP
+  tools/list catalog protocol-discoverable, but should preload only the bounded core and then follow Agent Context
+  recommended_actions; specialized actions remain on demand. A concentrated Jev Choice may select one bounded
+  read/advisory action group and only add its safe tools to the deterministic baseline manifest; it cannot expose write or
+  command authority. Under MCP 2026-07-28 the protocol catalog must not vary per connection or as a side effect of
+  Agent Context, so task routing stays in the model/host task manifest; tools/list_changed is reserved for real catalog
+  changes, not per-task filtering. Routing must preserve explicit user tool requests and never hide required safety,
+  authorization, verification or recovery capabilities. Metadata-first disclosure is a Host recommendation, not a
+  guarantee that schemas are actually deferred. Catalog/schema byte comparisons measure the proposed selection,
+  not Host model-context tokens, cache hits or end-to-end speed.
 priority: critical
 implemented_by:
   - component:capability-router

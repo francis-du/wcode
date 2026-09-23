@@ -37,6 +37,7 @@ fn response_mapping_preserves_jev_semantics() {
             "answers": {
                 "context_sufficient": {"type":"noul","noul":0.73},
                 "next_action": {"type":"choice","choice":"semantic_navigation","confidence":0.82,"probabilities":{"semantic_navigation":0.82,"retrieve":0.18}},
+                "capability_group": {"type":"choice","choice":"governance","confidence":0.88,"probabilities":{"governance":0.88,"none":0.12}},
                 "evidence_density": {"type":"score","score":3.0,"confidence":0.75,"legend":{"0":"a","1":"b","2":"c","3":"d","4":"e"},"probabilities":{"2":0.25,"3":0.75}}
             }
         }),
@@ -66,6 +67,7 @@ fn response_mapping_preserves_jev_semantics() {
         Some(640)
     );
     assert!(crate::decision::distribution_entropy_milli(next).is_some());
+    assert_eq!(choice(&batch, "capability_group"), Some("governance"));
 }
 
 #[test]
@@ -143,6 +145,53 @@ fn external_guidance_cannot_reduce_deterministic_work() {
 }
 
 #[test]
+fn capability_group_guidance_requires_concentrated_supported_choice() {
+    fn group_batch(selected: &str, confidence_milli: u16) -> DecisionBatch {
+        DecisionBatch {
+            schema_version: DECISION_SCHEMA_VERSION.into(),
+            provider: "fixture".into(),
+            scope: "agent_context".into(),
+            policy: DecisionPolicy {
+                authority: "advisory_only".into(),
+                can_increase_work: true,
+                can_reduce_safety: false,
+                deterministic_verification_floor: true,
+            },
+            signals: vec![DecisionSignal {
+                id: "capability_group".into(),
+                primitive: DecisionPrimitive::Choice,
+                mode: DecisionMode::Assist,
+                value: DecisionValue::Choice {
+                    selected: selected.into(),
+                },
+                confidence_milli,
+                native_confidence_milli: Some(confidence_milli),
+                probabilities_milli: std::collections::BTreeMap::new(),
+                recommendation: "fixture".into(),
+                evidence: vec![],
+            }],
+        }
+    }
+
+    let baseline = group_batch("none", 1000);
+    assert!(
+        advisory_guidance(&baseline, &group_batch("governance", 900))
+            .iter()
+            .any(|item| item == "jev:capability_group:governance")
+    );
+    assert!(
+        advisory_guidance(&baseline, &group_batch("governance", 500))
+            .iter()
+            .all(|item| item != "jev:capability_group:governance")
+    );
+    assert!(
+        advisory_guidance(&baseline, &group_batch("repository_write", 900))
+            .iter()
+            .all(|item| !item.starts_with("jev:capability_group:"))
+    );
+}
+
+#[test]
 fn jev_attachment_never_breaks_agent_context_budget() {
     let mut context = json!({
         "budget": 16,
@@ -174,6 +223,11 @@ fn active_jev_can_only_promote_additional_work_before_edit() {
         "readiness": {
             "next_actions": ["apply_edits","review_changes","verify_project"],
             "advisories": ["lsp_install_required"]
+        },
+        "capabilities": {
+            "recommended_tool_count": 1,
+            "recommended_tools": ["agent_context"],
+            "recommended_actions": [{"tool":"agent_context","group":"context","disclosure":"core"}]
         }
     });
     let routing = apply_agent_context_guidance(
@@ -216,6 +270,104 @@ fn active_jev_can_only_promote_additional_work_before_edit() {
         .unwrap()
         .iter()
         .any(|item| item == "jev_worktree_review"));
+    let recommended = context["capabilities"]["recommended_tools"]
+        .as_array()
+        .unwrap();
+    assert!(recommended.iter().any(|tool| tool == "agent_context"));
+    for promoted in [
+        "review_changes",
+        "semantic_provider_install",
+        "semantic_provider_refresh",
+        "semantic_navigation",
+        "verification_plan",
+    ] {
+        assert!(
+            recommended.iter().any(|tool| tool == promoted),
+            "missing Jev-promoted tool {promoted}"
+        );
+    }
+    assert!(context["capabilities"]["recommended_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action["tool"] == "semantic_navigation"
+            && action["group"] == "semantics"
+            && action["disclosure"] == "on_demand"));
+}
+
+#[test]
+fn jev_capability_group_promotes_only_read_advisory_tools() {
+    let mut context = json!({
+        "budget": 1000,
+        "targets": [{"id":"target","path":"src/a.rs"}],
+        "hot_source": [{"id":"target","path":"src/a.rs"}],
+        "readiness": {"next_actions":["apply_edits","verify_project"],"advisories":[]},
+        "capabilities": {
+            "recommended_tool_count": 1,
+            "recommended_tools": ["agent_context"],
+            "recommended_actions": [{"tool":"agent_context","group":"context","disclosure":"core"}]
+        }
+    });
+    let routing = apply_agent_context_guidance(
+        &mut context,
+        &json!({
+            "status":"active",
+            "candidate_next_action":"edit_then_verify",
+            "guidance":["jev:capability_group:governance"]
+        }),
+    );
+    assert_eq!(routing["applied"], true);
+    assert_eq!(routing["actions"], json!([]));
+    assert_eq!(routing["capability_group"], "governance");
+    assert_eq!(
+        context["readiness"]["next_actions"],
+        json!(["apply_edits", "verify_project"])
+    );
+    let recommended = context["capabilities"]["recommended_tools"]
+        .as_array()
+        .unwrap();
+    for promoted in [
+        "design_status",
+        "traceability_status",
+        "impact_analysis",
+        "risk_status",
+    ] {
+        assert!(recommended.iter().any(|tool| tool == promoted));
+    }
+    for forbidden in [
+        "run_command",
+        "apply_edits",
+        "apply_file_edits",
+        "write_file",
+    ] {
+        assert!(!recommended.iter().any(|tool| tool == forbidden));
+    }
+}
+
+#[test]
+fn unsupported_jev_capability_group_is_inert() {
+    let mut context = json!({
+        "budget": 1000,
+        "targets": [],
+        "hot_source": [],
+        "readiness": {"next_actions":["apply_edits","verify_project"],"advisories":[]},
+        "capabilities": {
+            "recommended_tool_count": 1,
+            "recommended_tools": ["agent_context"],
+            "recommended_actions": [{"tool":"agent_context","group":"context","disclosure":"core"}]
+        }
+    });
+    let before = context.clone();
+    let routing = apply_agent_context_guidance(
+        &mut context,
+        &json!({
+            "status":"active",
+            "candidate_next_action":"edit_then_verify",
+            "guidance":["jev:capability_group:repository_write"]
+        }),
+    );
+    assert_eq!(routing["applied"], false);
+    assert_eq!(context, before);
 }
 
 #[test]
@@ -270,9 +422,14 @@ fn jev_routing_is_inert_when_disabled_or_over_budget() {
         "payload":"x".repeat(40),
         "targets": [{"id":"target","path":"src/a.rs"}],
         "hot_source": [{"id":"target","path":"src/a.rs"}],
-        "readiness": {"next_actions":["apply_edits"],"advisories":[]}
+        "readiness": {"next_actions":["apply_edits"],"advisories":[]},
+        "capabilities": {
+            "recommended_tool_count": 1,
+            "recommended_tools": ["agent_context"],
+            "recommended_actions": [{"tool":"agent_context","group":"context","disclosure":"core"}]
+        }
     });
-    let before = tiny["readiness"].clone();
+    let before = tiny.clone();
     let routing = apply_agent_context_guidance(
         &mut tiny,
         &json!({
@@ -283,7 +440,7 @@ fn jev_routing_is_inert_when_disabled_or_over_budget() {
     );
     assert_eq!(routing["applied"], false);
     assert_eq!(routing["reason"], "context_budget");
-    assert_eq!(tiny["readiness"], before);
+    assert_eq!(tiny, before);
 }
 
 #[test]
@@ -291,6 +448,21 @@ fn questions_cover_probability_choice_and_score() {
     let questions = agent_context_questions();
     assert_eq!(questions["context_sufficient"]["type"], "noul");
     assert_eq!(questions["next_action"]["type"], "choice");
+    assert_eq!(questions["capability_group"]["type"], "choice");
+    assert!(questions["capability_group"]["criteria"]
+        .get("repository_write")
+        .is_none());
+    for group in questions["capability_group"]["criteria"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|group| group.as_str() != "none")
+    {
+        assert!(
+            !crate::harness::model_tools_for_group(group).is_empty(),
+            "Jev group {group} is not backed by the Action Registry"
+        );
+    }
     assert!(questions["next_action"]["criteria"].get("edit").is_none());
     assert!(
         questions["next_action"]["criteria"]["semantic_navigation"]["use_when"]
@@ -301,5 +473,5 @@ fn questions_cover_probability_choice_and_score() {
     assert_eq!(questions["risk_surface"]["type"], "choice");
     assert_eq!(questions["evidence_density"]["type"], "score");
     assert_eq!(AGENT_CONTEXT_QUESTION_SET_ID, "wcode.agent_context");
-    assert_eq!(AGENT_CONTEXT_QUESTION_SET_VERSION, 4);
+    assert_eq!(AGENT_CONTEXT_QUESTION_SET_VERSION, 5);
 }

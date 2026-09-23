@@ -29,6 +29,29 @@ pub(super) fn batch_succeeded(name: &str, value: &mut Value) -> bool {
     failed == 0
 }
 
+const MAX_SYNC_COMMAND_TIMEOUT_SECONDS: u64 = 60;
+
+pub(super) fn command_timeout_seconds(args: &Value) -> Result<u64, String> {
+    let task_mode = match args.get("task_mode") {
+        None => false,
+        Some(value) => value
+            .as_bool()
+            .ok_or("task_mode must be a boolean when provided")?,
+    };
+    let timeout_seconds = match args.get("timeout_seconds") {
+        None if task_mode => 120,
+        None => MAX_SYNC_COMMAND_TIMEOUT_SECONDS,
+        Some(value) => value
+            .as_u64()
+            .filter(|seconds| (1..=1800).contains(seconds))
+            .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
+    };
+    if !task_mode && timeout_seconds > MAX_SYNC_COMMAND_TIMEOUT_SECONDS {
+        return Err("synchronous commands are limited to 60 seconds; set task_mode=true for longer commands".to_owned());
+    }
+    Ok(timeout_seconds)
+}
+
 pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {
     match args.get("args") {
         None => Ok(Vec::new()),
@@ -572,13 +595,7 @@ pub(super) async fn call(
                     .filter(|cwd| !cwd.is_empty())
                     .ok_or("cwd must be a non-empty string when provided")?,
             };
-            let timeout_seconds = match args.get("timeout_seconds") {
-                None => 120,
-                Some(value) => value
-                    .as_u64()
-                    .filter(|seconds| (1..=1800).contains(seconds))
-                    .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
-            };
+            let timeout_seconds = command_timeout_seconds(args)?;
             let revision_key = if command_environment.is_empty()
                 && workspace.verification_command_shape_allowed(&program, &command_args)
             {

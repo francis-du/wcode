@@ -94,6 +94,8 @@ fn canonical_manifest_versions_match_the_crate() {
         "wcode update",
         "wcode mcp-stdio",
         "worklist_status",
+        "capabilities.recommended_actions",
+        "task-independent",
         "concurrent top-level wcode calls",
         "overlapping generic filesystem",
     ] {

@@ -2,12 +2,24 @@ schema_version: 1
 id: AC-CAPABILITY-ROUTING-001
 title: Model-visible capabilities are progressively disclosed without hiding mandatory controls
 statement: >-
-  Agent Context and MCP capability discovery can derive a deterministic compact capability manifest for a task or
-  Execution phase, specialized schemas and Skill bodies are loaded only when needed, explicit user-requested tools
-  remain reachable, and safety, authorization, verification and recovery tools can never be removed by optimization.
-  Regression measurement reports catalog/schema bytes and task-visible capability counts.
+  Agent Context and MCP capability discovery share a deterministic baseline task manifest with a bounded core and
+  grouped recommended actions. The complete tools/list catalog remains reachable for static-client compatibility while
+  reporting catalog/schema bytes and core/on-demand counts; hosts that support progressive disclosure can preload only
+  the core. A concentrated Jev capability-group Choice can only promote additional read/advisory tools; unsupported,
+  write, command-execution and unconcentrated choices cannot gain authority. Explicit user-requested, safety,
+  authorization, verification and recovery tools remain callable through the normal dispatch and authorization checks,
+  including when absent from the bounded recommendation. The complete MCP tools/list stays deterministic and
+  task-independent; list-changed notifications are not used as a per-task routing channel. Metadata-first hints and
+  serialized catalog/schema byte comparisons do not claim actual Host lazy loading, model token savings or cache hits.
 verification:
   - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: coding_manifest_keeps_mandatory_controls_and_defers_specialized_scopes}
   - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: execution_phase_and_query_promote_only_relevant_specialized_tools}
   - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: tool_catalog_marks_core_and_on_demand_capabilities_without_hiding_tools}
   - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: tool_catalog_is_deterministic_compact_and_unique}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: agent_context_capability_telemetry_measures_task_schema_reduction}
+  - {kind: test, path: tests/unit/integrations/mcp/protocol.rs, symbol: tools_list_reports_progressive_disclosure_catalog_metrics}
+  - {kind: test, path: tests/unit/intelligence/jev.rs, symbol: active_jev_can_only_promote_additional_work_before_edit}
+  - {kind: test, path: tests/unit/intelligence/jev.rs, symbol: jev_capability_group_promotes_only_read_advisory_tools}
+  - {kind: test, path: tests/unit/intelligence/jev.rs, symbol: unsupported_jev_capability_group_is_inert}
+  - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: tight_context_preserves_task_tool_names_while_dropping_capability_prose}
+  - {kind: test, path: tests/unit/runtime/harness/fast_context.rs, symbol: fast_context_routes_launch_requests_through_bounded_profiles}

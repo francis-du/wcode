@@ -625,6 +625,10 @@ struct ChangedFileBuilder {
 
 #[path = "capabilities.rs"]
 mod harness_capabilities;
+pub(crate) use harness_capabilities::{
+    default_coding_tools, model_tool_group, model_tool_preload_recommended, model_tools_for_group,
+    prioritize_model_tools, promote_model_tools,
+};
 #[path = "core.rs"]
 mod harness_core;
 #[path = "semantic_provider.rs"]

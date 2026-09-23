@@ -13,12 +13,14 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     let release_workflow = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
 
     assert!(audit.contains("--rounds="));
-    assert!(audit.contains("release-adversarial-100"));
-    assert!(audit.contains("wcode-adversarial-100.json"));
+    assert!(audit.contains("release-adversarial-300"));
+    assert!(audit.contains("wcode-adversarial-300.json"));
     assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(audit.contains("extraRustRounds.length,70"));
-    assert!(audit.contains("rounds.length,100"));
-    assert!(audit.contains("--rounds must stay within 1-100"));
+    assert!(audit.contains("POSTLUDE_RUST_ROUNDS = 200"));
+    assert!(audit.contains("rounds.length,FULL_AUDIT_ROUNDS"));
+    assert!(audit.contains("--rounds must stay within 1-300"));
+    assert!(audit.contains("--ignored"));
     assert!(webkit.contains("--cases="));
     assert!(webkit.contains("totalCases=scenarios.count"));
     assert!(webkit.contains("for width in [320,720,1024,1440]"));
@@ -28,7 +30,11 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     assert!(audit.contains("tests/unit/ui/web_i18n.cjs"));
     assert!(audit.contains("positive_harness_tools_flow_through_mcp"));
     assert!(audit.contains("postlude_budget_"));
+    assert!(adversarial_workflow.contains("name: 300 distinct adversarial rounds"));
     assert!(adversarial_workflow.contains("node tests/release_audit.cjs --require-clean"));
+    assert!(adversarial_workflow
+        .contains("wcode-adversarial-300-${{ github.run_id }}-${{ github.run_attempt }}"));
+    assert!(adversarial_workflow.contains("target/wcode-adversarial-300.json"));
     assert!(adversarial_workflow.contains("swift tests/unit/ui/browser_webkit.swift"));
     assert!(release_workflow.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(

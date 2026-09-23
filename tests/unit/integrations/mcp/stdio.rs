@@ -20,6 +20,10 @@ fn protocol_selection_supports_modern_stdio_and_legacy_sessions() {
         protocol_for_message(&discover, DEFAULT_LEGACY_PROTOCOL),
         MODERN_PROTOCOL_VERSION
     );
+    assert_eq!(
+        validate_modern_payload(&discover),
+        Err("missing 2026 request _meta envelope")
+    );
     let legacy = json!({"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}});
     assert_eq!(protocol_for_message(&legacy, "2025-06-18"), "2025-06-18");
 

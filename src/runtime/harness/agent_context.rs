@@ -80,6 +80,12 @@ impl ToolHarness {
                     pack["execution"] = execution;
                 }
                 pack["capabilities"] = capabilities.clone();
+                sync_readiness_capabilities(&mut pack);
+                let fast_budget = pack["budget"]
+                    .as_u64()
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(MIN_AGENT_CONTEXT_BUDGET);
+                finalize_agent_context(&mut pack, 0, fast_budget)?;
                 return Ok(pack);
             }
         }
@@ -519,7 +525,7 @@ impl ToolHarness {
             pack["migration_audit"] = migration_audit;
         }
         context_anchors::merge(&mut pack, anchors);
-        update_agent_readiness(&mut pack);
+        refresh_readiness_capabilities(&mut pack);
         pack["decision_plane"] =
             serde_json::to_value(crate::decision::agent_context_decisions(&pack, query))?;
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
@@ -800,6 +806,36 @@ fn adaptive_agent_budget(
     budget.clamp(1_200, 4_000)
 }
 
+fn refresh_readiness_capabilities(value: &mut Value) {
+    // Fast operator contexts own an explicit non-edit workflow. Generic edit
+    // readiness would turn launch/status/commit requests back into source work
+    // after budget trimming, so only recompute ordinary coding contexts here.
+    if value.get("intent").and_then(Value::as_str).is_none() {
+        update_agent_readiness(value);
+    }
+    sync_readiness_capabilities(value);
+}
+
+fn sync_readiness_capabilities(value: &mut Value) {
+    let mut tools = capability::required_recovery_tools(value.get("execution"));
+    tools.extend(
+        value
+            .pointer("/readiness/next_actions")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    );
+    if let Some(capabilities) = value.get_mut("capabilities") {
+        crate::harness::prioritize_model_tools(capabilities, &tools);
+    }
+}
+
 fn finalize_agent_context(
     value: &mut Value,
     baseline_context_bytes: u64,
@@ -839,7 +875,7 @@ fn finalize_agent_context(
         let packing_budget = budget.saturating_add(query_allowance);
         if current_tokens > packing_budget {
             trim_agent_context_from_tokens(value, packing_budget, current_tokens)?;
-            update_agent_readiness(value);
+            refresh_readiness_capabilities(value);
             continue;
         }
 

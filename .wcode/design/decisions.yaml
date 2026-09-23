@@ -67,8 +67,20 @@
   id: ADR-007-PROGRESSIVE-CAPABILITIES
   title: Specialized agent capabilities are progressively disclosed
   status: accepted
-  decision: wcode keeps a stable mandatory core capability surface while task-specific tools and Skills are advertised by compact metadata and expanded only when task intent, Product Scope, Execution phase or explicit user request needs them. Safety, recovery, authorization and required verification capabilities are never optimized away.
-  rationale: Large always-on tool and Skill schemas consume model context and increase routing noise. Progressive disclosure preserves interoperability and explicit user control while reducing token/schema overhead.
+  decision: >-
+    wcode keeps one shared mandatory core/action registry. Agent Context compiles a bounded task manifest and Jev may
+    only promote extra read/advisory actions. The complete MCP tools/list remains deterministic and task-independent;
+    MCP 2026-07-28 forbids varying list endpoints per connection or as a side effect of another request, so
+    tools/list_changed is reserved for real catalog changes rather than task routing. Hosts can preload only core tools
+    and use the task manifest to decide which on-demand schemas reach the model. Metadata-first is a recommendation;
+    Hosts may ignore it and expose the complete catalog. Explicit requests, safety, recovery, authorization and
+    required verification capabilities remain callable through normal runtime checks even outside the recommendation.
+  rationale: >-
+    Large always-on tool and Skill schemas consume model context and increase routing noise, but abusing protocol
+    catalog mutation for task state would violate the stateless MCP contract and harm prompt-cache stability.
+    Metadata-first host/model routing can reduce schema noise when the Host supports it while preserving protocol
+    interoperability and explicit/recovery tool reachability. Serialized selection byte comparisons do not establish
+    actual Host token savings, cache hits or end-to-end performance.
   affects:
     - REQ-CAPABILITY-ROUTING-001
     - component:capability-router

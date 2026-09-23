@@ -20,6 +20,7 @@ pub(super) fn serialized_json_bytes<T: serde::Serialize + ?Sized>(value: &T) -> 
     Ok(counter.0)
 }
 
+#[cfg(test)]
 pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
     Ok(serialized_json_bytes(value)?.div_ceil(4))
 }
@@ -99,6 +100,21 @@ fn pop_nested_array(value: &mut Value, parent: &str, key: &str, minimum: usize) 
         return false;
     }
     items.pop();
+    true
+}
+
+pub(super) fn clear_nested_array(value: &mut Value, parent: &str, key: &str) -> bool {
+    let Some(items) = value
+        .get_mut(parent)
+        .and_then(|parent| parent.get_mut(key))
+        .and_then(Value::as_array_mut)
+    else {
+        return false;
+    };
+    if items.is_empty() {
+        return false;
+    }
+    items.clear();
     true
 }
 
@@ -421,6 +437,28 @@ pub(super) fn compact_duplicate_symbol_metadata(value: &mut Value) -> bool {
             }
         }
     }
+    // A relationship-free map entry adds no information when its exact
+    // identity and current complete source are already delivered. Let that
+    // duplicate yield before native checks or another requested source body.
+    let targets = value["targets"].as_array().cloned().unwrap_or_default();
+    if let Some(items) = value
+        .pointer_mut("/repo_map/items")
+        .and_then(Value::as_array_mut)
+    {
+        let before = items.len();
+        items.retain(|item| {
+            let identity = item["path"].as_str().zip(item["id"].as_str());
+            !identity.is_some_and(|(path, id)| {
+                let id = id.strip_prefix("symbol:").unwrap_or(id);
+                complete.contains(&(path.to_owned(), id.to_owned()))
+                    && targets.iter().any(|target| {
+                        target["path"].as_str() == Some(path) && target["id"].as_str() == Some(id)
+                    })
+                    && item["relationships"].as_array().is_some_and(Vec::is_empty)
+            })
+        });
+        changed |= before != items.len();
+    }
     for file in value
         .get_mut("files")
         .and_then(Value::as_array_mut)
@@ -700,18 +738,23 @@ pub(super) fn trim_agent_context_from_tokens(
         })
         .unwrap_or(0)
         .max(1);
+    const MAX_COMPACTION_STEPS: usize = 128;
+    let mut compaction_steps = 0usize;
     while current_tokens > budget {
-        // Decision Plane output is derived advisory observability. Under a
-        // tight budget it yields before original risk/evidence and before
-        // edit-critical SHA/source/test data.
+        compaction_steps = compaction_steps.saturating_add(1);
+        if compaction_steps > MAX_COMPACTION_STEPS {
+            anyhow::bail!(
+                "agent context compaction exceeded {MAX_COMPACTION_STEPS} bounded steps: current_tokens={current_tokens} budget={budget}"
+            );
+        }
+        let previous_tokens = current_tokens;
+        let previous_bytes = serialized_json_bytes(value)?;
         let changed = drop_key(value, "decision_plane")
-            || drop_nested_key(value, "capabilities", "host_contract")
-            || pop_nested_array(value, "capabilities", "deferred_product_scopes", 0)
-            || pop_nested_array(value, "capabilities", "active_product_scopes", 0)
-            || drop_key(value, "capabilities")
+            || compact_capability_explanation(value)
+            || compact_capability_manifest(value)
             || pop_array(value, "risks", 0)
-            || pop_nested_array(value, "relations", "edges", 0)
-            || pop_nested_array(value, "relations", "nodes", 0)
+            || clear_nested_array(value, "relations", "edges")
+            || clear_nested_array(value, "relations", "nodes")
             || pop_array(value, "guidance", 0)
             || pop_array(value, "workflow", 0)
             // Hard-policy state stays present under tight budgets, but verbose
@@ -719,6 +762,7 @@ pub(super) fn trim_agent_context_from_tokens(
             // edit-critical SHA/source/test context.
             || compact_conventions(value)
             || compact_core_constraints(value)
+            || compact_design_explanation(value)
             || compact_source_policy_metadata(value)
             || compact_readiness_explanation(value)
             || compact_project_explanation(value)
@@ -727,7 +771,6 @@ pub(super) fn trim_agent_context_from_tokens(
             || compact_timing_explanation(value)
             || compact_semantic_hint_explanations(value)
             || compact_hot_source_metadata(value)
-            || compact_duplicate_symbol_metadata(value)
             // Under extreme budgets preserve the ranked item itself, but remove
             // cache/build/experience/routing metadata that can be reconstructed
             // by a broader follow-up query. Exact diagnostic source and SHA win.
@@ -736,10 +779,6 @@ pub(super) fn trim_agent_context_from_tokens(
             || drop_key(value, "baseline_context_bytes")
             || drop_key(value, "cache_hit")
             || drop_key(value, "scopes")
-            // Build and software-context timing remain part of the Agent Context
-            // observability contract even under extreme token budgets. Profile
-            // timing is already compacted above, so keep the two task-critical
-            // timings and trim other explanatory metadata first.
             // Retrieval routing is explanatory heuristic metadata. Under a
             // tight edit budget it must disappear before SHA targets, tests,
             // the strongest repo-map item, or diagnostic Hot Source.
@@ -752,10 +791,15 @@ pub(super) fn trim_agent_context_from_tokens(
             || compact_empty_explanations(value)
             || pop_nested_array(value, "repo_map", "items", 1)
             || pop_array(value, "design", 1)
+            || compact_optional_model_tools(value)
             || pop_array(value, "checks", 1)
             || pop_array(value, "semantic_provider_hints", 1)
             || pop_array(value, "tests", 1)
             || pop_nested_array(value, "retrieval", "anchors", 1)
+            // A source-backed relationship-free repo-map item is redundant, but
+            // keep the strongest ranked item through ordinary 1K compaction.
+            // Only drop that duplicate after expendable tool/check/test metadata.
+            || compact_duplicate_symbol_metadata(value)
             || pop_array(value, "targets", explicit_target_min)
             // A retained body and its file SHA/readonly precondition are one
             // edit unit. Drop unrelated file metadata first, never orphan a body.
@@ -771,10 +815,113 @@ pub(super) fn trim_agent_context_from_tokens(
             break;
         }
         truncated = true;
-        current_tokens = estimated_json_tokens(value)?;
+        let current_bytes = serialized_json_bytes(value)?;
+        current_tokens = current_bytes.div_ceil(4);
+        if current_bytes >= previous_bytes {
+            anyhow::bail!(
+                "agent context compaction did not make byte progress at step {compaction_steps}: previous_bytes={previous_bytes} current_bytes={current_bytes} previous_tokens={previous_tokens} current_tokens={current_tokens} budget={budget}"
+            );
+        }
     }
     value["truncated"] = json!(truncated);
     Ok(())
+}
+
+fn compact_design_explanation(value: &mut Value) -> bool {
+    let mut changed = false;
+    for item in value
+        .get_mut("design")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        // Keep identity, title and real traceability links; detailed prose is
+        // recoverable from Design State and yields before executable checks.
+        changed |= object.remove("summary").is_some();
+        if object
+            .get("relations")
+            .and_then(Value::as_object)
+            .is_some_and(|relations| {
+                relations
+                    .values()
+                    .all(|values| values.as_array().is_some_and(Vec::is_empty))
+            })
+        {
+            changed |= object.remove("relations").is_some();
+        }
+    }
+    changed
+}
+
+fn compact_capability_explanation(value: &mut Value) -> bool {
+    let Some(capabilities) = value.get_mut("capabilities").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    for key in [
+        "host_contract",
+        "deferred_product_scopes",
+        "active_product_scopes",
+        "mandatory_controls",
+        "profile",
+        "disclosure",
+        "catalog",
+    ] {
+        changed |= capabilities.remove(key).is_some();
+    }
+    changed
+}
+
+fn compact_capability_manifest(value: &mut Value) -> bool {
+    let Some(capabilities) = value.get_mut("capabilities").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    if capabilities.get("compacted").and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    if capabilities.remove("recommended_actions").is_none() {
+        return false;
+    }
+    capabilities.insert("compacted".to_owned(), Value::Bool(true));
+    true
+}
+
+fn compact_optional_model_tools(value: &mut Value) -> bool {
+    let Some(actions) = value
+        .pointer("/readiness/next_actions")
+        .and_then(Value::as_array)
+        .filter(|actions| !actions.is_empty())
+        .cloned()
+    else {
+        return false;
+    };
+    let Some(capabilities) = value.get_mut("capabilities") else {
+        return false;
+    };
+    let Some(tools) = capabilities
+        .get_mut("recommended_tools")
+        .and_then(Value::as_array_mut)
+    else {
+        return false;
+    };
+    let before = tools.len();
+    tools.retain(|tool| {
+        actions.contains(tool)
+            || tool.as_str().is_some_and(|name| {
+                matches!(
+                    crate::harness::model_tool_group(name),
+                    "execution" | "reconciliation"
+                )
+            })
+    });
+    if tools.len() == before {
+        return false;
+    }
+    capabilities["recommended_tool_count"] = json!(tools.len());
+    true
 }
 
 fn compact_execution_summary(value: &mut Value) -> bool {
@@ -810,6 +957,11 @@ fn compact_execution_summary(value: &mut Value) -> bool {
         "compacted": true,
         "guidance": "Pending structured steering and its verification floor are never dropped by context compaction. Apply steering through Worklist/replan state first; call execution_status for the full checkpoint."
     });
+    let before = serialized_json_bytes(execution).unwrap_or(0);
+    let after = serialized_json_bytes(&compact).unwrap_or(usize::MAX);
+    if after >= before {
+        return false;
+    }
     *execution = compact.as_object().cloned().unwrap_or_default();
     true
 }

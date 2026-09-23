@@ -2,10 +2,11 @@ schema_version: 1
 id: component:capability-router
 name: Task-scoped Capability Router
 responsibilities:
-  - derive the smallest safe model-visible capability set from task intent Product Scope and Execution phase
-  - expose compact metadata before full specialized tool or Skill definitions
-  - preserve explicit user requests and mandatory recovery safety authorization and verification surfaces
-  - report routing provenance and context/tool-schema savings without creating a provider-specific branch
+  - derive bounded task recommendations from task intent Product Scope and Execution phase
+  - maintain one shared core/action-group registry for Agent Context and MCP catalog metadata
+  - keep the complete static catalog callable through normal authorization while recommending that compatible hosts preload only core and task-recommended actions
+  - let Jev choose one bounded read/advisory action group as increase-only progressive disclosure; preserve explicit requests and mandatory recovery safety authorization and verification surfaces
+  - report routing provenance and serialized catalog/schema selection comparisons without claiming measured Host loading token savings or cache behavior
 constraints:
   - CONSTRAINT-CONTEXT-BUDGET
   - CONSTRAINT-PRODUCT-SCOPE-CANONICAL
@@ -16,7 +17,12 @@ depends_on:
   - component:product-scopes
 implementation:
   - {kind: file, path: src/integrations/mcp/tools.rs}
+  - {kind: file, path: src/integrations/mcp/tool_catalog.rs}
+  - {kind: file, path: src/integrations/mcp/mod.rs}
   - {kind: file, path: src/integrations/mcp/catalog.rs}
-  - {kind: file, path: src/scopes/mod.rs}
+  - {kind: file, path: src/runtime/harness/capabilities.rs}
   - {kind: file, path: src/runtime/harness/capability.rs}
+  - {kind: file, path: src/intelligence/jev.rs}
+  - {kind: file, path: src/intelligence/jev_policy.rs}
+  - {kind: file, path: src/scopes/mod.rs}
   - {kind: symbol, path: src/runtime/harness/agent_context.rs, symbol: ToolHarness::agent_context}

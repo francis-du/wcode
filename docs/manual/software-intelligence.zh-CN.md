@@ -294,6 +294,14 @@ Router 标识为 `provider=query-intent-rules-v1`、`precision=heuristic`，只�
 
 Task-aware Routing 只调整弱 Prior。精确 Literal / Qualified Symbol Target 仍强于为了 Recall 放进来的 Retrieval Seed；Fresh Semantic / Deterministic / Runtime Relationship 继续保留更强 Provenance。Token Budget 很紧时，Routing 的解释 Metadata 会先被裁掉，不能挤掉 Direct SHA Edit Target、Verification Reference、最强 Repo-map Item 或 Diagnostic Hot Source。
 
+### 任务能力推荐
+
+`agent_context.capabilities` 根据任务与 Execution 阶段给出有界工具推荐；`recommended_actions` 按能力组列出动作，紧凑上下文省略动作元数据时保留有序的 `recommended_tools` 名称。置信度集中的 Jev 能力组选择可以在确定性基线上追加安全的只读或建议动作，不能增加写入或命令权限、移除确定性工作，也不能放宽运行时检查。
+
+`metadata_first` 表示给 Host 的加载建议。`dev.wcode/preloadRecommended` 标出少量启动工具；支持延迟工具发现的 Host 可按任务推荐，以及明确请求或必需的安全、授权、验证、恢复动作，加载对应 Schema。推荐中省略的工具仍可通过正常派发与授权调用。忽略提示的 Host 仍收到相同、完整且确定性的 `tools/list` 目录；任务变化不会修改目录或触发 list-changed 通知。
+
+目录遥测比较完整目录、预加载集合与建议任务集合的序列化字节。这些是本地大小测量，不能证明 Host 实际延迟加载了 Schema，也不能证明模型 Token、缓存未命中或端到端延迟减少；Host 实际行为需要单独观测。
+
 ### Product Scope
 
 wcode 现在有一份统一的产品能力 Scope Registry：`runtime`、`integrations`、`workspace`、`design`、`graph`、`semantics`、`traceability`、`risk`、`verification`、`evidence`、`reconciliation`、`experience`。`workspace_info` 和 `project_context` 会返回这份 Registry；`scope_status` 会把 Registry 应用到当前 Workspace，返回每个 Scope 的源码数量以及有界的未映射源码路径；`tools/list` 会给每个 Tool 的 `_meta.dev.wcode/productScopes` 附上所属 Scope；支持 MCP Resource 的客户端还可以读取 `wcode://runtime/product-scopes`。同一份实时 Scope Audit 也会进入本地 Intelligence Operator View。

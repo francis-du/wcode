@@ -1,6 +1,89 @@
 use super::*;
 
 #[test]
+fn context_packing_drops_only_current_source_backed_relation_free_map_duplicates() {
+    let base = json!({
+        "targets": [{"id":"ts:a", "path":"src/a.rs"}],
+        "files": [{"path":"src/a.rs", "sha256":"a".repeat(64), "readonly":false}],
+        "hot_source": [{
+            "id":"ts:a", "path":"src/a.rs", "sha256":"a".repeat(64),
+            "body":{"content":"fn a() {}", "truncated":false, "redacted":false}
+        }],
+        "repo_map": {"items": [{
+            "id":"symbol:ts:a", "path":"src/a.rs", "relationships":[]
+        }]}
+    });
+    for (pointer, replacement) in [
+        ("/hot_source/0/id", json!("ts:other")),
+        ("/hot_source/0/path", json!("src/other.rs")),
+        ("/hot_source/0/sha256", json!("b".repeat(64))),
+        ("/hot_source/0/body/redacted", json!(true)),
+        ("/hot_source/0/body/truncated", json!(true)),
+        ("/hot_source/0/body/content", json!("")),
+        ("/targets/0/id", json!("ts:other")),
+        (
+            "/repo_map/items/0/relationships",
+            json!([{"kind":"calls", "target":"ts:b"}]),
+        ),
+    ] {
+        let mut pack = base.clone();
+        *pack.pointer_mut(pointer).unwrap() = replacement;
+        let original_map = pack["repo_map"].clone();
+        context_budget::compact_duplicate_symbol_metadata(&mut pack);
+        assert_eq!(pack["repo_map"], original_map, "{pointer}");
+    }
+    let mut pack = base.clone();
+    assert!(context_budget::compact_duplicate_symbol_metadata(&mut pack));
+    assert_eq!(pack["repo_map"]["items"], json!([]));
+    assert_eq!(pack["hot_source"], base["hot_source"]);
+    assert_eq!(pack["files"], base["files"]);
+    assert!(!context_budget::compact_duplicate_symbol_metadata(
+        &mut pack
+    ));
+}
+
+#[test]
+fn tight_context_clears_large_relationship_overlays_in_one_compaction_step() {
+    let edges = (0..512)
+        .map(|index| json!({"from":format!("ts:{index}"),"to":format!("ts:{}", index + 1),"kind":"calls"}))
+        .collect::<Vec<_>>();
+    let nodes = (0..513)
+        .map(|index| json!({"id":format!("ts:{index}"),"path":"src/a.rs"}))
+        .collect::<Vec<_>>();
+    let mut pack = json!({
+        "relations":{"edges":edges,"nodes":nodes},
+        "targets":[{"id":"ts:target","path":"src/a.rs","qualified_name":"target"}],
+        "files":[{"path":"src/a.rs","sha256":"a".repeat(64),"readonly":false}],
+        "hot_source":[{"id":"ts:target","path":"src/a.rs","qualified_name":"target","sha256":"a".repeat(64),
+            "body":{"content":"fn target() {}","start_line":1,"end_line":1,"redacted":false,"truncated":false}}],
+        "repo_map":{"items":[]}
+    });
+    assert!(context_budget::clear_nested_array(
+        &mut pack,
+        "relations",
+        "edges"
+    ));
+    assert!(context_budget::clear_nested_array(
+        &mut pack,
+        "relations",
+        "nodes"
+    ));
+    assert!(pack["relations"]["edges"].as_array().unwrap().is_empty());
+    assert!(pack["relations"]["nodes"].as_array().unwrap().is_empty());
+    assert_eq!(pack["hot_source"][0]["body"]["content"], "fn target() {}");
+    assert!(!context_budget::clear_nested_array(
+        &mut pack,
+        "relations",
+        "edges"
+    ));
+    assert!(!context_budget::clear_nested_array(
+        &mut pack,
+        "relations",
+        "nodes"
+    ));
+}
+
+#[test]
 fn context_packing_source_backed_metadata_is_revision_bound() {
     let base = json!({
         "provenance_defaults":{"targets":{"provider":"tree-sitter","precision":"syntax"}},
@@ -131,6 +214,40 @@ fn tight_context_drops_advisory_decision_before_original_risk_evidence() {
     assert!(pack.get("decision_plane").is_none());
     assert_eq!(pack["risks"].as_array().unwrap().len(), 1);
     assert_eq!(pack["risks"][0]["summary"], risk_summary);
+    assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 350);
+}
+
+#[test]
+fn tight_context_preserves_task_tool_names_while_dropping_capability_prose() {
+    let mut pack = json!({
+        "truncated": false,
+        "decision_plane": {"advisory": "derived-signal-".repeat(160)},
+        "capabilities": {
+            "profile": "coding",
+            "disclosure": "metadata_first",
+            "catalog": "stable",
+            "host_contract": "host guidance ".repeat(120),
+            "recommended_tool_count": 3,
+            "recommended_tools": ["apply_edits", "review_changes", "verify_project"],
+            "recommended_actions": [
+                {"tool":"apply_edits","group":"repository_write","disclosure":"on_demand"},
+                {"tool":"review_changes","group":"verification","disclosure":"on_demand"},
+                {"tool":"verify_project","group":"verification","disclosure":"on_demand"}
+            ],
+            "active_product_scopes": ["workspace", "graph", "verification"],
+            "deferred_product_scopes": ["design", "semantics", "evidence"],
+            "mandatory_controls": ["workspace_boundary", "authorization", "sha_preconditions"]
+        }
+    });
+
+    context_budget::trim_agent_context(&mut pack, 350).unwrap();
+
+    assert!(pack.get("decision_plane").is_none());
+    assert_eq!(
+        pack["capabilities"]["recommended_tools"],
+        json!(["apply_edits", "review_changes", "verify_project"])
+    );
+    assert!(pack["capabilities"].get("host_contract").is_none());
     assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 350);
 }
 
@@ -414,6 +531,36 @@ fn tight_context_budget_preserves_pending_execution_steering() {
     assert_eq!(
         value["execution"]["checkpoint"]["reconciliation_plan_id"],
         "RP-old"
+    );
+}
+
+#[test]
+fn tight_context_never_expands_already_compact_execution_state() {
+    let execution = json!({
+        "id": "EX-current",
+        "revision": 9,
+        "phase": "executing"
+    });
+    let mut value = json!({
+        "truncated": false,
+        "execution": execution,
+        "worklist": {
+            "goal": "keep-compacting-worklist-goal-".repeat(80),
+            "items": [],
+            "runnable": [],
+            "parallel_runnable": []
+        }
+    });
+    let before_bytes = context_budget::serialized_json_bytes(&value).unwrap();
+    let before_tokens = context_budget::estimated_json_tokens(&value).unwrap();
+
+    context_budget::trim_agent_context(&mut value, before_tokens.saturating_sub(1)).unwrap();
+
+    assert_eq!(value["execution"], execution);
+    assert_eq!(value["truncated"], true);
+    assert!(
+        context_budget::serialized_json_bytes(&value).unwrap() < before_bytes,
+        "compaction must make byte progress instead of replacing compact execution state with a larger summary"
     );
 }
 

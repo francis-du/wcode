@@ -59,7 +59,7 @@ const PROCESS_NICE_VALUE: i32 = 5;
 pub struct ResourceLimits {
     /// Sustained CPU target for unattended/background work. 100% is one core.
     pub max_cpu_percent: f64,
-    /// Sustained CPU ceiling used while serving active tool requests.
+    /// Sustained CPU target while serving active tool requests; short bursts use separate credits.
     pub interactive_cpu_percent: f64,
     pub max_memory_bytes: u64,
     pub requested_parallel_tools: usize,
@@ -100,8 +100,9 @@ impl ResourceLimits {
         } else {
             256
         };
-        // Background maintenance's CPU target must not serialize foreground
-        // indexing. Bound foreground work by hardware, memory and tool demand.
+        // Keep worker concurrency available for short interactive bursts. After
+        // burst/debt credits are spent, pace foreground work at one CPU core;
+        // unattended/background work keeps the stricter configured target.
         let cpu_burst_threads = host_threads
             .min(16)
             .min(usize::try_from(max_memory_mb / 64).unwrap_or(16))
@@ -129,7 +130,7 @@ impl ResourceLimits {
             .min(cpu_burst_threads.div_ceil(child_threads).max(1))
             .min(requested_parallel_tools)
             .max(1);
-        let interactive_cpu_percent = cpu_burst_threads as f64 * 100.0;
+        let interactive_cpu_percent = 100.0;
 
         Ok(Self {
             max_cpu_percent,

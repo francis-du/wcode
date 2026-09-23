@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(test)]
 const MAX_RECOMMENDED_TOOLS: usize = 14;
 
 pub(super) fn manifest(
@@ -7,41 +8,18 @@ pub(super) fn manifest(
     requested_scopes: &[String],
     execution: Option<&Value>,
 ) -> Value {
-    let normalized = query.to_ascii_lowercase();
+    let normalized = super::super::harness_retrieval::intent_query(query);
     let phase = execution
         .and_then(|value| value.get("phase"))
         .and_then(Value::as_str);
     let scopes = crate::scopes::canonicalize(requested_scopes);
-    let mut recommended = vec![
-        "agent_context",
-        "search_many",
-        "read_files",
-        "apply_file_edits",
-        "review_changes",
-        "verify_project",
-    ];
+    let mut recommended = crate::harness::default_coding_tools().to_vec();
 
     if execution.is_some() {
-        extend_unique(
+        promote_unique(
             &mut recommended,
             &["execution_status", "execution_propose", "worklist_status"],
         );
-    }
-    let pending_steering = execution
-        .and_then(|value| value.get("pending_directive"))
-        .is_some_and(|value| !value.is_null());
-    let replan_required = execution
-        .and_then(|value| value.get("replan_required"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if pending_steering {
-        extend_unique(&mut recommended, &["worklist_update"]);
-        if replan_required {
-            extend_unique(
-                &mut recommended,
-                &["reconciliation_plan", "reconciliation_status"],
-            );
-        }
     }
     if execution.is_some()
         && contains_any(
@@ -59,7 +37,7 @@ pub(super) fn manifest(
             ],
         )
     {
-        extend_unique(&mut recommended, &["execution_steer"]);
+        promote_unique(&mut recommended, &["execution_steer"]);
     }
     if execution.is_some()
         && contains_any(
@@ -73,19 +51,19 @@ pub(super) fn manifest(
             ],
         )
     {
-        extend_unique(&mut recommended, &["execution_handoff"]);
+        promote_unique(&mut recommended, &["execution_handoff"]);
     }
     if execution
         .and_then(|value| value.pointer("/checkpoint/reconciliation_plan_id"))
         .is_some_and(|value| !value.is_null())
     {
-        extend_unique(&mut recommended, &["reconciliation_execution_status"]);
+        promote_unique(&mut recommended, &["reconciliation_execution_status"]);
     }
     if execution
         .and_then(|value| value.pointer("/checkpoint/verification_plan_id"))
         .is_some_and(|value| !value.is_null())
     {
-        extend_unique(&mut recommended, &["verification_status"]);
+        promote_unique(&mut recommended, &["verification_status"]);
     }
 
     let semantic = contains_any(
@@ -134,13 +112,13 @@ pub(super) fn manifest(
             .any(|scope| scope == "verification" || scope == "evidence");
 
     if semantic {
-        extend_unique(
+        promote_unique(
             &mut recommended,
             &["semantic_navigation", "find_symbol", "symbol_context"],
         );
     }
     if planning {
-        extend_unique(
+        promote_unique(
             &mut recommended,
             &[
                 "design_status",
@@ -150,7 +128,7 @@ pub(super) fn manifest(
         );
     }
     if verification {
-        extend_unique(
+        promote_unique(
             &mut recommended,
             &[
                 "verification_status",
@@ -159,8 +137,6 @@ pub(super) fn manifest(
             ],
         );
     }
-    recommended.truncate(MAX_RECOMMENDED_TOOLS);
-
     let profile = if phase == Some("verifying") || verification {
         "verification"
     } else if planning {
@@ -185,7 +161,7 @@ pub(super) fn manifest(
         .filter(|scope| !active.contains(scope))
         .collect::<Vec<_>>();
 
-    json!({
+    let mut result = json!({
         "profile": profile,
         "disclosure": "metadata_first",
         "catalog": "stable",
@@ -198,8 +174,29 @@ pub(super) fn manifest(
             "sha_preconditions",
             "verification_evidence"
         ],
-        "host_contract": "Preload dev.wcode/preloadRecommended tools; use recommended_tools plus dev.wcode/productScopes to expand specialized capabilities on demand. Explicit user tool requests remain reachable."
-    })
+        "host_contract": "Preload only dev.wcode/preloadRecommended tools when the host supports progressive disclosure. After agent_context, prefer recommended_actions and expand on-demand tools by their task-manifest group or dev.wcode/productScopes. Explicit user tool requests and required recovery/safety/verification actions remain reachable."
+    });
+    // Pending user steering must survive every bounded specialist selection.
+    crate::harness::prioritize_model_tools(&mut result, &required_recovery_tools(execution));
+    result
+}
+
+pub(super) fn required_recovery_tools(execution: Option<&Value>) -> Vec<String> {
+    let mut tools = Vec::new();
+    if execution
+        .and_then(|value| value.get("pending_directive"))
+        .is_some_and(|value| !value.is_null())
+    {
+        tools.push("worklist_update".to_owned());
+    }
+    if execution
+        .and_then(|value| value.get("replan_required"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        tools.extend(["reconciliation_plan", "reconciliation_status"].map(str::to_owned));
+    }
+    tools
 }
 
 fn inferred_scopes(profile: &str) -> Vec<String> {
@@ -222,11 +219,12 @@ fn contains_any(value: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| value.contains(needle))
 }
 
-fn extend_unique<'a>(target: &mut Vec<&'a str>, values: &[&'a str]) {
-    for value in values {
-        if !target.contains(value) {
-            target.push(value);
+fn promote_unique<'a>(target: &mut Vec<&'a str>, values: &[&'a str]) {
+    for (index, value) in values.iter().enumerate() {
+        if let Some(existing) = target.iter().position(|candidate| candidate == value) {
+            target.remove(existing);
         }
+        target.insert(index.min(target.len()), value);
     }
 }
 

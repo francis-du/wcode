@@ -2,152 +2,55 @@ use super::*;
 use crate::scopes;
 use std::sync::OnceLock;
 
+#[path = "tool_catalog.rs"]
+mod tool_catalog;
+
 pub(super) fn tools() -> &'static [Value] {
     static CATALOG: OnceLock<Vec<Value>> = OnceLock::new();
-    CATALOG.get_or_init(build_tools).as_slice()
+    CATALOG.get_or_init(tool_catalog::build_tools).as_slice()
 }
 
-fn build_tools() -> Vec<Value> {
-    vec![
-        tool("workspace_info", "Show workspaces/subspaces, security, and bounded read-only launch profiles.", json!({"type":"object","properties":{},"additionalProperties":false}), true, false),
-        tool("design_status", "Validate .wcode Desired Software State and return bounded counts/diagnostics.", schema(json!({}), &[]), true, false),
-        tool("convention_status", "Inspect cross-language conventions, architecture findings, oversized modules, language coverage, and truncation.", schema(json!({}), &[]), true, false),
-        tool("scope_status", "Audit repository files against canonical Product Scopes, including mapped/unmapped counts and paths.", schema(json!({}), &[]), true, false),
-        tool("design_init", "Initialize sparse .wcode Design State without overwriting existing design files.", schema(json!({"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":1000}}), &[]), false, false),
-        tool("software_graph", "Build a bounded Software Graph with provenance.", schema(json!({"path":{"type":"string","default":"."},"max_files":{"type":"integer","minimum":1,"maximum":5000,"default":500},"max_symbols":{"type":"integer","minimum":1,"maximum":5000,"default":1000}}), &[]), true, false),
-        tool("graph_provider_import", "Import one bounded external graph revision with explicit provenance.", schema(json!({"provider_graph":{"type":"object","properties":{"provider":{"type":"string","minLength":1,"maxLength":128},"precision":{"type":"string","enum":["semantic","runtime","deterministic","heuristic"]},"revision":{"type":"string","minLength":1,"maxLength":256},"nodes":{"type":"array","maxItems":10000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["product","requirement","acceptance_criterion","constraint","decision","component","package","module","file","symbol","function","struct","trait","class","enum","interface","api","database","queue","config","test","verification","risk","evidence"]},"label":{"type":"string","minLength":1,"maxLength":500},"attributes":{"type":"object"}},"required":["id","kind","label"],"additionalProperties":false}},"edges":{"type":"array","maxItems":50000,"items":{"type":"object","properties":{"from":{"type":"string","minLength":1,"maxLength":512},"to":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["contains","defines","references","calls","imports","depends_on","implements","extends","implements_requirement","constrained_by","tested_by","verified_by","guards_against","produces_evidence","runtime_calls","conflicts_with"]}},"required":["from","to","kind"],"additionalProperties":false}}},"required":["provider","precision","revision"],"additionalProperties":false}}), &["provider_graph"]), false, false),
-        tool("graph_provider_status", "List latest external graph-provider revisions and counts.", schema(json!({}), &[]), true, false),
-        tool("semantic_provider_status", "Report language LSP readiness, install plan, and fallback.", schema(json!({}), &[]), true, false),
-        tool("semantic_provider_install", "Install a canonical missing LSP with required approval.", schema(json!({"language":{"type":"string","enum":["bash","c","cpp","c-sharp","css","dart","elixir","go","html","java","java-script","lua","ocaml","ocaml-interface","php","python","r","ruby","rust","swift","type-script","tsx"]}}), &["language"]), false, false),
-        tool("language_quality_status", "Report per-language quality/semantic capabilities and gaps.", schema(json!({}), &[]), true, false),
-        tool("language_quality_run", "Run one declared check-only quality provider and persist Evidence.", schema(json!({"language":{"type":"string","enum":["bash","c","cpp","c-sharp","css","dart","elixir","go","html","java","java-script","lua","ocaml","ocaml-interface","php","python","r","ruby","rust","swift","type-script","tsx"]},"provider_id":{"type":"string","minLength":1,"maxLength":160},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &["language","provider_id"]), false, false),
-        tool("semantic_provider_refresh", "Refresh trusted read-only LSP symbols/relationships.", schema(json!({"path":{"type":"string","default":"."},"max_files":{"type":"integer","minimum":1,"maximum":256,"default":128},"max_symbols":{"type":"integer","minimum":1,"maximum":2000,"default":1000}}), &[]), false, false),
-        tool("semantic_navigation", "LSP nav.", schema(json!({"path":{"type":"string"},"symbol":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"character":{"type":"integer","minimum":1},"intent":{"type":"string","enum":["inspect","definition","hover","references","incoming_calls","outgoing_calls","calls","implementations","impact","rename_plan","organize_imports_plan","quick_fix_plan"],"default":"inspect"},"max_results":{"type":"integer","minimum":1,"maximum":100,"default":50},"new_name":{"type":"string","minLength":1,"maxLength":300}}), &["path"]), true, false),
-        tool("graph_history", "List bounded Software Graph revisions.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":64,"default":20}}), &[]), true, false),
-        tool("graph_query", "Query a bounded Software Graph snapshot by node, kind, label, or relationship.", schema(json!({"query":{"type":"object","properties":{"snapshot_id":{"type":"string","minLength":1,"maxLength":160},"node_id":{"type":"string","minLength":1,"maxLength":512},"kind":{"type":"string","enum":["product","requirement","acceptance_criterion","constraint","decision","component","package","module","file","symbol","function","struct","trait","class","enum","interface","api","database","queue","config","test","verification","risk","evidence"]},"label_contains":{"type":"string","minLength":1,"maxLength":500},"related_to":{"type":"string","minLength":1,"maxLength":512},"edge_kind":{"type":"string","enum":["contains","defines","references","calls","imports","depends_on","implements","extends","implements_requirement","constrained_by","tested_by","verified_by","guards_against","produces_evidence","runtime_calls","conflicts_with"]},"direction":{"type":"string","enum":["incoming","outgoing","both"]},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}},"additionalProperties":false}}), &["query"]), true, false),
-        tool("graph_diff", "Compare bounded persisted graph revisions by stable node/edge identity.", schema(json!({"diff":{"type":"object","properties":{"from_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"to_snapshot_id":{"type":"string","minLength":1,"maxLength":160},"limit":{"type":"integer","minimum":1,"maximum":200,"default":50}},"additionalProperties":false}}), &[]), true, false),
-        tool("traceability_status", "Resolve Design mapping coverage: Requirement→Component→implementation and Acceptance→verification. Mapping is not proof execution; symbol/test resolution is syntax precision.", schema(json!({}), &[]), true, false),
-        tool("drift_status", "Compare Design State with traceability, the current Git change set, and explicit runtime invariants. Report bounded implementation, design, and advisory Runtime Drift findings; measurable runtime deviations include expected, observed, deviation-percent, precision, and revision-binding metadata instead of being folded into structural dependency drift.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
-        tool("risk_status", "Assess the current change set, traceability gaps, drift findings, and bounded repository-wide bug-pattern candidates into structured risk evidence and a risk-adaptive verification profile. Bug patterns are reported separately with heuristic precision and do not silently raise the overall risk level.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
-        tool("impact_analysis", "Map the current Git change set through Design State to impacted components, requirements, acceptance criteria, declared implementation symbols, public-API signals, security boundaries, and overall risk. This is conservative impact analysis; Tree-sitter relationships remain syntax precision.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), true, false),
-        tool("software_context", "Bounded Design/symbol/semantic/risk/traceability context; Product Scopes narrow retrieval.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"intent":{"type":"string","minLength":1,"maxLength":128,"default":"inspect"},"budget":{"type":"integer","minimum":1000,"maximum":64000,"default":12000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
-        tool("agent_context", "Start coding with source, SHA, checks and Worklist; adaptive budget and specific-subspace routing.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"budget":{"type":"integer","minimum":1000,"maximum":12000,"description":"Optional explicit token budget; omit for adaptive 1.2k-4k sizing."},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}}}), &["query"]), true, false),
-        tool("execution_status", "Read Execution checkpoint and phase.", schema(json!({}), &[]), true, false),
-        tool("execution_policy_status", "Explain tool runtime controls.", schema(json!({"tool_name":{"type":"string","maxLength":128},"arguments":{"type":"object"}}), &["tool_name"]), true, false),
-        tool("execution_propose", "Record advisory terminal proposal; cannot change phase.", schema(json!({"expected_revision":{"type":"integer","minimum":1},"status":{"type":"string","enum":["complete","blocked"]},"summary":{"type":"string","minLength":1,"maxLength":1000},"proposer":{"type":"string","minLength":1,"maxLength":256}}), &["expected_revision","status","summary","proposer"]), false, false),
-        tool("execution_steer", "Record one bounded revision-guarded structured steering directive without mutating Worklist/Plan/Verification authority.", schema(json!({"expected_revision":{"type":"integer","minimum":1},"kind":{"type":"string","enum":["refine_objective","change_scope","strengthen_verification"]},"summary":{"type":"string","minLength":1,"maxLength":1000},"requested_by":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":1000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"verification_strength":{"type":"string","enum":["full","adversarial"]}}), &["expected_revision","kind","summary","requested_by"]), false, false),
-        tool("execution_handoff", "Create a clean Execution continuation with structured lineage only; checkpoint/directive state survives and transcript state is never stored.", schema(json!({"expected_revision":{"type":"integer","minimum":1},"requested_by":{"type":"string","minLength":1,"maxLength":256},"summary":{"type":"string","minLength":1,"maxLength":1000}}), &["expected_revision","requested_by","summary"]), false, false),
-        tool("worklist_status", "Read durable Worklist revision, open items and runnable lanes.", schema(json!({}), &[]), true, false),
-        tool("worklist_update", "Patch durable Worklist with revision guard; unfinished items cannot disappear and restart requires completion.", schema(json!({"expected_revision":{"type":"integer","minimum":0},"goal":{"type":"string","minLength":1,"maxLength":1000},"restart":{"type":"boolean"},"items":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64},"title":{"type":"string","minLength":1,"maxLength":300},"status":{"type":"string","enum":["pending","in_progress","done","blocked"]},"depends_on":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":64}},"note":{"type":"string","maxLength":1000}},"required":["id"],"additionalProperties":false}}}), &["expected_revision"]), false, false),
-        tool("semantic_status", "Read bounded semantic registry state; candidates stay non-authoritative, confirmed facts drive expansion, retired facts are excluded.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}), &[]), true, false),
-        tool("semantic_query", "Query semantics by term, alias, scope or relationship. Scoped facts must overlap requested scopes; unscoped facts remain global.", schema(json!({"query":{"type":"string","minLength":1,"maxLength":1000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"include_candidates":{"type":"boolean","default":true},"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}), &["query"]), true, false),
-        tool("semantic_record", "Record a persistent non-authoritative semantic candidate; candidates never auto-promote.", schema(json!({"fact":{"type":"object","properties":{"kind":{"type":"string","enum":["concept","alias","entity","metric","dimension","relationship","rule","domain_term"]},"canonical":{"type":"string","minLength":1,"maxLength":300},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"description":{"type":"string","minLength":1,"maxLength":2000},"scopes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":300}},"subject":{"type":"string","minLength":1,"maxLength":512},"predicate":{"type":"string","minLength":1,"maxLength":256},"object":{"type":"string","minLength":1,"maxLength":512},"origin":{"type":"string","enum":["user","conversation","design","provider"]},"provider":{"type":"string","minLength":1,"maxLength":256},"confidence":{"type":"string","enum":["low","medium","high"]},"source":{"type":"string","minLength":1,"maxLength":1000}},"required":["kind","canonical","description","origin","confidence"],"additionalProperties":false}}), &["fact"]), false, false),
-        tool("semantic_confirm", "Confirm a semantic candidate after explicit human attestation; models cannot self-promote facts.", schema(json!({"fact_id":{"type":"string","minLength":1,"maxLength":160},"attested_by":{"type":"string","minLength":1,"maxLength":256},"confirmed":{"type":"boolean","const":true}}), &["fact_id","attested_by","confirmed"]), false, false),
-        tool("semantic_retire", "Retire one semantic fact through a new persistent revision. Only call after explicit human confirmation; retired facts stop affecting software_context expansion but remain auditable in history.", schema(json!({"fact_id":{"type":"string","minLength":1,"maxLength":160},"attested_by":{"type":"string","minLength":1,"maxLength":256},"confirmed":{"type":"boolean","const":true}}), &["fact_id","attested_by","confirmed"]), false, false),
-        tool("verification_plan", "Create a risk-adaptive, provider-neutral Verification Plan with deterministic checks and blind reviewer jobs.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), false, false),
-        tool("verification_claim", "Claim one capability-matched blind review job; other reviewer submissions remain hidden.", schema(json!({"reviewer":{"type":"string","minLength":1,"maxLength":256},"capabilities":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":128}},"role":{"type":"string","enum":["design_compliance","correctness","maintainability","architecture","security","performance","compatibility","adversarial","test_synthesis"]}}), &["reviewer","capabilities"]), false, false),
-        tool("verification_submit", "Submit a claimed blind-review verdict as persistent provenance-bearing Evidence.", schema(json!({"job_id":{"type":"string","minLength":1,"maxLength":160},"reviewer":{"type":"string","minLength":1,"maxLength":256},"submission":{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","fail","inconclusive"]},"summary":{"type":"string","minLength":1,"maxLength":2000},"claims":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":1000}},"risks":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":1000}},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["verdict","summary"],"additionalProperties":false}}), &["job_id","reviewer","submission"]), false, false),
-        tool("verification_executor_status", "Inspect the cross-language Property/Mutation/Fuzz/Runtime executor registry. wcode auto-discovers common framework runners and also accepts bounded no-shell executors in .wcode/executors.yaml, so every indexed language can plug into the same Verification Mesh.", schema(json!({}), &[]), true, false),
-        tool("verification_execute_stages", "Execute all currently required Property/Mutation/Fuzz/Runtime stages using configured or auto-discovered executors until the Verification Plan's fixed stage targets are covered. Each real command result becomes persistent target-scoped stage Evidence. Requires --allow-risky-exec because project tests and configured executors run repository-controlled code.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), false, false),
-        tool("verification_stage_submit", "Submit Property/Mutation/Fuzz/Runtime evidence; target-scoped readiness fails closed by producer and target.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"submission":{"type":"object","properties":{"stage":{"type":"string","enum":["property","mutation","fuzz","runtime_canary"]},"producer":{"type":"string","minLength":1,"maxLength":256},"verdict":{"type":"string","enum":["pass","fail","inconclusive"]},"summary":{"type":"string","minLength":1,"maxLength":2000},"artifact_digest":{"type":"string","minLength":1,"maxLength":512},"targets":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":128}},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["stage","producer","verdict","summary","artifact_digest"],"additionalProperties":false}}), &["plan_id","submission"]), false, false),
-        tool("verification_approve", "Record explicit human approval as persistent HumanApproval Evidence for a Verification Plan that requires it. Only call this after a human has explicitly approved the plan; confirmed=true is required and models must never self-approve.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"approver":{"type":"string","minLength":1,"maxLength":256},"statement":{"type":"string","minLength":1,"maxLength":2000},"confirmed":{"type":"boolean","const":true}}), &["plan_id","approver","statement","confirmed"]), false, false),
-        tool("verification_status", "Read durable Verification readiness, reviewer/stage state, human approval and stale-revision blockers.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), true, false),
-        tool("verification_history", "List recent persisted Verification Plans with their current readiness, evidence-stage results, reviewer state, human approval, and blockers. This survives wcode restarts.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}), &[]), true, false),
-        tool("evidence_status", "Read bounded Evidence by subject with producer, revision, confidence, policy and result provenance.", schema(json!({"subject":{"type":"string","minLength":1,"maxLength":512},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}), &[]), true, false),
-        tool("reconciliation_plan", "Persist a bounded convergence Plan from current Design, drift, risk, Change IR and Verification policy; it does not apply edits.", schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30}}), &[]), false, false),
-        tool("reconciliation_status", "Read one persisted Plan; set include_approval=true to include its frozen approval/replan state.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"include_approval":{"type":"boolean"}}), &["plan_id"]), true, false),
-        tool("reconciliation_history", "List the most recent persisted Reconciliation Plans for the selected workspace.", schema(json!({"limit":{"type":"integer","minimum":1,"maximum":100,"default":10}}), &[]), true, false),
-        tool("reconciliation_approve", "Human-approve and freeze one current Plan; binds its digest/revision/references/risk. Stale plans return replan_required.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"approver":{"type":"string","minLength":1,"maxLength":256},"statement":{"type":"string","minLength":1,"maxLength":2000},"confirmed":{"type":"boolean","const":true}}), &["plan_id","approver","statement","confirmed"]), false, false),
-        tool("reconciliation_execution_status", "Read durable dependency progress, intent blockers and evidence-gated convergence for one Plan.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id"]), true, false),
-        tool("reconciliation_claim", "Claim runnable work: Review is read-only; Design/Implementation share one writer. Parallel writers use separate linked-worktree Workspaces.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"executor":{"type":"string","minLength":1,"maxLength":256},"kinds":{"type":"array","maxItems":3,"items":{"type":"string","enum":["design","implementation","review"]}}}), &["plan_id","executor"]), false, false),
-        tool("reconciliation_submit", "Complete/fail a claimed Reconciliation task; claimant must match and result becomes durable Evidence.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"task_id":{"type":"string","minLength":1,"maxLength":160},"executor":{"type":"string","minLength":1,"maxLength":256},"submission":{"type":"object","properties":{"success":{"type":"boolean"},"summary":{"type":"string","minLength":1,"maxLength":2000},"artifact_digest":{"type":"string","minLength":1,"maxLength":512}},"required":["success","summary"],"additionalProperties":false}}), &["plan_id","task_id","executor","submission"]), false, false),
-        tool("reconciliation_retry", "Requeue one failed Design/Implementation/Review task without bypassing dependencies or system gates.", schema(json!({"plan_id":{"type":"string","minLength":1,"maxLength":160},"task_id":{"type":"string","minLength":1,"maxLength":160}}), &["plan_id","task_id"]), false, false),
-        tool("project_context", "Read repository guidance/config only when agent_context leaves a gap. Not a second mandatory call; use scoped source tools for code.", schema(json!({}), &[]), true, false),
-        tool(
-            "review_changes",
-            "Review the current Git change set before verification. Set adversarial=true to attach bounded counterexample QA; questions are not Evidence and require independent proof.",
-            schema(json!({"timeout_seconds":{"type":"integer","minimum":1,"maximum":120,"default":30},"adversarial":{"type":"boolean","description":"Attach bounded falsification questions without treating them as Evidence."}}), &[]),
-            true,
-            false,
-        ),
-        tool(
-            "parallel_tools",
-            "Run bounded dependency-aware batches; dry_run previews only. Ready successors start after dependencies; failures skip dependents.",
-            schema(json!({
-                "dry_run": {"type": "boolean", "description": "Preview dependencies only; does not execute, authorize, or validate file preconditions."},
-                "tasks": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": MAX_PARALLEL_FANOUT_ITEMS,
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string"},
-                            "tool": {"type": "string", "enum": PARALLEL_READ_TOOLS.iter().chain(PARALLEL_WRITE_TOOLS.iter()).copied().collect::<Vec<_>>()},
-                            "arguments": {"type": "object"}
-                        },
-                        "required": ["tool"],
-                        "additionalProperties": false
-                    }
-                }
-            }), &["tasks"]),
-            false,
-            true,
-        ),
-        tool("verify_project", "Run quick/full checks. Revision drift rejects stale Evidence and returns review_changes -> verify_project recovery. Task-capable clients get taskId; poll tasks/get, never rerun to poll.", schema(json!({"level":{"type":"string","enum":["quick","full"],"default":"quick"},"fail_fast":{"type":"boolean"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800,"default":120}}), &[]), false, false),
-        tool("list_files", "Fast recursive file listing inside one workspace root. All regular files are visible except protected credential, repository-control, and wcode-internal paths; symlinks are not followed.", schema(json!({"path":{"type":"string"},"max_entries":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}), &[]), true, false),
-        tool("search_code", "Search text with exact/regex/token modes; returns SHA, counts, coverage and pagination.", search_schema("query"), true, false),
-        tool("search_many", "Batch up to 32 text queries in one scan; returns provenance, SHA, counts and coverage.", search_schema("queries"), true, false),
-        tool("scan_patterns", "Scan text or AST-validated Go bug patterns; pure comments are skipped unless requested.", bug_scan_schema(), true, false),
-        tool("search_syntax", "Search Tree-sitter nodes across up to 50k files with optional regex/bug patterns and guard evidence.", schema(json!({"node_kinds":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"path":{"type":"string"},"text_regex":{"type":"string"},"include_comments":{"type":"boolean","default":false},"bug_patterns":{"type":"array","maxItems":5,"items":{"type":"string","enum":["nil_deref","err_swallowed","index_mismatch","empty_test","unguarded_subscript"]}},"max_files":{"type":"integer","minimum":1,"maximum":50000,"default":50000},"max_results":{"type":"integer","minimum":1,"maximum":2000,"default":200}}), &["node_kinds"]), true, false),
-        tool(
-            "file_outline",
-            "Inspect definitions/ranges in one known file without bodies. Returns syntax IDs for symbol_context; use find_symbol if file is unknown.",
-            schema(json!({
-                "path": {"type": "string"},
-                "max_symbols": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 500}
-            }), &["path"]),
-            true,
-            false,
-        ),
-        tool(
-            "find_symbol",
-            "Locate definitions by name/qualified name. Returns syntax symbol IDs/ranges for symbol_context; re-query IDs after edits.",
-            schema(json!({
-                "query": {"type": "string"},
-                "path": {"type": "string", "default": "."},
-                "kind": {"type": "string", "description": "Optional Tree-sitter tag kind such as function, method, class, interface, module, or type."},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}
-            }), &["query"]),
-            true,
-            false,
-        ),
-        tool(
-            "symbol_context",
-            "Read one symbol body plus bounded same-file caller/callee bodies at syntax precision; skip if agent_context already has it.",
-            schema(json!({
-                "symbol_id": {"type": "string"},
-                "max_body_lines": {"type": "integer", "minimum": 1, "maximum": 1000}
-            }), &["symbol_id"]),
-            true,
-            false,
-        ),
-        tool("read_file", "Read up to 1,000 original line-preserving UTF-8 source lines and receive the file SHA-256 edit precondition. Omit line bounds for the first 1,000 lines; request another window only when needed.", schema(json!({"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path"]), true, false),
-        tool("read_files", "Read up to 32 known files concurrently in one round trip, up to 1,000 original lines each. Each file returns its SHA and its own success/error. Prefer this over repeated read_file calls.", schema(json!({"paths":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string"}},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["paths"]), true, false),
-        tool("read_media", "Inspect one bounded workspace media file. Metadata is returned by default. Set include_content=true to opt into standard MCP image/audio content blocks. PNG/JPEG/GIF/WebP image content and MP3/WAV/Ogg/FLAC audio content are supported; MP4/WebM remain metadata-only because MCP has no standard video content block.", schema(json!({"path":{"type":"string"},"include_content":{"type":"boolean","default":false}}), &["path"]), true, false),
-        tool("path_info", "Inspect one workspace path without loading the whole file into model context. Returns type, size, SHA-256 for files, readonly state, modification time, and hard-link count when available.", schema(json!({"path":{"type":"string"}}), &["path"]), true, false),
-        tool("replace_text", "Atomically replace one exact text occurrence with a SHA-256 precondition and optional 1-based original line bounds. When start_line/end_line are supplied together, old_text must match exactly once inside that original range. Protected/symlink/hard-link targets remain blocked.", schema(json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_sha256":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}), &["path","old_text","new_text","expected_sha256"]), false, true),
-        tool("apply_edits", "Atomically apply up to 128 non-overlapping edits against one original SHA revision. Each edit may add 1-based start_line/end_line bounds; all edits resolve against the same original bytes before one atomic commit, so line shifts from sibling edits cannot affect targeting.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["old_text","new_text"],"additionalProperties":false}}}), &["path","expected_sha256","edits"]), false, true),
-        tool("write_file", "Atomically write a complete UTF-8 file. Creating a new file requires no hash; overwriting an existing file requires expected_sha256 and preserves protected-path, symlink, hard-link, and destructive-replacement safeguards.", schema(json!({"path":{"type":"string"},"content":{"type":"string"},"expected_sha256":{"type":"string"}}), &["path","content"]), false, true),
-        tool("create_directory", "Recursively create a workspace-relative directory path while rejecting protected paths, symlink components, and workspace escape.", schema(json!({"path":{"type":"string"}}), &["path"]), false, false),
-        tool("create_file", "Atomically create one bounded UTF-8 file without overwrite. Protected paths, symlink components, broad path escapes, and races with an existing target are rejected.", schema(json!({"path":{"type":"string"},"content":{"type":"string"}}), &["path","content"]), false, true),
-        tool("create_files", "Create up to 64 independent files concurrently. Each file is atomically created without overwrite and reports its own success or failure.", schema(json!({"files":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}}), &["files"]), false, true),
-        tool("apply_file_edits", "Apply independent multi-edit transactions to up to 64 files concurrently. Every file is pinned to one SHA-256; each edit may also pin a 1-based original start_line/end_line range, and each file commits once atomically after overlap checks.", schema(json!({"files":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"edits":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["old_text","new_text"],"additionalProperties":false}}},"required":["path","expected_sha256","edits"],"additionalProperties":false}}}), &["files"]), false, true),
-        tool("move_path", "Move or rename one file or directory inside the workspace without overwriting the destination. File moves may include expected_source_sha256 to pin the exact source revision; directories reject that file-only precondition. Source trees containing symlinks, hard-linked files, protected paths, or workspace escapes are rejected.", schema(json!({"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}}), &["source","destination"]), false, true),
-        tool("move_paths", "Move up to 64 independent, non-overlapping files/directories concurrently without destination overwrite. Each file move may pin expected_source_sha256; overlapping or dependent paths are rejected before execution.", schema(json!({"moves":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","properties":{"source":{"type":"string"},"destination":{"type":"string"},"expected_source_sha256":{"type":"string"}},"required":["source","destination"],"additionalProperties":false}}}), &["moves"]), false, true),
-        tool("delete_path", "Delete one file or empty directory with exact human authorization; files require expected_sha256. Recursive/root/protected/symlink/hard-link deletion stays blocked.", schema(json!({"path":{"type":"string"},"expected_sha256":{"type":"string"}}), &["path"]), false, true),
-        tool("run_command", "Policy-checked execution; task_mode uses Tasks; env has five launch-only keys.", schema(json!({"program":{"type":"string","minLength":1},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":1800},"task_mode":{"type":"boolean","default":false},"env":{"type":"object","maxProperties":5}}), &["program"]), false, true),
-    ]
+pub(super) fn catalog_metrics() -> &'static Value {
+    static METRICS: OnceLock<Value> = OnceLock::new();
+    METRICS.get_or_init(|| {
+        let catalog = tools();
+        let core_tool_count = catalog
+            .iter()
+            .filter(|tool| tool["_meta"]["dev.wcode/preloadRecommended"] == true)
+            .count();
+        let input_schema_bytes = catalog
+            .iter()
+            .map(|tool| serde_json::to_vec(&tool["inputSchema"]).map_or(0, |bytes| bytes.len()))
+            .sum::<usize>();
+        let core = catalog
+            .iter()
+            .filter(|tool| tool["_meta"]["dev.wcode/preloadRecommended"] == true)
+            .collect::<Vec<_>>();
+        let catalog_bytes = serde_json::to_vec(catalog).map_or(0, |bytes| bytes.len());
+        let core_catalog_bytes = serde_json::to_vec(&core).map_or(0, |bytes| bytes.len());
+        let core_schema_bytes = core
+            .iter()
+            .map(|tool| serde_json::to_vec(&tool["inputSchema"]).map_or(0, |bytes| bytes.len()))
+            .sum::<usize>();
+        json!({
+            "tool_count": catalog.len(),
+            "core_tool_count": core_tool_count,
+            "on_demand_tool_count": catalog.len().saturating_sub(core_tool_count),
+            "catalog_bytes": catalog_bytes,
+            "input_schema_bytes": input_schema_bytes,
+            "preload_catalog_bytes": core_catalog_bytes,
+            "preload_input_schema_bytes": core_schema_bytes,
+            "preload_catalog_reduction_percent": core_catalog_bytes
+                .saturating_mul(100)
+                .checked_div(catalog_bytes)
+                .map(|used| 100usize.saturating_sub(used))
+                .unwrap_or(0),
+            "task_manifest": "agent_context.capabilities",
+            "action_groups": "task_manifest_only",
+            "dynamic_tool_list": false,
+            "dynamic_tool_list_policy": "task_independent_protocol_catalog",
+        })
+    })
 }
 
 fn schema(mut properties: Value, required: &[&str]) -> Value {
@@ -232,7 +135,7 @@ const MAX_TOOL_DESCRIPTION_CHARS: usize = 200;
 const MAX_ON_DEMAND_TOOL_DESCRIPTION_CHARS: usize = 140;
 
 pub(super) fn compact_tool_description(name: &str, description: &str) -> String {
-    let limit = if preload_recommended(name) {
+    let limit = if crate::harness::model_tool_preload_recommended(name) {
         MAX_TOOL_DESCRIPTION_CHARS
     } else {
         MAX_ON_DEMAND_TOOL_DESCRIPTION_CHARS
@@ -328,20 +231,6 @@ fn search_schema(key: &str) -> Value {
     schema(properties, &[key])
 }
 
-fn preload_recommended(name: &str) -> bool {
-    matches!(
-        name,
-        "agent_context"
-            | "search_many"
-            | "scan_patterns"
-            | "search_syntax"
-            | "read_files"
-            | "apply_file_edits"
-            | "review_changes"
-            | "verify_project"
-    )
-}
-
 fn tool(
     name: &str,
     description: &str,
@@ -356,7 +245,7 @@ fn tool(
         .map(|scope| scope.as_str())
         .collect::<Vec<_>>();
     let mut meta = json!({"dev.wcode/productScopes": product_scopes});
-    if preload_recommended(name) {
+    if crate::harness::model_tool_preload_recommended(name) {
         meta["dev.wcode/preloadRecommended"] = Value::Bool(true);
     }
     json!({
@@ -429,6 +318,9 @@ pub(super) fn agent_context_structured_result(value: Value, is_error: bool) -> V
 
 fn agent_context_result(mut value: Value, is_error: bool, include_text: bool) -> Value {
     let mut telemetry = take_agent_context_telemetry(&mut value);
+    if let Some(selection) = capability_selection_telemetry(&value) {
+        telemetry.insert("capability_selection".to_owned(), selection);
+    }
     let serialized_text =
         include_text.then(|| serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_owned()));
     let model_bytes = serialized_text
@@ -478,6 +370,44 @@ fn agent_context_result(mut value: Value, is_error: bool, include_text: bool) ->
         );
     }
     result
+}
+
+fn capability_selection_telemetry(value: &Value) -> Option<Value> {
+    let requested = value
+        .pointer("/capabilities/recommended_tools")
+        .and_then(Value::as_array)?;
+    let catalog = tools();
+    let selected = requested
+        .iter()
+        .filter_map(Value::as_str)
+        .filter_map(|name| catalog.iter().find(|tool| tool["name"] == name))
+        .collect::<Vec<_>>();
+    let selected_catalog_bytes =
+        serde_json::to_vec(&selected).map_or(0, |bytes| bytes.len()) as u64;
+    let selected_schema_bytes = selected
+        .iter()
+        .map(|tool| serialized_json_bytes(&tool["inputSchema"]))
+        .sum::<u64>();
+    let metrics = catalog_metrics();
+    let catalog_bytes = metrics["catalog_bytes"].as_u64().unwrap_or(0);
+    let schema_bytes = metrics["input_schema_bytes"].as_u64().unwrap_or(0);
+    let reduction = |selected: u64, full: u64| {
+        selected
+            .saturating_mul(100)
+            .checked_div(full)
+            .map(|used| 100u64.saturating_sub(used))
+            .unwrap_or(0)
+    };
+    Some(json!({
+        "requested_tool_count": requested.len(),
+        "resolved_tool_count": selected.len(),
+        "catalog_tool_count": catalog.len(),
+        "selected_catalog_bytes": selected_catalog_bytes,
+        "selected_input_schema_bytes": selected_schema_bytes,
+        "catalog_reduction_percent": reduction(selected_catalog_bytes, catalog_bytes),
+        "schema_reduction_percent": reduction(selected_schema_bytes, schema_bytes),
+        "compacted": value.pointer("/capabilities/compacted").and_then(Value::as_bool).unwrap_or(false),
+    }))
 }
 
 fn take_agent_context_telemetry(value: &mut Value) -> serde_json::Map<String, Value> {

@@ -304,13 +304,9 @@ fn tool_catalog_exposes_model_neutral_agent_hints() {
     let catalog = tools();
     let core = [
         "agent_context",
-        "search_many",
-        "scan_patterns",
-        "search_syntax",
-        "read_files",
-        "apply_file_edits",
-        "review_changes",
-        "verify_project",
+        "workspace_info",
+        "execution_status",
+        "worklist_status",
     ];
     for tool in catalog {
         let name = tool["name"].as_str().unwrap();
@@ -332,10 +328,37 @@ fn tool_catalog_marks_core_and_on_demand_capabilities_without_hiding_tools() {
     let on_demand = catalog.len().saturating_sub(core);
     for tool in catalog {
         assert!(tool["_meta"]["dev.wcode/productScopes"].is_array());
+        assert!(tool["_meta"].get("dev.wcode/actionGroup").is_none());
         if tool["_meta"]["dev.wcode/preloadRecommended"] != true {
             assert!(tool["_meta"].get("dev.wcode/preloadRecommended").is_none());
         }
     }
+    let metrics = catalog_metrics();
+    assert_eq!(metrics["tool_count"], catalog.len());
+    assert_eq!(metrics["core_tool_count"], core);
+    assert_eq!(metrics["on_demand_tool_count"], on_demand);
+    assert!(metrics["catalog_bytes"].as_u64().unwrap() > 0);
+    assert!(metrics["input_schema_bytes"].as_u64().unwrap() > 0);
+    assert!(
+        metrics["preload_catalog_bytes"].as_u64().unwrap()
+            < metrics["catalog_bytes"].as_u64().unwrap()
+    );
+    assert!(
+        metrics["preload_input_schema_bytes"].as_u64().unwrap()
+            < metrics["input_schema_bytes"].as_u64().unwrap()
+    );
+    assert!(
+        metrics["preload_catalog_reduction_percent"]
+            .as_u64()
+            .unwrap()
+            >= 50
+    );
+    assert_eq!(metrics["action_groups"], "task_manifest_only");
+    assert_eq!(metrics["dynamic_tool_list"], false);
+    assert_eq!(
+        metrics["dynamic_tool_list_policy"],
+        "task_independent_protocol_catalog"
+    );
     assert!(core > 0);
     assert!(
         on_demand > core,
@@ -344,6 +367,22 @@ fn tool_catalog_marks_core_and_on_demand_capabilities_without_hiding_tools() {
     assert!(catalog
         .iter()
         .any(|tool| tool["name"] == "execution_status"));
+}
+
+#[test]
+fn agent_context_capability_telemetry_measures_task_schema_reduction() {
+    let telemetry = capability_selection_telemetry(&json!({
+        "capabilities": {
+            "recommended_tools": crate::harness::default_coding_tools()
+        }
+    }))
+    .unwrap();
+    assert_eq!(telemetry["requested_tool_count"], 6);
+    assert_eq!(telemetry["resolved_tool_count"], 6);
+    assert_eq!(telemetry["catalog_tool_count"], tools().len());
+    assert!(telemetry["catalog_reduction_percent"].as_u64().unwrap() >= 50);
+    assert!(telemetry["schema_reduction_percent"].as_u64().unwrap() >= 50);
+    assert_eq!(telemetry["compacted"], false);
 }
 
 #[test]

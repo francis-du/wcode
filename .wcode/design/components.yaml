@@ -286,7 +286,7 @@
   id: component:verification-mesh
   name: Verification Mesh
   responsibilities:
-    - create persistent blind independent reviewer jobs with contract-first correctness guidance
+    - create persistent blind independent reviewer jobs with contract-first correctness guidance and reclaim only superseded unclaimed plan jobs when per-Workspace capacity is exhausted
     - bind plans and admissible evidence to the exact active code plus Design State revision and fixed changed-language verification targets
     - aggregate deterministic reviewer and stage evidence fail closed by producer and required target, preserving the less favorable verdict for equal-time conflicts and rejecting conflicted newest HumanApproval decisions
     - discover and execute bounded property mutation fuzz and runtime-canary adapters with explicit per-target coverage
@@ -584,6 +584,10 @@
     - kind: symbol
       path: src/integrations/mcp/mod.rs
       symbol: handle_message
+    - kind: file
+      path: src/integrations/mcp/tools.rs
+    - kind: file
+      path: src/integrations/mcp/tool_catalog.rs
     - kind: symbol
       path: src/integrations/mcp/tasks.rs
       symbol: create_tool_task
@@ -644,7 +648,7 @@
   responsibilities:
     - export canonical repository-owned plugin files without duplicated README or Skill bodies
     - support skill-only, local stdio, remote HTTP, and automatic export profiles without guessing a Workspace or embedding credentials
-    - guide MCP-capable agents through workspace design scope and verification surfaces
+    - guide MCP-capable agents through Agent Context recommended_actions so the full deterministic catalog is not treated as the model's per-turn action menu
   constraints:
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
     - CONSTRAINT-AGENT-CONTEXT-ENFORCEMENT

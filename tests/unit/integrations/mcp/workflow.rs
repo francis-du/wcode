@@ -490,7 +490,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
         for expected in fixture.expected_checks {
             assert!(
                 checks.iter().any(|check| check["id"] == *expected),
-                "missing {expected} for {}: {checks:#?}",
+                "missing {expected} for {}: {pack}",
                 fixture.source_path
             );
         }

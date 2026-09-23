@@ -4,7 +4,7 @@ name: Fast Decision Plane
 responsibilities:
   - define provider-neutral probability, choice and score decision primitives with explicit confidence and evidence codes
   - evaluate bounded Agent Context state without requiring a large model round trip
-  - expose assist recommendations for retrieval and semantic navigation while keeping verification escalation shadow-observable
+  - expose assist recommendations for retrieval, semantic navigation and bounded read/advisory capability-group disclosure while keeping verification escalation shadow-observable
   - preserve deterministic authorization, risk, evidence, SHA and verification floors as non-overridable authority
   - provide typed probability lookup and Brier primitives for measuring decision quality over independent outcomes
   - calibrate context sufficiency against Engineering Fitness Gold edit inputs, including false-stop and false-continue counts across budgets and cold/warm phases
@@ -20,6 +20,7 @@ constraints:
 implementation:
   - {kind: file, path: src/intelligence/decision.rs}
   - {kind: file, path: src/intelligence/jev.rs}
+  - {kind: file, path: src/intelligence/jev_policy.rs}
   - {kind: file, path: src/integrations/mcp/dispatch/intelligence.rs}
   - {kind: file, path: src/runtime/harness/agent_context.rs}
   - {kind: file, path: tests/unit/runtime/harness/fitness/scoring.rs}

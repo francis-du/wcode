@@ -11,11 +11,21 @@ Tool visibility bootstrap:
 - Look first for the canonical `mcp__wcode__*` namespace. Some Hosts lazy-load
   or abbreviate tools, so inspect the available/deferred tool registry before
   concluding that wcode is unavailable. Discover `wcode` or `agent_context`
-  once, then load only the tools needed by `next_actions`. Reuse discovered
-  schemas; do not repeatedly load the entire tool catalog. When the Host exposes
-  tool `_meta`, keep tools with `dev.wcode/preloadRecommended=true` immediately
-  available and discover the rest on demand. The catalog and server instructions
-  are intentionally deterministic so cache-sensitive Hosts can retain stable prefixes.
+  once, then load only the tools needed by `next_actions`. After `agent_context`,
+  use `capabilities.recommended_actions` as the preferred task tool set; in an
+  aggressively compacted context use the ordered `capabilities.recommended_tools`
+  names instead. Load exact schemas for those actions and any explicit request
+  or required safety, authorization, verification, or recovery action. The
+  recommendation is not an allowlist; omitted tools remain callable through
+  normal authorization. Reuse discovered schemas; do not repeatedly load the
+  entire tool catalog. When the
+  Host exposes tool `_meta`, keep tools with `dev.wcode/preloadRecommended=true`
+  immediately available and discover the rest on demand. The MCP `tools/list`
+  catalog stays deterministic and task-independent; do not use list-changed
+  notifications as per-task routing state. The stable catalog and server
+  instructions let cache-sensitive Hosts retain stable prefixes. Metadata-first
+  hints do not guarantee actual Host lazy loading; catalog/schema byte comparisons
+  describe the proposed selection, not measured Host tokens, cache hits, or speed.
 - Once found, use the real wcode MCP tools and keep one namespace for the task.
   Do not switch to an alias such as `hcode` merely because both are registered.
   Capability-first model tuning is preferred over vendor branching: Hosts with

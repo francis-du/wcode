@@ -9,10 +9,7 @@ fn perf_foreground_capacity_uses_hardware_without_raising_background_budget() {
     let limits = ResourceLimits::new(10.0, 512, 32).unwrap();
     assert_eq!(limits.cpu_burst_threads, host.min(8));
     assert_eq!(limits.rayon_threads, limits.cpu_burst_threads);
-    assert_eq!(
-        limits.interactive_cpu_percent,
-        limits.cpu_burst_threads as f64 * 100.0
-    );
+    assert_eq!(limits.interactive_cpu_percent, 100.0);
     assert_eq!(limits.max_cpu_percent, 10.0);
     assert_eq!(
         limits.child_processes,

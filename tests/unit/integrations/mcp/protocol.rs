@@ -371,7 +371,29 @@ fn modern_requests_require_routing_headers_and_metadata() {
     assert!(validate_modern_request(&modern_headers("tools/list", None), &missing_meta).is_err());
 
     let bootstrap = json!({"jsonrpc": "2.0", "id": 2, "method": "server/discover"});
-    assert!(validate_modern_request(&modern_headers("server/discover", None), &bootstrap).is_ok());
+    assert_eq!(
+        validate_modern_request(&modern_headers("server/discover", None), &bootstrap),
+        Err("missing 2026 request _meta envelope")
+    );
+}
+
+#[tokio::test]
+async fn modern_ping_is_not_a_supported_2026_method() {
+    let root = tempfile::tempdir().unwrap();
+    let state = cancellation_test_state(root.path());
+    let response = handle_message(
+        state,
+        modern_request("ping", json!({})),
+        MODERN_PROTOCOL_VERSION,
+        &"a".repeat(64),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["error"]["code"], -32601);
+    assert!(response["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Method not found: ping"));
 }
 
 #[test]
@@ -449,6 +471,15 @@ fn modern_validation_uses_final_2026_error_codes() {
 }
 
 #[test]
+fn server_instructions_make_task_scoped_tool_selection_clear_up_front() {
+    let prefix = SERVER_INSTRUCTIONS.chars().take(512).collect::<String>();
+    assert!(prefix.contains("agent_context"));
+    assert!(prefix.contains("capabilities.recommended_actions"));
+    assert!(prefix.contains("complete tools/list is a compatibility catalog"));
+    assert!(SERVER_INSTRUCTIONS.len() < 1_000);
+}
+
+#[test]
 fn modern_results_include_server_identity_and_private_cache_hints() {
     let result = modern_cacheable_result(json!({"tools": []}));
     assert_eq!(result["resultType"], "complete");
@@ -458,6 +489,72 @@ fn modern_results_include_server_identity_and_private_cache_hints() {
         result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
         "wcode"
     );
+}
+
+#[tokio::test]
+async fn tools_list_reports_progressive_disclosure_catalog_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = cancellation_test_state(dir.path());
+    for protocol in LEGACY_PROTOCOL_VERSIONS
+        .iter()
+        .copied()
+        .chain([MODERN_PROTOCOL_VERSION])
+    {
+        let response = handle_message(
+            state.clone(),
+            modern_request("tools/list", json!({})),
+            protocol,
+            &"a".repeat(64),
+        )
+        .await
+        .unwrap();
+        let catalog = response["result"]["tools"].as_array().unwrap();
+        assert_eq!(catalog.as_slice(), mcp_tools::tools());
+        assert!(response["result"].get("nextCursor").is_none());
+        let metrics = &response["result"]["_meta"]["dev.wcode/catalog"];
+        assert_eq!(metrics["tool_count"], catalog.len());
+        assert_eq!(metrics["core_tool_count"], 4);
+        assert!(metrics["on_demand_tool_count"].as_u64().unwrap() > 4);
+        assert!(metrics["catalog_bytes"].as_u64().unwrap() > 0);
+        assert!(metrics["input_schema_bytes"].as_u64().unwrap() > 0);
+        assert!(
+            metrics["preload_catalog_bytes"].as_u64().unwrap()
+                < metrics["catalog_bytes"].as_u64().unwrap()
+        );
+        assert!(
+            metrics["preload_catalog_reduction_percent"]
+                .as_u64()
+                .unwrap()
+                >= 50
+        );
+        assert_eq!(metrics["task_manifest"], "agent_context.capabilities");
+        assert_eq!(metrics["dynamic_tool_list"], false);
+        assert_eq!(
+            metrics["dynamic_tool_list_policy"],
+            "task_independent_protocol_catalog"
+        );
+
+        let on_demand = catalog
+            .iter()
+            .find(|tool| tool["name"] == "path_info")
+            .unwrap();
+        assert!(on_demand["_meta"]
+            .get("dev.wcode/preloadRecommended")
+            .is_none());
+        let called = handle_message(
+            state.clone(),
+            modern_request(
+                "tools/call",
+                json!({"name":"path_info","arguments":{"path":"."}}),
+            ),
+            protocol,
+            &"a".repeat(64),
+        )
+        .await
+        .unwrap();
+        assert_eq!(called["result"]["isError"], false, "{called}");
+        assert!(called["result"]["structuredContent"].is_object());
+    }
 }
 
 #[tokio::test]

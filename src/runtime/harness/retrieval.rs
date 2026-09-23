@@ -159,7 +159,7 @@ impl RepoMapRouting {
 
 // Keep code identifiers available to retrieval, but do not interpret their
 // embedded words (for example `get_latest_snapshot`) as natural-language intent.
-fn intent_query(query: &str) -> String {
+pub(super) fn intent_query(query: &str) -> String {
     let separator = |ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '_' | ':' | '.');
     let mut result = String::with_capacity(query.len());
     for chunk in query.split_inclusive(separator) {

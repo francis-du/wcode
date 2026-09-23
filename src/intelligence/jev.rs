@@ -27,7 +27,11 @@ pub(crate) const JEV_DEFAULT_MODEL_ENV: &str = "JEV_DEFAULT_MODEL";
 pub(crate) const JEV_DEFAULT_BASE_URL: &str = "https://api.typesafe.ai";
 pub(crate) const JEV_DEFAULT_MODEL: &str = "jev-latest";
 const AGENT_CONTEXT_QUESTION_SET_ID: &str = "wcode.agent_context";
-const AGENT_CONTEXT_QUESTION_SET_VERSION: u16 = 4;
+const AGENT_CONTEXT_QUESTION_SET_VERSION: u16 = 5;
+#[path = "jev_policy.rs"]
+mod policy;
+pub(crate) use policy::agent_context_questions;
+use policy::{recommendation, score_max_index, signal_mode};
 #[path = "jev_checkpoint.rs"]
 mod checkpoint;
 pub(crate) use checkpoint::{checkpoint_actions, evaluate_checkpoint};
@@ -447,6 +451,12 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
     let verification_escalation = guidance
         .iter()
         .any(|item| item.as_str() == Some("jev:preserve_or_raise_verification"));
+    let capability_group = guidance.iter().find_map(|item| {
+        item.as_str()
+            .and_then(|value| value.strip_prefix("jev:capability_group:"))
+            .filter(|group| !crate::harness::model_tools_for_group(group).is_empty())
+    });
+    let original_capabilities = context.get("capabilities").cloned();
     let lsp_install_required = context
         .pointer("/readiness/advisories")
         .and_then(Value::as_array)
@@ -514,21 +524,37 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
             }
         }
     }
-    if !applied.is_empty() {
+    let mut promoted_tools = applied.clone();
+    if let Some(group) = capability_group {
+        for tool in crate::harness::model_tools_for_group(group) {
+            if !promoted_tools.iter().any(|candidate| candidate == tool) {
+                promoted_tools.push((*tool).to_owned());
+            }
+        }
+    }
+    if !applied.is_empty() || capability_group.is_some() {
         readiness.insert(
             "decision_assist".to_owned(),
             json!({
                 "provider":"jev",
                 "authority":"increase_only",
                 "candidate_next_action": candidate_next_action,
+                "capability_group": capability_group,
                 "applied_actions": applied,
+                "promoted_tools": promoted_tools,
             }),
         );
+    }
+    if let Some(capabilities) = context.get_mut("capabilities") {
+        crate::harness::promote_model_tools(capabilities, &promoted_tools);
     }
 
     if !context_fits_budget(context) {
         if let Some(readiness) = context.get_mut("readiness").and_then(Value::as_object_mut) {
             *readiness = original;
+        }
+        if let Some(original_capabilities) = original_capabilities {
+            context["capabilities"] = original_capabilities;
         }
         return json!({
             "applied":false,
@@ -538,8 +564,10 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
     }
 
     json!({
-        "applied":!applied.is_empty(),
+        "applied":!applied.is_empty() || capability_group.is_some(),
         "actions":applied,
+        "capability_group":capability_group,
+        "promoted_tools":promoted_tools,
         "verification_escalation":verification_escalation
     })
 }
@@ -620,93 +648,6 @@ fn context_fits_budget(context: &Value) -> bool {
     serde_json::to_vec(context)
         .map(|bytes| (bytes.len() as u64).div_ceil(4) <= budget)
         .unwrap_or(false)
-}
-
-pub(crate) fn agent_context_questions() -> Value {
-    json!({
-        "context_sufficient": {
-            "type": "noul",
-            "instructions": "Using only the bounded repository state supplied here, is there enough precise evidence to start the intended localized edit without broadening retrieval?",
-            "criteria": {
-                "true": "Targets, source context, current edit preconditions and verification references are specific enough that no missing repository fact could materially change the target, safety boundary or verification plan.",
-                "false": "An exact source, worktree, design, semantic or verification fact is still missing or ambiguous enough to change the target, safety boundary or verification plan."
-            }
-        },
-        "continue_retrieval": {
-            "type": "noul",
-            "instructions": "Is additional bounded repository retrieval necessary before a safe localized edit?",
-            "criteria": {
-                "true": "Another exact source, worktree, design, semantic or verification fact is required because it could materially change the edit or its safety.",
-                "false": "The target, current source, edit preconditions and verification route are already sufficiently established; unrelated or merely nice-to-have context does not count."
-            }
-        },
-        "semantic_navigation_required": {
-            "type": "noul",
-            "instructions": "Is semantic navigation such as callers, callees, references, implementations or hover necessary evidence before a safe localized edit?",
-            "criteria": {
-                "true": "Relationship information is required to understand impact, resolve the intended symbol or locate the correct implementation before editing.",
-                "false": "Ordinary source or test retrieval, worktree review, or the already-localized target is sufficient; semantic navigation would only be optional extra context."
-            }
-        },
-        "verification_escalation_value": {
-            "type": "noul",
-            "instructions": "Must verification depth be preserved or increased because of semantic risk?",
-            "criteria": {
-                "true": "Observed risk, uncertainty or cross-boundary impact justifies preserving or increasing deterministic verification work.",
-                "false": "No additional semantic risk in this bounded state justifies verification beyond the deterministic plan already selected."
-            }
-        },
-        "next_action": {
-            "type": "choice",
-            "instructions": "Which bounded next action best fits this coding-agent state? This is advisory only and must not reduce deterministic safety, worktree review or verification.",
-            "criteria": {
-                "retrieve": {
-                    "use_when": "Exact source, tests, design, schema or other repository evidence required for a safe edit is still missing.",
-                    "do_not_use_when": "The primary missing evidence is a caller/reference/implementation relationship or the worktree must be reviewed first."
-                },
-                "semantic_navigation": {
-                    "use_when": "Caller, callee, reference, implementation or hover relationships are necessary evidence before editing.",
-                    "do_not_use_when": "Ordinary retrieval or worktree review is the actual missing step, or the edit is already localized."
-                },
-                "review_worktree": {
-                    "use_when": "Existing target changes, ownership, staging or merge state must be understood before editing.",
-                    "do_not_use_when": "The relevant worktree state is already known safe for the localized edit."
-                },
-                "edit_then_verify": {
-                    "use_when": "The exact target, current source, edit preconditions and verification route are sufficiently established for a localized edit.",
-                    "do_not_use_when": "Any required retrieval, semantic relationship or worktree review remains."
-                },
-                "other_review": {
-                    "use_when": "The bounded state is too underspecified or none of the other actions safely fits.",
-                    "do_not_use_when": "One of the other bounded actions is clearly supported."
-                }
-            }
-        },
-        "risk_surface": {
-            "type": "choice",
-            "instructions": "Which semantic risk surface is most worth checking before or immediately after the localized change? This is a review-priority signal only and never authorizes an edit.",
-            "criteria": {
-                "stale_state": "Async or cached state may no longer belong to the current request or workspace.",
-                "response_contract": "A structurally valid response may not semantically match the request or contract.",
-                "workspace_isolation": "State, authorization, or evidence may cross workspace boundaries.",
-                "graph_semantics": "Graph relationships, direction, precision, roots, or provenance may be semantically misleading.",
-                "verification_gap": "Existing tests may not exercise the real production behavior or failure path.",
-                "ui_truthfulness": "The UI may display success, freshness, health, or evidence more strongly than the facts justify.",
-                "none": "No specific additional semantic risk surface stands out from the supplied state."
-            }
-        },
-        "evidence_density": {
-            "type": "score",
-            "instructions": "How dense and edit-ready is the supplied context evidence?",
-            "criteria": [
-                "Little or no relevant evidence",
-                "Some relevant evidence but important gaps remain",
-                "Enough localized evidence for a cautious edit",
-                "Strong localized evidence plus verification references",
-                "Highly edit-ready context with precise targets, source, and checks"
-            ]
-        }
-    })
 }
 
 pub(crate) fn response_to_batch(
@@ -844,6 +785,20 @@ pub(crate) fn advisory_guidance(
     if let Some(signal) = candidate
         .signals
         .iter()
+        .find(|signal| signal.id == "capability_group")
+    {
+        if choice_signal_is_concentrated(signal) {
+            if let DecisionValue::Choice { selected } = &signal.value {
+                if selected != "none" && !crate::harness::model_tools_for_group(selected).is_empty()
+                {
+                    guidance.push(format!("jev:capability_group:{selected}"));
+                }
+            }
+        }
+    }
+    if let Some(signal) = candidate
+        .signals
+        .iter()
         .find(|signal| signal.id == "risk_surface")
     {
         if choice_signal_is_concentrated(signal) {
@@ -877,35 +832,6 @@ fn probability(batch: &DecisionBatch, id: &str) -> Option<u16> {
                 DecisionValue::Choice { .. } | DecisionValue::Score { .. } => None,
             })
     })
-}
-
-fn signal_mode(id: &str) -> DecisionMode {
-    match id {
-        "continue_retrieval" | "semantic_navigation_required" | "next_action" => {
-            DecisionMode::Assist
-        }
-        _ => DecisionMode::Shadow,
-    }
-}
-
-fn recommendation(id: &str) -> &'static str {
-    match id {
-        "context_sufficient" => "observe_semantic_context_sufficiency",
-        "continue_retrieval" => "semantic_retrieval_advice",
-        "semantic_navigation_required" => "semantic_navigation_required_before_edit",
-        "verification_escalation_value" => "increase_only_verification_advice",
-        "next_action" => "typed_jev_routing_without_bypassing_gates",
-        "risk_surface" => "semantic_adversarial_review_priority",
-        "evidence_density" => "semantic_context_quality_score",
-        _ => "jev_advisory",
-    }
-}
-
-fn score_max_index(id: &str) -> f64 {
-    match id {
-        "evidence_density" => 4.0,
-        _ => 1.0,
-    }
 }
 
 fn answer_probability_distribution(

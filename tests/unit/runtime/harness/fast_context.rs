@@ -46,6 +46,12 @@ fn fast_context_routes_launch_requests_through_bounded_profiles() {
             pack["readiness"]["next_actions"],
             serde_json::json!(["workspace_info", "run_command"])
         );
+        let tools = pack["capabilities"]["recommended_tools"]
+            .as_array()
+            .unwrap();
+        assert_eq!(tools[0], "workspace_info");
+        assert_eq!(tools[1], "run_command");
+        assert!(tools.len() <= 14);
         assert!(pack["targets"].as_array().unwrap().is_empty());
         assert!(pack["files"].as_array().unwrap().is_empty());
         assert!(pack["hot_source"].as_array().unwrap().is_empty());
@@ -59,40 +65,55 @@ fn fast_context_routes_launch_requests_through_bounded_profiles() {
     }
 }
 
-#[test]
-fn fast_context_covers_every_explicit_target_without_followup_reads() {
+fn assert_explicit_targets_at_budget(budget: usize) {
     let (_root, workspace) = fixture();
     let harness = ToolHarness::new(4).unwrap();
-    for budget in [0, 2_000, 3_000, 6_000] {
-        let pack = harness
-            .agent_context("demo", &workspace, &NAMES.join(" "), budget, &[])
-            .unwrap();
-        let sources = pack["hot_source"].as_array().unwrap();
-        for name in NAMES {
-            let source = sources
-                .iter()
-                .find(|source| source["qualified_name"] == name)
-                .unwrap_or_else(|| {
-                    panic!("missing explicit body {name} at budget {budget}: {pack}")
-                });
-            assert!(source["body"]["content"]
-                .as_str()
-                .unwrap()
-                .contains(&format!("fn {name}")));
-            assert_eq!(source["body"]["truncated"], false);
-            let file = pack["files"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|file| file["path"] == source["path"])
-                .expect("body must keep its file precondition");
-            assert_eq!(source["sha256"], file["sha256"]);
-        }
-        assert!(
-            serde_json::to_vec(&pack).unwrap().len().div_ceil(4)
-                <= pack["budget"].as_u64().unwrap() as usize
-        );
+    let pack = harness
+        .agent_context("demo", &workspace, &NAMES.join(" "), budget, &[])
+        .unwrap();
+    let sources = pack["hot_source"].as_array().unwrap();
+    for name in NAMES {
+        let source = sources
+            .iter()
+            .find(|source| source["qualified_name"] == name)
+            .unwrap_or_else(|| panic!("missing explicit body {name} at budget {budget}: {pack}"));
+        assert!(source["body"]["content"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("fn {name}")));
+        assert_eq!(source["body"]["truncated"], false);
+        let file = pack["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == source["path"])
+            .expect("body must keep its file precondition");
+        assert_eq!(source["sha256"], file["sha256"]);
     }
+    assert!(
+        serde_json::to_vec(&pack).unwrap().len().div_ceil(4)
+            <= pack["budget"].as_u64().unwrap() as usize
+    );
+}
+
+#[test]
+fn fast_context_covers_every_explicit_target_without_followup_reads() {
+    assert_explicit_targets_at_budget(0);
+}
+
+#[test]
+fn fast_context_explicit_targets_survive_2k_budget() {
+    assert_explicit_targets_at_budget(2_000);
+}
+
+#[test]
+fn fast_context_explicit_targets_survive_3k_budget() {
+    assert_explicit_targets_at_budget(3_000);
+}
+
+#[test]
+fn fast_context_explicit_targets_survive_6k_budget() {
+    assert_explicit_targets_at_budget(6_000);
 }
 
 #[test]

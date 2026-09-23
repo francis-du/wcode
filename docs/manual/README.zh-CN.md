@@ -68,6 +68,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.8.3 发布说明](releases/v0.8.3/) — 能力感知 MCP 发现、更紧凑的编辑就绪 Agent Context、隔离 Jev Policy、现代 Task 兼容与 300 轮发布验证。
 - [v0.8.2 发布说明](releases/v0.8.2/) — 持久执行观测、结构化 Steering、更公平的代码图谱探索、资源隔离与 100 轮发布验证。
 - [v0.8.1 发布说明](releases/v0.8.1/) — Jev Decision Plane 加固、更窄的结构化判断、严格 increase-only 权限、统一命名与更可靠的 WebUI 状态绑定。
 - [v0.8.0 发布说明](releases/v0.8.0/) — Engineering Digital Twin、有界代码图谱与时间旅行、更快 Observatory、Ignore 感知扫描、可校准 Decision Plane 与任务优先 TUI。
