@@ -365,7 +365,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
             old_text: "  return 1;",
             new_text: "  return 2;",
             start_line: 2,
-            required_program: "node",
+            required_program: "npm",
             expected_checks: &["node-test"],
         },
     ];
