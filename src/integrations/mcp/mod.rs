@@ -359,34 +359,39 @@ fn mcp_response_status(value: &Value, modern: bool) -> StatusCode {
     }
 }
 
-fn request_protocol(headers: &HeaderMap, payload: &Value) -> String {
-    if let Some(value) = headers
-        .get("mcp-protocol-version")
-        .and_then(|value| value.to_str().ok())
-    {
-        return value.to_owned();
-    }
-    if payload
-        .pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion")
-        .and_then(Value::as_str)
-        == Some(MODERN_PROTOCOL_VERSION)
-        || payload
-            .get("params")
-            .and_then(Value::as_object)
-            .and_then(|params| params.get("_meta"))
-            .and_then(Value::as_object)
-            .and_then(|meta| meta.get("io.modelcontextprotocol/protocolVersion"))
-            .and_then(Value::as_str)
-            == Some(MODERN_PROTOCOL_VERSION)
-    {
+pub(crate) fn protocol_for_payload(payload: &Value, legacy_protocol: &str) -> String {
+    if payload.get("method").and_then(Value::as_str) == Some("server/discover") {
         return MODERN_PROTOCOL_VERSION.to_owned();
     }
-    payload
-        .pointer("/params/protocolVersion")
+    if let Some(version) = payload
+        .pointer("/params/_meta")
+        .and_then(Value::as_object)
+        .and_then(|meta| meta.get("io.modelcontextprotocol/protocolVersion"))
         .and_then(Value::as_str)
-        .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
-        .unwrap_or("2025-03-26")
-        .to_owned()
+    {
+        return version.to_owned();
+    }
+    if payload.get("method").and_then(Value::as_str) == Some("initialize") {
+        return payload
+            .pointer("/params/protocolVersion")
+            .and_then(Value::as_str)
+            .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
+            .unwrap_or(legacy_protocol)
+            .to_owned();
+    }
+    legacy_protocol.to_owned()
+}
+
+pub(crate) fn request_protocol(headers: &HeaderMap, payload: &Value) -> String {
+    let payload_protocol = protocol_for_payload(payload, "2025-03-26");
+    if payload_protocol == MODERN_PROTOCOL_VERSION {
+        return payload_protocol;
+    }
+    headers
+        .get("mcp-protocol-version")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .unwrap_or(payload_protocol)
 }
 
 pub(crate) fn origin_allowed(auth: &AuthState, headers: &HeaderMap) -> bool {
@@ -428,7 +433,7 @@ pub(crate) fn validate_modern_payload(payload: &Value) -> Result<(), &'static st
         .and_then(Value::as_str)
         != Some(MODERN_PROTOCOL_VERSION)
     {
-        return Err("request _meta protocolVersion does not match MCP-Protocol-Version");
+        return Err("request _meta protocolVersion does not match modern MCP protocol version");
     }
     if !meta
         .get("io.modelcontextprotocol/clientCapabilities")
@@ -507,7 +512,10 @@ fn decode_mcp_header_value(value: &str) -> Result<String, &'static str> {
     Ok(value.to_owned())
 }
 
-fn validate_modern_request(headers: &HeaderMap, payload: &Value) -> Result<(), &'static str> {
+pub(crate) fn validate_modern_request(
+    headers: &HeaderMap,
+    payload: &Value,
+) -> Result<(), &'static str> {
     let method = payload
         .get("method")
         .and_then(Value::as_str)

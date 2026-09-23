@@ -1,4 +1,5 @@
 use super::*;
+use crate::mcp::{request_protocol, validate_modern_request};
 
 #[test]
 fn protocol_selection_supports_modern_stdio_and_legacy_sessions() {
@@ -12,12 +13,12 @@ fn protocol_selection_supports_modern_stdio_and_legacy_sessions() {
         }}
     });
     assert_eq!(
-        protocol_for_message(&modern, DEFAULT_LEGACY_PROTOCOL),
+        protocol_for_payload(&modern, DEFAULT_LEGACY_PROTOCOL),
         MODERN_PROTOCOL_VERSION
     );
     let discover = json!({"jsonrpc":"2.0","id":2,"method":"server/discover"});
     assert_eq!(
-        protocol_for_message(&discover, DEFAULT_LEGACY_PROTOCOL),
+        protocol_for_payload(&discover, DEFAULT_LEGACY_PROTOCOL),
         MODERN_PROTOCOL_VERSION
     );
     assert_eq!(
@@ -25,7 +26,40 @@ fn protocol_selection_supports_modern_stdio_and_legacy_sessions() {
         Err("missing 2026 request _meta envelope")
     );
     let legacy = json!({"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}});
-    assert_eq!(protocol_for_message(&legacy, "2025-06-18"), "2025-06-18");
+    assert_eq!(protocol_for_payload(&legacy, "2025-06-18"), "2025-06-18");
+
+    let unsupported_modern = json!({
+        "jsonrpc":"2.0","id":7,"method":"tools/list",
+        "params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2099-01-01"}}
+    });
+    assert_eq!(
+        protocol_for_payload(&unsupported_modern, DEFAULT_LEGACY_PROTOCOL),
+        "2099-01-01"
+    );
+
+    let http_discover = json!({"jsonrpc":"2.0","id":8,"method":"server/discover"});
+    assert_eq!(
+        request_protocol(&axum::http::HeaderMap::new(), &http_discover),
+        MODERN_PROTOCOL_VERSION
+    );
+    let modern_payload = json!({
+        "jsonrpc":"2.0","id":9,"method":"tools/list",
+        "params":{"_meta":{
+            "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    });
+    let mut conflicting_headers = axum::http::HeaderMap::new();
+    conflicting_headers.insert("mcp-protocol-version", "2025-11-25".parse().unwrap());
+    conflicting_headers.insert("mcp-method", "tools/list".parse().unwrap());
+    assert_eq!(
+        request_protocol(&conflicting_headers, &modern_payload),
+        MODERN_PROTOCOL_VERSION
+    );
+    assert_eq!(
+        validate_modern_request(&conflicting_headers, &modern_payload),
+        Err("MCP-Protocol-Version header does not match request _meta protocolVersion")
+    );
 
     let capable = json!({
         "jsonrpc":"2.0",

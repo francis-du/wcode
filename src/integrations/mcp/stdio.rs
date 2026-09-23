@@ -3,8 +3,8 @@ use crate::harness::ToolHarness;
 use crate::mcp::{
     apply_authorization_response, authorization_elicitation_params,
     authorization_request_from_tool_result, authorization_request_state, dispatch_mcp_payload,
-    supports_form_elicitation, validate_modern_payload, AppState, TaskRuntime,
-    LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSION,
+    protocol_for_payload, supports_form_elicitation, validate_modern_payload, AppState,
+    TaskRuntime, LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSION,
 };
 use crate::monitor::TaskMonitor;
 use crate::workspace::Workspaces;
@@ -72,7 +72,7 @@ pub(crate) async fn serve(
             .get("method")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let protocol = protocol_for_message(&message, &legacy_protocol);
+        let protocol = protocol_for_payload(&message, &legacy_protocol);
         if protocol == MODERN_PROTOCOL_VERSION {
             if let Err(error) = validate_modern_payload(&message) {
                 let id = message.get("id").cloned().unwrap_or(Value::Null);
@@ -239,31 +239,6 @@ async fn read_legacy_elicitation_response<R: AsyncBufRead + Unpin>(
             anyhow::anyhow!("authorization elicitation response is missing result")
         });
     }
-}
-
-fn protocol_for_message(message: &Value, legacy_protocol: &str) -> String {
-    if message.get("method").and_then(Value::as_str) == Some("server/discover") {
-        return MODERN_PROTOCOL_VERSION.to_owned();
-    }
-    if let Some(version) = message
-        .get("params")
-        .and_then(Value::as_object)
-        .and_then(|params| params.get("_meta"))
-        .and_then(Value::as_object)
-        .and_then(|meta| meta.get("io.modelcontextprotocol/protocolVersion"))
-        .and_then(Value::as_str)
-    {
-        return version.to_owned();
-    }
-    if message.get("method").and_then(Value::as_str) == Some("initialize") {
-        return message
-            .pointer("/params/protocolVersion")
-            .and_then(Value::as_str)
-            .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
-            .unwrap_or(legacy_protocol)
-            .to_owned();
-    }
-    legacy_protocol.to_owned()
 }
 
 async fn write_response<W: AsyncWriteExt + Unpin>(stdout: &mut W, response: &Value) -> Result<()> {

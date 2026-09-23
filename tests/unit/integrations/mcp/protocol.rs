@@ -329,7 +329,7 @@ fn protocol_detection_supports_modern_and_legacy_clients() {
         MODERN_PROTOCOL_VERSION
     );
 
-    let legacy = json!({"params": {"protocolVersion": "2024-11-05"}});
+    let legacy = json!({"method":"initialize","params": {"protocolVersion": "2024-11-05"}});
     assert_eq!(request_protocol(&HeaderMap::new(), &legacy), "2024-11-05");
     assert_eq!(
         request_protocol(&HeaderMap::new(), &json!({})),
