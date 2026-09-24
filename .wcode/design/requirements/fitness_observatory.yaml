@@ -1,0 +1,16 @@
+schema_version: 1
+id: REQ-FITNESS-OBSERVATORY-001
+title: Engineering Fitness observations remain separate from proof and task completion
+intent: >-
+  The existing Observatory Overview must expose explicit benchmark measurements and retained runtime observations without inventing a total score. Benchmark summaries are opt-in, bounded, source-free projections with measurement and binary fingerprints, code/Design observations, raw denominators and failure-inclusive metrics. Milestones have unique event IDs and optional post-operation revision observations; legacy, stale, corrupt and conflicted samples cannot become current proof. Missing or partial data stays visible, descriptive trends require comparable samples, and no metric changes authorization, verification readiness or Worklist completion. Existing UI theme, language switching, protected Workspace endpoints and safe reader boundaries remain authoritative.
+priority: high
+implemented_by:
+  - component:intelligence-ui
+  - component:evidence-runtime
+  - component:engineering-fitness
+acceptance:
+  - AC-FITNESS-OBSERVATORY-001
+constraints:
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-EXPLICIT-PRECISION
+  - CONSTRAINT-BOUNDED-VERIFICATION

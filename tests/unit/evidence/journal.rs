@@ -3,6 +3,56 @@ use crate::workspace::Workspace;
 use std::fs;
 
 #[test]
+fn engineering_journal_observation_identity_is_unique_bounded_and_backward_compatible() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let mut first =
+        EngineeringMilestone::new("verify_project", "prove", "succeeded", 1, Vec::new()).unwrap();
+    first.observed_revision = Some(crate::evidence::Revision {
+        code: format!("sha256:{}", "a".repeat(64)),
+        design: Some(format!("sha256:{}", "b".repeat(64))),
+    });
+    let mut second = first.clone();
+    second.event_id = Some(uuid::Uuid::new_v4().to_string());
+    persist(&workspace, &first).unwrap();
+    persist(&workspace, &second).unwrap();
+    let history = load_recent(&workspace, 4).unwrap();
+    assert_eq!(history.records.len(), 2);
+    assert!(history
+        .records
+        .iter()
+        .all(|event| event.observed_revision == first.observed_revision));
+    let mut legacy = serde_json::to_value(&first).unwrap();
+    legacy.as_object_mut().unwrap().remove("event_id");
+    legacy.as_object_mut().unwrap().remove("observed_revision");
+    let legacy: EngineeringMilestone = serde_json::from_value(legacy).unwrap();
+    assert!(legacy.event_id.is_none());
+    assert!(legacy.observed_revision.is_none());
+    persist(&workspace, &legacy).unwrap();
+    second.event_id = Some("not-a-uuid".into());
+    assert!(persist(&workspace, &second).is_err());
+    first.observed_revision.as_mut().unwrap().code = "arbitrary untrusted text".into();
+    assert!(persist(&workspace, &first).is_err());
+}
+
+#[test]
+fn engineering_journal_skipped_corrupt_records_mark_partial_coverage() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let event =
+        EngineeringMilestone::new("verify_project", "prove", "succeeded", 1, Vec::new()).unwrap();
+    persist(&workspace, &event).unwrap();
+    let directory = crate::evidence_store::workspace_state_directory(&workspace)
+        .unwrap()
+        .join("engineering-journal");
+    fs::write(directory.join("invalid.json"), "{broken").unwrap();
+    let history = load_recent(&workspace, 4).unwrap();
+    assert_eq!(history.retained_records, 2);
+    assert_eq!(history.records.len(), 1);
+    assert!(history.truncated);
+}
+
+#[test]
 fn engineering_journal_persists_only_bounded_structured_milestones() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("src")).unwrap();

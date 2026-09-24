@@ -17,6 +17,11 @@ const MAX_MILESTONE_PATHS: usize = 32;
 #[serde(deny_unknown_fields)]
 pub(crate) struct EngineeringMilestone {
     pub version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    // Best-effort post-operation observation, never a verification revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_revision: Option<crate::evidence::Revision>,
     pub timestamp_ms: u64,
     pub tool: String,
     pub stage: String,
@@ -44,6 +49,8 @@ impl EngineeringMilestone {
     ) -> Result<Self> {
         let milestone = Self {
             version: JOURNAL_VERSION,
+            event_id: Some(uuid::Uuid::new_v4().to_string()),
+            observed_revision: None,
             timestamp_ms: now_ms(),
             tool: tool.into(),
             stage: stage.into(),
@@ -62,6 +69,20 @@ impl EngineeringMilestone {
     fn validate(&self) -> Result<()> {
         if self.version != JOURNAL_VERSION {
             bail!("unsupported engineering journal record version");
+        }
+        if self
+            .event_id
+            .as_ref()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_err())
+            || self.observed_revision.as_ref().is_some_and(|revision| {
+                !valid_revision_digest(&revision.code)
+                    || revision
+                        .design
+                        .as_ref()
+                        .is_some_and(|value| !valid_revision_digest(value))
+            })
+        {
+            bail!("invalid engineering journal observation identity");
         }
         if self.timestamp_ms == 0
             || !bounded_token(&self.tool, 80)
@@ -173,10 +194,11 @@ pub(crate) fn load_recent(
         }
     }
     records.sort_by_key(|record| std::cmp::Reverse(record.timestamp_ms));
+    let truncated = retained_records > limit || records.len() < selected.len();
     Ok(EngineeringJournalHistory {
         records,
         retained_records,
-        truncated: retained_records > limit,
+        truncated,
     })
 }
 
@@ -284,6 +306,12 @@ fn prune_directory(directory: &Path) -> Result<()> {
         let _ = fs::remove_file(path);
     }
     Ok(())
+}
+
+fn valid_revision_digest(value: &str) -> bool {
+    value
+        .strip_prefix("sha256:")
+        .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
 fn bounded_token(value: &str, max: usize) -> bool {

@@ -54,6 +54,22 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         children.forEach((child,i)=>{const a=r(child);check(a.left>=parent.left-1&&a.right<=parent.right+1&&a.bottom<=parent.bottom+1,'grid child outside '+grid.className,child,grid);
           children.slice(i+1).forEach(other=>{const b=r(other);check(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,'grid overlap '+grid.className,child,other);});});
       });
+      if(state.workspaceTab==='overview'){
+        const section=document.getElementById('fitnessSection');
+        check(section&&visible(section),'fitness overview hidden',section);
+        check(document.querySelectorAll('#fitnessBenchmark tbody tr').length===6,'fitness benchmark matrix missing',section);
+        check(document.querySelectorAll('#fitnessObservatory tbody tr').length===1,'fitness runtime outcomes missing',section);
+        check((section?.textContent||'').includes('3/6'),'fitness raw denominator missing',section);
+        for(const region of section.querySelectorAll('.fitness-table-wrap')){
+          const b=r(region),parent=r(region.parentElement);
+          check(region.getAttribute('tabindex')==='0'&&region.getAttribute('role')==='region','fitness table not keyboard accessible',region);
+          check(b.left>=parent.left-1&&b.right<=parent.right+1,'fitness scroll region escapes panel',region,region.parentElement);
+          check(region.clientWidth>0&&region.scrollWidth>=region.clientWidth,'fitness scroll region invalid',region);
+        }
+        for(const block of section.querySelectorAll('.fitness-summary,.fitness-boundaries')){
+          check(block.scrollWidth<=block.clientWidth+1,'fitness metadata overflow',block,block.parentElement);
+        }
+      }
       if(state.workspaceTab==='proof'){
         check(document.querySelectorAll('[data-evidence-key]').length===32,'missing populated ledger');
         check(!document.querySelector('.evidence-inspector-section .inspector-chip.good'),'failed proof green');

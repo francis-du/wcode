@@ -1,5 +1,75 @@
 use super::*;
 
+#[test]
+fn project_fitness_keeps_journal_benchmark_and_verification_independent() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\n",
+    )
+    .unwrap();
+    fs::write(root.path().join(".gitignore"), "target/\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let before = harness.observatory_engineering_signal(&workspace).unwrap();
+    fs::create_dir_all(root.path().join("target/engineering-fitness")).unwrap();
+    fs::write(
+        root.path().join("target/engineering-fitness/1-1.json"),
+        "{broken",
+    )
+    .unwrap();
+    let report_signal = harness.observatory_engineering_signal(&workspace).unwrap();
+    assert_ne!(before, report_signal);
+    let revision = crate::intelligence::SoftwareIntelligenceRuntime::default()
+        .current_revision(&workspace)
+        .unwrap();
+    let mut failed = crate::engineering_journal::EngineeringMilestone::new(
+        "verify_project",
+        "prove",
+        "failed",
+        20,
+        Vec::new(),
+    )
+    .unwrap();
+    failed.observed_revision = Some(revision.clone());
+    failed.verification_level = Some("full".into());
+    crate::engineering_journal::persist(&workspace, &failed).unwrap();
+    let legacy = crate::engineering_journal::EngineeringMilestone::new(
+        "verify_project",
+        "prove",
+        "succeeded",
+        10,
+        Vec::new(),
+    )
+    .unwrap();
+    crate::engineering_journal::persist(&workspace, &legacy).unwrap();
+    assert_ne!(
+        report_signal,
+        harness.observatory_engineering_signal(&workspace).unwrap()
+    );
+    let project = harness
+        .project_observatory("demo", &workspace, None)
+        .unwrap();
+    assert_eq!(project.fitness.revision, revision);
+    assert_eq!(project.fitness.unbound_records, 1);
+    assert_eq!(project.fitness.current.len(), 1);
+    assert_eq!(project.fitness.current[0].failed, 1);
+    assert_eq!(project.fitness.current[0].samples, 1);
+    assert_eq!(project.fitness.current[0].success_rate, Some(0.0));
+    assert!(project.fitness.benchmark.available);
+    assert_eq!(project.fitness.benchmark.status, "invalid_reports");
+    assert_eq!(project.fitness.benchmark.invalid_reports, 1);
+    assert!(project.fitness.benchmark.latest.is_none());
+    assert_eq!(project.proof.current_evidence, 0);
+    assert_eq!(project.proof.current_verification_ready, 0);
+    assert_eq!(project.proof.acceptance.fresh, 0);
+    assert!(project
+        .fitness
+        .revision_binding
+        .contains("not-verification"));
+}
+
 #[tokio::test]
 async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_file() {
     use std::process::Command;

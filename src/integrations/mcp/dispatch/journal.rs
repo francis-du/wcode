@@ -159,7 +159,12 @@ pub(super) async fn record(
             milestone.checks_failed = payload.get("checks_failed").and_then(Value::as_u64);
         }
     }
+    let harness = state.harness.clone();
     let _ = tokio::task::spawn_blocking(move || {
+        // Reuse canonical validated caches; constructing a runtime per milestone
+        // would discard them. Observation failure still leaves the event unbound.
+        // Do not borrow an Execution checkpoint or a previous green revision.
+        milestone.observed_revision = harness.current_revision(&workspace).ok();
         crate::engineering_journal::persist(&workspace, &milestone)
     })
     .await;

@@ -21,6 +21,8 @@ use std::{
 mod breakdown;
 #[path = "report_checks.rs"]
 mod report_checks;
+#[path = "snapshot.rs"]
+mod snapshot;
 
 const BUDGETS: [usize; 3] = [1_000, 2_000, 4_000];
 const CONTRACT_VERSION: u32 = 3;
@@ -366,6 +368,9 @@ fn source_snapshot() -> Result<String> {
 pub(super) fn collect(repeats: usize) -> Result<Report> {
     anyhow::ensure!(repeats > 0, "at least one sample is required");
     let before = source_snapshot()?;
+    let repository = report_workspace()?;
+    let intelligence = crate::intelligence::SoftwareIntelligenceRuntime::default();
+    let revision_before = intelligence.current_revision(&repository)?;
     let cases = corpus();
     let corpus_sha = digest(&serde_json::to_vec(&cases)?);
     let evaluator_sha = digest(
@@ -383,7 +388,8 @@ pub(super) fn collect(repeats: usize) -> Result<Report> {
             include_str!("delivery_checks.rs"),
             include_str!("tight.rs"),
             include_str!("multitarget.rs"),
-            include_str!("breakdown.rs")
+            include_str!("breakdown.rs"),
+            include_str!("snapshot.rs")
         )
         .as_bytes(),
     );
@@ -403,6 +409,7 @@ pub(super) fn collect(repeats: usize) -> Result<Report> {
     }
     let controls = run_controls();
     let after = source_snapshot()?;
+    let revision_after = intelligence.current_revision(&repository)?;
     let binary_sha = std::env::current_exe()
         .ok()
         .and_then(|path| fs::read(path).ok())
@@ -439,6 +446,8 @@ pub(super) fn collect(repeats: usize) -> Result<Report> {
             "Runtime source snapshots are not proof of compilation input identity; the test-binary hash binds the executed artifact",
             "v2 path+symbol/body scoring is not numerically comparable with the legacy v1 name-only scorer"]
     });
+    metadata["repository_revision_before"] = json!(revision_before);
+    metadata["repository_revision_after"] = json!(revision_after);
     metadata["delivery_metrics"] = json!({
         "version":2,
         "body_partition_scope":"required identities partition into complete, absent, verified partial-original, or unusable bodies per successful response; failed queries remain unobserved",
@@ -601,6 +610,7 @@ pub(super) fn persist(report: &Report) -> Result<(String, String)> {
     workspace
         .create_file(&markdown_path, &markdown(report))
         .context("write Fitness Markdown")?;
+    snapshot::persist_summary(report, &workspace, stamp)?;
     Ok((json_path, markdown_path))
 }
 

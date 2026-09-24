@@ -16,6 +16,7 @@ function renderTabPanels(tab) {
       // so we do not rebuild the SVG tree on every architecture poll tick.
       break;
     case "overview":
+      renderFitnessObservatory();
       renderCodeStats(); renderRevisions(); renderLanguageQuality();
       renderExecutionStatus(); renderAdaptiveVerification(); renderVerifiedLearning();
       break;
@@ -50,6 +51,7 @@ function renderProject(force = false) {
     renderProjectStructure();
     // Code graph is mounted lazily via maybeLoadCodeGraph when the operator
     // is on the codegraph architecture surface — not on every force refresh.
+    renderFitnessObservatory();
     renderCodeStats(); renderRevisions(); renderLanguageQuality();
     renderExecutionStatus(); renderActivity(); renderProofSummary();
     renderAdaptiveVerification(); renderVerifiedLearning();
@@ -110,6 +112,7 @@ const workspaceTabForSection = {
   changesSection: "changes",
   filesSection: "files",
   diagnosticsSection: "overview",
+  fitnessSection: "overview",
   qualitySection: "overview",
 };
 function renderWorkspaceHero(tab) {
@@ -182,6 +185,7 @@ function restoreWorkspaceSnapshot(workspace) {
   const cached = state.projectCache.get(workspace);
   if (!cached) return false;
   state.project = cached.project;
+  state.fitnessSnapshotFromCache = true;
   state.revisionKey = cached.revisionKey;
   state.lastUpdated = cached.lastUpdated;
   state.lastChecked = cached.lastChecked;
@@ -251,7 +255,7 @@ function showRefreshFailure(error, phase = "request") {
   els.syncState.title = detail;
   els.syncState.parentElement?.setAttribute("aria-label", `${title}. ${detail}`);
   // Error reporting must not invoke the same failing renderer unguarded.
-  for (const render of [renderAttention, renderLive]) {
+  for (const render of [renderAttention, renderLive, renderFitnessObservatory]) {
     try { render(); } catch (renderError) { console.warn("wcode: refresh error view failed", renderError); }
   }
   if (!state.project || phase === "render") renderProjectPlaceholder(true);
@@ -263,7 +267,7 @@ function renderProjectPlaceholder(failed = false) {
   const content = failed
     ? `<div class="section empty connection-state"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div>`
     : `<div class="section empty loading-state">${esc(title)}</div>`;
-  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "languageQuality", "executionStatus", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
+  for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "fitnessBenchmark", "fitnessObservatory", "languageQuality", "executionStatus", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
     if ((key === "activity" || key === "resourceStatus") && state.activitySnapshot) continue;
     setHtml(key, els[key], content);
   }
@@ -274,6 +278,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.pendingValue = null; state.pendingApplied = 0;
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
+  state.fitnessSnapshotFromCache = false;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;
@@ -378,6 +383,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
     const snapshotRefreshing = data.snapshot_refreshing === true;
     phase = "render";
     state.project = data; state.current = data.workspace;
+    state.fitnessSnapshotFromCache = false;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
     state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false; state.syncFailure = null;
     state.revisionKey = snapshotRevision || (!cachedResponse ? observedKey : null);

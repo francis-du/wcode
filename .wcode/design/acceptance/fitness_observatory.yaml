@@ -1,0 +1,29 @@
+schema_version: 1
+id: AC-FITNESS-OBSERVATORY-001
+title: Fitness scorecards preserve unknown states, bounded denominators and revision provenance
+statement: >-
+  The protected ProjectObservatory exposes independent benchmark and runtime Fitness views. Runtime data is the last 64 retained milestones, not all tool attempts or model task success; only exact code plus Design observations enter current tool/level groups. Missing revisions stay unbound, duplicate copies count once, conflicting copies and invalid/future observations are excluded with partial coverage, and skipped malformed journal records remain explicit. Outcome ratios count succeeded, partial, blocked and failed records; empty denominators are undefined. p50/p95 and earlier/recent-half deltas are descriptive, not readiness or statistical significance. Trend halves need at least three samples and a strictly increasing split timestamp; incomplete, cached or stale views suppress trends. A complete latest-64 sample is explicitly window_limited rather than falsely unreadable; missing selected records remain partial and cannot establish whole-population coverage.
+  Explicit diagnostic and trial runs additionally export typed source-free summaries under target/engineering-fitness with raw counts, fixed budget/phase coverage, corpus/evaluator/binary fingerprints and before/after code/Design observations. Dashboard reads are shallow and bounded to 32 entries; each summary is limited to 64 KiB within the existing Workspace reader, and no report is executed. Malformed, redacted, escaping, symbolic-link, unsupported, future, duplicate or over-capacity inputs cannot imply current success. An invalid report makes selection partial rather than silently certifying an older valid report as latest. Benchmark file content changes invalidate the existing Engineering Observatory signal. Historical reports preserve identity and only claim recorded-configuration comparability, not identical hardware or compilation inputs. Source-stable observations are not verification Evidence.
+  The existing EN/ZH Overview renders raw denominators, unavailable/empty/partial/stale states, separate benchmark and tool outcome tables and bounded history without a new top-level workspace or editor. Escaping applies to every identifier. Restored client caches and refresh failures cannot keep confirmed-current labels or directional trends; workspace switches and placeholders clear both surfaces. Worklist counts and green tests are never substituted for benchmark quality, and unmeasured retry, recovery, flakiness, live LSP, readiness and model patch success remain unmeasured.
+verification:
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_empty_and_unavailable_never_become_success}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_complete_recent_window_is_not_confused_with_missing_selected_records}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_separates_current_stale_design_and_unbound_observations}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_deduplicates_events_and_rejects_conflicting_copies}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_counts_failures_partials_and_blocks_in_the_denominator}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_trends_are_same_tool_level_revision_and_time_ordered}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_invalid_and_oversized_inputs_do_not_claim_coverage}
+  - {kind: test, path: tests/unit/intelligence/fitness.rs, symbol: fitness_history_is_bounded_and_does_not_disclose_source_or_outcomes_as_proof}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_observation_identity_is_unique_bounded_and_backward_compatible}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_skipped_corrupt_records_mark_partial_coverage}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_requires_complete_matrix_bounded_counts_and_defined_ratios}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_stale_and_unstable_reports_never_prove_current_revision}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_invalid_newer_record_and_duplicates_cannot_inflate_history}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_only_exposes_typed_summaries_and_bounds_report_population}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_discovery_never_recurses_and_counts_non_files_toward_bounds}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_signals_track_report_bytes_and_comparability_keeps_environment}
+  - {kind: test, path: tests/unit/intelligence/benchmark.rs, symbol: fitness_benchmark_workspace_reader_rejects_symbolic_link_summaries}
+  - {kind: test, path: tests/unit/runtime/harness/fitness/snapshot.rs, symbol: fitness_summary_projection_preserves_failures_denominators_and_excludes_unmeasured_source}
+  - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_fitness_keeps_journal_benchmark_and_verification_independent}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_fitness_preserves_unknown_revision_scope_and_visible_denominators}
+  - {kind: check, id: rust-test}

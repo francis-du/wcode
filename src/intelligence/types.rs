@@ -676,8 +676,12 @@ pub struct ProjectAdaptiveVerificationView {
     pub fallback_reason: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProjectEngineeringMilestoneView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observed_revision: Option<crate::evidence::Revision>,
     pub timestamp_ms: u64,
     pub tool: String,
     pub stage: String,
@@ -700,6 +704,67 @@ pub struct ProjectEngineeringJournalView {
     pub retained_records: usize,
     pub truncated: bool,
     pub records: Vec<ProjectEngineeringMilestoneView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectFitnessView {
+    pub schema_version: u8,
+    pub available: bool,
+    pub provider: String,
+    pub scope: String,
+    pub revision_binding: String,
+    pub revision: crate::evidence::Revision,
+    pub observed_at_ms: u64,
+    pub retained_records: usize,
+    pub sampled_records: usize,
+    pub unbound_records: usize,
+    pub stale_records: usize,
+    pub duplicate_records: usize,
+    pub conflicting_events: usize,
+    pub invalid_records: usize,
+    pub partial: bool,
+    pub window_limited: bool,
+    pub history_truncated: bool,
+    pub window_start_ms: Option<u64>,
+    pub window_end_ms: Option<u64>,
+    pub current: Vec<ProjectFitnessMetricView>,
+    pub benchmark: crate::intelligence::FitnessBenchmarkView,
+    pub history: Vec<ProjectFitnessRevisionView>,
+    pub not_measured: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectFitnessMetricView {
+    pub tool: String,
+    pub verification_level: Option<String>,
+    pub samples: usize,
+    pub succeeded: usize,
+    pub partial: usize,
+    pub blocked: usize,
+    pub failed: usize,
+    pub success_rate: Option<f64>,
+    pub p50_ms: Option<f64>,
+    pub p95_ms: Option<u64>,
+    pub first_at_ms: Option<u64>,
+    pub last_at_ms: Option<u64>,
+    pub trend: Option<ProjectFitnessTrendView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectFitnessTrendView {
+    pub earlier_samples: usize,
+    pub recent_samples: usize,
+    pub success_rate_delta_pp: f64,
+    pub p50_delta_ms: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectFitnessRevisionView {
+    pub revision: crate::evidence::Revision,
+    pub current: bool,
+    pub samples: usize,
+    pub first_at_ms: u64,
+    pub last_at_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -767,6 +832,7 @@ pub struct ProjectObservatory {
     pub adaptive_verification: ProjectAdaptiveVerificationView,
     pub verified_learning: ProjectVerifiedLearningView,
     pub engineering_journal: ProjectEngineeringJournalView,
+    pub fitness: ProjectFitnessView,
     pub convergence: ProjectConvergenceSummary,
     pub architecture: ProjectArchitectureView,
     pub requirements: Vec<FeatureRequirementView>,

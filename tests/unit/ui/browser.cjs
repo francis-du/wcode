@@ -28,6 +28,26 @@ verified_learning:{available:true,records:0},
 history:[{id:long,captured_at_ms:1,files_indexed:999999999,nodes:999999999,edges:999999999}],
 latest_delta:{from_captured_at_ms:1,to_captured_at_ms:2,added_nodes:200,changed_nodes:42,removed_nodes:1,changed_paths:[long]},
 activity:{available:true,active:1,queued:1,recent:[]}};
+// Synthetic populated Fitness data exercises real production renderer geometry.
+const fitnessRevision={code:'sha256:'+'a'.repeat(64),design:'sha256:'+'d'.repeat(64)};
+fixture.proof.revision_code=fitnessRevision.code;fixture.proof.revision_design=fitnessRevision.design;
+const benchmarkRows=[1000,2000,4000].flatMap(budget=>['cold','warm'].map(phase=>({
+  budget,phase,attempts:60,query_errors:1,warmup_errors:0,over_budget:0,required_count:98,required_hits:97,
+  complete_body_hits:95,fresh_sha_hits:96,edit_input_eligible:58,edit_input_ready:56,ranking_attempts:59,
+  mean_ndcg_at_10:.893,noise_samples:59,mean_non_gold_fraction:.0169,p50_us:19200,p95_us:38200,
+})));
+fixture.fitness={schema_version:1,available:true,revision:fitnessRevision,observed_at_ms:2,
+  sampled_records:6,retained_records:6,unbound_records:0,stale_records:0,duplicate_records:0,
+  conflicting_events:0,partial:false,window_limited:false,history_truncated:false,window_start_ms:1,window_end_ms:2,
+  current:[{tool:'verify_project_'+long,verification_level:'full',samples:6,succeeded:3,partial:1,blocked:1,failed:1,
+    p50_ms:2300,p95_ms:987654,trend:{earlier_samples:3,recent_samples:3,success_rate_delta_pp:33.333,p50_delta_ms:-1500}}],
+  history:[{revision:fitnessRevision,current:true,samples:6,first_at_ms:1,last_at_ms:2}],
+  benchmark:{available:true,status:'current',partial:false,report_count:1,invalid_reports:0,duplicate_reports:0,
+    latest:{schema_version:1,contract_version:3,captured_at_ms:1,wcode_version:'0.8.4',profile:'debug',os:'macos',arch:'aarch64',
+      case_count:60,samples_per_case:1,model_calls:0,controls_passed:11,controls_total:11,revision_before:fitnessRevision,revision_after:fitnessRevision,
+      source_stable_during_run:true,source_snapshot_before:'f'.repeat(64),source_snapshot_after:'f'.repeat(64),
+      corpus_sha256:'c'.repeat(64),evaluator_sha256:'e'.repeat(64),test_binary_sha256:'b'.repeat(64),rows:benchmarkRows},
+    history:[{revision:fitnessRevision,captured_at_ms:1,artifact_sha256:'f'.repeat(64),comparable_to_latest:true,current:true}]}};
 const data=JSON.stringify(fixture).replace(/</g,'\\u003c');
 const longGraphLabel='extremely_long_code_graph_symbol_name_for_adversarial_layout_';
 const codeGraphNodes=[

@@ -1,6 +1,9 @@
 const translations = {
   "zh-CN": {
     "Engineering Observatory": "工程观测台",
+    "Engineering Fitness": "工程适应度",
+    "FITNESS": "适应度",
+    "fitness observatory meta": "记录的工具结果、版本历史与描述性趋势。缺失数据保持未知。",
     "Project digital twin": "项目数字孪生",
     "Overview": "总览",
     "Architecture": "架构",

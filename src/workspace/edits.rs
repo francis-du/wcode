@@ -101,6 +101,31 @@ impl Workspace {
         self.create_directory(path).map(|_| ())
     }
 
+    /// A shallow entry budget, including non-files and errors, for bounded local
+    /// artifact discovery. Unlike recursive list_files, empty subtrees cost no walk.
+    pub(crate) fn bounded_directory_entries(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<Vec<String>> {
+        let directory = self.existing_path(path)?;
+        if !directory.is_dir() {
+            bail!("path is not a directory");
+        }
+        let mut entries = fs::read_dir(&directory)?
+            .take(max_entries.clamp(1, 128))
+            .map(|entry| {
+                let path = entry?.path();
+                Ok(portable_relative_path(path.strip_prefix(&self.root)?))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if self.existing_path(path)? != directory {
+            bail!("directory changed during bounded discovery");
+        }
+        entries.sort();
+        Ok(entries)
+    }
+
     pub fn path_info(&self, path: &str) -> Result<PathInfo> {
         let resolved = self.existing_path(path)?;
         let metadata = fs::symlink_metadata(&resolved)?;

@@ -272,6 +272,7 @@
   responsibilities:
     - persist immutable provenance-bearing verification evidence per workspace
     - reload evidence across runtime restarts without mutating repositories
+    - retain bounded prompt-free engineering milestones with unique event identities and optional post-operation code/design observations, keeping legacy events unbound and unreadable records explicit
   constraints:
     - CONSTRAINT-EVIDENCE-PROVENANCE
   implementation:
@@ -281,6 +282,8 @@
     - kind: symbol
       path: src/evidence/store.rs
       symbol: load
+    - kind: file
+      path: src/evidence/journal.rs
 
 - schema_version: 1
   id: component:verification-mesh
@@ -371,6 +374,7 @@
     - expose W as the discoverable TUI shortcut for the protected Engineering Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
     - expose prompt-free Verified Experience evaluation with explicit temporal-holdout method, heuristic precision, raw denominators, cold-start/unavailable distinction and independent coverage, hit-rate, precision@K and recall@K metrics rather than an opaque self-score
+    - separate explicit Engineering Fitness benchmark summaries from bounded milestone outcome samples, retain revision provenance and history, and present unknown, stale, partial and unmeasured states without total scores or readiness authority
   constraints:
     - CONSTRAINT-BRAND-PALETTE
     - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
@@ -402,6 +406,16 @@
     - kind: symbol
       path: src/intelligence/observatory.rs
       symbol: build_project_observatory
+    - kind: file
+      path: src/intelligence/observatory/fitness.rs
+    - kind: file
+      path: src/intelligence/observatory/benchmark.rs
+    - kind: symbol
+      path: src/ui/intelligence_web/app/quality.js
+      symbol: renderFitnessObservatory
+    - kind: symbol
+      path: src/ui/intelligence_web/app/quality.js
+      symbol: renderFitnessBenchmark
     - kind: symbol
       path: src/intelligence/observatory/architecture.rs
       symbol: build_project_architecture

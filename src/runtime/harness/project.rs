@@ -223,6 +223,8 @@ fn observatory_engineering_journal(workspace: &Workspace) -> ProjectEngineeringJ
             .records
             .into_iter()
             .map(|record| ProjectEngineeringMilestoneView {
+                event_id: record.event_id,
+                observed_revision: record.observed_revision,
                 timestamp_ms: record.timestamp_ms,
                 tool: record.tool,
                 stage: record.stage,
@@ -455,6 +457,10 @@ impl ToolHarness {
     }
 
     pub(crate) fn observatory_engineering_signal(&self, workspace: &Workspace) -> Result<String> {
-        crate::engineering_journal::change_fingerprint(workspace)
+        Ok(format!(
+            "{}|{}",
+            crate::engineering_journal::change_fingerprint(workspace)?,
+            crate::intelligence::benchmark_signal(workspace)
+        ))
     }
 }

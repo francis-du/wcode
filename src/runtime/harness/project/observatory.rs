@@ -365,7 +365,7 @@ impl ToolHarness {
             None
         };
 
-        let snapshot = build_project_observatory(ObservatoryInput {
+        let mut snapshot = build_project_observatory(ObservatoryInput {
             workspace: workspace_id,
             root: workspace.root().display().to_string(),
             design: design.as_ref().clone(),
@@ -385,6 +385,7 @@ impl ToolHarness {
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
         });
+        snapshot.fitness.benchmark = crate::intelligence::load_benchmarks(workspace, &revision);
         self.cache_project_observatory(workspace, &snapshot);
         Ok(snapshot)
     }

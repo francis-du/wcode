@@ -137,8 +137,16 @@ mod context;
 mod observatory;
 #[path = "observatory/architecture.rs"]
 mod observatory_architecture;
+#[path = "observatory/benchmark.rs"]
+mod observatory_benchmark;
 #[path = "observatory/files.rs"]
 mod observatory_files;
+#[path = "observatory/fitness.rs"]
+mod observatory_fitness;
+pub(crate) use observatory_benchmark::{benchmark_signal, load_benchmarks};
+pub use observatory_benchmark::{
+    FitnessBenchmarkRow, FitnessBenchmarkSnapshot, FitnessBenchmarkView,
+};
 #[path = "runtime_drift.rs"]
 mod runtime_drift;
 use analysis::*;

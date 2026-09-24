@@ -39,6 +39,7 @@ pub(crate) struct ObservatoryInput<'a> {
 }
 
 pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectObservatory {
+    let fitness = super::observatory_fitness::build(&input.engineering_journal, &input.proof);
     let design_valid = input.design.initialized && input.design.error_count() == 0;
     let state = input.design.state;
     let changed_paths = input
@@ -169,6 +170,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         adaptive_verification: input.adaptive_verification,
         verified_learning: input.verified_learning,
         engineering_journal: input.engineering_journal,
+        fitness,
         convergence,
         architecture,
         requirements,
