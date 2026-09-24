@@ -771,16 +771,20 @@ pub(super) async fn call(
                 })
                 .transpose()?
                 .unwrap_or_default();
+            let owner_binding = mcp_writer::owner_binding(&mcp_writer::current_owner());
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
-                    .reconciliation_claim(
+                    .reconciliation_claim_owned(
                         &workspace_id,
                         &workspace,
                         &plan_id,
                         &executor,
                         &kinds,
-                        task_id.as_deref(),
+                        crate::reconcile::ReconciliationClaimSelection {
+                            task_id: task_id.as_deref(),
+                            owner_binding: Some(owner_binding.as_str()),
+                        },
                     )
                     .and_then(|run| serde_json::to_value(run).map_err(Into::into))
             })

@@ -11,9 +11,10 @@ statement: >-
   executor without exposing lease tokens. One MCP owner may hold only one writer lease at a time so multiple task
   scopes cannot collapse into an owner-wide write union. Remote OAuth grants from one client application receive
   distinct stable owner identities and refresh rotation preserves the grant owner. Submit/failure releases only the
-  matching lease, and process restart never
-  treats durable claimed writers lacking corresponding runtime leases as permission to write. Convergence still
-  requires normal review, Reconciliation and Verification.
+  matching lease. Durable writer claims persist an opaque owner binding: after process restart only the same
+  authenticated owner, executor and explicit task may reclaim the runtime lease; legacy or mismatched claims remain
+  fail-closed. A runtime lease stops authorizing writes as soon as its durable task is no longer Claimed, even before
+  post-submit release completes. Convergence still requires normal review, Reconciliation and Verification.
 verification:
   - {kind: test, path: tests/unit/reconciliation/mod.rs, symbol: execution_allows_parallel_reviews_but_only_one_writer_claim}
   - {kind: test, path: tests/unit/reconciliation/mod.rs, symbol: execution_allows_non_overlapping_scoped_writers_and_rejects_overlap}
@@ -21,6 +22,7 @@ verification:
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: claim_admission_routes_parallel_owners_to_disjoint_scopes}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: writer_restart_with_durable_claim_fails_closed_without_runtime_lease}
+  - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: restart_reclaim_is_owner_bound_and_stale_runtime_lease_fails_closed}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: mutation_domain_groups_subspaces_and_separates_linked_worktrees}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: active_writer_lease_gates_file_and_mutating_command_tools}
   - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: separate_oauth_grants_for_one_client_get_distinct_writer_owners}

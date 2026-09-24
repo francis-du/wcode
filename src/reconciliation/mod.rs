@@ -122,6 +122,14 @@ pub enum ReconciliationClaimMode {
 #[serde(deny_unknown_fields)]
 pub struct ReconciliationClaimOwnership {
     pub mode: ReconciliationClaimMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_binding: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReconciliationClaimSelection<'a> {
+    pub task_id: Option<&'a str>,
+    pub owner_binding: Option<&'a str>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -210,8 +218,33 @@ impl ReconciliationExecution {
         kinds: &[ReconciliationTaskKind],
         task_id: Option<&str>,
     ) -> Result<ReconciliationTaskRun, ReconciliationError> {
+        self.claim_task_with_owner_binding(executor, kinds, task_id, None)
+    }
+
+    pub(crate) fn claim_task_with_owner_binding(
+        &mut self,
+        executor: &str,
+        kinds: &[ReconciliationTaskKind],
+        task_id: Option<&str>,
+        owner_binding: Option<&str>,
+    ) -> Result<ReconciliationTaskRun, ReconciliationError> {
         if executor.trim().is_empty() || executor.len() > 256 {
             return Err(ReconciliationError::InvalidExecutor);
+        }
+        if let (Some(owner_binding), Some(task_id)) = (owner_binding, task_id) {
+            if let Some(run) = self.tasks.iter().find(|run| {
+                run.task.id == task_id
+                    && run.status == ReconciliationRunStatus::Claimed
+                    && run.claimed_by.as_deref() == Some(executor)
+                    && (kinds.is_empty() || kinds.contains(&run.task.kind))
+                    && run
+                        .ownership
+                        .as_ref()
+                        .and_then(|ownership| ownership.owner_binding.as_deref())
+                        == Some(owner_binding)
+            }) {
+                return Ok(run.clone());
+            }
         }
         let runnable_id = self
             .claimable_task(kinds, task_id)
@@ -222,7 +255,8 @@ impl ReconciliationExecution {
             .iter()
             .position(|run| run.task.id == runnable_id)
             .ok_or(ReconciliationError::NoRunnableTask)?;
-        let ownership = default_claim_ownership(self.tasks[runnable].task.kind);
+        let mut ownership = default_claim_ownership(self.tasks[runnable].task.kind);
+        ownership.owner_binding = owner_binding.map(str::to_owned);
         let run = &mut self.tasks[runnable];
         run.status = ReconciliationRunStatus::Claimed;
         run.claimed_by = Some(executor.to_owned());
@@ -585,6 +619,7 @@ fn default_claim_ownership(kind: ReconciliationTaskKind) -> ReconciliationClaimO
         } else {
             ReconciliationClaimMode::SharedWriter
         },
+        owner_binding: None,
     }
 }
 

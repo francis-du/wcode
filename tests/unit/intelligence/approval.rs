@@ -121,7 +121,14 @@ fn runtime_claim_is_gated_by_approval_and_then_uses_the_frozen_plan() {
     reconciliation_execution_store::persist(&workspace, &execution).unwrap();
 
     let denied = runtime
-        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[], None)
+        .reconciliation_claim_owned(
+            workspace_id,
+            &workspace,
+            &plan.id,
+            "writer",
+            &[],
+            crate::reconcile::ReconciliationClaimSelection::default(),
+        )
         .unwrap_err()
         .to_string();
     assert!(denied.contains("plan_approval_required"));
@@ -136,7 +143,14 @@ fn runtime_claim_is_gated_by_approval_and_then_uses_the_frozen_plan() {
         )
         .unwrap();
     let claimed = runtime
-        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[], None)
+        .reconciliation_claim_owned(
+            workspace_id,
+            &workspace,
+            &plan.id,
+            "writer",
+            &[],
+            crate::reconcile::ReconciliationClaimSelection::default(),
+        )
         .unwrap();
     assert_eq!(claimed.task.id, "RT-runtime");
     assert_eq!(claimed.claimed_by.as_deref(), Some("writer"));

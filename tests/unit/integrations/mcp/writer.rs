@@ -2,7 +2,7 @@ use super::*;
 use crate::reconcile::{
     ReconciliationClaimMode, ReconciliationClaimOwnership, ReconciliationExecution,
     ReconciliationPlan, ReconciliationRunStatus, ReconciliationTask, ReconciliationTaskKind,
-    ReconciliationTaskRun,
+    ReconciliationTaskRun, ReconciliationTaskSubmission,
 };
 use crate::risk::RiskLevel;
 use crate::verification::VerificationPlan;
@@ -24,6 +24,7 @@ fn claimed_writer(task_id: &str) -> ReconciliationTaskRun {
         claimed_by: Some("writer-a".into()),
         ownership: Some(ReconciliationClaimOwnership {
             mode: ReconciliationClaimMode::SharedWriter,
+            owner_binding: None,
         }),
         summary: None,
         artifact_digest: None,
@@ -152,6 +153,114 @@ fn writer_restart_with_durable_claim_fails_closed_without_runtime_lease() {
     let status = restarted_runtime.status(&workspaces, &workspace).unwrap();
     assert!(!status.active);
     assert!(status.recovery_required);
+}
+
+#[test]
+fn restart_reclaim_is_owner_bound_and_stale_runtime_lease_fails_closed() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    let workspaces = Workspaces::new([root.path()], true, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let (_, workspace) = workspaces.select(Some(&workspace_id)).unwrap();
+
+    let plan = writer_plan(&workspace_id);
+    let mut execution = ReconciliationExecution::from_plan(&plan).unwrap();
+    let binding = owner_binding("owner-a");
+    let claimed = execution
+        .claim_task_with_owner_binding(
+            "writer-a",
+            &[ReconciliationTaskKind::Implementation],
+            Some("RT-writer"),
+            Some(&binding),
+        )
+        .unwrap();
+    let replayed = execution
+        .claim_task_with_owner_binding(
+            "writer-a",
+            &[ReconciliationTaskKind::Implementation],
+            Some("RT-writer"),
+            Some(&binding),
+        )
+        .unwrap();
+    assert_eq!(replayed.task.id, claimed.task.id);
+    assert_eq!(
+        claimed
+            .ownership
+            .as_ref()
+            .and_then(|ownership| ownership.owner_binding.as_deref()),
+        Some(binding.as_str())
+    );
+    crate::reconciliation_execution_store::persist(&workspace, &execution).unwrap();
+
+    let restarted_runtime = WriterRuntime::default();
+    let mut wrong_owner = json!({
+        "plan_id": plan.id,
+        "executor": "writer-a",
+        "task_id": "RT-writer",
+        "kinds": ["implementation"]
+    });
+    let denied = restarted_runtime
+        .reserve_for_claim(
+            &workspaces,
+            &workspace_id,
+            &workspace,
+            &mut wrong_owner,
+            "owner-b",
+        )
+        .unwrap_err();
+    assert!(denied.contains("writer_lease_recovery_required"));
+
+    let mut exact_owner = json!({
+        "plan_id": plan.id,
+        "executor": "writer-a",
+        "task_id": "RT-writer",
+        "kinds": ["implementation"]
+    });
+    let reservation = restarted_runtime
+        .reserve_for_claim(
+            &workspaces,
+            &workspace_id,
+            &workspace,
+            &mut exact_owner,
+            "owner-a",
+        )
+        .unwrap()
+        .unwrap();
+    restarted_runtime
+        .finalize(&reservation, &claimed)
+        .unwrap()
+        .unwrap();
+    restarted_runtime
+        .enforce_mutation(&workspaces, &workspace, "owner-a")
+        .unwrap();
+
+    let completed = execution
+        .submit(
+            "RT-writer",
+            "writer-a",
+            ReconciliationTaskSubmission {
+                success: true,
+                summary: "Completed recovered writer lane.".into(),
+                artifact_digest: None,
+            },
+        )
+        .unwrap();
+    crate::reconciliation_execution_store::persist(&workspace, &execution).unwrap();
+    let stale = restarted_runtime
+        .enforce_mutation(&workspaces, &workspace, "owner-a")
+        .unwrap_err();
+    assert!(stale.contains("writer_lease_recovery_required"));
+
+    restarted_runtime
+        .release_for_run(&workspace, &plan.id, &claimed, "owner-a")
+        .unwrap();
+    assert_eq!(completed.status, ReconciliationRunStatus::Completed);
+    assert!(
+        !restarted_runtime
+            .status(&workspaces, &workspace)
+            .unwrap()
+            .recovery_required
+    );
 }
 
 #[test]
@@ -311,6 +420,7 @@ fn scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape() {
                 domain: &domain,
                 task_id: Some("RT-src".into()),
                 write_scopes: vec!["src".into()],
+                recovering: false,
             },
         )
         .unwrap();
@@ -331,6 +441,7 @@ fn scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape() {
                 domain: &domain,
                 task_id: Some("RT-tests-same-owner".into()),
                 write_scopes: vec!["tests".into()],
+                recovering: false,
             },
         )
         .unwrap_err();
@@ -347,6 +458,7 @@ fn scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape() {
                 domain: &domain,
                 task_id: Some("RT-tests".into()),
                 write_scopes: vec!["tests".into()],
+                recovering: false,
             },
         )
         .unwrap();
@@ -424,6 +536,7 @@ fn scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape() {
                 domain: &domain,
                 task_id: Some("RT-overlap".into()),
                 write_scopes: vec!["src/lib.rs".into()],
+                recovering: false,
             },
         )
         .unwrap_err();

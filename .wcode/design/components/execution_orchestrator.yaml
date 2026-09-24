@@ -21,6 +21,7 @@ depends_on:
   - component:verification-mesh
 implementation:
   - {kind: file, path: src/integrations/mcp/writer.rs}
+  - {kind: file, path: src/integrations/mcp/writer_recovery.rs}
   - {kind: file, path: src/integrations/mcp/writer_scope.rs}
   - {kind: file, path: src/integrations/mcp/dispatch/mod.rs}
   - {kind: file, path: src/workspace/scheduler.rs}

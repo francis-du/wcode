@@ -115,6 +115,8 @@ use mcp_authorization::{
 
 #[path = "writer.rs"]
 mod mcp_writer;
+#[path = "writer_recovery.rs"]
+mod mcp_writer_recovery;
 #[path = "writer_scope.rs"]
 mod mcp_writer_scope;
 #[path = "web.rs"]

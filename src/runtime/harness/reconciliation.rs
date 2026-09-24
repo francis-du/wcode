@@ -70,22 +70,22 @@ impl ToolHarness {
             .reconciliation_approval_status(workspace_id, workspace, plan_id)
     }
 
-    pub fn reconciliation_claim(
+    pub fn reconciliation_claim_owned(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
         executor: &str,
         kinds: &[ReconciliationTaskKind],
-        task_id: Option<&str>,
+        selection: crate::reconcile::ReconciliationClaimSelection<'_>,
     ) -> Result<ReconciliationTaskRun> {
-        self.intelligence.reconciliation_claim(
+        self.intelligence.reconciliation_claim_owned(
             workspace_id,
             workspace,
             plan_id,
             executor,
             kinds,
-            task_id,
+            selection,
         )
     }
 

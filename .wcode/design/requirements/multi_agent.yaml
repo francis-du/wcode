@@ -13,9 +13,11 @@ intent: >-
   plan, task and executor without model-visible lease tokens. Remote OAuth ownership is grant-scoped rather than
   client-registration-scoped so independent authorization sessions from one client application remain distinct,
   while refresh rotation preserves the same owner; legacy persisted tokens retain their prior client-bound owner.
-  Durable claims missing runtime ownership after restart
-  remain fail-closed. Review claims stay parallel/read-only, and all results still converge through review,
-  reconciliation and verification rather than agent consensus.
+  Durable writer claims persist an opaque owner binding: after restart they remain fail-closed unless the same
+  authenticated owner, executor and explicit task reclaim them; legacy or mismatched claims remain fail-closed.
+  Runtime leases also fail closed as soon as their durable task is no longer claimed, closing the submit/release
+  window. Review claims stay parallel/read-only, and all results still converge through review, reconciliation and
+  verification rather than agent consensus.
 priority: high
 implemented_by:
   - component:execution-orchestrator
