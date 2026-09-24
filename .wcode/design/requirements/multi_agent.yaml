@@ -1,17 +1,21 @@
 schema_version: 1
 id: REQ-MULTI-AGENT-001
-title: Parallel agents use read-many single-writer isolation
+title: Parallel agents use scope-isolated writer ownership
 intent: >-
-  Multi-agent execution must default to independent read-only investigators/reviewers operating concurrently while
-  one writer owns mutations for a shared Git-worktree mutation domain. Writer ownership is enforced by a bounded
-  runtime lease tied to a claimed Design/Implementation Reconciliation task; while such a lease is active, file
-  mutations and workspace-mutating commands require the opaque lease and another MCP client/subagent cannot bypass
-  ownership by calling write tools directly. Nested Workspace/subspace roots inside the same Git worktree share the
-  same mutation domain. When genuinely independent implementation lanes need multiple writers, each writer must use
-  a distinct registered Git linked-worktree Workspace root, which naturally receives separate Execution,
-  Reconciliation and Evidence state; wcode does not silently create worktrees on the model's behalf. Review claims
-  remain parallel/read-only. Results converge through explicit review, reconciliation and verification; agent
-  consensus never bypasses deterministic gates. Shared-worktree concurrent writers are not an allowed optimization.
+  Multi-agent execution defaults to parallel read-only investigators/reviewers and fail-closed write isolation.
+  Design/Implementation tasks without an explicit write_scopes contract retain whole Git-worktree mutation-domain
+  exclusivity. An approved task may instead declare bounded workspace-relative write_scopes; wcode normalizes them
+  into the containing Git mutation domain and may admit multiple MCP owners only when every active/pending writer
+  scope is non-overlapping by path ancestry. File mutations must stay inside the claimant's scopes and retain normal
+  SHA preconditions. Workspace-mutating commands have unbounded effects and therefore require a sole whole-domain
+  writer. Nested Workspace/subspace roots share one mutation domain, while registered linked worktrees remain the
+  stronger isolation option for broad or uncertain lanes. Writer ownership is bound to the authenticated MCP owner,
+  plan, task and executor without model-visible lease tokens. Remote OAuth ownership is grant-scoped rather than
+  client-registration-scoped so independent authorization sessions from one client application remain distinct,
+  while refresh rotation preserves the same owner; legacy persisted tokens retain their prior client-bound owner.
+  Durable claims missing runtime ownership after restart
+  remain fail-closed. Review claims stay parallel/read-only, and all results still converge through review,
+  reconciliation and verification rather than agent consensus.
 priority: high
 implemented_by:
   - component:execution-orchestrator

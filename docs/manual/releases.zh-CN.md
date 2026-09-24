@@ -13,6 +13,7 @@ permalink: /zh/docs/releases/
 
 ## 0.8.x
 
+- [v0.8.4](v0.8.4/) — Scope 隔离的并发 Writer、按授权 Grant 隔离的远程 Owner、统一 MCP Transport 协议策略与 300 轮发布验证。
 - [v0.8.3](v0.8.3/) — 能力感知 MCP 发现、更紧凑的编辑就绪 Agent Context、隔离 Jev Policy、现代 Task 兼容与 300 轮发布验证。
 - [v0.8.2](v0.8.2/) — 持久执行观测、结构化 Steering、更公平的代码图谱展开／全屏、资源隔离与 100 轮发布验证。
 - [v0.8.1](v0.8.1/) — Jev Decision Plane 加固、更窄的结构化判断、严格 increase-only 权限、统一命名与更可靠的 WebUI 状态绑定。

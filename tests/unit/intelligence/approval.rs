@@ -17,6 +17,7 @@ fn approval_plan(workspace_id: &str, revision: Revision) -> ReconciliationPlan {
             kind: ReconciliationTaskKind::Implementation,
             subject: "src/lib.rs".into(),
             description: "Apply the approved runtime change.".into(),
+            write_scopes: vec![],
             depends_on: vec![],
         }],
         change_intents: vec![],
@@ -120,7 +121,7 @@ fn runtime_claim_is_gated_by_approval_and_then_uses_the_frozen_plan() {
     reconciliation_execution_store::persist(&workspace, &execution).unwrap();
 
     let denied = runtime
-        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[])
+        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[], None)
         .unwrap_err()
         .to_string();
     assert!(denied.contains("plan_approval_required"));
@@ -135,7 +136,7 @@ fn runtime_claim_is_gated_by_approval_and_then_uses_the_frozen_plan() {
         )
         .unwrap();
     let claimed = runtime
-        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[])
+        .reconciliation_claim(workspace_id, &workspace, &plan.id, "writer", &[], None)
         .unwrap();
     assert_eq!(claimed.task.id, "RT-runtime");
     assert_eq!(claimed.claimed_by.as_deref(), Some("writer"));

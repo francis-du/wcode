@@ -492,6 +492,18 @@ impl Workspace {
         })
     }
 
+    pub(crate) fn normalize_relative_scope(path: &str) -> Result<String> {
+        let relative = Self::validate_relative(path)?;
+        Ok(relative
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(value) => Some(value.to_string_lossy()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/"))
+    }
+
     pub(super) fn validate_relative(path: &str) -> Result<PathBuf> {
         if path.contains('\0') || path.contains(['\n', '\r']) {
             bail!("path contains forbidden control characters");

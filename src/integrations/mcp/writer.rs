@@ -1,3 +1,6 @@
+use super::mcp_writer_scope::{
+    mutation_domain_path, mutation_domain_scopes, mutation_paths, scopes_allow_path,
+};
 use super::*;
 use crate::execution_policy::{
     ExecutionEffect, ExecutionPolicyDecision, ExecutionPolicyInput, VerificationFloor,
@@ -27,6 +30,7 @@ const FILE_MUTATION_TOOLS: &[&str] = &[
     "move_path",
     "move_paths",
     "delete_path",
+    "design_init",
 ];
 
 tokio::task_local! {
@@ -53,7 +57,7 @@ pub(crate) fn runtime() -> &'static WriterRuntime {
 
 #[derive(Clone, Default)]
 pub(crate) struct WriterRuntime {
-    leases: Arc<Mutex<HashMap<PathBuf, ActiveWriterLease>>>,
+    leases: Arc<Mutex<HashMap<PathBuf, Vec<ActiveWriterLease>>>>,
 }
 
 #[derive(Clone)]
@@ -64,6 +68,7 @@ struct ActiveWriterLease {
     plan_id: String,
     task_id: Option<String>,
     executor: String,
+    write_scopes: Vec<String>,
     issued_at_ms: u64,
 }
 
@@ -72,7 +77,19 @@ pub(crate) struct WriterReservation {
     domain: PathBuf,
     reservation: String,
     plan_id: String,
+    task_id: Option<String>,
     executor: String,
+    write_scopes: Vec<String>,
+}
+
+struct WriterClaimRequest<'a> {
+    workspace_id: &'a str,
+    owner: &'a str,
+    plan_id: &'a str,
+    executor: &'a str,
+    domain: &'a Path,
+    task_id: Option<String>,
+    write_scopes: Vec<String>,
 }
 
 pub(crate) enum WriterToolGuard {
@@ -94,6 +111,7 @@ pub(crate) struct WriterLeaseGrant {
     pub plan_id: String,
     pub task_id: String,
     pub executor: String,
+    pub write_scopes: Vec<String>,
     pub issued_at_ms: u64,
 }
 
@@ -103,6 +121,9 @@ pub(crate) struct WriterLeaseStatus {
     pub recovery_required: bool,
     pub linked_worktree: bool,
     pub mutation_domain: String,
+    pub active_writers: usize,
+    pub pending_writers: usize,
+    pub writers: Vec<WriterLeaseView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,43 +136,96 @@ pub(crate) struct WriterLeaseStatus {
     pub issued_at_ms: Option<u64>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct WriterLeaseView {
+    pub workspace: String,
+    pub plan_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    pub executor: String,
+    pub write_scopes: Vec<String>,
+    pub issued_at_ms: u64,
+}
+
 impl WriterRuntime {
     pub(crate) fn reserve_for_claim(
         &self,
         workspaces: &Workspaces,
         workspace_id: &str,
         workspace: &Workspace,
-        args: &Value,
+        args: &mut Value,
         owner: &str,
     ) -> Result<Option<WriterReservation>, String> {
-        let review_only = args
-            .get("kinds")
-            .and_then(Value::as_array)
-            .is_some_and(|items| {
-                !items.is_empty() && items.iter().all(|item| item.as_str() == Some("review"))
-            });
-        if review_only {
-            return Ok(None);
-        }
         let plan_id = args
             .get("plan_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| "reconciliation_claim is missing plan_id".to_owned())?;
+            .ok_or_else(|| "reconciliation_claim is missing plan_id".to_owned())?
+            .to_owned();
         let executor = args
             .get("executor")
             .and_then(Value::as_str)
-            .ok_or_else(|| "reconciliation_claim is missing executor".to_owned())?;
-        self.reserve(
-            workspaces,
-            workspace_id,
-            workspace,
-            owner,
-            plan_id,
-            executor,
+            .ok_or_else(|| "reconciliation_claim is missing executor".to_owned())?
+            .to_owned();
+        let requested_task_id = args
+            .get("task_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let kinds = args
+            .get("kinds")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .cloned()
+                    .map(|value| {
+                        serde_json::from_value::<ReconciliationTaskKind>(value)
+                            .map_err(|error| format!("invalid reconciliation task kind: {error}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let execution = crate::reconciliation_execution_store::load(workspace, &plan_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "reconciliation execution state does not exist".to_owned())?;
+        let domain = workspace
+            .mutation_domain_root()
+            .map_err(|error| error.to_string())?;
+        let candidates = execution.claimable_tasks(&kinds, requested_task_id.as_deref());
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let explicit = requested_task_id.is_some();
+        for candidate in candidates {
+            args["task_id"] = Value::String(candidate.task.id.clone());
+            if candidate.task.kind == ReconciliationTaskKind::Review {
+                return Ok(None);
+            }
+            let scopes = mutation_domain_scopes(workspace, &domain, &candidate.task.write_scopes)?;
+            match self.reserve_scoped(
+                workspaces,
+                WriterClaimRequest {
+                    workspace_id,
+                    owner,
+                    plan_id: &plan_id,
+                    executor: &executor,
+                    domain: &domain,
+                    task_id: Some(candidate.task.id.clone()),
+                    write_scopes: scopes,
+                },
+            ) {
+                Ok(reservation) => return Ok(Some(reservation)),
+                Err(error) if !explicit && error.starts_with("writer_lease_conflict:") => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(
+            "writer_lease_conflict: all runnable writer tasks overlap active writer scopes"
+                .to_owned(),
         )
-        .map(Some)
     }
 
+    #[cfg(test)]
     pub(crate) fn reserve(
         &self,
         workspaces: &Workspaces,
@@ -161,46 +235,77 @@ impl WriterRuntime {
         plan_id: &str,
         executor: &str,
     ) -> Result<WriterReservation, String> {
-        validate_identity(plan_id, 160, "plan_id")?;
-        validate_identity(executor, 256, "executor")?;
         let domain = workspace
             .mutation_domain_root()
             .map_err(|error| error.to_string())?;
+        self.reserve_scoped(
+            workspaces,
+            WriterClaimRequest {
+                workspace_id,
+                owner,
+                plan_id,
+                executor,
+                domain: &domain,
+                task_id: None,
+                write_scopes: Vec::new(),
+            },
+        )
+    }
+
+    fn reserve_scoped(
+        &self,
+        workspaces: &Workspaces,
+        request: WriterClaimRequest<'_>,
+    ) -> Result<WriterReservation, String> {
+        validate_identity(request.plan_id, 160, "plan_id")?;
+        validate_identity(request.executor, 256, "executor")?;
         let mut leases = self
             .leases
             .lock()
             .map_err(|_| "writer lease registry poisoned".to_owned())?;
-        if leases.contains_key(&domain) {
+        let active = leases.entry(request.domain.to_path_buf()).or_default();
+        if orphan_durable_writer_count(workspaces, request.domain, active)? > 0 {
             return Err(
-                "writer_lease_conflict: another writer already owns this Git worktree mutation domain"
+                "writer_lease_recovery_required: durable claimed writer exists without matching runtime ownership; writes remain fail-closed after restart"
                     .to_owned(),
             );
         }
-        if durable_writer_count(workspaces, &domain)? > 0 {
+        let owner_binding = digest(request.owner);
+        if active
+            .iter()
+            .any(|lease| lease.owner_binding == owner_binding)
+        {
             return Err(
-                "writer_lease_recovery_required: durable claimed writer exists but runtime ownership is absent; writes remain fail-closed after restart"
+                "writer_owner_conflict: one MCP owner may hold only one active or pending writer lease; use a distinct authenticated MCP owner for parallel writer lanes"
                     .to_owned(),
             );
         }
-
+        if active.iter().any(|lease| {
+            crate::reconcile::write_scopes_conflict(&lease.write_scopes, &request.write_scopes)
+        }) {
+            return Err(
+                "writer_lease_conflict: requested write scope overlaps another writer in this Git worktree mutation domain"
+                    .to_owned(),
+            );
+        }
         let reservation = format!("wr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-        leases.insert(
-            domain.clone(),
-            ActiveWriterLease {
-                workspace: workspace_id.to_owned(),
-                owner_binding: digest(owner),
-                reservation_binding: digest(&reservation),
-                plan_id: plan_id.to_owned(),
-                task_id: None,
-                executor: executor.to_owned(),
-                issued_at_ms: now_ms(),
-            },
-        );
+        active.push(ActiveWriterLease {
+            workspace: request.workspace_id.to_owned(),
+            owner_binding: digest(request.owner),
+            reservation_binding: digest(&reservation),
+            plan_id: request.plan_id.to_owned(),
+            task_id: None,
+            executor: request.executor.to_owned(),
+            write_scopes: request.write_scopes.clone(),
+            issued_at_ms: now_ms(),
+        });
         Ok(WriterReservation {
-            domain,
+            domain: request.domain.to_path_buf(),
             reservation,
-            plan_id: plan_id.to_owned(),
-            executor: executor.to_owned(),
+            plan_id: request.plan_id.to_owned(),
+            task_id: request.task_id,
+            executor: request.executor.to_owned(),
+            write_scopes: request.write_scopes,
         })
     }
 
@@ -213,16 +318,28 @@ impl WriterRuntime {
             self.cancel(reservation);
             return Ok(None);
         }
+        if reservation
+            .task_id
+            .as_deref()
+            .is_some_and(|task_id| task_id != run.task.id)
+        {
+            self.cancel(reservation);
+            return Err("writer reservation was admitted for a different task".to_owned());
+        }
         let mut leases = self
             .leases
             .lock()
             .map_err(|_| "writer lease registry poisoned".to_owned())?;
-        let lease = leases
+        let active = leases
             .get_mut(&reservation.domain)
             .ok_or_else(|| "writer reservation no longer exists".to_owned())?;
-        if lease.reservation_binding != digest(&reservation.reservation)
-            || lease.plan_id != reservation.plan_id
+        let lease = active
+            .iter_mut()
+            .find(|lease| lease.reservation_binding == digest(&reservation.reservation))
+            .ok_or_else(|| "writer reservation no longer exists".to_owned())?;
+        if lease.plan_id != reservation.plan_id
             || lease.executor != reservation.executor
+            || lease.write_scopes != reservation.write_scopes
         {
             return Err("writer reservation changed before claim completion".to_owned());
         }
@@ -234,6 +351,7 @@ impl WriterRuntime {
             plan_id: lease.plan_id.clone(),
             task_id: run.task.id.clone(),
             executor: lease.executor.clone(),
+            write_scopes: lease.write_scopes.clone(),
             issued_at_ms: lease.issued_at_ms,
         }))
     }
@@ -242,47 +360,102 @@ impl WriterRuntime {
         let Ok(mut leases) = self.leases.lock() else {
             return;
         };
-        if leases
-            .get(&reservation.domain)
-            .is_some_and(|lease| lease.reservation_binding == digest(&reservation.reservation))
-        {
+        let mut empty = false;
+        if let Some(active) = leases.get_mut(&reservation.domain) {
+            let binding = digest(&reservation.reservation);
+            active.retain(|lease| lease.reservation_binding != binding);
+            empty = active.is_empty();
+        }
+        if empty {
             leases.remove(&reservation.domain);
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn enforce_mutation(
         &self,
         workspaces: &Workspaces,
         workspace: &Workspace,
         owner: &str,
     ) -> Result<(), String> {
+        self.enforce_mutation_paths(workspaces, workspace, owner, None)
+    }
+
+    pub(crate) fn enforce_tool_mutation(
+        &self,
+        workspaces: &Workspaces,
+        workspace: &Workspace,
+        owner: &str,
+        tool_name: &str,
+        args: &Value,
+    ) -> Result<(), String> {
+        let paths = mutation_paths(tool_name, args)?;
+        self.enforce_mutation_paths(workspaces, workspace, owner, paths)
+    }
+
+    fn enforce_mutation_paths(
+        &self,
+        workspaces: &Workspaces,
+        workspace: &Workspace,
+        owner: &str,
+        paths: Option<Vec<String>>,
+    ) -> Result<(), String> {
         let domain = workspace
             .mutation_domain_root()
             .map_err(|error| error.to_string())?;
-        let lease = self
+        let active = self
             .leases
             .lock()
             .map_err(|_| "writer lease registry poisoned".to_owned())?
             .get(&domain)
-            .cloned();
-        if let Some(lease) = lease {
-            if lease.task_id.is_none() {
+            .cloned()
+            .unwrap_or_default();
+        if orphan_durable_writer_count(workspaces, &domain, &active)? > 0 {
+            return Err(
+                "writer_lease_recovery_required: durable claimed writer exists without matching runtime ownership; writes remain fail-closed after restart"
+                    .to_owned(),
+            );
+        }
+        if active.is_empty() {
+            return Ok(());
+        }
+        let owner_binding = digest(owner);
+        let owned = active
+            .iter()
+            .filter(|lease| lease.owner_binding == owner_binding && lease.task_id.is_some())
+            .collect::<Vec<_>>();
+        if owned.is_empty() {
+            if active
+                .iter()
+                .any(|lease| lease.owner_binding == owner_binding && lease.task_id.is_none())
+            {
                 return Err(
                     "writer_lease_pending: writer claim has not finished admission yet".to_owned(),
                 );
             }
-            if lease.owner_binding != digest(owner) {
-                return Err(
-                    "writer_lease_mismatch: mutation is bound to a different MCP owner".to_owned(),
-                );
-            }
-            return Ok(());
-        }
-        if durable_writer_count(workspaces, &domain)? > 0 {
             return Err(
-                "writer_lease_recovery_required: durable claimed writer exists but runtime ownership is absent; writes remain fail-closed after restart"
+                "writer_lease_mismatch: mutation is bound to a different MCP owner".to_owned(),
+            );
+        }
+        let Some(paths) = paths else {
+            if owned.iter().any(|lease| lease.write_scopes.is_empty()) {
+                return Ok(());
+            }
+            return Err(
+                "writer_scope_required: workspace-mutating commands require whole-domain writer ownership"
                     .to_owned(),
             );
+        };
+        for path in paths {
+            let path = mutation_domain_path(workspace, &domain, &path)?;
+            if !owned
+                .iter()
+                .any(|lease| scopes_allow_path(&lease.write_scopes, &path))
+            {
+                return Err(format!(
+                    "writer_scope_mismatch: mutation path '{path}' is outside this MCP owner's approved write scopes"
+                ));
+            }
         }
         Ok(())
     }
@@ -291,13 +464,38 @@ impl WriterRuntime {
         &self,
         workspaces: &Workspaces,
         workspace: &Workspace,
+        plan_id: &str,
         run: &ReconciliationTaskRun,
         owner: &str,
     ) -> Result<(), String> {
         if !is_writer_run(run) {
             return Ok(());
         }
-        self.enforce_mutation(workspaces, workspace, owner)
+        let domain = workspace
+            .mutation_domain_root()
+            .map_err(|error| error.to_string())?;
+        let active = self
+            .leases
+            .lock()
+            .map_err(|_| "writer lease registry poisoned".to_owned())?
+            .get(&domain)
+            .cloned()
+            .unwrap_or_default();
+        if orphan_durable_writer_count(workspaces, &domain, &active)? > 0 {
+            return Err(
+                "writer_lease_recovery_required: durable writer ownership is incomplete after restart"
+                    .to_owned(),
+            );
+        }
+        let owner_binding = digest(owner);
+        if active.iter().any(|lease| {
+            lease.owner_binding == owner_binding
+                && lease.plan_id == plan_id
+                && lease.task_id.as_deref() == Some(run.task.id.as_str())
+        }) {
+            return Ok(());
+        }
+        Err("writer lease does not match the claimed task".to_owned())
     }
 
     pub(crate) fn release_for_run(
@@ -317,16 +515,22 @@ impl WriterRuntime {
             .leases
             .lock()
             .map_err(|_| "writer lease registry poisoned".to_owned())?;
-        let lease = leases
-            .get(&domain)
-            .ok_or_else(|| "writer lease is not active".to_owned())?;
-        if lease.owner_binding != digest(owner)
-            || lease.plan_id != plan_id
-            || lease.task_id.as_deref() != Some(run.task.id.as_str())
-        {
+        let Some(active) = leases.get_mut(&domain) else {
+            return Err("writer lease is not active".to_owned());
+        };
+        let owner_binding = digest(owner);
+        let before = active.len();
+        active.retain(|lease| {
+            !(lease.owner_binding == owner_binding
+                && lease.plan_id == plan_id
+                && lease.task_id.as_deref() == Some(run.task.id.as_str()))
+        });
+        if active.len() == before {
             return Err("writer lease does not match the claimed task".to_owned());
         }
-        leases.remove(&domain);
+        if active.is_empty() {
+            leases.remove(&domain);
+        }
         Ok(())
     }
 
@@ -338,36 +542,44 @@ impl WriterRuntime {
         let domain = workspace
             .mutation_domain_root()
             .map_err(|error| error.to_string())?;
-        if let Some(lease) = self
+        let active = self
             .leases
             .lock()
             .map_err(|_| "writer lease registry poisoned".to_owned())?
             .get(&domain)
             .cloned()
-        {
-            return Ok(WriterLeaseStatus {
-                active: lease.task_id.is_some(),
-                recovery_required: false,
-                linked_worktree: registered_linked_worktree(workspaces, workspace),
-                mutation_domain: mutation_domain_id(&domain),
-                workspace: Some(lease.workspace),
-                plan_id: Some(lease.plan_id),
-                task_id: lease.task_id,
-                executor: Some(lease.executor),
-                issued_at_ms: Some(lease.issued_at_ms),
-            });
-        }
-        let durable = durable_writer_count(workspaces, &domain)?;
+            .unwrap_or_default();
+        let recovery_required = orphan_durable_writer_count(workspaces, &domain, &active)? > 0;
+        let active_writers = active
+            .iter()
+            .filter(|lease| lease.task_id.is_some())
+            .count();
+        let pending_writers = active.len().saturating_sub(active_writers);
+        let writers = active
+            .iter()
+            .map(|lease| WriterLeaseView {
+                workspace: lease.workspace.clone(),
+                plan_id: lease.plan_id.clone(),
+                task_id: lease.task_id.clone(),
+                executor: lease.executor.clone(),
+                write_scopes: lease.write_scopes.clone(),
+                issued_at_ms: lease.issued_at_ms,
+            })
+            .collect::<Vec<_>>();
+        let single = (active.len() == 1).then(|| active[0].clone());
         Ok(WriterLeaseStatus {
-            active: false,
-            recovery_required: durable > 0,
+            active: active_writers > 0,
+            recovery_required,
             linked_worktree: registered_linked_worktree(workspaces, workspace),
             mutation_domain: mutation_domain_id(&domain),
-            workspace: None,
-            plan_id: None,
-            task_id: None,
-            executor: None,
-            issued_at_ms: None,
+            active_writers,
+            pending_writers,
+            writers,
+            workspace: single.as_ref().map(|lease| lease.workspace.clone()),
+            plan_id: single.as_ref().map(|lease| lease.plan_id.clone()),
+            task_id: single.as_ref().and_then(|lease| lease.task_id.clone()),
+            executor: single.as_ref().map(|lease| lease.executor.clone()),
+            issued_at_ms: single.as_ref().map(|lease| lease.issued_at_ms),
         })
     }
 }
@@ -501,7 +713,13 @@ pub(crate) fn before_tool(
     if effect.mutates_workspace() {
         let context = runtime_policy_context(state, name, args, args)?;
         enforce_plan_approval(&context)?;
-        runtime().enforce_mutation(&state.workspaces, &context.workspace, &owner)?;
+        runtime().enforce_tool_mutation(
+            &state.workspaces,
+            &context.workspace,
+            &owner,
+            name,
+            args,
+        )?;
     }
 
     if name == "reconciliation_claim" {
@@ -535,7 +753,7 @@ pub(crate) fn before_tool(
             .cloned()
             .ok_or_else(|| "reconciliation task does not exist".to_owned())?;
         if run.status == ReconciliationRunStatus::Claimed {
-            runtime().enforce_submission(&state.workspaces, &workspace, &run, &owner)?;
+            runtime().enforce_submission(&state.workspaces, &workspace, &plan_id, &run, &owner)?;
         }
         return Ok(WriterToolGuard::Submission {
             workspace,
@@ -647,8 +865,12 @@ fn registered_linked_worktree(workspaces: &Workspaces, workspace: &Workspace) ->
     })
 }
 
-fn durable_writer_count(workspaces: &Workspaces, domain: &Path) -> Result<usize, String> {
-    let mut count = 0usize;
+fn orphan_durable_writer_count(
+    workspaces: &Workspaces,
+    domain: &Path,
+    active: &[ActiveWriterLease],
+) -> Result<usize, String> {
+    let mut orphaned = 0usize;
     for (workspace_id, _) in workspaces.roots() {
         let (_, workspace) = workspaces
             .select(Some(&workspace_id))
@@ -660,13 +882,23 @@ fn durable_writer_count(workspaces: &Workspaces, domain: &Path) -> Result<usize,
         {
             continue;
         }
-        count = count.saturating_add(
-            crate::reconciliation_execution_store::claimed_writers(&workspace)
+        for (plan_id, run) in
+            crate::reconciliation_execution_store::claimed_writer_records(&workspace)
                 .map_err(|error| error.to_string())?
-                .len(),
-        );
+        {
+            let executor = run.claimed_by.as_deref().unwrap_or_default();
+            let matched = active.iter().any(|lease| {
+                lease.workspace == workspace_id
+                    && lease.plan_id == plan_id
+                    && lease.task_id.as_deref() == Some(run.task.id.as_str())
+                    && lease.executor == executor
+            });
+            if !matched {
+                orphaned = orphaned.saturating_add(1);
+            }
+        }
     }
-    Ok(count)
+    Ok(orphaned)
 }
 
 fn is_writer_run(run: &ReconciliationTaskRun) -> bool {

@@ -30,6 +30,7 @@ fn plan_validation_rejects_dependency_cycles() {
                 kind: ReconciliationTaskKind::Design,
                 subject: "REQ-a".into(),
                 description: "task a".into(),
+                write_scopes: vec![],
                 depends_on: vec!["b".into()],
             },
             ReconciliationTask {
@@ -37,6 +38,7 @@ fn plan_validation_rejects_dependency_cycles() {
                 kind: ReconciliationTaskKind::Implementation,
                 subject: "component:b".into(),
                 description: "task b".into(),
+                write_scopes: vec![],
                 depends_on: vec!["a".into()],
             },
         ],
@@ -82,6 +84,7 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
                 kind: ReconciliationTaskKind::Design,
                 subject: "REQ-test".into(),
                 description: "Update desired state".into(),
+                write_scopes: vec![],
                 depends_on: Vec::new(),
             },
             ReconciliationTask {
@@ -89,6 +92,7 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
                 kind: ReconciliationTaskKind::Implementation,
                 subject: "component:test".into(),
                 description: "Implement desired state".into(),
+                write_scopes: vec![],
                 depends_on: vec!["design".into()],
             },
             ReconciliationTask {
@@ -96,6 +100,7 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
                 kind: ReconciliationTaskKind::Verification,
                 subject: "VP-test".into(),
                 description: "Wait for verification evidence".into(),
+                write_scopes: vec![],
                 depends_on: vec!["implementation".into()],
             },
         ],
@@ -190,6 +195,7 @@ fn execution_allows_parallel_reviews_but_only_one_writer_claim() {
         kind,
         subject: id.into(),
         description: format!("Run {id}"),
+        write_scopes: vec![],
         depends_on: vec![],
     };
     let plan = ReconciliationPlan {
@@ -257,4 +263,104 @@ fn execution_allows_parallel_reviews_but_only_one_writer_claim() {
         review_b.ownership.as_ref().unwrap().mode,
         ReconciliationClaimMode::ReadOnly
     );
+}
+
+#[test]
+fn execution_allows_non_overlapping_scoped_writers_and_rejects_overlap() {
+    let task = |id: &str, scope: Option<&str>| ReconciliationTask {
+        id: id.into(),
+        kind: ReconciliationTaskKind::Implementation,
+        subject: id.into(),
+        description: format!("Run {id}"),
+        write_scopes: scope.into_iter().map(str::to_owned).collect(),
+        depends_on: vec![],
+    };
+    let plan = ReconciliationPlan {
+        id: "RP-scoped-writers".into(),
+        workspace: "demo".into(),
+        risk_level: RiskLevel::Low,
+        design_changes: vec![],
+        drift_ids: vec![],
+        impacted_components: vec![],
+        impacted_symbols: vec![],
+        impacted_tests: vec![],
+        impacted_acceptance: vec![],
+        implementation_tasks: vec![
+            task("RT-src", Some("src/agent")),
+            task("RT-tests", Some("tests/agent")),
+            task("RT-overlap", Some("src/agent/generated")),
+            task("RT-broad", None),
+        ],
+        change_intents: vec![],
+        verification_plan: VerificationPlan {
+            id: "VP-scoped-writers".into(),
+            workspace: "demo".into(),
+            subject: "change:scoped-writers".into(),
+            revision: None,
+            risk_level: RiskLevel::Low,
+            policy: "risk-adaptive/v1/low".into(),
+            deterministic_level: "quick".into(),
+            deterministic_checks: vec![],
+            reviewer_roles: vec![],
+            require_property: false,
+            require_mutation: false,
+            require_fuzz: false,
+            require_human_approval: false,
+            stage_targets: vec![],
+            automation_gaps: vec![],
+            job_ids: vec![],
+        },
+    };
+    let mut execution = ReconciliationExecution::from_plan(&plan).unwrap();
+
+    let src = execution
+        .claim_task(
+            "writer-src",
+            &[ReconciliationTaskKind::Implementation],
+            Some("RT-src"),
+        )
+        .unwrap();
+    assert_eq!(src.task.write_scopes, vec!["src/agent"]);
+
+    let tests = execution
+        .claim_task(
+            "writer-tests",
+            &[ReconciliationTaskKind::Implementation],
+            Some("RT-tests"),
+        )
+        .unwrap();
+    assert_eq!(tests.task.write_scopes, vec!["tests/agent"]);
+
+    assert_eq!(
+        execution
+            .claim_task(
+                "writer-overlap",
+                &[ReconciliationTaskKind::Implementation],
+                Some("RT-overlap"),
+            )
+            .unwrap_err(),
+        ReconciliationError::NoRunnableTask
+    );
+    assert_eq!(
+        execution
+            .claim_task(
+                "writer-broad",
+                &[ReconciliationTaskKind::Implementation],
+                Some("RT-broad"),
+            )
+            .unwrap_err(),
+        ReconciliationError::NoRunnableTask
+    );
+}
+
+#[test]
+fn writer_scope_aliases_follow_case_sensitive_and_insensitive_filesystems() {
+    assert!(scope_contains_with_case("src/Foo.rs", "src/foo.rs", true));
+    assert!(scope_contains_with_case(
+        "SRC/Agent",
+        "src/agent/generated/file.rs",
+        true
+    ));
+    assert!(!scope_contains_with_case("src/Foo", "src/Foobar", true));
+    assert!(!scope_contains_with_case("src/Foo.rs", "src/foo.rs", false));
 }

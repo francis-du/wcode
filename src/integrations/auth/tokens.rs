@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub(super) struct AccessToken {
     pub(super) issued_at_ms: u64,
     pub(super) client_id: String,
+    #[serde(default)]
+    pub(super) owner_id: String,
     pub(super) resource: Option<String>,
 }
 
@@ -12,6 +14,8 @@ pub(super) struct AccessToken {
 pub(super) struct RefreshToken {
     pub(super) issued_at_ms: u64,
     pub(super) client_id: String,
+    #[serde(default)]
+    pub(super) owner_id: String,
     pub(super) resource: Option<String>,
 }
 
@@ -131,6 +135,7 @@ pub(super) fn refresh_access_token(
     issue_tokens_locked(
         state,
         saved.client_id,
+        saved.owner_id,
         Some(expected_resource.to_owned()),
         Some(&refresh),
     )
@@ -145,12 +150,13 @@ pub(super) fn issue_tokens(
         .mutation_lock
         .lock()
         .expect("auth mutation lock poisoned");
-    issue_tokens_locked(state, client_id, resource, None)
+    issue_tokens_locked(state, client_id, random_token("owner"), resource, None)
 }
 
 fn issue_tokens_locked(
     state: &AuthState,
     client_id: String,
+    owner_id: String,
     resource: Option<String>,
     rotated_refresh: Option<&str>,
 ) -> Response {
@@ -187,6 +193,7 @@ fn issue_tokens_locked(
             AccessToken {
                 issued_at_ms: now,
                 client_id: client_id.clone(),
+                owner_id: owner_id.clone(),
                 resource: resource.clone(),
             },
         );
@@ -210,6 +217,7 @@ fn issue_tokens_locked(
             RefreshToken {
                 issued_at_ms: now,
                 client_id,
+                owner_id,
                 resource,
             },
         );

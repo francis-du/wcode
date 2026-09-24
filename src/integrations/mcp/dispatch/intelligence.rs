@@ -751,6 +751,10 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let plan_id = required_string(args, "plan_id")?.to_owned();
             let executor = required_string(args, "executor")?.to_owned();
+            let task_id = args
+                .get("task_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let kinds = args
                 .get("kinds")
                 .and_then(Value::as_array)
@@ -770,7 +774,14 @@ pub(super) async fn call(
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
-                    .reconciliation_claim(&workspace_id, &workspace, &plan_id, &executor, &kinds)
+                    .reconciliation_claim(
+                        &workspace_id,
+                        &workspace,
+                        &plan_id,
+                        &executor,
+                        &kinds,
+                        task_id.as_deref(),
+                    )
                     .and_then(|run| serde_json::to_value(run).map_err(Into::into))
             })
             .await

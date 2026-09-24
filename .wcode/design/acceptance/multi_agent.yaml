@@ -1,18 +1,27 @@
 schema_version: 1
 id: AC-MULTI-AGENT-001
-title: Parallel agents never race writes in one Workspace
+title: Parallel writers are admitted only for non-overlapping approved scopes
 statement: >-
-  Independent read-only investigation and Review claims may run concurrently. At most one Design/Implementation
-  writer task may be claimed in one Reconciliation execution, and runtime ownership is bound automatically to the
-  authenticated MCP owner; no lease token is exposed to or supplied by the model. A different MCP owner is rejected
-  while the writer is active. Workspace subspaces inside the same Git worktree resolve to the same mutation domain;
-  distinct registered linked-worktree roots resolve to distinct domains and keep independent Execution,
-  Reconciliation and Evidence state. Writer submit/failure releases runtime ownership, and process restart never
-  treats a durable claimed writer with a missing runtime lease as permission to write. Convergence still requires
-  normal review, Reconciliation and Verification.
+  Independent read-only investigation and Review claims may run concurrently. Unscoped Design/Implementation tasks
+  remain whole-domain exclusive for backward compatibility and safety. Approved tasks with explicit write_scopes may
+  be claimed by multiple authenticated MCP owners in one Git mutation domain only when scopes do not overlap by
+  equality or ancestor/descendant relation. Actual file/create/move/delete paths must stay within the claimant's
+  normalized scopes; a scoped claimant cannot run a workspace-mutating command. Nested Workspace paths normalize to
+  the same mutation domain, while linked worktrees remain separate. Runtime ownership binds owner, plan, task and
+  executor without exposing lease tokens. One MCP owner may hold only one writer lease at a time so multiple task
+  scopes cannot collapse into an owner-wide write union. Remote OAuth grants from one client application receive
+  distinct stable owner identities and refresh rotation preserves the grant owner. Submit/failure releases only the
+  matching lease, and process restart never
+  treats durable claimed writers lacking corresponding runtime leases as permission to write. Convergence still
+  requires normal review, Reconciliation and Verification.
 verification:
   - {kind: test, path: tests/unit/reconciliation/mod.rs, symbol: execution_allows_parallel_reviews_but_only_one_writer_claim}
+  - {kind: test, path: tests/unit/reconciliation/mod.rs, symbol: execution_allows_non_overlapping_scoped_writers_and_rejects_overlap}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: writer_runtime_binds_ownership_to_mcp_owner_without_model_token}
+  - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: scoped_writer_leases_allow_disjoint_owners_and_block_scope_escape}
+  - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: claim_admission_routes_parallel_owners_to_disjoint_scopes}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: writer_restart_with_durable_claim_fails_closed_without_runtime_lease}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: mutation_domain_groups_subspaces_and_separates_linked_worktrees}
   - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: active_writer_lease_gates_file_and_mutating_command_tools}
+  - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: separate_oauth_grants_for_one_client_get_distinct_writer_owners}
+  - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: bearer_and_refresh_sessions_survive_restart_and_tunnel_change}

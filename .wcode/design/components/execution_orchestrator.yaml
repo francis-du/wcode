@@ -3,12 +3,14 @@ id: component:execution-orchestrator
 name: Isolated Multi-Agent Execution Orchestrator
 responsibilities:
   - run independent investigators and Review claims concurrently with read-only authority by default
-  - retain one opaque runtime writer lease for a shared Git-worktree mutation domain and bind it to a claimed Design/Implementation task plus MCP owner
-  - gate direct file mutations and commands classified as workspace-writing while a writer lease is active
-  - resolve nested Workspace/subspace roots to their containing Git worktree so aliases cannot create a second writer domain
-  - permit additional writers only through separately registered linked-worktree Workspace roots with isolated Execution/Reconciliation/Evidence state; never auto-create model-owned worktrees
+  - bind each writer lease to authenticated MCP owner, approved plan/task/executor and normalized write_scopes; empty scopes mean whole-domain ownership
+  - admit multiple writers in one Git-worktree mutation domain only when active and pending scopes are pairwise non-overlapping
+  - gate every direct file/create/move/delete mutation against the caller's scopes and require whole-domain ownership for workspace-mutating commands
+  - resolve nested Workspace/subspace roots into one mutation-domain path space so aliases cannot evade overlap checks
+  - reconcile durable claimed writers with runtime leases and fail closed after restart when ownership cannot be proven
+  - keep linked-worktree Workspace roots as separate stronger isolation domains for broad or uncertain implementation lanes
   - converge writer results through review reconciliation and verification rather than model consensus
-  - expose sanitized ownership state without exposing lease tokens
+  - expose sanitized multi-writer ownership state without exposing lease tokens
 constraints:
   - CONSTRAINT-MULTI-AGENT-WRITE-ISOLATION
   - CONSTRAINT-PARALLEL-FIRST
@@ -19,6 +21,7 @@ depends_on:
   - component:verification-mesh
 implementation:
   - {kind: file, path: src/integrations/mcp/writer.rs}
+  - {kind: file, path: src/integrations/mcp/writer_scope.rs}
   - {kind: file, path: src/integrations/mcp/dispatch/mod.rs}
   - {kind: file, path: src/workspace/scheduler.rs}
   - {kind: file, path: src/reconciliation/mod.rs}

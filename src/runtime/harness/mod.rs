@@ -631,6 +631,8 @@ pub(crate) use harness_capabilities::{
 };
 #[path = "core.rs"]
 mod harness_core;
+#[path = "reconciliation.rs"]
+mod harness_reconciliation;
 #[path = "semantic_provider.rs"]
 mod harness_semantic_provider;
 

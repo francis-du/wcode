@@ -302,7 +302,13 @@ impl AuthState {
         {
             return None;
         }
-        Some(format!("{:x}", Sha256::digest(saved.client_id.as_bytes())))
+        let mut owner = Sha256::new();
+        owner.update(saved.client_id.as_bytes());
+        if !saved.owner_id.is_empty() {
+            owner.update(b"\0authorization-grant\0");
+            owner.update(saved.owner_id.as_bytes());
+        }
+        Some(format!("{:x}", owner.finalize()))
     }
 
     #[cfg(test)]
@@ -338,6 +344,7 @@ impl AuthState {
                 AccessToken {
                     issued_at_ms: epoch_ms(),
                     client_id: client_id.to_owned(),
+                    owner_id: String::new(),
                     resource: Some(resource.to_owned()),
                 },
             );

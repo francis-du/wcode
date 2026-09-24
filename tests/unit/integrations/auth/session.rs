@@ -139,12 +139,19 @@ async fn bearer_and_refresh_sessions_survive_restart_and_tunnel_change() {
     .await;
     let access = issued["access_token"].as_str().unwrap().to_owned();
     let refresh = issued["refresh_token"].as_str().unwrap().to_owned();
+    let mut first_headers = host_headers("first-tunnel.example");
+    first_headers.insert("authorization", format!("Bearer {access}").parse().unwrap());
+    let owner_before_restart = first.authorized_client_fingerprint(&first_headers).unwrap();
     drop(first);
 
     let restarted = persistent_state("https://second-tunnel.example", &path);
     let mut headers = host_headers("second-tunnel.example");
     headers.insert("authorization", format!("Bearer {access}").parse().unwrap());
     assert!(restarted.authorized(&headers));
+    assert_eq!(
+        restarted.authorized_client_fingerprint(&headers).unwrap(),
+        owner_before_restart
+    );
 
     let refreshed = refresh_access_token(
         &restarted,
@@ -160,6 +167,64 @@ async fn bearer_and_refresh_sessions_survive_restart_and_tunnel_change() {
         "https://second-tunnel.example/mcp",
     );
     assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed = response_json(refreshed).await;
+    let refreshed_access = refreshed["access_token"].as_str().unwrap();
+    let mut refreshed_headers = host_headers("second-tunnel.example");
+    refreshed_headers.insert(
+        "authorization",
+        format!("Bearer {refreshed_access}").parse().unwrap(),
+    );
+    assert_eq!(
+        restarted
+            .authorized_client_fingerprint(&refreshed_headers)
+            .unwrap(),
+        owner_before_restart
+    );
+}
+
+#[tokio::test]
+async fn separate_oauth_grants_for_one_client_get_distinct_writer_owners() {
+    let state = Arc::new(AuthState::new("https://example.com".to_owned()));
+    let client_id = registered_client(state.clone()).await;
+    let first = response_json(issue_tokens(
+        state.as_ref(),
+        client_id.clone(),
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    let second = response_json(issue_tokens(
+        state.as_ref(),
+        client_id,
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+
+    let fingerprint = |access: &str| {
+        let mut headers = host_headers("example.com");
+        headers.insert("authorization", format!("Bearer {access}").parse().unwrap());
+        state.authorized_client_fingerprint(&headers).unwrap()
+    };
+    let first_owner = fingerprint(first["access_token"].as_str().unwrap());
+    let second_owner = fingerprint(second["access_token"].as_str().unwrap());
+    assert_ne!(first_owner, second_owner);
+}
+
+#[test]
+fn legacy_token_records_without_owner_id_keep_compatibility_fallback() {
+    let access: AccessToken = serde_json::from_value(json!({
+        "issued_at_ms": 1,
+        "client_id": "legacy-client",
+        "resource": "https://example.com/mcp"
+    }))
+    .unwrap();
+    let refresh: RefreshToken = serde_json::from_value(json!({
+        "issued_at_ms": 1,
+        "client_id": "legacy-client",
+        "resource": "https://example.com/mcp"
+    }))
+    .unwrap();
+    assert!(access.owner_id.is_empty());
+    assert!(refresh.owner_id.is_empty());
 }
 
 #[tokio::test]

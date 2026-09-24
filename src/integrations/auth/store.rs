@@ -150,6 +150,7 @@ where
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
             || !clients.contains_key(saved.client_id())
+            || !valid_owner_id(saved.owner_id())
             || saved
                 .resource()
                 .is_some_and(|resource| !valid_resource(resource))
@@ -162,12 +163,17 @@ where
 
 trait TokenRecord {
     fn client_id(&self) -> &str;
+    fn owner_id(&self) -> &str;
     fn resource(&self) -> Option<&str>;
 }
 
 impl TokenRecord for AccessToken {
     fn client_id(&self) -> &str {
         &self.client_id
+    }
+
+    fn owner_id(&self) -> &str {
+        &self.owner_id
     }
 
     fn resource(&self) -> Option<&str> {
@@ -180,9 +186,20 @@ impl TokenRecord for RefreshToken {
         &self.client_id
     }
 
+    fn owner_id(&self) -> &str {
+        &self.owner_id
+    }
+
     fn resource(&self) -> Option<&str> {
         self.resource.as_deref()
     }
+}
+
+fn valid_owner_id(value: &str) -> bool {
+    value.is_empty()
+        || value.strip_prefix("owner_").is_some_and(|suffix| {
+            suffix.len() == 64 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
 }
 
 fn valid_client_id(value: &str) -> bool {

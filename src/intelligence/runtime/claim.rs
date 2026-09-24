@@ -8,13 +8,12 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
         executor: &str,
         kinds: &[ReconciliationTaskKind],
+        task_id: Option<&str>,
     ) -> Result<ReconciliationTaskRun> {
         let snapshot = self.approved_reconciliation_snapshot(workspace_id, workspace, plan_id)?;
         self.reconciliation_execution_status_from_plan(workspace_id, workspace, &snapshot.plan)?;
-        let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .ok_or_else(|| anyhow!("reconciliation execution state does not exist"))?;
-        let run = execution.claim(executor, kinds)?;
-        reconciliation_execution_store::persist(workspace, &execution)?;
-        Ok(run)
+        reconciliation_execution_store::update_existing(workspace, plan_id, |execution| {
+            Ok(execution.claim_task(executor, kinds, task_id)?)
+        })
     }
 }

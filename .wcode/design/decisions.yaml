@@ -99,10 +99,19 @@
 
 - schema_version: 1
   id: ADR-009-MULTI-AGENT-OWNERSHIP
-  title: Multi-agent parallelism defaults to read-many single-writer
+  title: Multi-agent writers use explicit scope isolation with whole-domain fallback
   status: accepted
-  decision: Independent investigators and reviewers may run concurrently with read-only authority. One writer owns shared-Workspace mutation; additional concurrent writers require isolated worktrees and explicit convergence through normal review, reconciliation and verification.
-  rationale: Parallel model reasoning is useful, but concurrent uncontrolled mutations create races and invalidate evidence. Read-many/single-writer captures most parallel benefit while worktree isolation provides a safe escape hatch for independent implementation lanes.
+  decision: >-
+    Independent investigators and reviewers run concurrently read-only. Design/Implementation tasks default to whole
+    mutation-domain writer exclusivity, but an approved plan may declare explicit write_scopes and admit multiple
+    authenticated writers only when their normalized path subtrees do not overlap. Direct file mutations are
+    scope-checked and SHA-guarded; broad workspace-mutating commands still require whole-domain ownership. Linked
+    worktrees remain available for stronger isolation.
+  rationale: >-
+    Read-many/single-writer is safe but unnecessarily serializes clearly independent implementation lanes. Explicit
+    approved path scopes recover bounded parallel write throughput without allowing uncontrolled races. Overlap,
+    unknown write surfaces, lost runtime ownership and restart ambiguity all fail closed, while existing unscoped
+    plans preserve the former safety model.
   affects:
     - REQ-MULTI-AGENT-001
     - component:execution-orchestrator

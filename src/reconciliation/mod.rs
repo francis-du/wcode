@@ -39,6 +39,8 @@ pub struct ReconciliationTask {
     pub kind: ReconciliationTaskKind,
     pub subject: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write_scopes: Vec<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
 }
@@ -199,45 +201,83 @@ impl ReconciliationExecution {
         executor: &str,
         kinds: &[ReconciliationTaskKind],
     ) -> Result<ReconciliationTaskRun, ReconciliationError> {
+        self.claim_task(executor, kinds, None)
+    }
+
+    pub fn claim_task(
+        &mut self,
+        executor: &str,
+        kinds: &[ReconciliationTaskKind],
+        task_id: Option<&str>,
+    ) -> Result<ReconciliationTaskRun, ReconciliationError> {
         if executor.trim().is_empty() || executor.len() > 256 {
             return Err(ReconciliationError::InvalidExecutor);
         }
-        let writer_active = self.tasks.iter().any(|run| {
-            run.status == ReconciliationRunStatus::Claimed
-                && run.ownership.as_ref().is_some_and(|ownership| {
-                    ownership.mode == ReconciliationClaimMode::SharedWriter
-                })
-        });
+        let runnable_id = self
+            .claimable_task(kinds, task_id)
+            .map(|run| run.task.id.clone())
+            .ok_or(ReconciliationError::NoRunnableTask)?;
         let runnable = self
             .tasks
             .iter()
-            .enumerate()
-            .find(|(_, run)| {
-                run.status == ReconciliationRunStatus::Pending
-                    && matches!(
-                        run.task.kind,
-                        ReconciliationTaskKind::Design
-                            | ReconciliationTaskKind::Implementation
-                            | ReconciliationTaskKind::Review
-                    )
-                    && (kinds.is_empty() || kinds.contains(&run.task.kind))
-                    && (run.task.kind == ReconciliationTaskKind::Review || !writer_active)
-                    && run.task.depends_on.iter().all(|dependency| {
-                        self.tasks.iter().any(|candidate| {
-                            candidate.task.id == *dependency
-                                && candidate.status == ReconciliationRunStatus::Completed
-                        })
-                    })
-            })
-            .map(|(index, _)| index)
+            .position(|run| run.task.id == runnable_id)
             .ok_or(ReconciliationError::NoRunnableTask)?;
         let ownership = default_claim_ownership(self.tasks[runnable].task.kind);
         let run = &mut self.tasks[runnable];
         run.status = ReconciliationRunStatus::Claimed;
         run.claimed_by = Some(executor.to_owned());
         run.ownership = Some(ownership);
-        self.updated_at_ms = now_ms();
-        Ok(run.clone())
+        let claimed = run.clone();
+        self.touch();
+        Ok(claimed)
+    }
+
+    pub(crate) fn claimable_task(
+        &self,
+        kinds: &[ReconciliationTaskKind],
+        task_id: Option<&str>,
+    ) -> Option<&ReconciliationTaskRun> {
+        self.claimable_tasks(kinds, task_id).into_iter().next()
+    }
+
+    pub(crate) fn claimable_tasks(
+        &self,
+        kinds: &[ReconciliationTaskKind],
+        task_id: Option<&str>,
+    ) -> Vec<&ReconciliationTaskRun> {
+        self.tasks
+            .iter()
+            .filter(|run| {
+                if run.status != ReconciliationRunStatus::Pending
+                    || !matches!(
+                        run.task.kind,
+                        ReconciliationTaskKind::Design
+                            | ReconciliationTaskKind::Implementation
+                            | ReconciliationTaskKind::Review
+                    )
+                    || (!kinds.is_empty() && !kinds.contains(&run.task.kind))
+                    || task_id.is_some_and(|id| run.task.id != id)
+                    || !run.task.depends_on.iter().all(|dependency| {
+                        self.tasks.iter().any(|candidate| {
+                            candidate.task.id == *dependency
+                                && candidate.status == ReconciliationRunStatus::Completed
+                        })
+                    })
+                {
+                    return false;
+                }
+                if run.task.kind == ReconciliationTaskKind::Review {
+                    return true;
+                }
+                !self.tasks.iter().any(|claimed| {
+                    claimed.status == ReconciliationRunStatus::Claimed
+                        && claimed.ownership.as_ref().is_some_and(|ownership| {
+                            ownership.mode == ReconciliationClaimMode::SharedWriter
+                        })
+                        && write_scopes_conflict(&claimed.task.write_scopes, &run.task.write_scopes)
+                })
+            })
+            .collect()
     }
 
     pub fn submit(
@@ -272,8 +312,9 @@ impl ReconciliationExecution {
         };
         run.summary = Some(submission.summary);
         run.artifact_digest = submission.artifact_digest;
-        self.updated_at_ms = now_ms();
-        Ok(run.clone())
+        let submitted = run.clone();
+        self.touch();
+        Ok(submitted)
     }
 
     pub fn retry(&mut self, task_id: &str) -> Result<ReconciliationTaskRun, ReconciliationError> {
@@ -297,8 +338,9 @@ impl ReconciliationExecution {
         run.ownership = None;
         run.summary = None;
         run.artifact_digest = None;
-        self.updated_at_ms = now_ms();
-        Ok(run.clone())
+        let retried = run.clone();
+        self.touch();
+        Ok(retried)
     }
 
     pub fn set_system_task(
@@ -337,9 +379,13 @@ impl ReconciliationExecution {
             }
         }
         if changed {
-            self.updated_at_ms = now_ms();
+            self.touch();
         }
         changed
+    }
+
+    fn touch(&mut self) {
+        self.updated_at_ms = now_ms().max(self.updated_at_ms.saturating_add(1));
     }
 
     pub fn status(&self) -> ReconciliationExecutionStatus {
@@ -439,6 +485,16 @@ impl ReconciliationPlan {
             if task.id.trim().is_empty()
                 || task.subject.trim().is_empty()
                 || task.description.trim().is_empty()
+                || task.write_scopes.len() > 32
+                || task
+                    .write_scopes
+                    .iter()
+                    .any(|scope| !valid_write_scope(scope))
+                || task.write_scopes.iter().collect::<HashSet<_>>().len() != task.write_scopes.len()
+                || (!matches!(
+                    task.kind,
+                    ReconciliationTaskKind::Design | ReconciliationTaskKind::Implementation
+                ) && !task.write_scopes.is_empty())
                 || task.depends_on.len() > 64
                 || task
                     .depends_on
@@ -476,6 +532,50 @@ fn has_dependency_cycle(tasks: &[ReconciliationTask]) -> bool {
             return !tasks.is_empty();
         }
     }
+}
+
+pub(crate) fn write_scopes_conflict(left: &[String], right: &[String]) -> bool {
+    if left.is_empty() || right.is_empty() {
+        return true;
+    }
+    left.iter().any(|left| {
+        right
+            .iter()
+            .any(|right| scope_contains(left, right) || scope_contains(right, left))
+    })
+}
+
+pub(crate) fn scope_contains(parent: &str, child: &str) -> bool {
+    scope_contains_with_case(parent, child, cfg!(any(windows, target_os = "macos")))
+}
+
+fn scope_contains_with_case(parent: &str, child: &str, case_insensitive: bool) -> bool {
+    if !case_insensitive {
+        return parent == child
+            || child
+                .strip_prefix(parent)
+                .is_some_and(|suffix| suffix.starts_with('/'));
+    }
+    let parent = parent.as_bytes();
+    let child = child.as_bytes();
+    if child.len() < parent.len() || !child[..parent.len()].eq_ignore_ascii_case(parent) {
+        return false;
+    }
+    child.len() == parent.len() || child.get(parent.len()) == Some(&b'/')
+}
+
+fn valid_write_scope(scope: &str) -> bool {
+    if scope.trim().is_empty()
+        || scope.len() > 300
+        || scope.starts_with('/')
+        || scope.contains('\\')
+        || scope.contains(['\0', '\n', '\r'])
+    {
+        return false;
+    }
+    scope.split('/').all(|component| {
+        !component.is_empty() && component != "." && component != ".." && !component.contains(':')
+    })
 }
 
 fn default_claim_ownership(kind: ReconciliationTaskKind) -> ReconciliationClaimOwnership {

@@ -612,11 +612,21 @@ impl SoftwareIntelligenceRuntime {
                     },
                 ),
             };
+            let write_scopes = if kind == ReconciliationTaskKind::Implementation {
+                Workspace::normalize_relative_scope(&finding.subject)
+                    .ok()
+                    .filter(|scope| !scope.is_empty() && workspace.root().join(scope).exists())
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             tasks.push(ReconciliationTask {
                 id: task_id,
                 kind,
                 subject: finding.subject.clone(),
                 description: finding.message.clone(),
+                write_scopes,
                 depends_on: Vec::new(),
             });
             intents.push(intent);
@@ -631,6 +641,7 @@ impl SoftwareIntelligenceRuntime {
             } else {
                 Vec::new()
             };
+            let write_scope = Workspace::normalize_relative_scope(&finding.path)?;
             tasks.push(ReconciliationTask {
                 id: self.next_id("RT"),
                 kind: ReconciliationTaskKind::Implementation,
@@ -639,6 +650,7 @@ impl SoftwareIntelligenceRuntime {
                     "Resolve hard repository convention `{}`: {}. Preserve behavior and public contracts; for oversized modules, split cohesive responsibilities before adding more behavior.",
                     finding.code, finding.message
                 ),
+                write_scopes: (!write_scope.is_empty()).then_some(write_scope).into_iter().collect(),
                 depends_on: Vec::new(),
             });
             intents.push(ChangeIntent::ChangeBehavior {
@@ -660,6 +672,7 @@ impl SoftwareIntelligenceRuntime {
                 verification_plan.deterministic_level,
                 verification_plan.job_ids.len()
             ),
+            write_scopes: Vec::new(),
             depends_on: prior_tasks,
         });
         if verification_plan.require_human_approval {
@@ -674,6 +687,7 @@ impl SoftwareIntelligenceRuntime {
                 subject: verification_plan.subject.clone(),
                 description: "Critical-risk reconciliation requires explicit human approval."
                     .into(),
+                write_scopes: Vec::new(),
                 depends_on: verification_task,
             });
         }
@@ -709,10 +723,7 @@ impl SoftwareIntelligenceRuntime {
         };
         plan.validate()?;
         reconciliation_store::persist(workspace, &plan)?;
-        if reconciliation_execution_store::load(workspace, &plan.id)?.is_none() {
-            let execution = ReconciliationExecution::from_plan(&plan)?;
-            reconciliation_execution_store::persist(workspace, &execution)?;
-        }
+        reconciliation_execution_store::update_or_insert(workspace, &plan, |_| Ok(()))?;
         Ok(plan)
     }
 
@@ -832,10 +843,9 @@ impl SoftwareIntelligenceRuntime {
     ) -> Result<ReconciliationTaskRun> {
         let snapshot = self.approved_reconciliation_snapshot(workspace_id, workspace, plan_id)?;
         let plan = &snapshot.plan;
-        let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .unwrap_or(ReconciliationExecution::from_plan(plan)?);
-        let run = execution.submit(task_id, executor, submission)?;
-        reconciliation_execution_store::persist(workspace, &execution)?;
+        let run = reconciliation_execution_store::update_or_insert(workspace, plan, |execution| {
+            Ok(execution.submit(task_id, executor, submission)?)
+        })?;
         let mut evidence = Evidence::new(
             self.next_id("EV"),
             format!("reconciliation-task:{}", run.task.id),
@@ -871,11 +881,9 @@ impl SoftwareIntelligenceRuntime {
     ) -> Result<ReconciliationTaskRun> {
         let snapshot = self.approved_reconciliation_snapshot(workspace_id, workspace, plan_id)?;
         let plan = &snapshot.plan;
-        let mut execution = reconciliation_execution_store::load(workspace, plan_id)?
-            .unwrap_or(ReconciliationExecution::from_plan(plan)?);
-        let run = execution.retry(task_id)?;
-        reconciliation_execution_store::persist(workspace, &execution)?;
-        Ok(run)
+        reconciliation_execution_store::update_or_insert(workspace, plan, |execution| {
+            Ok(execution.retry(task_id)?)
+        })
     }
 }
 
@@ -929,40 +937,36 @@ pub(super) fn reconciliation_intent_audit(
 pub(super) fn reconciliation_execution_status_from_inputs(
     workspace: &Workspace,
     plan: &ReconciliationPlan,
-    stored_execution: Option<ReconciliationExecution>,
+    _stored_execution: Option<ReconciliationExecution>,
     verification: &VerificationStatus,
 ) -> Result<ReconciliationExecutionStatus> {
-    let execution_missing = stored_execution.is_none();
-    let mut execution = match stored_execution {
-        Some(execution) => execution,
-        None => ReconciliationExecution::from_plan(plan)?,
-    };
-    let mut changed = execution.set_system_task(
-        ReconciliationTaskKind::Verification,
-        verification.ready,
-        if verification.ready {
-            "Verification Plan is ready with all required evidence.".into()
-        } else {
-            format!(
-                "Verification blockers: {}",
-                verification.blockers.join(", ")
-            )
-        },
-    );
-    if plan.verification_plan.require_human_approval {
-        changed |= execution.set_system_task(
-            ReconciliationTaskKind::HumanApproval,
-            verification.human_approval,
-            if verification.human_approval {
-                "Explicit HumanApproval Evidence is present.".into()
-            } else {
-                "Explicit HumanApproval Evidence is still required.".into()
-            },
-        );
-    }
-    if changed || execution_missing {
-        reconciliation_execution_store::persist(workspace, &execution)?;
-    }
+    let execution =
+        reconciliation_execution_store::update_or_insert(workspace, plan, |execution| {
+            execution.set_system_task(
+                ReconciliationTaskKind::Verification,
+                verification.ready,
+                if verification.ready {
+                    "Verification Plan is ready with all required evidence.".into()
+                } else {
+                    format!(
+                        "Verification blockers: {}",
+                        verification.blockers.join(", ")
+                    )
+                },
+            );
+            if plan.verification_plan.require_human_approval {
+                execution.set_system_task(
+                    ReconciliationTaskKind::HumanApproval,
+                    verification.human_approval,
+                    if verification.human_approval {
+                        "Explicit HumanApproval Evidence is present.".into()
+                    } else {
+                        "Explicit HumanApproval Evidence is still required.".into()
+                    },
+                );
+            }
+            Ok(execution.clone())
+        })?;
     let mut status = execution.status();
     let (intent_checked, intent_blockers) =
         reconciliation_intent_audit(workspace, &plan.change_intents)?;

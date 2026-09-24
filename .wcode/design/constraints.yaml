@@ -260,8 +260,8 @@
 
 - schema_version: 1
   id: CONSTRAINT-MULTI-AGENT-WRITE-ISOLATION
-  title: Parallel agents never share unconstrained write ownership
-  statement: Parallel investigation and review are read-only by default. A shared Workspace has one mutation owner at a time; concurrent writers require separately owned worktrees or equivalent isolated write roots and converge only through normal review, reconciliation and verification.
+  title: Parallel agents never share overlapping or unconstrained write ownership
+  statement: Parallel investigation and review are read-only by default. Unscoped writers retain whole mutation-domain exclusivity. Concurrent writers inside one Git mutation domain require explicit approved workspace-relative write_scopes that normalize to non-overlapping path subtrees; every file mutation must remain inside its owner's scopes, while workspace-mutating commands require whole-domain ownership. One authenticated MCP owner may hold at most one writer lease so owner-level enforcement cannot merge multiple task scopes. Remote OAuth owner identity is stable per authorization grant across refresh and distinct across independent grants from the same client application; legacy persisted tokens keep their prior client-bound owner. Missing runtime ownership for a durable claim fails closed. Linked worktrees remain the preferred stronger isolation boundary for broad or uncertain lanes, and all lanes converge only through normal review, reconciliation and verification.
   applies_to:
     - component:execution-orchestrator
     - component:scheduler

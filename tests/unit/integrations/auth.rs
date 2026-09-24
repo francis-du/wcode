@@ -495,6 +495,7 @@ fn old_refresh_token_remains_valid_for_runtime_lifetime() {
         RefreshToken {
             issued_at_ms: 1,
             client_id: "client".to_owned(),
+            owner_id: String::new(),
             resource: Some("https://example.com/mcp".to_owned()),
         },
     );
@@ -524,6 +525,7 @@ fn old_access_tokens_follow_verified_tunnel_aliases_without_expiry() {
         AccessToken {
             issued_at_ms: 1,
             client_id: "client".to_owned(),
+            owner_id: String::new(),
             resource: Some("https://example.com/mcp".to_owned()),
         },
     );
@@ -556,6 +558,7 @@ fn refresh_token_moves_to_a_verified_reconnected_tunnel() {
         RefreshToken {
             issued_at_ms: 1,
             client_id: "client".to_owned(),
+            owner_id: String::new(),
             resource: Some("https://one.example/mcp".to_owned()),
         },
     );

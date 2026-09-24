@@ -1,18 +1,77 @@
 use crate::evidence_store::workspace_state_directory;
 use crate::reconcile::{
-    ReconciliationClaimMode, ReconciliationExecution, ReconciliationRunStatus,
+    ReconciliationClaimMode, ReconciliationExecution, ReconciliationPlan, ReconciliationRunStatus,
     ReconciliationTaskRun,
 };
 use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 const MAX_EXECUTION_SNAPSHOTS: usize = 1_024;
 const MAX_EXECUTION_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_EXECUTION_TRANSACTION_LOCKS: usize = 256;
+
+fn transaction_locks() -> &'static Mutex<HashMap<PathBuf, Weak<Mutex<()>>>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn transaction_lock(workspace: &Workspace, plan_id: &str) -> Result<Arc<Mutex<()>>> {
+    validate_plan_id(plan_id)?;
+    let key = execution_directory(workspace)?.join(format!(".transaction-{plan_id}"));
+    let mut locks = transaction_locks()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("reconciliation execution transaction registry poisoned"))?;
+    if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if locks.len() >= MAX_EXECUTION_TRANSACTION_LOCKS {
+        bail!("reconciliation execution transaction capacity exceeded");
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(key, Arc::downgrade(&lock));
+    Ok(lock)
+}
+
+pub(crate) fn update_existing<T>(
+    workspace: &Workspace,
+    plan_id: &str,
+    mutate: impl FnOnce(&mut ReconciliationExecution) -> Result<T>,
+) -> Result<T> {
+    let lock = transaction_lock(workspace, plan_id)?;
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("reconciliation execution transaction lock poisoned"))?;
+    let mut execution = load(workspace, plan_id)?
+        .ok_or_else(|| anyhow::anyhow!("reconciliation execution state does not exist"))?;
+    let result = mutate(&mut execution)?;
+    persist(workspace, &execution)?;
+    Ok(result)
+}
+
+pub(crate) fn update_or_insert<T>(
+    workspace: &Workspace,
+    plan: &ReconciliationPlan,
+    mutate: impl FnOnce(&mut ReconciliationExecution) -> Result<T>,
+) -> Result<T> {
+    let lock = transaction_lock(workspace, &plan.id)?;
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("reconciliation execution transaction lock poisoned"))?;
+    let mut execution = match load(workspace, &plan.id)? {
+        Some(execution) => execution,
+        None => ReconciliationExecution::from_plan(plan)?,
+    };
+    let result = mutate(&mut execution)?;
+    persist(workspace, &execution)?;
+    Ok(result)
+}
 
 pub(crate) fn persist(workspace: &Workspace, execution: &ReconciliationExecution) -> Result<()> {
     execution.validate()?;
@@ -131,7 +190,9 @@ pub(crate) fn load_many(
     Ok(found)
 }
 
-pub(crate) fn claimed_writers(workspace: &Workspace) -> Result<Vec<ReconciliationTaskRun>> {
+pub(crate) fn claimed_writer_records(
+    workspace: &Workspace,
+) -> Result<Vec<(String, ReconciliationTaskRun)>> {
     let directory = execution_directory(workspace)?;
     if !directory.exists() {
         return Ok(Vec::new());
@@ -152,12 +213,14 @@ pub(crate) fn claimed_writers(workspace: &Workspace) -> Result<Vec<Reconciliatio
             continue;
         };
         seen_plans.insert(execution.plan_id.clone());
-        claimed.extend(execution.tasks.into_iter().filter(|run| {
+        for run in execution.tasks.into_iter().filter(|run| {
             run.status == ReconciliationRunStatus::Claimed
                 && run.ownership.as_ref().is_some_and(|ownership| {
                     ownership.mode == ReconciliationClaimMode::SharedWriter
                 })
-        }));
+        }) {
+            claimed.push((execution.plan_id.clone(), run));
+        }
     }
     Ok(claimed)
 }
