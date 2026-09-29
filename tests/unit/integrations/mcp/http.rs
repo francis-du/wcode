@@ -6,6 +6,11 @@ use axum::body::to_bytes;
 use axum::extract::State;
 use std::fs;
 
+#[path = "change_view.rs"]
+mod change_view;
+#[path = "code_navigation.rs"]
+mod code_navigation;
+
 #[tokio::test]
 async fn observatory_shell_and_static_assets_are_served_without_api_authorization() {
     let page = intelligence_page().await;
@@ -352,6 +357,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: None,
             limit: Some(64),
             mode: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -368,6 +374,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: None,
             limit: Some(64),
             mode: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -399,6 +406,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: None,
             limit: Some(20),
             mode: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -422,6 +430,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: Some(2),
             limit: Some(64),
             mode: Some(GraphChainMode::Calls),
+            ..Default::default()
         }),
     )
     .await;
@@ -438,6 +447,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: Some(2),
             limit: Some(64),
             mode: Some(GraphChainMode::Calls),
+            ..Default::default()
         }),
     )
     .await;
@@ -470,6 +480,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: None,
             limit: Some(20),
             mode: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -492,6 +503,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: None,
             limit: Some(20),
             mode: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -517,6 +529,7 @@ async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() 
             depth: Some(2),
             limit: Some(64),
             mode: Some(GraphChainMode::All),
+            ..Default::default()
         }),
     )
     .await;

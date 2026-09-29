@@ -227,13 +227,27 @@ pub(crate) fn refresh(
         } else {
             (None, Vec::new())
         };
-    let verification = harness
-        .verification_history(workspace_id, workspace, 20)?
-        .into_iter()
-        .find(|status| status.plan.revision.as_ref() == Some(&repository_revision));
     let verification_floor = current
         .as_ref()
         .and_then(|execution| execution.verification_floor.as_deref());
+    let bound_verification = match current
+        .as_ref()
+        .and_then(|execution| execution.checkpoint.verification_plan_id.as_deref())
+    {
+        Some(id) => harness.verification_status_if_present(workspace_id, workspace, id)?,
+        None => None,
+    }
+    .filter(|status| status.plan.revision.as_ref() == Some(&repository_revision));
+    let verification = match bound_verification {
+        Some(status) if verification_plan_satisfies_floor(&status.plan, verification_floor) => {
+            Some(status)
+        }
+        _ => harness.verification_status_for_revision(
+            workspace_id,
+            workspace,
+            &repository_revision,
+        )?,
+    };
     let verification_floor_satisfied = verification
         .as_ref()
         .is_some_and(|status| verification_plan_satisfies_floor(&status.plan, verification_floor));

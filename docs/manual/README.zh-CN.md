@@ -54,6 +54,8 @@ permalink: /zh/docs/
 
 ## 核心概念
 
+- [只读代码变更审查](change-inspection/) — 在当前变更内直接查看源码差异、符号、影响和证据，明确比较层与本次读取的快照身份。
+
 - [产品范围](product-scopes/) — wcode 的产品能力与源码责任边界。
 - [智能体工程](agentic-engineering/) — 短指令、按需上下文、并行执行与确定性验证的组合方式。
 - [语言质量模型](language-quality/) — 全部 22 种索引语言共用一套能力矩阵：Syntax、真实初始化后的 Semantic、Format、Lint、Type、Static、Test、Security 与高级验证；缺口显式展示，不再用 Rust-centric Support Bit。
@@ -68,6 +70,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.8.5 发布说明](releases/v0.8.5/) — 快照绑定的变更审查、精准代码到测试检索、Fitness 观测与 Observatory 交互修复。
 - [v0.8.4 发布说明](releases/v0.8.4/) — Scope 隔离的并发 Writer、按授权 Grant 隔离的远程 Owner、统一 MCP Transport 协议策略与 300 轮发布验证。
 - [v0.8.3 发布说明](releases/v0.8.3/) — 能力感知 MCP 发现、更紧凑的编辑就绪 Agent Context、隔离 Jev Policy、现代 Task 兼容与 300 轮发布验证。
 - [v0.8.2 发布说明](releases/v0.8.2/) — 持久执行观测、结构化 Steering、更公平的代码图谱探索、资源隔离与 100 轮发布验证。

@@ -157,6 +157,11 @@ impl ToolHarness {
                     exact_direct,
                     design_path,
                     query_hits: token_hits,
+                    test_target_match: node
+                        .attributes
+                        .get("test_target_match")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     experience_weight,
                     degree: 0,
                     rank: 0.0,
@@ -947,6 +952,8 @@ fn repo_map_item(
         .unwrap_or(Value::Null);
     let reason = if candidate.exact_direct {
         "direct_match"
+    } else if candidate.test_target_match && direct_relations.is_empty() {
+        "test_target_text_match"
     } else if candidate.direct {
         "retrieval_seed"
     } else if let Some(relation) = direct_relations

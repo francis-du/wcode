@@ -182,6 +182,7 @@ function cacheWorkspaceSnapshot() {
   while (state.projectCache.size > 8) state.projectCache.delete(state.projectCache.keys().next().value);
 }
 function restoreWorkspaceSnapshot(workspace) {
+  if (typeof clearChangeInspection === "function") clearChangeInspection();
   const cached = state.projectCache.get(workspace);
   if (!cached) return false;
   state.project = cached.project;
@@ -244,6 +245,7 @@ function refreshFailureCopy(failure = state.syncFailure) {
   return { title: status ? `${title} · HTTP ${status}` : title, detail };
 }
 function showRefreshFailure(error, phase = "request") {
+  if (typeof invalidateChangeInspection === "function") invalidateChangeInspection();
   state.syncError = true;
   state.syncFailure = {
     code: ["authorization_required", "invalid_response", "timeout", "network"].includes(error?.code) ? error.code : "",
@@ -261,20 +263,22 @@ function showRefreshFailure(error, phase = "request") {
   if (!state.project || phase === "render") renderProjectPlaceholder(true);
 }
 function renderProjectPlaceholder(failed = false) {
+  if (typeof clearChangeInspection === "function") clearChangeInspection();
   const failure = refreshFailureCopy();
   const title = failed ? failure.title : t("Loading project state…");
   const detail = failure.detail;
   const content = failed
-    ? `<div class="section empty connection-state"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div>`
-    : `<div class="section empty loading-state">${esc(title)}</div>`;
+    ? `<div class="section empty connection-state"><div class="connection-state-icon" aria-hidden="true">!</div><div class="connection-state-copy"><span class="eyebrow">${esc(localized("LIVE CONNECTION", "实时连接"))}</span><strong>${esc(title)}</strong><p>${esc(detail)}</p><div class="connection-state-meta"><span>${esc(localized("No current project snapshot is confirmed.", "当前没有已确认的项目快照。"))}</span><span>${esc(localized("Workspace-scoped access remains unchanged.", "工作区级访问权限保持不变。"))}</span></div><div class="connection-state-actions"><button type="button" class="button-primary" data-summary-action="refresh">${esc(localized("Retry refresh", "重试刷新"))}</button><button type="button" class="quiet-action" data-summary-action="access">${esc(t("Manage access"))}</button></div></div></div>`
+    : `<div class="section empty loading-state"><div class="loading-orb" aria-hidden="true"></div><div><span class="eyebrow">${esc(localized("PROJECT SNAPSHOT", "项目快照"))}</span><strong>${esc(title)}</strong><p>${esc(localized("Reading bounded repository evidence and runtime signals…", "正在读取有界仓库证据和运行时信号…"))}</p></div></div>`;
   for (const key of ["stats", "attention", "architectureBlueprint", "engineeringFlow", "changeStory", "runtimeTopology", "engineeringTimeline", "traceabilityMap", "changeConvergenceMap", "architectureGraph", "componentCards", "componentInspector", "requirements", "detail", "verificationImpact", "changes", "fileTree", "largeFiles", "codeStats", "revisions", "fitnessBenchmark", "fitnessObservatory", "languageQuality", "executionStatus", "activity", "resourceStatus", "proofSummary", "adaptiveVerification", "verifiedLearning"]) {
     if ((key === "activity" || key === "resourceStatus") && state.activitySnapshot) continue;
-    setHtml(key, els[key], content);
+    setHtml(key, els[key], content, () => { if (failed) bindSummaryActions(els[key]); });
   }
-  setHtml("statusSummary", els.statusSummary, `<h2>${esc(title)}</h2>${failed ? `<p>${esc(detail)}</p>` : ""}`);
+  setHtml("statusSummary", els.statusSummary, failed ? content : `<div class="loading-state summary-loading"><div class="loading-orb" aria-hidden="true"></div><div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(title)}</h2><p>${esc(localized("Preparing the first bounded snapshot…", "正在准备第一份有界项目快照…"))}</p></div></div>`, () => { if (typeof bindSummaryActions === "function") bindSummaryActions(els.statusSummary); });
 }
 function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
+  if (typeof clearChangeInspection === "function") clearChangeInspection();
   state.pendingValue = null; state.pendingApplied = 0;
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
@@ -282,6 +286,8 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;
+  state.codeGraphSourceController?.abort(); state.codeGraphSourceController = null;
+  state.codeGraphSource = null; state.codeGraphSourceKey = ""; state.codeGraphSourceLoading = false; state.codeGraphSourceError = "";
   clearTimeout(state.codeGraphSearchTimer); state.codeGraphSearchTimer = null;
   state.codeGraph = null; state.codeGraphOverview = null; state.codeGraphWorkspace = ""; state.codeGraphQuery = ""; state.codeGraphSnapshot = "";
   state.codeGraphView = "overview"; state.codeGraphSearchResults = [];
@@ -382,6 +388,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
       : null;
     const snapshotRefreshing = data.snapshot_refreshing === true;
     phase = "render";
+    if (typeof invalidateChangeInspection === "function") invalidateChangeInspection();
     state.project = data; state.current = data.workspace;
     state.fitnessSnapshotFromCache = false;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
@@ -565,6 +572,67 @@ async function activityTick() {
     if (autoEnabled() && accessPanelOpen() && !state.accessBusy) await loadAccess();
   } finally { state.activityTickActive = false; scheduleActivity(); }
 }
+const commandActions = () => [
+  ["overview", localized("Open Overview", "打开总览"), localized("Health, evidence and engineering signals", "健康度、证据与工程信号"), "chart"],
+  ["architecture", localized("Open architecture", "打开架构"), localized("System map and dependency evidence", "系统图谱与依赖证据"), "layers"],
+  ["activity", localized("Open task activity", "打开任务活动"), localized("Durable execution and runtime work", "持久化执行与实时工作"), "monitor"],
+  ["proof", localized("Open verification evidence", "打开验证证据"), localized("Revision-bound checks and proof ledger", "版本绑定检查与证据账本"), "shield"],
+  ["refresh", localized("Refresh project", "刷新项目"), localized("Fetch the latest bounded snapshot", "获取最新有界项目快照"), "sync"],
+  ["access", localized("Manage access", "管理访问权限"), localized("Workspace, executable and operation policy", "工作区、可执行文件与操作策略"), "settings"],
+  ["theme", localized("Toggle theme", "切换主题"), localized("System, dark and light appearance", "系统、深色和浅色外观"), "monitor"],
+];
+function renderCommandPalette() {
+  if (!els.commandPaletteList) return;
+  const query = String(els.commandPaletteSearch?.value || "").trim().toLowerCase();
+  const rows = commandActions().filter(item => !query || item[1].toLowerCase().includes(query) || item[2].toLowerCase().includes(query));
+  state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, rows.length - 1));
+  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
+    els.commandPaletteList.querySelectorAll("[data-command]").forEach((button, index) => button.addEventListener("click", () => { state.commandPaletteIndex = index; executeCommand(button.dataset.command); }));
+  });
+}
+function setCommandPalette(open) {
+  const wasOpen = state.commandPaletteOpen;
+  state.commandPaletteOpen = Boolean(open);
+  els.commandPalette?.classList.toggle("hidden", !state.commandPaletteOpen);
+  els.commandPalette?.setAttribute("aria-hidden", String(!state.commandPaletteOpen));
+  if (state.commandPaletteOpen) {
+    if (!wasOpen) state.commandPaletteReturnFocus = document.activeElement;
+    state.commandPaletteIndex = 0;
+    renderCommandPalette();
+    requestAnimationFrame(() => { if (state.commandPaletteOpen) els.commandPaletteSearch?.focus(); });
+  } else {
+    if (els.commandPaletteSearch) els.commandPaletteSearch.value = "";
+    const target = state.commandPaletteReturnFocus;
+    state.commandPaletteReturnFocus = null;
+    if (wasOpen) (target?.isConnected ? target : els.projectNavigator)?.focus({ preventScroll: true });
+  }
+}
+function executeCommand(command) {
+  setCommandPalette(false);
+  if (command === "refresh") { els.refresh?.click(); return; }
+  if (command === "access") { els.manage?.click(); return; }
+  if (command === "theme") { els.theme?.click(); return; }
+  if (["overview", "architecture", "activity", "proof"].includes(command)) activateWorkspaceTab(command, { scroll: true });
+}
+function wireCommandPalette() {
+  els.closeCommandPalette?.addEventListener("click", () => setCommandPalette(false));
+  els.commandPaletteSearch?.addEventListener("input", () => { state.commandPaletteIndex = 0; renderCommandPalette(); });
+  els.commandPaletteSearch?.addEventListener("keydown", event => {
+    if (event.isComposing || event.keyCode === 229) return;
+    const items = [...(els.commandPaletteList?.querySelectorAll("[data-command]") || [])];
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCommandPalette(false); }
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); state.commandPaletteIndex = (state.commandPaletteIndex + (event.key === "ArrowDown" ? 1 : -1) + Math.max(items.length, 1)) % Math.max(items.length, 1); renderCommandPalette(); }
+    else if (event.key === "Enter" && items[state.commandPaletteIndex]) { event.preventDefault(); executeCommand(items[state.commandPaletteIndex].dataset.command); }
+  });
+  els.commandPalette?.addEventListener("keydown", event => {
+    if (!state.commandPaletteOpen || event.key !== "Tab" || event.isComposing || event.keyCode === 229) return;
+    const controls = [...els.commandPalette.querySelectorAll("button:not([disabled]), input:not([disabled])")];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  });
+  els.commandPalette?.addEventListener("click", event => { if (event.target === els.commandPalette) setCommandPalette(false); });
+}
 function schedule() {
   scheduleProject(); scheduleActivity(); renderLive();
 }
@@ -615,26 +683,39 @@ els.auto.addEventListener("click", () => {
 });
 els.search.addEventListener("input", () => { invalidate("requirements", "detail"); renderRequirements(); renderDetail(); });
 els.componentSearch.addEventListener("input", () => { renderComponentCards(); renderComponentInspector(); });
-els.projectNavigator?.addEventListener("input", renderProjectNavigator);
+els.projectNavigator?.addEventListener("input", () => renderProjectNavigator({ open: true }));
+els.projectNavigator?.addEventListener("focus", () => renderProjectNavigator({ open: true }));
 els.projectNavigator?.addEventListener("keydown", event => {
-  const results = [...(els.navigatorResults?.querySelectorAll("[data-nav-index]") || [])];
+  if (event.isComposing || event.keyCode === 229) return;
   if (event.key === "Escape") {
+    event.preventDefault(); event.stopPropagation();
     els.projectNavigator.value = ""; renderProjectNavigator(); els.projectNavigator.blur();
-  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && results.length) {
+    return;
+  }
+  if (els.navigatorResults?.classList.contains("hidden") || els.projectNavigator.getAttribute("aria-expanded") !== "true") return;
+  const results = [...(els.navigatorResults?.querySelectorAll("[data-nav-index]") || [])];
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && results.length) {
     event.preventDefault();
     const current = results.findIndex(item => item.getAttribute("aria-selected") === "true"),
       next = event.key === "Home" ? 0 : event.key === "End" ? results.length - 1 : event.key === "ArrowDown" ? (current + 1 + results.length) % results.length : (current - 1 + results.length) % results.length;
     results.forEach((item, index) => item.setAttribute("aria-selected", String(index === next)));
     if (results[next]?.id) els.projectNavigator.setAttribute("aria-activedescendant", results[next].id);
     results[next]?.scrollIntoView({ block: "nearest" });
-  } else if (event.key === "Enter") {
+  } else if (event.key === "Enter" && results.length) {
+    event.preventDefault();
     const selected = results.find(item => item.getAttribute("aria-selected") === "true") || results[0];
     selected?.click();
   }
 });
 document.addEventListener("keydown", event => {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
-  if (((event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) || (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey))) && !typing) {
+  if ((event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey))) {
+    event.preventDefault();
+    if (!event.repeat) setCommandPalette(!state.commandPaletteOpen);
+    return;
+  }
+  if (event.key === "/" && !state.commandPaletteOpen && !event.metaKey && !event.ctrlKey && !event.altKey && !typing) {
     event.preventDefault(); els.projectNavigator?.focus();
   }
 });
@@ -676,7 +757,8 @@ document.querySelectorAll("[data-workspace-tab]").forEach(button => {
   });
 });
 document.addEventListener("keydown", event => {
-  if (event.key !== "Escape") return;
+  if (event.key !== "Escape" || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+  if (state.commandPaletteOpen) { event.preventDefault(); setCommandPalette(false); return; }
   if (state.codeGraphFull) { event.preventDefault(); setCodeGraphFull(false); return; }
   if (accessPanelOpen()) { event.preventDefault(); setAccessPanel(false); return; }
   if (els.componentInspector?.classList.contains("open")) {
@@ -712,6 +794,7 @@ document.addEventListener("visibilitychange", () => {
 function startObservatory() {
   if (state.started) return;
   state.started = true;
+  wireCommandPalette();
   if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(state.workspaceTab);
   // Neither the initial render nor later project refreshes own the activity loop.

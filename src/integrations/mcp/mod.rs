@@ -147,6 +147,18 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence/activity", get(intelligence_web_activity))
         .route("/intelligence/code-graph", get(intelligence_web_code_graph))
         .route(
+            "/intelligence/code-source",
+            get(intelligence_web_code_source),
+        )
+        .route(
+            "/intelligence/change-detail",
+            get(intelligence_web_change_detail),
+        )
+        .route(
+            "/intelligence/change-impact",
+            get(intelligence_web_change_impact),
+        )
+        .route(
             "/intelligence/semantic-refresh",
             post(intelligence_web_refresh_semantics),
         )

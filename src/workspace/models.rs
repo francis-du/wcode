@@ -8,6 +8,8 @@ pub struct CommandResult {
     pub success: bool,
     pub process_queue_wait_ms: u64,
     pub stdout: String,
+    #[serde(skip_serializing)]
+    pub(crate) raw_stdout: Option<String>,
     pub stderr: String,
     pub truncated: bool,
     pub redacted: bool,

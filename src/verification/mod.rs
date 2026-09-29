@@ -190,18 +190,65 @@ pub struct VerificationStatus {
 pub struct VerificationState {
     plans: BTreeMap<String, VerificationPlan>,
     jobs: BTreeMap<String, VerificationJob>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    plan_order: Vec<String>,
 }
 
 impl VerificationState {
     pub fn plans_for_workspace(&self, workspace: &str) -> Vec<VerificationPlan> {
+        let ordered_ids = self
+            .plan_order
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
         let mut plans = self
             .plans
             .values()
-            .filter(|plan| plan.workspace == workspace)
+            .filter(|plan| plan.workspace == workspace && !ordered_ids.contains(plan.id.as_str()))
             .cloned()
             .collect::<Vec<_>>();
+        // Legacy snapshots have no creation order. Keep their deterministic ID order,
+        // then append plans created after the ordering field was introduced.
         plans.sort_by(|left, right| left.id.cmp(&right.id));
+        plans.extend(self.plan_order.iter().filter_map(|id| {
+            self.plans
+                .get(id)
+                .filter(|plan| plan.workspace == workspace)
+                .cloned()
+        }));
         plans
+    }
+
+    pub fn latest_plan_for_workspace_revision(
+        &self,
+        workspace: &str,
+        revision: &Revision,
+    ) -> Option<VerificationPlan> {
+        for id in self.plan_order.iter().rev() {
+            let Some(plan) = self.plans.get(id) else {
+                continue;
+            };
+            if plan.workspace == workspace && plan.revision.as_ref() == Some(revision) {
+                return Some(plan.clone());
+            }
+        }
+
+        let ordered_ids = self
+            .plan_order
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        let mut legacy_matches = self.plans.values().filter(|plan| {
+            plan.workspace == workspace
+                && plan.revision.as_ref() == Some(revision)
+                && !ordered_ids.contains(plan.id.as_str())
+        });
+        let only = legacy_matches.next()?.clone();
+        if legacy_matches.next().is_some() {
+            None
+        } else {
+            Some(only)
+        }
     }
 
     pub fn workspace_snapshot(&self, workspace: &str) -> Self {
@@ -217,14 +264,34 @@ impl VerificationState {
             .filter(|(_, job)| job.workspace == workspace)
             .map(|(id, job)| (id.clone(), job.clone()))
             .collect::<BTreeMap<_, _>>();
-        Self { plans, jobs }
+        let plan_order = self
+            .plan_order
+            .iter()
+            .filter(|id| plans.contains_key(*id))
+            .cloned()
+            .collect();
+        Self {
+            plans,
+            jobs,
+            plan_order,
+        }
     }
 
     pub fn restore_workspace(&mut self, snapshot: Self) -> Result<(), VerificationError> {
         if snapshot.plans.len() > MAX_VERIFICATION_JOBS
             || snapshot.jobs.len() > MAX_VERIFICATION_JOBS
+            || snapshot.plan_order.len() > MAX_VERIFICATION_JOBS
         {
             return Err(VerificationError::CapacityExceeded);
+        }
+        let ordered_ids = snapshot.plan_order.iter().collect::<BTreeSet<_>>();
+        if ordered_ids.len() != snapshot.plan_order.len()
+            || snapshot
+                .plan_order
+                .iter()
+                .any(|id| !snapshot.plans.contains_key(id))
+        {
+            return Err(VerificationError::InvalidPersistedState);
         }
         for plan in snapshot.plans.values() {
             if plan.id.trim().is_empty()
@@ -270,6 +337,11 @@ impl VerificationState {
         }
         self.plans.extend(snapshot.plans);
         self.jobs.extend(snapshot.jobs);
+        for id in snapshot.plan_order {
+            if !self.plan_order.contains(&id) {
+                self.plan_order.push(id);
+            }
+        }
         Ok(())
     }
 
@@ -350,7 +422,8 @@ impl VerificationState {
                 },
             );
         }
-        self.plans.insert(plan_id, plan.clone());
+        self.plans.insert(plan_id.clone(), plan.clone());
+        self.plan_order.push(plan_id);
         Ok(plan)
     }
 
@@ -400,13 +473,24 @@ impl VerificationState {
                         .iter()
                         .any(|job| job.status == VerificationJobStatus::Queued),
                 );
-                Some((priority, plan.id.clone(), jobs.len()))
+                // Legacy snapshots cannot recover creation order, so treat their
+                // plans as older than plans whose order is known. Within each
+                // existing priority class, reclaim oldest known plans first
+                // instead of using random plan IDs as a time surrogate.
+                let order = self.plan_order.iter().position(|id| id == &plan.id);
+                Some((
+                    priority,
+                    usize::from(order.is_some()),
+                    order.unwrap_or_default(),
+                    plan.id.clone(),
+                    jobs.len(),
+                ))
             })
             .collect::<Vec<_>>();
         reclaimable.sort();
 
         let mut selected = Vec::new();
-        for (_, plan_id, job_count) in reclaimable {
+        for (_, _, _, plan_id, job_count) in reclaimable {
             if within_capacity(jobs, plans) {
                 break;
             }
@@ -420,6 +504,7 @@ impl VerificationState {
         }
         for plan_id in selected {
             if let Some(plan) = self.plans.remove(&plan_id) {
+                self.plan_order.retain(|id| id != &plan_id);
                 for job_id in plan.job_ids {
                     self.jobs.remove(&job_id);
                 }

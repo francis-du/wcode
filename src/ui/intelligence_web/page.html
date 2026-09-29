@@ -47,6 +47,15 @@
     </div>
   </header>
 
+  <section id="commandPalette" class="command-palette hidden" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle" aria-hidden="true">
+    <div class="command-palette-card">
+      <div class="command-palette-head"><div><span class="section-kicker" data-i18n="COMMAND CENTER">COMMAND CENTER</span><strong id="commandPaletteTitle" data-i18n="Quick actions">Quick actions</strong></div><button id="closeCommandPalette" class="quiet-action" type="button" data-i18n="Close">Close</button></div>
+      <input id="commandPaletteSearch" class="command-palette-search" type="search" placeholder="Search actions…" data-i18n-placeholder="Search actions…" autocomplete="off">
+      <div id="commandPaletteList" class="command-palette-list" role="listbox"></div>
+      <div class="command-palette-hint"><kbd>↑↓</kbd> <span data-i18n="Navigate">Navigate</span> <kbd>Enter</kbd> <span data-i18n="Run">Run</span> <kbd>Esc</kbd> <span data-i18n="Close">Close</span></div>
+    </div>
+  </section>
+
   <section id="accessPanel" class="panel access-panel hidden" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="accessTitle" tabindex="-1">
     <div class="panel-head">
       <div>
@@ -161,7 +170,10 @@
                 <button class="arch-mode active" type="button" data-arch-mode="overlay" aria-pressed="true" data-i18n="Overlay">All evidence</button>
                 <button class="arch-mode" type="button" data-arch-mode="design" aria-pressed="false" data-i18n="Design">Design</button>
                 <button class="arch-mode" type="button" data-arch-mode="actual" aria-pressed="false" data-i18n="Implementation">Implementation</button>
+                <button class="arch-mode" type="button" data-arch-mode="risk" aria-pressed="false" data-i18n="Risk">Risk</button>
+                <button class="arch-mode" type="button" data-arch-mode="unverified" aria-pressed="false" data-i18n="Unverified">Unverified</button>
               </div>
+              <div class="architecture-legend" aria-label="Architecture legend" data-i18n-aria-label="Architecture legend"><span><i class="legend-dot aligned"></i><span data-i18n="Aligned">Aligned</span></span><span><i class="legend-dot observed"></i><span data-i18n="Observed">Observed</span></span><span><i class="legend-dot drift"></i><span data-i18n="Drift">Drift</span></span><span><i class="legend-dot unverified"></i><span data-i18n="Unverified">Unverified</span></span></div>
               <div id="architectureGraph" class="dependency-ledger" role="table" aria-label="Architecture dependency ledger" data-i18n-aria-label="Architecture dependency ledger"></div>
             </div>
           </div>

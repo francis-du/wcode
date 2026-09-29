@@ -863,6 +863,9 @@ impl Workspace {
     }
 }
 
+mod change_view;
+pub use change_view::ChangeLayer;
+
 #[path = "fs_safety.rs"]
 mod fs_safety;
 use fs_safety::{

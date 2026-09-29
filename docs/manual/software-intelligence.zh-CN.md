@@ -119,6 +119,8 @@ wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 
 Engineering Observatory 优先展示四个可行动信号：正在执行的工具、待批准请求、工作树变更和当前版本证据。Git 状态未知不等于工作树干净，没有证据不等于验证通过。工程架构默认从 System → Subsystem 分层蓝图开始，直接显示职责、归属、规模、依赖方向、当前变更与偏离；Component 是第二层下钻，原始依赖图只保留为辅助诊断视图。实时工程流与有界时间线复用真实 Harness Activity、版本绑定 Proof 和架构 Revision，不创建第二份控制状态。需求、文件结构、诊断和分析器矩阵继续渐进展开。
 
+当暂存区之后还有更新的未暂存字节时，变更审查会严格区分两份源码身份：变更行对应的符号重叠从捕获到的精确暂存区 blob 解析，而不是套用当前工作树。该 blob 只经有界且禁用 helper 的 Git 只读检查获取，必须是完整、未脱敏的文本，并始终留在服务端；浏览器只收到语法符号身份与范围。精确字节不可用时，符号映射明确显示不可用，不会静默换成新工作树。这仍是 Tree-sitter `precision=syntax`；改前符号解析与语义影响属于后续独立能力。
+
 受保护的 `/intelligence/activity` 直接读取现有监控状态，不执行 Git、不重建图谱，也不重置 TUI 的观测窗口。它只返回所选项目最多 12 条任务记录，分别显示排队和执行时间。累计完成/失败是本进程启动以来的历史，不代表当前阻塞；进程队列与驻留内存明确标为所有项目共享。原始命令参数和其他项目的任务记录不会返回。
 
 刷新间隔为八秒，同类请求不重叠，隐藏页面时暂停新增轮询。只有项目数据获取成功才确认新版本；过晚的响应不能覆盖新选中的项目。版本信号包括证据身份，因此测试完成但源码未修改时也能刷新证据。刷新失败会明确提示快照已过期，不把旧数字伪装成实时状态。浏览器禁止保存偏好时仍能加载页面。授权读取绑定项目和请求代次，连续点击同一决定只发送一次修改请求。精确操作参数支持 JSON 字符串数组，保留空格与空参数，不尝试解析 Shell 命令。
@@ -293,6 +295,8 @@ precision = syntax
 Router 标识为 `provider=query-intent-rules-v1`、`precision=heuristic`，只有一个意图明确时才特化。如果同一句请求同时出现 Test、Traceability、Impact 等多个互相竞争的信号，它会主动 Abstain，回退 `balanced_context`，并通过 `ambiguous_retrieval_signals` 说明原因；Readiness 只给 Advisory，不伪造高置信度。
 
 Task-aware Routing 只调整弱 Prior。精确 Literal / Qualified Symbol Target 仍强于为了 Recall 放进来的 Retrieval Seed；Fresh Semantic / Deterministic / Runtime Relationship 继续保留更强 Provenance。Token Budget 很紧时，Routing 的解释 Metadata 会先被裁掉，不能挤掉 Direct SHA Edit Target、Verification Reference、最强 Repo-map Item 或 Diagnostic Hot Source。
+
+关联测试检索已有精确目标时，测试路径本身不能让无关符号成为起点。候选需要图可达性、Design/已验证经验，或源码版本一致且落在符号内部的目标文本命中。纯文本候选标记 `test_target_text_match`，不伪造调用边；没有精确目标时仍保留探索能力。补充扫描先为有界范围内的文件和目标词保留代表行，再填充剩余结果，避免靠前文件的重复命中耗尽行数额度。JSX/TSX 的 `.test`、`.spec` 文件使用相同规则。精确符号发现沿用查询预算，最多保留八个明确目标；补充文本扫描仍最多查询四个，省略其余目标时标记覆盖不完整。截断始终可见，不宣称穷尽所有测试。
 
 ### 任务能力推荐
 
@@ -470,6 +474,14 @@ executors:
 ```
 
 配置 Executor 无 Shell 执行、沿用 Workspace canonical root / symlink 防护、对状态/UI 隐藏配置参数，并清理敏感环境和输出。Property/Mutation/Fuzz/Runtime Executor 属于 Hardened Autonomous Local Development Lane：CWD、进程数、输出和超时都有界，不再生成重复的 `RuntimeExecutor` Authorization Request。缺少可执行程序时只会报告 unavailable / missing executor，不会生成假的 Pass Evidence。
+
+### 绑定精确版本的 Plan 恢复
+
+`verification_history` 是有界的历史查看窗口，不是查找当前 Plan 的权威来源。新的 Verification Snapshot 会持久化 `plan_order`，随机 Plan ID 不代表创建时间。Execution 只保留 code/Design Revision 匹配且满足当前 verification floor 的已绑定 Plan；否则在最近历史窗口之外按精确版本查找：优先选择有创建顺序的最新匹配项，没有顺序时只允许唯一匹配的 legacy Plan。多个同版本 legacy Plan 无法确定先后时保持无权威状态。只有 UnknownPlan 可以当作缺失处理；跨 Workspace 的 Plan 和其他状态错误必须 fail-closed。
+
+从 quick 加强到 full，或从 full 加强到 adversarial 后，旧的较弱绑定不能遮住新版本匹配且满足要求的 Plan。已经满足要求的绑定也不能被较新的弱 Plan 替换。选中 Plan 不代表验证通过：缺失的确定性检查、Stage、Reviewer 或 HumanApproval Evidence 仍会阻止最终完成。Reviewer Job 仅 claimed 不算完成审查，改变 Reviewer 标签也不构成独立执行证明。
+
+源码修改和 release build 成功不能证明当前 MCP 进程已经加载这些修改。运行态加载需在获准维护时单独核实，不能为了让状态看起来更新而重启承载当前操作的 MCP 服务。
 
 ### MCP 2026 长任务 Tasks
 

@@ -316,8 +316,15 @@ pub(crate) async fn navigate(
                 .await
             {
                 Ok(prepared) => {
-                    if let Some(item) = prepared.as_array().and_then(|items| items.first()).cloned()
-                    {
+                    if let Some(item) = prepared_call_hierarchy_item_for_request(
+                        workspace,
+                        &prepared,
+                        &uri,
+                        &position,
+                        &session.position_encoding,
+                        &mut location_cache,
+                        &mut result.failures,
+                    ) {
                         if want_incoming {
                             match session
                                 .request("callHierarchy/incomingCalls", json!({"item":item}))
@@ -335,6 +342,7 @@ pub(crate) async fn navigate(
                                         &mut context,
                                         &incoming,
                                         "from",
+                                        None,
                                         &mut result.incoming_calls,
                                     );
                                 }
@@ -358,6 +366,7 @@ pub(crate) async fn navigate(
                                         &mut context,
                                         &outgoing,
                                         "to",
+                                        Some(&item),
                                         &mut result.outgoing_calls,
                                     );
                                 }
@@ -375,6 +384,149 @@ pub(crate) async fn navigate(
     Ok(result)
 }
 
+fn prepared_call_hierarchy_item(
+    prepared: &Value,
+    failures: &mut Vec<&'static str>,
+) -> Option<Value> {
+    let item = prepared
+        .as_array()
+        .filter(|items| items.len() == 1)
+        .and_then(|items| items.first())
+        .filter(|item| valid_call_hierarchy_item(item))
+        .cloned();
+    if item.is_none() {
+        failures.push("calls");
+    }
+    item
+}
+
+fn valid_call_hierarchy_item(item: &Value) -> bool {
+    item.get("name").and_then(Value::as_str).is_some()
+        && item.get("kind").and_then(Value::as_u64).is_some()
+        && item.get("uri").and_then(Value::as_str).is_some()
+        && valid_lsp_range(item.get("range"))
+        && valid_lsp_range(item.get("selectionRange"))
+        && lsp_range_contains(item.get("range"), item.get("selectionRange"))
+}
+
+fn prepared_call_hierarchy_item_for_request(
+    workspace: &Workspace,
+    prepared: &Value,
+    expected_uri: &str,
+    expected_position: &Value,
+    encoding: &str,
+    cache: &mut NavigationLocationCache,
+    failures: &mut Vec<&'static str>,
+) -> Option<Value> {
+    let item = prepared_call_hierarchy_item(prepared, failures)?;
+    if !prepared_call_hierarchy_item_matches_request(
+        workspace,
+        &item,
+        expected_uri,
+        expected_position,
+        encoding,
+        cache,
+    ) {
+        failures.push("calls");
+        return None;
+    }
+    Some(item)
+}
+
+fn prepared_call_hierarchy_item_matches_request(
+    workspace: &Workspace,
+    item: &Value,
+    expected_uri: &str,
+    expected_position: &Value,
+    encoding: &str,
+    cache: &mut NavigationLocationCache,
+) -> bool {
+    let Some(item_uri) = item.get("uri").and_then(Value::as_str) else {
+        return false;
+    };
+    if item_uri != expected_uri {
+        return false;
+    }
+    let Some(position) = lsp_position(Some(expected_position)) else {
+        return false;
+    };
+    if !lsp_range_contains_position(item.get("selectionRange"), position) {
+        return false;
+    }
+    let Some(path) = cache.path_for_uri(workspace, item_uri) else {
+        return false;
+    };
+    let Some(source) = cache.source(workspace, &path) else {
+        return false;
+    };
+    ["range", "selectionRange"]
+        .iter()
+        .all(|key| lsp_range_maps_to_source(item.get(*key), &source.content, encoding))
+}
+
+fn valid_lsp_range(range: Option<&Value>) -> bool {
+    let Some(range) = range else {
+        return false;
+    };
+    let Some(start) = lsp_position(range.get("start")) else {
+        return false;
+    };
+    let Some(end) = lsp_position(range.get("end")) else {
+        return false;
+    };
+    start <= end
+}
+
+fn lsp_position(position: Option<&Value>) -> Option<(u64, u64)> {
+    let position = position?;
+    Some((
+        position.get("line")?.as_u64()?,
+        position.get("character")?.as_u64()?,
+    ))
+}
+
+fn lsp_range_contains(outer: Option<&Value>, inner: Option<&Value>) -> bool {
+    let Some(outer_start) = outer.and_then(|range| lsp_position(range.get("start"))) else {
+        return false;
+    };
+    let Some(outer_end) = outer.and_then(|range| lsp_position(range.get("end"))) else {
+        return false;
+    };
+    let Some(inner_start) = inner.and_then(|range| lsp_position(range.get("start"))) else {
+        return false;
+    };
+    let Some(inner_end) = inner.and_then(|range| lsp_position(range.get("end"))) else {
+        return false;
+    };
+    outer_start <= inner_start && inner_end <= outer_end
+}
+
+fn lsp_range_contains_position(range: Option<&Value>, position: (u64, u64)) -> bool {
+    let Some(start) = range.and_then(|range| lsp_position(range.get("start"))) else {
+        return false;
+    };
+    let Some(end) = range.and_then(|range| lsp_position(range.get("end"))) else {
+        return false;
+    };
+    start <= position && position < end
+}
+
+fn lsp_range_maps_to_source(range: Option<&Value>, content: &str, encoding: &str) -> bool {
+    let Some(range) = range else {
+        return false;
+    };
+    let Some(start) = lsp_position(range.get("start")) else {
+        return false;
+    };
+    let Some(end) = lsp_position(range.get("end")) else {
+        return false;
+    };
+    [start, end].into_iter().all(|(line, character)| {
+        line.checked_add(1)
+            .is_some_and(|line| lsp_to_byte_column(content, line, character, encoding).is_ok())
+    })
+}
+
 async fn query_locations(
     workspace: &Workspace,
     session: &mut SemanticSession,
@@ -389,6 +541,18 @@ async fn query_locations(
     }
     let Ok(value) = session.request(method, params).await else {
         return (Vec::new(), NavigationQueryStatus::Failed, false);
+    };
+    let value = if value.is_object()
+        && matches!(
+            method,
+            "textDocument/definition" | "textDocument/implementation"
+        )
+        && value.get("uri").and_then(Value::as_str).is_some()
+        && value.get("targetUri").is_none()
+    {
+        Value::Array(vec![value])
+    } else {
+        value
     };
     let mut output = Vec::new();
     let mut truncated = false;
@@ -434,9 +598,10 @@ fn append_locations(
 ) {
     let items = if let Some(items) = value.as_array() {
         items.iter().collect::<Vec<_>>()
-    } else if value.is_object() {
-        vec![value]
+    } else if value.is_null() {
+        Vec::new()
     } else {
+        *truncated = true;
         Vec::new()
     };
     for item in items {
@@ -451,6 +616,8 @@ fn append_locations(
             {
                 output.push(location);
             }
+        } else {
+            *truncated = true;
         }
     }
 }
@@ -467,16 +634,26 @@ fn append_call_locations(
     context: &mut CallLocationContext<'_>,
     value: &Value,
     key: &str,
+    origin_item: Option<&Value>,
     output: &mut Vec<SemanticLocation>,
 ) {
+    if !value.is_null() && !value.is_array() {
+        *context.truncated = true;
+        return;
+    }
     for call in value.as_array().into_iter().flatten() {
         if output.len() >= context.max_results {
             *context.truncated = true;
             break;
         }
-        let Some(item) = call.get(key) else {
+        let Some(item) = call.get(key).filter(|item| valid_call_hierarchy_item(item)) else {
+            *context.truncated = true;
             continue;
         };
+        if !call_hierarchy_ranges_map_to_caller(context, call, key, item, origin_item) {
+            *context.truncated = true;
+            continue;
+        }
         let name = item.get("name").and_then(Value::as_str).map(str::to_owned);
         if let Some(location) = location_from_lsp(
             context.workspace,
@@ -491,8 +668,47 @@ fn append_call_locations(
             {
                 output.push(location);
             }
+        } else {
+            *context.truncated = true;
         }
     }
+}
+
+fn call_hierarchy_ranges_map_to_caller(
+    context: &mut CallLocationContext<'_>,
+    call: &Value,
+    key: &str,
+    item: &Value,
+    origin_item: Option<&Value>,
+) -> bool {
+    let Some(ranges) = call.get("fromRanges").and_then(Value::as_array) else {
+        return false;
+    };
+    if ranges.is_empty() {
+        return false;
+    }
+    let caller = match key {
+        "from" => item,
+        "to" => match origin_item {
+            Some(origin_item) => origin_item,
+            None => return false,
+        },
+        _ => return false,
+    };
+    let Some(uri) = caller.get("uri").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(path) = context.cache.path_for_uri(context.workspace, uri) else {
+        return false;
+    };
+    let Some(source) = context.cache.source(context.workspace, &path) else {
+        return false;
+    };
+    ranges.iter().all(|range| {
+        valid_lsp_range(Some(range))
+            && lsp_range_contains(caller.get("range"), Some(range))
+            && lsp_range_maps_to_source(Some(range), &source.content, context.encoding)
+    })
 }
 
 fn location_from_lsp(
@@ -502,19 +718,61 @@ fn location_from_lsp(
     name: Option<String>,
     cache: &mut NavigationLocationCache,
 ) -> Option<SemanticLocation> {
-    let uri = item
-        .get("uri")
-        .or_else(|| item.get("targetUri"))?
-        .as_str()?;
+    let (uri, range) = match (item.get("uri"), item.get("targetUri")) {
+        (Some(uri), None) => {
+            if item.get("targetRange").is_some() || item.get("targetSelectionRange").is_some() {
+                return None;
+            }
+            if name.is_none() && item.get("selectionRange").is_some() {
+                return None;
+            }
+            if let (Some(outer), Some(selection)) = (item.get("range"), item.get("selectionRange"))
+            {
+                if !lsp_range_contains(Some(outer), Some(selection)) {
+                    return None;
+                }
+            }
+            (
+                uri.as_str()?,
+                item.get("selectionRange").or_else(|| item.get("range"))?,
+            )
+        }
+        (None, Some(uri)) => {
+            if item.get("range").is_some() || item.get("selectionRange").is_some() {
+                return None;
+            }
+            let target_range = item.get("targetRange")?;
+            let target_selection = item.get("targetSelectionRange")?;
+            if !lsp_range_contains(Some(target_range), Some(target_selection)) {
+                return None;
+            }
+            (uri.as_str()?, target_selection)
+        }
+        _ => return None,
+    };
     let path = cache.path_for_uri(workspace, uri)?;
-    let range = item
-        .get("selectionRange")
-        .or_else(|| item.get("range"))
-        .or_else(|| item.get("targetSelectionRange"))
-        .or_else(|| item.get("targetRange"))?;
+    let source = cache.source(workspace, &path)?;
+    for candidate in [
+        "selectionRange",
+        "range",
+        "targetSelectionRange",
+        "targetRange",
+    ]
+    .iter()
+    .filter_map(|key| item.get(*key))
+    {
+        if !valid_lsp_range(Some(candidate)) {
+            return None;
+        }
+        let start_line = candidate.pointer("/start/line")?.as_u64()?;
+        let start_character = candidate.pointer("/start/character")?.as_u64()?;
+        let end_line = candidate.pointer("/end/line")?.as_u64()?;
+        let end_character = candidate.pointer("/end/character")?.as_u64()?;
+        lsp_to_byte_column(&source.content, start_line + 1, start_character, encoding).ok()?;
+        lsp_to_byte_column(&source.content, end_line + 1, end_character, encoding).ok()?;
+    }
     let zero_line = range.pointer("/start/line")?.as_u64()?;
     let lsp_character = range.pointer("/start/character")?.as_u64()?;
-    let source = cache.source(workspace, &path)?;
     let character =
         lsp_to_byte_column(&source.content, zero_line + 1, lsp_character, encoding).ok()?;
     Some(SemanticLocation {
@@ -539,6 +797,7 @@ pub(super) fn byte_column_to_lsp(
         .split('\n')
         .nth(usize::try_from(line - 1).unwrap_or(usize::MAX))
         .ok_or_else(|| anyhow!("LSP navigation line is outside the source file"))?;
+    let text = text.strip_suffix('\r').unwrap_or(text);
     let byte_offset = usize::try_from(column - 1).map_err(|_| anyhow!("column is too large"))?;
     if byte_offset > text.len() || !text.is_char_boundary(byte_offset) {
         bail!(
@@ -558,25 +817,47 @@ fn lsp_to_byte_column(content: &str, line: u64, character: u64, encoding: &str) 
         .split('\n')
         .nth(usize::try_from(line - 1).unwrap_or(usize::MAX))
         .ok_or_else(|| anyhow!("LSP location line is outside the source file"))?;
+    let text = text.strip_suffix('\r').unwrap_or(text);
     let target = usize::try_from(character).map_err(|_| anyhow!("LSP character is too large"))?;
     let byte_offset = match encoding {
-        "utf-8" => target.min(text.len()),
-        "utf-32" => text
-            .char_indices()
-            .nth(target)
-            .map(|(index, _)| index)
-            .unwrap_or(text.len()),
+        "utf-8" => {
+            if target > text.len() || !text.is_char_boundary(target) {
+                bail!("LSP UTF-8 character is outside the source line or splits a code point");
+            }
+            target
+        }
+        "utf-32" => {
+            let char_count = text.chars().count();
+            if target > char_count {
+                bail!("LSP UTF-32 character is outside the source line");
+            }
+            if target == char_count {
+                text.len()
+            } else {
+                text.char_indices()
+                    .nth(target)
+                    .map(|(index, _)| index)
+                    .ok_or_else(|| anyhow!("LSP UTF-32 character is outside the source line"))?
+            }
+        }
         _ => {
             let mut units = 0usize;
-            let mut offset = text.len();
+            let mut offset = None;
             for (index, ch) in text.char_indices() {
-                if units >= target {
-                    offset = index;
+                if units == target {
+                    offset = Some(index);
                     break;
                 }
-                units = units.saturating_add(ch.len_utf16());
+                let next = units.saturating_add(ch.len_utf16());
+                if target < next {
+                    bail!("LSP UTF-16 character splits a code point");
+                }
+                units = next;
             }
-            offset
+            if offset.is_none() && units == target {
+                offset = Some(text.len());
+            }
+            offset.ok_or_else(|| anyhow!("LSP UTF-16 character is outside the source line"))?
         }
     };
     Ok(byte_offset as u64 + 1)

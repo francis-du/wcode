@@ -805,6 +805,26 @@ impl ToolHarness {
         Ok(status)
     }
 
+    pub(crate) fn verification_status_for_revision(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        revision: &crate::evidence::Revision,
+    ) -> Result<Option<VerificationStatus>> {
+        self.intelligence
+            .verification_status_for_revision(workspace_id, workspace, revision)
+    }
+
+    pub(crate) fn verification_status_if_present(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<Option<VerificationStatus>> {
+        self.intelligence
+            .verification_status_if_present(workspace_id, workspace, plan_id)
+    }
+
     pub fn verification_history(
         &self,
         workspace_id: &str,

@@ -86,7 +86,12 @@ const codeGraphOverview=JSON.stringify({
   ],
   truncated:false
 }).replace(/</g,'\\u003c');
-const init=`\nstate.project=${data};state.current='A';state.autoRefresh=false;state.lastUpdated=Date.now();state.language='en';state.theme='dark';state.codeGraph=${codeGraph};state.codeGraphOverview=${codeGraphOverview};state.codeGraphView='overview';state.codeGraphWorkspace='A';applyTheme();applyLanguage();renderProject(true);activateWorkspaceTab('proof');window.__layoutReady=true;`;
+// Populated source preview checks real WebKit geometry; HTTP correctness has separate real-repository tests.
+const changeInspection=JSON.stringify({path:'src/'+long+'.rs',layer:'working',loading:false,error:'',data:{
+  path:'src/'+long+'.rs',layer:'working',snapshot_id:'a'.repeat(64),head:'b'.repeat(40),index_fingerprint:'c'.repeat(64),worktree_sha256:'d'.repeat(64),
+  kind:'unified_diff',redacted:false,truncated:false,content:'diff --git a/main.rs b/main.rs\n--- a/main.rs\n+++ b/main.rs\n@@ -9,2 +9,2 @@\n context\n-return "<script>NOT_EXECUTED</script>";\n+return "'+long+'";\n'
+}}).replace(/</g,'\\u003c');
+const init=`\nstate.changeInspection=${changeInspection};state.project=${data};state.current='A';state.autoRefresh=false;state.lastUpdated=Date.now();state.language='en';state.theme='dark';state.codeGraph=${codeGraph};state.codeGraphOverview=${codeGraphOverview};state.codeGraphView='overview';state.codeGraphWorkspace='A';applyTheme();applyLanguage();renderProject(true);activateWorkspaceTab('proof');window.__layoutReady=true;`;
 let html=read(base+'page.html').replace('<link rel="stylesheet" href="/intelligence/app.css">','<style>'+styles+'</style>').replace('<script defer src="/intelligence/app.js"></script>','');
 html=html.replace('</body>',`<script>${(bundle.slice(0,bundle.indexOf(marker))+init).replace(/<\/script/gi,'<\\/script')}</script></body>`);
 const out=path.join(root,'target/wcode-browser-fixture.html');fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,html);

@@ -15,6 +15,7 @@ fn candidate(index: usize) -> RepoMapCandidate {
         exact_direct: false,
         design_path: false,
         query_hits: 0,
+        test_target_match: false,
         experience_weight: 0,
         degree: 99,
         rank: 0.0,
@@ -135,4 +136,41 @@ fn engineering_fitness_challenge_exact_anchor_does_not_reset_hops_from_generic_d
         .map(|candidate| candidate.id.as_str())
         .collect();
     assert_eq!(kept, ["0", "1", "2"].into_iter().collect());
+}
+
+#[test]
+fn code_to_test_exact_anchor_requires_evidence_beyond_test_location() {
+    let mut candidates: Vec<_> = (0..6).map(candidate).collect();
+    candidates[0].direct = true;
+    candidates[0].exact_direct = true;
+    for entry in &mut candidates[1..] {
+        entry.path = format!("tests/case_{}.rs", entry.id);
+    }
+    // A generic test retrieval hit must not reset the relationship horizon.
+    candidates[2].direct = true;
+    candidates[2].query_hits = 1;
+    candidates[3].design_path = true;
+    candidates[4].experience_weight = 1;
+    let neighbors = [vec![1], vec![0], vec![], vec![], vec![], vec![]];
+    retain_repo_candidates_with_task_evidence(
+        &mut candidates,
+        &neighbors,
+        RepoMapIntent::CodeToTest,
+    );
+    let kept: BTreeSet<_> = candidates.iter().map(|entry| entry.id.as_str()).collect();
+    assert_eq!(kept, ["0", "1", "3", "4"].into_iter().collect());
+}
+
+#[test]
+fn code_to_test_without_exact_target_preserves_exploratory_test_seeds() {
+    let mut candidates: Vec<_> = (0..3).map(candidate).collect();
+    candidates[0].direct = true;
+    candidates[1].path = "tests/contract.rs".into();
+    let neighbors = [vec![], vec![2], vec![1]];
+    retain_repo_candidates_with_task_evidence(
+        &mut candidates,
+        &neighbors,
+        RepoMapIntent::CodeToTest,
+    );
+    assert_eq!(candidates.len(), 3);
 }

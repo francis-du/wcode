@@ -20,6 +20,7 @@ const MAX_REQUIREMENT_DRIFT: usize = 32;
 pub(crate) struct ObservatoryInput<'a> {
     pub workspace: String,
     pub root: String,
+    pub repository_revision: crate::evidence::Revision,
     pub design: design::DesignLoad,
     pub traceability: TraceabilityStatus,
     pub graph: &'a SoftwareGraphSnapshot,
@@ -147,6 +148,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
     ProjectObservatory {
         workspace: input.workspace,
         root: input.root,
+        repository_revision: input.repository_revision,
         project: state.project.as_ref().map(|project| project.name.clone()),
         product: state.product.as_ref().map(|product| product.name.clone()),
         product_vision: state

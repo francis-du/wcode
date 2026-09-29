@@ -190,6 +190,11 @@ impl ToolHarness {
                                 )
                             })
                             .transpose()?;
+                        if risk.as_ref().is_some_and(|risk| risk.revision != revision) {
+                            return Err(anyhow::anyhow!(
+                                "project risk revision changed during observatory capture"
+                            ));
+                        }
                         let impact = match (review, risk.as_ref()) {
                             (Some(review), Some(risk)) => {
                                 Some(self.intelligence.impact_analysis_from_snapshot(
@@ -368,6 +373,7 @@ impl ToolHarness {
         let mut snapshot = build_project_observatory(ObservatoryInput {
             workspace: workspace_id,
             root: workspace.root().display().to_string(),
+            repository_revision: revision.clone(),
             design: design.as_ref().clone(),
             traceability,
             graph: &graph,
@@ -386,6 +392,11 @@ impl ToolHarness {
             latest_reconciliation_plan,
         });
         snapshot.fitness.benchmark = crate::intelligence::load_benchmarks(workspace, &revision);
+        if self.intelligence.current_revision(workspace)? != revision {
+            return Err(anyhow::anyhow!(
+                "project observatory repository revision changed during capture"
+            ));
+        }
         self.cache_project_observatory(workspace, &snapshot);
         Ok(snapshot)
     }

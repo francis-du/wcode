@@ -458,9 +458,7 @@ function changeTable(items, compact = false) {
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) => {
       const tone = statusClass(item.untracked ? "untracked" : item.status);
-      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path"><code>${
-        esc(item.path)
-      }</code></div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
+      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path">${compact ? `<code>${esc(item.path)}</code>` : `<button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button>`}</div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
         item.untracked ? pill(t("untracked"), "info") : ""
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td>${
         compact
@@ -640,7 +638,7 @@ function renderChanges() {
   setHtml(
     "changes",
     els.changes,
-    html,
+    `${html}<div id="changeInspector"></div>`,
     () =>
       els.changes.querySelectorAll("[data-req]").forEach((link) =>
         link.addEventListener("click", () => {
@@ -655,4 +653,323 @@ function renderChanges() {
         })
       ),
   );
+  els.changes.querySelectorAll("[data-change-path]").forEach(button => {
+    button.onclick = () => { void openChangeInspection(button.dataset.changePath); };
+  });
+  renderChangeInspector();
+}
+
+function clearChangeInspection() {
+  state.changeInspection?.controller?.abort();
+  state.changeInspection?.impactController?.abort();
+  state.changeInspection = null;
+  state.changeRequestSequence = (state.changeRequestSequence || 0) + 1;
+  state.changeImpactSequence = (state.changeImpactSequence || 0) + 1;
+  const host = q("#changeInspector");
+  if (host) host.innerHTML = "";
+}
+function invalidateChangeInspection() {
+  const current = state.changeInspection;
+  if (!current) return;
+  current.controller?.abort(); current.impactController?.abort();
+  state.changeRequestSequence = (state.changeRequestSequence || 0) + 1;
+  state.changeImpactSequence = (state.changeImpactSequence || 0) + 1;
+  current.data = null; current.symbolImpact = null; current.relationImpact = null; current.loading = false;
+  current.error = localized("Project state changed or could not be refreshed. Reload this file.", "项目状态已更新或刷新失败，请重新读取此文件。");
+  renderChangeInspector();
+}
+function changeLayerLabel(layer) {
+  return ({working: localized("HEAD → working tree", "HEAD → 工作树"),
+    staged: localized("HEAD → index (staged)", "HEAD → 暂存区"),
+    unstaged: localized("Index → working tree", "暂存区 → 工作树")})[layer] || layer;
+}
+function validChangeRanges(view) {
+  const valid = ranges => Array.isArray(ranges) && ranges.length <= 256 && ranges.every((range, index) => {
+    const start = range?.start_line, end = range?.end_line;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return false;
+    return index === 0 || ranges[index - 1]?.end_line < start;
+  });
+  return valid(view?.before_changed_ranges) && valid(view?.after_changed_ranges)
+    && typeof view?.changed_ranges_truncated === "boolean"
+    && typeof view?.after_source_matches_worktree === "boolean";
+}
+function validChangeSymbolImpact(impact, view) {
+  if (impact == null) return view?.after_source_matches_worktree !== false;
+  const validSymbols = (symbols, sourceRanges) => Array.isArray(symbols) && Array.isArray(sourceRanges) && symbols.length <= 128 && symbols.every(symbol => {
+    if (typeof symbol?.node_id !== "string" || !symbol.node_id.startsWith("symbol:ts:") || typeof symbol.name !== "string"
+      || typeof symbol.qualified_name !== "string" || typeof symbol.kind !== "string"
+      || !Number.isInteger(symbol.start_line) || symbol.start_line < 1
+      || !Number.isInteger(symbol.end_line) || symbol.end_line < symbol.start_line || typeof symbol.counterpart_only !== "boolean"
+      || (symbol.definition_change != null && !["modified", "added", "removed", "unknown"].includes(symbol.definition_change))
+      || !Array.isArray(symbol.changed_ranges) || symbol.changed_ranges.length > 256) return false;
+    const expected = sourceRanges.flatMap(range => {
+      const start = Math.max(symbol.start_line, range.start_line), end = Math.min(symbol.end_line, range.end_line);
+      return start <= end ? [{start_line:start,end_line:end}] : [];
+    });
+    const actualValid = symbol.changed_ranges.every((range, index) => Number.isInteger(range?.start_line) && Number.isInteger(range?.end_line)
+      && range.start_line >= symbol.start_line && range.end_line <= symbol.end_line && range.end_line >= range.start_line
+      && (index === 0 || symbol.changed_ranges[index - 1].end_line < range.start_line));
+    if (!actualValid) return false;
+    if (symbol.counterpart_only) return expected.length === 0 && symbol.changed_ranges.length === 0;
+    return expected.length > 0 && symbol.changed_ranges.length === expected.length
+      && symbol.changed_ranges.every((range, index) => range.start_line === expected[index].start_line && range.end_line === expected[index].end_line);
+  });
+  if (typeof impact !== "object" || impact.path !== view.path || impact.snapshot_id !== view.snapshot_id
+    || impact.precision !== "syntax" || impact.provider !== "tree-sitter"
+    || !["after_line_overlap", "before_after_line_overlap"].includes(impact.mapping)
+    || typeof impact.before_symbols_available !== "boolean"
+    || typeof impact.partial !== "boolean" || !validSymbols(impact.after_symbols, view.after_changed_ranges)) return false;
+  if (impact.source_state === "worktree") {
+    if (impact.source_sha256 !== view.worktree_sha256 || view.after_source_matches_worktree === false) return false;
+  } else if (impact.source_state === "index") {
+    if (view.layer !== "staged" || !/^[a-f0-9]{64}$/i.test(impact.source_sha256 || "")) return false;
+  } else if (impact.source_state !== null || typeof impact.unavailable_reason !== "string") {
+    return false;
+  }
+  if (impact.mapping === "before_after_line_overlap") {
+    if (!["head", "index"].includes(impact.before_source_state)
+      || !/^[a-f0-9]{64}$/i.test(impact.before_source_sha256 || "")
+      || !validSymbols(impact.before_symbols, view.before_changed_ranges)) return false;
+    if (impact.before_symbols_available) {
+      if (impact.before_unavailable_reason !== null) return false;
+    } else if (typeof impact.before_unavailable_reason !== "string") return false;
+    if (impact.definition_change_basis != null && (impact.definition_change_basis !== "qualified_name_kind_complete_syntax_outlines" || ![...(impact.before_symbols || []), ...(impact.after_symbols || [])].every(symbol => ["modified", "added", "removed", "unknown"].includes(symbol.definition_change)))) return false;
+  } else if (impact.before_symbols_available !== false) return false;
+  return true;
+}
+function directChangedSymbolLine(symbol) {
+  if (symbol?.counterpart_only !== false || !Array.isArray(symbol.changed_ranges) || !symbol.changed_ranges.length) return null;
+  for (const range of symbol.changed_ranges) {
+    const start = range?.start_line, end = range?.end_line;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return null;
+  }
+  return symbol.changed_ranges[0].start_line;
+}
+function changeSourceAction(symbol, side) {
+  const line = directChangedSymbolLine(symbol);
+  if (!line || !["before", "after"].includes(side)) return "";
+  return `<button type="button" class="change-symbol-link" data-change-source-side="${side}" data-change-source-node="${esc(symbol.node_id)}" data-change-source-line="${line}">${esc(localized("Reveal changed line", "定位变更行"))}</button>`;
+}
+function changeSymbolImpactPanel(impact, repositoryRevision) {
+  if (!impact) return "";
+  const note = impact.mapping === "before_after_line_overlap"
+    ? impact.counterpart_basis === "qualified_name_kind_syntax"
+      ? localized(
+        "Changed definitions come from exact before/after syntax overlap; unique same qualified-name + kind counterparts are shown only to keep addition/deletion-only body edits paired. This is not semantic impact or rename proof.",
+        "变化定义来自精确改前/改后快照的语法范围重叠；仅在限定名与类型唯一一致时补出另一侧对应定义，用于配对纯新增/纯删除的函数体修改。这不是语义影响或重命名证明。",
+      )
+      : localized(
+        "Syntax range overlap on exact before/after snapshots; this shows changed definitions, not semantic impact or rename proof.",
+        "这里只表示精确改前/改后快照上的语法范围重叠；可定位发生变化的定义，但不是语义影响或重命名证明。",
+      )
+    : localized(
+      "Syntax range overlap on the exact after-state snapshot only; before-state mapping is unavailable and this is not semantic impact proof.",
+      "这里只表示精确改后快照的语法范围重叠；改前映射不可用，也不是语义影响证明。",
+    );
+  const title = impact.mapping === "before_after_line_overlap"
+    ? localized("Syntax-overlapping changed definitions", "变更定义的语法范围重叠")
+    : impact.source_state === "index"
+      ? localized("Syntax-overlapping staged symbols", "暂存快照语法重叠符号")
+      : localized("Syntax-overlapping current symbols", "当前语法重叠符号");
+  if (impact.unavailable_reason && impact.mapping !== "before_after_line_overlap") {
+    const unavailable = impact.unavailable_reason === "exact_after_source_unavailable"
+      ? localized("The exact staged after-state could not be read completely, so no symbol identity is inferred from newer working-tree bytes.", "无法完整读取精确暂存后的源码，因此不会从更新的工作树字节推断符号身份。")
+      : localized("Current symbol mapping is unavailable for this source state.", "当前源码状态无法生成符号映射。");
+    return `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(note)}</p><p>${esc(unavailable)}</p></section>`;
+  }
+  const sourceNote = impact.source_state === "index"
+    ? localized("After-state mapped from the exact staged index snapshot, not from the current worktree.", "改后状态映射来自精确暂存区快照，而不是当前工作树。")
+    : impact.source_state === "worktree"
+      ? localized("After-state mapped from the current working-tree snapshot.", "改后状态映射来自当前工作树快照。")
+      : localized("After-state source is unavailable; the before snapshot remains independently mapped.", "改后源码不可用；改前快照仍保持独立映射。");
+  const definitionChangeNote = symbol => impact.definition_change_basis === "qualified_name_kind_complete_syntax_outlines" && ({modified:localized("Modified definition · syntax only", "定义已修改 · 仅语法"),added:localized("Added definition · syntax only", "新增定义 · 仅语法"),removed:localized("Removed definition · syntax only", "移除定义 · 仅语法")})[symbol.definition_change] ? `<span class="panel-meta">${esc(({modified:localized("Modified definition · syntax only", "定义已修改 · 仅语法"),added:localized("Added definition · syntax only", "新增定义 · 仅语法"),removed:localized("Removed definition · syntax only", "移除定义 · 仅语法")})[symbol.definition_change])}</span>` : "";
+  const beforeItems = impact.before_symbols_available ? (impact.before_symbols || []).map(symbol => `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${changeSourceAction(symbol, "before")}</div>`).join("") : "";
+  const afterNavigable = impact.source_state === "worktree" && validChangeRepositoryRevision(repositoryRevision);
+  const signatureNote = symbol => { const peers = impact.before_symbols_available ? (impact.before_symbols || []).filter(before => before.qualified_name === symbol.qualified_name && before.kind === symbol.kind) : []; if (peers.length !== 1 || typeof symbol.signature !== "string" || typeof peers[0]?.signature !== "string") return ""; if (symbol.signature_redacted !== false || peers[0].signature_redacted !== false) return `<span class="panel-meta">${esc(localized("Signature comparison unavailable · syntax signature only", "签名比较不可用 · 仅语法签名"))}</span>`; return `<span class="panel-meta">${esc(symbol.signature !== peers[0].signature ? localized("Signature changed · syntax signature only", "签名已变化 · 仅语法签名") : localized("Signature unchanged · syntax signature only", "签名未变化 · 仅语法签名"))}</span>`; };
+  const afterItems = impact.after_symbols.map(symbol => afterNavigable && symbol.counterpart_only === false
+    ? `<div class="change-symbol-actions"><button type="button" class="change-symbol-link" data-change-symbol="${esc(symbol.node_id)}"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${signatureNote(symbol)}</button><button type="button" class="change-symbol-link" data-change-impact="${esc(symbol.node_id)}">${esc(localized("Explain impact", "解释影响"))}</button>${changeSourceAction(symbol, "after")}</div>`
+    : `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${signatureNote(symbol)}${changeSourceAction(symbol, "after")}</div>`).join("");
+  const navigationNote = impact.source_state === "index" && impact.after_symbols.length
+    ? localized(
+      "Exact staged-snapshot symbols are not linked to the current graph because that graph represents different working-tree bytes.",
+      "精确暂存快照里的符号不会链接到当前代码图，因为当前代码图代表的是不同的工作树字节。",
+    )
+    : "";
+  const paired = impact.mapping === "before_after_line_overlap"
+    ? `<div class="change-symbol-pair"><div><b>${esc(localized("Before", "改前"))}</b>${beforeItems || `<p>${esc(localized("No before-state definition overlaps the removed lines.", "没有改前定义范围与删除行重叠。"))}</p>`}</div><div><b>${esc(localized("After", "改后"))}</b>${afterItems || `<p>${esc(localized("No after-state definition overlaps the added lines.", "没有改后定义范围与新增行重叠。"))}</p>`}</div></div>`
+    : (afterItems || `<p>${esc(localized("No definition range overlaps the returned after-change lines.", "没有定义范围与已返回的改后变更行重叠。"))}</p>`);
+  const partial = impact.partial ? `<p class="warn">${esc(localized("Symbol overlap is partial because the returned change or outline was bounded.", "由于返回的变更或符号轮廓有界，符号重叠结果并不完整。"))}</p>` : "";
+  return `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(note)} ${esc(sourceNote)} ${esc(navigationNote)}</p>${partial}${paired}</section>`;
+}
+
+function validChangeRepositoryRevision(revision) {
+  return revision && typeof revision.code === "string" && revision.code.length > 0 && revision.code.length <= 256
+    && (revision.design == null || (typeof revision.design === "string" && revision.design.length > 0 && revision.design.length <= 256));
+}
+function validProofCount(value) { return Number.isInteger(value) && value >= 0; }
+function validChangeProofPayload(proof) {
+  const effective = proof?.effective, acceptance = proof?.acceptance;
+  const counts = [proof?.current_evidence,proof?.current_passed,proof?.current_failed,proof?.current_inconclusive,proof?.current_disagreed,
+    proof?.current_verification_plans,proof?.current_verification_ready,proof?.current_verification_blocked,effective?.total,effective?.passed,effective?.failed,effective?.inconclusive,effective?.disagreed,
+    acceptance?.total,acceptance?.mapped,acceptance?.executed,acceptance?.passed,acceptance?.fresh];
+  if (!effective || !acceptance || !Array.isArray(effective.items) || counts.some(value => !validProofCount(value))
+    || typeof effective.truncated !== "boolean" || typeof proof.evidence_scan_truncated !== "boolean") return false;
+  if (effective.passed + effective.failed + effective.inconclusive + effective.disagreed !== effective.total
+    || proof.current_passed + proof.current_failed + proof.current_inconclusive + proof.current_disagreed !== proof.current_evidence
+    || proof.current_verification_ready + proof.current_verification_blocked !== proof.current_verification_plans
+    || acceptance.mapped > acceptance.total || acceptance.executed > acceptance.total
+    || acceptance.passed > acceptance.executed || acceptance.fresh > acceptance.executed
+    || effective.items.length !== Math.min(effective.total, 24) || effective.truncated !== (effective.total > 24)) return false;
+  return effective.items.every(item => item && typeof item.subject === "string" && typeof item.producer === "string"
+    && ["pass","fail","inconclusive","disagree"].includes(item.result) && Number.isInteger(item.timestamp_ms) && item.timestamp_ms >= 0);
+}
+function changeRiskPanel(risk, revision) {
+  const title = localized("Matched project risk", "匹配项目风险");
+  if (!validChangeRepositoryRevision(revision) || !risk || risk.workspace !== state.current
+    || !validChangeRepositoryRevision(risk.revision)
+    || risk.revision.code !== revision.code || (risk.revision.design ?? null) !== (revision.design ?? null)
+    || !["low","medium","high","critical"].includes(risk.level) || !Array.isArray(risk.risks))
+    return `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(localized("Matching project risk status is unavailable.", "匹配的项目风险状态不可用。"))}</p></section>`;
+  const rows = risk.risks.slice(0,8).map(item => item && typeof item.summary === "string" ? `<span class="change-symbol-before"><code>${esc(item.level || "risk")}</code><span>${esc(item.category || "risk")}${item.subject ? ` · ${esc(item.subject)}` : ""}</span><span class="panel-meta">${esc(item.summary)}</span></span>` : "").join("");
+  const partial = risk.risks.length > 8 || risk.drift?.truncated === true || risk.bug_patterns?.truncated === true;
+  const candidates = validProofCount(risk.bug_patterns?.matches) ? risk.bug_patterns.matches : 0;
+  const note = localized("Shown only when the risk status itself carries this exact captured code + Design revision; risk is context, not Verification Evidence or symbol-level proof.", "仅当风险状态自身携带与本次捕获完全一致的代码 + Design 版本时展示；风险只是上下文，不是 Verification Evidence 或符号级证明。");
+  return `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(note)}</p><p class="panel-meta">${esc(localized(`${risk.level} risk · ${risk.risks.length} structured risks · ${candidates} heuristic bug candidates`, `${risk.level} 风险 · ${risk.risks.length} 项结构化风险 · ${candidates} 项启发式缺陷候选`))}</p>${partial ? `<p class="warn">${esc(localized("Risk coverage is bounded/partial.", "风险覆盖有界或不完整。"))}</p>` : ""}${rows}</section>`;
+}
+function changeProofPanel(current) {
+  const revision = current.repositoryRevision, proof = state.project?.proof;
+  const title = localized("Captured-revision verification", "捕获版本验证");
+  const unavailable = () => `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(localized("No matching current-version proof is available for this captured repository revision. Historical passes and mapped tests are not shown as current proof.", "当前捕获的仓库版本没有匹配的当前版本证明；历史通过和测试映射不会被显示成当前证明。"))}</p></section>`;
+  const projectRevision = state.project?.repository_revision;
+  if (!validChangeRepositoryRevision(revision) || !validChangeRepositoryRevision(projectRevision) || !proof
+    || projectRevision.code !== revision.code || (projectRevision.design ?? null) !== (revision.design ?? null)
+    || proof.revision_code !== revision.code || (proof.revision_design ?? null) !== (revision.design ?? null)) return unavailable();
+  if (!validChangeProofPayload(proof)) return unavailable();
+  const effective = proof.effective, acceptance = proof.acceptance;
+  const summary = `<p class="panel-meta">${esc(localized(`${effective.passed} passed · ${effective.failed} failed · ${effective.inconclusive} inconclusive · ${effective.disagreed} disagreed`, `${effective.passed} 项通过 · ${effective.failed} 项失败 · ${effective.inconclusive} 项未定 · ${effective.disagreed} 项分歧`))}</p>`;
+  const acceptanceSummary = `<p class="panel-meta">${esc(localized(`Acceptance: ${acceptance.mapped}/${acceptance.total} mapped · ${acceptance.executed} executed · ${acceptance.passed} passed · ${acceptance.fresh} current-revision`, `验收：${acceptance.mapped}/${acceptance.total} 已映射 · ${acceptance.executed} 已执行 · ${acceptance.passed} 已通过 · ${acceptance.fresh} 当前版本`))}</p>`;
+  const plans = `<p class="panel-meta">${esc(localized(`${proof.current_verification_ready}/${proof.current_verification_plans} current plans ready · ${proof.current_verification_blocked} blocked`, `${proof.current_verification_ready}/${proof.current_verification_plans} 个当前计划就绪 · ${proof.current_verification_blocked} 个阻塞`))}</p>`;
+  const rows = effective.items.slice(0,12).map(item => {
+    if (!item || typeof item.producer !== "string" || typeof item.result !== "string") return "";
+    const subject = typeof item.subject === "string" ? item.subject : "";
+    const detail = typeof item.summary === "string" ? item.summary : "";
+    return `<span class="change-symbol-before"><code>${esc(item.result)}</code><span>${esc(item.producer)}</span><span class="panel-meta">${esc(subject)}${detail ? ` · ${esc(detail)}` : ""}</span></span>`;
+  }).join("");
+  const note = `<p class="panel-meta">${esc(localized("This is project-level Verification Evidence for the exact captured code + Design revision; it is not proof that the selected symbol is correct.", "这里只展示与精确捕获的代码 + Design 版本一致的项目级 Verification Evidence；它不证明所选符号本身正确。"))}</p>`;
+  const truncation = effective.truncated || proof.evidence_scan_truncated ? `<p class="warn">${esc(localized("Evidence coverage is bounded/partial.", "证据覆盖有界或不完整。"))}</p>` : "";
+  return `<section class="change-symbol-impact"><h4>${esc(title)}</h4>${note}${summary}${acceptanceSummary}${plans}${truncation}${rows || `<span class="panel-meta">${esc(localized("No effective evidence items returned.", "没有返回有效证据项。"))}</span>`}</section>` + changeRiskPanel(state.project?.risk, revision);
+}
+function revealChangeSourceLine(side, nodeId, line) {
+  const current = state.changeInspection, view = current?.data, mapping = current?.symbolImpact;
+  const sourceLine = Number(line);
+  if (!view || !mapping || !["before", "after"].includes(side) || !Number.isInteger(sourceLine) || sourceLine < 1
+    || mapping.path !== view.path || mapping.snapshot_id !== view.snapshot_id) return false;
+  const symbols = side === "before" ? mapping.before_symbols : mapping.after_symbols;
+  const symbol = Array.isArray(symbols) ? symbols.find(item => item?.node_id === nodeId) : null;
+  const changedLine = directChangedSymbolLine(symbol);
+  if (!changedLine || !symbol.changed_ranges.some(range => sourceLine >= Number(range.start_line) && sourceLine <= Number(range.end_line))) return false;
+  const host = q("#changeInspector");
+  const target = host?.querySelector(`.change-source-line[data-change-${side}-line="${sourceLine}"]`);
+  if (!target) return false;
+  target.scrollIntoView?.({block: "center"});
+  target.focus?.({preventScroll: true});
+  return true;
+}
+function changeDisplayRows(view) {
+  let oldLine = null, newLine = null, inHunk = false;
+  return view.content.split("\n").map((text, index) => {
+    if (view.kind === "untracked_source") return {before: "", after: index + 1, text, tone: "context"};
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
+    if (hunk) { oldLine = Number(hunk[1]); newLine = Number(hunk[2]); inHunk = true; }
+    else if (text.startsWith("diff --git ")) inHunk = false;
+    const row = {before: "", after: "", text, tone: "meta"};
+    if (inHunk && !hunk) {
+      if (text.startsWith("-")) { row.before = oldLine++; row.tone = "removed"; }
+      else if (text.startsWith("+")) { row.after = newLine++; row.tone = "added"; }
+      else if (text.startsWith(" ")) { row.before = oldLine++; row.after = newLine++; row.tone = "context"; }
+    }
+    return row;
+  });
+}
+async function openChangeInspection(path, layer = "working", fresh = false) {
+  if (typeof path !== "string" || !path || !["working", "staged", "unstaged"].includes(layer)) return;
+  const previous = state.changeInspection;
+  const expected = !fresh && previous?.path === path
+    ? (previous.snapshotId || previous.data?.snapshot_id || null)
+    : null;
+  previous?.controller?.abort();
+  const sequence = state.changeRequestSequence = (state.changeRequestSequence || 0) + 1;
+  const workspace = state.current, epoch = state.workspaceEpoch, controller = new AbortController();
+  state.changeInspection = {path, layer, snapshotId: expected, data: null, symbolImpact: null, relationImpact: null, repositoryRevision: null,
+    impactNodeId: "", impactLoading: false, impactError: "", impactController: null, error: "", loading: true, controller};
+  renderChangeInspector();
+  const params = new URLSearchParams({path, layer});
+  if (expected) params.set("expected_snapshot", expected);
+  const active = () => state.current === workspace && state.workspaceEpoch === epoch
+    && state.changeRequestSequence === sequence && !controller.signal.aborted;
+  try {
+    const result = await uiJson(`/intelligence/change-detail?${params}`, "GET", undefined,
+      {workspace, signal: controller.signal});
+    if (!active()) return;
+    const view = result.change;
+    if (result.workspace !== workspace || (result.repository_revision != null && !validChangeRepositoryRevision(result.repository_revision))
+      || view?.path !== path || view?.layer !== layer
+      || !/^[a-f0-9]{64}$/i.test(view?.snapshot_id || "")
+      || !["unified_diff", "untracked_source", "binary"].includes(view?.kind)
+      || typeof view.content !== "string" || view.content.length > 65536
+      || !validChangeRanges(view) || !validChangeSymbolImpact(result.symbol_impact, view)
+      || typeof view.truncated !== "boolean" || typeof view.redacted !== "boolean") {
+      throw new Error(localized("Invalid change snapshot", "变更快照无效"));
+    }
+    state.changeInspection.data = view;
+    state.changeInspection.symbolImpact = result.symbol_impact || null;
+    state.changeInspection.repositoryRevision = result.repository_revision || null;
+    state.changeInspection.snapshotId = view.snapshot_id;
+  } catch (error) {
+    if (!active()) return;
+    state.changeInspection.error = error.status === 409
+      ? localized("The file or index changed. Reload instead of mixing versions.", "文件或暂存区已变化，请重新读取，不能混合版本。")
+      : requestFailureMessage(error);
+  } finally {
+    if (active()) { state.changeInspection.loading = false; renderChangeInspector(); }
+  }
+}
+function renderChangeInspector() {
+  const host = q("#changeInspector"), current = state.changeInspection;
+  if (!host || !current) { if (host) host.innerHTML = ""; return; }
+  const view = current.data;
+  const layers = ["working", "staged", "unstaged"].map(layer => `<button type="button" data-change-layer="${layer}" aria-pressed="${current.layer === layer}"${current.loading ? " disabled" : ""}>${esc(changeLayerLabel(layer))}</button>`).join("");
+  let body;
+  if (current.loading) body = `<p role="status">${esc(localized("Reading bounded change snapshot…", "正在读取有界变更快照…"))}</p>`;
+  else if (current.error) body = `<p class="bad" role="alert">${esc(current.error)}</p>`;
+  else if (!view) body = "";
+  else if (view.kind === "binary") body = `<p>${esc(localized("Binary difference; text preview is unavailable.", "二进制差异，不能作为文本预览。"))}</p>`;
+  else {
+    const rows = changeDisplayRows(view), limited = rows.length > 1500;
+    const warning = view.truncated || view.changed_ranges_truncated || limited || view.redacted
+      ? `<p class="warn">${esc(localized("Partial or redacted preview — not a complete source view; changed-line ranges may also be partial.", "部分内容或已脱敏预览，不代表完整源码；变更行范围也可能不完整。"))}</p>` : "";
+    const label = view.kind === "untracked_source"
+      ? localized("Untracked source; no committed baseline. Right gutter is the source line.", "未跟踪源码，没有已提交基线；右侧行号是源码行。")
+      : localized("Unified diff · left: before line · right: after line. Context is intentionally bounded.", "统一差异 · 左侧为改前行号，右侧为改后行号；上下文有界。");
+    body = `${warning}<p class="panel-meta">${esc(label)}</p>` + (view.content.length
+      ? `<pre class="change-source" tabindex="0" role="region" aria-label="${esc(localized("Read-only source difference", "只读源码差异"))}">${rows.slice(0,1500).map(row => { const before = Number.isInteger(row.before) ? ` data-change-before-line="${row.before}"` : ""; const after = Number.isInteger(row.after) ? ` data-change-after-line="${row.after}"` : ""; return `<span class="change-source-line ${row.tone}" tabindex="-1"${before}${after}><span class="change-gutter">${row.before}</span><span class="change-gutter">${row.after}</span><span>${esc(row.text) || " "}</span></span>`; }).join("")}</pre>`
+      : `<p>${esc(localized("No differences in this selected layer. This does not mean every layer is clean.", "所选层没有差异，不代表其他层也没有改动。"))}</p>`);
+    body += changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
+  }
+  const repositoryRevision = current.repositoryRevision;
+  const identity = view ? `<details class="change-identity"><summary>${esc(localized("Captured snapshot identity (not continuous live proof)", "本次读取的快照身份（不是持续实时证明）"))}</summary><code>HEAD ${esc(view.head || "—")}<br>index ${esc(view.index_fingerprint || "—")}<br>worktree ${esc(view.worktree_sha256 || localized("missing", "不存在"))}<br>snapshot ${esc(view.snapshot_id)}<br>repository code ${esc(repositoryRevision?.code || "—")}<br>repository Design ${esc(repositoryRevision?.design || "—")}</code></details>` : "";
+  host.innerHTML = `<section class="change-inspector"><header><div><h3>${esc(localized("Read-only code changes", "只读代码变更"))}</h3><code>${esc(current.path)}</code></div><button type="button" data-change-close>${esc(localized("Close", "关闭"))}</button></header><div class="change-toolbar">${layers}<button type="button" data-change-reload>${esc(localized("Reload file", "重新读取"))}</button></div>${body}${identity}</section>`;
+  host.querySelectorAll("[data-change-layer]").forEach(button => {
+    button.onclick = () => { void openChangeInspection(current.path, button.dataset.changeLayer); };
+  });
+  host.querySelector("[data-change-close]")?.addEventListener("click", clearChangeInspection);
+  host.querySelector("[data-change-reload]")?.addEventListener("click", () => {
+    void openChangeInspection(current.path, current.layer, true);
+  });
+  host.querySelectorAll("[data-change-symbol]").forEach(button => {
+    button.onclick = () => { void openChangeSymbolInGraph(button.dataset.changeSymbol); };
+  });
+  host.querySelectorAll("[data-change-impact]").forEach(button => { button.onclick = () => { void openChangeSymbolImpact(button.dataset.changeImpact); }; });
+  host.querySelectorAll("[data-change-source-line]").forEach(button => { button.onclick = () => { revealChangeSourceLine(button.dataset.changeSourceSide, button.dataset.changeSourceNode, button.dataset.changeSourceLine); }; });
+  host.querySelectorAll("[data-change-relation-node]").forEach(button => { button.onclick = () => { void openChangeRelationNodeInGraph(button.dataset.changeRelationNode); }; });
 }

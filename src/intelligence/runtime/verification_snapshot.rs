@@ -8,6 +8,64 @@ type StatusProofReconciliationSnapshot = (
 );
 
 impl SoftwareIntelligenceRuntime {
+    pub(crate) fn verification_status_for_revision(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        revision: &Revision,
+    ) -> Result<Option<VerificationStatus>> {
+        self.ensure_verification_loaded(workspace_id, workspace)?;
+        let status = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+            match state
+                .verification
+                .latest_plan_for_workspace_revision(workspace_id, revision)
+            {
+                Some(plan) => Some(state.verification.status(&plan.id)?),
+                None => None,
+            }
+        };
+        let Some(status) = status else {
+            return Ok(None);
+        };
+        let evidence = self.evidence_records(workspace_id, workspace)?;
+        Self::verification_status_from_snapshot(status, revision, &evidence).map(Some)
+    }
+
+    pub(crate) fn verification_status_if_present(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+    ) -> Result<Option<VerificationStatus>> {
+        self.ensure_verification_loaded(workspace_id, workspace)?;
+        let status = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+            match state.verification.status(plan_id) {
+                Ok(status) => Some(status),
+                Err(crate::verification::VerificationError::UnknownPlan) => None,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let Some(status) = status else {
+            return Ok(None);
+        };
+        if status.plan.workspace != workspace_id {
+            return Err(anyhow!(
+                "verification plan does not belong to the selected workspace"
+            ));
+        }
+        let revision = self.current_revision(workspace)?;
+        let evidence = self.evidence_records(workspace_id, workspace)?;
+        Self::verification_status_from_snapshot(status, &revision, &evidence).map(Some)
+    }
+
     pub(crate) fn status_proof_reconciliation_snapshot(
         &self,
         workspace_id: &str,

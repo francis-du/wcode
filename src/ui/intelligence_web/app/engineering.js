@@ -54,25 +54,27 @@ function activateProjectNavigatorItem(item) {
   els.projectNavigator.value = "";
   els.navigatorResults.classList.add("hidden");
   els.projectNavigator.setAttribute("aria-expanded", "false");
+  els.projectNavigator.removeAttribute("aria-activedescendant");
 }
 function navigatorKindLabel(kind) {
   return ({ subsystem: localized("Subsystem", "子系统"), component: localized("Component", "组件"), requirement: localized("Requirement", "需求"), change: localized("Change", "变更"), file: localized("File", "文件") })[kind] || kind;
 }
-function renderProjectNavigator() {
+function renderProjectNavigator({ open = false } = {}) {
   if (!els.projectNavigator || !els.navigatorResults) return;
   const query = els.projectNavigator.value.trim().toLowerCase();
-  if (!query) {
+  if (!query || (!open && els.projectNavigator.getAttribute("aria-expanded") !== "true")) {
     els.navigatorResults.classList.add("hidden");
     els.projectNavigator.setAttribute("aria-expanded", "false");
     els.projectNavigator.removeAttribute("aria-activedescendant");
     return;
   }
   const matches = projectNavigatorItems().filter(item => `${item.kind} ${item.label} ${item.detail}`.toLowerCase().includes(query)).slice(0, 14);
-  const html = matches.length ? matches.map((item, index) => `<button id="navigator-result-${index}" type="button" class="navigator-result" data-nav-index="${index}" role="option" aria-selected="${index === 0}"><span class="navigator-kind">${esc(navigatorKindLabel(item.kind))}</span><span class="navigator-copy"><strong>${esc(item.label)}</strong><small>${esc(item.detail)}</small></span></button>`).join("") : `<div class="empty">${esc(localized("No project item matches this search.", "没有匹配的项目项。"))}</div>`;
+  const html = matches.length ? matches.map((item, index) => `<button id="navigator-result-${index}" type="button" class="navigator-result" data-nav-index="${index}" data-nav-kind="${esc(item.kind)}" data-nav-id="${esc(item.id)}" role="option" aria-selected="${index === 0}"><span class="navigator-kind">${esc(navigatorKindLabel(item.kind))}</span><span class="navigator-copy"><strong>${esc(item.label)}</strong><small>${esc(item.detail)}</small></span></button>`).join("") : `<div class="empty">${esc(localized("No project item matches this search.", "没有匹配的项目项。"))}</div>`;
   setHtml("navigatorResults", els.navigatorResults, html, () => els.navigatorResults.querySelectorAll("[data-nav-index]").forEach(button => button.addEventListener("click", () => activateProjectNavigatorItem(matches[Number(button.dataset.navIndex)]))));
   els.navigatorResults.classList.remove("hidden");
   els.projectNavigator.setAttribute("aria-expanded", "true");
-  if (matches.length) els.projectNavigator.setAttribute("aria-activedescendant", "navigator-result-0");
+  const selected = [...els.navigatorResults.querySelectorAll("[data-nav-index]")].find(button => button.getAttribute("aria-selected") === "true");
+  if (matches.length) els.projectNavigator.setAttribute("aria-activedescendant", selected?.id || "navigator-result-0");
   else els.projectNavigator.removeAttribute("aria-activedescendant");
 }
 function subsystemBlueprintTone(subsystem) {

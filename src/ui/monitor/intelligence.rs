@@ -318,9 +318,9 @@ pub(super) fn render_intelligence_overlay(
         .unwrap_or_else(|| language.tr("unknown"));
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE))
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(SURFACE_SELECTED))
         .padding(Padding::uniform(1))
         .title(Line::from(vec![
             Span::styled(

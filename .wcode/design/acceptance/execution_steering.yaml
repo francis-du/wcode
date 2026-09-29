@@ -6,7 +6,10 @@ statement: >-
   latest pending directive survives process reconstruction and appears in Agent Context before work resumes.
   Objective/scope-changing steering against a bound approved Reconciliation plan reports replan_required and never
   edits the approved snapshot. Verification-strengthening steering may only increase required work; generated proof
-  plans honor that floor and current-revision proof below the floor cannot settle Execution. A clean handoff
+  plans honor that floor and current-revision proof below the floor cannot settle Execution. A bound plan below
+  a strengthened floor must not hide a newer current-revision plan satisfying that floor; a bound plan already
+  satisfying the floor remains selected rather than being replaced by a weaker candidate. Selection alone never
+  grants readiness or substitutes for any missing proof. A clean handoff
   carries Execution lineage and structured checkpoint/directive state but no prior transcript or chain-of-thought.
   The Engineering Observatory renders pending steering, replan state, verification floor and handoff lineage from
   the durable Execution projection without mutating Execution or introducing chat history.
@@ -16,6 +19,7 @@ verification:
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_handoff_creates_clean_lineage_without_transcript_state}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: verification_steering_floor_is_monotonic_across_applied_directives}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: verification_steering_floor_raises_policy_and_rejects_weaker_proof}
+  - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_refresh_rebinds_plan_after_verification_floor_strengthens}
   - {kind: test, path: tests/unit/runtime/harness/steering.rs, symbol: agent_context_restores_pending_execution_steering}
   - {kind: test, path: tests/unit/runtime/harness/context_budget.rs, symbol: tight_context_budget_preserves_pending_execution_steering}
   - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: pending_steering_promotes_authoritative_apply_and_replan_tools}

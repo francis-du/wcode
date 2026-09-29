@@ -1,13 +1,22 @@
 use super::*;
 use crate::authorization::AuthorizationStatus;
-
+#[path = "web_change_impact.rs"]
+pub(crate) mod web_change_impact;
 #[path = "web_graph.rs"]
 mod web_graph;
 #[path = "web_status.rs"]
 pub(super) mod web_status;
-pub(super) use web_graph::intelligence_web_code_graph;
+pub(super) use web_change_impact::intelligence_web_change_impact;
 #[cfg(test)]
-pub(super) use web_graph::IntelligenceCodeGraphQuery;
+pub(super) use web_change_impact::IntelligenceChangeImpactQuery;
+#[cfg(test)]
+pub(super) use web_graph::{
+    changed_symbol_impact, IntelligenceChangeQuery, IntelligenceCodeGraphQuery,
+    IntelligenceCodeSourceQuery,
+};
+pub(super) use web_graph::{
+    intelligence_web_change_detail, intelligence_web_code_graph, intelligence_web_code_source,
+};
 
 pub(super) async fn setup_page(
     State(state): State<Arc<AppState>>,

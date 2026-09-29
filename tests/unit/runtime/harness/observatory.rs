@@ -314,6 +314,14 @@ mod tests {
     assert_eq!(project.convergence.stable_requirements, 1);
     assert_eq!(project.convergence.needs_convergence_requirements, 0);
     assert_eq!(project.proof.current_evidence, 0);
+    assert_eq!(
+        project.repository_revision.code,
+        project.proof.revision_code
+    );
+    assert_eq!(
+        project.repository_revision.design,
+        project.proof.revision_design
+    );
     assert_eq!(project.adaptive_verification.mode, "static");
     assert_eq!(
         project.adaptive_verification.fallback_reason.as_deref(),
@@ -449,6 +457,11 @@ mod tests {
         reviewed.impact.as_ref().unwrap().risk_level,
         reviewed.risk.as_ref().unwrap().level,
         "impact must reuse the risk level from the same Observatory snapshot"
+    );
+    assert_eq!(
+        reviewed.risk.as_ref().unwrap().revision,
+        reviewed.repository_revision,
+        "risk must carry the exact repository revision of its Observatory snapshot"
     );
     let verification_impact = reviewed.verification_impact.as_ref().unwrap();
     assert!(verification_impact.selective);

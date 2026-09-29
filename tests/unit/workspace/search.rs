@@ -26,6 +26,122 @@ fn report(workspace: &Workspace, request: &SearchRequest, grouped: bool) -> Valu
 }
 
 #[test]
+fn context_search_balances_files_and_patterns_without_changing_search_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let sources = [
+        ("a.rs", format!("{}rare\n", "common\n".repeat(100))),
+        ("b.rs", format!("{}rare\n", "common\n".repeat(10))),
+        ("z.rs", "common\n".to_owned()),
+    ];
+    for (path, source) in &sources {
+        fs::write(dir.path().join(path), source).unwrap();
+    }
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let query = request(&["common", "rare"], SearchMode::Exact, 5);
+    let ordinary = report(&workspace, &query, false);
+    assert!(ordinary["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["path"] == "a.rs"));
+    for _ in 0..2 {
+        let found = workspace
+            .search_context_report(&query)
+            .unwrap()
+            .into_value("test", &query, false);
+        let rows = found["matches"].as_array().unwrap();
+        let identities = rows
+            .iter()
+            .map(|row| (row["path"].as_str().unwrap(), row["line"].as_u64().unwrap()))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            identities,
+            [
+                ("a.rs", 1),
+                ("a.rs", 101),
+                ("b.rs", 1),
+                ("b.rs", 11),
+                ("z.rs", 1)
+            ]
+            .into()
+        );
+        assert_eq!(
+            rows.len(),
+            identities.len(),
+            "shared representatives must not duplicate rows"
+        );
+        assert_eq!(found["count"], 5);
+        assert_eq!(found["total_matches"], 113);
+        assert_eq!(found["query_counts"][0]["matched_lines"], 111);
+        assert_eq!(found["query_counts"][1]["matched_lines"], 2);
+        assert_eq!(found["traversals"], 1);
+        assert_eq!(found["files_scanned"], 3);
+        assert_eq!(
+            found["bytes_read"],
+            sources.iter().map(|(_, text)| text.len()).sum::<usize>()
+        );
+        assert_eq!(found["coverage_complete"], true);
+        assert_eq!(found["results_truncated"], true);
+        assert!(
+            found["next_offset"].is_null(),
+            "a context sample is not a pagination cursor"
+        );
+        assert_eq!(found["order"], "pattern_coverage_then_file_diversity");
+    }
+    assert_eq!(ordinary, report(&workspace, &query, false));
+    assert_eq!(ordinary["order"], "pattern_coverage_then_path_line");
+    assert_eq!(ordinary["next_offset"], 5);
+}
+
+#[test]
+fn context_search_preserves_redaction_sha_and_partial_coverage() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.rs"), "common\n".repeat(70)).unwrap();
+    fs::write(
+        dir.path().join("b.rs"),
+        format!("common{}\n", "x".repeat(1_200)),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("c.rs"),
+        "api_key=common-synthetic-test-value\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe]).unwrap();
+    fs::write(dir.path().join("large.rs"), "x".repeat(1024 * 1024 + 1)).unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let mut query = request(&["common"], SearchMode::Exact, 3);
+    let found = workspace
+        .search_context_report(&query)
+        .unwrap()
+        .into_value("test", &query, false);
+    let rows = found["matches"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[1]["path"], "b.rs");
+    assert_eq!(rows[1]["text_truncated"], true);
+    assert_eq!(rows[2]["path"], "c.rs");
+    assert_eq!(rows[2]["redacted"], true);
+    assert!(!found.to_string().contains("common-synthetic-test-value"));
+    for row in rows {
+        let path = row["path"].as_str().unwrap();
+        assert_eq!(
+            row["sha256"],
+            workspace.read_file(path, 1, None).unwrap().sha256
+        );
+    }
+    assert_eq!(found["failed_files"], 1);
+    assert_eq!(found["skipped_files"], 1);
+    assert_eq!(found["coverage_complete"], false);
+    assert_eq!(found["truncated"], true);
+    assert!(found["guidance"].is_string());
+    query.offset = 1;
+    assert!(workspace.search_context_report(&query).is_err());
+    query.offset = 0;
+    query.output_mode = "files_with_matches".into();
+    assert!(workspace.search_context_report(&query).is_err());
+}
+
+#[test]
 fn search_auto_uses_one_traversal_and_one_read_per_file() {
     let dir = tempfile::tempdir().unwrap();
     let source = "package demo\nfmt.Sprintf(\"SELECT job\")\n";

@@ -389,20 +389,17 @@ impl CodeIndex {
             .ok_or_else(|| anyhow!("Tree-sitter parsing was cancelled"))
     }
 
-    pub(super) fn parse_source(
+    pub(super) fn parse_snapshot_symbols(
         &self,
         root: &Path,
         config: &LanguageConfig,
-        source: SourceDocument,
-    ) -> Result<ParsedFile> {
-        let tree = self.parse_tree(config, &source.content)?;
+        path: &str,
+        content: &str,
+    ) -> Result<(Tree, bool, Vec<CodeSymbol>)> {
+        let tree = self.parse_tree(config, content)?;
         let parse_errors = tree.root_node().has_error();
         let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(
-            &config.tags_query,
-            tree.root_node(),
-            source.content.as_bytes(),
-        );
+        let mut matches = cursor.matches(&config.tags_query, tree.root_node(), content.as_bytes());
         let capture_names = config.tags_query.capture_names();
         let mut candidates = HashMap::<(usize, usize, bool), (usize, CodeSymbol)>::new();
 
@@ -439,7 +436,7 @@ impl CodeIndex {
                 .unwrap_or("symbol");
             let kind = normalize_symbol_kind(raw_kind).to_owned();
             let name_bytes = name_node.byte_range();
-            let Some(name) = source.content.get(name_bytes.clone()) else {
+            let Some(name) = content.get(name_bytes.clone()) else {
                 continue;
             };
             let name = name.trim();
@@ -452,15 +449,15 @@ impl CodeIndex {
             let end_byte = extent_bytes.end.max(name_bytes.end);
             let id = symbol_id(
                 root,
-                &source.path,
+                path,
                 name,
                 &kind,
                 is_definition,
                 name_bytes.start,
                 name_bytes.end,
             );
-            let container_hint = syntactic_container_hint(config.id, tag_node, &source.content);
-            let raw_signature = line_excerpt(&source.content, name_bytes.start, 240);
+            let container_hint = syntactic_container_hint(config.id, tag_node, content);
+            let raw_signature = line_excerpt(content, name_bytes.start, 240);
             let (signature, signature_redacted) = redact_sensitive_text(&raw_signature);
             let symbol = CodeSymbol {
                 id,
@@ -468,7 +465,7 @@ impl CodeIndex {
                 qualified_name: name.to_owned(),
                 kind,
                 language: config.id.as_str().to_owned(),
-                path: source.path.clone(),
+                path: path.to_owned(),
                 range: node_range(extent_node),
                 name_range: node_range(name_node),
                 container: None,
@@ -505,6 +502,17 @@ impl CodeIndex {
                 .then_with(|| right.end_byte.cmp(&left.end_byte))
                 .then_with(|| left.kind.cmp(&right.kind))
         });
+        Ok((tree, parse_errors, symbols))
+    }
+
+    pub(super) fn parse_source(
+        &self,
+        root: &Path,
+        config: &LanguageConfig,
+        source: SourceDocument,
+    ) -> Result<ParsedFile> {
+        let (tree, parse_errors, symbols) =
+            self.parse_snapshot_symbols(root, config, &source.path, &source.content)?;
         let source_bytes = source.content.len();
         let line_count = source.content.lines().count();
         let generated_source = crate::conventions::generated_source(&source.path, &source.content);

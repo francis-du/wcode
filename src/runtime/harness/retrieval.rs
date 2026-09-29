@@ -19,6 +19,7 @@ pub(super) struct RepoMapCandidate {
     pub(super) exact_direct: bool,
     pub(super) design_path: bool,
     pub(super) query_hits: usize,
+    pub(super) test_target_match: bool,
     pub(super) experience_weight: u16,
     pub(super) degree: usize,
     pub(super) rank: f64,
@@ -75,8 +76,12 @@ pub(super) fn retain_repo_candidates_with_task_evidence(
     let mut pending = VecDeque::new();
     for (index, candidate) in candidates.iter().enumerate() {
         let direct_anchor = candidate.exact_direct || (!has_exact_direct && candidate.direct);
-        let routing_anchor =
-            intent == RepoMapIntent::CodeToTest && test_path(&candidate.path, &candidate.kind);
+        // Test location is an exploratory prior, not evidence that a test
+        // exercises an exact target. Otherwise every test in a supplemented
+        // file becomes a zero-hop seed and crowds out actual callers.
+        let routing_anchor = intent == RepoMapIntent::CodeToTest
+            && test_path(&candidate.path, &candidate.kind)
+            && (!has_exact_direct || candidate.test_target_match);
         // Once the task has an exact symbol anchor, fuzzy/query-term matches
         // remain ranking evidence only. Promoting them to fresh zero-hop seeds
         // would reset graph distance and admit transitive noise beyond the
@@ -450,6 +455,7 @@ pub(super) fn augment_relationship_graph<'a>(
     }
 
     let mut supplemental_scan_truncated = false;
+    let mut test_matches = Vec::new();
     if targeted_scan {
         let mut relation_queries = context
             .symbols
@@ -480,6 +486,7 @@ pub(super) fn augment_relationship_graph<'a>(
         }
         let mut seen_queries = HashSet::new();
         relation_queries.retain(|name| seen_queries.insert(name.to_ascii_lowercase()));
+        supplemental_scan_truncated = relation_queries.len() > 4;
         relation_queries.truncate(4);
         if !relation_queries.is_empty() {
             let request = SearchRequest {
@@ -490,15 +497,28 @@ pub(super) fn augment_relationship_graph<'a>(
                 include_comments: true,
                 max_results: super::REPO_MAP_MAX_FILES,
                 offset: 0,
-                output_mode: "files_with_matches".to_owned(),
+                output_mode: if routing.intent == RepoMapIntent::CodeToTest {
+                    "content"
+                } else {
+                    "files_with_matches"
+                }
+                .to_owned(),
             };
-            let report: SearchReport = workspace.search_report(&request)?;
+            let report: SearchReport = if routing.intent == RepoMapIntent::CodeToTest {
+                workspace.search_context_report(&request)?
+            } else {
+                workspace.search_report(&request)?
+            };
             let report = report.into_value(workspace_id, &request, false);
-            supplemental_scan_truncated = report["truncated"].as_bool().unwrap_or(false);
-            for path in report["files"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            supplemental_scan_truncated |= report["truncated"].as_bool().unwrap_or(false);
+            let rows = if routing.intent == RepoMapIntent::CodeToTest {
+                test_matches = report["matches"].as_array().cloned().unwrap_or_default();
+                &test_matches
+            } else {
+                report["files"].as_array().unwrap_or(&test_matches)
+            };
+            for path in rows
+                .iter()
                 .filter_map(|file| file.get("path").and_then(Value::as_str))
             {
                 if seen_paths.insert(path.to_owned()) {
@@ -523,7 +543,56 @@ pub(super) fn augment_relationship_graph<'a>(
     )?;
     supplemental.workspace = workspace_id.to_owned();
     supplemental.path = ".".to_owned();
-    merge_relationship_graph(base, supplemental).map(Cow::Owned)
+    let mut graph = merge_relationship_graph(base, supplemental)?;
+    mark_test_target_matches(&mut graph, &test_matches);
+    Ok(Cow::Owned(graph))
+}
+
+pub(super) fn mark_test_target_matches(graph: &mut SoftwareGraphSnapshot, rows: &[Value]) {
+    // These are bounded text candidates (including macro bodies and names),
+    // never call edges or proof that a test executes the target.
+    for row in rows {
+        let (Some(path), Some(sha), Some(line)) = (
+            row["path"].as_str(),
+            row["sha256"].as_str(),
+            row["line"].as_u64(),
+        ) else {
+            graph.scan_truncated = true;
+            continue;
+        };
+        if path.is_empty()
+            || line == 0
+            || sha.len() != 64
+            || !sha.bytes().all(|b| b.is_ascii_hexdigit())
+            || row["redacted"] != false
+            || row["text_truncated"] != false
+        {
+            graph.scan_truncated = true;
+            continue;
+        }
+        let revision = format!("sha256:{sha}");
+        for node in graph.graph.nodes.values_mut() {
+            if node.attributes.get("path").and_then(Value::as_str) != Some(path)
+                || !matches!(node.kind, NodeKind::Function | NodeKind::Symbol)
+            {
+                continue;
+            }
+            if node.provenance.revision != revision {
+                graph.scan_truncated = true;
+                continue;
+            }
+            let range = node.attributes.get("range").unwrap_or(&Value::Null);
+            let (Some(start), Some(end)) =
+                (range["start_line"].as_u64(), range["end_line"].as_u64())
+            else {
+                continue;
+            };
+            if start > 0 && start <= line && line <= end {
+                node.attributes
+                    .insert("test_target_match".into(), json!(true));
+            }
+        }
+    }
 }
 
 pub(super) fn merge_relationship_graph(
@@ -709,8 +778,12 @@ pub(super) fn test_path(path: &str, kind: &str) -> bool {
         || normalized.ends_with("_test.rs")
         || normalized.ends_with(".test.js")
         || normalized.ends_with(".test.ts")
+        || normalized.ends_with(".test.jsx")
+        || normalized.ends_with(".test.tsx")
         || normalized.ends_with(".spec.js")
         || normalized.ends_with(".spec.ts")
+        || normalized.ends_with(".spec.jsx")
+        || normalized.ends_with(".spec.tsx")
         || normalized
             .rsplit('/')
             .next()
@@ -785,6 +858,25 @@ fn contains_any(query: &str, needles: &[&str]) -> bool {
 }
 
 impl super::ToolHarness {
+    pub(crate) fn snapshot_file_outline(
+        &self,
+        workspace_id: &str,
+        workspace: &crate::workspace::Workspace,
+        path: &str,
+        content: &str,
+        source_sha256: &str,
+        max_symbols: usize,
+    ) -> anyhow::Result<Value> {
+        self.code_index.snapshot_outline(
+            workspace_id,
+            workspace.root(),
+            path,
+            content,
+            source_sha256,
+            max_symbols,
+        )
+    }
+
     pub fn search_syntax(
         &self,
         workspace_id: &str,

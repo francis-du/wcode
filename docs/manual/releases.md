@@ -13,6 +13,7 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## 0.8.x
 
+- [v0.8.5](v0.8.5/) — snapshot-bound change inspection, more precise code-to-test retrieval, truthful Fitness observations, verification-plan rebinding, and Observatory interaction fixes.
 - [v0.8.4](v0.8.4/) — scope-isolated concurrent writers, grant-scoped remote ownership, unified MCP transport protocol policy, and 300-round release verification.
 - [v0.8.3](v0.8.3/) — capability-aware MCP discovery, tighter edit-ready Agent Context, isolated Jev policy, modern task compatibility, and 300-round release verification.
 - [v0.8.2](v0.8.2/) — durable execution observability, structured steering, fairer Code Graph expansion/fullscreen, resource isolation, and 100-round release verification.

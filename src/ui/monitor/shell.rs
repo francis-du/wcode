@@ -556,13 +556,13 @@ fn render_header(
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Double)
         .border_style(Style::default().fg(if snapshot.chatgpt_connected {
             color
         } else {
             OUTLINE
         }))
-        .style(Style::default().bg(SURFACE))
+        .style(Style::default().bg(SURFACE_RAISED))
         .padding(Padding::horizontal(1))
         .title(Line::from(vec![
             Span::styled(

@@ -18,6 +18,9 @@
     - kind: symbol
       path: src/workspace/edits.rs
       symbol: Workspace::replace_text
+    - kind: symbol
+      path: src/workspace/change_view.rs
+      symbol: Workspace::change_view
 
 - schema_version: 1
   id: component:command-execution
@@ -375,6 +378,7 @@
     - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
     - expose prompt-free Verified Experience evaluation with explicit temporal-holdout method, heuristic precision, raw denominators, cold-start/unavailable distinction and independent coverage, hit-rate, precision@K and recall@K metrics rather than an opaque self-score
     - separate explicit Engineering Fitness benchmark summaries from bounded milestone outcome samples, retain revision provenance and history, and present unknown, stale, partial and unmeasured states without total scores or readiness authority
+    - open literal path-scoped readonly unified differences from the existing change table, retain staged/unstaged/baseline identity and line gutters, and invalidate source on stale snapshots or workspace/refresh transitions without adding an editor or proof authority
   constraints:
     - CONSTRAINT-BRAND-PALETTE
     - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
@@ -424,6 +428,12 @@
       symbol: build_project_structure
     - kind: file
       path: src/ui/intelligence_web/app/engineering.js
+    - kind: symbol
+      path: src/ui/intelligence_web/app/code_graph_explorer.js
+      symbol: openChangeSymbolInGraph
+    - kind: symbol
+      path: src/ui/intelligence_web/app/code_graph_explorer.js
+      symbol: openChangeSymbolImpact
     - kind: symbol
       path: src/ui/intelligence_web/app/structure.js
       symbol: renderProjectStructure

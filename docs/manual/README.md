@@ -54,6 +54,8 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 
 ## Core concepts
 
+- [Read-only Change Inspection](change-inspection/) — inspect source diffs, symbols, impact, and proof inside Current changes, with explicit comparison layers and snapshot identity.
+
 - [Product Scopes](product-scopes/) — product capabilities and source-ownership boundaries.
 - [Agentic Engineering](agentic-engineering/) — short instructions, on-demand context, parallel execution, and deterministic verification.
 - [Language Quality](language-quality/) — one capability matrix for all 22 indexed languages: syntax, validated semantics, format, lint, types, static analysis, tests, security, and advanced verification, with explicit gaps instead of a Rust-centric support bit.
@@ -68,6 +70,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
 - [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
 - [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
+- [v0.8.5 release notes](releases/v0.8.5/) — snapshot-bound change inspection, precise code-to-test retrieval, Fitness observations, and Observatory interaction fixes.
 - [v0.8.4 release notes](releases/v0.8.4/) — scope-isolated concurrent writers, grant-scoped remote ownership, unified MCP transport protocol policy, and 300-round release verification.
 - [v0.8.3 release notes](releases/v0.8.3/) — capability-aware MCP discovery, tighter edit-ready Agent Context, isolated Jev policy, modern task compatibility, and 300-round release verification.
 - [v0.8.2 release notes](releases/v0.8.2/) — durable execution observability, structured steering, fairer Code Graph exploration, isolated resource admission, and 100-round release verification.

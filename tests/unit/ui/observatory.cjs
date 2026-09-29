@@ -21,10 +21,11 @@ class Element {
   constructor(){ this.innerHTML=''; this.textContent=''; this.value=''; this.checked=true; this.disabled=false; this.dataset={}; this.attrs={}; this.events={}; this.classes=new Set(); this.classList={contains:x=>this.classes.has(x),toggle:(x,on)=>on?this.classes.add(x):this.classes.delete(x),add:x=>this.classes.add(x),remove:x=>this.classes.delete(x)}; }
   setAttribute(k,v){this.attrs[k]=v;}
   removeAttribute(k){delete this.attrs[k];}
+  getAttribute(k){return this.attrs[k]??null;}
   addEventListener(k,v){this.events[k]=v;}
   querySelector(){return new Element();}
   querySelectorAll(){return [];}
-  focus(){} scrollIntoView(){} closest(){return null;}
+  focus(){} blur(){} scrollIntoView(){} closest(){return null;}
 }
 function stripRuntimeBootstrap(source){
   const normalized=source.replace(/\r\n?/g,'\n');
@@ -37,13 +38,13 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
   const nodes=new Map();
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
   node('#accessPanel').classes.add('hidden');
-  const requests=[],timers=new Map(),events={};let timerId=0;
+  const requests=[],timers=new Map(),events={},listeners=new Map();let timerId=0;
   const storage={...(options.storage||{})};
   const languages=options.languages||['en-US'];
   const context={console,URL,URLSearchParams,AbortController,Date,Intl,Map,Set,Promise,JSON,Number,String,Math,Error,DOMException,
     navigator:{languages,language:languages[0]||'en-US'},
     location:{hash:authenticated?'#token=test-ui&workspace=A':'#workspace=A'},localStorage:{getItem(key){if(storageBlocked)throw new Error('storage denied');return storage[key]??null;},setItem(key,value){if(storageBlocked)throw new Error('storage denied');storage[key]=String(value);}},
-    document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{events[name]=handler;},getElementById:id=>node('#'+id)},
+    document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{const callbacks=listeners.get(name)||[];callbacks.push(handler);listeners.set(name,callbacks);events[name]=event=>{for(const callback of callbacks)callback(event);};},getElementById:id=>node('#'+id)},
     window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){}},requestAnimationFrame:fn=>fn(),queueMicrotask,
     setTimeout:(fn,ms)=>{if(options.fakeTimers){timers.set(++timerId,{fn,ms});return timerId;}const timer=setTimeout(fn,ms);timer.unref();return timer;},clearTimeout:id=>options.fakeTimers?timers.delete(id):clearTimeout(id),
     fetch:(url,requestOptions={})=>url==='/healthz'&&!options.controlTunnels
@@ -60,6 +61,24 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
 const flush=()=>new Promise(setImmediate);
 function respond(request,data,ok=true){request.resolve({ok,status:ok?200:503,json:async()=>data});}
 const project=(workspace='A')=>({workspace,project:workspace,root:'/fixture/'+workspace,design_valid:true,workspace_options:[],requirements:[],code:{changed_files:0},proof:{current_evidence:0,acceptance:{total:0,mapped:0,executed:0,passed:0,fresh:0}},convergence:{},coverage:{},architecture:{components:[],dependencies:[],desired_edges:0,observed_edges:0,blocking_drift_edges:0},git_review:{available:false,reason:'execution_disabled'}});
+function navigatorFixture(s){
+  const search=s.node('#projectNavigator'),results=s.node('#navigatorResults');let html='',buttons=[];
+  Object.defineProperty(results,'innerHTML',{get:()=>html,set:value=>{
+    html=value;
+    buttons=[...value.matchAll(/<button id="([^"]+)"[^>]*data-nav-index="(\d+)"[^>]*aria-selected="([^"]+)"/g)].map(match=>{
+      const button=new Element();button.id=match[1];button.dataset.navIndex=match[2];
+      button.setAttribute('aria-selected',match[3]);button.click=()=>button.events.click?.();return button;
+    });
+  }});
+  results.querySelectorAll=()=>buttons;
+  s.context.navFixture={...project(),architecture:{components:[
+    {id:'one',name:'Engine One',responsibilities:['first']},
+    {id:'two',name:'Engine Two',responsibilities:['second']},
+  ]}};
+  s.context.activated=[];s.run('state.project=navFixture;activateProjectNavigatorItem=item=>activated.push(item.id);');
+  search.value='engine';s.run('renderProjectNavigator({open:true});');
+  return {search,results,get buttons(){return buttons;}};
+}
 async function run(){
   const results=[];
   async function test(name,fn){try{await fn();results.push({name,passed:true});}catch(error){results.push({name,passed:false,error:error.stack});}}
@@ -445,6 +464,165 @@ async function run(){
     assert.ok(!html.includes('internal_private_path_and_stack'));assert.ok(!html.includes('loading-state'));
     assert.equal(s.node('#refresh').disabled,false);
     assert.equal(s.node('.observatory-main').attrs['aria-busy'],'false');
+  });
+  await test('startup wires command palette controls once and supports localized filtering',async()=>{
+    const s=sandbox();let inputBindings=0;
+    const search=s.node('#commandPaletteSearch'),listen=search.addEventListener.bind(search);
+    search.addEventListener=(type,handler)=>{if(type==='input')inputBindings++;listen(type,handler);};
+    s.run('activateWorkspaceTab=()=>{};refreshTunnels=async()=>{};activityTick=async()=>{};refreshProject=async()=>{};scheduleProject=()=>{};');
+    await s.run('startObservatory()');await s.run('startObservatory()');
+    assert.equal(inputBindings,1);
+    s.run('state.language="zh-CN";setCommandPalette(true);');
+    assert.equal(s.node('#commandPalette').attrs['aria-hidden'],'false');
+    search.value='刷新项目';search.events.input();
+    assert.ok(s.node('#commandPaletteList').innerHTML.includes('刷新项目'));
+    assert.ok(!s.node('#commandPaletteList').innerHTML.includes('打开架构'));
+    search.events.keydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+    assert.equal(s.node('#commandPalette').attrs['aria-hidden'],'true');
+    assert.equal(search.value,'');
+  });
+  await test('failure placeholders wire retry actions and preserve workspace and filters',async()=>{
+    const s=sandbox(),buttons=[];
+    for(const id of ['#statusSummary','#architectureGraph']){
+      const button=new Element();button.dataset.summaryAction='refresh';buttons.push(button);
+      s.node(id).querySelectorAll=selector=>selector==='[data-summary-action]'?[button]:[];
+    }
+    s.context.fixture=project();
+    s.run('state.project=fixture;state.filter="incomplete";state.autoRefresh=false;renderProject=()=>{};renderAttention=()=>{};renderProjectPlaceholder(true);');
+    for(const button of buttons)assert.equal(typeof button.events.click,'function');
+    let refreshed;
+    s.node('#refresh').click=()=>{refreshed=s.node('#refresh').events.click();};
+    await buttons[1].events.click();await flush();
+    assert.equal(s.requests.length,1);assert.equal(s.requests[0].url,'/intelligence/revision');
+    respond(s.requests[0],{workspace:'A',fingerprint:'retry'});await flush();
+    const snapshot=s.requests.find(request=>request.url==='/intelligence/project');
+    assert.ok(snapshot);assert.equal(snapshot.options.headers['X-Wcode-Workspace'],'A');
+    respond(snapshot,project());
+    for(const request of s.requests.filter(request=>request.url==='/intelligence/activity'))respond(request,{workspace:'A',activity:{available:true,recent:[]}});
+    await refreshed;
+    assert.equal(s.run('state.current'),'A');assert.equal(s.run('state.filter'),'incomplete');
+    assert.equal(s.run('state.syncError'),false);assert.equal(s.node('#refresh').disabled,false);
+  });
+  await test('command palette ignores composition keys until text is committed',async()=>{
+    const s=sandbox(),search=s.node('#commandPaletteSearch'),items=['overview','architecture'].map(command=>Object.assign(new Element(),{dataset:{command}}));
+    s.node('#commandPaletteList').querySelectorAll=()=>items;
+    s.context.executed=[];s.run('wireCommandPalette();setCommandPalette(true);executeCommand=command=>executed.push(command);');
+    for(const key of ['Enter','ArrowDown','Escape']){
+      const event={key,isComposing:true,preventDefault(){throw new Error('composition must keep native input handling');},stopPropagation(){}};
+      search.events.keydown(event);s.events.keydown(event);
+      assert.equal(s.run('state.commandPaletteOpen'),true);
+    }
+    search.events.keydown({key:'Enter',keyCode:229,preventDefault(){throw new Error('legacy composition must remain native');}});
+    assert.deepEqual(s.context.executed,[]);assert.equal(s.run('state.commandPaletteIndex'),0);
+    search.events.keydown({key:'Enter',isComposing:false,preventDefault(){}});
+    assert.deepEqual(s.context.executed,['overview']);
+  });
+  await test('Escape closes only the command palette from its input or another control',async()=>{
+    const s=sandbox();s.run('wireCommandPalette();state.codeGraphFull=true;setCommandPalette(true);');
+    const event={key:'Escape',stopped:false,preventDefault(){},stopPropagation(){this.stopped=true;}};
+    s.node('#commandPaletteSearch').events.keydown(event);
+    if(!event.stopped)s.events.keydown(event);
+    assert.equal(s.run('state.commandPaletteOpen'),false);
+    assert.equal(s.run('state.codeGraphFull'),true,'the underlying fullscreen graph must stay open');
+    s.run('setCommandPalette(true);');
+    s.events.keydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+    assert.equal(s.run('state.commandPaletteOpen'),false,'Escape from the close button must dismiss the palette');
+    assert.equal(s.run('state.codeGraphFull'),true);
+  });
+  await test('closing the command palette restores focus and cancels delayed focus',async()=>{
+    const s=sandbox(),frames=[],search=s.node('#commandPaletteSearch');let paletteFocus=0,returnedFocus=0;
+    const origin={isConnected:true,focus(){returnedFocus++;s.context.document.activeElement=origin;}};
+    s.context.document.activeElement=origin;
+    s.context.requestAnimationFrame=callback=>frames.push(callback);
+    search.focus=()=>{paletteFocus++;s.context.document.activeElement=search;};
+    s.run('setCommandPalette(true);setCommandPalette(false);');
+    frames.splice(0).forEach(callback=>callback());
+    assert.equal(paletteFocus,0,'a closed palette must not regain focus on the next frame');
+    s.run('setCommandPalette(true);');
+    frames.splice(0).forEach(callback=>callback());
+    assert.equal(s.context.document.activeElement,search);
+    s.run('setCommandPalette(false);');
+    assert.equal(s.context.document.activeElement,origin);
+    assert.equal(returnedFocus,2);
+    s.run('setCommandPalette(false);');assert.equal(returnedFocus,2,'repeated close must not steal focus');
+    origin.isConnected=false;let fallbackFocus=0;
+    s.node('#projectNavigator').focus=()=>{fallbackFocus++;};
+    s.run('setCommandPalette(true);setCommandPalette(false);');
+    assert.equal(fallbackFocus,1,'a removed trigger must fall back to project navigation');
+  });
+  await test('project navigation preserves composition and scopes Escape to its search',async()=>{
+    const s=sandbox(),nav=navigatorFixture(s);
+    s.run('state.codeGraphFull=true;');
+    for(const key of ['Enter','ArrowDown','Escape']){
+      nav.search.events.keydown({key,isComposing:true,preventDefault(){throw new Error('composition must stay native');}});
+      assert.deepEqual(s.context.activated,[]);assert.equal(nav.search.value,'engine');
+    }
+    nav.search.events.keydown({key:'Enter',keyCode:229,preventDefault(){throw new Error('legacy composition must stay native');}});
+    assert.deepEqual(s.context.activated,[]);
+    nav.search.events.keydown({key:'Enter',preventDefault(){}});
+    assert.deepEqual(s.context.activated,['one']);
+    const escape={key:'Escape',stopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;}};
+    nav.search.events.keydown(escape);if(!escape.stopped)s.events.keydown(escape);
+    assert.equal(nav.search.value,'');assert.equal(s.run('state.codeGraphFull'),true);
+  });
+  await test('dismissed navigator results cannot activate or reopen on background refresh',async()=>{
+    const s=sandbox(),nav=navigatorFixture(s);
+    s.events.click({target:{closest:()=>null}});
+    assert.equal(nav.results.classList.contains('hidden'),true);
+    nav.search.events.keydown({key:'Enter',preventDefault(){}});
+    assert.deepEqual(s.context.activated,[],'hidden results must not activate');
+    s.run('renderProjectNavigator();');
+    assert.equal(nav.results.classList.contains('hidden'),true,'background refresh must preserve dismissal');
+    assert.equal(nav.search.getAttribute('aria-expanded'),'false');
+    nav.search.events.input();
+    assert.equal(nav.results.classList.contains('hidden'),false,'new input intentionally reopens search');
+  });
+  await test('navigator refresh keeps selection semantics and current item identities',async()=>{
+    const s=sandbox(),nav=navigatorFixture(s);
+    nav.search.events.keydown({key:'ArrowDown',preventDefault(){}});
+    assert.equal(nav.search.getAttribute('aria-activedescendant'),'navigator-result-1');
+    s.run('renderProjectNavigator();');
+    assert.equal(nav.search.getAttribute('aria-activedescendant'),'navigator-result-1','ARIA must follow the actual selected row');
+    s.context.navFixture.architecture.components[0].id='one-new';
+    s.run('renderProjectNavigator();');
+    nav.search.events.keydown({key:'Home',preventDefault(){}});
+    nav.search.events.keydown({key:'Enter',preventDefault(){}});
+    assert.deepEqual(s.context.activated,['one-new'],'same visible text must not retain a stale item ID');
+  });
+  await test('global shortcuts ignore held toggle keys and keep palette focus scoped',async()=>{
+    const s=sandbox();let navigatorFocus=0;
+    s.node('#projectNavigator').focus=()=>{navigatorFocus++;};
+    const chord=repeat=>({key:'k',ctrlKey:true,repeat,preventDefault(){}});
+    s.events.keydown(chord(false));assert.equal(s.run('state.commandPaletteOpen'),true);
+    s.events.keydown(chord(true));assert.equal(s.run('state.commandPaletteOpen'),true);
+    s.context.document.activeElement={tagName:'BUTTON'};
+    s.events.keydown({key:'/',preventDefault(){throw new Error('background shortcut must stay inactive');}});
+    assert.equal(navigatorFocus,0);
+    s.events.keydown(chord(false));assert.equal(s.run('state.commandPaletteOpen'),false);
+    navigatorFocus=0;s.events.keydown({key:'/',preventDefault(){}});assert.equal(navigatorFocus,1);
+  });
+  await test('command palette keeps Tab navigation inside the visible dialog',async()=>{
+    const s=sandbox(),first=s.node('#closeCommandPalette'),middle=s.node('#commandPaletteSearch'),last=new Element();
+    const controls=[first,middle,last];s.node('#commandPalette').querySelectorAll=()=>controls;
+    controls.forEach(control=>{control.focus=()=>{s.context.document.activeElement=control;};});
+    s.run('wireCommandPalette();setCommandPalette(true);');let prevented=0;
+    s.context.document.activeElement=last;
+    s.node('#commandPalette').events.keydown({key:'Tab',preventDefault(){prevented++;}});
+    assert.equal(s.context.document.activeElement,first);
+    s.node('#commandPalette').events.keydown({key:'Tab',shiftKey:true,preventDefault(){prevented++;}});
+    assert.equal(s.context.document.activeElement,last);
+    s.context.document.activeElement=middle;
+    s.node('#commandPalette').events.keydown({key:'Tab',preventDefault(){prevented++;}});
+    assert.equal(prevented,2,'interior Tab navigation remains native');
+  });
+  await test('delayed access-panel focus cannot target a closed panel or cover the command palette',async()=>{
+    const s=sandbox(),frames=[];let accessFocus=0;
+    s.context.requestAnimationFrame=callback=>frames.push(callback);
+    s.node('#closeAccess').focus=()=>{accessFocus++;};
+    s.run('setAccessPanel(true);setAccessPanel(false);');
+    frames.splice(0).forEach(callback=>callback());assert.equal(accessFocus,0);
+    s.run('setAccessPanel(true);setCommandPalette(true);');
+    frames.splice(0).forEach(callback=>callback());assert.equal(accessFocus,0);
   });
   const view=sandbox();
   const components=[['Runtime','Task scheduling','Schedule independent work and retain real capacity through cancellation.'],['Runtime','Context retrieval','Locate relevant source and retain exact edit preconditions.'],['Integrations','MCP transports','Serve one tool runtime across local and remote clients.'],['Integrations','Agent setup','Configure supported coding agents without replacing unrelated settings.'],['Workspace','File operations','Read and edit bounded files with SHA-checked atomic writes.'],['Workspace','Command execution','Run approved commands and retain timeout diagnostics.'],['Intelligence','Verification','Keep checks and evidence bound to the code revision.'],['Intelligence','Software graph','Map component relationships with explicit provider precision.']].map(([scope,name,purpose],i)=>({id:'component:'+i,name,product_scopes:[scope],responsibilities:[purpose],implementation_targets:['src/example/module_'+i+'.rs'],implementation_files:3+i,implementation_lines:250+i*50,requirements:[],depends_on:i?['component:0']:[],changed:i===1||i===5,changed_paths:i===1?['src/example/module_1.rs']:[]}));

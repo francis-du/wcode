@@ -34,6 +34,8 @@ function renderLive() {
     `Last updated  ${updated}   ·   Snapshot  ${age === null ? "—" : `${age}s ago`}`,
     `更新于  ${updated}   ·   快照  ${age === null ? "—" : `${age} 秒前`}`,
   );
+  const freshness = state.fitnessSnapshotFromCache ? localized("cached snapshot", "缓存快照") : state.syncError ? localized("stale snapshot", "过期快照") : localized("live snapshot", "实时快照");
+  els.lastUpdated.textContent += `   ·   ${freshness}`;
   els.lastUpdated.title = `${localized("Activity refresh 2–8s · project refresh 8s", "活动刷新 2–8 秒 · 项目刷新 8 秒")} · ${state.syncError ? localized("snapshot stale", "快照已过期") : !state.autoRefresh || document.hidden ? localized("live refresh paused", "实时刷新已暂停") : localized("live refresh active", "实时刷新中")}`;
 }
 function stat(label, value, detail, tone = "", target = "") {
@@ -53,6 +55,7 @@ function bindSummaryActions(node) {
   node.querySelectorAll("[data-summary-action]").forEach(button => button.addEventListener("click", async () => {
     const target = button.dataset.summaryAction;
     if (target === "access") { setAccessPanel(true); await loadAccess(); }
+    else if (target === "refresh") { els.refresh?.click(); }
     else if (target) revealSection(target);
   }));
 }
@@ -113,7 +116,8 @@ function renderAttention() {
   if (!state.project) return;
   const items = attentionSignals(), first = items[0];
   const urgent = items.filter(item => ["bad", "warn"].includes(item.tone)).length;
-  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p></div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`);
+  const snapshotLabel = state.fitnessSnapshotFromCache ? localized("Cached snapshot", "缓存快照") : state.syncError ? localized("Refresh needed", "需要刷新") : localized("Live snapshot", "实时快照");
+  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p><div class="summary-facts"><span>${esc(snapshotLabel)}</span><span>${esc(state.project?.code?.changed_files == null ? localized("Changes unknown", "变更未知") : localized(`${num(state.project.code.changed_files)} changed files`, `${num(state.project.code.changed_files)} 个变更文件`))}</span><span>${esc(state.project?.proof?.current_evidence ? localized(`${num(state.project.proof.current_evidence)} evidence records`, `${num(state.project.proof.current_evidence)} 条证据`) : localized("Evidence not verified", "证据未验证"))}</span></div></div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`);
   const rest = items.slice(1);
   const html = rest.length ? `<details class="more-signals"><summary>${esc(localized(`${rest.length} more signals`, `另有 ${rest.length} 项信号`))}</summary>${rest.map(attentionItem).join("")}</details>` : "";
   setHtml("attention", els.attention, html, () => bindSummaryActions(els.attention));

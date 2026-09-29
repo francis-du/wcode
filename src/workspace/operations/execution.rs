@@ -813,6 +813,7 @@ async fn collect_command_result(
         && !wait_failed
         && !output_incomplete
         && status.is_some_and(|status| status.success());
+    let raw_stdout = stdout.clone();
     let (stdout, stderr, redacted) = redact_command_streams(stdout, stderr);
     Ok(CommandResult {
         program: program.to_owned(),
@@ -821,6 +822,7 @@ async fn collect_command_result(
         success,
         process_queue_wait_ms,
         stdout,
+        raw_stdout: (!redacted).then_some(raw_stdout),
         stderr,
         truncated: truncated || output_incomplete,
         redacted,

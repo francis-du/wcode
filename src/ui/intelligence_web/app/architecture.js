@@ -25,7 +25,9 @@ function architectureEdgeTone(edge) {
 function architectureEdgeVisible(edge) {
   return state.architectureMode === "overlay" ||
     (state.architectureMode === "design" && edge.desired) ||
-    (state.architectureMode === "actual" && edge.actual);
+    (state.architectureMode === "actual" && edge.actual) ||
+    (state.architectureMode === "risk" && edge.blocking) ||
+    (state.architectureMode === "unverified" && edge.status === "unverified_actual");
 }
 function architectureNodeTone(component, dependencies) {
   const incident = dependencies.filter((edge) =>

@@ -58,6 +58,110 @@ fn seed_verification_jobs(
 }
 
 #[test]
+fn capacity_reclamation_uses_creation_order_not_random_plan_id() {
+    let mut state = VerificationState::default();
+    let mut oldest_plan = String::new();
+    let mut newest_plan = String::new();
+
+    for index in 0..MAX_VERIFICATION_JOBS {
+        let suffix = MAX_VERIFICATION_JOBS - index;
+        let plan_id = format!("VP-stale-{suffix:03}");
+        if index == 0 {
+            oldest_plan = plan_id.clone();
+        }
+        newest_plan = plan_id.clone();
+        state
+            .create_plan(
+                plan_id,
+                "demo".into(),
+                format!("change:stale-{index}"),
+                VerificationPlanBinding {
+                    revision: Revision {
+                        design: None,
+                        code: format!("sha256:stale-{index}"),
+                    },
+                    stage_targets: vec![],
+                    automation_gaps: vec![],
+                },
+                RiskLevel::Low,
+                [format!("VJ-stale-{index}")].into_iter(),
+            )
+            .unwrap();
+    }
+
+    state
+        .create_plan(
+            "VP-current".into(),
+            "demo".into(),
+            "change:current".into(),
+            VerificationPlanBinding {
+                revision: Revision {
+                    design: None,
+                    code: "sha256:current".into(),
+                },
+                stage_targets: vec![],
+                automation_gaps: vec![],
+            },
+            RiskLevel::Low,
+            ["VJ-current".into()].into_iter(),
+        )
+        .unwrap();
+
+    assert!(!state.plans.contains_key(&oldest_plan));
+    assert!(state.plans.contains_key(&newest_plan));
+    assert!(state.plans.contains_key("VP-current"));
+}
+
+#[test]
+fn recent_plan_order_is_creation_bound_even_after_more_than_twenty_random_ids() {
+    let mut state = VerificationState::default();
+    for index in 0..25 {
+        let suffix = 99 - index;
+        state
+            .create_plan(
+                format!("VP-{suffix:02}"),
+                "demo".into(),
+                "change:current".into(),
+                VerificationPlanBinding {
+                    revision: Revision {
+                        design: Some("sha256:design".into()),
+                        code: "sha256:current".into(),
+                    },
+                    stage_targets: vec![],
+                    automation_gaps: vec![],
+                },
+                RiskLevel::Low,
+                [format!("VJ-{suffix:02}")].into_iter(),
+            )
+            .unwrap();
+    }
+
+    let mut recent = state.plans_for_workspace("demo");
+    recent.reverse();
+    let recent = recent.into_iter().take(20).collect::<Vec<_>>();
+    assert_eq!(recent.len(), 20);
+    assert_eq!(recent[0].id, "VP-75");
+    assert!(recent.iter().any(|plan| plan.id == "VP-75"));
+
+    let snapshot = state.workspace_snapshot("demo");
+    let encoded = serde_json::to_vec(&snapshot).unwrap();
+    let decoded: VerificationState = serde_json::from_slice(&encoded).unwrap();
+    let mut restored = VerificationState::default();
+    restored.restore_workspace(decoded).unwrap();
+    assert_eq!(
+        restored.plans_for_workspace("demo").last().unwrap().id,
+        "VP-75"
+    );
+
+    let mut legacy = serde_json::to_value(snapshot).unwrap();
+    legacy.as_object_mut().unwrap().remove("plan_order");
+    let legacy: VerificationState = serde_json::from_value(legacy).unwrap();
+    let mut restored_legacy = VerificationState::default();
+    restored_legacy.restore_workspace(legacy).unwrap();
+    assert_eq!(restored_legacy.plans_for_workspace("demo").len(), 25);
+}
+
+#[test]
 fn maintainability_jobs_carry_the_structural_review_rubric() {
     let mut state = VerificationState::default();
     let plan = state

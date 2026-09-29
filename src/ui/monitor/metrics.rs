@@ -221,8 +221,8 @@ pub(super) fn render_throughput(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE))
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(SURFACE_RAISED))
         .padding(Padding::horizontal(1))
         .title(Span::styled(
             format!(" {} ", language.tr("THROUGHPUT")),

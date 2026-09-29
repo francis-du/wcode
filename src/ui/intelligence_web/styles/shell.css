@@ -49,3 +49,16 @@
 .loading-state::before{content:"";width:22px;height:22px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .9s linear infinite;}
 .connection-state strong{color:var(--text);font-size:16px;font-weight:650;}.connection-state p{max-width:48ch;margin:0;line-height:1.6;overflow-wrap:anywhere;}
 @keyframes loading-spin{to{transform:rotate(360deg);}}
+
+/* Global UI polish: make navigation, state, and content surfaces read as one system. */
+.global-bar{isolation:isolate;border-bottom-color:color-mix(in srgb,var(--line-strong) 52%,transparent);}
+.global-bar::after{content:'';position:absolute;z-index:-1;inset:0;pointer-events:none;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 5%,transparent),transparent 38%,color-mix(in srgb,var(--accent-secondary) 4%,transparent));opacity:.72;}
+.global-status{box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent);}
+.navigator-shell,.workspace-switcher,.compact-action{box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 4%,transparent);}
+.workspace-tabs button{box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 4%,transparent);}
+.workspace-tabs button[aria-selected="true"]{box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 12%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 10%,transparent);}
+.workspace-context{border-color:var(--line-subtle);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 4%,transparent);}
+.panel,.diagram-surface,.proof-signals-panel,.evidence-ledger-card,.evidence-inspector-card{border-color:var(--line-subtle);}
+.panel-head,.proof-card-head,.mini-diagram-head,.diagram-heading{background:linear-gradient(180deg,color-mix(in srgb,var(--surface-raised) 34%,transparent),transparent);}
+.stat,.proof-metric-card,.signal-mark,.precision-badge{box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent);}
+.loading-state,.connection-state{box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 4%,transparent);}

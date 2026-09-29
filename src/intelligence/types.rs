@@ -158,6 +158,7 @@ pub struct DriftStatus {
 #[derive(Clone, Debug, Serialize)]
 pub struct RiskStatus {
     pub workspace: String,
+    pub revision: crate::evidence::Revision,
     pub level: RiskLevel,
     pub profile: VerificationProfile,
     pub risks: Vec<Risk>,
@@ -815,6 +816,7 @@ pub struct ProjectVerifiedLearningView {
 pub struct ProjectObservatory {
     pub workspace: String,
     pub root: String,
+    pub repository_revision: crate::evidence::Revision,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

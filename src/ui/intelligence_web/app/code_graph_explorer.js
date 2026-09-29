@@ -343,3 +343,124 @@ async function searchCodeGraph(requestedQuery) {
     if (state.codeGraphSearchController === controller) state.codeGraphSearchController = null;
   }
 }
+
+// Change-inspection → Code Graph bridge. Keep snapshot/revision truth at the boundary.
+async function openChangeSymbolInGraph(nodeId) {
+  const current = state.changeInspection, view = current?.data, mapping = current?.symbolImpact;
+  const repositoryRevision = current?.repositoryRevision;
+  if (typeof nodeId !== "string" || !nodeId.startsWith("symbol:ts:") || !validChangeRepositoryRevision(repositoryRevision)
+    || !view || !validChangeSymbolImpact(mapping, view)
+    || mapping?.path !== view.path || mapping?.snapshot_id !== view.snapshot_id
+    || mapping?.source_state !== "worktree" || mapping?.source_sha256 !== view.worktree_sha256
+    || view.after_source_matches_worktree === false || !Array.isArray(mapping?.after_symbols)
+    || !mapping.after_symbols.some(symbol => symbol.node_id === nodeId && symbol.counterpart_only === false)) return false;
+  state.codeGraphSnapshot = "";
+  revealSection("codeGraphSection");
+  renderArchitecture();
+  return loadCodeGraph({nodeId, repositoryRevision});
+}
+async function openChangeRelationNodeInGraph(nodeId) {
+  const current = state.changeInspection, view = current?.data, mapping = current?.symbolImpact;
+  const impact = current?.relationImpact, repositoryRevision = current?.repositoryRevision;
+  const selectedNodeId = impact?.node_id;
+  if (typeof nodeId !== "string" || !nodeId.startsWith("symbol:ts:") || !validChangeRepositoryRevision(repositoryRevision)
+    || !view || !mapping || !validChangeSymbolImpact(mapping, view) || current?.impactNodeId !== selectedNodeId
+    || mapping.path !== view.path || mapping.snapshot_id !== view.snapshot_id
+    || mapping.source_state !== "worktree" || mapping.source_sha256 !== view.worktree_sha256
+    || view.after_source_matches_worktree === false || !Array.isArray(mapping.after_symbols)
+    || !mapping.after_symbols.some(symbol => symbol.node_id === selectedNodeId && symbol.counterpart_only === false)
+    || !validChangeRelationImpact(impact, current, selectedNodeId)
+    || impact.precision !== "syntax" || impact.degraded !== true
+    || !impact.incoming_calls.some(row => row.node_id === nodeId)) return false;
+  state.codeGraphSnapshot = "";
+  revealSection("codeGraphSection");
+  renderArchitecture();
+  return loadCodeGraph({nodeId, repositoryRevision});
+}
+function validChangeRelationImpact(impact, current, nodeId) {
+  const validLocations = rows => Array.isArray(rows) && rows.length <= 24 && rows.every(row =>
+    typeof row?.path === "string" && row.path.length > 0
+    && Number.isInteger(row.line) && row.line >= 1
+    && Number.isInteger(row.character) && row.character >= 1 && (row.node_id == null || (typeof row.node_id === "string" && row.node_id.startsWith("symbol:ts:"))));
+  const validSearchMatches = rows => Array.isArray(rows) && rows.length <= 24 && rows.every(row =>
+    typeof row?.path === "string" && row.path.length > 0
+    && Number.isInteger(row.line) && row.line >= 1
+    && typeof row.source_sha256 === "string" && /^[0-9a-f]{64}$/i.test(row.source_sha256)
+    && typeof row.text === "string" && [...row.text].length <= 240);
+  if (!impact || impact.path !== current.path || impact.snapshot_id !== current.snapshotId
+    || impact.node_id !== nodeId || impact.source_sha256 !== current.data?.worktree_sha256
+    || !["syntax", "semantic"].includes(impact.precision) || typeof impact.provider !== "string"
+    || typeof impact.routing !== "string" || typeof impact.degraded !== "boolean"
+    || typeof impact.partial !== "boolean" || !validLocations(impact.incoming_calls)
+    || !validLocations(impact.references) || !validLocations(impact.implementations)
+    || !validSearchMatches(impact.search_matches)) return false;
+  if (impact.precision === "syntax" && (!impact.degraded || impact.degraded_from !== "lsp"
+    || impact.provider !== "tree-sitter+search" || impact.routing !== "syntax-degraded"
+    || impact.references.length || impact.implementations.length)) return false;
+  if (impact.precision === "semantic" && (impact.degraded || impact.degraded_from != null || impact.routing !== "lsp" || !impact.provider.startsWith("lsp:") || impact.search_matches.length
+    || [...impact.incoming_calls, ...impact.references, ...impact.implementations].some(row => row.node_id != null))) return false;
+  return true;
+}
+function changeRelationImpactPanel(current) {
+  if (current.impactLoading) return `<section class="change-symbol-impact"><p role="status">${esc(localized("Tracing impact for this exact snapshot…", "正在基于当前精确快照追踪影响…"))}</p></section>`;
+  if (current.impactError) return `<section class="change-symbol-impact"><p class="bad" role="alert">${esc(current.impactError)}</p></section>`;
+  const impact = current.relationImpact;
+  if (!impact) return "";
+  const syntax = impact.precision === "syntax";
+  const title = syntax ? localized("Syntax impact candidates", "语法影响候选") : localized("Semantic impact relations", "语义影响关系");
+  const note = syntax
+    ? localized("LSP is unavailable; incoming callers are bounded Tree-sitter candidates. Candidates with a concrete syntax node can continue into the revision-bound Code Graph and source preview; that identity is navigation context, not semantic proof. Exact text matches are shown separately and are not call relations, semantic proof, or verification proof.", "LSP 不可用；入向调用方仅是有界 Tree-sitter 候选。带有明确语法节点的候选可以继续进入同版本绑定的代码图和源码预览；该身份只用于导航，不是语义证明。精确文本匹配会单独展示，它们不是调用关系、语义证明或验证证明。")
+    : localized("Relations come from the live semantic provider for this exact source revision; they still do not prove verification success.", "这些关系来自当前精确源码版本的实时语义提供器，但仍不代表验证成功。");
+  const selected = current.symbolImpact?.after_symbols?.find(symbol => symbol.node_id === impact.node_id);
+  const selectedName = selected?.qualified_name || selected?.name || impact.node_id;
+  const root = `<p class="panel-meta"><b>${esc(localized("Selected changed symbol", "所选变更符号"))}</b> <code>${esc(selectedName)}</code></p>`;
+  const group = (label, relation, rows) => `<div><b>${esc(label)}</b>${rows.length ? rows.map(row => row.node_id ? `<button type="button" class="change-symbol-link" data-change-relation-node="${esc(row.node_id)}" aria-label="${esc(localized(`Open ${row.path}:${row.line} syntax caller in revision-bound Code Graph`, `在同版本代码图中打开 ${row.path}:${row.line} 语法调用方`))}"><code>${esc(row.path)}:${row.line}</code><span>${esc(row.name || "")}</span><span class="panel-meta">${esc(relation)} · ${esc(localized("Open in Code Graph · syntax node", "在代码图中打开 · 语法节点"))}</span></button>` : `<span class="change-symbol-before"><code>${esc(row.path)}:${row.line}</code><span>${esc(row.name || "")}</span><span class="panel-meta">${esc(relation)}</span></span>`).join("") : `<span class="panel-meta">${esc(localized("None observed", "未观测到"))}</span>`}</div>`;
+  const searchGroup = syntax ? `<div><b>${esc(localized("Exact search matches", "精确文本匹配"))}</b>${impact.search_matches.length ? impact.search_matches.map(row => `<span class="change-symbol-before"><code>${esc(row.path)}:${row.line}</code><span>${esc(row.text)}</span><span class="panel-meta">${esc(localized("text mention, not a call relation", "文本提及，不是调用关系"))}</span></span>`).join("") : `<span class="panel-meta">${esc(localized("None observed", "未观测到"))}</span>`}</div>` : "";
+  const partial = impact.partial ? `<p class="warn">${esc(localized("Impact relations are bounded/partial.", "影响关系有界或不完整。"))}</p>` : "";
+  const incoming = group(localized("Incoming callers", "入向调用方"), localized("calls selected symbol", "调用所选符号"), impact.incoming_calls);
+  const references = group(localized("References", "引用"), localized("references selected symbol", "引用所选符号"), impact.references);
+  const implementations = group(localized("Implementations", "实现"), localized("implements selected symbol", "实现所选符号"), impact.implementations);
+  return `<section class="change-symbol-impact"><h4>${esc(title)}</h4><p class="panel-meta">${esc(note)}</p>${root}${partial}<div class="change-symbol-pair">${incoming}${references}</div><div class="change-symbol-pair">${implementations}${searchGroup}</div></section>`;
+}
+async function openChangeSymbolImpact(nodeId) {
+  const current = state.changeInspection, view = current?.data, mapping = current?.symbolImpact;
+  if (!current || !view || !validChangeRepositoryRevision(current.repositoryRevision)
+    || !validChangeSymbolImpact(mapping, view)
+    || mapping?.path !== view.path || mapping?.snapshot_id !== view.snapshot_id
+    || mapping?.source_state !== "worktree" || mapping?.source_sha256 !== view.worktree_sha256
+    || view.after_source_matches_worktree === false
+    || !mapping.after_symbols?.some(symbol => symbol.node_id === nodeId && symbol.counterpart_only === false)) return false;
+  current.impactController?.abort();
+  const sequence = state.changeImpactSequence = (state.changeImpactSequence || 0) + 1;
+  const workspace = state.current, epoch = state.workspaceEpoch, controller = new AbortController();
+  current.impactController = controller; current.impactNodeId = nodeId; current.impactLoading = true;
+  current.impactError = ""; current.relationImpact = null; renderChangeInspector();
+  const params = new URLSearchParams({path: current.path, layer: current.layer,
+    expected_snapshot: current.snapshotId, expected_code_revision: current.repositoryRevision.code, node_id: nodeId});
+  if (current.repositoryRevision.design != null) params.set("expected_design_revision", current.repositoryRevision.design);
+  const active = () => state.changeInspection === current && state.current === workspace
+    && state.workspaceEpoch === epoch && state.changeImpactSequence === sequence && !controller.signal.aborted;
+  try {
+    const result = await uiJson(`/intelligence/change-impact?${params}`, "GET", undefined, {workspace, signal: controller.signal});
+    if (!active()) return false;
+    const revision = result.repository_revision, latestView = current.data, latestMapping = current.symbolImpact;
+    if (result.workspace !== workspace || !validChangeRepositoryRevision(revision)
+      || revision.code !== current.repositoryRevision.code
+      || (revision.design ?? null) !== (current.repositoryRevision.design ?? null)
+      || !latestView || latestView.path !== current.path || latestView.snapshot_id !== current.snapshotId
+      || !validChangeSymbolImpact(latestMapping, latestView)
+      || latestMapping?.source_state !== "worktree" || latestMapping?.source_sha256 !== latestView.worktree_sha256
+      || latestView.after_source_matches_worktree === false
+      || !latestMapping.after_symbols?.some(symbol => symbol.node_id === nodeId && symbol.counterpart_only === false)
+      || !validChangeRelationImpact(result.impact, current, nodeId)) throw new Error(localized("Invalid change impact", "变更影响结果无效"));
+    current.relationImpact = result.impact;
+  } catch (error) {
+    if (!active()) return false;
+    current.impactError = error.status === 409
+      ? localized("The file changed. Reload before tracing impact.", "文件已变化，请重新读取后再追踪影响。")
+      : requestFailureMessage(error);
+  } finally {
+    if (active()) { current.impactLoading = false; renderChangeInspector(); }
+  }
+  return Boolean(current.relationImpact);
+}

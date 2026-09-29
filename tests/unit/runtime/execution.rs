@@ -758,6 +758,115 @@ fn verification_steering_floor_raises_policy_and_rejects_weaker_proof() {
 }
 
 #[test]
+fn execution_refresh_rebinds_plan_after_verification_floor_strengthens() {
+    for (floor, weak_risk, strong_risk) in [
+        ("full", RiskLevel::Low, RiskLevel::Medium),
+        ("adversarial", RiskLevel::Medium, RiskLevel::High),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("main.rs"), "fn main() {}\n").unwrap();
+        let workspace = Workspace::new(root.path(), true, false).unwrap();
+        active_execution(&workspace);
+        let harness = ToolHarness::new(1).unwrap();
+        let revision = harness.current_revision(&workspace).unwrap();
+        let mut state = crate::verification::VerificationState::default();
+        let add_plan = |state: &mut crate::verification::VerificationState, id: &str, risk| {
+            state
+                .create_plan(
+                    id.to_owned(),
+                    "floor-recovery".to_owned(),
+                    format!("change:{}", revision.code),
+                    crate::verification::VerificationPlanBinding {
+                        revision: revision.clone(),
+                        stage_targets: Vec::new(),
+                        automation_gaps: Vec::new(),
+                    },
+                    risk,
+                    (0..16).map(|index| format!("{id}-job-{index}")),
+                )
+                .unwrap()
+        };
+        let weak = add_plan(&mut state, "VP-z-weak", weak_risk);
+        crate::verification_store::persist(&workspace, &state).unwrap();
+        let worklist = worklist::snapshot(&workspace).unwrap().unwrap();
+        let mut bound = signals(&revision.code, Some(false));
+        bound.repository_revision = revision.clone();
+        bound.verification_plan_id = Some(weak.id.clone());
+        let initial = sync(
+            &workspace,
+            &worklist,
+            load(&workspace).unwrap(),
+            false,
+            bound,
+        )
+        .unwrap();
+        steer(
+            &workspace,
+            ExecutionDirectiveInput {
+                expected_revision: initial["revision"].as_u64().unwrap(),
+                kind: ExecutionDirectiveKind::StrengthenVerification,
+                summary: "Require stronger verification for this revision".to_owned(),
+                requested_by: "user:test".to_owned(),
+                objective: None,
+                scopes: Vec::new(),
+                verification_strength: Some(floor.to_owned()),
+            },
+        )
+        .unwrap();
+        worklist::update(
+            &workspace,
+            WorklistUpdate {
+                expected_revision: worklist.revision,
+                goal: None,
+                restart: false,
+                items: vec![WorkItemPatch {
+                    id: "work".to_owned(),
+                    title: None,
+                    status: Some(WorkItemStatus::InProgress),
+                    depends_on: None,
+                    note: Some("Applied stronger verification requirement".to_owned()),
+                }],
+            },
+        )
+        .unwrap();
+        let weak_only = ToolHarness::new(1).unwrap();
+        let pending = refresh(&weak_only, "floor-recovery", &workspace, false).unwrap();
+        assert_eq!(pending["checkpoint"]["verification_ready"], false);
+        assert!(pending["checkpoint"]["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|blocker| blocker == "verification_floor_unsatisfied"));
+        let strong = add_plan(&mut state, "VP-a-strong", strong_risk);
+        assert!(verification_plan_satisfies_floor(&strong, Some(floor)));
+        crate::verification_store::persist(&workspace, &state).unwrap();
+
+        let refreshed = refresh(&harness, "floor-recovery", &workspace, false).unwrap();
+        assert_eq!(
+            refreshed["checkpoint"]["verification_plan_id"], strong.id,
+            "a bound weaker plan must not hide the current-revision {floor} plan"
+        );
+        assert_eq!(refreshed["verification_floor"], floor);
+        assert!(refreshed["pending_directive"].is_null());
+        assert!(!refreshed["checkpoint"]["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|blocker| blocker == "verification_floor_unsatisfied"));
+        assert_eq!(refreshed["checkpoint"]["verification_ready"], false);
+        assert_ne!(refreshed["phase"], "completed");
+
+        // A later weaker candidate must not replace a valid bound stronger plan.
+        add_plan(&mut state, "VP-newer-weak", weak_risk);
+        crate::verification_store::persist(&workspace, &state).unwrap();
+        let reloaded = ToolHarness::new(1).unwrap();
+        let preserved = refresh(&reloaded, "floor-recovery", &workspace, false).unwrap();
+        assert_eq!(preserved["checkpoint"]["verification_plan_id"], strong.id);
+        assert_eq!(preserved["checkpoint"]["verification_ready"], false);
+    }
+}
+
+#[test]
 fn execution_handoff_creates_clean_lineage_without_transcript_state() {
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), true, false).unwrap();

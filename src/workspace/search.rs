@@ -319,6 +319,7 @@ struct ScannedFile {
 #[derive(Default)]
 struct Matches {
     rows: Vec<(u32, Value)>,
+    file_representatives: Vec<usize>,
     files: Vec<Value>,
     counts: [usize; 32],
     total: usize,
@@ -334,6 +335,7 @@ impl Matches {
         found: LineMatches,
         request: &SearchRequest,
         capacity: usize,
+        file_diversity: bool,
     ) {
         self.total += found.total;
         for (i, count) in found.counts.iter().enumerate() {
@@ -348,8 +350,14 @@ impl Matches {
             return;
         }
         let lines = source.content.lines().collect::<Vec<_>>();
+        let mut file_seen = 0u32;
         for (line, mask) in found.rows {
-            let retain = self.rows.len() < capacity || mask & !self.seen != 0;
+            // Reserve the first hit of each pattern in a bounded set of files.
+            // Repeated lines in one file cannot consume these representatives.
+            let representative =
+                file_diversity && self.files.len() <= capacity && mask & !file_seen != 0;
+            file_seen |= mask;
+            let retain = self.rows.len() < capacity || mask & !self.seen != 0 || representative;
             self.seen |= mask;
             if !retain {
                 continue;
@@ -368,6 +376,9 @@ impl Matches {
                 continue;
             }
             self.bytes += size;
+            if representative {
+                self.file_representatives.push(self.rows.len());
+            }
             self.rows.push((mask, row));
         }
     }
@@ -378,6 +389,7 @@ pub(crate) struct SearchReport {
     queries: Vec<String>,
     mode: SearchMode,
     requested_mode: SearchMode,
+    file_diversity: bool,
     files_considered: usize,
     files_scanned: usize,
     bytes_read: u64,
@@ -431,6 +443,11 @@ impl SearchReport {
                 represented |= mask;
                 chosen.insert(i);
                 ordered.push(i);
+            }
+        }
+        for &index in &self.matches.file_representatives {
+            if chosen.insert(index) {
+                ordered.push(index);
             }
         }
         ordered.extend((0..self.matches.rows.len()).filter(|i| !chosen.contains(i)));
@@ -494,8 +511,8 @@ impl SearchReport {
             "output_mode":request.output_mode,"matching_unit":"line","count":count,
             "total_matches":self.matches.total,"file_count":self.matches.files.len(),
             "pattern_count":self.queries.len(),"query_counts":query_counts,
-            "order":if content {"pattern_coverage_then_path_line"} else {"path"},"offset":request.offset,
-            "next_offset":if count > 0 && next < total && next <= 10_000 && !self.matches.storage_limited {Some(next)} else {None},
+            "order":if self.file_diversity {"pattern_coverage_then_file_diversity"} else if content {"pattern_coverage_then_path_line"} else {"path"},"offset":request.offset,
+            "next_offset":if !self.file_diversity && count > 0 && next < total && next <= 10_000 && !self.matches.storage_limited {Some(next)} else {None},
             "files_considered":self.files_considered,"files_scanned":self.files_scanned,
             "bytes_read":self.bytes_read,"traversals":1,"skipped_files":self.skipped_files,
             "failed_files":self.failed_files,"failures":self.failures,
@@ -586,6 +603,23 @@ impl Workspace {
     }
 
     pub(crate) fn search_report(&self, request: &SearchRequest) -> Result<SearchReport> {
+        self.search_report_with_file_diversity(request, false)
+    }
+
+    // Internal context retrieval is a bounded sample, not a paginated search.
+    // It shares the scan, redaction and byte limits with ordinary search.
+    pub(crate) fn search_context_report(&self, request: &SearchRequest) -> Result<SearchReport> {
+        if request.output_mode != "content" || request.offset != 0 {
+            bail!("context retrieval requires content output and zero offset");
+        }
+        self.search_report_with_file_diversity(request, true)
+    }
+
+    fn search_report_with_file_diversity(
+        &self,
+        request: &SearchRequest,
+        file_diversity: bool,
+    ) -> Result<SearchReport> {
         if request.queries.is_empty() || request.queries.len() > MAX_SEARCH_QUERIES {
             bail!("queries must contain between 1 and {MAX_SEARCH_QUERIES} strings");
         }
@@ -631,6 +665,7 @@ impl Workspace {
             queries: queries.clone(),
             mode: request.mode,
             requested_mode: request.mode,
+            file_diversity,
             files_considered: 0,
             files_scanned: 0,
             bytes_read: 0,
@@ -741,14 +776,19 @@ impl Workspace {
                     Ok(scanned) => {
                         report.files_scanned += 1;
                         report.bytes_read += scanned.source.content.len() as u64;
-                        report
-                            .matches
-                            .merge(&scanned.source, scanned.primary, request, capacity);
+                        report.matches.merge(
+                            &scanned.source,
+                            scanned.primary,
+                            request,
+                            capacity,
+                            file_diversity,
+                        );
                         fallback_matches.merge(
                             &scanned.source,
                             scanned.fallback,
                             request,
                             capacity,
+                            file_diversity,
                         );
                     }
                     Err(error) => {

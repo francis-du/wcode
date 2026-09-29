@@ -235,14 +235,21 @@ impl SoftwareIntelligenceRuntime {
         let traceability =
             self.traceability_status(workspace_id.clone(), workspace, code_index, known_checks)?;
         let load = self.design_load(workspace)?;
-        self.risk_status_from_snapshot(
+        let revision = self.current_revision_from_load(workspace, &load)?;
+        let status = self.risk_status_from_snapshot(
             workspace_id,
             workspace,
             review,
             traceability,
             &load.state,
             None,
-        )
+        )?;
+        if status.revision != revision || self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "repository revision changed during risk assessment"
+            ));
+        }
+        Ok(status)
     }
 
     pub(crate) fn risk_status_from_snapshot(
@@ -254,6 +261,7 @@ impl SoftwareIntelligenceRuntime {
         state: &design::DesignState,
         advanced: Option<&StageExecutorRegistry>,
     ) -> Result<RiskStatus> {
+        let revision = self.current_revision(workspace)?;
         let workspace_id = workspace_id.into();
         let drift = build_drift_status(workspace_id.clone(), state, &traceability, review);
         let (level, mut risks) = assess_risk(&workspace_id, review, &traceability, &drift);
@@ -284,6 +292,7 @@ impl SoftwareIntelligenceRuntime {
             .insert(workspace_id.clone(), risks.clone());
         Ok(RiskStatus {
             workspace: workspace_id,
+            revision,
             level,
             profile,
             risks,

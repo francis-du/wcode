@@ -141,6 +141,7 @@ impl CodeIndex {
             let range = node.attributes.get("range");
             bucket.push(json!({
                 "path": path,
+                "node_id": related_id,
                 "name": node.attributes.get("qualified_name").and_then(Value::as_str).unwrap_or(node.label.as_str()),
                 "line": range.and_then(|range| range.get("start_line")).and_then(Value::as_u64).unwrap_or(1),
                 "character": range.and_then(|range| range.get("start_column")).and_then(Value::as_u64).unwrap_or(1),

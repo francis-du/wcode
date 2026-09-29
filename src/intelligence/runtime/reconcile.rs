@@ -3,7 +3,8 @@ use super::*;
 fn literal_symbol_queries(query: &str) -> Vec<String> {
     let code_literals = crate::intelligence::code_query_literals(query);
     if !code_literals.is_empty() {
-        return code_literals.into_iter().take(4).collect();
+        // The literal parser and final search plan already cap this at eight.
+        return code_literals;
     }
     query
         .split(|ch: char| !ch.is_alphanumeric() && !matches!(ch, '_' | ':' | '.'))

@@ -70,7 +70,7 @@ pub(super) fn render_setup(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(WARNING))
-        .style(Style::default().bg(SURFACE))
+        .style(Style::default().bg(SURFACE_RAISED))
         .padding(Padding::horizontal(1))
         .title(Span::styled(
             format!(" {} ", language.tr("SETUP")),
@@ -327,9 +327,9 @@ pub(super) fn render_workspace_activity(
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE))
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(SURFACE_RAISED))
         .padding(Padding::horizontal(1))
         .title(Span::styled(
             format!(" {} ", ui.language.tr("WORKSPACE ACTIVITY")),
@@ -431,7 +431,11 @@ pub(super) fn render_workspace_activity(
         let title_width = column.width.saturating_sub(10) as usize;
         let card = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(if focused {
+                BorderType::Double
+            } else {
+                BorderType::Rounded
+            })
             .border_style(Style::default().fg(border_color))
             .style(Style::default().bg(if focused {
                 SURFACE_SELECTED

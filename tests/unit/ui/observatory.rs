@@ -1,4 +1,27 @@
 #[test]
+fn observatory_change_view_is_readonly_scoped_and_snapshot_bound() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/change_view.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for read-only change inspection regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 32
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn observatory_fitness_preserves_unknown_revision_scope_and_visible_denominators() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")
@@ -133,7 +156,7 @@ fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
             && report
                 .as_ref()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 53
+                .is_some_and(|results| results.len() == 64
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -156,7 +179,7 @@ fn observatory_code_graph_opens_loads_and_renders_real_graph_data() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 25
+                .is_some_and(|results| results.len() == 30
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

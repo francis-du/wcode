@@ -142,6 +142,18 @@ async function run(){
     assert.match(s.node('#codeGraphMap').innerHTML,/callee/);
   });
 
+  await test('change-origin focus pins code and Design revision and rejects mismatched response',async()=>{
+    const s=sandbox();s.run('state.current="A";');
+    const pending=s.run('loadCodeGraph({nodeId:"symbol:alpha",repositoryRevision:{code:"sha256:code",design:"sha256:design"}})');await flush();
+    const params=new URLSearchParams(s.requests[0].url.split('?')[1]);
+    assert.equal(params.get('expected_code_revision'),'sha256:code');assert.equal(params.get('expected_design_revision'),'sha256:design');
+    respond(s.requests[0],{workspace:'A',repository_revision:{code:'sha256:newer',design:'sha256:design'},graph:focusGraph()});
+    assert.equal(await pending,false);assert.match(s.run('state.codeGraphError'),/revision does not match the captured change/);
+    const ok=s.run('loadCodeGraph({nodeId:"symbol:alpha",repositoryRevision:{code:"sha256:code",design:"sha256:design"}})');await flush();
+    respond(s.requests[1],{workspace:'A',repository_revision:{code:'sha256:code',design:'sha256:design'},graph:focusGraph()});
+    assert.equal(await ok,true);
+  });
+
   await test('focused layout keeps existing node coordinates stable when response order changes',async()=>{
     const s=sandbox();s.context.g1=focusGraph();s.context.g2=focusGraph('symbol:alpha',{nodes:[
       focusGraph().nodes[2],focusGraph().nodes[0],focusGraph().nodes[1],
@@ -265,6 +277,65 @@ async function run(){
     assert.match(s.node('#codeGraphMap').innerHTML,/tree-sitter/);
   });
 
+  await test('source drilldown is snapshot-bound and renders escaped readonly lines',async()=>{
+    const s=sandbox();s.context.g=focusGraph();s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.codeGraphWorkspace="A";state.selectedCodeNode="symbol:alpha";renderCodeGraphInspector();');
+    assert.match(s.node('#codeGraphInspector').innerHTML,/Read source at this snapshot/);
+    const pending=s.run('loadCodeGraphSource(g.nodes[0].node)');await flush();
+    assert.equal(s.requests.length,1);assert.match(s.requests[0].url,/\/intelligence\/code-source\?/);
+    assert.match(s.requests[0].url,/node_id=symbol%3Aalpha/);assert.match(s.requests[0].url,/snapshot_id=GRAPH-overview/);
+    respond(s.requests[0],{workspace:'A',source:{
+      snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',
+      source_revision:'sha256:'+'a'.repeat(64),current_sha256:'a'.repeat(64),focus_start_line:2,focus_end_line:2,
+      start_line:1,end_line:3,total_lines:3,content:'fn before() {}\nfn alpha() { return "<script>NOPE</script>"; }\nfn after() {}',
+      redacted:false,truncated:false
+    }});
+    assert.equal(await pending,true);
+    const html=s.node('#codeGraphInspector').innerHTML;
+    assert.match(html,/Read-only source/);assert.match(html,/fn alpha/);assert.doesNotMatch(html,/<script>NOPE<\/script>/);
+    assert.match(html,/&lt;script&gt;NOPE&lt;\/script&gt;/);
+  });
+
+  await test('source preview never invents a line after a trailing newline',async()=>{
+    const s=sandbox();s.context.source={
+      snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',
+      source_revision:'sha256:'+'a'.repeat(64),current_sha256:'a'.repeat(64),focus_start_line:2,focus_end_line:2,
+      start_line:1,end_line:3,total_lines:3,content:'fn before() {}\nfn alpha() {}\nfn after() {}\n',
+      redacted:false,truncated:false
+    };
+    assert.equal(s.run('validCodeGraphSourceResponse({workspace:"A",source}, {workspace:"A",snapshot:"GRAPH-overview",nodeId:"symbol:alpha",path:"src/a.rs"})'),true);
+    const html=s.run('codeGraphSourcePreview(source)');
+    assert.match(html,/<span>3<\/span>/);
+    assert.doesNotMatch(html,/<span>4<\/span>/);
+  });
+
+  await test('source response rejects incomplete rows instead of silently showing partial code',async()=>{
+    const s=sandbox();s.context.g=focusGraph();s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.selectedCodeNode="symbol:alpha";');
+    const pending=s.run('loadCodeGraphSource(g.nodes[0].node)');await flush();
+    respond(s.requests[0],{workspace:'A',source:{
+      snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',
+      source_revision:'sha256:'+'a'.repeat(64),current_sha256:'a'.repeat(64),focus_start_line:2,focus_end_line:2,
+      start_line:1,end_line:3,total_lines:3,content:'fn before() {}\nfn alpha() {}',redacted:false,truncated:false
+    }});
+    assert.equal(await pending,false);
+    assert.equal(s.run('state.codeGraphSource'),null);
+    assert.match(s.run('state.codeGraphSourceError'),/Invalid snapshot-bound source response/);
+  });
+
+  await test('workspace clear aborts source read and late response cannot restore old source',async()=>{
+    const s=sandbox();s.context.g=focusGraph();s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.selectedCodeNode="symbol:alpha";');
+    const pending=s.run('loadCodeGraphSource(g.nodes[0].node)');await flush();const request=s.requests[0];
+    s.run('state.current="B";clearWorkspaceView();');
+    assert.equal(request.options.signal.aborted,true);
+    respond(request,{workspace:'A',source:{
+      snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',
+      source_revision:'sha256:'+'a'.repeat(64),current_sha256:'a'.repeat(64),focus_start_line:1,focus_end_line:1,
+      start_line:1,end_line:1,total_lines:1,content:'fn alpha() {}',redacted:false,truncated:false
+    }});
+    assert.equal(await pending,false);
+    assert.equal(s.run('state.codeGraphSource'),null);
+    assert.equal(s.run('state.codeGraphSourceKey'),'');
+  });
+
   if(results.some(result=>!result.passed)){
     for(const result of results.filter(result=>!result.passed))console.error(result.name+'\n'+result.error);
     process.exitCode=1;
@@ -272,5 +343,10 @@ async function run(){
   console.log(JSON.stringify({suite:'code-graph-webui',results},null,2));
   return results;
 }
-if(require.main===module)run();
+if(require.main===module){
+  const keepAlive=setInterval(()=>{},1000);
+  run()
+    .catch(error=>{console.error(error);process.exitCode=1;})
+    .finally(()=>clearInterval(keepAlive));
+}
 module.exports={run};

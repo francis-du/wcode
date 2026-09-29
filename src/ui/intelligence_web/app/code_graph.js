@@ -221,7 +221,112 @@ function codeGraphDiagram(graph) {
     </svg>
   </div>`;
 }
+function clearCodeGraphSource() {
+  state.codeGraphSourceController?.abort();
+  state.codeGraphSourceController = null;
+  state.codeGraphSource = null;
+  state.codeGraphSourceKey = "";
+  state.codeGraphSourceLoading = false;
+  state.codeGraphSourceError = "";
+}
+function codeGraphSourceRequestKey(graph, node) {
+  return [state.current, graph?.snapshot_id || "", node?.id || ""].join("|");
+}
+function validCodeGraphSourceResponse(data, expected) {
+  const source = data?.source;
+  const contentRows = typeof source?.content === "string"
+    ? source.content.split("\n").length - (source.content.endsWith("\n") ? 1 : 0)
+    : -1;
+  const expectedRows = Number.isInteger(source?.start_line) && Number.isInteger(source?.end_line)
+    ? source.end_line - source.start_line + 1
+    : -1;
+  return data?.workspace === expected.workspace
+    && source?.snapshot_id === expected.snapshot
+    && source?.node_id === expected.nodeId
+    && source?.path === expected.path
+    && typeof source?.provider === "string"
+    && typeof source?.precision === "string"
+    && /^sha256:[0-9a-f]{64}$/i.test(source?.source_revision || "")
+    && /^[0-9a-f]{64}$/i.test(source?.current_sha256 || "")
+    && source.source_revision.slice(7).toLowerCase() === source.current_sha256.toLowerCase()
+    && Number.isInteger(source?.start_line) && source.start_line >= 1
+    && Number.isInteger(source?.end_line) && source.end_line >= source.start_line
+    && Number.isInteger(source?.total_lines) && source.total_lines >= source.end_line
+    && Number.isInteger(source?.focus_start_line) && source.focus_start_line >= source.start_line
+    && Number.isInteger(source?.focus_end_line) && source.focus_end_line >= source.focus_start_line
+    && source.focus_end_line <= source.end_line
+    && contentRows === expectedRows
+    && typeof source?.redacted === "boolean"
+    && typeof source?.truncated === "boolean";
+}
+function codeGraphSourcePreview(source) {
+  const expectedRows = Math.max(0, source.end_line - source.start_line + 1);
+  const lines = String(source.content || "").split("\n").slice(0, expectedRows);
+  const rows = lines.map((line, index) => {
+    const lineNumber = source.start_line + index;
+    const focus = lineNumber >= source.focus_start_line && lineNumber <= source.focus_end_line;
+    return `<div class="code-graph-source-line${focus ? " focus" : ""}"><span>${lineNumber}</span><code>${esc(line)}</code></div>`;
+  }).join("");
+  const flags = [
+    source.redacted ? pill(localized("redacted", "已脱敏"), "warn") : "",
+    source.truncated ? pill(localized("bounded preview", "有界预览"), "warn") : "",
+  ].join("");
+  return `<section class="code-graph-source"><div class="code-graph-source-head"><div><strong>${esc(localized("Read-only source", "只读源码"))}</strong><small>${esc(source.path)} · ${esc(source.source_revision.slice(0, 19))}</small></div><div class="pills">${flags}</div></div><div class="code-graph-source-window" role="region" tabindex="0" aria-label="${esc(localized("Read-only source code", "只读源代码"))}">${rows}</div><p>${esc(localized("Source bytes are shown only when their SHA still matches this graph snapshot. Relationship precision remains separate from source identity.", "仅当源码 SHA 仍与该图谱快照一致时才显示源码；关系精度与源码身份保持独立。"))}</p></section>`;
+}
+function codeGraphSourcePanel(graph, node) {
+  const path = codeGraphPath(node);
+  if (!path) return "";
+  const key = codeGraphSourceRequestKey(graph, node);
+  if (state.codeGraphSourceLoading && state.codeGraphSourceKey === key) {
+    return `<section class="code-graph-source"><div class="code-graph-source-loading">${esc(localized("Loading snapshot-bound source…", "正在加载快照绑定源码…"))}</div></section>`;
+  }
+  if (state.codeGraphSourceError && state.codeGraphSourceKey === key) {
+    return `<section class="code-graph-source"><div class="bad">${esc(state.codeGraphSourceError)}</div><button type="button" class="code-graph-source-open" data-code-source>${esc(localized("Retry source read", "重试源码读取"))}</button></section>`;
+  }
+  if (state.codeGraphSource && state.codeGraphSourceKey === key) return codeGraphSourcePreview(state.codeGraphSource);
+  return `<section class="code-graph-source"><button type="button" class="code-graph-source-open" data-code-source>${esc(localized("Read source at this snapshot", "读取该快照源码"))}</button><p>${esc(localized("Uses the selected graph node and snapshot; no arbitrary path or revision is accepted.", "只使用所选图谱节点和快照，不接受任意路径或版本表达式。"))}</p></section>`;
+}
+async function loadCodeGraphSource(node) {
+  const graph = state.codeGraph, path = codeGraphPath(node);
+  if (!graph?.snapshot_id || !node?.id || !path) return false;
+  const expected = { workspace: state.current, snapshot: graph.snapshot_id, nodeId: node.id, path };
+  const key = codeGraphSourceRequestKey(graph, node);
+  state.codeGraphSourceController?.abort();
+  const controller = new AbortController();
+  state.codeGraphSourceController = controller;
+  state.codeGraphSourceKey = key;
+  state.codeGraphSource = null;
+  state.codeGraphSourceLoading = true;
+  state.codeGraphSourceError = "";
+  renderCodeGraphInspector();
+  try {
+    const params = new URLSearchParams({ node_id: node.id, snapshot_id: graph.snapshot_id, context_lines: "12" });
+    const data = await uiJson(`/intelligence/code-source?${params}`, "GET", undefined, {
+      workspace: expected.workspace, signal: controller.signal, timeout: 25000,
+    });
+    if (controller.signal.aborted
+        || state.codeGraphSourceController !== controller
+        || state.current !== expected.workspace
+        || state.codeGraph?.snapshot_id !== expected.snapshot
+        || state.selectedCodeNode !== expected.nodeId) return false;
+    if (!validCodeGraphSourceResponse(data, expected)) throw new Error("Invalid snapshot-bound source response");
+    state.codeGraphSource = data.source;
+    state.codeGraphSourceLoading = false;
+    renderCodeGraphInspector();
+    return true;
+  } catch (error) {
+    if (controller.signal.aborted || state.codeGraphSourceController !== controller) return false;
+    state.codeGraphSource = null;
+    state.codeGraphSourceLoading = false;
+    state.codeGraphSourceError = requestFailureMessage(error);
+    renderCodeGraphInspector();
+    return false;
+  } finally {
+    if (state.codeGraphSourceController === controller) state.codeGraphSourceController = null;
+  }
+}
 function selectCodeGraphNode(nodeId) {
+  if (state.selectedCodeNode !== nodeId) clearCodeGraphSource();
   state.selectedCodeNode = nodeId;
   els.codeGraphMap?.querySelectorAll("[data-code-node]").forEach(node =>
     node.classList.toggle("selected", node.dataset.codeNode === nodeId));
@@ -274,7 +379,11 @@ function renderCodeGraphInspector() {
       <dt>${esc(localized("Changed now", "当前变更"))}</dt><dd>${esc(codeGraphPathChanged(node) ? localized("yes", "是") : localized("no", "否"))}</dd>
     </dl>
     <div class="code-graph-why"><strong>${esc(localized("Why this node is related", "为什么这个节点相关"))}</strong>${why || `<p>${esc(localized("No retained relation touches this node in the current bounded graph.", "当前有界图谱中没有保留与该节点相连的关系。"))}</p>`}</div>
+    ${codeGraphSourcePanel(graph, node)}
     <button type="button" class="primary code-graph-focus" data-code-focus="${esc(node.id)}">${esc(localized("Focus graph here", "以此节点为中心"))}</button>`;
+  els.codeGraphInspector.querySelector("[data-code-source]")?.addEventListener("click", () => {
+    void loadCodeGraphSource(node);
+  });
   els.codeGraphInspector.querySelector("[data-code-focus]")?.addEventListener("click", event => {
     void loadCodeGraph({ nodeId: event.currentTarget.dataset.codeFocus });
   });
@@ -455,6 +564,10 @@ function codeGraphResponseMatchesRequest(graph, expected) {
     Number(graph.depth) === expected.depth &&
     (!expected.snapshot || graph.snapshot_id === expected.snapshot);
 }
+function validCodeGraphRepositoryRevision(revision) {
+  return revision && typeof revision.code === "string" && revision.code.length > 0 && revision.code.length <= 256
+    && (revision.design == null || (typeof revision.design === "string" && revision.design.length > 0 && revision.design.length <= 256));
+}
 
 
 function clearCodeGraphSearchState() {
@@ -474,7 +587,7 @@ function clearCodeGraphSearchState() {
   if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) renderCodeGraph();
   else void loadCodeGraphOverview();
 }
-async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
+async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision } = {}) {
   const query = String(requestedQuery ?? els.codeGraphSearch?.value ?? "").trim();
   if (!nodeId) {
     if (query.length < 2) {
@@ -483,11 +596,13 @@ async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
     }
     return searchCodeGraph(query);
   }
+  if (repositoryRevision != null && !validCodeGraphRepositoryRevision(repositoryRevision)) return false;
   const expected = {
     query: nodeId,
     mode: state.codeGraphMode || "all",
     depth: Number(state.codeGraphDepth || 2),
     snapshot: state.codeGraphSnapshot || "",
+    repositoryRevision: repositoryRevision || null,
   };
   captureCodeGraphViewport(state.codeGraph);
   state.codeGraphController?.abort();
@@ -505,6 +620,10 @@ async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
     limit: "140",
   });
   if (expected.snapshot) params.set("snapshot_id", expected.snapshot);
+  if (expected.repositoryRevision) {
+    params.set("expected_code_revision", expected.repositoryRevision.code);
+    if (expected.repositoryRevision.design != null) params.set("expected_design_revision", expected.repositoryRevision.design);
+  }
   try {
     const data = await uiJson(`/intelligence/code-graph?${params}`, "GET", undefined, {
       workspace: state.current,
@@ -514,6 +633,11 @@ async function loadCodeGraph({ nodeId, query: requestedQuery } = {}) {
     if (controller.signal.aborted || data.workspace !== state.current) return false;
     if (!validCodeGraphResponse(data) || !codeGraphResponseMatchesRequest(data.graph, expected)) {
       throw new Error(localized("Invalid focused code graph response", "聚焦代码图谱响应无效"));
+    }
+    if (expected.repositoryRevision && (!validCodeGraphRepositoryRevision(data.repository_revision)
+        || data.repository_revision.code !== expected.repositoryRevision.code
+        || (data.repository_revision.design ?? null) !== (expected.repositoryRevision.design ?? null))) {
+      throw new Error(localized("Focused code graph revision does not match the captured change", "聚焦代码图谱版本与捕获的变更不一致"));
     }
     const previousSelected = state.selectedCodeNode;
     state.codeGraph = data.graph;

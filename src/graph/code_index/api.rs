@@ -236,6 +236,53 @@ impl CodeIndex {
         })
     }
 
+    pub(crate) fn snapshot_outline(
+        &self,
+        workspace_id: impl Into<String>,
+        root: &Path,
+        path: &str,
+        content: &str,
+        expected_sha256: &str,
+        max_symbols: usize,
+    ) -> Result<Value> {
+        let actual_sha256 = format!("{:x}", Sha256::digest(content.as_bytes()));
+        if actual_sha256 != expected_sha256 {
+            bail!("snapshot source identity changed before syntax parsing");
+        }
+        let config = self
+            .config_for_path(path)
+            .ok_or_else(|| anyhow!("unsupported source language: {path}"))?;
+        let (_tree, parse_errors, parsed_symbols) =
+            self.parse_snapshot_symbols(root, &config, path, content)?;
+        let definitions = parsed_symbols
+            .into_iter()
+            .filter(|symbol| symbol.is_definition)
+            .collect::<Vec<_>>();
+        let total_symbols = definitions.len();
+        let max_symbols = max_symbols.clamp(1, MAX_OUTLINE_SYMBOLS);
+        let truncated = total_symbols > max_symbols;
+        let symbols = definitions
+            .into_iter()
+            .take(max_symbols)
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "workspace": workspace_id.into(),
+            "path": path,
+            "language": config.id.as_str(),
+            "provider": "tree-sitter",
+            "precision": "syntax",
+            "snapshot": true,
+            "parse_errors": parse_errors,
+            "sha256": expected_sha256,
+            "source_bytes": content.len(),
+            "line_count": content.lines().count(),
+            "symbol_count": symbols.len(),
+            "total_symbols": total_symbols,
+            "truncated": truncated,
+            "symbols": symbols,
+        }))
+    }
+
     pub fn software_graph(
         &self,
         workspace_id: impl Into<String>,

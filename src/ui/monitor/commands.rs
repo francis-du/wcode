@@ -29,8 +29,8 @@ pub(super) fn render_commands_overlay(
     frame.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(ACCENT))
         .style(Style::default().bg(SURFACE_SELECTED))
         .padding(Padding::uniform(1))
         .title(Line::from(vec![

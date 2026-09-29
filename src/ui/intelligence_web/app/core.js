@@ -107,6 +107,10 @@ const els = {
   tunnels: q("#tunnels"),
   projectNavigator: q("#projectNavigator"),
   navigatorResults: q("#navigatorResults"),
+  commandPalette: q("#commandPalette"),
+  closeCommandPalette: q("#closeCommandPalette"),
+  commandPaletteSearch: q("#commandPaletteSearch"),
+  commandPaletteList: q("#commandPaletteList"),
 };
 
 const state = {
@@ -167,6 +171,11 @@ const state = {
   codeGraphError: "",
   codeGraphController: null,
   codeGraphSearchController: null,
+  codeGraphSource: null,
+  codeGraphSourceKey: "",
+  codeGraphSourceLoading: false,
+  codeGraphSourceError: "",
+  codeGraphSourceController: null,
   codeGraphSearchTimer: null,
   codeGraphSearchResults: [],
   codeGraphLayouts: new Map(),
@@ -188,6 +197,9 @@ const state = {
   lastUpdated: 0,
   revisionKey: null,
   semanticRefreshPending: false,
+  commandPaletteOpen: false,
+  commandPaletteIndex: 0,
+  commandPaletteReturnFocus: null,
 };
 const t = (key) => translateKey(state.language, key);
 const localized = (en, zh) => state.language === "zh-CN" ? zh : en;
@@ -333,7 +345,7 @@ function setAccessPanel(open, restoreFocus = true) {
   els.accessPanel.setAttribute("aria-modal", String(modal));
   document.documentElement.classList.toggle("access-open", open);
   if (open && !wasOpen) {
-    requestAnimationFrame(() => els.closeAccess.focus({ preventScroll: true }));
+    requestAnimationFrame(() => { if (accessPanelOpen() && !state.commandPaletteOpen) els.closeAccess.focus({ preventScroll: true }); });
   } else if (!open && wasOpen && restoreFocus) {
     els.manage.focus({ preventScroll: true });
   }
