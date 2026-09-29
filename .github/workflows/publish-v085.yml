@@ -1,0 +1,133 @@
+name: Publish verified v0.8.5 once
+
+on:
+  push:
+    branches: [release/v0.8.5-publish]
+    paths: [.github/workflows/publish-v085.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wcode-publish-verified-v0.8.5
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'francis-du/wcode' && github.ref == 'refs/heads/release/v0.8.5-publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Verify frozen candidate, create tag, dispatch original release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          """One-shot publication of the already verified v0.8.5 candidate only."""
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          REPO = "francis-du/wcode"
+          TARGET = "68ef2f43dbd7b3653415da54a5a4aec8a7873429"
+          TAG = "v0.8.5"
+          BRANCH = "refs/heads/release/v0.8.5-publish"
+          GATES = (
+              (36597617867, ".github/workflows/release.yml", {
+                  "Quality gates", "Test Windows x86_64", "Test Linux x86_64", "Test macOS",
+              }),
+              (36597617652, ".github/workflows/adversarial.yml", {
+                  "Native WebKit geometry", "300 distinct adversarial rounds",
+              }),
+          )
+
+
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+
+
+          def api(method, path, payload=None, missing_ok=False):
+              require(path.startswith(("git/", "actions/", "releases/", "contents/")), "Unexpected API scope")
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{REPO}/{path}", data=data, method=method,
+                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                           "Accept": "application/vnd.github+json",
+                           "Content-Type": "application/json", "User-Agent": "wcode-v085-release",
+                           "X-GitHub-Api-Version": "2026-03-10"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      raw = response.read(1_048_577)
+                  require(len(raw) <= 1_048_576, "Oversized API response")
+                  return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as error:
+                  if missing_ok and error.code == 404:
+                      return None
+                  raise RuntimeError(f"GitHub {method} {path}: HTTP {error.code}; no automatic write retry") from None
+
+
+          def main():
+              require(os.environ.get("GITHUB_REPOSITORY") == REPO, "Wrong repository")
+              require(os.environ.get("GITHUB_REF") == BRANCH, "Wrong release-control branch")
+              head = api("GET", "git/ref/heads/main")["object"]
+              require(head.get("type") == "commit" and head.get("sha") == TARGET, "Main has moved; review required")
+              for run_id, workflow, required_jobs in GATES:
+                  run = api("GET", f"actions/runs/{run_id}")
+                  require(run.get("head_sha") == TARGET and run.get("head_branch") == "main"
+                          and run.get("event") == "push" and run.get("path") == workflow
+                          and run.get("status") == "completed" and run.get("conclusion") == "success",
+                          f"Gate {run_id} is not a successful exact-candidate run")
+                  report = api("GET", f"actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+                  jobs = report.get("jobs", [])
+                  require(len(jobs) == report.get("total_count") and 0 < len(jobs) <= 100,
+                          "Incomplete gate job coverage")
+                  require(all(j.get("head_sha") == TARGET and j.get("status") == "completed"
+                              and j.get("conclusion") in ("success", "skipped") for j in jobs),
+                          "Unsuccessful or foreign gate job")
+                  for name in required_jobs:
+                      matching = [j for j in jobs if j.get("name") == name]
+                      require(len(matching) == 1 and matching[0].get("conclusion") == "success",
+                              f"Required gate not passed: {name}")
+                  print(f"Verified exact-candidate gate {run_id}")
+              workflow = api("GET", f"contents/.github/workflows/release.yml?ref={TARGET}")
+              require(workflow.get("sha") == "a8f8abbf5dc042ab4ff966de1240a0cfb4302b40",
+                      "Release workflow differs from the reviewed candidate")
+              ref = api("GET", f"git/ref/tags/{TAG}", missing_ok=True)
+              if ref is not None:
+                  require(ref.get("object") == {"type": "commit", "sha": TARGET,
+                              "url": f"https://api.github.com/repos/{REPO}/git/commits/{TARGET}"},
+                          "Existing tag differs; never replace it")
+              release = api("GET", f"releases/tags/{TAG}", missing_ok=True)
+              if release is not None:
+                  require(ref is not None and release.get("draft") is False
+                          and release.get("prerelease") is False and release.get("published_at"),
+                          "Unexpected existing release state; inspect before changing it")
+                  print("Release already published; no mutation")
+                  return
+              runs = api("GET", f"actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha={TARGET}&per_page=100")
+              require(len(runs.get("workflow_runs", [])) == runs.get("total_count"), "Incomplete dispatch coverage")
+              matching = [r for r in runs["workflow_runs"] if r.get("head_sha") == TARGET
+                          and r.get("head_branch") == TAG and r.get("event") == "workflow_dispatch"]
+              if matching:
+                  print("Existing release dispatches; inspect instead of duplicating: "
+                        + json.dumps([{k: r.get(k) for k in ("id", "status", "conclusion")} for r in matching]))
+                  return
+              if ref is None:
+                  api("POST", "git/refs", {"ref": f"refs/tags/{TAG}", "sha": TARGET})
+              verified = api("GET", f"git/ref/tags/{TAG}")["object"]
+              require(verified.get("type") == "commit" and verified.get("sha") == TARGET, "Tag identity mismatch")
+              # Token-generated tag pushes do not trigger workflows; dispatch the existing one explicitly.
+              result = api("POST", "actions/workflows/release.yml/dispatches",
+                           {"ref": TAG, "inputs": {"release_tag": TAG}})
+              print("Tag pinned and existing release workflow dispatched: " + json.dumps(result))
+
+
+          if __name__ == "__main__":
+              main()
+          PY
