@@ -476,7 +476,14 @@ async function test(name, fn) {
     }
     const failure=runtime.indexOf('function showRefreshFailure(');
     assert(runtime.slice(failure,failure+260).includes('invalidateChangeInspection()'));
-    assert(runtime.includes('invalidateChangeInspection();\n    state.project = data;'));
+    const assertInvalidationOrder = text =>
+      assert.match(text, /invalidateChangeInspection\(\);\r?\n    state\.project = data;/);
+    assertInvalidationOrder(runtime);
+    for (const newline of ['\n', '\r\n']) {
+      assertInvalidationOrder(`invalidateChangeInspection();${newline}    state.project = data;`);
+      assert.throws(() => assertInvalidationOrder(`state.project = data;${newline}    invalidateChangeInspection();`), assert.AssertionError);
+      assert.throws(() => assertInvalidationOrder('    state.project = data;'), assert.AssertionError);
+    }
     assert(source.includes('data-change-path='));
   });
   console.log(JSON.stringify({results}));
