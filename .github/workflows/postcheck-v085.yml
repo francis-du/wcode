@@ -1,0 +1,60 @@
+name: Verify published v0.8.5 downloads
+
+on:
+  push:
+    branches: [release/v0.8.5-publish]
+    paths: [.github/workflows/postcheck-v085.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wcode-published-v0.8.5-download-verification
+  cancel-in-progress: false
+
+jobs:
+  publication:
+    if: github.repository == 'francis-du/wcode' && github.ref == 'refs/heads/release/v0.8.5-publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Require the exact release workflow to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run watch 36620843194 --repo francis-du/wcode --interval 30 --exit-status > release-watch.log 2>&1
+          echo 'Exact publication workflow completed successfully.'
+
+  verify:
+    name: Download and start on ${{ matrix.os }}
+    needs: publication
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: python3
+          - os: macos-latest
+            python: python3
+          - os: windows-latest
+            python: python
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the verification script, not a replacement release candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify published archive digest, version, help, signature and HTTP startup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ${{ matrix.python }} tests/release_download.py
+      - name: Retain native post-publication proof
+        uses: actions/upload-artifact@v7
+        with:
+          name: wcode-v0.8.5-download-proof-${{ runner.os }}
+          path: target/release-download-*.json
+          if-no-files-found: error
+          retention-days: 14
