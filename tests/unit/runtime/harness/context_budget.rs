@@ -1,6 +1,131 @@
 use super::*;
 
 #[test]
+fn finalized_context_compacts_repeated_tool_routing_before_source_budgeting() {
+    for (query, execution) in [
+        ("fix formatting", Value::Null),
+        (
+            "inspect callers and verify architecture",
+            json!({
+                "id":"execution-1", "revision":9, "phase":"verifying",
+                "pending_directive":{"id":"directive-1", "message":"preserve required checks"},
+                "replan_required":true,
+                "checkpoint":{"verification_plan_id":"plan-1", "reconciliation_plan_id":"reconcile-1"}
+            }),
+        ),
+    ] {
+        let manifest =
+            capability::manifest(query, &[], (!execution.is_null()).then_some(&execution));
+        let recommended = manifest["recommended_tools"].clone();
+        let mut pack = json!({
+            "query":query,
+            "capabilities":manifest,
+            "files":[{"path":"src/a.rs", "sha256":"a".repeat(64), "readonly":false}],
+            "hot_source":[{
+                "id":"ts:a", "path":"src/a.rs", "sha256":"a".repeat(64),
+                "body":{"content":"fn a() {\n    let text = \"unchanged\";\n}".repeat(20),
+                    "start_line":1, "end_line":60, "truncated":false, "redacted":false}
+            }],
+            "checks":[{"program":"cargo", "args":["check"], "kind":"native"}],
+            "readiness":{"parallelism":{"required":true, "lanes":["source", "tests"]},
+                "next_actions":[{"tool":"verify_project"}]},
+            "core_constraints":["workspace_boundary", "authorization", "sha_preconditions"],
+            "diagnostics":[{"path":"src/a.rs", "line":2, "severity":"warning", "message":"inspect binding"}],
+            "evidence":[{"id":"evidence-1", "verification_plan_id":"plan-1", "revision":9}],
+            "execution":execution
+        });
+        let original = pack.clone();
+        let baseline = serialized_json_bytes(&pack).unwrap() as u64;
+        finalize_agent_context(&mut pack, baseline, 4_000).unwrap();
+        assert_eq!(pack["capabilities"]["recommended_tools"], recommended);
+        assert_eq!(pack["capabilities"]["compacted"], true);
+        assert!(pack["capabilities"].get("recommended_actions").is_none());
+        assert!(pack["capabilities"].get("recommended_tool_count").is_none());
+        assert_eq!(
+            pack["capabilities"]["mandatory_controls"],
+            original["capabilities"]["mandatory_controls"]
+        );
+        for key in [
+            "files",
+            "hot_source",
+            "checks",
+            "readiness",
+            "core_constraints",
+            "diagnostics",
+            "evidence",
+            "execution",
+        ] {
+            assert_eq!(pack[key], original[key], "{query}: changed {key}");
+        }
+        let mut paired = pack.clone();
+        paired["capabilities"] = original["capabilities"].clone();
+        let before = serialized_json_bytes(&paired).unwrap();
+        let after = serialized_json_bytes(&pack).unwrap();
+        assert!(before >= after + 400, "{query}: {before} -> {after}");
+        println!(
+            "routing manifest {} tools: {} -> {} bytes (estimated {} -> {} tokens)",
+            recommended.as_array().unwrap().len(),
+            before,
+            after,
+            before.div_ceil(4),
+            after.div_ceil(4)
+        );
+        let delivered = pack.clone();
+        finalize_agent_context(&mut pack, baseline, 4_000).unwrap();
+        assert_eq!(
+            pack, delivered,
+            "repeated finalization must preserve the same manifest"
+        );
+        crate::harness::promote_model_tools(&mut pack["capabilities"], &["symbol_context".into()]);
+        assert!(pack["capabilities"]["recommended_tools"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("symbol_context")));
+        crate::harness::prioritize_model_tools(
+            &mut pack["capabilities"],
+            &["symbol_context".into()],
+        );
+        assert_eq!(
+            pack["capabilities"]["recommended_tools"][0],
+            "symbol_context"
+        );
+        assert!(pack["capabilities"].get("recommended_actions").is_none());
+    }
+}
+
+#[test]
+fn routing_compaction_requires_exactly_reconstructible_action_metadata() {
+    let base = json!({"capabilities":capability::manifest("fix formatting", &[], None)});
+    for (pointer, replacement) in [
+        ("/capabilities/recommended_tools/0", json!("other_tool")),
+        (
+            "/capabilities/recommended_actions/0/group",
+            json!("other_group"),
+        ),
+        (
+            "/capabilities/recommended_actions/0/disclosure",
+            json!("on_demand"),
+        ),
+        (
+            "/capabilities/recommended_actions/0",
+            json!({
+                "tool":"agent_context", "group":"context", "disclosure":"core", "instruction":"extra constraint"
+            }),
+        ),
+        ("/capabilities/recommended_tools", Value::Null),
+    ] {
+        let mut pack = base.clone();
+        *pack.pointer_mut(pointer).unwrap() = replacement;
+        let original = pack.clone();
+        assert!(
+            !context_budget::compact_capability_manifest(&mut pack),
+            "{pointer}"
+        );
+        assert_eq!(pack, original, "{pointer}");
+    }
+}
+
+#[test]
 fn context_packing_drops_only_current_source_backed_relation_free_map_duplicates() {
     let base = json!({
         "targets": [{"id":"ts:a", "path":"src/a.rs"}],
@@ -40,6 +165,110 @@ fn context_packing_drops_only_current_source_backed_relation_free_map_duplicates
     assert!(!context_budget::compact_duplicate_symbol_metadata(
         &mut pack
     ));
+}
+
+#[test]
+fn trimming_restores_repo_map_range_when_source_body_yields() {
+    let mut pack = json!({
+        "query": "primary secondary",
+        "targets": [
+            {"id":"ts:primary", "path":"src/primary.rs", "qualified_name":"primary", "start_line":1, "end_line":3},
+            {"id":"ts:secondary", "path":"src/secondary.rs", "qualified_name":"secondary", "start_line":20, "end_line":24}
+        ],
+        "files": [
+            {"path":"src/primary.rs", "sha256":"a".repeat(64), "readonly":false},
+            {"path":"src/secondary.rs", "sha256":"b".repeat(64), "readonly":false}
+        ],
+        "hot_source": [
+            {"id":"ts:primary", "path":"src/primary.rs", "qualified_name":"primary", "sha256":"a".repeat(64),
+             "body":{"content":"fn primary() {\n    let x = 1;\n}", "start_line":1, "end_line":3, "truncated":false, "redacted":false}},
+            {"id":"ts:secondary", "path":"src/secondary.rs", "qualified_name":"secondary", "sha256":"b".repeat(64),
+             "body":{"content":"secondary-body-".repeat(120), "start_line":20, "end_line":24, "truncated":false, "redacted":false}}
+        ],
+        "repo_map": {"items": [{
+            "id":"symbol:ts:secondary", "path":"src/secondary.rs", "qualified_name":"secondary", "kind":"function",
+            "signature":"fn secondary()", "start_line":20, "end_line":24, "reason":"calls_direct",
+            "relationships":[{"kind":"calls", "target":"ts:primary"}]
+        }]},
+        "truncated": false
+    });
+
+    context_budget::trim_agent_context(&mut pack, 350).unwrap();
+
+    assert_eq!(pack["hot_source"].as_array().unwrap().len(), 1);
+    let item = &pack["repo_map"]["items"][0];
+    assert_eq!(item["start_line"], 20);
+    assert_eq!(item["end_line"], 24);
+    assert_eq!(item["relationships"][0]["kind"], "calls");
+}
+
+#[test]
+fn finalized_context_deduplicates_reconstructible_source_backed_repo_map_metadata_below_budget() {
+    let mut pack = json!({
+        "targets": [{"id":"ts:a", "path":"src/a.rs"}],
+        "files": [{"path":"src/a.rs", "sha256":"a".repeat(64), "readonly":false}],
+        "hot_source": [{
+            "id":"ts:a", "path":"src/a.rs", "qualified_name":"module::a", "sha256":"a".repeat(64),
+            "body":{"content":"fn a() {}", "start_line":7, "end_line":7, "truncated":false, "redacted":false}
+        }],
+        "repo_map": {"items": [
+            {"id":"symbol:ts:a", "path":"src/a.rs", "qualified_name":"module::a", "kind":"function",
+             "signature":"fn a() {}", "start_line":7, "end_line":7, "reason":"direct_match", "relationships":[]},
+            {"id":"symbol:ts:a", "path":"src/a.rs", "qualified_name":"module::a", "kind":"function",
+             "signature":"fn a() {}", "start_line":7, "end_line":7, "reason":"calls_direct",
+             "relationships":[{"kind":"calls","target":"ts:b"}]}
+        ]}
+    });
+    let source = pack["hot_source"].clone();
+    let files = pack["files"].clone();
+    let baseline = serialized_json_bytes(&pack).unwrap() as u64;
+
+    finalize_agent_context(&mut pack, baseline, 4_000).unwrap();
+
+    assert_eq!(pack["repo_map"]["items"].as_array().unwrap().len(), 2);
+    for item in pack["repo_map"]["items"].as_array().unwrap() {
+        for key in ["signature", "start_line", "end_line"] {
+            assert!(
+                item.get(key).is_none(),
+                "{key} should be reconstructed from Hot Source"
+            );
+        }
+        assert_eq!(item["qualified_name"], "module::a");
+        assert_eq!(item["kind"], "function");
+        assert!(item["reason"].is_string());
+    }
+    assert_eq!(
+        pack["repo_map"]["items"][1]["relationships"][0]["kind"],
+        "calls"
+    );
+    assert_eq!(pack["hot_source"], source);
+    assert_eq!(pack["files"], files);
+    assert!(pack["estimated_tokens"].as_u64().unwrap() < 4_000);
+}
+
+#[test]
+fn source_backed_repo_map_dedup_requires_a_valid_matching_file_sha() {
+    let base = json!({
+        "files": [{"path":"src/a.rs", "sha256":"a".repeat(64), "readonly":false}],
+        "hot_source": [{
+            "id":"ts:a", "path":"src/a.rs", "qualified_name":"module::a", "sha256":"a".repeat(64),
+            "body":{"content":"fn a() {}", "start_line":7, "end_line":7, "truncated":false, "redacted":false}
+        }],
+        "repo_map": {"items": [{
+            "id":"symbol:ts:a", "path":"src/a.rs", "qualified_name":"module::a",
+            "signature":"fn a() {}", "start_line":7, "end_line":7, "relationships":[]
+        }]}
+    });
+    for invalid_sha in ["", "abc", &"g".repeat(64)] {
+        let mut pack = base.clone();
+        pack["files"][0]["sha256"] = json!(invalid_sha);
+        pack["hot_source"][0]["sha256"] = json!(invalid_sha);
+        let original = pack["repo_map"].clone();
+        assert!(!context_budget::deduplicate_source_backed_repo_map(
+            &mut pack
+        ));
+        assert_eq!(pack["repo_map"], original, "{invalid_sha}");
+    }
 }
 
 #[test]
@@ -240,15 +469,20 @@ fn tight_context_preserves_task_tool_names_while_dropping_capability_prose() {
         }
     });
 
-    context_budget::trim_agent_context(&mut pack, 350).unwrap();
+    context_budget::trim_agent_context(&mut pack, 80).unwrap();
 
     assert!(pack.get("decision_plane").is_none());
     assert_eq!(
         pack["capabilities"]["recommended_tools"],
         json!(["apply_edits", "review_changes", "verify_project"])
     );
+    assert_eq!(pack["capabilities"]["compacted"], true);
+    assert!(
+        pack["capabilities"].get("recommended_tool_count").is_none(),
+        "compacted capability count duplicates recommended_tools length"
+    );
     assert!(pack["capabilities"].get("host_contract").is_none());
-    assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 350);
+    assert!(serialized_json_bytes(&pack).unwrap().div_ceil(4) <= 80);
 }
 
 #[test]
@@ -603,6 +837,31 @@ fn task_aware_retrieval_specializes_only_when_one_intent_is_clear() {
     assert_eq!(ambiguous.intent, RepoMapIntent::Context);
     assert!(!ambiguous.specialized);
     assert_eq!(ambiguous.reason, "ambiguous_retrieval_signals");
+}
+
+#[test]
+fn source_shrink_accounts_for_restored_target_ranges_before_enforcing_progress() {
+    let mut pack = json!({
+        "targets": [{"id": "ts:target", "path": "src/target.rs", "qualified_name": "target"}],
+        "files": [{"path": "src/target.rs", "sha256": "a".repeat(64), "readonly": false}],
+        "hot_source": [{
+            "id": "ts:target", "path": "src/target.rs", "qualified_name": "target",
+            "sha256": "a".repeat(64), "provider": "workspace", "precision": "deterministic",
+            "body": {"start_line": 7, "end_line": 7,
+                "content": format!("fn target() {{ /* {} */ }}", "body".repeat(1000)),
+                "redacted": false, "truncated": false}
+        }],
+        "truncated": true
+    });
+    let budget = context_budget::estimated_json_tokens(&pack).unwrap() - 1;
+
+    context_budget::trim_agent_context(&mut pack, budget).unwrap();
+
+    assert!(context_budget::estimated_json_tokens(&pack).unwrap() <= budget);
+    assert_eq!(pack["targets"][0]["start_line"], 7);
+    assert_eq!(pack["targets"][0]["end_line"], 7);
+    assert_eq!(pack["hot_source"][0]["body"]["truncated"], true);
+    assert_eq!(pack["hot_source"][0]["sha256"], "a".repeat(64));
 }
 
 #[test]

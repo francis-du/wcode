@@ -7,7 +7,14 @@ statement: >-
   identity/revision, objective, phase, Worklist done/open/blocked counts and runnable lanes, bound
   Reconciliation/Verification identities and their converged/ready signals, current repository revision and
   blockers. Rendering does not create or mutate Execution state and contains no transcript or raw model/provider
-  content.
+  content. Public Worklist claims show actor, write scope, lease and bounded worker result even without an
+  Execution. Private claim tokens never enter status or observation; worker reports do not prove verification.
 verification:
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
   - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_exposes_bounded_execution_projection}
   - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_execution_state_without_chat_history}
+  - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: worker_lanes_route_claims_results_and_protected_public_observation}
+  - {kind: test, path: tests/unit/ui/monitor/agents.rs, symbol: agent_projection_excludes_claim_capabilities_and_bounds_items}
+  - {kind: test, path: tests/unit/ui/monitor/agents.rs, symbol: absent_agent_snapshot_is_unknown_and_worker_reports_are_not_proof}
+  - {kind: test, path: tests/unit/ui/monitor/agents.rs, symbol: agent_results_are_scrollable_and_no_worklist_is_explicit}
+  - {kind: test, path: tests/unit/ui/monitor/agents.rs, symbol: agent_revision_and_object_evidence_keep_only_bounded_public_metadata}

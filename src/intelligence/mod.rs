@@ -137,6 +137,9 @@ mod context;
 mod observatory;
 #[path = "observatory/architecture.rs"]
 mod observatory_architecture;
+#[path = "observatory/attention.rs"]
+pub(crate) mod observatory_attention;
+pub use observatory_attention::{AttentionSeverity, ProjectAttentionItem, ProjectAttentionView};
 #[path = "observatory/benchmark.rs"]
 mod observatory_benchmark;
 #[path = "observatory/files.rs"]

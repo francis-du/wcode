@@ -11,6 +11,12 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+#[path = "worklist_delegation.rs"]
+mod delegation;
+pub(crate) use delegation::{
+    claim, submit, WorkItemClaim, WorkItemResult, WorklistClaimInput, WorklistSubmitInput,
+};
+
 const WORKLIST_SCHEMA_VERSION: u32 = 1;
 const MAX_WORKLIST_ITEMS: usize = 64;
 const MAX_WORKLIST_DEPENDENCIES: usize = 16;
@@ -37,6 +43,8 @@ pub(crate) struct WorkItemPatch {
     pub depends_on: Option<Vec<String>>,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default)]
+    pub write_paths: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,6 +67,12 @@ pub(crate) struct WorkItem {
     pub depends_on: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<WorkItemClaim>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<WorkItemResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -100,14 +114,7 @@ pub(crate) fn active_summary(workspace: &Workspace) -> Result<Option<Value>> {
         .iter()
         .filter(|item| item.status != WorkItemStatus::Done)
         .take(16)
-        .map(|item| {
-            json!({
-                "id": item.id,
-                "title": item.title,
-                "status": item.status,
-                "depends_on": item.depends_on,
-            })
-        })
+        .map(|item| delegation::public_item(item, now_ms()))
         .collect::<Vec<_>>();
     let runnable = runnable_ids(&worklist);
     Ok(Some(json!({
@@ -115,7 +122,7 @@ pub(crate) fn active_summary(workspace: &Workspace) -> Result<Option<Value>> {
         "goal": worklist.goal,
         "open_items": worklist.items.iter().filter(|item| item.status != WorkItemStatus::Done).count(),
         "runnable": runnable,
-        "parallel_runnable": if runnable.len() > 1 { runnable.clone() } else { Vec::<String>::new() },
+        "parallel_runnable": parallel_runnable_ids(&worklist),
         "items": open,
         "guidance": "Resume runnable incomplete items before inventing a new sequence. Update this worklist as items start/finish; a stale revision must be reread rather than overwritten."
     })))
@@ -185,7 +192,7 @@ pub(crate) fn update(workspace: &Workspace, update: WorklistUpdate) -> Result<Va
             worklist.goal = goal.to_owned();
         }
     }
-    apply_patches(&mut worklist, update.items)?;
+    apply_patches(workspace, &mut worklist, update.items)?;
     worklist.revision = actual_revision.saturating_add(1);
     worklist.updated_at_ms = now_ms();
     validate(&worklist)?;
@@ -193,7 +200,11 @@ pub(crate) fn update(workspace: &Workspace, update: WorklistUpdate) -> Result<Va
     Ok(status_value(&worklist, true))
 }
 
-fn apply_patches(worklist: &mut Worklist, patches: Vec<WorkItemPatch>) -> Result<()> {
+fn apply_patches(
+    workspace: &Workspace,
+    worklist: &mut Worklist,
+    patches: Vec<WorkItemPatch>,
+) -> Result<()> {
     if patches.len() > MAX_WORKLIST_ITEMS {
         bail!("worklist update contains too many items");
     }
@@ -205,6 +216,32 @@ fn apply_patches(worklist: &mut Worklist, patches: Vec<WorkItemPatch>) -> Result
     for patch in patches {
         validate_id(&patch.id)?;
         if let Some(item) = by_id.get_mut(&patch.id) {
+            if delegation::active_claim(item, now_ms())
+                && (patch
+                    .title
+                    .as_ref()
+                    .is_some_and(|title| title != &item.title)
+                    || patch.status.is_some_and(|status| status != item.status)
+                    || patch
+                        .depends_on
+                        .as_ref()
+                        .is_some_and(|deps| deps != &item.depends_on)
+                    || patch.write_paths.is_some())
+            {
+                bail!("active claim must be submitted or expire before changing its task status, dependencies, or scope");
+            }
+            if item.claim.is_some()
+                && !delegation::active_claim(item, now_ms())
+                && (patch.title.is_some()
+                    || patch.status.is_some()
+                    || patch.depends_on.is_some()
+                    || patch.write_paths.is_some())
+            {
+                item.claim = None;
+            }
+            if let Some(paths) = patch.write_paths {
+                item.write_paths = delegation::canonical_paths(workspace, &paths)?;
+            }
             if let Some(title) = patch.title {
                 item.title = title;
             }
@@ -233,11 +270,31 @@ fn apply_patches(worklist: &mut Worklist, patches: Vec<WorkItemPatch>) -> Result
                     status: patch.status.unwrap_or(WorkItemStatus::Pending),
                     depends_on: patch.depends_on.unwrap_or_default(),
                     note: patch.note.filter(|note| !note.trim().is_empty()),
+                    write_paths: delegation::canonical_paths(
+                        workspace,
+                        &patch.write_paths.unwrap_or_default(),
+                    )?,
+                    claim: None,
+                    result: None,
                 },
             );
         }
     }
     worklist.items = by_id.into_values().collect();
+    for item in worklist
+        .items
+        .iter()
+        .filter(|item| delegation::active_claim(item, now_ms()))
+    {
+        if item.depends_on.iter().any(|dependency| {
+            !worklist
+                .items
+                .iter()
+                .any(|other| &other.id == dependency && other.status == WorkItemStatus::Done)
+        }) {
+            bail!("cannot reopen a dependency while its dependent item has an active claim");
+        }
+    }
     Ok(())
 }
 
@@ -261,8 +318,9 @@ fn status_value(worklist: &Worklist, include_items: bool) -> Value {
         "complete": is_complete(worklist),
         "counts": counts,
         "runnable": runnable,
-        "parallel_runnable": if runnable.len() > 1 { runnable.clone() } else { Vec::<String>::new() },
-        "items": if include_items { json!(worklist.items) } else { json!([]) },
+        "parallel_runnable": parallel_runnable_ids(worklist),
+        "items": if include_items { json!(worklist.items.iter().map(|item| delegation::public_item(item, now_ms())).collect::<Vec<_>>()) } else { json!([]) },
+        "coordination": {"model_spawning":"host_owned", "claim_lease_ms":900_000, "claims":"cooperative_scope_coordination", "child_reports":"not_verification_authority"},
     })
 }
 
@@ -282,6 +340,14 @@ pub(crate) fn runnable_ids(worklist: &Worklist) -> Vec<String> {
                 WorkItemStatus::Pending | WorkItemStatus::InProgress
             )
         })
+        .filter(|item| !delegation::active_claim(item, now_ms()))
+        .filter(|item| {
+            !worklist.items.iter().any(|other| {
+                other.id != item.id
+                    && delegation::active_claim(other, now_ms())
+                    && delegation::overlaps(&item.write_paths, &other.write_paths)
+            })
+        })
         .filter(|item| {
             item.depends_on
                 .iter()
@@ -289,6 +355,25 @@ pub(crate) fn runnable_ids(worklist: &Worklist) -> Vec<String> {
         })
         .map(|item| item.id.clone())
         .collect()
+}
+
+fn parallel_runnable_ids(worklist: &Worklist) -> Vec<String> {
+    let runnable = runnable_ids(worklist).into_iter().collect::<BTreeSet<_>>();
+    let mut selected = Vec::<&WorkItem>::new();
+    for item in &worklist.items {
+        if runnable.contains(&item.id)
+            && selected
+                .iter()
+                .all(|other| !delegation::overlaps(&item.write_paths, &other.write_paths))
+        {
+            selected.push(item);
+        }
+    }
+    if selected.len() > 1 {
+        selected.iter().map(|item| item.id.clone()).collect()
+    } else {
+        Vec::new()
+    }
 }
 
 pub(crate) fn is_complete(worklist: &Worklist) -> bool {
@@ -318,6 +403,7 @@ fn validate(worklist: &Worklist) -> Result<()> {
     }
     for item in &worklist.items {
         validate_id(&item.id)?;
+        delegation::validate_metadata(item)?;
         if item.title.trim().is_empty() || item.title.len() > 300 {
             bail!("worklist item {} has invalid title", item.id);
         }

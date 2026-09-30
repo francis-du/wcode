@@ -48,6 +48,111 @@ async function run(){
     catch(error){results.push({name,passed:false,error:error.stack});}
   }
 
+  await test('empty source files preserve SHA and snapshot identity without fake rows or pagination',async()=>{
+    const s=sandbox();s.context.graph=focusGraph('file:src/a.rs');s.run('state.codeGraph=graph;state.selectedCodeNode="file:src/a.rs";node=graph.nodes[0].node;');
+    const pending=s.run('loadCodeGraphSource(node)');await flush();const sha='e'.repeat(64);
+    const source={snapshot_id:'GRAPH-overview',node_id:'file:src/a.rs',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,start_line:1,end_line:0,total_lines:0,focus_start_line:0,focus_end_line:0,content:'',redacted:false,truncated:false};
+    respond(s.requests[0],{workspace:'A',source});assert.equal(await pending,true);
+    const html=s.node('#codeGraphInspector').innerHTML;assert.match(html,/This source file is empty/);assert.doesNotMatch(html,/data-code-source-page/);assert.doesNotMatch(html,/class="code-graph-source-line/);
+    s.context.response={workspace:'A',source:{...source,current_sha256:'f'.repeat(64)}};s.context.expected={workspace:'A',snapshot:'GRAPH-overview',nodeId:'file:src/a.rs',path:'src/a.rs'};
+    assert.equal(s.run('validCodeGraphSourceResponse(response,expected)'),false,'empty source cannot relax SHA binding');
+  });
+  await test('source pages outside the selected symbol show no focus and reject invented intersections',async()=>{
+    const s=sandbox();s.context.graph=focusGraph();s.run('state.codeGraph=graph;state.selectedCodeNode="symbol:alpha";node=graph.nodes[0].node;');
+    const pending=s.run('loadCodeGraphSource(node,{startLine:241})');await flush();const sha='d'.repeat(64);
+    const source={snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,
+      start_line:241,end_line:242,total_lines:500,symbol_start_line:2,symbol_end_line:3,focus_start_line:0,focus_end_line:0,content:'later line\nnext line',redacted:false,truncated:true};
+    respond(s.requests[0],{workspace:'A',source});assert.equal(await pending,true);
+    const html=s.node('#codeGraphInspector').innerHTML;assert.match(html,/241–242 \/ 500 lines/);assert.doesNotMatch(html,/class="code-graph-source-line focus"/);
+    s.context.expected={workspace:'A',snapshot:'GRAPH-overview',nodeId:'symbol:alpha',path:'src/a.rs'};
+    for(const override of [
+      {focus_start_line:0,focus_end_line:241},{focus_start_line:241,focus_end_line:0},
+      {focus_start_line:241,focus_end_line:241},{symbol_start_line:241,symbol_end_line:241},
+      {symbol_start_line:3,symbol_end_line:2},{symbol_end_line:undefined}
+    ]){
+      s.context.response={workspace:'A',source:{...source,...override}};
+      assert.equal(s.run('validCodeGraphSourceResponse(response,expected)'),false,JSON.stringify(override));
+    }
+    s.context.response={workspace:'A',source:{...source,symbol_start_line:240,symbol_end_line:242,focus_start_line:241,focus_end_line:242}};
+    assert.equal(s.run('validCodeGraphSourceResponse(response,expected)'),true,'visible focus equals exact symbol/window intersection');
+    s.context.response={workspace:'A',source:{...source,symbol_start_line:undefined,symbol_end_line:undefined}};
+    assert.equal(s.run('validCodeGraphSourceResponse(response,expected)'),true,'older compatible response may omit original symbol range');
+  });
+  await test('same-workspace project revision refresh rejects stale file graph and source pages',async()=>{
+    for(const stage of ['graph','source']){
+      const s=sandbox(),revision={code:'captured',design:'design'};
+      s.context.fixture={...project(),proof:{revision_code:revision.code,revision_design:revision.design},structure:{entries:[{path:'src/a.rs'}]}};
+      s.run('state.project=fixture;');const pending=s.run('openRepositoryFile("src/a.rs")');await flush();
+      if(stage==='graph'){
+        s.run('state.project={...state.project,proof:{revision_code:"refreshed",revision_design:"design"}};');
+        respond(s.requests[0],{workspace:'A',graph:focusGraph('file:src/a.rs'),repository_revision:revision});
+      }else{
+        respond(s.requests[0],{workspace:'A',graph:focusGraph('file:src/a.rs'),repository_revision:revision});await flush();
+        assert.equal(s.requests.length,2);s.run('state.project={...state.project,proof:{revision_code:"refreshed",revision_design:"design"}};');
+        const sha='a'.repeat(64);respond(s.requests[1],{workspace:'A',source:{snapshot_id:'GRAPH-overview',node_id:'file:src/a.rs',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,start_line:1,end_line:1,total_lines:500,focus_start_line:1,focus_end_line:1,content:'old revision source',redacted:false,truncated:true}});
+      }
+      assert.equal(await pending,false);assert.equal(s.run('state.codeGraphSource'),null);
+      if(stage==='graph'){assert.equal(s.requests.length,1);assert.equal(s.run('state.codeGraph'),null,'obsolete graph must not populate the refreshed view');}
+    }
+  });
+  await test('source paging keeps the graph identity and requires the exact requested window',async()=>{
+    const s=sandbox();s.context.graph=focusGraph('file:src/a.rs');s.run('state.codeGraph=graph;state.selectedCodeNode="file:src/a.rs";');
+    const node=s.run('state.codeGraph.nodes[0].node'),sha='a'.repeat(64);
+    const page=(start,end)=>({workspace:'A',source:{snapshot_id:'GRAPH-overview',node_id:node.id,path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,start_line:start,end_line:end,total_lines:500,focus_start_line:start,focus_end_line:end,content:Array.from({length:end-start+1},(_,i)=>'line '+(start+i)).join('\n'),redacted:false,truncated:end<500}});
+    s.context.node=node;const next=s.run('loadCodeGraphSource(node,{startLine:241})');await flush();
+    const url=new URL(s.requests[0].url,'http://fixture');assert.equal(url.searchParams.get('start_line'),'241');
+    assert.equal(url.searchParams.get('node_id'),'file:src/a.rs');assert.equal(url.searchParams.get('snapshot_id'),'GRAPH-overview');
+    respond(s.requests[0],page(241,480));assert.equal(await next,true);
+    const html=s.node('#codeGraphInspector').innerHTML;assert.match(html,/241–480 \/ 500 lines/);
+    assert.match(html,/data-code-source-page="1"/);assert.match(html,/data-code-source-page="481"/);
+    const last=s.run('loadCodeGraphSource(node,{startLine:481})');await flush();respond(s.requests[1],page(481,500));assert.equal(await last,true);
+    assert.match(s.node('#codeGraphInspector').innerHTML,/data-code-source-page="501" disabled/);
+    const wrong=s.run('loadCodeGraphSource(node,{startLine:241})');await flush();respond(s.requests[2],page(1,240));
+    assert.equal(await wrong,false);assert.equal(s.run('state.codeGraphSource'),null,'wrong source window must not be published');
+    assert.equal(await s.run('loadCodeGraphSource(node,{startLine:0})'),false);assert.equal(s.requests.length,3);
+  });
+  await test('obsolete source page cannot replace a newer page after its controller is superseded',async()=>{
+    const s=sandbox();s.context.graph=focusGraph('file:src/a.rs');s.run('state.codeGraph=graph;state.selectedCodeNode="file:src/a.rs";node=state.codeGraph.nodes[0].node;');
+    const old=s.run('loadCodeGraphSource(node,{startLine:1})');await flush();
+    const current=s.run('loadCodeGraphSource(node,{startLine:241})');await flush();assert.equal(s.requests[0].options.signal.aborted,true);
+    const sha='b'.repeat(64),source={snapshot_id:'GRAPH-overview',node_id:'file:src/a.rs',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,start_line:241,end_line:241,total_lines:500,focus_start_line:241,focus_end_line:241,content:'current page',redacted:false,truncated:true};
+    respond(s.requests[1],{workspace:'A',source});assert.equal(await current,true);
+    respond(s.requests[0],{workspace:'A',source:{...source,start_line:1,end_line:1,focus_start_line:1,focus_end_line:1,content:'old page'}});assert.equal(await old,false);
+    assert.equal(s.run('state.codeGraphSource.start_line'),241);assert.match(s.node('#codeGraphInspector').innerHTML,/current page/);
+  });
+  await test('repository tree and largest-file rows open exact revision-bound source without search',async()=>{
+    const s=sandbox(),revision={code:'sha256:captured-code',design:'sha256:captured-design'};
+    s.context.fixture={...project(),proof:{revision_code:revision.code,revision_design:revision.design},structure:{entries:[{path:'src/a.rs',lines:500,language:'rust'}],largest_files:[{path:'src/a.rs',lines:500,language:'rust'}]}};
+    s.run('state.project=fixture;state.workspaceTab="files";renderProjectStructure();');
+    for(const node of ['#fileTree','#largeFiles'])assert.match(s.node(node).innerHTML,/<button[^>]*data-source-path="src\/a.rs"/);
+    const pending=s.run('openRepositoryFile("src/a.rs")');await flush();
+    assert.equal(s.requests.length,1);const url=new URL(s.requests[0].url,'http://fixture');
+    assert.equal(url.searchParams.get('view'),'focus');assert.equal(url.searchParams.get('node_id'),'file:src/a.rs');
+    assert.equal(url.searchParams.get('expected_code_revision'),revision.code);assert.equal(url.searchParams.get('expected_design_revision'),revision.design);
+    respond(s.requests[0],{workspace:'A',graph:focusGraph('file:src/a.rs'),repository_revision:revision});await flush();
+    assert.equal(s.requests.length,2);assert.match(s.requests[1].url,/code-source/);
+    const sha='a'.repeat(64);
+    respond(s.requests[1],{workspace:'A',source:{snapshot_id:'GRAPH-overview',node_id:'file:src/a.rs',path:'src/a.rs',provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+sha,current_sha256:sha,start_line:1,end_line:2,total_lines:500,focus_start_line:1,focus_end_line:2,content:'fn a() {}\n<script>unsafe</script>',redacted:false,truncated:true}});
+    assert.equal(await pending,true);assert.equal(s.run('state.codeGraphInspectorOpen'),true);
+    assert.match(s.node('#codeGraphInspector').innerHTML,/&lt;script&gt;unsafe&lt;\/script&gt;/);
+    assert.match(s.node('#codeGraphInspector').innerHTML,/bounded preview/);assert.equal(s.run('state.selectedCodeNode'),'file:src/a.rs');
+  });
+  await test('repository source bridge rejects unobserved paths and unknown revisions before traffic',async()=>{
+    const s=sandbox();s.context.fixture={...project(),structure:{entries:[{path:'src/a.rs'}]}};
+    s.run('state.project=fixture;');
+    assert.equal(await s.run('openRepositoryFile("../private.rs")'),false);
+    assert.equal(await s.run('openRepositoryFile("src/a.rs")'),false);assert.equal(s.requests.length,0);
+    assert.match(s.node('#fileSearchStatus').textContent,/Source revision unavailable/);
+  });
+  await test('repository source bridge cannot read after a workspace epoch or navigation changes',async()=>{
+    for(const change of ['state.workspaceEpoch++','state.workspaceTab="files"']){
+      const s=sandbox(),revision={code:'captured',design:'design'};
+      s.context.fixture={...project(),proof:{revision_code:revision.code,revision_design:revision.design},structure:{entries:[{path:'src/a.rs'}]}};
+      s.run('state.project=fixture;');const pending=s.run('openRepositoryFile("src/a.rs")');await flush();
+      s.run(change);respond(s.requests[0],{workspace:'A',graph:focusGraph('file:src/a.rs'),repository_revision:revision});
+      assert.equal(await pending,false);assert.equal(s.requests.length,1,'late focus must not initiate source read');
+    }
+  });
   await test('opening Code Graph defaults to repository overview instead of an arbitrary focus',async()=>{
     const s=sandbox();s.context.fixture={...project(),history:[]};
     s.run('state.project=fixture;state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";maybeLoadCodeGraph();');

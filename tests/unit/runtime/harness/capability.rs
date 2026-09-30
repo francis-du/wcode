@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn multi_agent_intent_routes_claim_submit_without_rerouting_identifiers() {
+    for query in [
+        "delegate task to multi-agent workers and verify design",
+        "让多 Agent 并行实现并验证设计",
+    ] {
+        let pack = manifest(query, &[], None);
+        let tools = pack["recommended_tools"].as_array().unwrap();
+        for name in [
+            "worklist_status",
+            "worklist_update",
+            "worklist_claim",
+            "worklist_submit",
+        ] {
+            assert!(tools.contains(&json!(name)), "missing {name} for {query}");
+        }
+        for name in crate::harness::default_coding_tools() {
+            assert!(
+                tools.contains(&json!(name)),
+                "missing coding guard {name} for {query}"
+            );
+        }
+        assert!(tools.len() <= MAX_RECOMMENDED_TOOLS);
+    }
+    assert_eq!(
+        manifest("inspect multi_agent_registry", &[], None)["recommended_tools"],
+        json!(crate::harness::default_coding_tools())
+    );
+}
+
+#[test]
 fn capability_routing_does_not_treat_identifier_words_as_task_intent() {
     for query in [
         "inspect verify_packet",
@@ -316,7 +346,14 @@ fn finalized_context_keeps_pending_recovery_with_saturated_readiness() {
                 "{budget}: missing {name}: {tools:?}"
             );
         }
-        assert_eq!(pack["capabilities"]["recommended_tool_count"], tools.len());
+        if pack["capabilities"]["compacted"].as_bool() == Some(true) {
+            assert!(
+                pack["capabilities"].get("recommended_tool_count").is_none(),
+                "{budget}: compacted capability count duplicates recommended_tools length"
+            );
+        } else {
+            assert_eq!(pack["capabilities"]["recommended_tool_count"], tools.len());
+        }
         assert_eq!(
             pack["execution"]["pending_directive"],
             execution["pending_directive"]

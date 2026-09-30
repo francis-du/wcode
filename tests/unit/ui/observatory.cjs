@@ -82,6 +82,107 @@ function navigatorFixture(s){
 async function run(){
   const results=[];
   async function test(name,fn){try{await fn();results.push({name,passed:true});}catch(error){results.push({name,passed:false,error:error.stack});}}
+  await test('model ownership is unknown for older snapshots and remains visible without Execution',async()=>{
+    const s=sandbox();s.context.fixture={...project(),execution:{available:true,exists:false}};s.run('state.project=fixture;renderExecutionStatus();');
+    assert.match(s.node('#executionStatus').innerHTML,/Ownership state is unknown/);assert.doesNotMatch(s.node('#executionStatus').innerHTML,/Unclaimed|No items in the observed Worklist/);
+    s.context.fixture.execution.worklist={available:true,exists:true,revision:2,items:[{id:'lane',title:'Source lane',write_paths:['src/a.rs'],claim:{actor:'worker',base_revision:1,claimed_at_ms:1,expires_at_ms:Date.now()+60000,expired:false}}]};
+    s.run('state.project=fixture;renderExecutionStatus();');assert.match(s.node('#executionStatus').innerHTML,/Source lane/);assert.match(s.node('#executionStatus').innerHTML,/Claimed/);
+  });
+  await test('worker ownership uses public scopes and labels reports independently from verification',async()=>{
+    const s=sandbox(),secret='CLAIM_PRIVATE_SECRET';s.context.fixture={...project(),execution:{available:true,exists:true,phase:'executing',checkpoint:{},worklist:{available:true,exists:true,revision:8,claim_id:secret,items:[
+      {id:'source',title:'<script>source</script>',write_paths:['src/a.rs','src/b.rs'],claim:{actor:'<worker>',base_revision:6,claimed_at_ms:1,expires_at_ms:Date.now()+60000,expired:false,claim_id:secret},result:{id:'result',actor:'reviewer',outcome:'complete',summary:'<script>reported</script>',reported_at_ms:2,repository_revision:{code:'code'},evidence:[{id:'E1'}],proof_status:'current_references_only',claim_id:secret}}
+    ]}}};s.run('state.project=fixture;renderExecutionStatus();');
+    const html=s.node('#executionStatus').innerHTML;assert.match(html,/&lt;worker&gt;/);assert.match(html,/src\/a.rs.*src\/b.rs/);assert.match(html,/Worker reports complete/);assert.match(html,/independent verification/);assert.match(html,/1 Evidence references/);
+    assert.doesNotMatch(html,/<script>|CLAIM_PRIVATE_SECRET|claim_id|current_references_only/);
+  });
+  await test('worker ownership is bounded and keeps expired claims and stale snapshots explicit',async()=>{
+    const s=sandbox();s.context.fixture={...project(),execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:9,items:Array.from({length:12},(_,i)=>({id:'lane-'+i,title:'Lane '+i,write_paths:[],claim:{actor:'worker-'+i,base_revision:1,claimed_at_ms:1,expires_at_ms:1,expired:true}}))}}};
+    s.run('state.project=fixture;state.snapshotStale=true;renderExecutionStatus();');const html=s.node('#executionStatus').innerHTML;
+    assert.equal((html.match(/class="execution-worker"/g)||[]).length,8);assert.match(html,/Lease expired/);assert.match(html,/Bounded ownership view.*8 \/ 12/);assert.match(html,/Snapshot stale/);assert.match(html,/Read-only lane/);assert.doesNotMatch(html,/Lane 11/);
+  });
+  await test('malformed worker projections fail closed while known empty Worklists stay explicit',async()=>{
+    const s=sandbox();for(const worklist of [{available:false},{available:true,exists:true,items:'bad'},{available:true,exists:true,items:[null]}]){
+      s.context.fixture={...project(),execution:{available:true,exists:false,worklist}};s.run('state.project=fixture;renderExecutionStatus();');assert.match(s.node('#executionStatus').innerHTML,/Ownership state is unknown/);
+    }
+    s.context.fixture.execution.worklist={available:true,exists:false,items:[]};s.run('state.project=fixture;renderExecutionStatus();');assert.match(s.node('#executionStatus').innerHTML,/No durable Worklist has been created/);
+    s.context.fixture.execution.worklist={available:true,exists:true,revision:1,items:[]};s.run('state.project=fixture;renderExecutionStatus();');assert.match(s.node('#executionStatus').innerHTML,/No items in the observed Worklist/);assert.doesNotMatch(s.node('#executionStatus').innerHTML,/Ownership state is unknown/);
+  });
+  await test('Worklist revision keys distinguish known state from unknown without changing legacy signals',async()=>{
+    const s=sandbox();assert.equal(s.run('revisionKey({fingerprint:"same"})'),'same|||');
+    const key=signal=>{s.context.signal=signal;return s.run('revisionKey({fingerprint:"same",worklist_revision:signal})');};
+    assert.equal(key({available:true,exists:true,revision:8}),'same||||worklist:1:8');
+    assert.notEqual(key({available:true,exists:true,revision:8}),key({available:true,exists:true,revision:9}));
+    assert.equal(key({available:true,exists:false,revision:8}),'same||||worklist:0:0');
+    for(const unknown of [null,{available:false},{available:true,exists:true,revision:-1},{available:true,exists:true,revision:"8"}]){
+      assert.equal(key(unknown),'same||||worklist:unknown');assert.notEqual(key(unknown),key({available:true,exists:false,revision:0}));
+    }
+  });
+  await test('Worklist-only changes refresh live ownership once while unchanged cached snapshots remain cheap',async()=>{
+    const s=sandbox(false,true,{fakeTimers:true});const signal={workspace:'A',fingerprint:'same',graph_signal:'graph',proof_revision:'proof',engineering_revision:'journal',worklist_revision:{available:true,exists:true,revision:8}};
+    s.context.signal=signal;s.context.fixture={...project(),execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:8,items:[]}}};
+    s.run('state.project=fixture;state.revisionKey=revisionKey(signal);renderProject=()=>{};renderAttention=()=>{};');
+    signal.worklist_revision.revision=9;const first=s.run('pollRevision()');await flush();respond(s.requests[0],signal);await flush();
+    assert.equal(s.requests[1].url,'/intelligence/project');respond(s.requests[1],{...project(),snapshot_cache:'cached',snapshot_revision:'same|graph|proof|journal|worklist:1:9',execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:9,items:[{id:'new',title:'Claimed lane',write_paths:[]}]}}});await first;
+    assert.equal(s.run('state.project.execution.worklist.revision'),9);assert.equal(s.run('state.revisionKey'),'same|graph|proof|journal|worklist:1:9');
+    const second=s.run('pollRevision()');await flush();respond(s.requests.at(-1),signal);await second;
+    assert.equal(s.requests.filter(request=>request.url==='/intelligence/project').length,1,'the cache base key must not cause repeated heavy refreshes');
+    signal.worklist_revision={available:true,exists:false,revision:0};const removed=s.run('pollRevision()');await flush();respond(s.requests.at(-1),signal);await flush();
+    assert.equal(s.requests.at(-1).url,'/intelligence/project');respond(s.requests.at(-1),{...project(),snapshot_cache:'cached',snapshot_revision:'same|graph|proof|journal|worklist:0:0',execution:{available:true,exists:false,worklist:{available:true,exists:false,revision:0,items:[]}}});await removed;
+    assert.equal(s.run('state.project.execution.worklist.exists'),false);
+  });
+  await test('an unavailable Worklist preserves same-workspace observations only as historical ownership',async()=>{
+    const s=sandbox();s.context.fixture={...project(),execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:8,items:[{id:'lane',title:'Historical lane',write_paths:['src/a.rs'],claim:{actor:'worker',expired:false,expires_at_ms:Date.now()+60000}}]}}};
+    s.run('state.project=fixture;state.workspaceTab="activity";renderProject=()=>renderExecutionStatus();renderAttention=()=>{};');
+    for(let i=0;i<2;i++){
+      const refresh=s.run('refreshProject({revision:{fingerprint:"same",worklist_revision:null}})');await flush();
+      respond(s.requests.at(-1),{...project(),snapshot_cache:'cached',snapshot_revision:'same||||worklist:unknown',execution:{available:true,exists:false,worklist:{available:false}}});await refresh;
+      assert.equal(s.run('state.project.execution.worklist.available'),false);assert.equal(s.run('state.project.execution.worklist.last_known.revision'),8);
+      assert.equal(s.run('state.project.execution.worklist.last_known.last_known'),undefined,'historical metadata must not grow on repeated failures');
+      const html=s.node('#executionStatus').innerHTML;assert.match(html,/Ownership state is unknown/);assert.match(html,/Historical lane/);assert.match(html,/Historical ownership/);assert.match(html,/Last observed Worklist #8/);assert.doesNotMatch(html,/>Claimed<\/span>/);
+    }
+    const recovered=s.run('refreshProject({revision:{fingerprint:"same",worklist_revision:{available:true,exists:true,revision:9}}})');await flush();
+    respond(s.requests.at(-1),{...project(),execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:9,items:[]}}});await recovered;
+    assert.equal(s.run('state.project.execution.worklist.last_known'),undefined);assert.doesNotMatch(s.node('#executionStatus').innerHTML,/Historical lane/);
+  });
+  await test('historical ownership never crosses a Workspace switch',async()=>{
+    const s=sandbox();s.context.fixture={...project(),execution:{available:true,exists:false,worklist:{available:true,exists:true,revision:8,items:[{id:'lane',title:'Private A lane'}]}}};
+    s.run('state.project=fixture;state.workspaceTab="activity";renderProject=()=>renderExecutionStatus();renderAttention=()=>{};');
+    const refresh=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();
+    respond(s.requests.at(-1),{...project('B'),execution:{available:true,exists:false,worklist:{available:false}}});await refresh;
+    assert.equal(s.run('state.current'),'B');assert.equal(s.run('state.project.execution.worklist.available'),false);assert.equal(s.run('state.project.execution.worklist.last_known'),undefined);
+    assert.match(s.node('#executionStatus').innerHTML,/Ownership state is unknown/);assert.doesNotMatch(s.node('#executionStatus').innerHTML,/Private A lane/);
+  });
+  await test('shared attention drives the primary action and keeps urgent signals visible',async()=>{
+    const s=sandbox();s.context.fixture={...project(),proof:{revision_code:'code-1',revision_design:'design-1',current_evidence:1},attention:{revision:{code:'code-1',design:'design-1'},total:3,items:[
+      {id:'failure',kind:'verification_failure',severity:'high',subject:'Failing check',message:'Current producer failed',provider:'verification',precision:'deterministic',section:'proof'},
+      {id:'size',kind:'oversized_source',severity:'high',subject:'src/a.rs',message:'Decompose source',provider:'structure',precision:'source',section:'files',path:'src/a.rs'},
+      {id:'coverage',kind:'partial_coverage',severity:'info',subject:'Partial scan',message:'Bounded data',provider:'scan',precision:'syntax',section:'diagnostics'}
+    ]}};
+    s.context.fixture.attention.items.push({id:'provider',kind:'provider_gap',severity:'medium',subject:'Missing quality provider',message:'Unavailable provider',provider:'language-quality',precision:'none',section:'quality'});s.context.fixture.attention.total=4;
+    s.run('state.project=fixture;renderAttention();');
+    const summary=s.node('#statusSummary').innerHTML,attention=s.node('#attention').innerHTML;
+    assert.match(summary,/Failing check/);assert.match(summary,/data-summary-action="proofSection"/);
+    assert.match(attention,/data-summary-path="src\/a.rs"/);assert.match(attention,/structure · source/);assert.match(attention,/data-summary-action="qualitySection"/,'provider gaps must reveal quality');
+    assert.ok(attention.indexOf('src/a.rs')<attention.indexOf('<details'),'urgent source issue must be outside collapsed observations');
+    assert.match(summary,/code-1/);assert.doesNotMatch(attention,/Working-tree status is unknown/,'shared projection owns repository attention');
+  });
+  await test('shared attention revision disagreement and stale snapshots demand a real refresh',async()=>{
+    const s=sandbox();s.context.fixture={...project(),proof:{revision_code:'current'},attention:{revision:{code:'old'},total:0,items:[],partial:true,partial_reasons:['scan bounded']}};
+    s.run('state.project=fixture;state.syncError=true;renderAttention();');
+    assert.match(s.node('#statusSummary').innerHTML,/Snapshot is stale/);
+    assert.match(s.node('#statusSummary').innerHTML,/data-summary-action="refresh"/);
+    assert.match(s.node('#attention').innerHTML,/Attention revision does not match/);
+    assert.match(s.node('#attention').innerHTML,/Partial attention coverage/);
+    const html=s.node('#observationCoverage').innerHTML;
+    assert.equal((html.match(/>Stale<\/span>/g)||[]).length,4);
+    assert.match(html,/Unavailable, not idle/);
+    s.run('clearWorkspaceView();');assert.equal(s.node('#observationCoverage').innerHTML,'','old observation cards must not cross workspace switches');
+  });
+  await test('command center includes source changes and requirements navigation',async()=>{
+    const s=sandbox();const commands=JSON.parse(s.run('JSON.stringify(commandActions())'));
+    for(const command of ['files','changes','requirements'])assert.ok(commands.some(item=>item[0]===command));
+    s.run('executeCommand("files");');assert.equal(s.run('state.workspaceTab'),'files');
+  });
   await test('production concatenated bundle parses as one script',async()=>{new vm.Script(productionBundle(),{filename:'intelligence-app.js'});});
   await test('runtime fixture strips bootstrap after CRLF checkout',async()=>{const source='function ready(){}\r\napplyTheme();\r\napplyLanguage();\r\nstartObservatory();';assert.equal(stripRuntimeBootstrap(source),'function ready(){}');});
   await test('storage denial cannot blank the dashboard',async()=>{const s=sandbox(true);assert.ok(s.run('state.language'));});

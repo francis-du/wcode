@@ -363,6 +363,8 @@
   name: Engineering Observatory
   responsibilities:
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
+    - share a bounded revision-bound actionable attention projection across TUI and WebUI, preserving evidence scope and precision, raw counts, partial coverage and current-plan ordering
+    - provide native selectable TUI attention tasks and providers plus protected paged source inspection from the Web file tree
     - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
     - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
     - serve bounded per-Workspace revision-stamped cached project snapshots immediately on first paint or Workspace switch, then revalidate Git-heavy project state through one server-side single-flight background refresh while browsers use lightweight cache probes and never create a heavy refresh storm
@@ -410,6 +412,10 @@
     - kind: symbol
       path: src/intelligence/observatory.rs
       symbol: build_project_observatory
+    - kind: file
+      path: src/intelligence/observatory/attention.rs
+    - kind: file
+      path: src/ui/monitor/console.rs
     - kind: file
       path: src/intelligence/observatory/fitness.rs
     - kind: file

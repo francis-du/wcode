@@ -59,7 +59,7 @@ fn schema(mut properties: Value, required: &[&str]) -> Value {
             "workspace".to_owned(),
             json!({
                 "type": "string",
-                "description": "Only pass when switching away from the default Workspace."
+                "description": "Omit for the default Workspace."
             }),
         );
     }
@@ -250,7 +250,6 @@ fn tool(
     }
     json!({
         "name": name,
-        "title": name.replace('_', " "),
         "description": compact_tool_description(name, description),
         "inputSchema": input_schema,
         "annotations": {
@@ -560,6 +559,10 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
         "execution_handoff" => "create clean durable Execution handoff lineage".to_owned(),
         "worklist_status" => "inspect persistent model worklist and runnable lanes".to_owned(),
         "worklist_update" => "update persistent model worklist with revision guard".to_owned(),
+        "worklist_claim" => "claim or renew one scoped model work lane".to_owned(),
+        "worklist_submit" => {
+            "record bounded claimed worker result and evidence references".to_owned()
+        }
         "semantic_status" => format!(
             "semantic registry · limit {}",
             usize_arg(args, "limit").unwrap_or(50)

@@ -146,6 +146,9 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
     });
 
     ProjectObservatory {
+        attention: crate::intelligence::ProjectAttentionView::empty(
+            input.repository_revision.clone(),
+        ),
         workspace: input.workspace,
         root: input.root,
         repository_revision: input.repository_revision,

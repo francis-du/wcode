@@ -303,6 +303,7 @@ impl ToolHarness {
                 .iter()
                 .take(24)
                 .map(|item| crate::intelligence_types::ProjectEvidenceView {
+                    id: sanitize(&item.id),
                     subject: sanitize(&item.subject),
                     producer: sanitize(&item.producer),
                     policy: item.policy.as_deref().map(sanitize),
@@ -391,6 +392,8 @@ impl ToolHarness {
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
         });
+        snapshot.attention =
+            crate::intelligence::observatory_attention::build(&snapshot, review, &verification);
         snapshot.fitness.benchmark = crate::intelligence::load_benchmarks(workspace, &revision);
         if self.intelligence.current_revision(workspace)? != revision {
             return Err(anyhow::anyhow!(

@@ -114,6 +114,27 @@ Before editing:
    first-party semantics may be maintained automatically; `--no-semantic` is
    the operator opt-out.
 
+Model multi-agent work:
+
+- Use Host-native worker/spawn primitives when available. `parallel_tools`
+  batches server operations; it does not create model agents.
+- Split the Worklist into independent items with explicit `write_paths`;
+  an empty array is a read-only lane. Keep overlapping writes sequential.
+- Claim each runnable lane with `worklist_claim`, the current Worklist and
+  repository revisions, and a descriptive actor. Give the worker only its
+  private claim token and bounded handoff. Reuse its included Agent Context
+  when current and sufficient; refresh only missing or stale task context.
+  Renew before the 15-minute lease expires. A claim coordinates ownership and
+  never widens Workspace authorization.
+- Workers use guarded edits, report existing evidence references and bounded
+  summaries through `worklist_submit`, and keep failed or incomplete work
+  explicit. The coordinator inspects results and runs independent
+  `review_changes`/`verify_project` for the combined revision. Worker-reported
+  completion is not Verification or HumanApproval.
+- If the Host cannot spawn models, execute the same lanes serially; do not
+  invent workers. Reuse tool schemas and send task-scoped source/SHA/checks
+  rather than complete transcripts to each worker.
+
 While editing:
 
 - Stay inside the selected Workspace. Preserve SHA-256 preconditions and use

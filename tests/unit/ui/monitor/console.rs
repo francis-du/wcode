@@ -361,8 +361,44 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
         mixed_jev["calls"]["tokens"]["source"],
         "mixed_provider_and_byte_estimate"
     );
-    assert_eq!(mixed_jev["calls"]["tokens"]["input"], 1224);
-    assert_eq!(mixed_jev["calls"]["tokens"]["output"], 306);
+    assert_eq!(mixed_jev["calls"]["tokens"]["input"], 1100);
+    assert_eq!(mixed_jev["calls"]["tokens"]["output"], 230);
+    assert_eq!(mixed_jev["calls"]["tokens"]["total"], 1330);
+    assert_eq!(mixed_jev["calls"]["tokens"]["estimated_observations"], 1);
+
+    monitor.record_agent_context_decision(
+        "web",
+        &serde_json::json!({
+            "provider": "jev",
+            "status": "active",
+            "model": "jev-latest",
+            "authority": "increase_only_assist",
+            "call": {
+                "request_bytes": 400,
+                "response_bytes": 100,
+                "elapsed_ms": 80,
+                "tokens": {
+                    "input": 95,
+                    "output": null,
+                    "total": null,
+                    "source": "provider_reported"
+                }
+            }
+        }),
+    );
+    let partial = monitor.observatory_activity("web");
+    let partial_jev = &partial["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(
+        partial_jev["call"]["tokens"]["source"],
+        "mixed_provider_and_byte_estimate"
+    );
+    assert_eq!(partial_jev["call"]["tokens"]["input"], 95);
+    assert_eq!(partial_jev["call"]["tokens"]["output"], 25);
+    assert_eq!(partial_jev["call"]["tokens"]["total"], 120);
+    assert_eq!(partial_jev["calls"]["tokens"]["input"], 1195);
+    assert_eq!(partial_jev["calls"]["tokens"]["output"], 255);
+    assert_eq!(partial_jev["calls"]["tokens"]["total"], 1450);
+    assert_eq!(partial_jev["calls"]["tokens"]["estimated_observations"], 2);
 
     monitor.record_agent_context_decision(
         "web",
@@ -378,8 +414,8 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
     let latest = monitor.observatory_activity("web");
     let jev = &latest["agent_context"]["decision_runtime"]["jev"];
     assert_eq!(jev["status"], "unavailable");
-    assert_eq!(jev["calls"]["observed"], 3);
-    assert_eq!(jev["calls"]["successful"], 2);
+    assert_eq!(jev["calls"]["observed"], 4);
+    assert_eq!(jev["calls"]["successful"], 3);
     assert_eq!(jev["calls"]["degraded"], 1);
 }
 

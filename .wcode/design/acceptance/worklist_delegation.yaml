@@ -1,0 +1,27 @@
+schema_version: 1
+id: AC-WORKLIST-DELEGATION-001
+title: Scoped child work retains dependency, ownership, revision and proof boundaries
+statement: >-
+  Claims use Worklist CAS and current repository revision, exclude active duplicate and
+  overlapping scopes, reject root/traversal/protected/symlink paths and keep dependency
+  ordering. Public status and context contain actor, expiry and reported results but no
+  possession token. A failed context handoff neither publishes a claim nor holds the global
+  update lock. Concurrent claims yield one owner; expired ownership is reclaimable and old
+  tokens fail. Legitimate edits may change the claim base revision, but submit must bind a
+  fresh current revision and reject fabricated evidence. Reports never mint Evidence or proof
+  readiness. The parallel runnable projection is a pairwise non-overlapping subset. Multi-agent
+  intent makes claim/submit discoverable while ordinary identifier names retain normal routing.
+verification:
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_is_private_scoped_and_excludes_live_overlapping_lanes}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_rejects_false_stale_tokens_and_protects_active_task_updates}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_submit_accepts_guarded_edits_but_report_is_not_verification}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: expired_worklist_claim_is_visible_reclaimable_and_old_token_cannot_submit}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_scopes_reject_root_traversal_protected_and_symlinks}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_submit_rejects_fabricated_evidence_without_releasing_claim}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_failed_handoff_neither_publishes_claim_nor_holds_update_lock}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_parallel_runnable_is_a_nonoverlapping_subset}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: simultaneous_worklist_claims_cannot_duplicate_one_lane}
+  - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: multi_agent_intent_routes_claim_submit_without_rerouting_identifiers}
+  - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: worker_lanes_route_claims_results_and_protected_public_observation}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_reports_bound_unicode_scalars_and_keep_live_dependencies_complete}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: expired_claim_can_be_replanned_without_old_capability}

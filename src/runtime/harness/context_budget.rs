@@ -20,6 +20,16 @@ pub(super) fn serialized_json_bytes<T: serde::Serialize + ?Sized>(value: &T) -> 
     Ok(counter.0)
 }
 
+fn replace_if_smaller(target: &mut Value, compact: Value) -> bool {
+    let before = serialized_json_bytes(target).unwrap_or(0);
+    let after = serialized_json_bytes(&compact).unwrap_or(usize::MAX);
+    if after >= before {
+        return false;
+    }
+    *target = compact;
+    true
+}
+
 #[cfg(test)]
 pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
     Ok(serialized_json_bytes(value)?.div_ceil(4))
@@ -27,13 +37,19 @@ pub(super) fn estimated_json_tokens(value: &Value) -> Result<usize> {
 
 fn shrink_hot_source_body(value: &mut Value, budget: usize, current_tokens: usize) -> bool {
     let excess_bytes = current_tokens.saturating_sub(budget).saturating_mul(4);
+    let bytes_before_restore = serialized_json_bytes(value).unwrap_or(0);
     if let Some(source) = value["hot_source"]
         .as_array()
         .and_then(|items| items.first())
         .cloned()
     {
-        restore_target_range(value, &source);
+        restore_symbol_range(value, &source);
     }
+    // Restored follow-up coordinates consume space too; the source reduction
+    // must pay for them before the compaction loop checks byte progress.
+    let restored_bytes = serialized_json_bytes(value)
+        .unwrap_or(bytes_before_restore)
+        .saturating_sub(bytes_before_restore);
     let Some(body) = value
         .get_mut("hot_source")
         .and_then(Value::as_array_mut)
@@ -54,7 +70,11 @@ fn shrink_hot_source_body(value: &mut Value, budget: usize, current_tokens: usiz
         return false;
     }
     let target = chars
-        .saturating_sub(excess_bytes.saturating_add(16))
+        .saturating_sub(
+            excess_bytes
+                .saturating_add(restored_bytes)
+                .saturating_add(16),
+        )
         .max(64);
     if target >= chars {
         return false;
@@ -133,8 +153,10 @@ fn compact_conventions(value: &mut Value) -> bool {
         .get("truncated")
         .cloned()
         .unwrap_or(Value::Bool(false));
-    *conventions = json!({"errors": errors, "truncated": truncated});
-    true
+    replace_if_smaller(
+        conventions,
+        json!({"errors": errors, "truncated": truncated}),
+    )
 }
 
 fn compact_core_constraints(value: &mut Value) -> bool {
@@ -147,13 +169,15 @@ fn compact_core_constraints(value: &mut Value) -> bool {
     {
         return false;
     }
-    *constraints = json!([
-        "source<=1000;oversized-no-growth;generated-exempt",
-        "standalone-tests=>tests/",
-        "architecture-moves=>design-sync",
-        "independent-lanes=>parallel;bulk-first;serialize-true-deps-only"
-    ]);
-    true
+    replace_if_smaller(
+        constraints,
+        json!([
+            "source<=1000;oversized-no-growth;generated-exempt",
+            "standalone-tests=>tests/",
+            "architecture-moves=>design-sync",
+            "independent-lanes=>parallel;bulk-first;serialize-true-deps-only"
+        ]),
+    )
 }
 
 fn compact_readiness_explanation(value: &mut Value) -> bool {
@@ -261,17 +285,19 @@ fn compact_repo_map_explanation(value: &mut Value) -> bool {
         .get("deferred")
         .cloned()
         .unwrap_or(Value::Bool(false));
-    *repo_map = json!({
-        "provider": provider,
-        "precision": precision,
-        "items": items,
-        "truncated": truncated,
-        "cache_hit": cache_hit,
-        "scope_path": scope_path,
-        "files_indexed": files_indexed,
-        "deferred": deferred,
-    });
-    true
+    replace_if_smaller(
+        repo_map,
+        json!({
+            "provider": provider,
+            "precision": precision,
+            "items": items,
+            "truncated": truncated,
+            "cache_hit": cache_hit,
+            "scope_path": scope_path,
+            "files_indexed": files_indexed,
+            "deferred": deferred,
+        }),
+    )
 }
 
 fn compact_retrieval_explanation(value: &mut Value) -> bool {
@@ -289,8 +315,10 @@ fn compact_retrieval_explanation(value: &mut Value) -> bool {
         .cloned()
         .unwrap_or_else(|| json!("explicit-locations"));
     let resolved = object.get("resolved").cloned().unwrap_or_else(|| json!(0));
-    *retrieval = json!({"strategy": strategy, "resolved": resolved});
-    true
+    replace_if_smaller(
+        retrieval,
+        json!({"strategy": strategy, "resolved": resolved}),
+    )
 }
 
 fn compact_provenance_explanation(value: &mut Value) -> bool {
@@ -383,94 +411,12 @@ fn compact_hot_source_metadata(value: &mut Value) -> bool {
     changed
 }
 
+pub(super) fn deduplicate_source_backed_repo_map(value: &mut Value) -> bool {
+    super::context_dedup::deduplicate_source_backed_repo_map(value)
+}
+
 pub(super) fn compact_duplicate_symbol_metadata(value: &mut Value) -> bool {
-    let complete = value["hot_source"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|source| {
-            source["body"]["truncated"] == false
-                && source["body"]["redacted"] == false
-                && source["body"]["content"]
-                    .as_str()
-                    .is_some_and(|text| !text.is_empty())
-        })
-        .filter(|source| {
-            value["files"].as_array().into_iter().flatten().any(|file| {
-                source["sha256"].as_str().is_some()
-                    && file["path"] == source["path"]
-                    && file["sha256"] == source["sha256"]
-            })
-        })
-        .filter_map(|source| {
-            Some((
-                source["path"].as_str()?.to_owned(),
-                source["id"].as_str()?.to_owned(),
-            ))
-        })
-        .collect::<BTreeSet<_>>();
-    let mut changed = false;
-    for pointer in ["/targets", "/repo_map/items"] {
-        for item in value
-            .pointer_mut(pointer)
-            .and_then(Value::as_array_mut)
-            .into_iter()
-            .flatten()
-        {
-            let covered =
-                item["path"]
-                    .as_str()
-                    .zip(item["id"].as_str())
-                    .is_some_and(|(path, id)| {
-                        complete.contains(&(
-                            path.to_owned(),
-                            id.strip_prefix("symbol:").unwrap_or(id).to_owned(),
-                        ))
-                    });
-            if let Some(object) = item.as_object_mut() {
-                if covered {
-                    changed |= object.remove("signature").is_some();
-                }
-                // Scores explain ordering; they are not relationship evidence.
-                changed |= object.remove("score").is_some();
-                changed |= object.remove("degree").is_some();
-            }
-        }
-    }
-    // A relationship-free map entry adds no information when its exact
-    // identity and current complete source are already delivered. Let that
-    // duplicate yield before native checks or another requested source body.
-    let targets = value["targets"].as_array().cloned().unwrap_or_default();
-    if let Some(items) = value
-        .pointer_mut("/repo_map/items")
-        .and_then(Value::as_array_mut)
-    {
-        let before = items.len();
-        items.retain(|item| {
-            let identity = item["path"].as_str().zip(item["id"].as_str());
-            !identity.is_some_and(|(path, id)| {
-                let id = id.strip_prefix("symbol:").unwrap_or(id);
-                complete.contains(&(path.to_owned(), id.to_owned()))
-                    && targets.iter().any(|target| {
-                        target["path"].as_str() == Some(path) && target["id"].as_str() == Some(id)
-                    })
-                    && item["relationships"].as_array().is_some_and(Vec::is_empty)
-            })
-        });
-        changed |= before != items.len();
-    }
-    for file in value
-        .get_mut("files")
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-    {
-        if let Some(object) = file.as_object_mut() {
-            changed |= object.remove("size").is_some();
-            changed |= object.remove("reasons").is_some();
-        }
-    }
-    changed
+    super::context_dedup::compact_duplicate_symbol_metadata(value, true)
 }
 
 pub(super) fn compact_source_backed_targets(value: &mut Value) -> bool {
@@ -489,9 +435,8 @@ pub(super) fn compact_source_backed_targets(value: &mut Value) -> bool {
         })
         .filter(|source| {
             value["files"].as_array().into_iter().flatten().any(|file| {
-                source["sha256"].as_str().is_some_and(|sha| {
-                    sha.len() == 64 && sha.as_bytes().iter().all(u8::is_ascii_hexdigit)
-                }) && file["path"] == source["path"]
+                super::context_dedup::valid_sha256(&source["sha256"])
+                    && file["path"] == source["path"]
                     && file["sha256"] == source["sha256"]
             })
         })
@@ -629,34 +574,43 @@ fn compact_selection_explanation(value: &mut Value) -> bool {
     changed
 }
 
-fn restore_target_range(value: &mut Value, source: &Value) {
+fn restore_symbol_range(value: &mut Value, source: &Value) {
     if source["body"]["truncated"] != false
         || source["body"]["redacted"] != false
-        || !value["files"].as_array().into_iter().flatten().any(|file| {
-            source["sha256"].as_str().is_some_and(|sha| !sha.is_empty())
-                && file["path"] == source["path"]
-                && file["sha256"] == source["sha256"]
-        })
+        || !super::context_dedup::valid_sha256(&source["sha256"])
+        || !value["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|file| file["path"] == source["path"] && file["sha256"] == source["sha256"])
     {
         return;
     }
-    for target in value
-        .get_mut("targets")
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-    {
-        if source["id"].as_str().is_some()
-            && target["id"] == source["id"]
-            && target["path"] == source["path"]
+    let Some((source_path, source_id)) = source["path"].as_str().zip(source["id"].as_str()) else {
+        return;
+    };
+    for pointer in ["/targets", "/repo_map/items"] {
+        for item in value
+            .pointer_mut(pointer)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
         {
-            if let Some(object) = target.as_object_mut() {
-                for key in ["start_line", "end_line"] {
-                    if source["body"][key].as_u64().is_some() {
-                        object
-                            .entry(key)
-                            .or_insert_with(|| source["body"][key].clone());
-                    }
+            let matches_source = item["path"].as_str() == Some(source_path)
+                && item["id"]
+                    .as_str()
+                    .is_some_and(|id| id.strip_prefix("symbol:").unwrap_or(id) == source_id);
+            if !matches_source {
+                continue;
+            }
+            let Some(object) = item.as_object_mut() else {
+                continue;
+            };
+            for key in ["start_line", "end_line"] {
+                if source["body"][key].as_u64().is_some() {
+                    object
+                        .entry(key)
+                        .or_insert_with(|| source["body"][key].clone());
                 }
             }
         }
@@ -673,7 +627,7 @@ fn pop_secondary_source(value: &mut Value) -> bool {
     let source = items.pop().expect("secondary source exists");
     // Metadata was compacted only while a matching full body existed. If that
     // body must yield, keep its original coordinates for a follow-up read.
-    restore_target_range(value, &source);
+    restore_symbol_range(value, &source);
     true
 }
 
@@ -875,16 +829,43 @@ fn compact_capability_explanation(value: &mut Value) -> bool {
     changed
 }
 
-fn compact_capability_manifest(value: &mut Value) -> bool {
+pub(super) fn compact_capability_manifest(value: &mut Value) -> bool {
     let Some(capabilities) = value.get_mut("capabilities").and_then(Value::as_object_mut) else {
         return false;
     };
-    if capabilities.get("compacted").and_then(Value::as_bool) == Some(true) {
+    let Some(names) = capabilities
+        .get("recommended_tools")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let Some(actions) = capabilities
+        .get("recommended_actions")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    if names.len() != actions.len()
+        || names.iter().zip(actions).any(|(name, action)| {
+            let Some(name) = name.as_str() else {
+                return true;
+            };
+            action
+                != &json!({
+                    "tool":name,
+                    "group":crate::harness::model_tool_group(name),
+                    "disclosure":if crate::harness::model_tool_preload_recommended(name) {
+                        "core"
+                    } else {
+                        "on_demand"
+                    }
+                })
+        })
+    {
         return false;
     }
-    if capabilities.remove("recommended_actions").is_none() {
-        return false;
-    }
+    capabilities.remove("recommended_actions");
+    capabilities.remove("recommended_tool_count");
     capabilities.insert("compacted".to_owned(), Value::Bool(true));
     true
 }
@@ -901,6 +882,7 @@ fn compact_optional_model_tools(value: &mut Value) -> bool {
     let Some(capabilities) = value.get_mut("capabilities") else {
         return false;
     };
+    let compacted = capabilities.get("compacted").and_then(Value::as_bool) == Some(true);
     let Some(tools) = capabilities
         .get_mut("recommended_tools")
         .and_then(Value::as_array_mut)
@@ -917,10 +899,17 @@ fn compact_optional_model_tools(value: &mut Value) -> bool {
                 )
             })
     });
-    if tools.len() == before {
+    let retained = tools.len();
+    if retained == before {
         return false;
     }
-    capabilities["recommended_tool_count"] = json!(tools.len());
+    if compacted {
+        if let Some(object) = capabilities.as_object_mut() {
+            object.remove("recommended_tool_count");
+        }
+    } else {
+        capabilities["recommended_tool_count"] = json!(retained);
+    }
     true
 }
 
@@ -967,21 +956,23 @@ fn compact_execution_summary(value: &mut Value) -> bool {
 }
 
 fn compact_worklist_summary(value: &mut Value) -> bool {
-    let Some(worklist) = value.get_mut("worklist").and_then(Value::as_object_mut) else {
+    let Some(worklist) = value.get_mut("worklist") else {
         return false;
     };
     if worklist.get("truncated").and_then(Value::as_bool) == Some(true) {
         return false;
     }
+    let Some(mut compact) = worklist.as_object().cloned() else {
+        return false;
+    };
     // Only abbreviate this context view; the revision-guarded durable list stays intact.
-    if let Some(goal) = worklist.get("goal").and_then(Value::as_str) {
-        let goal = short_text(goal, 120);
-        worklist.insert("goal".to_owned(), json!(goal));
+    if let Some(goal) = compact.get("goal").and_then(Value::as_str) {
+        compact.insert("goal".to_owned(), json!(short_text(goal, 120)));
     }
-    worklist.insert("truncated".to_owned(), json!(true));
-    worklist.insert(
+    compact.insert("truncated".to_owned(), json!(true));
+    compact.insert(
         "guidance".to_owned(),
         json!("Call worklist_status to resume omitted items; never overwrite unfinished work."),
     );
-    true
+    replace_if_smaller(worklist, Value::Object(compact))
 }

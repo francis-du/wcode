@@ -21,6 +21,35 @@ pub(super) fn manifest(
             &["execution_status", "execution_propose", "worklist_status"],
         );
     }
+    let multi_agent = contains_any(
+        &normalized,
+        &[
+            "multi agent",
+            "multi-agent",
+            "subagent",
+            "sub-agent",
+            "parallel agent",
+            "delegate task",
+            "多agent",
+            "多 agent",
+            "多智能体",
+            "子agent",
+            "子 agent",
+            "并行代理",
+            "任务领取",
+        ],
+    );
+    if multi_agent {
+        promote_unique(
+            &mut recommended,
+            &[
+                "worklist_status",
+                "worklist_update",
+                "worklist_claim",
+                "worklist_submit",
+            ],
+        );
+    }
     if execution.is_some()
         && contains_any(
             &normalized,
@@ -177,6 +206,25 @@ pub(super) fn manifest(
         "host_contract": "Preload only dev.wcode/preloadRecommended tools when the host supports progressive disclosure. After agent_context, prefer recommended_actions and expand on-demand tools by their task-manifest group or dev.wcode/productScopes. Explicit user tool requests and required recovery/safety/verification actions remain reachable."
     });
     // Pending user steering must survive every bounded specialist selection.
+    if multi_agent {
+        crate::harness::prioritize_model_tools(
+            &mut result,
+            &crate::harness::default_coding_tools()
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>(),
+        );
+        crate::harness::prioritize_model_tools(
+            &mut result,
+            &[
+                "worklist_status",
+                "worklist_update",
+                "worklist_claim",
+                "worklist_submit",
+            ]
+            .map(str::to_owned),
+        );
+    }
     crate::harness::prioritize_model_tools(&mut result, &required_recovery_tools(execution));
     result
 }

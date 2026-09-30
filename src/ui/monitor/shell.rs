@@ -34,14 +34,7 @@ pub(super) fn draw_dashboard(
             );
         }
     } else if ui.intelligence_open {
-        render_intelligence_overlay(
-            frame,
-            area,
-            snapshot,
-            config,
-            ui.workspace_focus,
-            ui.language,
-        );
+        render_intelligence_overlay(frame, area, snapshot, config, ui);
     } else if ui.help_open {
         render_help_overlay(frame, area, config, ui.language);
     }

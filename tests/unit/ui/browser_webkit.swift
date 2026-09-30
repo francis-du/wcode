@@ -39,7 +39,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       check(document.querySelectorAll('[role="tab"][aria-selected="true"]').length===1,'tab selection');
       const activePanel=document.querySelector(`[data-workspace-panel="${state.workspaceTab}"]`);
       check(activePanel&&visible(activePanel),'active workspace panel hidden',activePanel);
-      for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar','.evidence-inspector-card','.evidence-inspector-section','.evidence-inspector-card .inspector-chip-list','.evidence-inspector-section pre']){
+      for(const selector of ['.bar-row','.frontier-row','.evidence-ledger-head','.evidence-ledger-row','.evidence-inspector-identity','.proof-signal-card','.workspace-context','.global-bar','.evidence-inspector-card','.evidence-inspector-section','.evidence-inspector-card .inspector-chip-list','.evidence-inspector-section pre','.observation-coverage-grid','.observation-surface','.code-graph-source-paging','.execution-worker','.execution-worker-facts','.execution-worker-result','.execution-worker-head']){
         document.querySelectorAll(selector).forEach((el,i)=>{
           if(!visible(el))return;
           check(el.scrollWidth<=el.clientWidth+1,selector+' content overflow '+i,el,el.parentElement);
@@ -65,6 +65,29 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
           check(!source.querySelector('script'),'source markup executed',source);
         }
         check(inspector?.querySelectorAll('[data-change-layer]').length===3,'comparison layers missing',inspector);
+      }
+      check(document.querySelectorAll('.observation-surface').length===5,'observation drilldowns missing',document.getElementById('observationCoverage'));
+      if(state.workspaceTab==='files'){
+        for(const area of ['fileTree','largeFiles']){
+          const buttons=[...document.getElementById(area).querySelectorAll('[data-source-path]')];
+          check(buttons.length>0,'source navigation absent '+area,document.getElementById(area));
+          buttons.forEach(button=>check(button.tagName==='BUTTON'&&button.type==='button'&&Boolean(button.getAttribute('aria-label')),'source row not keyboard accessible',button));
+        }
+      }
+      if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'&&state.codeGraphInspectorOpen){
+        const source=document.querySelector('.code-graph-source'),paging=source?.querySelector('.code-graph-source-paging');
+        check(source&&visible(source),'source preview hidden',source);
+        check(paging?.querySelectorAll('[data-code-source-page]').length===2,'source paging controls missing',paging);
+        check((paging?.textContent||'').includes('241–243 / 808'),'source paging bounds missing',paging);
+        check(!source?.querySelector('script'),'source preview markup executed',source);
+      }
+      if(state.workspaceTab==='overview'||state.workspaceTab==='activity'){
+        const ownership=document.querySelector('.execution-workers');
+        check(ownership&&(state.workspaceTab!=='activity'||visible(ownership)),'model ownership hidden',ownership);
+        check(ownership?.querySelectorAll('.execution-worker').length===2,'claimed task/report rows missing',ownership);
+        check(!ownership?.querySelector('script'),'worker report markup executed',ownership);
+        check(!(ownership?.innerHTML||'').includes('CLAIM_PRIVATE_SECRET'),'private claim token exposed',ownership);
+        check(ownership?.querySelector('.execution-worker-result .pill')?.classList.contains('warn'),'worker completion certified as verification',ownership);
       }
       if(state.workspaceTab==='overview'){
         const section=document.getElementById('fitnessSection');
@@ -131,6 +154,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         for width in widths {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {for tab in ["proof","overview"] {scenarios.append((width,lang,theme,tab))}}}}
         for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph"))}}}
         for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph-full"))}}}
+        for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,"codegraph-source"))}}}
         for view in ["activity","changes","requirements","files","architecture-blueprint","architecture-components","architecture-dependencies"] {for width in [320,720,1024,1440] {for lang in ["en","zh-CN"] {for theme in ["dark","light"] {scenarios.append((width,lang,theme,view))}}}}
         totalCases=scenarios.count
         if let option=CommandLine.arguments.first(where:{$0.hasPrefix("--timeout=")}) {
@@ -181,7 +205,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';state.codeGraphView=scenario==='codegraph-full'?'focus':'overview';state.selectedCodeNode=scenario==='codegraph-full'?'node:focus':'';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
+        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';state.codeGraphView=scenario==='codegraph'?'overview':'focus';state.selectedCodeNode=scenario==='codegraph'?'':'node:focus';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);if(scenario==='codegraph-source')setCodeGraphInspector(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
         """
         web.evaluateJavaScript(setup){value,error in
             if let error {self.finish("Browser setup failed: \(error)");return}

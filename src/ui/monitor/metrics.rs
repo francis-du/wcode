@@ -155,6 +155,29 @@ impl TaskMonitor {
             stats.jev_request_bytes = stats.jev_request_bytes.saturating_add(call_request_bytes);
             stats.jev_response_bytes = stats.jev_response_bytes.saturating_add(call_response_bytes);
             stats.jev_elapsed_ms = stats.jev_elapsed_ms.saturating_add(call_elapsed_ms);
+
+            let effective_input =
+                call_input_tokens.unwrap_or_else(|| call_request_bytes.div_ceil(4));
+            let effective_output =
+                call_output_tokens.unwrap_or_else(|| call_response_bytes.div_ceil(4));
+            let effective_total = call_total_tokens
+                .unwrap_or_else(|| effective_input.saturating_add(effective_output));
+            stats.jev_effective_input_tokens = stats
+                .jev_effective_input_tokens
+                .saturating_add(effective_input);
+            stats.jev_effective_output_tokens = stats
+                .jev_effective_output_tokens
+                .saturating_add(effective_output);
+            stats.jev_effective_total_tokens = stats
+                .jev_effective_total_tokens
+                .saturating_add(effective_total);
+            if call_input_tokens.is_none()
+                || call_output_tokens.is_none()
+                || call_total_tokens.is_none()
+            {
+                stats.jev_estimated_token_observations =
+                    stats.jev_estimated_token_observations.saturating_add(1);
+            }
         }
         if call_input_tokens.is_some()
             || call_output_tokens.is_some()

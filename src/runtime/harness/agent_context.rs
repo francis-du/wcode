@@ -8,6 +8,8 @@ mod capability;
 mod context_anchors;
 #[path = "context_budget.rs"]
 mod context_budget;
+#[path = "context_dedup.rs"]
+mod context_dedup;
 #[path = "context_guidance.rs"]
 mod context_guidance;
 #[path = "context_operations.rs"]
@@ -841,6 +843,13 @@ fn finalize_agent_context(
     baseline_context_bytes: u64,
     budget: usize,
 ) -> Result<()> {
+    // The ordered canonical tool names already encode the active tool set.
+    // Drop their reconstructible action/count copies before budgeting so every
+    // delivered pack avoids this repeated discovery cost, even below the cap.
+    context_budget::compact_capability_manifest(value);
+    // Remove only repo-map metadata exactly reconstructible from current
+    // source already in the pack; keep row identity, kind, reason and relations.
+    context_budget::deduplicate_source_backed_repo_map(value);
     for _ in 0..32 {
         let previous = (
             value["serialized_bytes"].clone(),

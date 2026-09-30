@@ -35,6 +35,7 @@ fn execution_checkpoint_tracks_worklist_and_requires_verification_to_complete() 
             goal: Some("ship durable execution".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "core".to_owned(),
                 title: Some("Build the core".to_owned()),
                 status: Some(WorkItemStatus::InProgress),
@@ -63,6 +64,7 @@ fn execution_checkpoint_tracks_worklist_and_requires_verification_to_complete() 
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "core".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::Done),
@@ -115,6 +117,7 @@ fn worklist_restart_creates_a_new_execution_generation() {
             goal: Some("first execution".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "first".to_owned(),
                 title: Some("Finish first".to_owned()),
                 status: Some(WorkItemStatus::InProgress),
@@ -142,6 +145,7 @@ fn worklist_restart_creates_a_new_execution_generation() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "first".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::Done),
@@ -168,6 +172,7 @@ fn worklist_restart_creates_a_new_execution_generation() {
             goal: Some("second execution".to_owned()),
             restart: true,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "second".to_owned(),
                 title: Some("Start second".to_owned()),
                 status: None,
@@ -204,6 +209,7 @@ fn blocked_worklist_projects_to_blocked_execution_without_chat_state() {
             goal: Some("wait for an external decision".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "decision".to_owned(),
                 title: Some("Need decision".to_owned()),
                 status: Some(WorkItemStatus::Blocked),
@@ -236,6 +242,7 @@ fn model_terminal_proposal_is_advisory_and_cannot_self_complete() {
             goal: Some("prove completion authority".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: Some("Still working".to_owned()),
                 status: Some(WorkItemStatus::InProgress),
@@ -278,6 +285,7 @@ fn bound_reconciliation_plan_survives_expected_repository_revision_change() {
             goal: Some("keep approved convergence bound".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: Some("Implementation".to_owned()),
                 status: Some(WorkItemStatus::InProgress),
@@ -341,6 +349,7 @@ fn verification_ready_cannot_complete_until_current_reconciliation_converges() {
             goal: Some("settle only from proof".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: Some("Implementation".to_owned()),
                 status: Some(WorkItemStatus::Done),
@@ -385,6 +394,7 @@ fn active_execution(workspace: &Workspace) -> Value {
             goal: Some("durable steering target".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: Some("Continue work".to_owned()),
                 status: Some(WorkItemStatus::InProgress),
@@ -558,6 +568,7 @@ fn scope_steering_against_bound_plan_requires_replan() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::InProgress),
@@ -614,6 +625,7 @@ fn verification_steering_floor_is_monotonic_across_applied_directives() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::InProgress),
@@ -657,6 +669,7 @@ fn verification_steering_floor_is_monotonic_across_applied_directives() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "work".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::InProgress),
@@ -820,6 +833,7 @@ fn execution_refresh_rebinds_plan_after_verification_floor_strengthens() {
                 goal: None,
                 restart: false,
                 items: vec![WorkItemPatch {
+                    write_paths: None,
                     id: "work".to_owned(),
                     title: None,
                     status: Some(WorkItemStatus::InProgress),

@@ -219,6 +219,68 @@ async fn cancelled_execution_worker_retains_both_admission_permits() {
     drop((first, second));
 }
 
+#[test]
+fn model_worker_tools_keep_revision_scope_and_result_guards_discoverable() {
+    let catalog = tools();
+    for name in ["worklist_claim", "worklist_submit"] {
+        let tool = catalog.iter().find(|tool| tool["name"] == name).unwrap();
+        assert_eq!(tool["annotations"]["readOnlyHint"], false);
+        assert_eq!(tool["annotations"]["destructiveHint"], false);
+        assert!(!tool["description"].as_str().unwrap().ends_with('…'));
+        let schema = &tool["inputSchema"];
+        assert_eq!(schema["properties"]["expected_revision"]["minimum"], 1);
+        assert_eq!(
+            schema["properties"]["expected_repository_revision"]["required"],
+            json!(["code", "design"])
+        );
+        assert_eq!(
+            schema["properties"]["expected_repository_revision"]["additionalProperties"],
+            false
+        );
+        assert_required_fields_exist(schema, name);
+        assert!(tool["_meta"]["dev.wcode/preloadRecommended"].is_null());
+    }
+    let claim = catalog
+        .iter()
+        .find(|tool| tool["name"] == "worklist_claim")
+        .unwrap();
+    assert!(claim["inputSchema"]["properties"]["claim_id"].is_object());
+    assert!(!claim["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x == "claim_id"));
+    let submit = catalog
+        .iter()
+        .find(|tool| tool["name"] == "worklist_submit")
+        .unwrap();
+    assert!(submit["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x == "claim_id"));
+    assert_eq!(
+        submit["inputSchema"]["properties"]["outcome"]["enum"],
+        json!(["complete", "blocked", "incomplete"])
+    );
+    assert_eq!(
+        submit["inputSchema"]["properties"]["evidence_ids"]["maxItems"],
+        32
+    );
+    let update = catalog
+        .iter()
+        .find(|tool| tool["name"] == "worklist_update")
+        .unwrap();
+    assert_eq!(
+        update.pointer("/inputSchema/properties/items/items/properties/write_paths/maxItems"),
+        Some(&json!(32))
+    );
+    assert!(crate::scopes::tool_scopes("worklist_claim")
+        .contains(&crate::scopes::ProductScope::Runtime));
+    assert!(crate::scopes::tool_scopes("worklist_submit")
+        .contains(&crate::scopes::ProductScope::Runtime));
+}
+
 fn assert_required_fields_exist(value: &Value, tool_name: &str) {
     match value {
         Value::Object(object) => {
@@ -409,6 +471,46 @@ fn execution_policy_status_is_read_only_and_bounded() {
 }
 
 #[test]
+fn tool_catalog_default_workspace_guidance_saves_repeated_discovery_bytes() {
+    const PREVIOUS_GUIDANCE: &str = "Only pass when switching away from the default Workspace.";
+    const GUIDANCE: &str = "Omit for the default Workspace.";
+    let compact = serde_json::to_value(tools()).unwrap();
+    let mut paired = compact.clone();
+    let mut workspace_fields = 0;
+    for tool in paired.as_array_mut().unwrap() {
+        if let Some(workspace) = tool.pointer_mut("/inputSchema/properties/workspace") {
+            assert_eq!(workspace["type"], "string");
+            assert_eq!(workspace["description"], GUIDANCE);
+            workspace["description"] = json!(PREVIOUS_GUIDANCE);
+            workspace_fields += 1;
+        }
+    }
+    let before = serde_json::to_vec(&paired).unwrap().len();
+    let after = serde_json::to_vec(&compact).unwrap().len();
+    assert_eq!(
+        before - after,
+        workspace_fields * (PREVIOUS_GUIDANCE.len() - GUIDANCE.len())
+    );
+    assert!(workspace_fields >= 60);
+    // Required arguments, field types, guards, annotations, ordering and the
+    // four preload tools remain byte-identical after normalizing this prose.
+    for tool in paired.as_array_mut().unwrap() {
+        if let Some(workspace) = tool.pointer_mut("/inputSchema/properties/workspace") {
+            workspace["description"] = json!(GUIDANCE);
+        }
+    }
+    assert_eq!(paired, compact);
+    println!(
+        "catalog {} workspace fields: {} -> {} bytes (estimated {} -> {} tokens)",
+        workspace_fields,
+        before,
+        after,
+        before.div_ceil(4),
+        after.div_ceil(4)
+    );
+}
+
+#[test]
 fn tool_catalog_is_deterministic_compact_and_unique() {
     let first = tools();
     let second = tools();
@@ -424,6 +526,10 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
 
     let bytes = serde_json::to_vec(first).unwrap().len();
     assert!(bytes <= 60_000, "tool catalog is {bytes} bytes");
+    assert!(
+        first.iter().all(|tool| tool.get("title").is_none()),
+        "tool catalog must not repeat display titles mechanically derived from canonical names"
+    );
     for compact_name in [
         "software_graph",
         "graph_provider_import",
@@ -461,10 +567,7 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             "tool {name} description is too long"
         );
         if let Some(workspace) = tool["inputSchema"]["properties"].get("workspace") {
-            assert_eq!(
-                workspace["description"],
-                "Only pass when switching away from the default Workspace."
-            );
+            assert_eq!(workspace["description"], "Omit for the default Workspace.");
         }
         assert!(
             !serde_json::to_string(&tool["inputSchema"])

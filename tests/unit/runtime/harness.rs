@@ -796,6 +796,7 @@ mod tests {
             restart: false,
             items: (0..8)
                 .map(|index| crate::worklist::WorkItemPatch {
+                    write_paths: None,
                     id: format!("item-{index}"),
                     title: Some(format!(
                         "Preserve this unfinished item {index}: {}",

@@ -468,6 +468,7 @@ pub struct ProjectProofSummary {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectEvidenceView {
+    pub id: String,
     pub subject: String,
     pub producer: String,
     pub policy: Option<String>,
@@ -814,6 +815,7 @@ pub struct ProjectVerifiedLearningView {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectObservatory {
+    pub attention: crate::intelligence::ProjectAttentionView,
     pub workspace: String,
     pub root: String,
     pub repository_revision: crate::evidence::Revision,

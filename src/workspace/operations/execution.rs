@@ -884,11 +884,16 @@ pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
         return (line.to_owned(), false);
     };
     let key_side = &lower[..separator.min(lower.len())];
-    if !sensitive.iter().any(|needle| key_side.contains(needle)) {
+    let credential_header = matches!(
+        key_side.trim(),
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
+    );
+    if !credential_header && !sensitive.iter().any(|needle| key_side.contains(needle)) {
         return (line.to_owned(), false);
     }
     let value = line[separator + 1..].trim();
-    let looks_literal = value.starts_with('"')
+    let looks_literal = (credential_header && !value.is_empty())
+        || value.starts_with('"')
         || value.starts_with('\'')
         || value.starts_with('`')
         || (!value.is_empty() && !value.contains(char::is_whitespace));

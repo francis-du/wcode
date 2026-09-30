@@ -30,15 +30,15 @@ permalink: /zh/docs/
 
 | 界面 | 适合查看什么 |
 | --- | --- |
-| TUI 终端面板 | 连接状态、当前项目、实时任务和待授权请求。 |
+| TUI 终端面板 | 连接状态、当前项目、Summary 总览、可选 Attention 问题、Tasks 任务、Providers 提供方和待授权请求。 |
 | Setup Hub 设置中心 | 配置命令、只读预览、启动选项、性能预设和运行状态。 |
-| 总览（Overview） | 项目概况、工程流程、时间线、诊断和语言质量。 |
+| 总览（Overview） | 项目概况、可操作的观测覆盖入口、工程流程、时间线、诊断和语言质量。 |
 | 工程架构（Engineering architecture） | 系统与组件归属、设计依赖、实际观测关系和架构详情。 |
 | 任务活动（Task activity） | 正在运行和排队的任务、执行耗时和资源占用。 |
 | 验证证据（Verification evidence） | 当前版本的验证结果、就绪状态和已验证的仓库经验。 |
 | 当前变更（Current changes） | 工作树变更、影响范围和需要执行的验证。 |
 | 需求（Requirements） | 从需求到组件、代码、验证和证据的追溯关系。 |
-| 项目文件（Project files） | 有界源码树、最大文件和截断提示。 |
+| 项目文件（Project files） | 有界源码树和最大文件连接到分页源码检查，明确快照、SHA 和截断状态。 |
 | 访问（Access） | 项目授权、可执行程序权限、精确操作和待处理请求。 |
 
 检查已映射不代表已经运行，历史通过也可能属于旧版本。界面操作见[快速开始](getting-started/)，证据含义见[仓库理解与工程状态](software-intelligence/)。
@@ -56,6 +56,8 @@ permalink: /zh/docs/
 
 - [只读代码变更审查](change-inspection/) — 在当前变更内直接查看源码差异、符号、影响和证据，明确比较层与本次读取的快照身份。
 
+- [不依赖 IDE 的工程观测](ide-independent-observatory/) — 官方产品对照、已实现的问题与源码导航、验证边界和剩余观测缺口。
+
 - [产品范围](product-scopes/) — wcode 的产品能力与源码责任边界。
 - [智能体工程](agentic-engineering/) — 短指令、按需上下文、并行执行与确定性验证的组合方式。
 - [语言质量模型](language-quality/) — 全部 22 种索引语言共用一套能力矩阵：Syntax、真实初始化后的 Semantic、Format、Lint、Type、Static、Test、Security 与高级验证；缺口显式展示，不再用 Rust-centric Support Bit。
@@ -70,6 +72,7 @@ permalink: /zh/docs/
 - [开发说明](development/) — 模块边界、运行时不变量、发布门禁与维护约束。
 - [论文驱动的改进](research-upgrades/) — 纳入 0.6.2 发布准备的诊断上下文与依赖预览、论文原文和评估边界。
 - [前沿工程](frontier-engineering/) — 选择性上下文执行、完整验证计划、新论文与可测的能力目标。
+- [v0.9.0 发布说明](releases/v0.9.0/) — 统一问题观测、终端导航、安全源码分页、带范围的模型 Worker 协作与紧凑上下文。
 - [v0.8.5 发布说明](releases/v0.8.5/) — 快照绑定的变更审查、精准代码到测试检索、Fitness 观测与 Observatory 交互修复。
 - [v0.8.4 发布说明](releases/v0.8.4/) — Scope 隔离的并发 Writer、按授权 Grant 隔离的远程 Owner、统一 MCP Transport 协议策略与 300 轮发布验证。
 - [v0.8.3 发布说明](releases/v0.8.3/) — 能力感知 MCP 发现、更紧凑的编辑就绪 Agent Context、隔离 Jev Policy、现代 Task 兼容与 300 轮发布验证。

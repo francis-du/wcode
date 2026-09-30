@@ -316,6 +316,8 @@ fn summarize_selected<'a>(rows: impl IntoIterator<Item = &'a Row>) -> Vec<Value>
             "no_answer_attempts":no_answer_count,"abstained":abstained,
             "over_budget":over_budget,"response_samples":received,
             "mean_response_bytes":ratio(bytes,received),
+            "estimated_response_token_samples":returned_tokens.len(),
+            "total_estimated_response_tokens":returned_tokens.iter().copied().sum::<u64>(),
             "latency_across_tasks":distribution(&times),
             "median_estimated_tokens":distribution(&returned_tokens)["p50_us"]
         }));
@@ -439,7 +441,7 @@ pub(super) fn collect(repeats: usize) -> Result<Report> {
         "token_measurement":"ceil(serialized JSON bytes / 4), not a model tokenizer or provider usage",
         "ranking_order":"deduplicated targets, repo_map.items, then hot_source; not raw candidate rank",
         "edit_inputs_scope":"all required identities, current SHA, full original body and writable fixture; no claim of mapped/executed verification",
-        "not_measured":["live LSP accuracy","model understanding","bug detection","patch success","network MCP latency","CPU/RSS"],
+        "not_measured":["live LSP accuracy","model understanding","bug detection","patch success","network MCP latency","end-to-end model/provider/tool-schema/retry tokens","CPU/RSS"],
         "caveats":["Synthetic development fixtures, not a hidden external holdout",
             "Four language translations share one core behavior family; not independent projects",
             "Whole-process first-use and concurrent machine load are not isolated",

@@ -50,6 +50,13 @@ pub(super) fn refresh_intelligence_now(
     record_refresh(
         monitor,
         workspace_id,
+        "worklist_status",
+        crate::worklist::status(&workspace),
+        &mut initial_errors,
+    );
+    record_refresh(
+        monitor,
+        workspace_id,
         "design_status",
         harness.design_status(workspace_id, &workspace),
         &mut initial_errors,
@@ -151,6 +158,15 @@ pub(super) fn refresh_intelligence_now(
         if let Err(error) = harness.project_observatory(workspace_id, &workspace, None) {
             errors.push(format!("project_observatory: {error}"));
         }
+    }
+    if let Some(observatory) = harness.cached_project_observatory(&workspace) {
+        record_refresh(
+            monitor,
+            workspace_id,
+            "project_observatory",
+            Ok(observatory),
+            &mut errors,
+        );
     }
     refresh_graph_diff(monitor, harness, workspace_id, &workspace, &mut errors);
     refresh_verification(monitor, harness, workspace_id, &workspace, &mut errors);
@@ -270,9 +286,10 @@ pub(super) fn render_intelligence_overlay(
     area: Rect,
     snapshot: &MonitorSnapshot,
     config: &MonitorConfig,
-    focus: usize,
-    language: UiLanguage,
+    ui: &DashboardState,
 ) {
+    let focus = ui.workspace_focus;
+    let language = ui.language;
     let width = area.width.saturating_sub(4).min(104);
     let height = area.height.saturating_sub(4).min(24);
     if width < 36 || height < 12 {
@@ -342,6 +359,17 @@ pub(super) fn render_intelligence_overlay(
         );
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+    render_console_tabs(frame, inner, ui);
+    let inner = Rect::new(
+        inner.x,
+        inner.y.saturating_add(2),
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    if ui.console_tab != ConsoleTab::Summary {
+        render_console_tab(frame, inner, snapshot, ui, workspace_id, &stats);
+        return;
+    }
     if inner.width >= 78 && inner.height >= 16 {
         let rows = Layout::default()
             .direction(Direction::Vertical)
@@ -711,7 +739,7 @@ pub(super) fn render_intelligence_overlay(
         ]),
         intelligence_refresh_line(&stats, inner.width, language),
     ];
-    frame.render_widget(Paragraph::new(lines), inner);
+    console_paragraph(frame, inner, lines, ui.console_scroll);
 }
 
 fn intelligence_refresh_line(

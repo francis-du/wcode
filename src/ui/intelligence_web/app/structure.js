@@ -42,12 +42,12 @@ function renderTreeContents(node, depth, expand = false) {
     </details>`
   ).join("");
   const fileHtml = files.map((file) =>
-    `<div class="tree-file ${file.over_limit ? "over-limit" : ""}" title="${esc(file.path)}">
+    `<button type="button" class="tree-file ${file.over_limit ? "over-limit" : ""}" data-source-path="${esc(file.path)}" title="${esc(localized("Inspect source: ", "检查源码：") + file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
       <span class="tree-file-name">${esc(file.name)}</span>
       <span class="tree-file-meta">${esc(file.language)} · ${
       num(file.lines)
     }L${file.generated ? ` · ${esc(localized("generated", "生成文件"))}` : ""}</span>
-    </div>`
+    </button>`
   ).join("");
   return directoryHtml + fileHtml;
 }
@@ -68,7 +68,7 @@ function renderLargestFiles(structure) {
           ? localized("generated · line limit exempt", "生成文件 · 不受行数限制")
           : localized("generated", "生成文件")
         : "";
-    return `<div class="large-file ${file.over_limit ? "over-limit" : ""}">
+    return `<button type="button" class="large-file ${file.over_limit ? "over-limit" : ""}" data-source-path="${esc(file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
       <span class="large-rank">${index + 1}</span>
       <span class="large-path"><code title="${esc(file.path)}">${esc(file.path)}</code><small>${
       esc(
@@ -76,10 +76,46 @@ function renderLargestFiles(structure) {
       )
     } · ${formatBytes(file.bytes)}${policyLabel ? ` · ${esc(policyLabel)}` : ""}</small></span>
       <strong>${num(file.lines)}L</strong>
-    </div>`;
+    </button>`;
   }).join("");
 }
 
+function bindRepositorySourceActions(node) {
+  node.querySelectorAll("[data-source-path]").forEach(button => button.addEventListener("click", () => openRepositoryFile(button.dataset.sourcePath)));
+}
+function repositorySourceRevision() {
+  const p = state.project;
+  return { code: p?.proof?.revision_code || p?.attention?.revision?.code, design: p?.proof?.revision_design ?? p?.attention?.revision?.design };
+}
+function repositorySourceRevisionMatches(revision) {
+  const current = repositorySourceRevision();
+  return current.code === revision?.code && (current.design ?? null) === (revision?.design ?? null);
+}
+async function openRepositoryFile(path) {
+  const observed = [...(state.project?.structure?.entries || []), ...(state.project?.structure?.largest_files || []), ...(state.project?.attention?.items || [])];
+  if (!path || !observed.some(item => item.path === path)) return false;
+  const stamp = observationStamp(), nodeId = `file:${path}`;
+  const revision = repositorySourceRevision();
+  if (!validCodeGraphRepositoryRevision(revision)) {
+    revealSection("filesSection");
+    if (els.fileSearchStatus) els.fileSearchStatus.textContent = localized("Source revision unavailable. Refresh the project before inspecting source.", "源码版本不可用。请先刷新项目，再检查源码。");
+    return false;
+  }
+  // Use the existing graph and protected source contract. The server owns path
+  // authorization, snapshot identity and source SHA checks.
+  state.codeGraphController?.abort(); clearCodeGraphSource();
+  state.codeGraph = null; state.codeGraphQuery = path; state.codeGraphSnapshot = "";
+  state.selectedCodeNode = ""; state.codeGraphView = "focus";
+  if (els.codeGraphSearch) els.codeGraphSearch.value = path;
+  revealSection("codeGraphSection");
+  const loaded = await loadCodeGraph({ nodeId, query: path, repositoryRevision: revision });
+  if (!loaded || !observationCurrent(stamp) || !repositorySourceRevisionMatches(revision) || state.workspaceTab !== "architecture" || state.architectureView !== "codegraph") return false;
+  const node = state.codeGraph?.nodes?.find(item => item.node?.id === nodeId && codeGraphPath(item.node) === path)?.node;
+  if (!node || state.codeGraph?.query !== nodeId) return false;
+  selectCodeGraphNode(nodeId);
+  setCodeGraphInspector(true);
+  return loadCodeGraphSource(node, { repositoryRevision: revision });
+}
 function renderProjectStructure() {
   const structure = state.project?.structure || {};
   const entries = structure.entries || [];
@@ -142,6 +178,7 @@ function renderProjectStructure() {
       : `<div class="empty">${
         esc(t(query ? "No matching files." : "No source files in this snapshot."))
       }</div>`,
+    () => bindRepositorySourceActions(els.fileTree),
   );
-  setHtml("largeFiles", els.largeFiles, renderLargestFiles(structure));
+  setHtml("largeFiles", els.largeFiles, renderLargestFiles(structure), () => bindRepositorySourceActions(els.largeFiles));
 }

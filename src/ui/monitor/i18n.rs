@@ -203,6 +203,13 @@ impl UiLanguage {
             (Self::ZhCn, "R refresh · risk checks remain authorization-bound") => {
                 "按 R 刷新 · 风险检查仍需按授权规则运行"
             }
+            (Self::ZhCn, "Summary") => "总览",
+            (Self::ZhCn, "Attention") => "关注",
+            (Self::ZhCn, "Issues") => "问题",
+            (Self::ZhCn, "Tasks") => "任务",
+            (Self::ZhCn, "Providers") => "提供方",
+            (Self::ZhCn, "Agents") => "协作",
+            (Self::ZhCn, "Tab sections · ↑↓ select · PgUp/PgDn details · Enter inspect") => "Tab 分页 · ↑↓ 选择 · PgUp/PgDn 详情 · Enter 查看",
             (Self::ZhCn, "ROOT") => "根目录",
             (Self::ZhCn, "DESIGN") => "设计",
             (Self::ZhCn, "SCOPES") => "范围",

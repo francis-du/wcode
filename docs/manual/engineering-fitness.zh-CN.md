@@ -113,13 +113,17 @@ cargo test --release --locked --lib engineering_fitness_trial -- --ignored --noc
 
 独立的报文解码样例检查：在 Rust、Go、TypeScript、Python 四种语言下，2K 请求应交付短目标函数及跨文件调用者的原始正文与匹配文件 SHA。只读工作区保留可读证据，但不获得写权限。另一个三正文样例验证关联补全不会停在已经交付的正文，也不会挤掉已选中的排序正文。
 
-运行时在 2K 下准备两份排序正文，并允许有界关联正文补全，最终序列化预算上限不变。重复签名和调用摘要先于正文与文件前置条件被压缩。长正文反例覆盖 CRLF/Unicode、1K–4K 预算和 1/4 个 Harness 槽位；2K 冷暖检查逐项拒绝 Gold 证据丢失。这不承诺任意长函数都能装入小预算，冻结的 60 题与 Contract v3 评分保持不变。
+运行时在 2K 下准备两份排序正文，并允许有界关联正文补全，最终序列化预算上限不变。仅当完整、未脱敏的当前 Hot Source 与有效且匹配的文件 SHA 绑定时，RepoMap 才去重可重建的签名和完全一致的行范围；限定名、行的 kind、排序原因和关系保留，其他排序/调用摘要只在真实预算压力下继续压缩。能力元数据进入压缩形态后，`recommended_tools` 仍是权威有序列表，可由其长度推导的 `recommended_tool_count` 会省略；未压缩的 manifest 继续保留该计数。长正文反例覆盖 CRLF/Unicode、1K–4K 预算和 1/4 个 Harness 槽位；2K 冷暖检查逐项拒绝 Gold 证据丢失。这不承诺任意长函数都能装入小预算，冻结的 60 题与 Contract v3 评分保持不变。
 
 ## 交付缺口与源码字节指标
 
 报告新增 `breakdown.language`、`breakdown.category`、`breakdown.target_count` 和 `breakdown.misses`。所有分组复用同一聚合逻辑，失败请求不消失。每次得分保留 `delivery`：最终未交付身份、已有身份但缺完整正文、缺当前文件 SHA、不可用的写入条件。这些标记可以重叠；只读状态不是一次写入失败。最终未交付身份也不等于已经证明内部检索漏掉了它。
 
 `complete_gold_density` 用已校验完整必要片段的原始 UTF-8 字节区间并集，除以序列化响应字节。同文件重复、嵌套或重叠 Gold 只计一次；重复返回正文不会增加分子。部分、捏造、脱敏或陈旧正文不获得完整片段字节分。该指标仅统计实际可用响应，并公开样本数与字节分母，必须与错误数和召回一起看。它的补集不是噪声比例：安全元数据、未标注但有用的上下文、部分源码都不在分子里。`fresh_sha_recall` 将失败请求记零；`complete_bodies_per_1k_budget_tokens` 使用全部可回答请求的分配预算，不冒充供应方真实 token 用量。
+
+固定任务成本对照现在还在每个预算/冷暖分组记录 `estimated_response_token_samples` 与 `total_estimated_response_tokens`。后者只累加实际存在响应的既有 `ceil(序列化响应字节 / 4)` 估算；失败请求会减少样本数，而不是被伪造成零 token 响应。它可用于相同任务在不同 revision 之间比较上下文输出成本，但不是供应方报告的真实 token，也不包含模型输入/输出、宿主工具 schema、编排上下文或失败重试成本。
+
+实时 Jev 运行时遥测与上述基准估算分开。只有供应方同时报告 input、output、total 三项 token 时，单次调用才标记为 `provider_reported`；若只报告部分字段，wcode 会保留每个已有的供应方精确值，只对缺失维度按有界 request/response 字节估算，并标记为 `mixed_provider_and_byte_estimate`。窗口累计逐次相加这些有效值，不再因为窗口中存在缺测就丢弃精确值并把整段窗口全部重算为 bytes/4。它仍不覆盖宿主工具 schema、编排上下文或失败重试 token 成本。
 
 `raw_required_source_bytes` 只是未压缩原始源码的预算下界。超过 `4 × 请求预算` 可证明按当前 bytes/4 契约装不下原文；低于该值不代表加上 JSON 和必要元数据后一定可行。无答案或无效标注显示不可用，长正文反例检查该区别。
 
@@ -143,4 +147,4 @@ cargo test --locked --lib engineering_fitness_diagnostic_snapshot -- --ignored -
 
 ## 尚未测量
 
-真实 LSP 的 definition/references/implementation 准确率、完整 MCP 网络链路、独立测试映射质量、模型理解、自主找 bug、生成补丁正确率和 CPU/RSS 均不在本轮测量中。现有 fast-context、repo-rank 和 IO 微测量保留独立入口，没有冒充已由本报告统一执行。
+真实 LSP 的 definition/references/implementation 准确率、完整 MCP 网络链路、独立测试映射质量、模型理解、自主找 bug、生成补丁正确率、供应方/模型 token 用量、宿主工具 schema/上下文 token 成本、失败重试 token 成本和 CPU/RSS 均不在本轮测量中。现有 fast-context、repo-rank 和 IO 微测量保留独立入口，没有冒充已由本报告统一执行。

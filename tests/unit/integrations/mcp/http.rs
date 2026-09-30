@@ -209,6 +209,7 @@ async fn observatory_project_exposes_bounded_execution_projection() {
             goal: Some("Expose active execution without chat history".to_owned()),
             restart: true,
             items: vec![crate::worklist::WorkItemPatch {
+                write_paths: None,
                 id: "observe-execution".to_owned(),
                 title: Some("Observe execution".to_owned()),
                 status: Some(crate::worklist::WorkItemStatus::InProgress),

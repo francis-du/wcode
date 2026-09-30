@@ -227,7 +227,9 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         | "execution_propose"
         | "execution_policy_status"
         | "execution_steer"
-        | "execution_handoff" => &[Runtime, Workspace, Reconciliation, Verification],
+        | "execution_handoff"
+        | "worklist_claim"
+        | "worklist_submit" => &[Runtime, Workspace, Reconciliation, Verification],
         "project_context" | "convention_status" | "worklist_status" | "worklist_update"
         | "list_files" | "search_code" | "search_many" | "scan_patterns" | "read_file"
         | "read_files" | "read_media" | "path_info" | "replace_text" | "apply_edits"

@@ -14,6 +14,8 @@ pub(crate) struct IntelligenceCodeSourceQuery {
     pub(crate) snapshot_id: String,
     #[serde(default)]
     pub(crate) context_lines: Option<usize>,
+    #[serde(default)]
+    pub(crate) start_line: Option<usize>,
 }
 
 pub(crate) async fn intelligence_web_code_source(
@@ -30,6 +32,10 @@ pub(crate) async fn intelligence_web_code_source(
     if node_id.is_empty() || snapshot_id.is_empty() {
         return bad_request("node_id and snapshot_id are required for code source");
     }
+    if query.start_line == Some(0) {
+        return bad_request("start_line must be at least one");
+    }
+    let requested_start = query.start_line;
     let context_lines = query.context_lines.unwrap_or(12).clamp(0, 40);
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
@@ -94,13 +100,30 @@ pub(crate) async fn intelligence_web_code_source(
             .and_then(|value| usize::try_from(value).ok())
             .unwrap_or(line_count)
             .max(focus_start);
-        let start_line = focus_start.saturating_sub(context_lines).max(1);
-        let requested_end = focus_end.saturating_add(context_lines).max(start_line);
+        let start_line =
+            requested_start.unwrap_or_else(|| focus_start.saturating_sub(context_lines).max(1));
+        let requested_end = if requested_start.is_some() {
+            start_line.saturating_add(239)
+        } else {
+            focus_end.saturating_add(context_lines).max(start_line)
+        };
         let end_line = requested_end.min(start_line.saturating_add(239));
         let file = workspace_for_read.read_file(path, start_line, Some(end_line))?;
         if file.sha256 != expected_sha256 {
             anyhow::bail!("code source changed since graph snapshot");
         }
+        if start_line > file.total_lines.max(1) {
+            anyhow::bail!("code source page is outside the file");
+        }
+        // Focus describes only the visible window. Full symbol coordinates remain separate.
+        let intersection_start = focus_start.max(file.start_line);
+        let intersection_end = focus_end.min(file.end_line);
+        let (visible_focus_start, visible_focus_end) =
+            if file.total_lines > 0 && intersection_start <= intersection_end {
+                (intersection_start, intersection_end)
+            } else {
+                (0, 0)
+            };
         Ok(json!({
             "snapshot_id": chain.snapshot_id,
             "node_id": node.id,
@@ -109,14 +132,16 @@ pub(crate) async fn intelligence_web_code_source(
             "precision": node.provenance.precision,
             "source_revision": format!("sha256:{expected_sha256}"),
             "current_sha256": file.sha256,
-            "focus_start_line": focus_start,
-            "focus_end_line": focus_end,
+            "focus_start_line": visible_focus_start,
+            "focus_end_line": visible_focus_end,
+            "symbol_start_line": focus_start,
+            "symbol_end_line": focus_end,
             "start_line": file.start_line,
             "end_line": file.end_line,
             "total_lines": file.total_lines,
             "content": file.content,
             "redacted": file.redacted,
-            "truncated": end_line < requested_end || file.end_line < file.total_lines,
+            "truncated": file.total_lines > 0 && (end_line < requested_end || file.end_line < file.total_lines),
         }))
     })
     .await;
@@ -131,6 +156,11 @@ pub(crate) async fn intelligence_web_code_source(
                 (
                     StatusCode::CONFLICT,
                     json!({"error":"Source changed since the selected graph snapshot. Reload the graph before reading code.","code":"stale_source"}),
+                )
+            } else if message.contains("code source page is outside the file") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"Requested source page is outside the file.","code":"source_page_unavailable"}),
                 )
             } else if missing_graph_snapshot(&message) {
                 (

@@ -14,6 +14,7 @@ fn worklist_preserves_unfinished_items_and_exposes_runnable_parallel_lanes() {
             restart: false,
             items: vec![
                 WorkItemPatch {
+                    write_paths: None,
                     id: "research".to_owned(),
                     title: Some("Research current behavior".to_owned()),
                     status: None,
@@ -21,6 +22,7 @@ fn worklist_preserves_unfinished_items_and_exposes_runnable_parallel_lanes() {
                     note: None,
                 },
                 WorkItemPatch {
+                    write_paths: None,
                     id: "docs".to_owned(),
                     title: Some("Update docs".to_owned()),
                     status: None,
@@ -28,6 +30,7 @@ fn worklist_preserves_unfinished_items_and_exposes_runnable_parallel_lanes() {
                     note: None,
                 },
                 WorkItemPatch {
+                    write_paths: None,
                     id: "verify".to_owned(),
                     title: Some("Verify everything".to_owned()),
                     status: None,
@@ -51,6 +54,7 @@ fn worklist_preserves_unfinished_items_and_exposes_runnable_parallel_lanes() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "research".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::Done),
@@ -80,6 +84,7 @@ fn stale_revision_and_premature_restart_fail_closed() {
             goal: Some("keep progress".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "one".to_owned(),
                 title: Some("First item".to_owned()),
                 status: None,
@@ -122,6 +127,7 @@ fn stale_revision_and_premature_restart_fail_closed() {
             goal: None,
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "one".to_owned(),
                 title: None,
                 status: Some(WorkItemStatus::Blocked),
@@ -156,6 +162,7 @@ fn completed_worklist_can_restart_without_reusing_old_items() {
             goal: Some("first".to_owned()),
             restart: false,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "one".to_owned(),
                 title: Some("Finish first".to_owned()),
                 status: Some(WorkItemStatus::Done),
@@ -172,6 +179,7 @@ fn completed_worklist_can_restart_without_reusing_old_items() {
             goal: Some("second".to_owned()),
             restart: true,
             items: vec![WorkItemPatch {
+                write_paths: None,
                 id: "two".to_owned(),
                 title: Some("Start second".to_owned()),
                 status: None,

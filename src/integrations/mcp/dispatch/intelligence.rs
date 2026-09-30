@@ -39,6 +39,8 @@ pub(super) fn handles(name: &str) -> bool {
             | "execution_handoff"
             | "worklist_status"
             | "worklist_update"
+            | "worklist_claim"
+            | "worklist_submit"
             | "semantic_status"
             | "semantic_query"
             | "semantic_record"
@@ -413,6 +415,31 @@ pub(super) async fn call(
             run_blocking(move || {
                 let mut status = crate::worklist::update(&workspace, update)?;
                 match crate::execution::refresh(&harness, &workspace_id, &workspace, restart) {
+                    Ok(execution) => status["execution"] = execution,
+                    Err(error) => status["execution_sync_error"] = json!(error.to_string()),
+                }
+                Ok(status)
+            })
+            .await
+        }
+        "worklist_claim" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let input = serde_json::from_value::<crate::worklist::WorklistClaimInput>(args.clone())
+                .map_err(|error| format!("invalid worklist claim: {error}"))?;
+            let harness = state.harness.clone();
+            run_blocking(move || crate::worklist::claim(&harness, &workspace_id, &workspace, input))
+                .await
+        }
+        "worklist_submit" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::worklist::WorklistSubmitInput>(args.clone())
+                    .map_err(|error| format!("invalid worklist result: {error}"))?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut status =
+                    crate::worklist::submit(&harness, &workspace_id, &workspace, input)?;
+                match crate::execution::refresh(&harness, &workspace_id, &workspace, false) {
                     Ok(execution) => status["execution"] = execution,
                     Err(error) => status["execution_sync_error"] = json!(error.to_string()),
                 }

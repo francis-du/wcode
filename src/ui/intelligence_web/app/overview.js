@@ -56,8 +56,30 @@ function bindSummaryActions(node) {
     const target = button.dataset.summaryAction;
     if (target === "access") { setAccessPanel(true); await loadAccess(); }
     else if (target === "refresh") { els.refresh?.click(); }
-    else if (target) revealSection(target);
+    else if (target) {
+      if (button.dataset.summaryPath && target === "filesSection") await openRepositoryFile(button.dataset.summaryPath);
+      else {
+        if (button.dataset.summaryRequirement && (state.project?.requirements || []).some(item => item.id === button.dataset.summaryRequirement)) {
+          state.selected = button.dataset.summaryRequirement; invalidate("requirements", "detail");
+        }
+        revealSection(target);
+      }
+    }
   }));
+}
+function renderObservationCoverage() {
+  if (!state.project || !els.observationCoverage) return;
+  const p = state.project, proof = effectiveProof(), activity = state.activitySnapshot?.activity || p.activity;
+  const projectState = state.syncError ? localized("Stale", "已过期") : state.fitnessSnapshotFromCache ? localized("Cached", "缓存") : "";
+  const surfaces = [
+    [localized("Source", "源码"), "filesSection", p.structure ? localized(`${num(p.structure.entries?.length || 0)} files in snapshot`, `${num(p.structure.entries?.length || 0)} 个快照文件`) : localized("Unavailable", "不可用"), p.structure?.truncated ? localized("Partial", "不完整") : p.structure ? localized("Observed", "已观测") : localized("Unknown", "未知")],
+    [localized("Changes", "变更"), "changesSection", p.git_review?.available === true ? localized(`${num(p.code?.changed_files || 0)} changed files`, `${num(p.code?.changed_files || 0)} 个变更文件`) : gitReviewReason(p.git_review?.reason), p.git_review?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")],
+    [localized("Evidence", "证据"), "proofSection", proof.current_evidence ? localized(`${num(proof.current_failed || 0)} failures · ${num(proof.current_inconclusive || 0)} inconclusive`, `${num(proof.current_failed || 0)} 项失败 · ${num(proof.current_inconclusive || 0)} 项未定`) : localized("No current-version evidence", "无当前版本证据"), proof.current_failed ? localized("Failing", "存在失败") : proof.current_evidence ? localized("Recorded", "已记录") : localized("Unverified", "未验证")],
+    [localized("Architecture", "架构"), "architectureSection", localized(`${num(p.architecture?.components?.length || 0)} components · ${statusLabel(graphPrecision().primary)}`, `${num(p.architecture?.components?.length || 0)} 个组件 · ${statusLabel(graphPrecision().primary)}`), p.code?.graph_truncated ? localized("Partial", "不完整") : statusLabel(graphPrecision().primary)],
+    [localized("Tasks & runtime", "任务与运行时"), "activitySection", activity?.available === true && !state.activityError ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 项执行 · ${num(activity.queued || 0)} 项排队`) : localized("Unavailable, not idle", "数据不可用，不代表空闲"), state.activityError ? localized("Stale", "已过期") : activity?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")],
+  ];
+  const html = `<nav class="observation-coverage-grid" aria-label="${esc(localized('Observation coverage and drilldowns', '观测范围与深入检查'))}">${surfaces.map(([label, target, detail, status]) => `<button type="button" class="observation-surface" data-summary-action="${target}" title="${esc(detail)}"><strong>${esc(label)}</strong><span class="observation-state">${esc(target === 'activitySection' ? status : projectState || status)}</span><small>${esc(detail)}</small></button>`).join('')}</nav>`;
+  setHtml("observationCoverage", els.observationCoverage, html, () => bindSummaryActions(els.observationCoverage));
 }
 function renderStats() {
   const p = state.project;
@@ -79,11 +101,36 @@ function runtimeDriftSummary(project = state.project) {
   return { findings, count: findings.length, maxDeviation };
 }
 function attentionSignals() {
+  const p = state.project, report = p?.attention;
+  if (!Array.isArray(report?.items)) return legacyAttentionSignals();
+  const targets = { proof: "proofSection", changes: "changesSection", files: "filesSection", architecture: "architectureSection", requirements: "requirementsSection", diagnostics: "diagnosticsSection", activity: "activitySection", quality: "qualitySection" };
+  const tones = { critical: "bad", high: "bad", medium: "warn", low: "info", info: "info" };
+  const items = report.items.map(item => ({
+    tone: tones[item.severity] || "info", title: String(item.subject || item.kind || localized("Recorded signal", "已记录信号")),
+    detail: String(item.message || ""), target: targets[item.section] || (workspaceTabForSection[item.section] ? item.section : "diagnosticsSection"),
+    path: item.path || "", requirement: item.requirement || "",
+    provenance: [item.provider, item.precision].filter(Boolean).join(" · "),
+  }));
+  const add = (tone, title, detail, target) => items.push({ tone, title, detail, target });
+  if (state.syncError) add("bad", localized("Snapshot is stale", "快照已过期"), localized("Refresh before using these signals to judge current state.", "请先刷新，再使用这些信号判断当前状态。"), "refresh");
+  const revision = report.revision || {}, proof = p.proof || {};
+  if ((proof.revision_code && revision.code !== proof.revision_code) || (proof.revision_design && revision.design !== proof.revision_design)) {
+    add("bad", localized("Attention revision does not match", "关注信号版本不一致"), localized("The signal projection and project evidence refer to different revisions. Refresh the snapshot.", "关注信号与项目证据指向不同版本，请刷新快照。"), "refresh");
+  }
+  if (report.partial || report.truncated) add("info", localized("Partial attention coverage", "关注范围不完整"), localized(`${num(report.total || report.items.length)} signals recorded · ${num(report.items.length)} shown. Missing data is not an all-clear.`, `已记录 ${num(report.total || report.items.length)} 项信号 · 展示 ${num(report.items.length)} 项。缺失数据不代表一切正常。`) + ((report.partial_reasons || []).length ? ` ${report.partial_reasons.join(" · ")}` : ""), "diagnosticsSection");
+  const pending = pendingCount();
+  if (pending) add("warn", localized(`${num(pending)} requests need approval`, `${num(pending)} 项请求等待批准`), localized("Review the exact operation before allowing it.", "检查具体操作后再决定批准或拒绝。"), "access");
+  if (state.activityError) add("warn", localized("Activity telemetry is stale", "活动遥测已过期"), localized("Task status could not be refreshed; it is not an idle signal.", "任务状态刷新失败，不代表系统空闲。"), "activitySection");
+  if (!items.length) add("info", localized("No known blockers in this snapshot", "此快照中未发现已知阻塞"), localized("Inspect revision-bound evidence and observation coverage before judging completion.", "判断完成前，请检查版本绑定证据与观测范围。"), "proofSection");
+  const priority = { bad: 0, warn: 1, info: 2 };
+  return items.sort((left, right) => priority[left.tone] - priority[right.tone]);
+}
+function legacyAttentionSignals() {
   const p = state.project, items = [];
   if (!p) return items;
   const proof = effectiveProof(), conv = p.convergence || {}, pending = pendingCount();
   const add = (tone, title, detail, target) => items.push({ tone, title, detail, target });
-  if (state.syncError) add("bad", localized("Snapshot is stale", "快照已过期"), localized("The last refresh failed. Do not judge current state from these numbers.", "最近刷新失败，请勿把下方旧数据当作当前状态。"), "");
+  if (state.syncError) add("bad", localized("Snapshot is stale", "快照已过期"), localized("The last refresh failed. Do not judge current state from these numbers.", "最近刷新失败，请勿把下方旧数据当作当前状态。"), "refresh");
   if (p.design_valid === false) add("bad", localized("Design needs attention", "设计状态需要处理"), localized("Missing or invalid design; inspect requirements and diagnostics.", "设计未初始化或校验失败，请查看需求与诊断。"), "requirementsSection");
   const oversized = Number(p.structure?.oversized_files || 0), lineLimit = Number(p.structure?.line_limit || 1000);
   if (oversized) add("bad", localized(`${num(oversized)} source files violate the hard line limit`, `${num(oversized)} 个源文件违反硬性行数限制`), localized(`Core policy blocks verification and further growth above ${num(lineLimit)} lines until those modules are decomposed by responsibility.`, `核心策略会阻断验证，并禁止超过 ${num(lineLimit)} 行的模块继续增长；请先按职责拆分。`), "filesSection");
@@ -109,17 +156,24 @@ function attentionSignals() {
 function gitReviewReason(reason) {
   return ({ execution_disabled: localized("Command execution is disabled.", "命令执行已禁用。"), not_a_repository: localized("No Git repository was found at this root.", "当前根目录不是 Git 仓库。"), partial_review: localized("Some Git probes failed; the review is partial.", "部分 Git 检查失败，结果不完整。"), review_failed: localized("Git review failed; retry or inspect permissions.", "Git 检查失败，请重试或检查权限。") })[reason] || localized("Review data was not returned.", "没有返回检查数据。");
 }
+function attentionActionAttributes(item) {
+  return `data-summary-action="${esc(item.target || "")}"${item.path ? ` data-summary-path="${esc(item.path)}"` : ""}${item.requirement ? ` data-summary-requirement="${esc(item.requirement)}"` : ""}`;
+}
 function attentionItem(item) {
-  return `<button type="button" class="attention-item ${item.tone}" data-summary-action="${esc(item.target)}"><span class="signal-mark signal-${esc(item.tone)}" aria-hidden="true"></span><span><strong>${esc(item.title)}</strong><span>${esc(item.detail)}</span></span>${item.target ? '<span class="attention-arrow" aria-hidden="true"></span>' : '<span></span>'}</button>`;
+  const provenance = item.provenance ? `<small class="signal-provenance">${esc(item.provenance)}</small>` : "";
+  return `<button type="button" class="attention-item ${item.tone}" ${attentionActionAttributes(item)}><span class="signal-mark signal-${esc(item.tone)}" aria-hidden="true"></span><span><strong>${esc(item.title)}</strong><span>${esc(item.detail)}</span>${provenance}</span>${item.target ? '<span class="attention-arrow" aria-hidden="true"></span>' : '<span></span>'}</button>`;
 }
 function renderAttention() {
   if (!state.project) return;
-  const items = attentionSignals(), first = items[0];
+  renderObservationCoverage();
+  const items = attentionSignals(), first = items[0], proof = effectiveProof();
   const urgent = items.filter(item => ["bad", "warn"].includes(item.tone)).length;
-  const snapshotLabel = state.fitnessSnapshotFromCache ? localized("Cached snapshot", "缓存快照") : state.syncError ? localized("Refresh needed", "需要刷新") : localized("Live snapshot", "实时快照");
-  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p><div class="summary-facts"><span>${esc(snapshotLabel)}</span><span>${esc(state.project?.code?.changed_files == null ? localized("Changes unknown", "变更未知") : localized(`${num(state.project.code.changed_files)} changed files`, `${num(state.project.code.changed_files)} 个变更文件`))}</span><span>${esc(state.project?.proof?.current_evidence ? localized(`${num(state.project.proof.current_evidence)} evidence records`, `${num(state.project.proof.current_evidence)} 条证据`) : localized("Evidence not verified", "证据未验证"))}</span></div></div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`);
-  const rest = items.slice(1);
-  const html = rest.length ? `<details class="more-signals"><summary>${esc(localized(`${rest.length} more signals`, `另有 ${rest.length} 项信号`))}</summary>${rest.map(attentionItem).join("")}</details>` : "";
+  const snapshotLabel = state.syncError ? localized("Refresh needed", "需要刷新") : state.fitnessSnapshotFromCache ? localized("Cached snapshot", "缓存快照") : localized("Live snapshot", "实时快照");
+  const revision = state.project.attention?.revision?.code || state.project.proof?.revision_code || "";
+  const action = first.target ? `<button type="button" class="summary-inspect" ${attentionActionAttributes(first)}>${uiIcon(first.target === "refresh" ? "sync" : "target")} ${esc(first.target === "refresh" ? localized("Refresh snapshot", "刷新快照") : localized("Inspect signal", "检查信号"))}</button>` : "";
+  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p>${first.provenance ? `<small class="signal-provenance">${esc(first.provenance)}</small>` : ""}<div class="summary-facts"><span>${esc(snapshotLabel)}</span><span>${esc(state.project.git_review?.available === true ? localized(`${num(state.project.code?.changed_files || 0)} changed files`, `${num(state.project.code?.changed_files || 0)} 个变更文件`) : localized("Changes unknown", "变更未知"))}</span><span>${esc(proof.current_evidence ? localized(`${num(proof.current_evidence)} evidence records`, `${num(proof.current_evidence)} 条证据`) : localized("Evidence not verified", "证据未验证"))}</span>${revision ? `<code title="${esc(revision)}">${esc(revision.slice(0, 19))}</code>` : ""}</div>${action}</div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`, () => bindSummaryActions(els.statusSummary));
+  const rest = items.slice(1), important = rest.filter(item => ["bad", "warn"].includes(item.tone)), other = rest.filter(item => !["bad", "warn"].includes(item.tone));
+  const html = important.map(attentionItem).join("") + (other.length ? `<details class="more-signals"><summary>${esc(localized(`${other.length} more observations`, `另有 ${other.length} 项观测`))}</summary>${other.map(attentionItem).join("")}</details>` : "");
   setHtml("attention", els.attention, html, () => bindSummaryActions(els.attention));
 }
 function renderEffectiveEvidence(rows) {

@@ -625,3 +625,227 @@ async fn verification_failure_context_redacts_secrets_and_never_claims_edit_read
     assert_eq!(context["precision"], "diagnostic_text+source_window");
     assert!(!serde_json::to_string(&failed).unwrap().contains(sentinel));
 }
+
+mod worker_lanes {
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::extract::State;
+    use std::fs;
+
+    fn state_fixture() -> (Arc<AppState>, tempfile::TempDir) {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("src")).unwrap();
+        fs::write(root.path().join("src/a.rs"), "fn alpha() {}\n").unwrap();
+        fs::write(root.path().join("src/b.rs"), "fn beta() {}\n").unwrap();
+        let workspaces = Workspaces::new([root.path()], false, false).unwrap();
+        let workspace_id = workspaces.default_id().to_owned();
+        (
+            Arc::new(AppState {
+                auth: Arc::new(AuthState::new("http://127.0.0.1:8765".into())),
+                workspaces,
+                harness: ToolHarness::new(4).unwrap(),
+                monitor: TaskMonitor::new([workspace_id]),
+                tasks: TaskRuntime::default(),
+            }),
+            root,
+        )
+    }
+
+    async fn tool(state: &AppState, name: &str, arguments: Value) -> Value {
+        call_tool(state, json!({"name":name,"arguments":arguments}))
+            .await
+            .unwrap()
+    }
+
+    fn repository_revision(state: &AppState) -> Value {
+        let (_, workspace) = state.workspaces.select(None).unwrap();
+        json!(state.harness.current_revision(&workspace).unwrap())
+    }
+
+    fn headers(state: &AppState) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "127.0.0.1:8765".parse().unwrap());
+        headers.insert("origin", "http://127.0.0.1:8765".parse().unwrap());
+        headers.insert("x-wcode-ui-token", state.auth.ui_token().parse().unwrap());
+        headers.insert(
+            "x-wcode-workspace",
+            state.workspaces.default_id().parse().unwrap(),
+        );
+        headers
+    }
+
+    async fn project(state: Arc<AppState>, headers: HeaderMap) -> Value {
+        let response = intelligence_web_project(State(state), headers).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn worker_lanes_route_claims_results_and_protected_public_observation() {
+        let (state, root) = state_fixture();
+        let absent = project(state.clone(), headers(&state)).await;
+        assert_eq!(absent["execution"]["worklist"]["exists"], false);
+        let signal = intelligence_web_revision(State(state.clone()), headers(&state)).await;
+        let signal = to_bytes(signal.into_body(), 256 * 1024).await.unwrap();
+        let absent_signal: Value = serde_json::from_slice(&signal).unwrap();
+        assert_eq!(
+            absent_signal["worklist_revision"],
+            json!({"available":true,"exists":false,"revision":0})
+        );
+        let initial = tool(
+            &state,
+            "worklist_update",
+            json!({
+                "expected_revision":0,"goal":"independent worker fixture",
+                "items":[
+                    {"id":"a","title":"inspect alpha","write_paths":["src/a.rs"]},
+                    {"id":"b","title":"inspect beta","write_paths":["src/b.rs"]},
+                    {"id":"overlap","title":"inspect all source","write_paths":["src"]}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(initial["isError"], false, "{initial}");
+        let revision = initial["structuredContent"]["revision"].clone();
+        let repo = repository_revision(&state);
+        let claim_a = tool(
+            &state,
+            "worklist_claim",
+            json!({
+                "expected_revision":revision,"expected_repository_revision":repo,
+                "item_id":"a","actor":"worker-a"
+            }),
+        )
+        .await;
+        assert_eq!(claim_a["isError"], false, "{claim_a}");
+        let a = &claim_a["structuredContent"];
+        let token_a = a["claim_id"].as_str().unwrap().to_owned();
+        assert!(a["handoff"]["agent_context"].is_object());
+        assert_eq!(a["handoff"]["write_paths"], json!(["src/a.rs"]));
+        assert!(a["worklist"].get("claim_id").is_none());
+        assert!(!a["worklist"].to_string().contains(&token_a));
+        assert!(!a["handoff"].to_string().contains(&token_a));
+        let claim_b = tool(
+            &state,
+            "worklist_claim",
+            json!({
+                "expected_revision":a["worklist"]["revision"],"expected_repository_revision":repo,
+                "item_id":"b","actor":"worker-b"
+            }),
+        )
+        .await;
+        assert_eq!(claim_b["isError"], false, "{claim_b}");
+        let b = &claim_b["structuredContent"];
+        let revision = b["worklist"]["revision"].clone();
+        for arguments in [
+            json!({"expected_revision":a["worklist"]["revision"],"expected_repository_revision":repo,"item_id":"overlap","actor":"stale"}),
+            json!({"expected_revision":revision,"expected_repository_revision":repo,"item_id":"overlap","actor":"conflict"}),
+            json!({"expected_revision":revision,"expected_repository_revision":repo,"item_id":"a","actor":"duplicate"}),
+        ] {
+            let rejected = tool(&state, "worklist_claim", arguments).await;
+            assert_eq!(rejected["isError"], true, "{rejected}");
+        }
+        let before = tool(&state, "worklist_status", json!({})).await["structuredContent"].clone();
+        assert_eq!(before["revision"], revision);
+        let public = project(state.clone(), headers(&state)).await;
+        let lanes = &public["execution"]["worklist"];
+        assert_eq!(lanes["revision"], revision);
+        assert_eq!(lanes["items"][0]["claim"]["actor"], "worker-a");
+        assert_eq!(lanes["items"][1]["claim"]["actor"], "worker-b");
+        let (_, workspace) = state.workspaces.select(None).unwrap();
+        let base = super::super::web::web_status::revision_state(
+            &state.harness,
+            state.workspaces.default_id(),
+            &workspace,
+        )
+        .await
+        .unwrap()
+        .full_snapshot_key;
+        state
+            .harness
+            .mark_observatory_revision(&workspace, base.clone());
+        let mut cached_headers = headers(&state);
+        cached_headers.insert("x-wcode-prefer-cached", "1".parse().unwrap());
+        cached_headers.insert("x-wcode-background-refresh", "1".parse().unwrap());
+        let cached = project(state.clone(), cached_headers).await;
+        assert_eq!(
+            cached["snapshot_revision"],
+            format!("{base}|worklist:1:{}", revision.as_u64().unwrap())
+        );
+        assert_eq!(cached["execution"]["worklist"]["revision"], revision);
+        assert_eq!(cached["worklist_revision"]["revision"], revision);
+        assert_eq!(cached["snapshot_refreshing"], false);
+        assert!(
+            !state.harness.observatory_refreshing(&workspace),
+            "Worklist-only state changes must not rebuild unchanged project inputs"
+        );
+        let signal = intelligence_web_revision(State(state.clone()), headers(&state)).await;
+        let signal = to_bytes(signal.into_body(), 256 * 1024).await.unwrap();
+        let signal: Value = serde_json::from_slice(&signal).unwrap();
+        assert_eq!(
+            signal["worklist_revision"],
+            json!({"available":true,"exists":true,"revision":revision})
+        );
+        assert_eq!(signal["fingerprint"], absent_signal["fingerprint"]);
+        assert!(!signal.to_string().contains(&token_a));
+        assert!(!public.to_string().contains(&token_a));
+        assert!(!public.to_string().contains(b["claim_id"].as_str().unwrap()));
+        let unauthorized = intelligence_web_project(State(state.clone()), HeaderMap::new()).await;
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        let original = tool(&state, "read_file", json!({"path":"src/a.rs"})).await;
+        assert_eq!(original["isError"], false);
+        let write = tool(&state, "replace_text", json!({
+        "path":"src/a.rs","expected_sha256":original["structuredContent"]["sha256"],"old_text":"alpha","new_text":"changed"
+    })).await;
+        assert_eq!(
+            write["isError"], true,
+            "claim must not grant Workspace write authorization"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("src/a.rs")).unwrap(),
+            "fn alpha() {}\n"
+        );
+        let bad_submit = tool(
+            &state,
+            "worklist_submit",
+            json!({
+                "expected_revision":revision,"expected_repository_revision":repo,"item_id":"a",
+                "claim_id":"incorrect","outcome":"complete","summary":"invalid"
+            }),
+        )
+        .await;
+        assert_eq!(bad_submit["isError"], true);
+        let result = tool(&state, "worklist_submit", json!({
+        "expected_revision":revision,"expected_repository_revision":repo,"item_id":"a",
+        "claim_id":token_a,"outcome":"complete","summary":"inspection complete","evidence_ids":[]
+    })).await;
+        assert_eq!(result["isError"], false, "{result}");
+        let data = &result["structuredContent"];
+        assert_eq!(data["result"]["proof_status"], "not_reported");
+        assert_eq!(data["result"]["outcome"], "complete");
+        assert_eq!(data["result"]["evidence"], json!([]));
+        assert!(!data.to_string().contains(&token_a));
+        let after = project(state.clone(), headers(&state)).await;
+        assert_eq!(after["execution"]["worklist"]["items"][0]["status"], "done");
+        assert!(after["execution"]["worklist"]["items"][0]
+            .get("claim")
+            .is_none());
+        assert_eq!(
+            after["execution"]["worklist"]["items"][0]["result"]["proof_status"],
+            "not_reported"
+        );
+        let observed = tool(&state, "worklist_status", json!({})).await;
+        assert_eq!(
+            observed["structuredContent"]["revision"],
+            data["worklist"]["revision"]
+        );
+        let signal = intelligence_web_revision(State(state.clone()), headers(&state)).await;
+        let signal = to_bytes(signal.into_body(), 256 * 1024).await.unwrap();
+        let signal: Value = serde_json::from_slice(&signal).unwrap();
+        assert_eq!(
+            signal["worklist_revision"]["revision"],
+            data["worklist"]["revision"]
+        );
+    }
+}

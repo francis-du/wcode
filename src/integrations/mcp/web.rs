@@ -2,8 +2,14 @@ use super::*;
 use crate::authorization::AuthorizationStatus;
 #[path = "web_change_impact.rs"]
 pub(crate) mod web_change_impact;
+#[path = "web_execution.rs"]
+mod web_execution;
 #[path = "web_graph.rs"]
 mod web_graph;
+pub(super) use web_execution::intelligence_web_revision;
+use web_execution::{
+    intelligence_execution_snapshot, public_worklist_revision, worklist_snapshot_key,
+};
 #[path = "web_status.rs"]
 pub(super) mod web_status;
 pub(super) use web_change_impact::intelligence_web_change_impact;
@@ -579,24 +585,6 @@ fn request_observatory_refresh(
     true
 }
 
-async fn intelligence_execution_snapshot(workspace: crate::workspace::Workspace) -> Value {
-    match mcp_tools::run_blocking(move || crate::execution::stored_status(&workspace)).await {
-        Ok(mut value) => {
-            value["available"] = Value::Bool(true);
-            value
-        }
-        Err(_) => json!({
-            "available": false,
-            "exists": false,
-            "active": false,
-            "revision": 0,
-            "checkpoint": Value::Null,
-            "proposal": Value::Null,
-            "reason": "execution_status_unavailable"
-        }),
-    }
-}
-
 pub(super) async fn intelligence_web_project(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -606,6 +594,7 @@ pub(super) async fn intelligence_web_project(
         Err(response) => return *response,
     };
     let execution = intelligence_execution_snapshot(workspace.clone()).await;
+    let worklist_revision = public_worklist_revision(&execution);
     let prefer_cached = headers
         .get("x-wcode-prefer-cached")
         .and_then(|value| value.to_str().ok())
@@ -615,16 +604,24 @@ pub(super) async fn intelligence_web_project(
         .and_then(|value| value.to_str().ok())
         == Some("1");
     if prefer_cached {
+        let cached = state.harness.cached_project_observatory_state(&workspace);
         if background_refresh && !state.harness.observatory_refreshing(&workspace) {
-            request_observatory_refresh(state.clone(), workspace_id.clone(), workspace.clone());
+            let inputs_unchanged = match cached.as_ref().and_then(|(_, key)| key.as_deref()) {
+                Some(base) => web_status::revision_state(&state.harness, &workspace_id, &workspace)
+                    .await
+                    .is_ok_and(|current| current.full_snapshot_key == base),
+                None => false,
+            };
+            if !inputs_unchanged {
+                request_observatory_refresh(state.clone(), workspace_id.clone(), workspace.clone());
+            }
         }
         let refreshing = state.harness.observatory_refreshing(&workspace);
-        if let Some((snapshot, revision_key)) =
-            state.harness.cached_project_observatory_state(&workspace)
-        {
+        if let Some((snapshot, revision_key)) = cached {
             if let Ok(mut value) = serde_json::to_value(snapshot) {
                 value["workspace_options"] = intelligence_workspace_options(&state);
                 value["execution"] = execution.clone();
+                value["worklist_revision"] = worklist_revision.clone();
                 value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
                 value["activity"] = state.monitor.observatory_activity(&workspace_id);
                 value["pending_authorizations"] = json!(state
@@ -642,7 +639,9 @@ pub(super) async fn intelligence_web_project(
                     "cached"
                 });
                 value["snapshot_refreshing"] = json!(refreshing);
-                value["snapshot_revision"] = revision_key.map_or(Value::Null, Value::String);
+                value["snapshot_revision"] = revision_key.map_or(Value::Null, |base| {
+                    json!(worklist_snapshot_key(&base, &execution))
+                });
                 let mut response =
                     ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response();
                 response.headers_mut().insert(
@@ -658,6 +657,7 @@ pub(super) async fn intelligence_web_project(
                 "workspace": workspace_id,
                 "workspace_options": intelligence_workspace_options(&state),
                 "execution": execution.clone(),
+                "worklist_revision": worklist_revision.clone(),
                 "activity": state.monitor.observatory_activity(&workspace_id),
                 "pending_authorizations": intelligence_pending_authorizations(&state, &workspace_id).as_array().map_or(0, Vec::len),
                 "snapshot_pending": true,
@@ -707,6 +707,7 @@ pub(super) async fn intelligence_web_project(
     let mut response = match project {
         Ok(mut value) => {
             value["workspace_options"] = intelligence_workspace_options(&state);
+            value["worklist_revision"] = worklist_revision;
             value["execution"] = execution;
             value["git_review"] = git_review;
             value["activity"] = state.monitor.observatory_activity(&workspace_id);
@@ -734,78 +735,6 @@ pub(super) async fn intelligence_web_project(
             .expect("bounded server timing values form a valid header"),
     );
     response
-}
-
-pub(super) async fn intelligence_web_revision(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Response {
-    let (workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
-        Ok(selected) => selected,
-        Err(response) => return *response,
-    };
-    let revision = match state.harness.observatory_revision_signal(&workspace).await {
-        Ok(revision) => revision,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error.to_string()})),
-            )
-                .into_response()
-        }
-    };
-    let harness = state.harness.clone();
-    let workspace_for_read = workspace.clone();
-    let id_for_read = workspace_id.clone();
-    // File I/O stays off the async worker. The proof signal reads record
-    // metadata only; it is invalidation information, never verification proof.
-    let signals = mcp_tools::run_blocking(move || -> AnyResult<_> {
-        let (graph, (proof, engineering)) = rayon::join(
-            || harness.observatory_graph_signal(&workspace_for_read),
-            || {
-                rayon::join(
-                    || harness.observatory_proof_signal(&id_for_read, &workspace_for_read),
-                    || harness.observatory_engineering_signal(&workspace_for_read),
-                )
-            },
-        );
-        Ok((graph?, proof?, engineering?))
-    })
-    .await;
-    let signal_failed = signals.is_err();
-    let (graph_revision, graph_signal, proof_revision, engineering_revision) = match signals {
-        Ok((graph, proof, engineering)) => {
-            let (revision, signal) = graph
-                .map(|(revision, signal)| (Some(revision), Some(signal)))
-                .unwrap_or((None, None));
-            (revision, signal, Some(proof), Some(engineering))
-        }
-        Err(_) => (None, None, None, None),
-    };
-    (
-        [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "workspace": workspace_id,
-            "proof_revision": proof_revision,
-            "engineering_revision": engineering_revision,
-            "fingerprint": revision.fingerprint,
-            "changed_files": revision.changed_files,
-            "truncated": revision.truncated,
-            "full_refresh_required": revision.full_refresh_required || signal_failed,
-            "graph_revision": graph_revision,
-            "graph_signal": graph_signal,
-            "pending_authorizations": state
-                .workspaces
-                .authorization_requests(256)
-                .into_iter()
-                .filter(|request| {
-                    request.status == AuthorizationStatus::Pending
-                        && request.workspace == workspace_id
-                })
-                .count()
-        })),
-    )
-        .into_response()
 }
 
 pub(super) async fn intelligence_web_refresh_semantics(

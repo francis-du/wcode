@@ -58,6 +58,8 @@ pub(crate) fn model_tools_for_group(group: &str) -> &'static [&'static str] {
         "execution" => &[
             "execution_status",
             "worklist_status",
+            "worklist_claim",
+            "worklist_submit",
             "execution_policy_status",
         ],
         "reconciliation" => &[
@@ -85,25 +87,28 @@ fn write_model_tools(capabilities: &mut Value, mut tools: Vec<Value>) {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     tools.truncate(MAX_MODEL_RECOMMENDED_TOOLS);
-    let actions = tools
-        .iter()
-        .filter_map(Value::as_str)
-        .map(|name| {
-            json!({
-                "tool": name,
-                "group": model_tool_group(name),
-                "disclosure": model_tool_disclosure(name),
-            })
-        })
-        .collect::<Vec<_>>();
     let Some(object) = capabilities.as_object_mut() else {
         return;
     };
-    object.insert("recommended_tool_count".to_owned(), json!(tools.len()));
     object.insert("recommended_tools".to_owned(), Value::Array(tools));
     if compacted {
+        object.remove("recommended_tool_count");
         object.remove("recommended_actions");
     } else {
+        let actions = object["recommended_tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(|name| {
+                json!({
+                    "tool": name,
+                    "group": model_tool_group(name),
+                    "disclosure": model_tool_disclosure(name),
+                })
+            })
+            .collect::<Vec<_>>();
+        object.insert("recommended_tool_count".to_owned(), json!(actions.len()));
         object.insert("recommended_actions".to_owned(), Value::Array(actions));
     }
 }
@@ -377,6 +382,16 @@ impl ToolHarness {
             "resource_governor": crate::resource::capabilities(),
             "software_intelligence": software_intelligence,
             "capability_routing": capability_routing,
+            "multi_agent": {
+                "host_spawning": "host-native-supported-primitive",
+                "worklist_claims": "durable-cooperative-path-leases",
+                "claim_lease_ms": 900_000,
+                "tools": ["worklist_status", "worklist_update", "worklist_claim", "worklist_submit"],
+                "parallel_tools": "server-tool-batches-not-model-agents",
+                "execution_handoff": "serial-clean-continuation-not-child-agent",
+                "child_reports": "reported-outcomes-not-verification-evidence",
+                "recommendation": "independent substantial lanes only; more agents can increase token cost"
+            },
             "code_index": self.code_index.capabilities(),
         })
     }

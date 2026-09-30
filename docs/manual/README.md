@@ -30,15 +30,15 @@ Press **W** in the TUI to open the protected Engineering Observatory for the sel
 
 | Surface | What to use it for |
 | --- | --- |
-| TUI | Connection state, project selection, live activity, and pending authorization. |
+| TUI | Connection state, project selection, Summary, selectable Attention, Tasks, and Providers, and pending authorization. |
 | Setup Hub | Setup commands, dry-run previews, launch options, performance presets, and runtime health. |
-| Overview | Project pulse, engineering flow, timeline, diagnostics, and language quality. |
+| Overview | Project pulse, actionable observation coverage, engineering flow, timeline, diagnostics, and language quality. |
 | Engineering architecture | System and component ownership, declared and observed dependencies, and architecture inspection. |
 | Task activity | Running and queued work, execution timing, and resource use. |
 | Verification evidence | Current-revision results, readiness, and verified repository learning. |
 | Current changes | Working-tree changes, impact, and verification scope. |
 | Requirements | Requirement → component → code → verification → evidence traceability. |
-| Project files | The bounded source tree, largest files, and truncation indicators. |
+| Project files | The bounded source tree and largest files link to paged source inspection, with snapshot, SHA, and truncation indicators. |
 | Access | Authorized projects, executable access, exact operations, and pending requests. |
 
 A mapped check has not necessarily run. A historical pass may belong to an older revision. See [Getting started](getting-started/) for navigation and [Repository Intelligence & Engineering State](software-intelligence/) for evidence semantics.
@@ -56,6 +56,8 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 
 - [Read-only Change Inspection](change-inspection/) — inspect source diffs, symbols, impact, and proof inside Current changes, with explicit comparison layers and snapshot identity.
 
+- [IDE independent observability](ide-independent-observatory/) — official product comparisons, implemented attention and source navigation, verification boundaries, and the remaining observation gaps.
+
 - [Product Scopes](product-scopes/) — product capabilities and source-ownership boundaries.
 - [Agentic Engineering](agentic-engineering/) — short instructions, on-demand context, parallel execution, and deterministic verification.
 - [Language Quality](language-quality/) — one capability matrix for all 22 indexed languages: syntax, validated semantics, format, lint, types, static analysis, tests, security, and advanced verification, with explicit gaps instead of a Rust-centric support bit.
@@ -70,6 +72,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.
 - [Research-informed improvements](research-upgrades/) — diagnostic context and dependency previews prepared for 0.6.2, primary papers, and evaluation limits.
 - [Frontier engineering](frontier-engineering/) — selective context execution, complete verification plans, new research and measurable capability goals.
+- [v0.9.0 release notes](releases/v0.9.0/) — shared attention, terminal observation, guarded source paging, scoped model-worker coordination, and compact context.
 - [v0.8.5 release notes](releases/v0.8.5/) — snapshot-bound change inspection, precise code-to-test retrieval, Fitness observations, and Observatory interaction fixes.
 - [v0.8.4 release notes](releases/v0.8.4/) — scope-isolated concurrent writers, grant-scoped remote ownership, unified MCP transport protocol policy, and 300-round release verification.
 - [v0.8.3 release notes](releases/v0.8.3/) — capability-aware MCP discovery, tighter edit-ready Agent Context, isolated Jev policy, modern task compatibility, and 300-round release verification.

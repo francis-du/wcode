@@ -17,31 +17,25 @@ pub(super) fn jev_runtime_json(stats: &WorkspaceStats, now: Instant) -> Option<V
         let latest_total_tokens = jev
             .call_total_tokens
             .unwrap_or_else(|| latest_input_tokens.saturating_add(latest_output_tokens));
-        let latest_token_source = if latest_provider_tokens {
+        let latest_provider_complete = jev.call_input_tokens.is_some()
+            && jev.call_output_tokens.is_some()
+            && jev.call_total_tokens.is_some();
+        let latest_token_source = if latest_provider_complete {
             "provider_reported"
+        } else if latest_provider_tokens {
+            "mixed_provider_and_byte_estimate"
         } else if jev.call_request_bytes > 0 || jev.call_response_bytes > 0 {
             "byte_estimate"
         } else {
             "unavailable"
         };
 
-        let aggregate_provider_complete =
-            stats.jev_call_samples > 0 && stats.jev_token_observations == stats.jev_call_samples;
-        let aggregate_input_tokens = if aggregate_provider_complete {
-            stats.jev_input_tokens
-        } else {
-            stats.jev_request_bytes.div_ceil(4)
-        };
-        let aggregate_output_tokens = if aggregate_provider_complete {
-            stats.jev_output_tokens
-        } else {
-            stats.jev_response_bytes.div_ceil(4)
-        };
-        let aggregate_total_tokens = if aggregate_provider_complete {
-            stats.jev_total_tokens
-        } else {
-            aggregate_input_tokens.saturating_add(aggregate_output_tokens)
-        };
+        let aggregate_provider_complete = stats.jev_call_samples > 0
+            && stats.jev_token_observations == stats.jev_call_samples
+            && stats.jev_estimated_token_observations == 0;
+        let aggregate_input_tokens = stats.jev_effective_input_tokens;
+        let aggregate_output_tokens = stats.jev_effective_output_tokens;
+        let aggregate_total_tokens = stats.jev_effective_total_tokens;
         let aggregate_token_source = if stats.jev_call_samples == 0 {
             "unavailable"
         } else if aggregate_provider_complete {
@@ -95,6 +89,7 @@ pub(super) fn jev_runtime_json(stats: &WorkspaceStats, now: Instant) -> Option<V
                 "avg_elapsed_ms": avg_elapsed_ms,
                 "tokens": {
                     "observations": stats.jev_token_observations,
+                    "estimated_observations": stats.jev_estimated_token_observations,
                     "input": aggregate_input_tokens,
                     "output": aggregate_output_tokens,
                     "total": aggregate_total_tokens,

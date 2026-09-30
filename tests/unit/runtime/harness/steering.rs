@@ -27,6 +27,7 @@ fn agent_context_restores_pending_execution_steering() {
             goal: Some("resume structured steering".to_owned()),
             restart: false,
             items: vec![crate::worklist::WorkItemPatch {
+                write_paths: None,
                 id: "steer".to_owned(),
                 title: Some("Apply steering first".to_owned()),
                 status: Some(crate::worklist::WorkItemStatus::InProgress),

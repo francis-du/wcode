@@ -11,6 +11,10 @@ permalink: /docs/releases/
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
 
+## 0.9.x
+
+- [v0.9.0](v0.9.0/) — shared attention, terminal observation, guarded source paging, scoped model-worker coordination, and compact context.
+
 ## 0.8.x
 
 - [v0.8.5](v0.8.5/) — snapshot-bound change inspection, more precise code-to-test retrieval, truthful Fitness observations, verification-plan rebinding, and Observatory interaction fixes.

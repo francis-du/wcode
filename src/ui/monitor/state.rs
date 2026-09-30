@@ -674,6 +674,17 @@ impl TaskMonitor {
                     .unwrap_or(0)
                     .saturating_add(value["design_drift"].as_u64().unwrap_or(0));
             }
+            "worklist_status" | "worklist_update" | "worklist_claim" | "worklist_submit" => {
+                let public_status = value.get("worklist").unwrap_or(value);
+                if public_status["items"].is_array() {
+                    stats.project_worklist = Some(project_worklist_projection(public_status));
+                }
+            }
+            "project_observatory" => {
+                stats.project_attention = value.get("attention").cloned();
+                stats.project_revision = value.get("repository_revision").cloned();
+                stats.project_observed_at = Some(Instant::now());
+            }
             "risk_status" => {
                 stats.risk_level = value["level"].as_str().map(str::to_owned);
                 stats.drift_findings = value["drift"]["findings"]

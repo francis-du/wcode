@@ -48,6 +48,14 @@ use monitor_detail::*;
 mod monitor_intelligence;
 use monitor_intelligence::*;
 
+#[path = "agents.rs"]
+mod monitor_agents;
+use monitor_agents::*;
+
+#[path = "console.rs"]
+mod monitor_console;
+use monitor_console::*;
+
 #[path = "commands.rs"]
 mod monitor_commands;
 use monitor_commands::*;
@@ -204,6 +212,10 @@ struct WorkspaceStats {
     jev_request_bytes: u64,
     jev_response_bytes: u64,
     jev_elapsed_ms: u64,
+    jev_estimated_token_observations: u64,
+    jev_effective_input_tokens: u64,
+    jev_effective_output_tokens: u64,
+    jev_effective_total_tokens: u64,
     jev_token_observations: u64,
     jev_input_tokens: u64,
     jev_output_tokens: u64,
@@ -213,6 +225,10 @@ struct WorkspaceStats {
 
 #[derive(Clone, Default)]
 struct IntelligenceStats {
+    project_worklist: Option<Value>,
+    project_attention: Option<Value>,
+    project_revision: Option<Value>,
+    project_observed_at: Option<Instant>,
     design_state: Option<String>,
     policy_errors: u64,
     policy_warnings: u64,
@@ -454,6 +470,10 @@ struct DashboardState {
     workspace_offset: usize,
     help_open: bool,
     intelligence_open: bool,
+    console_tab: ConsoleTab,
+    console_focus: usize,
+    console_task_id: Option<u64>,
+    console_scroll: usize,
     commands_open: bool,
     command_offset: usize,
     workspace_input: Option<String>,

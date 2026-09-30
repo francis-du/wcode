@@ -32,6 +32,7 @@ fn engineering_fitness_challenge_failed_ranking_stays_in_denominator() {
         &case,
     );
     assert_eq!(observed.ndcg_at_10, Some(1.0));
+    let observed_estimated_tokens = observed.estimated_tokens;
     let row = Row {
         case_id: "failed-bug-control".into(),
         language: "rust".into(),
@@ -68,6 +69,12 @@ fn engineering_fitness_challenge_failed_ranking_stays_in_denominator() {
         json!(0.5)
     );
     assert_eq!(summary[0]["bug_relevant_required_recall"], json!(0.5));
+    assert_eq!(summary[0]["estimated_response_token_samples"], json!(1));
+    assert_eq!(
+        summary[0]["total_estimated_response_tokens"],
+        json!(observed_estimated_tokens),
+        "failed queries without a response must remain missing instead of fabricating zero-token usage"
+    );
     assert_eq!(
         summary[0]["mean_ndcg_at_10"],
         json!(0.5),

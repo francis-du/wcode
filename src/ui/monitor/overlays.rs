@@ -298,7 +298,7 @@ pub(super) fn render_authorization_overlay(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn authorization_detail_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+pub(super) fn authorization_detail_lines(text: &str, width: usize) -> Vec<Line<'static>> {
     let width = width.max(1);
     let mut lines = Vec::new();
     let mut current = String::new();

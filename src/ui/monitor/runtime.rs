@@ -167,6 +167,7 @@ pub(super) fn run_dashboard(
     let mut status_deadline: Option<Instant> = None;
     // Compact fingerprint (avoids >12-field tuple PartialEq limits).
     let mut last_draw_key: Option<(u64, u64, Option<String>)> = None;
+    let mut last_paint = Instant::now();
     let initial_snapshot = monitor.snapshot();
     let initial_workspaces = ordered_workspaces(&config, &initial_snapshot);
     ui.sync_workspace_order(&initial_workspaces, initial_workspaces.len().max(1));
@@ -275,11 +276,13 @@ pub(super) fn run_dashboard(
             ui.workspace_message.clone(),
         );
         let changed = last_draw_key.as_ref() != Some(&draw_key);
-        if busy || changed {
+        // Idle health, evidence and observation ages still change without tasks.
+        if busy || changed || last_paint.elapsed() >= IDLE_REFRESH_INTERVAL {
             session
                 .terminal
                 .draw(|frame| draw_dashboard(frame, &snapshot, &config, tick, &ui))?;
             last_draw_key = Some(draw_key);
+            last_paint = Instant::now();
             tick = tick.wrapping_add(1);
         }
 
@@ -287,9 +290,14 @@ pub(super) fn run_dashboard(
         if event::poll(refresh_interval)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
+                    if handle_console_key(key, &mut ui, area, &snapshot, &config) {
+                        last_draw_key = None;
+                        continue;
+                    }
                     let Some(action) = dashboard_action(key, &ui, area) else {
                         continue;
                     };
+                    last_draw_key = None;
                     if action == DashboardAction::Interrupt {
                         let _ = interrupt_tx.send(true);
                         break;

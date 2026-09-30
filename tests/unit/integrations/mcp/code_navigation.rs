@@ -35,6 +35,7 @@ async fn code_source_is_node_resolved_snapshot_bound_and_stale_safe() {
             node_id: target_node_id.clone(),
             snapshot_id: snapshot_id.clone(),
             context_lines: Some(1),
+            start_line: None,
         }),
     )
     .await;
@@ -47,6 +48,7 @@ async fn code_source_is_node_resolved_snapshot_bound_and_stale_safe() {
             node_id: target_node_id.clone(),
             snapshot_id: snapshot_id.clone(),
             context_lines: Some(1),
+            start_line: None,
         }),
     )
     .await;
@@ -83,6 +85,7 @@ async fn code_source_is_node_resolved_snapshot_bound_and_stale_safe() {
             node_id: target_node_id,
             snapshot_id,
             context_lines: Some(1),
+            start_line: None,
         }),
     )
     .await;
@@ -214,4 +217,183 @@ async fn current_change_symbol_refreshes_stale_graph_before_exact_drilldown() {
     .await;
     assert_eq!(stale.status(), StatusCode::CONFLICT);
     assert_eq!(response_json(stale).await["code"], "stale_change");
+}
+
+#[tokio::test]
+async fn file_source_pages_are_bounded_complete_and_sha_guarded() {
+    let (state, root) = origin_test_state();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    let source = (1..=501)
+        .map(|line| format!("// line {line}\n"))
+        .collect::<String>();
+    fs::write(root.path().join("src/long.rs"), &source).unwrap();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let graph = state
+        .harness
+        .software_graph(workspace_id.clone(), &workspace, "src", 100, 500)
+        .unwrap();
+    let node_id = graph
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.attributes.get("path").and_then(Value::as_str) == Some("src/long.rs"))
+        .unwrap()
+        .id
+        .clone();
+    let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
+        .id
+        .clone();
+    let mut combined = String::new();
+    for (start, end) in [(1, 240), (241, 480), (481, 501)] {
+        let response = intelligence_web_code_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Query(IntelligenceCodeSourceQuery {
+                node_id: node_id.clone(),
+                snapshot_id: snapshot_id.clone(),
+                context_lines: Some(0),
+                start_line: Some(start),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        let page = &body["source"];
+        assert_eq!(page["start_line"], start);
+        assert_eq!(page["end_line"], end);
+        assert_eq!(page["total_lines"], 501);
+        assert!(page["focus_start_line"].as_u64().unwrap() >= start as u64);
+        assert!(page["focus_end_line"].as_u64().unwrap() <= end as u64);
+        combined.push_str(page["content"].as_str().unwrap());
+        if end != 501 {
+            combined.push('\n');
+        }
+    }
+    assert_eq!(combined.trim_end(), source.trim_end());
+    let invalid = intelligence_web_code_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeSourceQuery {
+            node_id: node_id.clone(),
+            snapshot_id: snapshot_id.clone(),
+            context_lines: None,
+            start_line: Some(502),
+        }),
+    )
+    .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    fs::write(
+        root.path().join("src/long.rs"),
+        source.replace("line 501", "changed"),
+    )
+    .unwrap();
+    let stale = intelligence_web_code_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeSourceQuery {
+            node_id,
+            snapshot_id,
+            context_lines: None,
+            start_line: Some(481),
+        }),
+    )
+    .await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(stale).await["code"], "stale_source");
+}
+
+#[tokio::test]
+async fn symbol_source_page_without_intersection_has_no_focus() {
+    let (state, root) = origin_test_state();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    let source = format!(
+        "// header\nfn selected() {{}}\n{}",
+        "// filler\n".repeat(500)
+    );
+    fs::write(root.path().join("src/paged.rs"), source).unwrap();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let graph = state
+        .harness
+        .software_graph(workspace_id.clone(), &workspace, "src", 100, 500)
+        .unwrap();
+    let node_id = graph
+        .graph
+        .nodes
+        .values()
+        .find(|node| {
+            node.attributes.get("path").and_then(Value::as_str) == Some("src/paged.rs")
+                && node.attributes.contains_key("range")
+                && node.label.ends_with("selected")
+        })
+        .unwrap()
+        .id
+        .clone();
+    let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
+        .id
+        .clone();
+    for (start, expected_focus) in [(1, 2), (241, 0)] {
+        let response = intelligence_web_code_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Query(IntelligenceCodeSourceQuery {
+                node_id: node_id.clone(),
+                snapshot_id: snapshot_id.clone(),
+                context_lines: None,
+                start_line: Some(start),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["source"]["start_line"], start);
+        assert_eq!(body["source"]["focus_start_line"], expected_focus);
+        assert_eq!(body["source"]["focus_end_line"], expected_focus);
+        assert_eq!(body["source"]["symbol_start_line"], 2);
+        assert_eq!(body["source"]["symbol_end_line"], 2);
+    }
+}
+
+#[tokio::test]
+async fn empty_file_source_has_explicit_empty_range() {
+    let (state, root) = origin_test_state();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/empty.rs"), "").unwrap();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let graph = state
+        .harness
+        .software_graph(workspace_id.clone(), &workspace, "src", 100, 500)
+        .unwrap();
+    let node_id = graph
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.attributes.get("path").and_then(Value::as_str) == Some("src/empty.rs"))
+        .unwrap()
+        .id
+        .clone();
+    let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
+        .id
+        .clone();
+    let response = intelligence_web_code_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeSourceQuery {
+            node_id,
+            snapshot_id,
+            context_lines: None,
+            start_line: None,
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["source"]["total_lines"], 0);
+    assert_eq!(body["source"]["end_line"], 0);
+    assert_eq!(body["source"]["focus_start_line"], 0);
+    assert_eq!(body["source"]["focus_end_line"], 0);
+    assert_eq!(body["source"]["content"], "");
+    assert_eq!(body["source"]["truncated"], false);
 }

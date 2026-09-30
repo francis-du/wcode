@@ -156,7 +156,7 @@ fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
             && report
                 .as_ref()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 64
+                .is_some_and(|results| results.len() == 75
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -179,7 +179,7 @@ fn observatory_code_graph_opens_loads_and_renders_real_graph_data() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 30
+                .is_some_and(|results| results.len() == 38
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

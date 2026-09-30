@@ -1,0 +1,25 @@
+schema_version: 1
+id: REQ-WORKLIST-DELEGATION-001
+title: Host agents cooperate through durable scoped Worklist claims
+intent: >-
+  Models discover dependency-ready lanes and use supported host-native agent spawning with
+  bounded code/Design/SHA/check handoffs. Worklist claims coordinate cooperating workers
+  with private opaque possession tokens, fixed renewable leases and canonical non-overlapping
+  path scopes. They do not grant filesystem authority, spawn host-specific model agents or
+  turn parallel_tools batches into model agents. Existing SHA and Workspace controls remain.
+  Child outcome reports and actual current-revision evidence references remain separate from
+  Verification readiness. Empty scopes denote read-only work; uncertain broad writers retain
+  the existing stronger Reconciliation/isolated-worktree policy. Context retrieval failures
+  cannot publish inaccessible claims, and slow context retrieval does not hold the update lock.
+priority: high
+implemented_by:
+  - component:worklist-delegation
+acceptance:
+  - AC-WORKLIST-DELEGATION-001
+constraints:
+  - CONSTRAINT-MULTI-AGENT-WRITE-ISOLATION
+  - CONSTRAINT-PARALLEL-FIRST
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+risk:
+  reliability: high
+  security: high
