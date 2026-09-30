@@ -172,6 +172,7 @@ fn claim_with_context(
             });
         }
     }
+    ToolHarness::finalize_handoff_context(&mut context)?;
     let source = paths.iter().map(|path| {
         match workspace.path_info(path) {
             Ok(info) => json!({"path":path,"state":"existing","metadata":info}),
@@ -215,7 +216,7 @@ fn claim_with_context(
     item.claim = Some(owned.clone());
     commit(workspace, &mut worklist)?;
     Ok(json!({
-        "worklist": status_value(&worklist, true),
+        "worklist": status_value(&worklist, false),
         "claim_id": owned.claim_id,
         "handoff": {
             "item": public_item(&worklist.items[index], now_ms()),
@@ -328,7 +329,7 @@ pub(crate) fn submit(
     item.result = Some(result.clone());
     commit(workspace, &mut worklist)?;
     Ok(json!({
-        "worklist":status_value(&worklist,true),
+        "worklist":status_value(&worklist,false),
         "result":result,
         "verification_authority":"reported outcome only; use current verification_status/evidence_status and existing Execution gates for proof readiness"
     }))

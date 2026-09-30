@@ -11,6 +11,11 @@ statement: >-
   fresh current revision and reject fabricated evidence. Reports never mint Evidence or proof
   readiness. The parallel runnable projection is a pairwise non-overlapping subset. Multi-agent
   intent makes claim/submit discoverable while ordinary identifier names retain normal routing.
+  Claim, renewal and submit acknowledgements omit unrelated item history with an explicit
+  items_included=false marker, retain the current item or result, revision, counts and runnable
+  lanes, and leave the complete retained list available through worklist_status. Handoff
+  filtering recomputes serialized bytes and the byte/4 token estimate for the exact delivered
+  context; these measurements are not provider billing or verification authority.
 verification:
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_is_private_scoped_and_excludes_live_overlapping_lanes}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_rejects_false_stale_tokens_and_protects_active_task_updates}
@@ -25,3 +30,4 @@ verification:
   - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: worker_lanes_route_claims_results_and_protected_public_observation}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_reports_bound_unicode_scalars_and_keep_live_dependencies_complete}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: expired_claim_can_be_replanned_without_old_capability}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: single_lane_replies_do_not_repeat_unrelated_worklist_history}

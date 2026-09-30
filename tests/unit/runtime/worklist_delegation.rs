@@ -386,6 +386,95 @@ fn worklist_reports_bound_unicode_scalars_and_keep_live_dependencies_complete() 
 }
 
 #[test]
+fn single_lane_replies_do_not_repeat_unrelated_worklist_history() {
+    let (_root, workspace, harness) = setup();
+    let history = (0..60)
+        .map(|index| {
+            let mut item = patch(&format!("history-{index}"), &[], &[]);
+            item.status = Some(WorkItemStatus::Done);
+            item.note = Some("Unrelated completed history. ".repeat(30));
+            item
+        })
+        .collect();
+    update(
+        &workspace,
+        WorklistUpdate {
+            expected_revision: 1,
+            goal: None,
+            restart: false,
+            items: history,
+        },
+    )
+    .unwrap();
+
+    let owned = take(&harness, &workspace, "a", 2).unwrap();
+    let after_claim = status(&workspace).unwrap();
+    let claim_id = owned["claim_id"].as_str().unwrap();
+    let renewed = claim(
+        &harness,
+        "demo",
+        &workspace,
+        WorklistClaimInput {
+            expected_revision: 3,
+            expected_repository_revision: harness.current_revision(&workspace).unwrap(),
+            item_id: "a".into(),
+            actor: "worker-a".into(),
+            claim_id: Some(claim_id.into()),
+        },
+    )
+    .unwrap();
+    let after_renewal = status(&workspace).unwrap();
+    let reported = report(&harness, &workspace, 4, claim_id).unwrap();
+    let full = status(&workspace).unwrap();
+    assert_eq!(full["items"].as_array().unwrap().len(), 64);
+    assert_eq!(full["counts"]["done"], 61);
+    assert_eq!(full["items"][0]["result"], reported["result"]);
+    assert_eq!(owned["handoff"]["item"]["id"], "a");
+    assert!(renewed["handoff"]["agent_context"].is_null());
+
+    for (kind, response, retained) in [
+        ("claim", &owned, &after_claim),
+        ("renewal", &renewed, &after_renewal),
+        ("submit", &reported, &full),
+    ] {
+        let mut expanded = response.clone();
+        expanded["worklist"] = retained.clone();
+        let scoped_bytes = serde_json::to_vec(response).unwrap().len();
+        let expanded_bytes = serde_json::to_vec(&expanded).unwrap().len();
+        println!(
+            "lane_reply_payload kind={kind} scoped_bytes={scoped_bytes} expanded_bytes={expanded_bytes}"
+        );
+        assert_eq!(response["worklist"]["items_included"], false, "{kind}");
+        assert!(
+            response["worklist"]["items"].as_array().unwrap().is_empty(),
+            "{kind}"
+        );
+        assert!(scoped_bytes * 4 < expanded_bytes, "{kind}");
+        for field in [
+            "revision",
+            "counts",
+            "runnable",
+            "parallel_runnable",
+            "complete",
+        ] {
+            assert_eq!(
+                response["worklist"][field], retained[field],
+                "{kind} {field}"
+            );
+        }
+    }
+    assert_eq!(owned["worklist"]["revision"], 3);
+    assert_eq!(renewed["worklist"]["revision"], 4);
+    assert_eq!(reported["worklist"]["revision"], 5);
+    assert_eq!(reported["result"]["proof_status"], "not_reported");
+    assert_eq!(full["items_included"], true);
+    let pack = &owned["handoff"]["agent_context"];
+    let delivered_bytes = serde_json::to_vec(pack).unwrap().len() as u64;
+    assert_eq!(pack["serialized_bytes"], delivered_bytes);
+    assert_eq!(pack["estimated_tokens"], delivered_bytes.div_ceil(4));
+}
+
+#[test]
 fn expired_claim_can_be_replanned_without_old_capability() {
     let (_root, workspace, harness) = setup();
     let owned = take(&harness, &workspace, "a", 1).unwrap();

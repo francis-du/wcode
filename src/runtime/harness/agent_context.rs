@@ -534,6 +534,23 @@ impl ToolHarness {
         finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
         Ok(pack)
     }
+
+    pub(crate) fn finalize_handoff_context(value: &mut Value) -> Result<()> {
+        let Some(budget) = value
+            .get("budget")
+            .and_then(Value::as_u64)
+            .and_then(|budget| usize::try_from(budget).ok())
+        else {
+            return Ok(());
+        };
+        let baseline = value
+            .get("baseline_context_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        // Handoff filtering changes the delivered pack after normal retrieval.
+        // Reuse the bounded finalizer so metrics describe that final payload.
+        finalize_agent_context(value, baseline, budget)
+    }
 }
 
 fn compact_core_constraints() -> Vec<Value> {

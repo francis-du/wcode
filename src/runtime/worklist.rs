@@ -92,6 +92,7 @@ pub(crate) fn status(workspace: &Workspace) -> Result<Value> {
             "complete": false,
             "runnable": [],
             "parallel_runnable": [],
+            "items_included": true,
             "items": []
         }));
     };
@@ -319,6 +320,8 @@ fn status_value(worklist: &Worklist, include_items: bool) -> Value {
         "counts": counts,
         "runnable": runnable,
         "parallel_runnable": parallel_runnable_ids(worklist),
+        "items_included": include_items,
+        "items_source": "worklist_status",
         "items": if include_items { json!(worklist.items.iter().map(|item| delegation::public_item(item, now_ms())).collect::<Vec<_>>()) } else { json!([]) },
         "coordination": {"model_spawning":"host_owned", "claim_lease_ms":900_000, "claims":"cooperative_scope_coordination", "child_reports":"not_verification_authority"},
     })

@@ -720,8 +720,15 @@ mod worker_lanes {
         .await;
         assert_eq!(claim_a["isError"], false, "{claim_a}");
         let a = &claim_a["structuredContent"];
+        assert_eq!(a["worklist"]["items_included"], false);
+        assert_eq!(a["worklist"]["items"], json!([]));
+        assert_eq!(a["handoff"]["item"]["id"], "a");
         let token_a = a["claim_id"].as_str().unwrap().to_owned();
         assert!(a["handoff"]["agent_context"].is_object());
+        let pack = &a["handoff"]["agent_context"];
+        let delivered_bytes = serde_json::to_vec(pack).unwrap().len() as u64;
+        assert_eq!(pack["serialized_bytes"], delivered_bytes);
+        assert_eq!(pack["estimated_tokens"], delivered_bytes.div_ceil(4));
         assert_eq!(a["handoff"]["write_paths"], json!(["src/a.rs"]));
         assert!(a["worklist"].get("claim_id").is_none());
         assert!(!a["worklist"].to_string().contains(&token_a));
@@ -822,6 +829,8 @@ mod worker_lanes {
     })).await;
         assert_eq!(result["isError"], false, "{result}");
         let data = &result["structuredContent"];
+        assert_eq!(data["worklist"]["items_included"], false);
+        assert_eq!(data["worklist"]["items"], json!([]));
         assert_eq!(data["result"]["proof_status"], "not_reported");
         assert_eq!(data["result"]["outcome"], "complete");
         assert_eq!(data["result"]["evidence"], json!([]));
@@ -836,6 +845,14 @@ mod worker_lanes {
             "not_reported"
         );
         let observed = tool(&state, "worklist_status", json!({})).await;
+        assert_eq!(observed["structuredContent"]["items_included"], true);
+        assert_eq!(
+            observed["structuredContent"]["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(
             observed["structuredContent"]["revision"],
             data["worklist"]["revision"]

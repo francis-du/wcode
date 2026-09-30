@@ -39,6 +39,8 @@ The product behavior below comes from the linked primary sources. The proposed a
 
 `worklist_claim` and `worklist_submit` expose canonical model entry points. Leases, dependencies, current revisions and scope conflicts protect coordination; the lead independently verifies the combined result. Higher parallelism and lower total token use are separate measurement goals.
 
+Claim, lease renewal, and submit acknowledgements include a Worklist summary with `items_included: false`, current revision, status counts, and runnable lanes. The claimed item remains in `handoff.item`; a submitted result remains in `result`. Read `worklist_status` for the complete retained item list (`items_included: true`). This avoids repeating unrelated history in each lane acknowledgement without discarding stored tasks or changing ownership and proof rules. Handoff context byte counts and byte/4 token estimates are recomputed after filtering. Serialized response bytes are a local measurement, not provider token or billing savings.
+
 ## Existing foundation
 
 The current Observatory already exposes architecture and Code Graph inspection, task activity, durable Execution, verification evidence, change impact, requirements, language-provider coverage, and a bounded file tree. It also has a command palette and project navigator. The TUI already shows runtime/endpoint state, workspaces, resource pressure, task activity, engineering summaries, and authorization.
