@@ -1,0 +1,18 @@
+schema_version: 1
+id: AC-GIT-PROVIDER-ENROLLMENT-001
+title: GitHub publisher enrollment is explicit credential-free and fail-closed
+statement: Project setup accepts GitHub publisher enrollment only when owner/repository, numeric repository ID and App ID are supplied together; the Check name has a bounded nonblank default. Dry-run reports the planned manifest without writing. Enrollment preflight rejects invalid requested identities, malformed existing manifests and existing identity conflicts before any Host configuration or Design bootstrap write. An existing enrollment parent must pass Workspace path guards even if the manifest is absent; symlinked or non-directory parents fail closed. Valid project setup retains its normal Host and Design behavior and additionally creates the credential-free .wcode/github-publisher.yaml manifest. Repeated identical enrollment is idempotent, conflicting identity is never overwritten, read-only setup cannot write enrollment, and unknown secret fields or symlinked files fail closed. The final enrollment write rechecks current state and remains create-only; this is not a claim of an atomic multi-file setup transaction. The manifest validates through the same GitHubConfig contract used by publication. examples/git_publisher.rs reads the validated Workspace enrollment and obtains its publisher credential separately; enrollment performs no remote GitHub operation and grants no Acceptance or Policy authority.
+verification:
+  - {kind: test, path: tests/unit/integrations/git/enrollment.rs, symbol: github_enrollment_round_trips_without_credentials_or_remote_authority}
+  - {kind: test, path: tests/unit/integrations/git/enrollment.rs, symbol: github_enrollment_rejects_unknown_secret_fields_invalid_identity_and_overwrite}
+  - {kind: test, path: tests/unit/integrations/git/enrollment.rs, symbol: github_enrollment_rejects_symlinked_file}
+  - {kind: test, path: tests/unit/app/setup.rs, symbol: setup_github_enrollment_is_explicit_bounded_and_idempotent}
+  - {kind: test, path: tests/unit/app/setup.rs, symbol: setup_github_enrollment_rejects_partial_or_conflicting_identity_and_readonly_writes}
+  - {kind: test, path: tests/setup_github.rs, symbol: setup_project_github_enrollment_is_dry_run_safe_and_credential_free}
+  - {kind: test, path: tests/setup_github.rs, symbol: setup_github_enrollment_rejects_partial_and_conflicting_identity}
+  - {kind: test, path: tests/setup_github.rs, symbol: setup_invalid_github_identity_does_not_write_host_or_design_configuration}
+  - {kind: test, path: tests/setup_github.rs, symbol: setup_conflicting_or_malformed_enrollment_preserves_all_project_files}
+  - {kind: test, path: tests/unit/integrations/git/enrollment.rs, symbol: github_enrollment_rejects_whitespace_check_names_and_invalid_parent}
+  - {kind: test, path: tests/unit/integrations/git/enrollment.rs, symbol: github_enrollment_missing_manifest_does_not_hide_symlinked_parent}
+  - {kind: check, id: rust-check}
+  - {kind: check, id: rust-clippy}

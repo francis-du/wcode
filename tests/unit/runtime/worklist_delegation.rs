@@ -475,6 +475,168 @@ fn single_lane_replies_do_not_repeat_unrelated_worklist_history() {
 }
 
 #[test]
+fn scoped_handoff_budgets_only_delivered_coordination_state() {
+    for lines in [0, 12, 48, 90] {
+        let source = format!(
+            "pub fn feature_entry() -> usize {{\n{}    1\n}}\n",
+            "    let value = 1;\n".repeat(lines)
+        );
+        let build = |noisy: bool, scoped: bool| {
+            let (root, workspace, harness) = setup();
+            fs::write(root.path().join("src/a.rs"), &source).unwrap();
+            // A symbol-only inspection avoids the intentional path-anchor window.
+            let mut own = patch("a", &[], &[]);
+            own.title = Some("Inspect feature_entry implementation; keep the current required verification and source SHA preconditions.".into());
+            let mut items = vec![own];
+            if noisy {
+                items.extend((0..60).map(|index| {
+                    let mut item = patch(&format!("unrelated-{index}"), &[], &[]);
+                    item.note = Some("Unrelated parallel task detail. ".repeat(30));
+                    item.status = Some(WorkItemStatus::Blocked);
+                    item
+                }));
+            }
+            update(
+                &workspace,
+                WorklistUpdate {
+                    expected_revision: 1,
+                    goal: None,
+                    restart: false,
+                    items,
+                },
+            )
+            .unwrap();
+            let execution = crate::execution::refresh(&harness, "demo", &workspace, false).unwrap();
+            let steered = crate::execution::steer(
+                &workspace,
+                crate::execution::ExecutionDirectiveInput {
+                    expected_revision: execution["revision"].as_u64().unwrap(),
+                    kind: crate::execution::ExecutionDirectiveKind::StrengthenVerification,
+                    summary: "Retain mandatory adversarial verification for this inspection."
+                        .into(),
+                    requested_by: "user:test".into(),
+                    objective: None,
+                    scopes: vec![],
+                    verification_strength: Some("adversarial".into()),
+                },
+            )
+            .unwrap();
+            let owned = if scoped {
+                take(&harness, &workspace, "a", 2)
+            } else {
+                // The previous pipeline budgeted ordinary context, then filtered it.
+                claim_with_context(
+                    &harness,
+                    &workspace,
+                    WorklistClaimInput {
+                        expected_revision: 2,
+                        expected_repository_revision: harness.current_revision(&workspace).unwrap(),
+                        item_id: "a".into(),
+                        actor: "worker-a".into(),
+                        claim_id: None,
+                    },
+                    |query| harness.agent_context("demo", &workspace, query, 0, &[]),
+                )
+            }
+            .unwrap();
+            let pack = owned["handoff"]["agent_context"].clone();
+            assert!(pack.get("worklist").is_none());
+            if scoped {
+                assert_eq!(pack["readiness"]["parallelism"]["candidate_lanes"], 1);
+                assert_eq!(pack["readiness"]["parallelism"]["required"], false);
+                assert_eq!(
+                    pack["readiness"]["parallelism"]["recommended_concurrency"],
+                    1
+                );
+            }
+            assert_eq!(
+                pack["execution"]["pending_directive"],
+                steered["pending_directive"]
+            );
+            assert_eq!(
+                pack["execution"]["verification_floor"],
+                steered["verification_floor"]
+            );
+            assert_eq!(
+                pack["execution"]["replan_required"],
+                steered["replan_required"]
+            );
+            assert!(pack["execution"].get("checkpoint").is_none());
+            let bytes = serde_json::to_vec(&pack).unwrap().len() as u64;
+            assert_eq!(pack["serialized_bytes"], bytes);
+            assert_eq!(pack["estimated_tokens"], bytes.div_ceil(4));
+            assert!(bytes.div_ceil(4) <= pack["budget"].as_u64().unwrap());
+            let bodies = pack["hot_source"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    json!({
+                        "path": item["path"],
+                        "sha256": item["sha256"],
+                        "body": item["body"],
+                    })
+                })
+                .collect::<Vec<_>>();
+            assert!(!bodies.is_empty());
+            for body in &bodies {
+                let file = pack["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|file| file["path"] == body["path"])
+                    .expect("source body must retain its file precondition");
+                assert_eq!(file["sha256"], body["sha256"]);
+            }
+            (pack, bodies)
+        };
+        let (clean, clean_bodies) = build(false, true);
+        let (noisy, noisy_bodies) = build(true, true);
+        println!(
+            "handoff_source lines={lines} clean_bytes={} noisy_bytes={} clean_body_bytes={} noisy_body_bytes={}",
+            clean["serialized_bytes"],
+            noisy["serialized_bytes"],
+            serde_json::to_vec(&clean_bodies).unwrap().len(),
+            serde_json::to_vec(&noisy_bodies).unwrap().len()
+        );
+        assert_eq!(
+            noisy_bodies, clean_bodies,
+            "unrelated Worklist notes must not consume scoped source at {lines} lines"
+        );
+        assert_eq!(noisy["checks"], clean["checks"]);
+        if lines == 48 {
+            let primary = clean_bodies
+                .iter()
+                .find(|body| body["path"] == "src/a.rs")
+                .expect("explicit function must have source");
+            assert_eq!(
+                primary["body"]["content"],
+                source.trim_end_matches('\n'),
+                "symbol-only source within the selected budget must retain the complete small function"
+            );
+            assert_eq!(primary["body"]["truncated"], false);
+            let (legacy, legacy_bodies) = build(true, false);
+            let legacy_primary = legacy_bodies
+                .iter()
+                .find(|body| body["path"] == "src/a.rs")
+                .expect("legacy pipeline still returns a bounded source prefix");
+            let legacy_bytes = legacy_primary["body"]["content"].as_str().unwrap().len();
+            let delivered_bytes = primary["body"]["content"].as_str().unwrap().len();
+            println!(
+                "handoff_source_budget legacy_source_bytes={legacy_bytes} delivered_source_bytes={delivered_bytes} legacy_pack_bytes={} delivered_pack_bytes={}",
+                legacy["serialized_bytes"], clean["serialized_bytes"]
+            );
+            println!(
+                "handoff_coordination legacy_lanes={} scoped_lanes={}",
+                legacy["readiness"]["parallelism"]["candidate_lanes"],
+                clean["readiness"]["parallelism"]["candidate_lanes"]
+            );
+            assert_eq!(legacy_bytes, delivered_bytes);
+        }
+    }
+}
+
+#[test]
 fn expired_claim_can_be_replanned_without_old_capability() {
     let (_root, workspace, harness) = setup();
     let owned = take(&harness, &workspace, "a", 1).unwrap();

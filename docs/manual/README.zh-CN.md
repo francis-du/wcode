@@ -8,9 +8,11 @@ alternate: /docs/
 permalink: /zh/docs/
 ---
 
-# 让任何 Coding Agent 先看懂仓库，再动代码
+# 让 AI 生成的代码带着证据进入交付
 
 **wcode 给 Coding Agent 补上通常缺失的四样东西：任务就绪的仓库上下文、真实的跨文件关系、受控的操作边界，以及与当前 Revision 绑定的验证证据。** 继续用你喜欢的 Agent；wcode 让它先理解、少改动、再证明，而不是每次从 grep、文件堆和聊天记录重新猜项目。
+
+wcode 定位为 **Engineering Control Plane for AI-generated code**，围绕 **Understand → Change → Inspect → Verify → Evidence → Accept / Block** 服务团队。第一商业场景 **AI Change Acceptance** 正在基于现有核心完善；统一 Acceptance Record、项目 Policy 和外部 merge gate 尚未形成完整 Pilot 闭环。能力现状、架构、威胁模型与 P0/P1/P2 计划见[商业产品审计](research-upgrades/#ai-变更验收商业架构2026-09-30)。
 
 ## 5 分钟理解 wcode
 
@@ -19,7 +21,7 @@ permalink: /zh/docs/
 1. **理解（Understand）** — `agent_context` 把任务感知检索、Design State、代码关系、测试、已验证历史和精确编辑目标合在一个有界 Context Pack 里。
 2. **修改（Change）** — Workspace Policy 约束根目录、SHA、写入范围和权限，不让一次编码任务自然膨胀成整台机器的控制权。
 3. **证明（Prove）** — 聚焦 quick 检查负责快速反馈；确定性的 full verification 仍是最终宽覆盖门禁。
-4. **学习（Learn）** — 只有稳定且验证通过的修改才能进入本地 Experience Graph；失败、截断或不完整工作不会被学成“经验”。
+4. **学习（Learn）** — 稳定且验证通过的修改改善 Experience Graph；原生失败另以有界类别进入[跨模型失败记忆](failure-memory/)，召回纠错提示，不能充当成功证据。
 5. **观测（Observe）** — Engineering Observatory 是项目数字孪生：不用打开 IDE，也能看到工程架构蓝图、实时工程流、Vibe Coding 变更链、设计偏离、来源、风险与当前版本证据。
 
 ![wcode Engineering Control Plane 闭环](/assets/zh/engineering-loop.svg)
@@ -54,10 +56,16 @@ permalink: /zh/docs/
 
 ## 核心概念
 
+- [AI 变更验收商业审计](research-upgrades/#ai-变更验收商业架构2026-09-30) — 能力现状、统一验收架构、可信主体与执行凭据、外部 merge gate，以及 P0/P1/P2 计划；尚未完成的能力明确标记。
+
 - [只读代码变更审查](change-inspection/) — 在当前变更内直接查看源码差异、符号、影响和证据，明确比较层与本次读取的快照身份。
 
 - [不依赖 IDE 的工程观测](ide-independent-observatory/) — 官方产品对照、已实现的问题与源码导航、验证边界和剩余观测缺口。
 
+- [变更验收](change-acceptance/) — 当前原生 Record、候选绑定检查、阻塞原因、历史与外部门禁边界。
+- [本地验收 Policy](acceptance-policy/) — 原生预览、精确操作者批准、受保护代号历史及尚未完成的执行边界。
+- [OSS / Commercial 边界](oss-boundary/) — 公开源码仓归属、单向合同、独立构建与许可证边界。
+- [架构与模块边界](architecture-boundaries/) — `convention_status` 直接输出的文件/模块/目录/crate/仓库拆分信号与可执行规范。
 - [产品范围](product-scopes/) — wcode 的产品能力与源码责任边界。
 - [智能体工程](agentic-engineering/) — 短指令、按需上下文、并行执行与确定性验证的组合方式。
 - [语言质量模型](language-quality/) — 全部 22 种索引语言共用一套能力矩阵：Syntax、真实初始化后的 Semantic、Format、Lint、Type、Static、Test、Security 与高级验证；缺口显式展示，不再用 Rust-centric Support Bit。

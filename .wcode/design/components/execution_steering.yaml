@@ -17,6 +17,7 @@ depends_on:
   - component:execution-runtime
   - component:agent-context
 implementation:
+  - {kind: file, path: src/intelligence/runtime/verification_snapshot.rs}
   - {kind: file, path: src/runtime/execution.rs}
   - {kind: file, path: src/intelligence/runtime/design.rs}
   - {kind: file, path: src/intelligence/runtime/reconcile.rs}

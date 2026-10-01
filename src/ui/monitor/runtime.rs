@@ -162,12 +162,16 @@ pub(super) fn run_dashboard(
 ) -> io::Result<()> {
     let mut session = TerminalSession::enter()?;
     let mut tick = 0usize;
-    let mut ui = DashboardState::default();
+    let mut ui = DashboardState {
+        intelligence_open: true,
+        ..DashboardState::default()
+    };
     let mut status_snapshot: Option<String> = None;
     let mut status_deadline: Option<Instant> = None;
     // Compact fingerprint (avoids >12-field tuple PartialEq limits).
     let mut last_draw_key: Option<(u64, u64, Option<String>)> = None;
     let mut last_paint = Instant::now();
+    let mut last_admission = None;
     let initial_snapshot = monitor.snapshot();
     let initial_workspaces = ordered_workspaces(&config, &initial_snapshot);
     ui.sync_workspace_order(&initial_workspaces, initial_workspaces.len().max(1));
@@ -213,6 +217,8 @@ pub(super) fn run_dashboard(
             );
         }
         let snapshot = monitor.snapshot();
+        refresh_command_job(&mut ui, &monitor, &snapshot, &config);
+        refresh_source_inspection(&mut ui, &snapshot, &config);
         // Compute pending authorizations once per frame and reuse for ordering +
         // overlay state so the authorization store is not scanned three times.
         let previous_request = ui
@@ -275,13 +281,16 @@ pub(super) fn run_dashboard(
                 | (flags << 56),
             ui.workspace_message.clone(),
         );
-        let changed = last_draw_key.as_ref() != Some(&draw_key);
+        let admission = config.harness.admission_snapshot();
+        let changed =
+            last_draw_key.as_ref() != Some(&draw_key) || last_admission != Some(admission);
         // Idle health, evidence and observation ages still change without tasks.
         if busy || changed || last_paint.elapsed() >= IDLE_REFRESH_INTERVAL {
             session
                 .terminal
                 .draw(|frame| draw_dashboard(frame, &snapshot, &config, tick, &ui))?;
             last_draw_key = Some(draw_key);
+            last_admission = Some(admission);
             last_paint = Instant::now();
             tick = tick.wrapping_add(1);
         }
@@ -290,6 +299,10 @@ pub(super) fn run_dashboard(
         if event::poll(refresh_interval)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
+                    if handle_command_job_key(key, &mut ui, area, &monitor, &snapshot, &config) {
+                        last_draw_key = None;
+                        continue;
+                    }
                     if handle_console_key(key, &mut ui, area, &snapshot, &config) {
                         last_draw_key = None;
                         continue;
@@ -530,19 +543,22 @@ pub(super) fn run_dashboard(
                                 .map(|request| {
                                     (
                                         request.workspace.clone(),
-                                        request.kind
-                                            == crate::authorization::AuthorizationKind::DestructiveDelete,
+                                        matches!(request.kind,
+                                            crate::authorization::AuthorizationKind::DestructiveDelete | crate::authorization::AuthorizationKind::HumanDecision),
                                     )
                                 });
                             if request_target
                                 .as_ref()
-                                .map(|(_, destructive)| *destructive)
+                                .map(|(_, exact_only)| *exact_only)
                                 .unwrap_or(false)
                             {
                                 ui.workspace_message = Some(
-                                    ui.language
-                                        .tr("all command authorization does not include delete")
-                                        .to_owned(),
+                                    if ui.language == UiLanguage::ZhCn {
+                                        "删除与人工决定需要精确批准"
+                                    } else {
+                                        "Delete and human decisions require exact approval"
+                                    }
+                                    .to_owned(),
                                 );
                             } else {
                                 let workspace_id =
@@ -758,6 +774,9 @@ pub(super) fn run_dashboard(
                             ui.set_workspace_focus(&workspaces, next, visible);
                             ui.command_offset = 0;
                             if ui.workspace_focus_id != previous {
+                                ui.acceptance_detail_open = false;
+                                ui.console_focus = 0;
+                                ui.console_scroll = 0;
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {
@@ -779,6 +798,9 @@ pub(super) fn run_dashboard(
                             ui.set_workspace_focus(&workspaces, next, visible);
                             ui.command_offset = 0;
                             if ui.workspace_focus_id != previous {
+                                ui.acceptance_detail_open = false;
+                                ui.console_focus = 0;
+                                ui.console_scroll = 0;
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {

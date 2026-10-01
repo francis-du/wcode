@@ -1,0 +1,20 @@
+schema_version: 1
+id: REQ-CHANGE-ACCEPTANCE-001
+title: Make an AI change acceptable with current execution evidence
+intent: An agent keeps using the existing coding workflow. wcode captures its current change, applies the operator-approved project Policy, evaluates actual native verification and returns a traceable record explaining why that revision is ready or blocked. Policy activation, model review, mapping, historical PASS and human approval cannot substitute for deterministic execution.
+priority: critical
+implemented_by:
+  - component:change-acceptance
+  - component:policy-activation
+  - component:acceptance-observation
+acceptance:
+  - AC-CHANGE-ACCEPTANCE-001
+  - AC-ACCEPTANCE-OBSERVATION-001
+constraints:
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-COMMERCIAL-BOUNDARY
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+risk:
+  reliability: critical
+  security: critical

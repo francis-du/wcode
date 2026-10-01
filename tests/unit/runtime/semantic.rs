@@ -1,5 +1,39 @@
 use super::*;
 
+#[tokio::test]
+async fn admission_regression_automatic_semantics_preserves_read_headroom() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let monitor = crate::monitor::TaskMonitor::new(["fixture".to_owned()]);
+    let mut held = Vec::new();
+    for _ in 0..3 {
+        held.push(harness.acquire_tool(true).await.unwrap());
+    }
+    let state = SemanticAutoState {
+        fingerprint: "fixture".to_owned(),
+        providers: 1,
+        files: 0,
+        truncated: false,
+    };
+    let mut refresh = Box::pin(refresh_workspace(
+        "fixture", &workspace, &harness, &monitor, &state,
+    ));
+    assert!(futures_util::poll!(refresh.as_mut()).is_pending());
+    assert_eq!(
+        harness.admission_snapshot().slots_in_use,
+        3,
+        "automatic LSP refresh must not take the reserved reader slot"
+    );
+    assert_eq!(harness.admission_snapshot().waiting_for_execution, 1);
+    assert_eq!(monitor.connection_status().active_tasks, 0);
+    let read = harness.acquire_tool(false).await.unwrap();
+    drop((read, refresh, held));
+    assert_eq!(harness.admission_snapshot().slots_in_use, 0);
+    assert_eq!(harness.admission_snapshot().waiting_for_execution, 0);
+    assert_eq!(monitor.connection_status().queued_tasks, 0);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn worker_panics_are_contained_for_restart() {
     assert!(worker_completed(async {}).await);

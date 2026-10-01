@@ -1,6 +1,7 @@
 use super::*;
 
 impl SoftwareIntelligenceRuntime {
+    #[cfg(test)]
     pub(crate) fn reconciliation_approve(
         &self,
         workspace_id: &str,
@@ -8,6 +9,43 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
         approver: &str,
         statement: &str,
+    ) -> Result<serde_json::Value> {
+        self.record_reconciliation_approval(
+            workspace_id,
+            workspace,
+            plan_id,
+            approver,
+            statement,
+            EvidenceAuthority::LegacyUnknown,
+        )
+    }
+
+    pub(crate) fn reconciliation_approve_authorized(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+    ) -> Result<serde_json::Value> {
+        self.record_reconciliation_approval(
+            workspace_id,
+            workspace,
+            plan_id,
+            approver,
+            statement,
+            EvidenceAuthority::LocalOperator,
+        )
+    }
+
+    fn record_reconciliation_approval(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+        authority: EvidenceAuthority,
     ) -> Result<serde_json::Value> {
         let plan = self.reconciliation_status(workspace, plan_id)?;
         if plan.workspace != workspace_id {
@@ -46,6 +84,7 @@ impl SoftwareIntelligenceRuntime {
             EvidenceResult::Pass,
             Confidence::High,
         )?;
+        evidence.authority = authority;
         evidence.policy = Some("reconciliation-plan-approval/v1".to_owned());
         evidence.artifact_digest = Some(format!("sha256:{}", snapshot.plan_digest));
         evidence.summary = Some(statement.trim().to_owned());

@@ -15,11 +15,16 @@ fn fixture_check() -> CheckSpec {
 }
 
 #[test]
-fn default_verification_timeout_gives_only_rust_release_a_bounded_cold_build_floor() {
+fn default_verification_timeout_gives_full_rust_gates_a_bounded_cold_floor() {
     let normal = fixture_check();
     assert_eq!(verification_check_timeout_seconds(&normal, 120), 120);
 
-    let mut build = fixture_check();
+    let mut rust_test = fixture_check();
+    rust_test.id = "rust-test".into();
+    rust_test.program = "cargo".into();
+    assert_eq!(verification_check_timeout_seconds(&rust_test, 120), 300);
+
+    let mut build = rust_test.clone();
     build.id = "rust-release-build".into();
     build.phase = 3;
     assert_eq!(verification_check_timeout_seconds(&build, 120), 300);
@@ -28,10 +33,12 @@ fn default_verification_timeout_gives_only_rust_release_a_bounded_cold_build_flo
     other_build.id = "java-gradle-build".into();
     assert_eq!(verification_check_timeout_seconds(&other_build, 120), 120);
 
-    let mut quick_build = build.clone();
-    quick_build.level = "quick".into();
-    assert_eq!(verification_check_timeout_seconds(&quick_build, 120), 120);
+    let mut quick_test = rust_test.clone();
+    quick_test.level = "quick".into();
+    assert_eq!(verification_check_timeout_seconds(&quick_test, 120), 120);
 
+    assert_eq!(verification_check_timeout_seconds(&rust_test, 60), 60);
+    assert_eq!(verification_check_timeout_seconds(&rust_test, 600), 600);
     assert_eq!(verification_check_timeout_seconds(&build, 60), 60);
     assert_eq!(verification_check_timeout_seconds(&build, 600), 600);
     assert_eq!(verification_check_timeout_seconds(&build, 2_400), 1_800);

@@ -281,6 +281,47 @@ fn model_worker_tools_keep_revision_scope_and_result_guards_discoverable() {
         .contains(&crate::scopes::ProductScope::Runtime));
 }
 
+#[test]
+fn review_output_full_details_stay_discoverable_in_model_catalog() {
+    let catalog = tools();
+    let tool = catalog
+        .iter()
+        .find(|tool| tool["name"] == "review_changes")
+        .unwrap();
+    assert_eq!(
+        tool["inputSchema"]["properties"]["detail"]["enum"],
+        json!(["summary", "full"])
+    );
+    assert_eq!(
+        tool["inputSchema"]["properties"]["detail"]["type"],
+        "string"
+    );
+    assert!(tool["description"]
+        .as_str()
+        .unwrap()
+        .contains("detail=full"));
+}
+
+#[test]
+fn long_command_timeouts_remain_model_visible_without_search_tuning() {
+    let catalog = tools();
+    for name in ["run_command", "command_task", "verify_project"] {
+        let tool = catalog.iter().find(|tool| tool["name"] == name).unwrap();
+        let properties = &tool["inputSchema"]["properties"];
+        assert_eq!(properties["timeout_seconds"]["type"], "integer", "{name}");
+        assert_eq!(properties["timeout_seconds"]["minimum"], 1);
+        assert_eq!(properties["timeout_seconds"]["maximum"], 1800);
+        assert!(!tool["inputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "timeout_seconds"));
+        for tuning in ["budget", "max_files", "max_results", "max_symbols"] {
+            assert!(properties.get(tuning).is_none());
+        }
+    }
+}
+
 fn assert_required_fields_exist(value: &Value, tool_name: &str) {
     match value {
         Value::Object(object) => {
@@ -313,6 +354,11 @@ fn assert_no_model_tuning_args(value: &Value, tool_name: &str) {
         Value::Object(object) => {
             if let Some(properties) = object.get("properties").and_then(Value::as_object) {
                 for key in MODEL_HIDDEN_TUNING_ARGS {
+                    if *key == "timeout_seconds"
+                        && matches!(tool_name, "run_command" | "command_task" | "verify_project")
+                    {
+                        continue;
+                    }
                     assert!(
                         !properties.contains_key(*key),
                         "tool {tool_name} exposes model tuning argument {key}"
@@ -472,8 +518,8 @@ fn execution_policy_status_is_read_only_and_bounded() {
 
 #[test]
 fn tool_catalog_default_workspace_guidance_saves_repeated_discovery_bytes() {
-    const PREVIOUS_GUIDANCE: &str = "Only pass when switching away from the default Workspace.";
-    const GUIDANCE: &str = "Omit for the default Workspace.";
+    const PREVIOUS_GUIDANCE: &str = "Omit for the default Workspace.";
+    const GUIDANCE: &str = "Omit for default.";
     let compact = serde_json::to_value(tools()).unwrap();
     let mut paired = compact.clone();
     let mut workspace_fields = 0;
@@ -567,7 +613,7 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
             "tool {name} description is too long"
         );
         if let Some(workspace) = tool["inputSchema"]["properties"].get("workspace") {
-            assert_eq!(workspace["description"], "Omit for the default Workspace.");
+            assert_eq!(workspace["description"], "Omit for default.");
         }
         assert!(
             !serde_json::to_string(&tool["inputSchema"])
@@ -623,4 +669,59 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     assert!(review["inputSchema"]["properties"]
         .get("adversarial")
         .is_some());
+}
+
+#[test]
+fn command_lifecycle_routing_survives_compact_catalog() {
+    let catalog = tools();
+    let find = |name: &str| catalog.iter().find(|tool| tool["name"] == name).unwrap();
+    for name in ["run_command", "command_task", "verify_project"] {
+        let description = find(name)["description"].as_str().unwrap();
+        assert!(
+            !description.ends_with('…'),
+            "{name} lifecycle was truncated"
+        );
+        assert!(description.to_ascii_lowercase().contains("poll"));
+    }
+    let run = find("run_command");
+    let run_description = run["description"].as_str().unwrap();
+    for required in [
+        "600s",
+        "1800",
+        "task_mode=true",
+        "command_task",
+        "never rerun",
+    ] {
+        assert!(
+            run_description.contains(required),
+            "missing command routing: {required}"
+        );
+    }
+    let task = find("command_task");
+    let task_description = task["description"].as_str().unwrap();
+    for required in [
+        "without Tasks",
+        "owner+Workspace",
+        "top-level",
+        "Terminal != success/Evidence",
+    ] {
+        assert!(
+            task_description.contains(required),
+            "missing task boundary: {required}"
+        );
+    }
+    let action_description = task["inputSchema"]["properties"]["action"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(action_description.contains("600s default, max 1800"));
+    assert!(action_description.contains("require task_id"));
+    let properties = task["inputSchema"]["properties"].as_object().unwrap();
+    for identity in ["actor", "owner", "runtime_instance", "token"] {
+        assert!(!properties.contains_key(identity));
+    }
+    let verify_description = find("verify_project")["description"].as_str().unwrap();
+    assert!(verify_description.contains("600s/check (max 1800)"));
+    assert!(verify_description.contains("Reject stale Evidence"));
+    assert!(verify_description.contains("tasks/get"));
+    assert!(verify_description.contains("never rerun"));
 }

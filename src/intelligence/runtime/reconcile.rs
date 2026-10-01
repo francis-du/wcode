@@ -548,6 +548,7 @@ impl SoftwareIntelligenceRuntime {
         code_index: &CodeIndex,
         known_checks: &HashSet<String>,
         review: &ChangeReviewReport,
+        check_plans: &VerificationCheckPlans,
     ) -> Result<ReconciliationPlan> {
         let workspace_id = workspace_id.into();
         let risk = self.risk_status(
@@ -583,6 +584,14 @@ impl SoftwareIntelligenceRuntime {
             verification_risk,
             stage_targets,
             &registry,
+            Some(
+                if verification_risk >= RiskLevel::Medium {
+                    &check_plans.full
+                } else {
+                    &check_plans.quick
+                }
+                .clone(),
+            ),
         )?;
         let conventions = crate::conventions::status(workspace)?;
         let mut tasks = Vec::new();

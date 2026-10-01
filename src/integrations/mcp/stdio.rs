@@ -7,6 +7,7 @@ use crate::mcp::{
     TaskRuntime, LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSION,
 };
 use crate::monitor::TaskMonitor;
+use crate::runtime_presence::{RuntimePresencePublisher, RuntimeTransport};
 use crate::workspace::Workspaces;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -27,6 +28,7 @@ pub(crate) async fn serve(
         "{:x}",
         Sha256::digest(format!("wcode-stdio:{}", auth.instance_id()).as_bytes())
     );
+    let workspace_ids = workspaces.roots().into_iter().map(|(id, _)| id);
     let state = Arc::new(AppState {
         auth,
         workspaces,
@@ -34,6 +36,19 @@ pub(crate) async fn serve(
         monitor,
         tasks: TaskRuntime::default(),
     });
+    let runtime_presence = RuntimePresencePublisher::new(
+        state.auth.instance_id(),
+        RuntimeTransport::Stdio,
+        workspace_ids,
+        None,
+    )
+    .ok();
+    if let Some(publisher) = runtime_presence.as_ref() {
+        let _ = publisher.publish(&state.monitor);
+    }
+    let runtime_presence_heartbeat = runtime_presence
+        .as_ref()
+        .map(|publisher| publisher.spawn_heartbeat(state.monitor.clone()));
 
     let stdin = io::stdin();
     let mut lines = BufReader::new(stdin).lines();
@@ -79,6 +94,7 @@ pub(crate) async fn serve(
                 write_response(&mut stdout, &jsonrpc_error(id, -32602, error)).await?;
                 continue;
             }
+            state.monitor.mark_mcp_connected();
         } else if !LEGACY_PROTOCOL_VERSIONS.contains(&protocol.as_str()) {
             let id = message.get("id").cloned().unwrap_or(Value::Null);
             write_response(
@@ -95,15 +111,18 @@ pub(crate) async fn serve(
             )
             .await?;
             continue;
-        } else if method == "initialize" {
-            if let Some(requested) = message
-                .pointer("/params/protocolVersion")
-                .and_then(Value::as_str)
-                .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
-            {
-                legacy_protocol = requested.to_owned();
+        } else {
+            state.monitor.mark_mcp_seen();
+            if method == "initialize" {
+                if let Some(requested) = message
+                    .pointer("/params/protocolVersion")
+                    .and_then(Value::as_str)
+                    .filter(|version| LEGACY_PROTOCOL_VERSIONS.contains(version))
+                {
+                    legacy_protocol = requested.to_owned();
+                }
+                legacy_elicitation = legacy_client_supports_elicitation(&message);
             }
-            legacy_elicitation = legacy_client_supports_elicitation(&message);
         }
 
         let original = message.clone();
@@ -125,10 +144,17 @@ pub(crate) async fn serve(
         } else {
             response
         };
+        if let Some(publisher) = runtime_presence.as_ref() {
+            let _ = publisher.publish(&state.monitor);
+        }
         if let Some(response) = response {
             write_response(&mut stdout, &response).await?;
         }
     }
+    if let Some(task) = runtime_presence_heartbeat {
+        task.abort();
+    }
+    drop(runtime_presence);
     Ok(())
 }
 

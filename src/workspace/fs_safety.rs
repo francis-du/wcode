@@ -27,6 +27,7 @@ pub(super) fn root_identity(path: &Path) -> Result<RootIdentity> {
 }
 
 pub(super) fn validate_workspace_root(root: &Path, security: WorkspaceSecurity) -> Result<()> {
+    reject_authority_path(root, false)?;
     if root.parent().is_none() && !security.allow_broad_workspace {
         bail!(
             "filesystem roots are too broad to expose as a workspace; choose a project directory or restart with --allow-broad-workspace"
@@ -116,6 +117,93 @@ pub(super) fn reject_protected_path(path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+// These roots come from the stores themselves, including configured locations
+// and the isolated intelligence root used by tests. Names alone are not authority.
+pub(super) fn authority_roots() -> Result<Vec<PathBuf>> {
+    [
+        crate::core_types::authority_state_root()?,
+        crate::core_types::intelligence_state_root()?,
+    ]
+    .iter()
+    .map(|root| normalize_authority_root(root))
+    .collect()
+}
+
+pub(super) fn normalize_authority_root(path: &Path) -> Result<PathBuf> {
+    let mut ancestor = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut missing = Vec::new();
+    let mut resolved = loop {
+        match ancestor.canonicalize() {
+            Ok(path) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let leaf = match ancestor.components().next_back() {
+                    Some(Component::Normal(value)) => value.to_os_string(),
+                    Some(Component::ParentDir) => "..".into(),
+                    _ => bail!("cannot resolve authority state root"),
+                };
+                missing.push(leaf);
+                if !ancestor.pop() {
+                    return Err(error.into());
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    for leaf in missing.into_iter().rev() {
+        if leaf == ".." {
+            resolved.pop();
+        } else {
+            resolved.push(leaf);
+        }
+    }
+    Ok(resolved)
+}
+
+pub(super) fn reject_authority_path(path: &Path, include_ancestors: bool) -> Result<()> {
+    reject_authority_path_against(path, &authority_roots()?, include_ancestors)
+}
+
+// Callers supply absolute paths below a canonical workspace root. Mutation of a
+// state ancestor must also fail before traversal or any filesystem side effects.
+pub(super) fn reject_authority_path_against(
+    path: &Path,
+    roots: &[PathBuf],
+    include_ancestors: bool,
+) -> Result<()> {
+    if roots.iter().any(|root| {
+        authority_path_starts_with(path, root)
+            || (include_ancestors && authority_path_starts_with(root, path))
+    }) {
+        bail!("wcode authority state paths are not accessible through file tools");
+    }
+    Ok(())
+}
+
+fn authority_path_starts_with(path: &Path, root: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        // Missing leaves have no canonical spelling yet. Win32 accepts case and
+        // trailing-dot/space aliases, so compare those aliases before creation.
+        let key = |path: &Path| {
+            path.components()
+                .map(|part| {
+                    part.as_os_str()
+                        .to_string_lossy()
+                        .trim_end_matches(['.', ' '])
+                        .to_lowercase()
+                })
+                .collect::<Vec<_>>()
+        };
+        key(path).starts_with(&key(root))
+    }
+    #[cfg(not(windows))]
+    path.starts_with(root)
 }
 
 pub(super) fn validate_write_content(content: &str) -> Result<()> {
@@ -437,6 +525,8 @@ pub(super) fn validate_independent_moves(moves: &[MovePathRequest]) -> Result<()
 }
 
 pub(super) fn validate_movable_directory(root: &Path, source: &Path) -> Result<()> {
+    reject_authority_path(source, true)?;
+    let authority = authority_roots()?;
     let mut entries = 0usize;
     for entry in WalkDir::new(source).follow_links(false) {
         let entry = entry?;
@@ -448,6 +538,7 @@ pub(super) fn validate_movable_directory(root: &Path, source: &Path) -> Result<(
         }
         let relative = entry.path().strip_prefix(root)?;
         reject_protected_path(relative)?;
+        reject_authority_path_against(entry.path(), &authority, false)?;
         if entry.file_type().is_symlink() {
             bail!("directory moves containing symlinks are blocked");
         }

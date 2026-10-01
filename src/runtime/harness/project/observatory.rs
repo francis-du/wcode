@@ -22,14 +22,6 @@ impl ToolHarness {
             .is_ok_and(|refreshes| refreshes.contains(workspace.root()))
     }
 
-    pub fn cached_project_observatory(
-        &self,
-        workspace: &Workspace,
-    ) -> Option<crate::intelligence_types::ProjectObservatory> {
-        self.cached_project_observatory_state(workspace)
-            .map(|(snapshot, _)| snapshot)
-    }
-
     pub(crate) fn cached_project_observatory_state(
         &self,
         workspace: &Workspace,
@@ -53,6 +45,17 @@ impl ToolHarness {
             if let Some(cached) = cache.get_mut(&root) {
                 cached.revision_key = Some(revision_key);
                 cached.last_used = Instant::now();
+            }
+        }
+    }
+
+    pub(crate) fn invalidate_observatory_acceptance(&self, workspace: &Workspace) {
+        if let Ok(mut cache) = self.observatory_cache.lock() {
+            if let Some(entry) = cache.get_mut(workspace.root()) {
+                let mut snapshot = entry.snapshot.as_ref().clone();
+                snapshot.acceptance = None;
+                entry.snapshot = Arc::new(snapshot);
+                entry.revision_key = None;
             }
         }
     }
@@ -84,6 +87,39 @@ impl ToolHarness {
                 revision_key: None,
             },
         );
+    }
+
+    pub(crate) async fn project_observatory_live(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        review: Option<&ChangeReviewReport>,
+    ) -> Result<ProjectObservatory> {
+        let harness = self.clone();
+        let id = workspace_id.to_owned();
+        let selected = workspace.clone();
+        let review = review.cloned();
+        let mut snapshot = tokio::task::spawn_blocking(move || {
+            harness.project_observatory(id, &selected, review.as_ref())
+        })
+        .await??;
+        let captured = self
+            .capture_acceptance(
+                workspace_id,
+                workspace,
+                "HEAD",
+                crate::verification::change::GitChangeTarget::Worktree,
+            )
+            .await;
+        snapshot.acceptance = match captured {
+            Ok(native) if native.record().revision == snapshot.repository_revision => {
+                Some(native.record().clone())
+            }
+            Ok(_) => bail!("repository changed while attaching Acceptance; refresh"),
+            Err(_) => None,
+        };
+        self.cache_project_observatory(workspace, &snapshot);
+        Ok(snapshot)
     }
 
     pub fn project_observatory(

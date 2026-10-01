@@ -20,6 +20,12 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 | 远程，首选 | Streamable HTTP | `https://host/mcp` + OAuth |
 | 旧版远程客户端 | SSE 兼容层 | `GET /sse` + `POST /message?sessionId=...` + OAuth |
 
+### 本机 Menu Bar 状态
+
+在 macOS 上，`wcode menu-bar` 会打开一个只负责观测的 Menu Bar 状态项。主 HTTP/MCP Runtime 与每个 `wcode mcp-stdio` 进程都发布同一份有界心跳契约到 WCode 受保护的本机状态目录，因此不用打开 IDE 就能看到 HTTP/stdio Runtime 数量、MCP 活动以及 active/queued 任务数。
+
+Presence 记录只包含 transport、版本、有界 Workspace ID、活动时间和聚合状态；**不会**保存 UI Token、OAuth 凭据、MCP owner、命令参数、源码路径或原始诊断。过期或损坏记录只会显示为 partial/unknown，不能冒充已连接。Menu Bar 不能批准授权、取消任务、执行任意命令，也不能建立 Verification/Acceptance。其他平台可用 `wcode menu-bar --json` 读取同一份可移植只读状态投影。
+
 这不是三套工具实现。它们共用 JSON-RPC dispatch、Harness、Workspace
 选择、命令策略、授权、Tool、Prompt、Resource，以及仓库理解 / Engineering Control Plane
 状态。SSE 只为仍使用 2024 传输方式的客户端保留；新配置直接使用
@@ -165,10 +171,9 @@ ChatGPT Web、Claude Web、Grok Web 和 Mistral 都是账户级 Connector。把
 当前 HTTPS `/mcp` 地址粘贴到平台设置，并在浏览器完成 OAuth。本地仓库
 文件无法安全代替这一步。
 
-OAuth Client 注册、Access Token 和 Refresh Token 都不按时间过期。wcode
-按配置的 Workspace 根目录把它们保存在用户状态目录中，重启后会重新
-载入。新隧道通过当前实例健康校验后可以继续原会话；从新入口刷新时，
-Token Binding 会迁到该入口。
+OAuth Client 注册继续持久保存，不设置时钟 TTL。Access Token 在一小时后过期；响应返回 `expires_in: 3600`、`Cache-Control: no-store` 和 `Pragma: no-cache`。Refresh Token 在 30 天未使用后过期，每次成功刷新都会轮换并重新计算空闲 TTL。轮换立即使同一 Client／Grant Owner 的旧 Access Token 失效，独立 Owner 仍有效。过期、为零和未来签发时间失败关闭。wcode 按配置的 Workspace 根目录保存状态；重启或迁移保留原签发时间，不为已有 Grant 续命。新隧道通过当前实例健康校验后，可继续仍有效的会话；从新入口刷新时，Resource Binding 迁到该入口。
+
+`GET /oauth/sessions` 返回不含凭据的有界会话信息；`POST /oauth/sessions/revoke` 接收 JSON `session_id`，移除该 Grant 的 Access／Refresh 凭据。两者都是本地操作者管理 API，遵循现有 Host／Origin 检查，并要求当前服务器的 `X-Wcode-UI-Token`；普通 MCP Bearer 不足以授权。成功撤销在重启后仍有效。持久化失败返回 `revocation_not_persisted`，移除运行中的凭据，不宣称持久撤销。这不是 RFC 7009 接口、Team ACL 或 SSO；Team ACL 与 SSO 尚未实现。
 
 授权页、令牌端点和元数据始终使用请求实际到达的域名，从隧道 B 发起验证
 不会跳去隧道 A。未知域名仍会被拒绝，历史 Token 中的 Resource 也不会

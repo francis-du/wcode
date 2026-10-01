@@ -152,6 +152,43 @@ fn executable_file(path: &Path) -> bool {
     }
 }
 
+fn rust_toolchain_home_overrides(executable: &Path) -> Vec<(&'static str, PathBuf)> {
+    let name = executable
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .trim_end_matches(".exe");
+    if !matches!(
+        name,
+        "cargo" | "cargo-clippy" | "clippy-driver" | "rustc" | "rustdoc" | "rustfmt" | "rustup"
+    ) {
+        return Vec::new();
+    }
+    let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .and_then(|path| path.canonicalize().ok())
+    else {
+        return Vec::new();
+    };
+    [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")]
+        .into_iter()
+        .filter_map(|(key, default)| {
+            let candidate = std::env::var_os(key)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(default));
+            let candidate = candidate.canonicalize().ok()?;
+            (candidate.is_dir() && candidate.starts_with(&home)).then_some((key, candidate))
+        })
+        .collect()
+}
+
+fn apply_rust_toolchain_home_overrides(command: &mut Command, executable: &Path) {
+    for (key, path) in rust_toolchain_home_overrides(executable) {
+        command.env(key, path);
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn prepare_macos(
     workspace_root: &Path,
@@ -160,6 +197,9 @@ fn prepare_macos(
     args: &[String],
 ) -> Result<(Command, SandboxGuard)> {
     let scratch = create_scratch()?;
+    let guard = SandboxGuard {
+        scratch: Some(scratch.clone()),
+    };
     let profile = macos_profile(workspace_root, &scratch)?;
     let home = scratch.join("home");
     let temp = scratch.join("tmp");
@@ -179,17 +219,26 @@ fn prepare_macos(
         .env("XDG_CACHE_HOME", home.join(".cache"))
         .env("XDG_STATE_HOME", home.join(".local/state"))
         .env("WCODE_SANDBOX", "1");
+    apply_rust_toolchain_home_overrides(&mut command, executable);
 
-    Ok((
-        command,
-        SandboxGuard {
-            scratch: Some(scratch),
-        },
-    ))
+    Ok((command, guard))
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn macos_profile(workspace_root: &Path, scratch: &Path) -> Result<String> {
+    macos_profile_from_paths(
+        workspace_root,
+        scratch,
+        &sandbox_protected_paths(workspace_root)?,
+    )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_profile_from_paths(
+    workspace_root: &Path,
+    scratch: &Path,
+    protected: &[PathBuf],
+) -> Result<String> {
     let workspace = sandbox_string(workspace_root)?;
     let scratch = sandbox_string(scratch)?;
     let mut profile = format!(
@@ -206,8 +255,8 @@ fn macos_profile(workspace_root: &Path, scratch: &Path) -> Result<String> {
     (literal "/dev/null"))
 "#
     );
-    for path in sandbox_protected_paths(workspace_root)? {
-        let path = sandbox_string(&path)?;
+    for path in protected {
+        let path = sandbox_string(path)?;
         profile.push_str(&format!(
             "(deny file-read* file-write* (literal \"{path}\"))\n(deny file-read* file-write* (subpath \"{path}\"))\n"
         ));
@@ -252,6 +301,9 @@ fn prepare_linux(
             )
         })?;
         let scratch = create_scratch()?;
+        let guard = SandboxGuard {
+            scratch: Some(scratch.clone()),
+        };
         let home = scratch.join("home");
         let temp = scratch.join("tmp");
         let empty = scratch.join("empty");
@@ -270,12 +322,8 @@ fn prepare_linux(
             .env("XDG_CACHE_HOME", home.join(".cache"))
             .env("XDG_STATE_HOME", home.join(".local/state"))
             .env("WCODE_SANDBOX", "1");
-        Ok((
-            command,
-            SandboxGuard {
-                scratch: Some(scratch),
-            },
-        ))
+        apply_rust_toolchain_home_overrides(&mut command, executable);
+        Ok((command, guard))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -284,8 +332,23 @@ fn prepare_linux(
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn linux_bwrap_prefix(workspace_root: &Path, cwd: &Path, scratch: &Path) -> Result<Vec<OsString>> {
+    linux_bwrap_prefix_from_paths(
+        workspace_root,
+        cwd,
+        scratch,
+        &sandbox_protected_paths(workspace_root)?,
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn linux_bwrap_prefix_from_paths(
+    workspace_root: &Path,
+    cwd: &Path,
+    scratch: &Path,
+    protected: &[PathBuf],
+) -> Result<Vec<OsString>> {
     let mut args = vec![
         "--die-with-parent".into(),
         "--new-session".into(),
@@ -304,11 +367,13 @@ fn linux_bwrap_prefix(workspace_root: &Path, cwd: &Path, scratch: &Path) -> Resu
         "--dev".into(),
         "/dev".into(),
     ];
-    for path in sandbox_protected_paths(workspace_root)? {
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
+    for path in protected {
+        let metadata = fs::symlink_metadata(path).with_context(|| {
+            format!(
+                "sandbox_unavailable: cannot mask protected path {}",
+                path.display()
+            )
+        })?;
         if metadata.is_dir() {
             args.extend([
                 OsString::from("--ro-bind"),
@@ -321,6 +386,11 @@ fn linux_bwrap_prefix(workspace_root: &Path, cwd: &Path, scratch: &Path) -> Resu
                 OsString::from("/dev/null"),
                 path.as_os_str().to_owned(),
             ]);
+        } else {
+            bail!(
+                "sandbox_unavailable: unsupported protected path {}",
+                path.display()
+            );
         }
     }
     args.extend([OsString::from("--chdir"), cwd.as_os_str().to_owned()]);
@@ -328,16 +398,38 @@ fn linux_bwrap_prefix(workspace_root: &Path, cwd: &Path, scratch: &Path) -> Resu
 }
 
 fn sandbox_protected_paths(workspace_root: &Path) -> Result<Vec<PathBuf>> {
+    let roots = super::fs_safety::authority_roots()?;
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    sandbox_protected_paths_with_roots(workspace_root, &roots, home.as_deref())
+}
+
+fn sandbox_protected_paths_with_roots(
+    workspace_root: &Path,
+    authority_roots: &[PathBuf],
+    home: Option<&Path>,
+) -> Result<Vec<PathBuf>> {
     let workspace_root = workspace_root.canonicalize().with_context(|| {
         format!(
             "cannot canonicalize sandbox Workspace {}",
             workspace_root.display()
         )
     })?;
-    let mut protected = Vec::new();
+    let mut protected = authority_roots
+        .iter()
+        .map(|path| super::fs_safety::normalize_authority_root(path))
+        .collect::<Result<Vec<_>>>()?;
+    if protected
+        .iter()
+        .any(|path| workspace_root.starts_with(path))
+    {
+        bail!("sandbox_unavailable: Workspace is inside an authority-state root");
+    }
+    if protected.len() > MAX_PROTECTED_PATHS {
+        bail!("sandbox_unavailable: authority-root set exceeds bounded capacity");
+    }
     collect_protected_paths(&workspace_root, true, &mut protected)?;
 
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+    if let Some(home) = home {
         if let Ok(home) = home.canonicalize() {
             if home != workspace_root {
                 // Outside the selected Workspace the host is read-only. Mask
@@ -349,7 +441,15 @@ fn sandbox_protected_paths(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     }
     protected.sort();
     protected.dedup();
-    Ok(protected)
+    // Mount a parent once: masking an authority root already hides its child
+    // stores, and a second bind inside the empty read-only mask cannot work.
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for path in protected {
+        if !roots.iter().any(|parent| path.starts_with(parent)) {
+            roots.push(path);
+        }
+    }
+    Ok(roots)
 }
 
 fn collect_protected_paths(
@@ -380,6 +480,11 @@ fn collect_protected_paths(
                 );
             }
             let path = entry.path();
+            // Authority stores are identified by absolute resolver roots. Do
+            // not inspect their contents while planning a command sandbox.
+            if protected.iter().any(|root| path.starts_with(root)) {
+                continue;
+            }
             let metadata = fs::symlink_metadata(&path).with_context(|| {
                 format!(
                     "sandbox cannot inspect protected path candidate {}",

@@ -32,15 +32,27 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 
 职责移动时，同一个 Change 里要同步更新 Product Scope Source Root 与 Design State Implementation Reference。源码物理移动了、Architecture Contract 还指着旧 Owner，不算完成 Refactor。
 
+## 发布审计报告的完整性
+
+浏览器通过要求完整的“宽度／语言／主题／请求视图”矩阵，不是凑够 256 条成功记录。重复、未知或缺失场景均拒绝；原生报告将请求视图与共用的 `architecture` 标签分开保存。实际标签、架构／图谱模式、全屏、源码检查面板及字体加载完成状态必须与请求一致。布局审计要求十二种不同的真实视口宽度；请求宽度未实际渲染时，原生执行器也必须失败。
+
+`node tests/release_audit.cjs` 执行 macOS 上的 300 轮审计。`--help` 不发现 Cargo 测试、不执行检查；未知或重复参数在执行前拒绝。本地 `--rounds=START-END` 始终明确标记为分片，CI 仍运行完整、不分片的 `--require-clean` 审计。
+
+第 2 版输入标识在 Cargo 测试发现之前，对明确列出的 OSS 审计输入取摘要：源码、提取后的 crate、测试脚本与任意格式的夹具/嵌入资源、示例、Design、手册、插件、工作流、manifest、安装器及声明的构建/配置文件。生成的 Python 缓存不计入输入，不遍历受保护运行状态或商业工作区。读取保持上限，拒绝链接、不支持的文件类型和观察到的读取中变更。这是执行前后的文件系统观察，不是原子 OS 快照，也不提供对恶意同用户进程的隔离。第 1 版报告漏掉了提取 crate 与部分非 Rust 输入，不能当作第 2 版覆盖证据。
+
+每个分片同时保存输入、完整轮次计划、实际测试清单的摘要，以及精确范围和 Git 状态。不同标识、缺失或重叠区间不能直接相加成 300 轮通过。浏览器矩阵必须覆盖声明的全部场景，失败计数、单项结果及 runner error 不能相互矛盾；嵌套 Rust 夹具的成功输出不能替代外层测试统计，也不能掩盖零测试命中。运行器回归通过 `tests/release_contract.rs` 实际执行；这些保护或全部审计分片通过，都不能替代完整 Rust、独立源码包、Release 构建和跨平台门禁。
+
 ## Runtime 不变量
 
 Tool Call 只有一条真实生命周期：
 
 ```text
-request → queued → semaphore acquired → running → completed | failed
+request → queued → resource admission → execution/Tool permits → running → completed | failed
 ```
 
-Global Semaphore 仍是工具总准入上限，但它不代表所有已准入工具都能同时启动子进程。执行进程的 MCP 工具和项目检查先取得独立执行准入名额，其容量取“外层预留策略”和“重型进程容量”中的较小值。Balanced 默认的 32 个 Tool / 4 个重型进程配置下，重型命令执行准入为 4；超出的命令会先在 EXEC 门口等待，不先占用 Global Tool Permit，也不会让 28 个命令一起挤在 4 个子进程名额后面。进程准入等待独立限制为最多 5 秒，不再借用命令本身的长执行超时。两种名额都跟随真实工作，包括调用方取消后仍在执行的阻塞工作者。内层 CPU、I/O 和进程队列继续保持各自容量限制。Composite Operation 不能拿着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 等内部 Fan-out Operation 都通过同一套 Global Accounting 运行真实 Child Task。
+Global Semaphore 仍是工具总准入上限，不代表所有已准入工具都能同时启动子进程。资源检查和背压等待先于任何执行名额或 Tool Permit 的预留。启动进程的 MCP 工具、内部 review/verification probe 及自动 LSP 刷新随后共用同一个执行准入通道：32 个 Tool 总名额对应 28 个执行准入名额，为读取保留 4 个。这个外层上限与单 Workspace、宿主子进程容量分开计算，本次修复不扩大其中任何上限。资源、执行和 Tool-slot 三个等待阶段共用一个十秒准入期限；错误明确指出等待阶段与真实占用，不再把所有延迟混成无法判断原因的 busy。内层 CPU、I/O、子进程及 Cargo 竞争队列仍保留各自上限。取消等待会回收计数和名额；已经开始的阻塞工作者必须等真实工作退出才释放两种名额。Composite Operation 不能占着 Parent Permit 再等 Child Permit；`parallel_tools`、`review_changes`、`verify_project` 的真实 Child Task 共用这套计数。
+
+过载时，`workspace_info` 返回有界、只读且明确标记 `status: partial`、`diagnostic_only: true` 的诊断，包含真实名额占用、等待阶段、内存观察、进程队列及运行版本/PID。它不扫描仓库、不启动任务、不授予权限，也不把省略的 Workspace 列表伪装成完整的空列表。检查之后才进入饱和的竞争情形使用 250 ms 有界准入回退；正常请求仍返回完整数据，认证与参数/writer 校验保持不变。TUI 的 `SLOTS` 表示真实信号量预留，`RUN` 表示已开始任务，`RES` / `EXEC` / `SLOT` 分别表示三种等待者。工程面板在项目数据加载期间也保留这些准入计数。应核对运行版本/PID与所看的 TUI 是否一致；编辑或编译新版本不会自动替换已经运行的 MCP 进程。
 
 `parallel_tools` 不是“全部一起跑”的通用 Helper，而是 Resource-aware Scheduler。它显式建模 `reads`、`writes`、`creates`、`moves_from`、`moves_to`、`deletes`；独立资源可以 Fan-out，重叠资源按依赖排序。同文件 `apply_edits` 只有在调用方 Pin 同一份 Observed SHA、Edit 不重叠且定位无歧义时才允许 Coalesce；无效 Overlap 在执行前就拒绝。调度由完成事件驱动，不等待整层结束；失败依赖跳过后续任务，父子空间物理别名共享调度身份，取消父任务不能留下脱离管理的排队子任务。已经运行的阻塞文件操作不会回滚。Coalesce 不能跨过中间的依赖操作，也不能超过 128 项编辑的事务上限。
 
@@ -61,7 +73,7 @@ Coding Context 热路径同时优化 Model Cost 与 Wall Time：
 - `readiness` 与 Deterministic `next_actions` 告诉 Agent 现在应直接 Edit、补 Source/Semantic，还是进入 Verify；
 - Timing / Cache / Savings Telemetry 放 Tool Result `_meta`，不反过来消耗 Model-visible Context。
 
-Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurrency、Agent Context Calls、Average Model Tokens、Repo-map Cache Hit、Saved Context 都来自实际 Request Execution。Terminal Raw Mode、Mouse Capture、Cursor 与 Primary Screen 必须通过现有 RAII Boundary 恢复；Ctrl-C 走同一条 Graceful Shutdown。stdout 不是 TTY 或设置 `--no-monitor` 时不启动 Monitor。
+Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurrency、Agent Context Calls、平均模型可见 Token 估算（序列化字节 / 4，向上取整）、Repo-map Cache Hit、Saved Context 都来自实际 Request Execution。Terminal Raw Mode、Mouse Capture、Cursor 与 Primary Screen 必须通过现有 RAII Boundary 恢复；Ctrl-C 走同一条 Graceful Shutdown。stdout 不是 TTY 或设置 `--no-monitor` 时不启动 Monitor。项目刷新按 Workspace 保持单任务执行；工作线程返回错误或因 panic 展开退出时，必须结束加载状态、保留明确标记为过期的缓存观测，并允许之后重试，不把 panic 载荷复制到界面。仍在运行的线程不能被伪标为已结束，其他 Workspace 的刷新状态保持独立。
 
 键盘事件先通过 `dashboard_action` 唯一解析，再执行副作用。输入与确认场景独占按键；修饰键不能变成普通授权键，授权／开关／链接动作只接受 Press，不接受 Repeat。`A` 只授权可见请求所属的 Workspace，作者链接改用 `B`。帮助提示必须与上下文／修饰键回归矩阵同步。
 
@@ -77,7 +89,7 @@ Monitor 只显示真实工作。Queued/Running/Completed、Bytes、Peak Concurre
 
 Streamable HTTP、`mcp-stdio`、旧版 `/sse` + `/message` 共用同一个 JSON-RPC Dispatch、Harness 与 Workspace Implementation。SSE Session 绑定 Owner/Origin，有容量与 Channel 上限，并在 Stream 关闭时删除；Notification 返回 202 且不发送 Response Event，Channel 满时返回 429，不允许阻塞 Server。Supported Protocol Revision 必须显式；Modern Tool/Task/Resource Behavior 只能在 Request Revision / Capability 真正支持时启用，Legacy 或 Capability-unknown 情况按规则 Fail Closed。MCP Task 是 Durable Coordination Record，不代表 Process Execution 能跨 Runtime Replacement 存活。
 
-OAuth Origin 按请求解析。只有通过实例健康校验并注册的 Host 才能成为该请求的 Issuer。Access Token 可在已验证入口间继续使用，Refresh 会把绑定迁到本次请求的 Host。Client 与 Token 状态按配置的 Workspace 根目录 Hash 原子持久化，Authorization Code 仍只存在内存。载入历史 Token Resource 只用于跨重启和隧道迁移，不会把旧 Origin 注册成有效请求 Host。Store 保持容量上限；损坏或 Symlink 状态按失败关闭处理。
+OAuth Origin 按请求解析。单个格式有效的请求 Host 决定 OAuth Issuer，包括保留原 Host 的自定义 HTTPS 反向代理。托管隧道别名只有通过实例健康校验后才进入有效入口注册表；请求 Host 解析本身不会授予浏览器 Origin 信任。Access Token 可在已验证入口间继续使用，Refresh 会把绑定迁到本次请求的 Host。Client 与 Token 状态按配置的 Workspace 根目录 Hash 原子持久化，Authorization Code 仍只存在内存。载入历史 Token Resource 只用于跨重启和隧道迁移，不会把旧 Origin 注册成有效请求 Host。Store 保持容量上限；损坏或 Symlink 状态按失败关闭处理。
 
 Agent Installer 不执行任何 Host CLI。Detection 只看 Filesystem/PATH Evidence；Safe Adapter 只写项目文件，Merge 前先 Parse，并复用 Workspace Atomic Write。JSONC/YAML 和未知 Schema 保持 Manual。Host Metadata 统一放 Registry，不能在 `main.rs` 继续堆 Host-specific Branch。
 
@@ -101,7 +113,7 @@ Tree-sitter 始终是 `provider=tree-sitter`、`precision=syntax`，不能暗示
 
 `.wcode/project.yaml` 与 `.wcode/design/` 是 Desired State Source。Initialization 保持 Sparse，不为凑 Schema 创建空 Collection File。ID / Cross-reference 必须稳定，Source Mapping 使用 Repository-relative Path，不能把不稳定 Source Line Number 写入 Design Object。
 
-Verification Plan 是 Risk-adaptive Orchestration State，不是 Proof。Deterministic Check、Independent Reviewer、Property/Mutation/Fuzz/Runtime Executor、HumanApproval 是独立 Producer。Reviewer Disagreement 必须保留为 Disagreement，不允许多数票覆盖。Required Stage Evidence 按 Producer Fail-closed Aggregate；Workspace Revision Stale 会阻止 Ready。`verify_project` 只有在真实 Harness Report 完成后才记录 Deterministic Evidence；Acceptance Evidence 只为实际执行到的 Verification Reference 产生。
+Verification Plan 是 Risk-adaptive Orchestration State，不是 Proof。Deterministic Check、Independent Reviewer、Property/Mutation/Fuzz/Runtime Executor、HumanApproval 是独立 Producer。Reviewer Disagreement 必须保留为 Disagreement，不允许多数票覆盖。Required Stage Evidence 按 Producer Fail-closed Aggregate；Workspace Revision Stale 会阻止 Ready。`verify_project` 只有在真实 Harness Report 完成后才记录 Deterministic Evidence；Acceptance Evidence 只为 typed 执行凭据证明的精确命令 Check 引用产生；没有精确 Test Event 时，映射的测试路径/符号保持未知，通用测试命令 Pass 不能证明所有映射测试已执行。计划冻结必需 Check ID、argv 签名和 quick/full 最低强度；skipped、missing、旧版未绑定或强度不足的凭据不能证明 Ready。复用必须引用当前 revision 的原始凭据，不能再制造一次执行事件。人工批准绑定完整计划摘要，与测试结果分开；MCP 请求需要短期、一次性的本地操作者授权，未认证的外部 Stage 报告仅作自报保留。
 
 Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-workspace State Directory。Evidence、Verification、Semantic Revision、Provider/Composite Graph Snapshot、Reconciliation Plan/Execution、MCP Task 都有独立 Persistence Contract。Repository `.wcode/` 是 Desired State，不是 Runtime Cache Dump。
 

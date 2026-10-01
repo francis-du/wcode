@@ -94,7 +94,12 @@ pub(crate) async fn intelligence_web_revision(
         Ok((graph?, proof?, engineering?, worklist_revision))
     })
     .await;
-    let signal_failed = signals.is_err();
+    let git = web_status::git_revision_signal(&state.harness, &workspace).await;
+    let git_observation = git
+        .as_ref()
+        .map(|(_, observation)| observation.clone())
+        .unwrap_or_else(|_| json!({"available":false,"reason":"inspection_failed"}));
+    let signal_failed = signals.is_err() || git.is_err();
     let (graph_revision, graph_signal, proof_revision, engineering_revision, worklist_revision) =
         match signals {
             Ok((graph, proof, engineering, worklist)) => {
@@ -111,10 +116,34 @@ pub(crate) async fn intelligence_web_revision(
             }
             Err(_) => (None, None, None, None, None),
         };
+    let snapshot_revision =
+        if !revision.full_refresh_required && !revision.truncated && !signal_failed {
+            proof_revision
+                .as_ref()
+                .zip(engineering_revision.as_ref())
+                .zip(git.ok().map(|(key, _)| key))
+                .map(|((proof, engineering), git)| {
+                    let graph_key = graph_signal
+                        .as_ref()
+                        .filter(|value| !value.is_empty())
+                        .or(graph_revision.as_ref())
+                        .map(String::as_str)
+                        .unwrap_or("");
+                    let base = format!(
+                        "{}|{graph_key}|{proof}|{engineering}|git={git}",
+                        revision.fingerprint.as_deref().unwrap_or("full")
+                    );
+                    worklist_snapshot_key(&base, &json!({"worklist":worklist_revision}))
+                })
+        } else {
+            None
+        };
     (
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({
             "workspace": workspace_id,
+            "snapshot_revision": snapshot_revision,
+            "git_observation": git_observation,
             "proof_revision": proof_revision,
             "worklist_revision": worklist_revision,
             "engineering_revision": engineering_revision,

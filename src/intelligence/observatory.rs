@@ -1,7 +1,6 @@
 use super::*;
 use crate::graph::{EdgeKind, GraphPrecision, NodeKind, SoftwareGraphSnapshot};
 use crate::graph_store::{GraphDiffResult, GraphHistoryEntry};
-use crate::harness::{ChangeReviewReport, ChangedFileReview};
 use crate::intelligence_types::{
     FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView, FeatureConvergenceState,
     FeatureDecisionView, FeatureDependencyAlignment, FeatureImplementationView,
@@ -11,6 +10,7 @@ use crate::intelligence_types::{
     ProjectVerificationImpactView, ProjectVerifiedLearningView,
 };
 use crate::reconcile::ImpactAnalysis;
+use crate::report_types::{ChangeReviewReport, ChangedFileReview};
 use crate::scopes;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -152,6 +152,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         workspace: input.workspace,
         root: input.root,
         repository_revision: input.repository_revision,
+        acceptance: None,
         project: state.project.as_ref().map(|project| project.name.clone()),
         product: state.product.as_ref().map(|product| product.name.clone()),
         product_vision: state

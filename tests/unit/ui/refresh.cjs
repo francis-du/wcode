@@ -120,8 +120,66 @@ async function main() {
     assert.equal(s.run('state.syncFailure'), null);
     assert.equal(s.timers.size, 0);
   });
+
+  await test('server opaque snapshot key avoids rebuilding unchanged Acceptance inputs', async () => {
+    const s = setup(); s.context.fixture = project();
+    const key = 'opaque-v2|git=bound|policy=active|worklist:1:7';
+    s.context.key = key;
+    s.run('state.project=fixture;state.revisionKey=key;renderAttention=()=>{};');
+    const poll = s.run('pollRevision()'); await flush();
+    respond(s.requests[0], {workspace: 'A', snapshot_revision: key, fingerprint: 'ignored',
+      graph_signal: 'different legacy graph', proof_revision: 'different legacy proof'});
+    await poll;
+    assert.equal(s.requests.length, 1, 'equal opaque key must not call project');
+    assert.equal(s.run('state.revisionKey'), key);
+  });
+  await test('Git or Policy only opaque key changes invalidate the same Code snapshot once', async () => {
+    for (const key of ['opaque|git=new-commit|policy=active', 'opaque|git=same|policy=revoked']) {
+      const s = setup(); s.context.fixture = project(); s.context.key = key;
+      s.run('state.project=fixture;state.revisionKey="old-opaque";renderAttention=()=>{};');
+      const poll = s.run('pollRevision()'); await flush();
+      const signal = {workspace: 'A', fingerprint: 'same-code', snapshot_revision: key};
+      respond(s.requests[0], signal); await flush();
+      assert.equal(s.requests[1].url, '/intelligence/project');
+      respond(s.requests[1], {...project(), snapshot_cache: 'cached', snapshot_revision: key}); await poll;
+      assert.equal(s.run('state.revisionKey'), key);
+      const count = s.requests.length, unchanged = s.run('pollRevision()'); await flush();
+      respond(s.requests.at(-1), signal); await unchanged;
+      assert.equal(s.requests.length, count + 1, 'unchanged key must use only revision');
+    }
+  });
+  await test('invalid modern snapshot key stays unknown and cannot certify canonical Ready', async () => {
+    const {fixture} = require('./acceptance.cjs');
+    for (const invalid of [null, '', 12, {}, 'x'.repeat(32769)]) {
+      const s = setup(); s.context.invalid = invalid;
+      assert.equal(s.run('revisionKey({snapshot_revision:invalid,fingerprint:"favorable"})'), null);
+      const data = fixture(); data.acceptance.state = 'ready'; data.snapshot_revision = invalid;
+      const refresh = s.run('refreshProject({reason:"manual",revision:{fingerprint:"older"}})'); await flush();
+      respond(s.requests[0], data); await refresh;
+      assert.equal(s.run('state.revisionKey'), null);
+      assert.equal(s.run('acceptanceView().status'), 'stale');
+      assert.doesNotMatch(s.node('#statusSummary').innerHTML, /Acceptance ready/);
+      assert.ok(![...s.timers.values()].some(timer => timer.ms === 900), 'unknown key is retried by normal polling');
+    }
+  });
+  await test('background snapshot completion publishes its own opaque key and current canonical Ready', async () => {
+    const {fixture} = require('./acceptance.cjs');
+    const s = setup(), data = fixture(); data.acceptance.state = 'ready';
+    const first = s.run('refreshProject({reason:"initial",preferCached:true})'); await flush();
+    respond(s.requests[0], {...data, snapshot_cache: 'stale-while-revalidate',
+      snapshot_refreshing: true, snapshot_revision: 'older-opaque'}); await first;
+    assert.equal(s.run('acceptanceView().status'), 'stale');
+    const retry = [...s.timers.values()].find(timer => timer.ms === 900); assert.ok(retry);
+    retry.fn(); await flush();
+    respond(s.requests.at(-1), {...data, snapshot_cache: 'cached',
+      snapshot_refreshing: false, snapshot_revision: 'native-current-opaque'}); await flush();
+    assert.equal(s.run('state.revisionKey'), 'native-current-opaque');
+    assert.equal(s.run('acceptanceView().status'), 'ready');
+    assert.match(s.node('#statusSummary').innerHTML, /Acceptance ready/);
+  });
+
   console.log(JSON.stringify({suite: 'observatory-refresh', results}, null, 2));
-  assert.equal(results.length, 12);
+  assert.equal(results.length, 16);
   assert.ok(results.every(item => item.passed), 'refresh regressions failed');
 }
 main().catch(error => {console.error(error); process.exitCode = 1;});

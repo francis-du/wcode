@@ -214,7 +214,7 @@ async function toggleAllCommandsFromUi() {
     if (!validCommandAccess(data)) throw new Error("Invalid command access response");
     state.access = data;
     if (enable) {
-      state.authorizations = state.authorizations.filter(request => request.kind === "destructive_delete");
+      state.authorizations = state.authorizations.filter(request => !["command_access", "risky_execution"].includes(request.kind));
       observePending(state.authorizations.length, op.stamp);
     }
     accessMessage(els.commandMessage, t(enable ? "All command authorization enabled" : "All command authorization disabled"));

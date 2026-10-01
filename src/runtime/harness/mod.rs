@@ -18,7 +18,6 @@ use crate::intelligence::{
     DesignStatus, DriftStatus, EvidenceStatus, RiskStatus, SemanticStatusView, SoftwareContext,
     SoftwareContextRequest, SoftwareIntelligenceRuntime, TraceabilityStatus,
 };
-use crate::monitor::TaskMonitor;
 use crate::quality_provider::{self, LanguageQualityRegistry, LanguageQualityRun};
 use crate::reconcile::{
     ImpactAnalysis, ReconciliationExecutionStatus, ReconciliationPlan, ReconciliationTaskKind,
@@ -26,6 +25,7 @@ use crate::reconcile::{
 };
 use crate::reconciliation_execution_store;
 use crate::reconciliation_store;
+use crate::runtime_telemetry::{TaskTelemetry, TaskTelemetryTicket};
 use crate::scopes::{self, ProductScopeDescriptor};
 use crate::semantic::{SemanticCandidateInput, SemanticFact, SemanticMatch};
 use crate::semantic_provider::install::SemanticProviderInstallResult;
@@ -42,6 +42,7 @@ use crate::verification::{
 use crate::verification_store;
 use crate::workspace::{CommandResult, Workspace};
 use anyhow::{bail, Context, Result};
+pub use harness_profile::ProfileDiscoveryCompleteness;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -146,6 +147,7 @@ type ValidationFlights<K> = HashMap<K, Weak<ValidationFlight>>;
 pub struct ToolHarness {
     slots: Arc<Semaphore>,
     execution_slots: Arc<Semaphore>,
+    admission_waiters: Arc<harness_admission::AdmissionWaiters>,
     max_parallel: usize,
     project_cache: Arc<Mutex<HashMap<PathBuf, CachedProjectProfile>>>,
     project_flights: Arc<Mutex<ValidationFlights<PathBuf>>>,
@@ -178,66 +180,8 @@ impl From<OwnedSemaphorePermit> for ToolPermit {
     }
 }
 
-impl ToolHarness {
-    fn execution_limit_for(max_parallel: usize, _process_capacity: usize) -> usize {
-        max_parallel
-            .saturating_sub(max_parallel.div_ceil(8).min(4))
-            .max(1)
-    }
-
-    pub(crate) fn execution_limit(max_parallel: usize) -> usize {
-        Self::execution_limit_for(
-            max_parallel,
-            crate::resource::limits().host_child_process_limit(),
-        )
-    }
-
-    pub(crate) async fn acquire_tool(&self, executes_process: bool) -> Result<ToolPermit, String> {
-        // Queue command traffic before it can consume every global slot. All
-        // acquisitions use this order; no parent holds a slot waiting for it.
-        let execution = if executes_process {
-            Some(
-                self.execution_slots
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .map_err(|_| "execution admission is shutting down".to_owned())?,
-            )
-        } else {
-            None
-        };
-        let slot = self.acquire().await?;
-        Ok(ToolPermit {
-            _slot: slot,
-            _execution: execution,
-        })
-    }
-
-    pub(crate) async fn acquire_tool_with_wait_timeout(
-        &self,
-        executes_process: bool,
-        wait_for: Duration,
-    ) -> Result<ToolPermit, String> {
-        let wait_ms = u64::try_from(wait_for.as_millis()).unwrap_or(u64::MAX);
-        match tokio::time::timeout(wait_for, self.acquire_tool(executes_process)).await {
-            Ok(result) => result,
-            Err(_) => Err(format!(
-                "tool capacity remained busy for {wait_ms} ms; request was not started"
-            )),
-        }
-    }
-
-    pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, String> {
-        let permit = self
-            .slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| "tool harness is shutting down".to_owned())?;
-        crate::resource::global().admit_tool().await?;
-        Ok(permit)
-    }
-}
+#[path = "admission.rs"]
+mod harness_admission;
 
 #[derive(Clone)]
 struct CachedProjectProfile {
@@ -294,6 +238,10 @@ struct ValidationFlight {
 
 #[derive(Clone, Debug, Serialize)]
 struct ProjectProfile {
+    #[serde(default)]
+    discovery: ProfileDiscoveryCompleteness,
+    #[serde(skip)]
+    policy_sources: Vec<crate::verification::policy::PolicySourceDigest>,
     root: String,
     project_types: Vec<String>,
     manifests: Vec<String>,
@@ -308,6 +256,8 @@ struct ProjectProfile {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectContext {
+    #[serde(default)]
+    pub discovery: ProfileDiscoveryCompleteness,
     pub workspace: String,
     pub cache_hit: bool,
     pub root: String,
@@ -399,144 +349,11 @@ pub struct CheckSpec {
     pub reason: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct VerificationReport {
-    pub workspace: String,
-    pub level: String,
-    pub execution: String,
-    pub phases_run: usize,
-    pub passed: bool,
-    pub checks_run: usize,
-    pub checks_reused: usize,
-    pub checks_failed: usize,
-    pub skipped_checks: Vec<String>,
-    pub elapsed_ms: u128,
-    pub summary: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub impact: Option<ProjectVerificationImpact>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost_model: Option<VerificationCostDecision>,
-    pub checks: Vec<VerificationCheck>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct VerificationCostDecision {
-    pub model: &'static str,
-    pub provider: &'static str,
-    pub precision: &'static str,
-    pub sentinel_check: String,
-    pub sentinel_command: String,
-    pub sentinel_island: String,
-    pub samples: usize,
-    pub failures: usize,
-    pub failure_rate_percent: f64,
-    pub median_elapsed_ms: u128,
-    pub estimated_savings_ms: u128,
-    pub estimated_total_savings_ms: u128,
-    pub evidence_records_scanned: usize,
-    pub frontier: Vec<VerificationCostFrontierEntry>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct VerificationCostFrontierEntry {
-    pub order: usize,
-    pub check_id: String,
-    pub command: String,
-    pub island: String,
-    pub samples: usize,
-    pub failures: usize,
-    pub failure_rate_percent: f64,
-    pub median_elapsed_ms: u128,
-    pub marginal_samples: usize,
-    pub marginal_failures: usize,
-    pub marginal_failure_rate_percent: f64,
-    pub estimated_incremental_savings_ms: u128,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ProjectVerificationImpact {
-    pub selective: bool,
-    pub affected_islands: Vec<String>,
-    pub reasons: Vec<ProjectVerificationImpactReason>,
-    pub truncated: bool,
-    pub provider: &'static str,
-    pub precision: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct ProjectVerificationImpactReason {
-    pub island: String,
-    pub kind: &'static str,
-    pub source: String,
-    pub relationship: String,
-    pub evidence: String,
-    pub provider: &'static str,
-    pub precision: &'static str,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct VerificationCheck {
-    pub id: String,
-    pub phase: u8,
-    pub command: String,
-    pub reason: String,
-    pub success: bool,
-    pub reused: bool,
-    pub exit_code: Option<i32>,
-    pub elapsed_ms: u128,
-    pub queue_wait_ms: u64,
-    pub execution_ms: u128,
-    pub stdout_tail: String,
-    pub stderr_tail: String,
-    pub output_truncated: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ChangeReviewReport {
-    pub workspace: String,
-    pub execution: String,
-    pub clean: bool,
-    pub files_changed: usize,
-    pub staged_files: usize,
-    pub unstaged_files: usize,
-    pub untracked_files: usize,
-    pub additions: u64,
-    pub deletions: u64,
-    pub binary_files: usize,
-    pub source_changed: bool,
-    pub tests_changed: bool,
-    pub docs_only: bool,
-    pub risk_level: String,
-    pub recommended_verification: String,
-    pub recommended_checks: Vec<String>,
-    pub summary: String,
-    pub files: Vec<ChangedFileReview>,
-    pub findings: Vec<ReviewFinding>,
-    pub probes: Vec<ReviewProbeSummary>,
-    pub truncated: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ChangedFileReview {
-    pub path: String,
-    pub status: String,
-    pub staged: bool,
-    pub unstaged: bool,
-    pub untracked: bool,
-    pub category: String,
-    pub additions: Option<u64>,
-    pub deletions: Option<u64>,
-    pub binary: bool,
-    pub risk_reasons: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReviewFinding {
-    pub severity: String,
-    pub code: String,
-    pub message: String,
-    pub paths: Vec<String>,
-}
+pub use crate::report_types::{
+    ChangeReviewReport, ChangedFileReview, ProjectVerificationImpact,
+    ProjectVerificationImpactReason, ReviewFinding, ReviewProbeSummary, VerificationCheck,
+    VerificationCostDecision, VerificationCostFrontierEntry, VerificationReport,
+};
 
 pub use harness_quality::counterexamples::CounterexampleSearch;
 
@@ -581,16 +398,6 @@ pub struct AdversarialReviewReport {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReviewProbeSummary {
-    pub id: String,
-    pub success: bool,
-    pub elapsed_ms: u128,
-    pub queue_wait_ms: u64,
-    pub execution_ms: u128,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct ObservatoryRevisionSignal {
     pub fingerprint: Option<String>,
     pub changed_files: usize,
@@ -625,12 +432,21 @@ struct ChangedFileBuilder {
 
 #[path = "capabilities.rs"]
 mod harness_capabilities;
+#[cfg(test)]
+pub(crate) use crate::model_tools::{model_tools_for_group, promote_model_tools};
 pub(crate) use harness_capabilities::{
-    default_coding_tools, model_tool_group, model_tool_preload_recommended, model_tools_for_group,
-    prioritize_model_tools, promote_model_tools,
+    default_coding_tools, model_tool_group, model_tool_preload_recommended, prioritize_model_tools,
 };
+#[path = "acceptance.rs"]
+mod harness_acceptance;
+#[path = "acceptance_context.rs"]
+mod harness_acceptance_context;
 #[path = "core.rs"]
 mod harness_core;
+#[path = "policy.rs"]
+mod harness_policy;
+#[path = "policy_select.rs"]
+mod harness_policy_select;
 #[path = "reconciliation.rs"]
 mod harness_reconciliation;
 #[path = "semantic_provider.rs"]
@@ -686,10 +502,6 @@ mod harness_cost;
 #[path = "test_focus.rs"]
 mod harness_test_focus;
 
-pub(crate) fn verification_metrics_summary(elapsed_ms: u128, phase: u8) -> String {
-    harness_cost::metrics_summary(elapsed_ms, phase)
-}
-
 fn sort_checks(checks: &mut [CheckSpec]) {
     checks.sort_by(|left, right| {
         left.phase
@@ -725,6 +537,7 @@ fn verification_check(
     elapsed_ms: u128,
 ) -> VerificationCheck {
     let command = verification_command_text(&check);
+    let signature = verification_check_binding(&check).signature;
     let (stdout_tail, stdout_cut) =
         harness_verification::verification_output(&result.stdout, result.success);
     let (stderr_tail, stderr_cut) =
@@ -738,6 +551,13 @@ fn verification_check(
         reason: check.reason,
         success: result.success,
         reused: false,
+        execution: if result.timed_out {
+            crate::evidence::VerificationCheckExecution::TimedOut
+        } else if result.exit_code.is_some() {
+            crate::evidence::VerificationCheckExecution::Executed
+        } else {
+            crate::evidence::VerificationCheckExecution::Unavailable
+        },
         exit_code: result.exit_code,
         elapsed_ms,
         queue_wait_ms,
@@ -745,7 +565,21 @@ fn verification_check(
         stdout_tail,
         stderr_tail,
         output_truncated: result.truncated || stdout_cut || stderr_cut,
+        signature: Some(signature),
+        evidence_id: None,
     }
+}
+
+pub(crate) fn verification_check_binding(
+    check: &CheckSpec,
+) -> crate::evidence::RequiredVerificationCheck {
+    crate::evidence::RequiredVerificationCheck::from_command(
+        &check.id,
+        &check.program,
+        &check.args,
+        &check.cwd,
+        &check.island,
+    )
 }
 
 fn verification_command_text(check: &CheckSpec) -> String {

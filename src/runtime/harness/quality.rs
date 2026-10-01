@@ -21,6 +21,7 @@ impl ToolHarness {
         let conventions = conventions?;
         let language_quality = language_quality?;
         Ok(ProjectContext {
+            discovery: profile.discovery.clone(),
             workspace: workspace_id.into(),
             cache_hit,
             root: profile.root.clone(),
@@ -143,12 +144,12 @@ impl ToolHarness {
         })
     }
 
-    pub async fn review_changes(
+    pub async fn review_changes<T: TaskTelemetry>(
         &self,
         workspace_id: impl Into<String>,
         workspace: &Workspace,
         timeout_seconds: u64,
-        monitor: &TaskMonitor,
+        monitor: &T,
     ) -> Result<ChangeReviewReport> {
         if !workspace.exec_enabled() {
             bail!("change review requires command execution; restart without --no-exec");
@@ -164,7 +165,7 @@ impl ToolHarness {
         let mut tasks = JoinSet::new();
         for spec in review_probe_specs() {
             let harness = self.clone();
-            let monitor = monitor.clone();
+            let monitor = (*monitor).clone();
             let workspace = workspace.clone();
             let workspace_id = workspace_id.clone();
             tasks.spawn(async move {
@@ -553,6 +554,7 @@ pub(super) fn core_policy_check(report: &ConventionReport) -> Option<Verificatio
         reason: "Enforce deterministic wcode core constraints before repository-specific verification commands.".to_owned(),
         success: false,
         reused: false,
+        execution: crate::evidence::VerificationCheckExecution::Executed,
         exit_code: None,
         elapsed_ms: 0,
         queue_wait_ms: 0,
@@ -564,6 +566,8 @@ pub(super) fn core_policy_check(report: &ConventionReport) -> Option<Verificatio
             "deterministic wcode core constraints are violated".to_owned()
         },
         output_truncated: cut || report.truncated || report.errors > 32,
+        signature: None,
+        evidence_id: None,
     })
 }
 
@@ -582,6 +586,7 @@ fn polyglot_verification_gap_check(
         ),
         success: false,
         reused: false,
+        execution: crate::evidence::VerificationCheckExecution::Executed,
         exit_code: None,
         elapsed_ms: 0,
         queue_wait_ms: 0,
@@ -597,6 +602,8 @@ fn polyglot_verification_gap_check(
         .to_string(),
         stderr_tail: "polyglot verification coverage is incomplete".to_owned(),
         output_truncated: false,
+        signature: None,
+        evidence_id: None,
     }
 }
 
@@ -618,6 +625,7 @@ fn migration_audit_check(
         reason: "Verify declarative migration completeness before behavioral checks.".into(),
         success: audit.passed,
         reused: false,
+        execution: crate::evidence::VerificationCheckExecution::Executed,
         exit_code: None,
         elapsed_ms: audit.elapsed_ms,
         queue_wait_ms: 0,
@@ -629,6 +637,8 @@ fn migration_audit_check(
             audit.summary.clone()
         },
         output_truncated: cut || audit.findings_truncated,
+        signature: None,
+        evidence_id: None,
     }
 }
 

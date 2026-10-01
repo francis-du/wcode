@@ -1,10 +1,12 @@
 use crate::code_index::{CodeIndex, SymbolResolution};
 use crate::design::{self, Priority};
-use crate::evidence::{Confidence, Evidence, EvidenceKind, EvidenceResult, Revision};
+use crate::evidence::{
+    Confidence, Evidence, EvidenceAuthority, EvidenceKind, EvidenceResult,
+    RequiredVerificationCheck, Revision, VerificationCheckReceipt, VerificationExecutionReceipt,
+};
 use crate::evidence_store;
 use crate::graph::{EdgeKind, NodeKind, SoftwareGraphSnapshot};
 use crate::graph_provider_store;
-use crate::harness::{ChangeReviewReport, VerificationReport};
 use crate::reconcile::{
     ChangeIntent, DesignChange, DesignChangeKind, ImpactAnalysis, ReconciliationExecution,
     ReconciliationExecutionStatus, ReconciliationPlan, ReconciliationRunStatus, ReconciliationTask,
@@ -12,14 +14,16 @@ use crate::reconcile::{
 };
 use crate::reconciliation_execution_store;
 use crate::reconciliation_store;
+use crate::report_types::{ChangeReviewReport, VerificationReport};
 use crate::risk::{Risk, RiskCategory, RiskLevel, VerificationProfile};
 use crate::scopes;
 use crate::semantic::{self, SemanticCandidateInput, SemanticFact, SemanticMatch, SemanticStatus};
 use crate::semantic_store;
 use crate::stage_executor::{self, StageExecutorRegistry};
 use crate::verification::{
-    ReviewSubmission, ReviewerRole, StageSubmission, VerificationJob, VerificationPlan,
-    VerificationPlanBinding, VerificationStage, VerificationState, VerificationStatus,
+    ReviewSubmission, ReviewerRole, StageSubmission, VerificationCheckPlans, VerificationJob,
+    VerificationPlan, VerificationPlanBinding, VerificationStage, VerificationState,
+    VerificationStatus,
 };
 use crate::verification_store;
 use crate::workspace::Workspace;
@@ -159,6 +163,8 @@ pub(crate) use observatory::{build_project_observatory, ObservatoryInput};
 const MAX_TRACE_REQUIREMENTS: usize = 200;
 const MAX_TRACE_DIAGNOSTICS: usize = 128;
 
+#[path = "runtime/acceptance_plan.rs"]
+pub(crate) mod acceptance_plan;
 #[path = "runtime/approval.rs"]
 mod approval_runtime;
 #[path = "runtime/design.rs"]
@@ -272,6 +278,13 @@ impl SoftwareIntelligenceRuntime {
             risk_level,
             stage_targets,
             &registry,
+            Some(vec![RequiredVerificationCheck::from_command(
+                "rust-check",
+                "cargo",
+                &["check".into(), "--locked".into()],
+                ".",
+                "workspace",
+            )]),
         )
     }
 
@@ -282,6 +295,7 @@ impl SoftwareIntelligenceRuntime {
         risk_level: RiskLevel,
         stage_targets: Vec<String>,
         registry: &StageExecutorRegistry,
+        required_checks: Option<Vec<RequiredVerificationCheck>>,
     ) -> Result<VerificationPlan> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
         let revision = self.current_revision(workspace)?;
@@ -303,6 +317,7 @@ impl SoftwareIntelligenceRuntime {
                     revision,
                     stage_targets,
                     automation_gaps,
+                    required_checks: required_checks.filter(|checks| !checks.is_empty()),
                 },
                 risk_level,
                 job_ids,
@@ -371,7 +386,14 @@ fn apply_stage_status(
     let records = evidence
         .iter()
         .filter(|record| {
-            evidence_matches_plan_revision(record, &status.plan) && record.kind == kind
+            evidence_matches_plan_revision(record, &status.plan)
+                && record.kind == kind
+                && (record.authority == EvidenceAuthority::NativeStage
+                    || (record.authority == EvidenceAuthority::LegacyUnknown
+                        && matches!(
+                            record.result,
+                            EvidenceResult::Fail | EvidenceResult::Disagree
+                        )))
         })
         .collect::<Vec<_>>();
     let producer_results = latest_results_by_producer(records.iter().copied());
@@ -393,12 +415,11 @@ fn apply_stage_status(
     let mut target_results = BTreeMap::new();
     let mut missing_targets = Vec::new();
     for target in &status.plan.stage_targets {
-        let results = latest_results_by_producer(
-            records
-                .iter()
-                .copied()
-                .filter(|record| record.targets.iter().any(|covered| covered == target)),
-        );
+        let results = latest_results_by_producer(records.iter().copied().filter(|record| {
+            record.targets.iter().any(|covered| covered == target)
+                || (record.authority == EvidenceAuthority::LegacyUnknown
+                    && record.targets.is_empty())
+        }));
         match aggregate_results(results.values().copied()) {
             Some(result) => {
                 target_results.insert(target.clone(), result);

@@ -1,0 +1,19 @@
+schema_version: 1
+id: REQ-GITHUB-ARCHIVE-001
+title: Reclaim terminal delivery payload capacity without losing replay protection
+intent: >-
+  A trusted local operator can explicitly archive completed or exhausted inbox deliveries to a new private file after an exact generation check. Only after the full archive is durable and read back against its byte digest may the inbox replace those payloads with compact online replay tombstones. Pending, retry and interrupted publishing records remain unchanged. Archived digests remain duplicate-rejected through process restart and archive-file loss, without replaying a success or resetting exhausted work. No secret manager, remote publication, automatic deletion or live authority is introduced.
+
+  Untouched schema-v1 snapshots retain their checksum representation. Explicit compaction upgrades the snapshot to version 2 so old readers cannot silently ignore the replay index. Active payload slots remain bounded at 128, compact tombstones at 16384, and the aggregate snapshot at eight MiB; exhausting any bound fails without deleting retained identities. Archive inspection requires an independent digest and returns metadata only. Multi-file persistence, latest-state rollback resistance, archive encryption/off-site custody and deployed Windows ACLs remain explicit operational boundaries.
+priority: high
+implemented_by:
+  - component:change-acceptance
+acceptance:
+  - AC-GITHUB-ARCHIVE-001
+constraints:
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+risk:
+  security: high
+  reliability: high

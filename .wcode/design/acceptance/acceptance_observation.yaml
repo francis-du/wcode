@@ -1,0 +1,32 @@
+schema_version: 1
+id: AC-ACCEPTANCE-OBSERVATION-001
+title: Acceptance blockers lead to real inspection and revision-bound verification
+statement: >-
+  TUI and WebUI expose canonical Acceptance state, all required checks and exact Evidence without inventing readiness. TUI reads bounded SHA-bound file pages and syntax symbols; changed source, protected paths and stale workspace replies fail closed. Changed-file candidates remain distinguishable from exact Evidence links. Web verification requires authenticated operator intent, matching current snapshot and native code/Design/Git identity, execution permission and server-owned Task identity. Polling never reruns verification. Cancellation preserves original effects and results; terminal transport state is not PASS. New commits invalidate old verification even when source bytes match. Legacy or absent Git bindings remain unknown. Result delivery refreshes canonical Acceptance and a lost launch receipt never triggers an automatic duplicate run.
+  Retained Jobs discovery scans at most 512 task entries, reads at most 16 MiB and returns at most 32 matching records. Partial, corrupt or unavailable history is not an empty complete process inventory. Exact observation rejects a corrupt latest snapshot instead of reusing old success. Command tails are UTF8-safe, redacted and bounded to 32 KiB per stream. Owner and raw command arguments are not metadata. Only current UI-owned working jobs can be cancelled; an input actor or origin cannot grant authority. Verification recovery filters server-owned records and only reads a selected real ID. Empty or failed discovery cannot clear an uncertain launch or repeat POST. Web workspace epochs, session ownership and bounded polling isolate stale replies. Native HTTP serializer output is consumed by the shipped frontend without deriving Acceptance from command status.
+verification:
+  - {kind: test, path: tests/unit/workspace/credential_redaction.rs, symbol: credential_redaction_native_opaque_credentials_require_exact_hex_shape}
+  - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_reads_real_file_and_exact_symbol_without_execution}
+  - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_pages_are_bounded_and_changed_sha_is_rejected}
+  - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_exact_evidence_targets_do_not_substitute_missing_records}
+  - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_candidate_rename_paths_are_distinct_from_evidence}
+  - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_stale_acceptance_and_foreign_workspace_drop_pending_reply}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_run_is_authenticated_execution_guarded_and_snapshot_bound}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_runs_native_checks_and_polling_never_reexecutes}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_completed_failure_and_same_bytes_new_commit_are_not_current_pass}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_worker_rejects_stale_bound_revision_before_native_execution}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_foreign_workspace_owner_and_tool_are_indistinguishable}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_cancel_stops_owned_task_without_rerun_or_approval}
+  - {kind: test, path: tests/unit/integrations/mcp/web_verification.rs, symbol: web_verification_restart_is_failed_and_legacy_binding_remains_unknown}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: acceptance_ui_keeps_canonical_state_required_axes_and_stale_scope_explicit}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: verification_ui_runs_observes_cancels_and_refreshes_canonical_acceptance}
+  - {kind: test, path: tests/unit/integrations/mcp/web_jobs.rs, symbol: web_jobs_real_command_output_and_cancellation_preserve_owner_and_workspace}
+  - {kind: test, path: tests/unit/integrations/mcp/web_jobs.rs, symbol: web_jobs_discovery_recovers_a_real_verification_receipt_without_rerunning}
+  - {kind: test, path: tests/unit/integrations/mcp/web_jobs.rs, symbol: web_jobs_readonly_observation_unknown_and_damaged_store_do_not_launch_or_reuse_success}
+  - {kind: test, path: tests/unit/integrations/mcp/task_listing.rs, symbol: task_listing_is_bounded_scoped_owner_filtered_and_metadata_only}
+  - {kind: test, path: tests/unit/integrations/mcp/task_listing.rs, symbol: task_listing_damaged_latest_is_partial_not_reused_success}
+  - {kind: test, path: tests/unit/integrations/mcp/task_listing.rs, symbol: task_listing_rejects_symlink_and_hardlinked_snapshots}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: jobs_ui_observation_and_verification_recovery_preserve_native_authority}
+  - {kind: test, path: tests/unit/workspace/credential_redaction.rs, symbol: credential_redaction_recognizes_all_prefixes_unicode_and_multiple_tokens}
+  - {kind: test, path: tests/unit/workspace/credential_redaction.rs, symbol: credential_redaction_preserves_short_prefixes_identifiers_and_nonsecret_source}
+  - {kind: test, path: tests/unit/workspace/credential_redaction.rs, symbol: credential_redaction_canonical_source_and_command_text_keep_rows_and_safe_content}

@@ -76,6 +76,9 @@ pub(super) async fn call(
         "workspace_info" => {
             let mut info = state.workspaces.capabilities();
             info["harness"] = state.harness.capabilities();
+            info["admission"] = json!(state.harness.admission_snapshot());
+            info["runtime"] =
+                json!({"version": env!("CARGO_PKG_VERSION"), "process_id": std::process::id()});
             info["mcp"] = json!({
                 "server_version": env!("CARGO_PKG_VERSION"),
                 "transports": ["stdio", "streamable-http", "legacy-sse"],
@@ -647,6 +650,18 @@ pub(super) async fn call(
                     serde_json::from_value::<StageSubmission>(value)
                         .map_err(|error| format!("invalid verification stage submission: {error}"))
                 })?;
+            submission.validate().map_err(|error| error.to_string())?;
+            // MCP reports are advisory until an authenticated runner adapter verifies a receipt.
+            let owner = mcp_writer::current_owner();
+            let producer = submission.producer.clone();
+            let reported = submission.verdict;
+            let mut submission = submission;
+            submission.producer = format!("self-reported:mcp:{owner}");
+            submission.verdict = crate::verification::ReviewVerdict::Inconclusive;
+            submission.summary = format!(
+                "Unverified MCP report by {producer}, claimed {reported:?}: {}",
+                submission.summary.chars().take(1_500).collect::<String>()
+            );
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -656,33 +671,7 @@ pub(super) async fn call(
             .await
         }
         "verification_approve" => {
-            let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let plan_id = required_string(args, "plan_id")?.to_owned();
-            let approver = required_string(args, "approver")?.to_owned();
-            let statement = required_string(args, "statement")?.to_owned();
-            let confirmed = args
-                .get("confirmed")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if !confirmed {
-                return Err(
-                    "verification_approve requires confirmed=true from an explicit human approval"
-                        .to_owned(),
-                );
-            }
-            let harness = state.harness.clone();
-            run_blocking(move || {
-                harness
-                    .verification_approve(
-                        &workspace_id,
-                        &workspace,
-                        &plan_id,
-                        &approver,
-                        &statement,
-                    )
-                    .and_then(|evidence| serde_json::to_value(evidence).map_err(Into::into))
-            })
-            .await
+            super::super::mcp_authorization::human_decision_tool(state, args, "verification").await
         }
         "verification_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
@@ -741,27 +730,8 @@ pub(super) async fn call(
             .await
         }
         "reconciliation_approve" => {
-            let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let plan_id = required_string(args, "plan_id")?.to_owned();
-            let approver = required_string(args, "approver")?.to_owned();
-            let statement = required_string(args, "statement")?.to_owned();
-            if args.get("confirmed").and_then(Value::as_bool) != Some(true) {
-                return Err(
-                    "reconciliation_approve requires confirmed=true from explicit human approval"
-                        .to_owned(),
-                );
-            }
-            let harness = state.harness.clone();
-            run_blocking(move || {
-                harness.reconciliation_approve(
-                    &workspace_id,
-                    &workspace,
-                    &plan_id,
-                    &approver,
-                    &statement,
-                )
-            })
-            .await
+            super::super::mcp_authorization::human_decision_tool(state, args, "reconciliation")
+                .await
         }
         "reconciliation_execution_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;

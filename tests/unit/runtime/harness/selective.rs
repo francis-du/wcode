@@ -1,4 +1,5 @@
 use super::*;
+use crate::monitor::TaskMonitor;
 
 fn selective_fixture(root: &Path) -> (Workspace, ToolHarness) {
     fs::create_dir_all(root.join("src/target")).unwrap();
@@ -185,7 +186,8 @@ fn selective_context_preserves_multilanguage_originals_and_budgets() {
 async fn oversized_verification_plan_fails_before_dispatch() {
     let root = tempfile::tempdir().unwrap();
     let workspaces = crate::workspace::Workspaces::new([root.path()], false, true).unwrap();
-    workspaces.revoke_command(None, "git").unwrap();
+    // Git metadata remains observable; actual project checks still need approval.
+    workspaces.revoke_command(None, "cargo").unwrap();
     let (id, workspace) = workspaces.select(None).unwrap();
     let harness = ToolHarness::new(2).unwrap();
     let (profile, _) = harness.load_project_profile(&workspace).unwrap();
@@ -195,8 +197,8 @@ async fn oversized_verification_plan_fails_before_dispatch() {
             id: format!("fixture-{index}"),
             level: "full".to_owned(),
             phase: 0,
-            program: "git".to_owned(),
-            args: vec!["diff".to_owned(), "--check".to_owned()],
+            program: "cargo".to_owned(),
+            args: vec!["check".to_owned(), "--locked".to_owned()],
             cwd: ".".to_owned(),
             island: "workspace".to_owned(),
             languages: Vec::new(),
@@ -215,6 +217,10 @@ async fn oversized_verification_plan_fails_before_dispatch() {
         .verify_project_mode(id, &workspace, ("full", false), 1, &monitor)
         .await
         .unwrap_err();
+    assert!(error.to_string().contains(&format!(
+        "verification plan contains {} checks, exceeding the {MAX_VERIFICATION_CHECKS}-check bound",
+        MAX_VERIFICATION_CHECKS + 1,
+    )));
     assert!(error.to_string().contains("no checks executed"));
     assert!(workspaces.authorization_requests(10).is_empty());
     assert!(crate::evidence_store::load(&workspace).unwrap().is_empty());

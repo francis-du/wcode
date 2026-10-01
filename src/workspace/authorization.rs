@@ -1,10 +1,13 @@
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const MAX_AUTHORIZATION_REQUESTS: usize = 256;
+const PENDING_AUTHORIZATION_TTL: Duration = Duration::from_secs(10 * 60);
+const ONE_SHOT_AUTHORIZATION_TTL: Duration = Duration::from_secs(2 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -12,6 +15,7 @@ pub enum AuthorizationKind {
     CommandAccess,
     RiskyExecution,
     DestructiveDelete,
+    HumanDecision,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -20,7 +24,9 @@ pub enum AuthorizationStatus {
     Pending,
     ApprovedSession,
     ApprovedOnce,
+    Consumed,
     Denied,
+    Expired,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -65,10 +71,71 @@ impl std::error::Error for AuthorizationRequired {}
 struct AuthorizationState {
     next_id: u64,
     requests: BTreeMap<String, AuthorizationRequest>,
-    session_grants: HashSet<String>,
-    one_shot_grants: HashSet<String>,
+    session_grants: BTreeMap<String, String>,
+    one_shot_grants: BTreeMap<String, (String, Instant)>,
     workspace_command_grants: HashSet<String>,
     interactive_tokens: BTreeMap<String, String>,
+    pending_deadlines: BTreeMap<String, Instant>,
+}
+
+impl AuthorizationState {
+    fn expire_pending(&mut self) {
+        let now = Instant::now();
+        let expired = self
+            .pending_deadlines
+            .iter()
+            .filter(|(_, deadline)| **deadline <= now)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in expired {
+            if let Some(request) = self.requests.get_mut(&id) {
+                if request.status == AuthorizationStatus::Pending {
+                    request.status = AuthorizationStatus::Expired;
+                    request.decided_at_ms = Some(now_ms());
+                }
+            }
+            self.interactive_tokens.remove(&id);
+            self.pending_deadlines.remove(&id);
+        }
+        let expired_grants = self
+            .one_shot_grants
+            .iter()
+            .filter(|(_, (_, deadline))| *deadline <= now)
+            .map(|(fingerprint, (id, _))| (fingerprint.clone(), id.clone()))
+            .collect::<Vec<_>>();
+        for (fingerprint, id) in expired_grants {
+            self.one_shot_grants.remove(&fingerprint);
+            if let Some(request) = self.requests.get_mut(&id) {
+                if request.status == AuthorizationStatus::ApprovedOnce {
+                    request.status = AuthorizationStatus::Expired;
+                }
+            }
+        }
+    }
+
+    fn admit_request(&mut self) -> Result<()> {
+        while self.requests.len() >= MAX_AUTHORIZATION_REQUESTS {
+            let removable = self
+                .requests
+                .iter()
+                .find(|(_, request)| {
+                    !matches!(
+                        request.status,
+                        AuthorizationStatus::Pending | AuthorizationStatus::ApprovedOnce
+                    )
+                })
+                .map(|(id, _)| id.clone());
+            let Some(id) = removable else {
+                bail!(
+                    "authorization queue is full; resolve or wait for pending requests to expire"
+                );
+            };
+            self.requests.remove(&id);
+            self.interactive_tokens.remove(&id);
+            self.pending_deadlines.remove(&id);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -82,7 +149,7 @@ impl AuthorizationManager {
             .lock()
             .expect("authorization state lock poisoned")
             .session_grants
-            .contains(fingerprint)
+            .contains_key(fingerprint)
     }
 
     pub fn workspace_commands_granted(&self, workspace: &str) -> bool {
@@ -93,11 +160,47 @@ impl AuthorizationManager {
             .contains(workspace)
     }
 
+    pub(crate) fn revoke_workspace(&self, workspace: &str) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("authorization state lock poisoned");
+        state.expire_pending();
+        state.workspace_command_grants.remove(workspace);
+        state
+            .session_grants
+            .retain(|_, grant_workspace| grant_workspace != workspace);
+        let request_ids = state
+            .requests
+            .iter()
+            .filter(|(_, request)| request.workspace == workspace)
+            .map(|(id, request)| (id.clone(), request.fingerprint.clone()))
+            .collect::<Vec<_>>();
+        let decided_at_ms = now_ms();
+        for (id, fingerprint) in request_ids {
+            state.one_shot_grants.remove(&fingerprint);
+            state.interactive_tokens.remove(&id);
+            state.pending_deadlines.remove(&id);
+            if let Some(request) = state.requests.get_mut(&id) {
+                if matches!(
+                    request.status,
+                    AuthorizationStatus::Pending
+                        | AuthorizationStatus::ApprovedOnce
+                        | AuthorizationStatus::ApprovedSession
+                ) {
+                    request.status = AuthorizationStatus::Denied;
+                    request.decided_at_ms = Some(decided_at_ms);
+                }
+            }
+        }
+    }
+
     pub fn set_workspace_commands_granted(&self, workspace: &str, enabled: bool) -> bool {
         let mut state = self
             .state
             .lock()
             .expect("authorization state lock poisoned");
+        state.expire_pending();
         let changed = if enabled {
             state.workspace_command_grants.insert(workspace.to_owned())
         } else {
@@ -124,6 +227,7 @@ impl AuthorizationManager {
                 .collect::<Vec<_>>();
             for id in resolved {
                 state.interactive_tokens.remove(&id);
+                state.pending_deadlines.remove(&id);
             }
         }
         changed
@@ -135,7 +239,7 @@ impl AuthorizationManager {
         kind: AuthorizationKind,
         summary: impl Into<String>,
         fingerprint: impl Into<String>,
-    ) -> AuthorizationRequest {
+    ) -> Result<AuthorizationRequest> {
         self.request_with_program(workspace, kind, summary, None, fingerprint)
     }
 
@@ -144,7 +248,7 @@ impl AuthorizationManager {
         workspace: impl Into<String>,
         program: impl Into<String>,
         fingerprint: impl Into<String>,
-    ) -> AuthorizationRequest {
+    ) -> Result<AuthorizationRequest> {
         let program = program.into();
         self.request_with_program(
             workspace,
@@ -162,7 +266,7 @@ impl AuthorizationManager {
         summary: impl Into<String>,
         program: Option<String>,
         fingerprint: impl Into<String>,
-    ) -> AuthorizationRequest {
+    ) -> Result<AuthorizationRequest> {
         let workspace = workspace.into();
         let summary = summary.into();
         let fingerprint = fingerprint.into();
@@ -170,6 +274,7 @@ impl AuthorizationManager {
             .state
             .lock()
             .expect("authorization state lock poisoned");
+        state.expire_pending();
         if let Some(existing) = state
             .requests
             .values()
@@ -178,12 +283,17 @@ impl AuthorizationManager {
                 request.workspace == workspace
                     && request.kind == kind
                     && request.fingerprint == fingerprint
-                    && request.status == AuthorizationStatus::Pending
+                    && matches!(
+                        request.status,
+                        AuthorizationStatus::Pending | AuthorizationStatus::ApprovedOnce
+                    )
             })
             .cloned()
         {
-            return existing;
+            return Ok(existing);
         }
+        state.admit_request()?;
+        let created_at_ms = now_ms();
         state.next_id = state.next_id.saturating_add(1).max(1);
         let request = AuthorizationRequest {
             id: format!("AUTH-{:08}", state.next_id),
@@ -193,42 +303,40 @@ impl AuthorizationManager {
             program,
             fingerprint,
             status: AuthorizationStatus::Pending,
-            created_at_ms: now_ms(),
+            created_at_ms,
             decided_at_ms: None,
         };
         state
             .interactive_tokens
             .insert(request.id.clone(), Uuid::new_v4().simple().to_string());
+        state.pending_deadlines.insert(
+            request.id.clone(),
+            Instant::now()
+                + if kind == AuthorizationKind::HumanDecision {
+                    ONE_SHOT_AUTHORIZATION_TTL
+                } else {
+                    PENDING_AUTHORIZATION_TTL
+                },
+        );
         state.requests.insert(request.id.clone(), request.clone());
-        while state.requests.len() > MAX_AUTHORIZATION_REQUESTS {
-            let removable = state
-                .requests
-                .iter()
-                .find(|(_, request)| request.status != AuthorizationStatus::Pending)
-                .map(|(id, _)| id.clone());
-            let Some(id) = removable else {
-                break;
-            };
-            state.requests.remove(&id);
-            state.interactive_tokens.remove(&id);
-        }
-        request
+        Ok(request)
     }
 
     pub fn request_by_id(&self, id: &str) -> Option<AuthorizationRequest> {
-        self.state
-            .lock()
-            .expect("authorization state lock poisoned")
-            .requests
-            .get(id)
-            .cloned()
-    }
-
-    pub fn interactive_token(&self, id: &str) -> Option<String> {
-        let state = self
+        let mut state = self
             .state
             .lock()
             .expect("authorization state lock poisoned");
+        state.expire_pending();
+        state.requests.get(id).cloned()
+    }
+
+    pub fn interactive_token(&self, id: &str) -> Option<String> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("authorization state lock poisoned");
+        state.expire_pending();
         state
             .requests
             .get(id)
@@ -241,37 +349,83 @@ impl AuthorizationManager {
             .state
             .lock()
             .expect("authorization state lock poisoned");
-        let (fingerprint, one_shot) = {
+        state.expire_pending();
+        let (fingerprint, workspace, one_shot) = {
             let Some(request) = state.requests.get_mut(id) else {
                 return false;
             };
             if request.status != AuthorizationStatus::Pending {
                 return false;
             }
-            let one_shot = request.kind == AuthorizationKind::DestructiveDelete;
+            let one_shot = matches!(
+                request.kind,
+                AuthorizationKind::DestructiveDelete | AuthorizationKind::HumanDecision
+            );
             request.status = if one_shot {
                 AuthorizationStatus::ApprovedOnce
             } else {
                 AuthorizationStatus::ApprovedSession
             };
             request.decided_at_ms = Some(now_ms());
-            (request.fingerprint.clone(), one_shot)
+            (
+                request.fingerprint.clone(),
+                request.workspace.clone(),
+                one_shot,
+            )
         };
         state.interactive_tokens.remove(id);
+        state.pending_deadlines.remove(id);
         if one_shot {
-            state.one_shot_grants.insert(fingerprint);
+            state.one_shot_grants.insert(
+                fingerprint,
+                (id.to_owned(), Instant::now() + ONE_SHOT_AUTHORIZATION_TTL),
+            );
         } else {
-            state.session_grants.insert(fingerprint);
+            state.session_grants.insert(fingerprint, workspace);
         }
         true
     }
 
     pub fn consume_one_shot_grant(&self, fingerprint: &str) -> bool {
-        self.state
+        self.consume_one_shot_receipt(None, AuthorizationKind::DestructiveDelete, fingerprint)
+            .is_some()
+    }
+
+    pub(crate) fn consume_human_decision(
+        &self,
+        workspace: &str,
+        fingerprint: &str,
+    ) -> Option<AuthorizationRequest> {
+        self.consume_one_shot_receipt(
+            Some(workspace),
+            AuthorizationKind::HumanDecision,
+            fingerprint,
+        )
+    }
+
+    fn consume_one_shot_receipt(
+        &self,
+        workspace: Option<&str>,
+        kind: AuthorizationKind,
+        fingerprint: &str,
+    ) -> Option<AuthorizationRequest> {
+        let mut state = self
+            .state
             .lock()
-            .expect("authorization state lock poisoned")
-            .one_shot_grants
-            .remove(fingerprint)
+            .expect("authorization state lock poisoned");
+        state.expire_pending();
+        let (id, _) = state.one_shot_grants.get(fingerprint)?.clone();
+        let request = state.requests.get(&id)?;
+        if request.kind != kind
+            || request.status != AuthorizationStatus::ApprovedOnce
+            || workspace.is_some_and(|workspace| request.workspace != workspace)
+        {
+            return None;
+        }
+        let receipt = request.clone();
+        state.one_shot_grants.remove(fingerprint);
+        state.requests.get_mut(&id)?.status = AuthorizationStatus::Consumed;
+        Some(receipt)
     }
 
     pub fn deny(&self, id: &str) -> bool {
@@ -279,6 +433,7 @@ impl AuthorizationManager {
             .state
             .lock()
             .expect("authorization state lock poisoned");
+        state.expire_pending();
         let Some(request) = state.requests.get_mut(id) else {
             return false;
         };
@@ -288,14 +443,16 @@ impl AuthorizationManager {
         request.status = AuthorizationStatus::Denied;
         request.decided_at_ms = Some(now_ms());
         state.interactive_tokens.remove(id);
+        state.pending_deadlines.remove(id);
         true
     }
 
     pub fn requests(&self, limit: usize) -> Vec<AuthorizationRequest> {
-        let state = self
+        let mut state = self
             .state
             .lock()
             .expect("authorization state lock poisoned");
+        state.expire_pending();
         state
             .requests
             .values()
@@ -307,9 +464,12 @@ impl AuthorizationManager {
 
     #[cfg(test)]
     pub fn latest_pending(&self) -> Option<AuthorizationRequest> {
-        self.state
+        let mut state = self
+            .state
             .lock()
-            .expect("authorization state lock poisoned")
+            .expect("authorization state lock poisoned");
+        state.expire_pending();
+        state
             .requests
             .values()
             .rev()

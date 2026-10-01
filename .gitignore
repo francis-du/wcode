@@ -1,5 +1,6 @@
 # Rust / Cargo build output
 /target/
+**/target/
 /dist/
 debug/
 **/*.rs.bk

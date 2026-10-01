@@ -55,6 +55,33 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .pointer("/project/write_enabled")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let design_initialized = value
+        .pointer("/design_state/initialized")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let design_valid = value
+        .pointer("/design_state/valid")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let design_operational = value
+        .pointer("/design_state/operational")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let design_blockers = value
+        .pointer("/design_state/operational_blockers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let design_enforced = design_initialized
+        && !design_blockers
+            .iter()
+            .any(|blocker| blocker.as_str() == Some("missing_product"));
+    let design_repair_target = !target_paths.is_empty()
+        && target_paths
+            .iter()
+            .all(|path| *path == ".wcode" || path.starts_with(".wcode/"));
+    let design_blocked =
+        design_enforced && !design_repair_target && (!design_valid || !design_operational);
     let tests = value
         .get("tests")
         .and_then(Value::as_array)
@@ -120,6 +147,8 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         .count();
     let edit = if !write_enabled {
         "read_only_workspace"
+    } else if design_blocked {
+        "blocked_by_design"
     } else if targets == 0 {
         "needs_target"
     } else if sha_files > 0 && editable_files == 0 {
@@ -145,6 +174,8 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     let mut advisories = Vec::new();
     if !write_enabled {
         advisories.push("workspace_write_disabled");
+    } else if design_blocked {
+        advisories.push("design_state_incomplete");
     } else if sha_files > 0 && editable_files == 0 {
         advisories.push("target_files_read_only");
     }
@@ -260,6 +291,10 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
             push_semantic_setup(&mut next_actions);
             next_actions.push("path_info");
             next_actions.push(guarded_edit_tool);
+        }
+        "blocked_by_design" => {
+            next_actions.push("design_status");
+            next_actions.push("traceability_status");
         }
         "read_only_workspace" | "read_only_target" => {}
         _ => {}

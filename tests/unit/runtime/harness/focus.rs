@@ -2,6 +2,7 @@ use super::*;
 use crate::design::{
     AcceptanceCriterion, CodeRef, ComponentDesign, DesignState, Requirement, VerificationRef,
 };
+use crate::monitor::TaskMonitor;
 use std::collections::BTreeSet;
 
 #[test]
@@ -495,6 +496,8 @@ fn polyglot_focus_profile() -> ProjectProfile {
         precision: "structural",
     };
     ProjectProfile {
+        discovery: Default::default(),
+        policy_sources: Vec::new(),
         root: ".".into(),
         project_types: vec!["python".into(), "go".into()],
         manifests: vec!["py/pyproject.toml".into(), "go/go.mod".into()],
@@ -530,6 +533,8 @@ fn focus_profile() -> ProjectProfile {
         reason: "Run Rust tests".into(),
     };
     ProjectProfile {
+        discovery: Default::default(),
+        policy_sources: Vec::new(),
         root: ".".into(),
         project_types: vec!["rust".into()],
         manifests: vec!["Cargo.toml".into()],

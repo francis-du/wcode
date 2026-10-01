@@ -1,5 +1,5 @@
 use super::*;
-use crate::design::{CodeRef, VerificationRef};
+use crate::design::CodeRef;
 
 const MISSING_TRACE_MESSAGE: &str =
     "Declared requirement has no complete implementation/verification trace.";
@@ -423,7 +423,7 @@ pub(super) fn append_verification_automation_gap(
             category: RiskCategory::VerificationGap,
             level: profile.level,
             summary: bounded_message(&format!(
-                "Risk-adaptive verification has no runnable local executor for required stage/target coverage: {}. External stage evidence remains admissible when it explicitly attests the affected verification targets.",
+                "Risk-adaptive verification has no runnable local executor for required stage/target coverage: {}. Run a configured native stage executor; submitted stage reports remain advisory.",
                 missing.join(", ")
             )),
             signals,
@@ -753,84 +753,6 @@ pub(super) fn evidence_kind_for_check(check_id: &str) -> EvidenceKind {
     }
 }
 
-// One producer's narrower or unrelated gate cannot clear another failure.
-// Equal timestamps are ambiguous, so retain the less favorable result.
-pub(super) fn aggregate_verification_results<'a>(
-    records: impl Iterator<Item = &'a Evidence>,
-) -> Option<EvidenceResult> {
-    let severity = |result| match result {
-        EvidenceResult::Pass => 0,
-        EvidenceResult::Inconclusive => 1,
-        EvidenceResult::Disagree => 2,
-        EvidenceResult::Fail => 3,
-    };
-    let mut latest = BTreeMap::new();
-    for record in records {
-        if record.policy.as_deref() == Some("deterministic/language-quality/v1") {
-            continue;
-        }
-        let key = (record.producer.as_str(), record.policy.as_deref());
-        let entry = latest.entry(key).or_insert(record);
-        if record.timestamp_ms > entry.timestamp_ms
-            || (record.timestamp_ms == entry.timestamp_ms
-                && severity(record.result) > severity(entry.result))
-        {
-            *entry = record;
-        }
-    }
-    latest
-        .values()
-        .filter(|record| {
-            // A later full run repeats quick checks and can replace that
-            // producer's older quick result, never the other way around.
-            record.policy.as_deref() != Some("deterministic/quick/v1")
-                || !latest
-                    .get(&(record.producer.as_str(), Some("deterministic/full/v1")))
-                    .is_some_and(|full| full.timestamp_ms > record.timestamp_ms)
-        })
-        .map(|record| record.result)
-        .max_by_key(|result| severity(*result))
-}
-
-pub(super) fn verification_reference_executed(
-    reference: &VerificationRef,
-    report: &VerificationReport,
-) -> bool {
-    match reference {
-        VerificationRef::Check { id } => report
-            .checks
-            .iter()
-            .any(|check| !check.reused && check.id == *id),
-        VerificationRef::Test { .. } if report.level == "language-quality" => false,
-        VerificationRef::Test { .. } => report
-            .checks
-            .iter()
-            .any(|check| !check.reused && check.id.to_ascii_lowercase().contains("test")),
-    }
-}
-
-pub(super) fn verification_reference_outcome(
-    reference: &VerificationRef,
-    report: &VerificationReport,
-) -> Option<bool> {
-    match reference {
-        VerificationRef::Check { id } => report
-            .checks
-            .iter()
-            .find(|check| check.id == *id)
-            .map(|check| check.success),
-        VerificationRef::Test { .. } if report.level == "language-quality" => None,
-        VerificationRef::Test { .. } => {
-            let tests = report
-                .checks
-                .iter()
-                .filter(|check| check.id.to_ascii_lowercase().contains("test"))
-                .collect::<Vec<_>>();
-            (!tests.is_empty()).then(|| tests.iter().all(|check| check.success))
-        }
-    }
-}
-
 pub(super) fn push_evidence(
     records: &mut Vec<StoredEvidence>,
     workspace: &str,
@@ -894,7 +816,7 @@ pub(super) fn is_design_path(path: &str) -> bool {
         || path.starts_with(&format!("{}/", design::DESIGN_ROOT))
 }
 
-pub(super) fn is_actual_state_change(file: &crate::harness::ChangedFileReview) -> bool {
+pub(super) fn is_actual_state_change(file: &crate::report_types::ChangedFileReview) -> bool {
     !is_design_path(&file.path)
         && matches!(
             file.category.as_str(),

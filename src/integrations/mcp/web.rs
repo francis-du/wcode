@@ -10,8 +10,16 @@ pub(super) use web_execution::intelligence_web_revision;
 use web_execution::{
     intelligence_execution_snapshot, public_worklist_revision, worklist_snapshot_key,
 };
+#[path = "web_jobs.rs"]
+mod web_jobs;
 #[path = "web_status.rs"]
 pub(super) mod web_status;
+pub(super) use web_jobs::{
+    intelligence_web_job, intelligence_web_job_cancel, intelligence_web_jobs,
+    intelligence_web_verification_tasks,
+};
+#[path = "web_verification.rs"]
+mod web_verification;
 pub(super) use web_change_impact::intelligence_web_change_impact;
 #[cfg(test)]
 pub(super) use web_change_impact::IntelligenceChangeImpactQuery;
@@ -22,6 +30,11 @@ pub(super) use web_graph::{
 };
 pub(super) use web_graph::{
     intelligence_web_change_detail, intelligence_web_code_graph, intelligence_web_code_source,
+    intelligence_web_edit_source,
+};
+pub(super) use web_verification::{
+    intelligence_web_verification_cancel, intelligence_web_verification_result,
+    intelligence_web_verification_run, intelligence_web_verification_status,
 };
 
 pub(super) async fn setup_page(
@@ -53,7 +66,7 @@ pub(super) async fn setup_page(
 }
 
 // The public connection guide needs no command catalog, paths, credentials or
-// full Harness serialization on every poll. Keep /healthz unchanged for clients.
+// full Harness serialization on every poll. Detailed diagnostics require UI authorization.
 pub(super) async fn setup_status(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -560,13 +573,11 @@ fn request_observatory_refresh(
                 .await
                 .ok()
         };
-        let harness = state.harness.clone();
-        let workspace_for_read = workspace.clone();
-        let workspace_id_for_read = workspace_id.clone();
-        let built = mcp_tools::run_blocking(move || {
-            harness.project_observatory(workspace_id_for_read, &workspace_for_read, review.as_ref())
-        })
-        .await;
+        let built = state
+            .harness
+            .project_observatory_live(&workspace_id, &workspace, review.as_ref())
+            .await;
+        let mut confirmed = false;
         if built.is_ok() {
             let revision_after =
                 web_status::revision_state(&state.harness, &workspace_id, &workspace)
@@ -574,11 +585,15 @@ fn request_observatory_refresh(
                     .ok();
             if let (Some(before), Some(after)) = (revision_before, revision_after) {
                 if before.stable_inputs_key == after.stable_inputs_key {
+                    confirmed = true;
                     state
                         .harness
                         .mark_observatory_revision(&workspace, after.full_snapshot_key);
                 }
             }
+        }
+        if !confirmed {
+            state.harness.invalidate_observatory_acceptance(&workspace);
         }
         drop(refresh_guard);
     });
@@ -623,6 +638,10 @@ pub(super) async fn intelligence_web_project(
                 value["execution"] = execution.clone();
                 value["worklist_revision"] = worklist_revision.clone();
                 value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
+                value["git_observation"] = json!({"available":false,"reason":if workspace.exec_enabled() {"cached_snapshot"} else {"execution_disabled"}});
+                if !workspace.exec_enabled() {
+                    value["acceptance"] = Value::Null;
+                }
                 value["activity"] = state.monitor.observatory_activity(&workspace_id);
                 value["pending_authorizations"] = json!(state
                     .workspaces
@@ -666,6 +685,9 @@ pub(super) async fn intelligence_web_project(
         )
             .into_response();
     }
+    let revision_before = web_status::revision_state(&state.harness, &workspace_id, &workspace)
+        .await
+        .ok();
     let review_started = std::time::Instant::now();
     let (review, review_reason) = if !workspace.exec_enabled() {
         (None, "execution_disabled")
@@ -690,22 +712,41 @@ pub(super) async fn intelligence_web_project(
     };
     let review_ms = review_started.elapsed().as_secs_f64() * 1_000.0;
     let git_review = json!({"available": review_reason == "available", "reason": review_reason});
-    let harness = state.harness.clone();
-    let workspace_for_read = workspace.clone();
-    let workspace_id_for_read = workspace_id.clone();
     let project_started = std::time::Instant::now();
-    let project = mcp_tools::run_blocking(move || {
-        let project = harness.project_observatory(
-            workspace_id_for_read,
-            &workspace_for_read,
-            review.as_ref(),
-        )?;
-        serde_json::to_value(project).map_err(Into::into)
-    })
-    .await;
+    let project = state
+        .harness
+        .project_observatory_live(&workspace_id, &workspace, review.as_ref())
+        .await
+        .and_then(|project| serde_json::to_value(project).map_err(Into::into));
     let project_ms = project_started.elapsed().as_secs_f64() * 1_000.0;
+    let revision_after = web_status::revision_state(&state.harness, &workspace_id, &workspace)
+        .await
+        .ok();
+    let git_observation = revision_after
+        .as_ref()
+        .map(|revision| revision.git_observation.clone())
+        .unwrap_or_else(|| json!({"available":false,"reason":"inspection_failed"}));
+    let snapshot_revision = revision_before
+        .zip(revision_after)
+        .and_then(|(before, after)| {
+            (before.stable_inputs_key == after.stable_inputs_key).then(|| {
+                state
+                    .harness
+                    .mark_observatory_revision(&workspace, after.full_snapshot_key.clone());
+                worklist_snapshot_key(&after.full_snapshot_key, &execution)
+            })
+        });
     let mut response = match project {
         Ok(mut value) => {
+            if snapshot_revision.is_none() {
+                value["acceptance"] = Value::Null;
+                state.harness.invalidate_observatory_acceptance(&workspace);
+            }
+            if !workspace.exec_enabled() {
+                value["acceptance"] = Value::Null;
+            }
+            value["snapshot_revision"] = json!(snapshot_revision);
+            value["git_observation"] = git_observation;
             value["workspace_options"] = intelligence_workspace_options(&state);
             value["worklist_revision"] = worklist_revision;
             value["execution"] = execution;

@@ -119,3 +119,114 @@ fn write_lock_registry_reuses_live_locks_and_prunes_periodically() {
     );
     assert!(locks.contains_key(&last_path));
 }
+
+#[test]
+fn authority_state_file_tools_remain_blocked_after_full_home_access() {
+    let state =
+        fs_safety::normalize_authority_root(&crate::evidence_store::state_root().unwrap()).unwrap();
+    fs::create_dir_all(&state).unwrap();
+    let fixture = tempfile::Builder::new()
+        .prefix("authority-fixture-")
+        .tempdir_in(&state)
+        .unwrap();
+    let home = state.parent().unwrap();
+    let project = tempfile::Builder::new()
+        .prefix("project-")
+        .tempdir_in(home)
+        .unwrap();
+    let workspaces = Workspaces::new([project.path()], true, true).unwrap();
+    let (home_id, _) = workspaces.grant_full_user_access_at(home).unwrap();
+    let (_, workspace) = workspaces.select(Some(&home_id)).unwrap();
+    assert!(workspaces.all_commands_authorized(Some(&home_id)).unwrap());
+    assert!(workspace.write_enabled());
+
+    for domain in [
+        "evidence",
+        "verification",
+        "reconciliation-approval",
+        "engineering-journal",
+        "oauth",
+        "worklist",
+        "mcp-tasks",
+    ] {
+        let directory = fixture.path().join(domain);
+        fs::create_dir(&directory).unwrap();
+        let record = directory.join("record.json");
+        fs::write(&record, "trusted").unwrap();
+        let path = portable_relative_path(record.strip_prefix(workspace.root()).unwrap());
+        let new_path = portable_relative_path(
+            directory
+                .join("forged.json")
+                .strip_prefix(workspace.root())
+                .unwrap(),
+        );
+        let digest = sha256(b"trusted");
+        let errors = [
+            workspace.read_file(&path, 1, None).unwrap_err().to_string(),
+            workspace.path_info(&path).unwrap_err().to_string(),
+            workspace.read_media(&path).unwrap_err().to_string(),
+            workspace
+                .write_file(&path, "forged", Some(&digest))
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .replace_text(&path, "trusted", "forged", &digest)
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .apply_edits(
+                    &path,
+                    &[TextEdit {
+                        old_text: "trusted".into(),
+                        new_text: "forged".into(),
+                        start_line: None,
+                        end_line: None,
+                    }],
+                    &digest,
+                )
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .create_file(&new_path, "forged")
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .create_directory(&format!("{new_path}/nested"))
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .delete_path(&path, Some(&digest))
+                .unwrap_err()
+                .to_string(),
+            workspace
+                .move_path(&path, "moved.json")
+                .unwrap_err()
+                .to_string(),
+        ];
+        assert!(
+            errors.iter().all(|error| error.contains("authority state")),
+            "{domain}: {errors:?}"
+        );
+        assert_eq!(fs::read_to_string(record).unwrap(), "trusted");
+        assert!(!directory.join("forged.json").exists());
+    }
+}
+
+#[test]
+fn authority_state_directory_moves_reject_ancestors_before_traversal() {
+    let state =
+        fs_safety::normalize_authority_root(&crate::evidence_store::state_root().unwrap()).unwrap();
+    fs::create_dir_all(&state).unwrap();
+    let parent = state.parent().unwrap();
+    let workspace = Workspace::new(parent.parent().unwrap(), true, false).unwrap();
+    let source = portable_relative_path(parent.strip_prefix(workspace.root()).unwrap());
+    // A descendant destination also prevents any rename if the authority check
+    // regresses: this test must never move the shared test-state parent.
+    let destination = format!("{source}/move-attempt-{}", Uuid::new_v4());
+    let error = workspace
+        .move_path(&source, &destination)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("authority state"), "{error}");
+    assert!(state.is_dir());
+}

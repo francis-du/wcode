@@ -1,0 +1,9 @@
+schema_version: 1
+id: AC-LOCAL-DESIGN-001
+title: Read-only integration facade retains canonical loader restrictions
+statement: load_local_design returns the canonical project metadata or explicit invalid-input diagnostics with no project writes. Symlinked inputs are not read through and their targets cannot leak into output. The public facade does not export the private Workspace implementation or any command, write or native approval capability.
+verification:
+  - {kind: test, path: tests/unit/design/local.rs, symbol: local_design_port_reads_canonical_metadata_without_writes_or_authority}
+  - {kind: test, path: tests/unit/design/local.rs, symbol: local_design_port_preserves_symlink_rejection_without_reading_the_target}
+  - {kind: check, id: rust-check}
+  - {kind: check, id: rust-clippy}

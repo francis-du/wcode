@@ -70,7 +70,12 @@ final class LayoutRunner: NSObject, WKNavigationDelegate {
         DispatchQueue.main.asyncAfter(deadline:.now()+0.15) {
             self.webView.evaluateJavaScript(self.script) { value,error in
                 if let error { fputs("\(error)\n",stderr); exit(2) }
-                guard let report=value as? [String:Any], let errors=report["errors"] as? [String] else {exit(2)}
+                guard var report=value as? [String:Any], var errors=report["errors"] as? [String] else {exit(2)}
+                if (report["width"] as? NSNumber)?.doubleValue != Double(width) {
+                    errors.append("requested viewport \(width) was not observed")
+                }
+                report["requested_width"]=Double(width)
+                report["errors"]=errors
                 self.reports.append(report); self.failures += errors.count
                 self.next()
             }

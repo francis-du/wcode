@@ -42,6 +42,45 @@ pub(crate) fn scopes_allow_path(scopes: &[String], path: &str) -> bool {
                 .any(|scope| crate::reconcile::scope_contains(scope, path)))
 }
 
+pub(crate) fn enforce_design_mutation_admission(
+    workspace: &Workspace,
+    tool_name: &str,
+    args: &Value,
+) -> Result<(), String> {
+    let Some(paths) = mutation_paths(tool_name, args)? else {
+        return Ok(());
+    };
+    if tool_name == "design_init"
+        || paths
+            .iter()
+            .all(|path| path == ".wcode" || path.starts_with(".wcode/"))
+    {
+        return Ok(());
+    }
+    let load = crate::design::load_design(workspace).map_err(|error| error.to_string())?;
+    if !load.initialized || load.state.product.is_none() {
+        return Ok(());
+    }
+    if load.error_count() > 0 {
+        return Err(
+            "design_state_invalid: repair .wcode Design State before mutating project files"
+                .to_owned(),
+        );
+    }
+    if load.state.components.is_empty() {
+        return Err("design_state_incomplete: add at least one Design Component before mutating project files".to_owned());
+    }
+    if !load
+        .state
+        .components
+        .values()
+        .any(|component| !component.implementation.is_empty())
+    {
+        return Err("design_state_incomplete: add implementation ownership to a Design Component before mutating project files".to_owned());
+    }
+    Ok(())
+}
+
 pub(crate) fn mutation_paths(tool_name: &str, args: &Value) -> Result<Option<Vec<String>>, String> {
     match tool_name {
         "replace_text" | "apply_edits" | "write_file" | "create_directory" | "create_file"

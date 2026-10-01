@@ -1,0 +1,16 @@
+schema_version: 1
+id: REQ-POLICY-AUTHORITY-001
+title: Trusted project-scoped local Policy authority
+intent: A Policy becomes active only through complete native input capture and protected one-shot local operator approval. Policy selection remains OSS; organization distribution is a separate future Team responsibility. Active Policy is not a Change Acceptance Record or Git provider merge decision.
+priority: critical
+implemented_by:
+  - component:policy-activation
+  - component:workspace-security
+acceptance:
+  - AC-POLICY-AUTHORITY-001
+constraints:
+  - CONSTRAINT-POLICY-AUTHORITY
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+risk:
+  reliability: critical
+  security: critical

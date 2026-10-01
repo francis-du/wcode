@@ -85,6 +85,50 @@ fn completion_schedule_matches_naive_readiness_across_200_graphs() {
 }
 
 #[test]
+fn synchronous_commands_parallelize_across_roots_and_serialize_mutations_per_root() {
+    let first = resource_model(
+        "one",
+        "run_command",
+        &json!({"program":"cargo","args":["test","--locked"]}),
+    )
+    .unwrap()
+    .in_root(Path::new("repo-one"));
+    let second = resource_model(
+        "two",
+        "run_command",
+        &json!({"program":"cargo","args":["test","--locked"]}),
+    )
+    .unwrap()
+    .in_root(Path::new("repo-two"));
+    assert_eq!(layers(vec![first.clone(), second]), vec![vec![0, 1]]);
+
+    let same_root = resource_model(
+        "one",
+        "run_command",
+        &json!({"program":"cargo","args":["check","--locked"]}),
+    )
+    .unwrap()
+    .in_root(Path::new("repo-one"));
+    assert_eq!(layers(vec![first, same_root]), vec![vec![0], vec![1]]);
+
+    let status = resource_model(
+        "one",
+        "run_command",
+        &json!({"program":"git","args":["status","--short"]}),
+    )
+    .unwrap()
+    .in_root(Path::new("repo-one"));
+    let log = resource_model(
+        "one",
+        "run_command",
+        &json!({"program":"git","args":["log","-1","--oneline"]}),
+    )
+    .unwrap()
+    .in_root(Path::new("repo-one"));
+    assert_eq!(layers(vec![status, log]), vec![vec![0, 1]]);
+}
+
+#[test]
 fn parent_and_subspace_aliases_share_resource_dependencies() {
     let parent =
         model("write_file", json!({"path":"project/src/lib.rs"})).in_root(Path::new("root"));

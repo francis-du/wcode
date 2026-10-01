@@ -16,6 +16,10 @@ statement: >-
   lanes, and leave the complete retained list available through worklist_status. Handoff
   filtering recomputes serialized bytes and the byte/4 token estimate for the exact delivered
   context; these measurements are not provider billing or verification authority.
+  Scoped handoffs omit global Worklist and Execution progress before budget packing and
+  readiness planning, so unrelated lanes cannot require a worker to spawn duplicate work.
+  Pending directives, verification floors and replan requirements remain in the handoff;
+  ordinary coordinator Agent Context retains its full Worklist discovery behavior.
 verification:
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_is_private_scoped_and_excludes_live_overlapping_lanes}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_claim_rejects_false_stale_tokens_and_protects_active_task_updates}
@@ -31,3 +35,4 @@ verification:
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_reports_bound_unicode_scalars_and_keep_live_dependencies_complete}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: expired_claim_can_be_replanned_without_old_capability}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: single_lane_replies_do_not_repeat_unrelated_worklist_history}
+  - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: scoped_handoff_budgets_only_delivered_coordination_state}

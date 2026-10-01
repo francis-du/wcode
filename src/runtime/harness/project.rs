@@ -399,7 +399,26 @@ fn acceptance_proof_summary(
 
     let mut groups = BTreeMap::<&str, Vec<&Evidence>>::new();
     for item in evidence {
-        if !acceptance_ids.contains(item.subject.as_str())
+        let native_criterion =
+            design
+                .state
+                .acceptance
+                .get(&item.subject)
+                .is_some_and(|criterion| {
+                    item.producer == "deterministic-verification-mesh"
+                        && item.policy.as_deref().is_some_and(|policy| {
+                            policy.starts_with("acceptance/") && policy.ends_with("/v2")
+                        })
+                        && item
+                            .execution_receipt
+                            .as_ref()
+                            .is_some_and(|receipt| receipt.valid())
+                        && criterion.verification.iter().any(|reference| {
+                            matches!(reference, design::VerificationRef::Check { .. })
+                        })
+                });
+        if !native_criterion
+            || !acceptance_ids.contains(item.subject.as_str())
             || matches!(
                 item.kind,
                 EvidenceKind::Reconciliation
@@ -424,7 +443,18 @@ fn acceptance_proof_summary(
             });
             let effective =
                 crate::evidence::latest_current(items.iter().copied(), &newest.revision);
-            let passed = !ambiguous
+            let no_unknown_tests =
+                design
+                    .state
+                    .acceptance
+                    .get(&newest.subject)
+                    .is_some_and(|criterion| {
+                        criterion.verification.iter().all(|reference| {
+                            matches!(reference, design::VerificationRef::Check { .. })
+                        })
+                    });
+            let passed = no_unknown_tests
+                && !ambiguous
                 && !effective.is_empty()
                 && effective
                     .iter()
@@ -452,8 +482,12 @@ impl ToolHarness {
         workspace_id: &str,
         workspace: &Workspace,
     ) -> Result<String> {
-        self.intelligence
-            .evidence_change_signal(workspace_id, workspace)
+        Ok(format!(
+            "{}|policy={}",
+            self.intelligence
+                .evidence_change_signal(workspace_id, workspace)?,
+            harness_policy_select::policy_authority_fingerprint(workspace, workspace_id)?
+        ))
     }
 
     pub(crate) fn observatory_engineering_signal(&self, workspace: &Workspace) -> Result<String> {

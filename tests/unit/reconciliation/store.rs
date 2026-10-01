@@ -26,6 +26,7 @@ fn reconciliation_plan_round_trips_from_persistent_store() {
             risk_level: RiskLevel::Low,
             policy: "risk-adaptive/v1/low".into(),
             deterministic_level: "quick".into(),
+            required_checks: None,
             deterministic_checks: vec!["compile".into()],
             reviewer_roles: vec![],
             require_property: false,

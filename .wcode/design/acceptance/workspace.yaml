@@ -17,22 +17,60 @@ statement: >-
   child-process quota before the host-wide physical child-process queue; a busy subspace cannot consume another
   subspace's local permits, while aggregate process count remains bounded by the host cap and local waiters cannot
   bypass resource-pressure admission. Git-worktree writer ownership remains a separate mutation-domain constraint.
-  Cargo queue wait does not consume the subsequent command execution timeout. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string;
-  malformed routing never silently selects the default Workspace. Modern task-capable clients may opt an individual
-  run_command into durable task mode; ordinary commands remain synchronous, task mode never weakens command policy,
-  authorization, sandbox, timeout or resource bounds, and clients without the Tasks capability fail rather than silently
-  falling back to synchronous execution. Optional launch environment overrides are limited to five typed non-secret keys,
-  require numeric loopback/unprivileged-port and bounded mode/log values, clear inherited values for those managed keys before
-  applying explicit overrides, and keep common runtime/loader execution-injection environment variables scrubbed. tasks/cancel owns the task worker and therefore terminates the supervised child
-  process tree before persisting cancellation, so bounded application/dev-server runs cannot become detached background
-  processes. While a task-mode command is working, tasks/get exposes only a redacted 32 KiB-per-stream tail of the already
-  bounded command capture, with separate capture-truncation and dropped-prefix provenance; repeated polling therefore
-  cannot replay the full 256 KiB capture into model context on every read. workspace_info may surface bounded read-only launch hints from recognized manifests, but discovery never
+  Cargo and process-capacity queue waits do not consume the subsequent command execution timeout.
+  Direct commands, workspace verification executables and trusted runtime executors start that timeout only at spawn.
+  Queue waits remain separately bounded; cancellation while queued launches nothing and releases its reservations. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string;
+  malformed routing never silently selects the default Workspace. Runtime timeout controls remain visible in the model
+  schemas for run_command, command_task and verify_project; search budgets remain adaptive and hidden.
+  Sync and task commands default to 600 seconds,
+  accept explicit integer timeouts from 1 through 1800, and have no separate sync 60-second ceiling. Ordinary commands
+  remain synchronous unless task_mode=true. Modern task-capable clients receive standard Task handles; legacy or
+  non-Task clients receive ordinary durable command receipts. command_task create/status/result/cancel uses the same
+  TaskRuntime and TaskStore, never a second registry. Start still passes through writer, executable/argv/no-shell,
+  command authorization, sandbox, cwd, timeout and resource guards. Status/result/cancel require the transport-derived
+  owner and exact selected Workspace, task ID and run_command identity; caller-supplied owner/actor fields are rejected.
+  verify_project action=start returns an ordinary durable verification receipt on both modern and legacy transports,
+  without requiring the Tasks extension. Omitted action or run preserves existing sync/native-Tasks behavior.
+  Status/result/cancel require the exact transport owner, selected Workspace and verify_project task identity,
+  reject command-task IDs and stay observable under execution saturation. They reuse the same native verifier,
+  TaskRuntime and TaskStore. Invalid/mixed/nested lifecycle arguments are rejected before any sibling mutation.
+  Polling retains the native report and cannot rerun checks or mint Evidence; completed results explicitly declare
+  current_acceptance=false and recorded_execution_only scope, including after drift or runtime replacement.
+  Queued cancellation launches no checks; runtime replacement fails interrupted work rather than replaying it.
+  Polling never reruns the command. Terminal/completed is delivery state, not success; the inner isError, command
+  success, exit code, error and truncation remain visible and never mint Verification Evidence. A stdio restart changes
+  owner, so old-owner tasks cannot be recovered by the new process. A runtime replacement marks an observed working task
+  failed instead of replaying it; creation-response loss has no exactly-once guarantee. Optional launch environment
+  overrides are limited to five typed non-secret keys, require numeric loopback/unprivileged-port and bounded mode/log
+  values, clear inherited values for those managed keys before applying explicit overrides, and keep common runtime/loader
+  execution-injection environment variables scrubbed. Cancellation aborts the owned worker and requests supervised
+  process-tree termination; cancellation and final persistence serialize so late completion cannot overwrite a saved
+  cancellation. This does not roll back prior effects. Both task wire forms expose the same redacted 32 KiB-per-stream
+  tail of a separate bounded progress stream, with a 64 KiB pending-line limit and 32-chunk channel. The 8 KiB read
+  buffer is only a chunk size. Final results retain a 256 KiB-per-stream prefix capture; capture-truncation and
+  dropped-prefix provenance remain distinct, and pipe readers keep draining after final capture saturates. workspace_info may surface bounded read-only launch hints from recognized manifests, but discovery never
   executes them, never exposes package/Python/task-runner script bodies as command arguments, never infers network trust,
   rejects oversized/symlink manifests, and fails closed on ambiguous native entrypoints or competing task-runner manifests.
   Common Just/Make/Task launch names and a unique Dart bin entry may be surfaced only from bounded declarations. A Docker
   Compose launch hint is exposed only for one bounded manifest with no host interpolation, custom top-level project name, build/host-mount/privilege/API-socket/lifecycle-hook/external-resource surface, loopback-only published ports, and an attached `up --no-build --pull never` command requiring exact RiskyExecution authorization. The Compose profile includes a non-automatic bounded status probe that returns only service/state/reported-health/exit-code fields; generic `compose ps` rendering remains blocked so container command text cannot leak through inspection. Reported Health may be empty and must then remain unknown rather than being promoted to healthy. Every discovered profile also reports a bounded bare-program PATH presence preflight without executing it; `false` is a stop rather than permission to guess/substitute a runner, while `true` does not claim plugin/subcommand readiness. Exact launch-only Agent Context requests may route directly to workspace_info then run_command without source indexing; any chosen launch still goes through the existing command policy and supervised task-mode boundary.
 verification:
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_start_returns_before_execution_and_poll_does_not_repeat_native_checks}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_invalid_routing_never_runs_checks_or_creates_tasks}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_poll_cannot_read_or_cancel_a_command_task}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_identity_misses_are_indistinguishable_and_do_not_mutate}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_cancel_remains_responsive_under_saturation_and_releases_waiters}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_runtime_replacement_does_not_replay_queued_checks}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_can_poll_standard_tasks_without_changing_default_execution}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_nested_control_is_rejected_before_sibling_mutation}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_lifecycle_is_discoverable_without_a_second_tool}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_completed_result_survives_drift_without_claiming_current_acceptance}
+  - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_http_requires_authentication_and_preserves_owner_when_saturated}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: long_command_timeouts_remain_model_visible_without_search_tuning}
+  - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: review_output_full_details_stay_discoverable_in_model_catalog}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: queued_command_retains_its_full_runtime_budget}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: queued_verification_retains_its_full_runtime_budget}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: queued_runtime_executor_retains_its_full_runtime_budget}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: cancelled_queued_command_never_starts_and_releases_its_waiter}
   - kind: test
     path: tests/unit/workspace/mod.rs
     symbol: coding_primitives_create_write_edit_move_and_batch_safely
@@ -122,10 +160,10 @@ verification:
     symbol: strict_tool_envelopes_and_workspace_types_never_write
   - kind: test
     path: tests/unit/integrations/mcp/resume.rs
-    symbol: run_command_task_mode_requires_task_capability_and_completes_durably
+    symbol: run_command_task_mode_supports_task_and_ordinary_receipts_durably
   - kind: test
     path: tests/unit/integrations/mcp/resume.rs
-    symbol: run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_rejected
+    symbol: run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_pollable
   - kind: test
     path: tests/unit/integrations/mcp/resume.rs
     symbol: cancelling_long_run_command_task_terminates_the_supervised_server
@@ -168,3 +206,36 @@ verification:
   - kind: test
     path: tests/unit/runtime/harness/fast_context.rs
     symbol: fast_context_routes_launch_requests_through_bounded_profiles
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_receipt_works_without_task_extension_and_legacy
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_exact_owner_workspace_and_tool_are_required
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_failed_command_keeps_inner_error_and_never_mints_evidence
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_restart_is_failed_without_rerunning
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_cancel_terminates_actual_process
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_rejects_identity_fields_and_invalid_create_args
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_nested_fanout_is_rejected_before_execution
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_http_authentication_and_owner_isolation
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: ordinary_command_task_standard_extension_response_is_unchanged
+  - kind: test
+    path: tests/unit/integrations/mcp/dispatch.rs
+    symbol: strict_command_rejects_invalid_optional_settings
+  - kind: test
+    path: tests/unit/integrations/mcp/task_tools.rs
+    symbol: command_task_runs_past_old_sixty_second_ceiling

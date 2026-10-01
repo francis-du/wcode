@@ -1,13 +1,13 @@
 use super::*;
 
 impl ToolHarness {
-    pub async fn verify_project(
+    pub async fn verify_project<T: TaskTelemetry>(
         &self,
         workspace_id: impl Into<String>,
         workspace: &Workspace,
         level: &str,
         timeout_seconds: u64,
-        monitor: &TaskMonitor,
+        monitor: &T,
     ) -> Result<VerificationReport> {
         self.verify_project_mode(
             workspace_id,
@@ -19,13 +19,33 @@ impl ToolHarness {
         .await
     }
 
-    pub(crate) async fn verify_project_mode(
+    pub(crate) async fn verify_project_mode<T: TaskTelemetry>(
         &self,
         workspace_id: impl Into<String>,
         workspace: &Workspace,
         mode: (&str, bool),
         timeout_seconds: u64,
-        monitor: &TaskMonitor,
+        monitor: &T,
+    ) -> Result<VerificationReport> {
+        self.verify_project_candidate(
+            workspace_id,
+            workspace,
+            mode,
+            timeout_seconds,
+            monitor,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_project_candidate<T: TaskTelemetry>(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        mode: (&str, bool),
+        timeout_seconds: u64,
+        monitor: &T,
+        candidate: Option<(&str, crate::verification::change::GitChangeTarget)>,
     ) -> Result<VerificationReport> {
         let (level, fail_fast) = mode;
         if !workspace.exec_enabled() {
@@ -40,13 +60,18 @@ impl ToolHarness {
         let revision = self
             .intelligence
             .current_revision_from_load(workspace, design.as_ref())?;
+        let execution_git_binding = self.execution_git_binding(workspace).await?;
+        let policy_authority =
+            harness_policy_select::policy_authority_fingerprint(workspace, &workspace_id)?;
         let reuse_context = harness_verification_cache::VerificationReuseContext::new(
             workspace,
             &revision,
             level,
             fail_fast,
             timeout_seconds,
-        );
+        )
+        .with_git_binding(execution_git_binding.clone())
+        .with_policy_authority(format!("{policy_authority}:candidate={candidate:?}"));
         let command_revision_key = (!revision.code.ends_with(":partial")
             && !revision
                 .design
@@ -54,9 +79,10 @@ impl ToolHarness {
                 .is_some_and(|value| value.ends_with(":partial")))
         .then(|| {
             format!(
-                "code={};design={}",
+                "code={};design={};git={}",
                 revision.code,
-                revision.design.as_deref().unwrap_or("none")
+                revision.design.as_deref().unwrap_or("none"),
+                reuse_context.git_identity_key()
             )
         });
         let flight_started = Instant::now();
@@ -64,6 +90,16 @@ impl ToolHarness {
             harness_verification_cache::VerificationRunClaim::Leader(leader) => leader,
             harness_verification_cache::VerificationRunClaim::Follower(flight) => {
                 let mut report = flight.wait().await?;
+                self.ensure_execution_git_binding(workspace, &execution_git_binding)
+                    .await?;
+                if self.intelligence.current_revision(workspace)? != revision {
+                    bail!("verification revision changed while awaiting an in-flight run; results are stale");
+                }
+                harness_policy_select::ensure_policy_authority(
+                    workspace,
+                    &workspace_id,
+                    &policy_authority,
+                )?;
                 report.elapsed_ms = flight_started.elapsed().as_millis();
                 if !report.execution.contains("in-flight-coalesced") {
                     report.execution = format!("{}+in-flight-coalesced", report.execution);
@@ -81,11 +117,43 @@ impl ToolHarness {
         // learned only if this exact revision later passes verification.
         let experience_snapshot = self.worktree_status_snapshot(workspace).await.ok();
         let (profile, _) = self.load_project_profile(workspace)?;
+        let native_policy = if crate::verification::policy_store::load(workspace, &workspace_id)?.is_some() {
+            let native_profile = harness_profile::capture_policy_profile(workspace)?;
+            let (base, target) = candidate.clone().unwrap_or(("HEAD", crate::verification::change::GitChangeTarget::Worktree));
+            let git = self.git_change_snapshot(workspace, base, target).await?;
+            if !git.complete { bail!("Acceptance verification requires a complete current Git candidate"); }
+            let review = harness_policy_select::candidate_review(&workspace_id, &git);
+            self.select_native_policy(&workspace_id, workspace, &git, &review, &native_profile)?
+        } else {
+            None
+        };
+        let execution_policy_binding = native_policy.as_ref().map(|selected| selected.plan_binding()).transpose()?;
         let impact = harness_profile::verification_impact_for_snapshot(
             &profile,
             experience_snapshot.as_ref(),
         );
-        let plan = harness_profile::verification_checks_for_impact(&profile, &impact, level);
+        let mut plan = harness_profile::verification_checks_for_impact(&profile, &impact, level);
+        if let Some(selected) = &native_policy {
+            if level == "quick" && (selected.selection.requirements.minimum_level == crate::design::PolicyLevel::Full
+                || selected.required_checks.iter().any(|binding| profile.recommended_checks.iter()
+                    .any(|check| check.id == binding.id && check.level == "full"))) {
+                bail!("approved Acceptance Policy requires full verification; rerun verify_project with level full");
+            }
+            for required in &selected.required_checks {
+                let check = profile.recommended_checks.iter()
+                    .find(|check| verification_check_binding(check) == *required)
+                    .context("approved Policy check is no longer available")?;
+                if !plan.iter().any(|planned| verification_check_binding(planned) == *required) {
+                    plan.push(check.clone());
+                }
+            }
+            sort_checks(&mut plan);
+        }
+        if let Some(blocker) = harness_verification::discovery_completeness_check(&profile, level) {
+            plan.push(blocker);
+            sort_checks(&mut plan);
+        }
+        let required_checks = Some(plan.iter().map(verification_check_binding).collect::<Vec<_>>());
         let polyglot_gaps = harness_profile::verification_gaps_for_impact(&profile, &impact, level);
         if plan.len() > MAX_VERIFICATION_CHECKS {
             bail!(
@@ -108,6 +176,8 @@ impl ToolHarness {
                 )
             };
             let report = VerificationReport {
+                execution_git_binding: execution_git_binding.clone(),
+                required_checks: required_checks.clone(),
                 workspace: workspace_id.clone(),
                 level: level.to_owned(),
                 execution: "core-policy".to_owned(),
@@ -123,12 +193,15 @@ impl ToolHarness {
                 cost_model: None,
                 checks: vec![check],
             };
-            self.intelligence.record_verification_report_from_design(
+            self.ensure_execution_git_binding(workspace, &execution_git_binding).await?;
+            harness_policy_select::ensure_policy_authority(workspace, &workspace_id, &policy_authority)?;
+            self.intelligence.record_verification_report_policy_bound(
                 &workspace_id,
                 workspace,
                 &revision,
                 Some(design.as_ref()),
                 &report,
+                execution_policy_binding.as_deref(),
             )?;
             return Ok(report);
         }
@@ -137,6 +210,8 @@ impl ToolHarness {
         if let Some(audit) = migration_audit.as_ref().filter(|audit| !audit.passed) {
             let check = migration_audit_check(audit);
             let report = VerificationReport {
+                execution_git_binding: execution_git_binding.clone(),
+                required_checks: required_checks.clone(),
                 workspace: workspace_id.clone(),
                 level: level.to_owned(),
                 execution: "migration-audit".to_owned(),
@@ -152,12 +227,15 @@ impl ToolHarness {
                 cost_model: None,
                 checks: vec![check],
             };
-            self.intelligence.record_verification_report_from_design(
+            self.ensure_execution_git_binding(workspace, &execution_git_binding).await?;
+            harness_policy_select::ensure_policy_authority(workspace, &workspace_id, &policy_authority)?;
+            self.intelligence.record_verification_report_policy_bound(
                 &workspace_id,
                 workspace,
                 &revision,
                 Some(design.as_ref()),
                 &report,
+                execution_policy_binding.as_deref(),
             )?;
             return Ok(report);
         }
@@ -179,6 +257,8 @@ impl ToolHarness {
                     .join("; ")
             );
             let report = VerificationReport {
+                execution_git_binding: execution_git_binding.clone(),
+                required_checks: required_checks.clone(),
                 workspace: workspace_id.clone(),
                 level: level.to_owned(),
                 execution: if migration_audit.is_some() {
@@ -198,17 +278,19 @@ impl ToolHarness {
                 cost_model: None,
                 checks,
             };
-            self.intelligence.record_verification_report_from_design(
+            self.ensure_execution_git_binding(workspace, &execution_git_binding).await?;
+            harness_policy_select::ensure_policy_authority(workspace, &workspace_id, &policy_authority)?;
+            self.intelligence.record_verification_report_policy_bound(
                 &workspace_id,
                 workspace,
                 &revision,
                 Some(design.as_ref()),
                 &report,
+                execution_policy_binding.as_deref(),
             )?;
             return Ok(report);
         }
 
-        let mut plan = plan;
         if level == "quick" && plan.len() < MAX_VERIFICATION_CHECKS {
             if let Some(focused) = harness_test_focus::focused_quick_test(
                 self,
@@ -237,6 +319,9 @@ impl ToolHarness {
             checks.push(migration_audit_check(audit));
         }
         let mut start = 0usize;
+        // One bounded persisted snapshot for this run. Missing/unreadable proof
+        // disables reuse; final receipt validation still checks sources again.
+        let reuse_proof = crate::evidence_store::load(workspace).unwrap_or_default();
 
         while start < plan.len() {
             let phase = plan[start].phase;
@@ -249,14 +334,14 @@ impl ToolHarness {
             let mut executed_phase = false;
             for check in plan[start..end].iter().cloned() {
                 if let Some(reused) =
-                    self.cached_verification_check(workspace, &reuse_context, &check)
+                    self.cached_verification_check(workspace, &reuse_context, &check, &reuse_proof)
                 {
                     checks.push(reused);
                     continue;
                 }
                 executed_phase = true;
                 let harness = self.clone();
-                let monitor = monitor.clone();
+                let monitor = (*monitor).clone();
                 let workspace = workspace.clone();
                 let workspace_id = workspace_id.clone();
                 let revision_key = command_revision_key.clone();
@@ -277,13 +362,14 @@ impl ToolHarness {
                 checks.push(match joined {
                     Ok(check) => check,
                     Err(error) => VerificationCheck {
-                        id: "internal-join-error".to_owned(),
+                        id: format!("internal-join-error:{phase}:{}", checks.len()),
                         phase,
                         command: "verification task".to_owned(),
                         reason: "A verification worker failed before returning its result."
                             .to_owned(),
                         success: false,
                         reused: false,
+                        execution: crate::evidence::VerificationCheckExecution::Unavailable,
                         exit_code: None,
                         elapsed_ms: 0,
                         queue_wait_ms: 0,
@@ -291,6 +377,8 @@ impl ToolHarness {
                         stdout_tail: String::new(),
                         stderr_tail: error.to_string(),
                         output_truncated: false,
+                        signature: None,
+                        evidence_id: None,
                     },
                 });
             }
@@ -333,6 +421,8 @@ impl ToolHarness {
         };
 
         let report = VerificationReport {
+                execution_git_binding: execution_git_binding.clone(),
+            required_checks: Some(plan.iter().map(verification_check_binding).collect()),
             workspace: workspace_id.clone(),
             level: level.to_owned(),
             execution: {
@@ -360,12 +450,15 @@ impl ToolHarness {
             cost_model,
             checks,
         };
-        self.intelligence.record_verification_report_from_design(
+        self.ensure_execution_git_binding(workspace, &execution_git_binding).await?;
+        harness_policy_select::ensure_policy_authority(workspace, &workspace_id, &policy_authority)?;
+        self.intelligence.record_verification_report_policy_bound(
             &workspace_id,
             workspace,
             &revision,
             Some(design.as_ref()),
             &report,
+            execution_policy_binding.as_deref(),
         )?;
         self.cache_successful_verification_checks(workspace, &reuse_context, &plan, &report);
         if checks_executed > 0 {

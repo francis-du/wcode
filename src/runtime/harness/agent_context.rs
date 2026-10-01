@@ -12,6 +12,10 @@ mod context_budget;
 mod context_dedup;
 #[path = "context_guidance.rs"]
 mod context_guidance;
+#[path = "context_handoff.rs"]
+mod context_handoff;
+#[path = "context_lessons.rs"]
+mod context_lessons;
 #[path = "context_operations.rs"]
 mod context_operations;
 #[path = "context_project.rs"]
@@ -54,6 +58,25 @@ impl ToolHarness {
         budget: usize,
         requested_scopes: &[String],
     ) -> Result<Value> {
+        self.build_agent_context(
+            workspace_id,
+            workspace,
+            query,
+            budget,
+            requested_scopes,
+            false,
+        )
+    }
+
+    fn build_agent_context(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        query: &str,
+        budget: usize,
+        requested_scopes: &[String],
+        scoped_handoff: bool,
+    ) -> Result<Value> {
         let total_started = Instant::now();
         let workspace_id = workspace_id.into();
         let query = query.trim();
@@ -64,11 +87,20 @@ impl ToolHarness {
             (budget != 0).then(|| budget.clamp(MIN_AGENT_CONTEXT_BUDGET, MAX_AGENT_CONTEXT_BUDGET));
         // Execution recovery is intentionally fail-soft: a damaged runtime snapshot
         // must not prevent the agent from receiving repository context needed to repair it.
-        let execution =
-            crate::execution::active_summary(self, &workspace_id, workspace).unwrap_or(None);
+        let execution = crate::execution::active_summary(self, &workspace_id, workspace)
+            .unwrap_or_else(|_| {
+                Some(json!({
+                    "available":false, "phase":"unknown",
+                    "scope_completion":{
+                        "allowed":false, "open_items":null,
+                        "required_action":"restore_execution_state"
+                    }
+                }))
+            });
         let capabilities = capability::manifest(query, requested_scopes, execution.as_ref());
         let profile_started = Instant::now();
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
+        let known_checks = harness_profile::known_checks_from_profile(&profile);
         if requested_scopes.is_empty() {
             if let Some(mut pack) = context_operations::build(
                 &profile,
@@ -82,6 +114,16 @@ impl ToolHarness {
                     pack["execution"] = execution;
                 }
                 pack["capabilities"] = capabilities.clone();
+                if scoped_handoff {
+                    context_handoff::prune(&mut pack);
+                }
+                context_lessons::attach(
+                    &mut pack,
+                    workspace,
+                    query,
+                    requested_budget.unwrap_or(MIN_AGENT_CONTEXT_BUDGET),
+                    &known_checks,
+                );
                 sync_readiness_capabilities(&mut pack);
                 let fast_budget = pack["budget"]
                     .as_u64()
@@ -95,7 +137,6 @@ impl ToolHarness {
         let internal_budget = requested_budget
             .map(|budget| budget.saturating_mul(2).clamp(2_000, 12_000))
             .unwrap_or(4_000);
-        let known_checks = harness_profile::known_checks_from_profile(&profile);
         let context_request = SoftwareContextRequest {
             query: query.to_owned(),
             intent: "implement".to_owned(),
@@ -460,8 +501,13 @@ impl ToolHarness {
         };
         // Fail-soft like the old MCP-layer merge: a broken worklist store must not
         // take down the whole context pack.
-        let worklist = crate::worklist::active_summary(workspace).unwrap_or(None);
+        let worklist = if scoped_handoff {
+            None
+        } else {
+            crate::worklist::active_summary(workspace).unwrap_or(None)
+        };
         let migration_audit = crate::migration_audit::context_summary(workspace);
+        let design_state = self.design_status(workspace_id.clone(), workspace).ok();
 
         let mut pack = json!({
             "workspace": workspace_id,
@@ -500,6 +546,7 @@ impl ToolHarness {
             "guidance": guidance,
             "core_constraints": core_constraints,
             "conventions": conventions,
+            "design_state": design_state,
             "design": design,
             "targets": targets,
             "repo_map": repo_map,
@@ -526,30 +573,17 @@ impl ToolHarness {
         if let Some(migration_audit) = migration_audit {
             pack["migration_audit"] = migration_audit;
         }
+        if scoped_handoff {
+            context_handoff::prune(&mut pack);
+        }
         context_anchors::merge(&mut pack, anchors);
+        context_lessons::attach(&mut pack, workspace, query, budget, &known_checks);
         refresh_readiness_capabilities(&mut pack);
         pack["decision_plane"] =
             serde_json::to_value(crate::decision::agent_context_decisions(&pack, query))?;
         pack["timing"]["build_ms"] = json!(total_started.elapsed().as_millis());
         finalize_agent_context(&mut pack, baseline_context_bytes, budget)?;
         Ok(pack)
-    }
-
-    pub(crate) fn finalize_handoff_context(value: &mut Value) -> Result<()> {
-        let Some(budget) = value
-            .get("budget")
-            .and_then(Value::as_u64)
-            .and_then(|budget| usize::try_from(budget).ok())
-        else {
-            return Ok(());
-        };
-        let baseline = value
-            .get("baseline_context_bytes")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        // Handoff filtering changes the delivered pack after normal retrieval.
-        // Reuse the bounded finalizer so metrics describe that final payload.
-        finalize_agent_context(value, baseline, budget)
     }
 }
 

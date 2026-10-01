@@ -15,7 +15,7 @@ wcode is designed around a simple rule: connecting a model must not implicitly e
 
 ## Workspace isolation
 
-Only configured Workspace roots exist from the model's point of view. Model-facing file operations reject absolute paths, parent traversal, protected paths, symlink components, workspace escape, and unsafe hard-link cases.
+Only configured Workspace roots exist from the model's point of view. Model-facing file operations reject absolute paths, parent traversal, protected paths, symlink components, workspace escape, and unsafe hard-link cases. The actual configured OAuth and engineering authority-state directories are excluded from file access and recursive discovery, including a Full Access Home Workspace. File tools cannot create into, replace, move or delete those roots or their ancestors. This protects file-tool entry points; ordinary builds, scripts, LSP processes and explicitly trusted commands still run with the host user's permissions. It is not tenant isolation or protection against an attacker controlling that OS account.
 
 Use repository roots, not a home directory or filesystem root.
 
@@ -44,7 +44,9 @@ Repository-aware LSP servers can load repository-controlled configuration or cod
 
 ## Human authorization is local
 
-Pending authorization requests are visible in the TUI and protected WebUI. The model can request access; it cannot approve its own request.
+Pending authorization requests are visible in the TUI and protected WebUI. The model can request access; MCP responses and file-tool writes cannot approve its HumanDecision request.
+
+A HumanApproval uses a separate exact local-operator grant with a two-minute expiry and one-time consumption. It binds the server instance, Workspace, requesting MCP owner, complete plan digest, code and Design revision, policy and decision statement. Caller-supplied `confirmed`, `approver` or producer names, generic MCP form elicitation, command session grants and Full Access cannot authorize this decision. An approval is recorded as a human decision, never as an executed or passed test. This local operator boundary does not provide Team roles or isolate a malicious process running as the same OS user.
 
 ![wcode authorization and access controls](/assets/wcode-access-management.png)
 
@@ -65,6 +67,8 @@ Command authorization therefore has two human-selected modes. **Exact authorizat
 
 Exact approval keeps command inspection enabled. Session-wide all-command trust is deliberately different: a command itself may access whatever the host OS/user account permits, while WCode's own file primitives remain Workspace-isolated.
 
+Local Policy activation and revocation reuse exact HumanDecision and record separate governance history; see [Local Acceptance Policy](../acceptance-policy/). Broad command sandboxes mask actual configured authority-state roots rather than directory names: macOS denies access and Linux refuses unavailable masks. Ordinary bounded builds and tests still run repository code with the host user's access to state. Checksummed local history alone cannot authenticate authority against arbitrary repository code; a commercial merge gate needs trusted Policy and execution integration outside the untrusted worker.
+
 ## OAuth and remote MCP
 
 Cloud/web clients normally connect through the protected `/mcp` Resource.
@@ -79,14 +83,11 @@ Both remote transports keep:
 - refresh-token rotation;
 - Origin validation for browser-originated requests.
 
-Client registrations and access/refresh tokens have no clock expiry. They are
-persisted per configured Workspace-root set in the user's wcode state directory
-and loaded after a process restart. Writes are atomic; Unix files are restricted
-to mode `0600`, symlink state files are rejected, malformed state fails closed,
-and authorization codes remain short-lived and memory-only. The stores retain
-fixed entry limits: an unbound client registration may be reclaimed at client
-capacity, and token capacity evicts the oldest token instead of growing without
-bound.
+Client registrations remain persistent without a clock TTL. Access tokens expire after one hour; token responses return `expires_in: 3600`, `Cache-Control: no-store` and `Pragma: no-cache`. Refresh tokens expire after 30 days without a successful rotation; each refresh issues a new refresh token, restarts that idle TTL and immediately removes old access tokens for the same client and authorization grant. Other grant owners remain valid. Expired, zero or future `issued_at_ms` values fail closed. Existing persisted grants retain their original issuance time on migration and restart; loading them never renews their lifetime.
+
+State is persisted per configured Workspace-root set in the user's wcode state directory and loaded after a process restart. Writes are atomic; Unix files are restricted to mode `0600`, symlink state files are rejected, malformed state fails closed, and authorization codes remain short-lived, one-shot and memory-only. Stores retain fixed entry limits: unbound client registrations may be reclaimed at client capacity, and token capacity evicts the oldest token instead of growing without bound.
+
+The implemented local-operator session administration APIs are `GET /oauth/sessions` and `POST /oauth/sessions/revoke`, with a `session_id` JSON field for revocation. They enforce the existing Host and Origin rules and require the current server's `X-Wcode-UI-Token`; an ordinary MCP bearer does not authorize them. Listings contain bounded session metadata and an opaque session ID, never access/refresh tokens or private grant owner IDs. Successful revocation persists removal of that grant's access and refresh tokens, so restart does not restore them. A write failure returns `revocation_not_persisted` and removes live credentials without confirming durable revocation. These are operator administration APIs, not an RFC 7009 endpoint, Team ACL or SSO; Team ACL and SSO are not implemented.
 
 A replacement tunnel is accepted only after its public health response matches
 the current process. The saved token resource may then migrate to that active

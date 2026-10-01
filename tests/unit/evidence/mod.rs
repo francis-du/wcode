@@ -132,3 +132,209 @@ fn model_consensus_cannot_be_labeled_deterministic_by_kind() {
     assert_eq!(evidence.kind, EvidenceKind::ModelReview);
     assert_ne!(evidence.confidence, Confidence::Deterministic);
 }
+fn receipt_record(
+    id: &str,
+    timestamp: u64,
+    level: &str,
+    checks: &[(&str, EvidenceResult)],
+) -> Evidence {
+    let checks = checks
+        .iter()
+        .map(|(id, result)| VerificationCheckReceipt {
+            execution: crate::evidence::VerificationCheckExecution::Executed,
+            check: RequiredVerificationCheck::from_command(id, "cargo", &[], ".", "workspace"),
+            result: *result,
+            reused_from: None,
+        })
+        .collect::<Vec<_>>();
+    let receipt = VerificationExecutionReceipt {
+        execution_git_binding: None,
+        schema_version: 1,
+        level: level.into(),
+        required_checks: checks.iter().map(|item| item.check.clone()).collect(),
+        checks,
+        skipped_checks: vec![],
+    };
+    let mut record = scoped_record(id, timestamp, receipt.result());
+    record.kind = EvidenceKind::Verification;
+    record.subject = "change:code:1".into();
+    record.policy = Some(format!("deterministic/{level}/v2"));
+    record.execution_receipt = Some(receipt);
+    record
+}
+
+#[test]
+fn effective_receipt_narrow_pass_cannot_hide_broad_failure() {
+    let failure = receipt_record(
+        "EV-wide-fail",
+        1,
+        "full",
+        &[("a", EvidenceResult::Pass), ("b", EvidenceResult::Fail)],
+    );
+    let narrow = receipt_record("EV-narrow-pass", 2, "full", &[("a", EvidenceResult::Pass)]);
+    let records = [failure.clone(), narrow];
+    let latest = latest_current(&records, &failure.revision);
+    assert_eq!(latest.len(), 2);
+    assert!(latest
+        .iter()
+        .any(|record| record.result == EvidenceResult::Fail));
+
+    let wider = receipt_record(
+        "EV-wide-pass",
+        3,
+        "full",
+        &[("b", EvidenceResult::Pass), ("a", EvidenceResult::Pass)],
+    );
+    let records = [failure.clone(), wider];
+    assert_eq!(latest_current(&records, &failure.revision).len(), 1);
+}
+
+#[test]
+fn effective_receipt_changed_signature_is_a_distinct_scope() {
+    let failure = receipt_record("EV-fail", 1, "full", &[("a", EvidenceResult::Fail)]);
+    let mut changed = receipt_record("EV-changed", 2, "full", &[("a", EvidenceResult::Pass)]);
+    let receipt = changed.execution_receipt.as_mut().unwrap();
+    let binding =
+        RequiredVerificationCheck::from_command("a", "cargo", &["test".into()], ".", "workspace");
+    receipt.required_checks = vec![binding.clone()];
+    receipt.checks[0].check = binding;
+    let records = [failure.clone(), changed];
+    let latest = latest_current(&records, &failure.revision);
+    assert_eq!(latest.len(), 2);
+    assert!(latest
+        .iter()
+        .any(|record| record.result == EvidenceResult::Fail));
+}
+
+#[test]
+fn effective_receipt_full_supersedes_only_covered_quick() {
+    for family in ["deterministic", "acceptance"] {
+        let mut quick = receipt_record("EV-quick", 1, "quick", &[("a", EvidenceResult::Fail)]);
+        quick.policy = Some(format!("{family}/quick/v2"));
+        let mut full = receipt_record(
+            "EV-full",
+            2,
+            "full",
+            &[("a", EvidenceResult::Pass), ("b", EvidenceResult::Pass)],
+        );
+        full.policy = Some(format!("{family}/full/v2"));
+        let records = [quick.clone(), full.clone()];
+        assert_eq!(
+            latest_current(&records, &quick.revision).len(),
+            1,
+            "{family}"
+        );
+
+        let mut narrower = receipt_record("EV-other", 3, "full", &[("b", EvidenceResult::Pass)]);
+        narrower.policy = Some(format!("{family}/full/v2"));
+        let records = [quick.clone(), narrower];
+        assert_eq!(
+            latest_current(&records, &quick.revision).len(),
+            2,
+            "{family}"
+        );
+
+        let mut skipped = full.clone();
+        let receipt = skipped.execution_receipt.as_mut().unwrap();
+        receipt.checks.retain(|item| item.check.id != "a");
+        receipt.skipped_checks = vec!["a".into()];
+        skipped.result = receipt.result();
+        let records = [quick.clone(), skipped];
+        assert_eq!(
+            latest_current(&records, &quick.revision).len(),
+            2,
+            "{family}"
+        );
+
+        full.timestamp_ms = quick.timestamp_ms;
+        let records = [quick.clone(), full];
+        assert_eq!(
+            latest_current(&records, &quick.revision).len(),
+            2,
+            "simultaneous full pass cannot resolve quick failure: {family}",
+        );
+    }
+    let full = receipt_record("EV-full-fail", 1, "full", &[("a", EvidenceResult::Fail)]);
+    let quick = receipt_record("EV-quick-pass", 2, "quick", &[("a", EvidenceResult::Pass)]);
+    let records = [full.clone(), quick];
+    assert_eq!(latest_current(&records, &full.revision).len(), 2);
+}
+
+#[test]
+fn effective_receipt_same_timestamp_keeps_failure_in_any_order() {
+    let failure = receipt_record("EV-a", 5, "full", &[("a", EvidenceResult::Fail)]);
+    let pass = receipt_record("EV-z", 5, "full", &[("a", EvidenceResult::Pass)]);
+    for records in [[failure.clone(), pass.clone()], [pass, failure.clone()]] {
+        let latest = latest_current(&records, &failure.revision);
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].result, EvidenceResult::Fail);
+    }
+}
+
+#[test]
+fn effective_receipt_invalid_or_inconsistent_pass_cannot_hide_failure() {
+    let failure = receipt_record("EV-fail", 1, "full", &[("a", EvidenceResult::Fail)]);
+    let mut inconsistent =
+        receipt_record("EV-false-pass", 2, "full", &[("a", EvidenceResult::Fail)]);
+    inconsistent.result = EvidenceResult::Pass;
+    let mut invalid = receipt_record("EV-invalid", 3, "full", &[("a", EvidenceResult::Pass)]);
+    invalid.execution_receipt.as_mut().unwrap().schema_version = 99;
+    let mut legacy = scoped_record("EV-legacy", 4, EvidenceResult::Pass);
+    legacy.subject = failure.subject.clone();
+    legacy.kind = failure.kind;
+    let records = [failure.clone(), inconsistent, invalid, legacy];
+    let latest = latest_current(&records, &failure.revision);
+    assert!(latest.iter().any(|record| record.id == failure.id));
+}
+#[test]
+fn legacy_authority_migrates_only_strong_native_verification_receipts() {
+    let mut native = receipt_record("EV-typed-legacy", 1, "full", &[("a", EvidenceResult::Pass)]);
+    native.producer = "verify_project".into();
+    let mut json = serde_json::to_value(&native).unwrap();
+    json.as_object_mut().unwrap().remove("authority");
+    let legacy: Evidence = serde_json::from_value(json).unwrap();
+    assert_eq!(legacy.authority, EvidenceAuthority::LegacyUnknown);
+    assert_eq!(
+        legacy.effective_authority(),
+        EvidenceAuthority::NativeVerification
+    );
+    for changed in ["stage", "producer", "policy", "verdict", "self_reported"] {
+        let mut untrusted = legacy.clone();
+        match changed {
+            "stage" => untrusted.kind = EvidenceKind::Property,
+            "producer" => untrusted.producer = "executor:guessed-native".into(),
+            "policy" => untrusted.policy = Some("deterministic/full/v1".into()),
+            "verdict" => untrusted.result = EvidenceResult::Fail,
+            "self_reported" => untrusted.authority = EvidenceAuthority::SelfReported,
+            _ => unreachable!(),
+        }
+        assert_ne!(
+            untrusted.effective_authority(),
+            EvidenceAuthority::NativeVerification,
+            "{changed}"
+        );
+    }
+}
+
+#[test]
+fn advisory_authority_cannot_replace_native_negative_proof() {
+    let mut failure = scoped_record("EV-native-failure", 1, EvidenceResult::Fail);
+    failure.authority = EvidenceAuthority::NativeVerification;
+    let mut forged = failure.clone();
+    forged.id = "EV-forged-pass".into();
+    forged.result = EvidenceResult::Pass;
+    forged.timestamp_ms = 2;
+    forged.authority = EvidenceAuthority::SelfReported;
+    let records = [failure.clone(), forged];
+    let selected = latest_current(&records, &failure.revision);
+    assert_eq!(selected.len(), 2);
+    assert!(selected.iter().any(|record| record.id == failure.id));
+    let mut native_retry = failure.clone();
+    native_retry.id = "EV-native-retry".into();
+    native_retry.result = EvidenceResult::Pass;
+    native_retry.timestamp_ms = 3;
+    let retried = [failure.clone(), native_retry];
+    let selected = latest_current(&retried, &failure.revision);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].result, EvidenceResult::Pass);
+}

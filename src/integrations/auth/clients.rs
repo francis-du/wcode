@@ -215,6 +215,17 @@ fn make_client_room(state: &AuthState, clients: &mut HashMap<String, Client>) ->
     if state.store.is_none() {
         return false;
     }
+    let now = epoch_ms();
+    state
+        .access_tokens
+        .lock()
+        .expect("token lock poisoned")
+        .retain(|_, saved| credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now));
+    state
+        .refresh_tokens
+        .lock()
+        .expect("refresh lock poisoned")
+        .retain(|_, saved| credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now));
     let mut bound = HashSet::new();
     bound.extend(
         state

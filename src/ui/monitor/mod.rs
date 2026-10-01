@@ -1,5 +1,7 @@
 use crate::authorization::{AuthorizationRequest, AuthorizationStatus};
 use crate::harness::ToolHarness;
+pub(crate) use crate::runtime_telemetry::OperatorMessageKind;
+use crate::runtime_telemetry::{AuthTelemetry, RuntimeTelemetry};
 use crate::workspace::Workspaces;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
@@ -56,9 +58,21 @@ use monitor_agents::*;
 mod monitor_console;
 use monitor_console::*;
 
+#[path = "acceptance.rs"]
+mod monitor_acceptance;
+use monitor_acceptance::*;
+
+#[path = "inspect.rs"]
+mod monitor_inspect;
+use monitor_inspect::*;
+
 #[path = "commands.rs"]
 mod monitor_commands;
 use monitor_commands::*;
+
+#[path = "job_view.rs"]
+mod monitor_job_view;
+use monitor_job_view::*;
 
 #[path = "overlays.rs"]
 mod monitor_overlays;
@@ -71,6 +85,10 @@ use monitor_workspace_order::*;
 #[path = "runtime.rs"]
 mod monitor_runtime;
 use monitor_runtime::*;
+
+#[path = "runtime_presence.rs"]
+mod monitor_runtime_presence;
+use monitor_runtime_presence::*;
 
 #[path = "shell.rs"]
 mod monitor_shell;
@@ -91,16 +109,13 @@ use monitor_state::trim_history;
 mod monitor_theme;
 use monitor_theme::*;
 
+#[path = "telemetry.rs"]
+mod monitor_telemetry;
+
 #[derive(Clone)]
 pub struct TaskMonitor {
     state: Arc<Mutex<MonitorState>>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum OperatorMessageKind {
-    Info,
-    Success,
-    Warning,
+    job_access: Arc<Mutex<Option<Arc<dyn MonitorJobAccess>>>>,
 }
 
 struct MonitorState {
@@ -227,6 +242,7 @@ struct WorkspaceStats {
 struct IntelligenceStats {
     project_worklist: Option<Value>,
     project_attention: Option<Value>,
+    project_acceptance: Option<Value>,
     project_revision: Option<Value>,
     project_observed_at: Option<Instant>,
     design_state: Option<String>,
@@ -280,6 +296,7 @@ struct IntelligenceStats {
 #[derive(Clone)]
 struct TaskRecord {
     id: u64,
+    command_job_id: Option<String>,
     workspace: String,
     tool: String,
     detail: String,
@@ -394,6 +411,10 @@ pub struct MonitorConnectionStatus {
     pub tunnel_error: Option<String>,
     pub active_tasks: u64,
     pub queued_tasks: u64,
+    pub active_verifications: u64,
+    pub queued_verifications: u64,
+    pub active_jobs: u64,
+    pub queued_jobs: u64,
     pub peak_active_tasks: u64,
 }
 
@@ -474,6 +495,9 @@ struct DashboardState {
     console_focus: usize,
     console_task_id: Option<u64>,
     console_scroll: usize,
+    acceptance_detail_open: bool,
+    source_inspection: Option<SourceInspection>,
+    command_job: CommandJobView,
     commands_open: bool,
     command_offset: usize,
     workspace_input: Option<String>,

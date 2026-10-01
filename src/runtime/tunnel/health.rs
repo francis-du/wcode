@@ -18,10 +18,10 @@ const PUBLIC_TRANSIENT_RECHECKS: usize = 2;
 const PUBLIC_TRANSIENT_RECHECK_DELAY: Duration = Duration::from_millis(250);
 const PUBLIC_STARTUP_HEALTH_ATTEMPTS: usize = 4;
 
-pub(crate) async fn wait_for_public_endpoint(
+pub(crate) async fn wait_for_public_endpoint<T: RuntimeTelemetry>(
     public_url: &str,
     instance_id: &str,
-    monitor: &TaskMonitor,
+    monitor: &T,
 ) -> Result<(), String> {
     monitor.operator_message(
         OperatorMessageKind::Info,

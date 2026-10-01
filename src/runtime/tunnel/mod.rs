@@ -1,4 +1,4 @@
-use crate::monitor::{OperatorMessageKind, TaskMonitor};
+use crate::runtime_telemetry::{OperatorMessageKind, RuntimeTelemetry};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::ValueEnum;
 use std::process::{Command as StdCommand, Stdio as StdStdio};
@@ -249,13 +249,13 @@ fn provider_retry_delay(provider: TunnelProvider, attempt: usize) -> Duration {
 /// deterministic jitter until it becomes reachable, so persistent provider
 /// outages do not create a reconnect storm. Every verified tunnel is reported
 /// through the returned channel and stays running.
-pub(crate) fn spawn_tunnel_supervisor(
+pub(crate) fn spawn_tunnel_supervisor<T: RuntimeTelemetry>(
     selected: TunnelProvider,
     local_url: &str,
     instance_id: &str,
     install_missing: bool,
     dev_tunnel_id: Option<&str>,
-    monitor: TaskMonitor,
+    monitor: T,
     retry_forever: bool,
 ) -> mpsc::Receiver<TunnelEvent> {
     let (event_tx, event_rx) = mpsc::channel(4);
@@ -360,13 +360,13 @@ pub(crate) fn spawn_tunnel_supervisor(
     event_rx
 }
 
-async fn try_start_provider(
+async fn try_start_provider<T: RuntimeTelemetry>(
     provider: TunnelProvider,
     local_url: &str,
     instance_id: &str,
     allow_install: bool,
     dev_tunnel_id: Option<&str>,
-    monitor: &TaskMonitor,
+    monitor: &T,
 ) -> Result<ActiveTunnel> {
     if provider == TunnelProvider::Tailscale {
         if let Some(public_url) = reusable_tailscale_endpoint(instance_id).await {
@@ -413,17 +413,17 @@ fn truncate_diagnostic(value: &str, max_chars: usize) -> String {
     }
 }
 
-async fn start_tunnel_provider_once(
+async fn start_tunnel_provider_once<T: RuntimeTelemetry>(
     provider: TunnelProvider,
     local_url: &str,
     install_missing: bool,
     dev_tunnel_id: Option<&str>,
-    monitor: &TaskMonitor,
+    monitor: &T,
 ) -> Result<(TunnelChild, String)> {
     match provider {
         TunnelProvider::Auto => bail!("auto is a tunnel selection policy, not a concrete provider"),
         TunnelProvider::Cloudflare => {
-            let dependency_monitor = monitor.clone();
+            let dependency_monitor = (*monitor).clone();
             run_blocking_tunnel_setup("cloudflared dependency setup", move || {
                 ensure_cloudflared(install_missing, &dependency_monitor)
             })
@@ -476,9 +476,9 @@ fn ensure_tailscale() -> Result<()> {
     )
 }
 
-async fn start_tailscale_funnel_once(
+async fn start_tailscale_funnel_once<T: RuntimeTelemetry>(
     local_url: &str,
-    _monitor: &TaskMonitor,
+    _monitor: &T,
 ) -> Result<(TunnelChild, String)> {
     let public_url = tailscale_funnel_url().await?;
     let mut command = Command::new("tailscale");

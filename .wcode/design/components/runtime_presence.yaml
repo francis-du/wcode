@@ -1,0 +1,21 @@
+schema_version: 1
+id: component:runtime-presence
+name: Protected runtime presence and menu bar status
+responsibilities:
+  - Publish bounded heartbeat state for the local HTTP/MCP runtime and MCP stdio through one protected authority-state contract.
+  - Expose only transport, version, Workspace IDs, MCP activity, aggregate task/queue counts, current verify_project activity and durable run_command job counts; never persist UI/OAuth tokens, owners, command arguments, source paths or raw errors.
+  - Render macOS menu bar status from retained active records while keeping stale, corrupt and truncated observations explicitly partial or unknown.
+  - Keep the first menu-bar slice observation-only; control actions continue to use existing authenticated Workspace-scoped APIs.
+constraints:
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-SYMLINK-REJECTION
+  - CONSTRAINT-NO-SHELL
+depends_on:
+  - component:intelligence-ui
+  - component:agent-integration
+implementation:
+  - {kind: file, path: src/runtime/presence.rs}
+  - {kind: file, path: src/ui/menu_bar.rs}
+  - {kind: file, path: src/ui/monitor/runtime_presence.rs}
+  - {kind: file, path: src/integrations/mcp/stdio.rs}
+  - {kind: file, path: src/app/mod.rs}

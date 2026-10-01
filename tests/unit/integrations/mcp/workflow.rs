@@ -577,6 +577,7 @@ async fn verification_failure_context_redacts_secrets_and_never_claims_edit_read
     )
     .unwrap();
 
+    fs::write(root.path().join(".gitignore"), "target/\n").unwrap();
     git(root.path(), &["init", "--quiet"]);
     git(root.path(), &["add", "."]);
     git(
@@ -681,6 +682,96 @@ mod worker_lanes {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    #[test]
+    fn handoff_cold_warm_context_keeps_identical_model_body_and_private_guards() {
+        let (state, _root) = state_fixture();
+        let (workspace_id, workspace) = state.workspaces.select(None).unwrap();
+        let query = "inspect alpha src/a.rs";
+        let cold = state
+            .harness
+            .agent_handoff_context(&workspace_id, &workspace, query)
+            .unwrap();
+        let warm = state
+            .harness
+            .agent_handoff_context(&workspace_id, &workspace, query)
+            .unwrap();
+        assert_eq!(cold["cache_hit"], false);
+        assert_eq!(warm["cache_hit"], true);
+        let before = [
+            serde_json::to_vec(&cold).unwrap().len(),
+            serde_json::to_vec(&warm).unwrap().len(),
+        ];
+        let envelope = |context: Value| {
+            json!({
+                "claim_id":"private-lane-token",
+                "handoff":{"agent_context":context,"base_revision":repository_revision(&state),
+                    "write_paths":["src/a.rs"],"item":{"claim":{"actor":"worker-a","expires_at_ms":900000}}}
+            })
+        };
+        let mut cold = envelope(cold);
+        let mut warm = envelope(warm);
+        let guards = cold.clone();
+        let cold_meta = super::super::mcp_dispatch::isolate_handoff_telemetry(&mut cold).unwrap();
+        let warm_meta = super::super::mcp_dispatch::isolate_handoff_telemetry(&mut warm).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&cold).unwrap(),
+            serde_json::to_vec(&warm).unwrap()
+        );
+        for pointer in [
+            "/claim_id",
+            "/handoff/base_revision",
+            "/handoff/write_paths",
+            "/handoff/item",
+        ] {
+            assert_eq!(cold.pointer(pointer), guards.pointer(pointer));
+        }
+        let pack = &cold["handoff"]["agent_context"];
+        let hot = pack["hot_source"].as_array().unwrap();
+        let original = workspace.read_file("src/a.rs", 1, None).unwrap();
+        assert!(hot.iter().any(|source| source["path"] == "src/a.rs"
+            && source["sha256"] == original.sha256
+            && source["body"]["content"] == original.content
+            && source["body"]["start_line"] == original.start_line
+            && source["body"]["end_line"] == original.end_line
+            && source["body"]["truncated"] == false
+            && source["body"]["redacted"] == false));
+        let files = pack["files"].as_array().unwrap();
+        assert!(!files.is_empty());
+        for file in files {
+            let path = file["path"].as_str().unwrap();
+            let info = workspace.path_info(path).unwrap();
+            let current = workspace.read_file(path, 1, None).unwrap();
+            assert_eq!(file["readonly"], info.readonly);
+            assert_eq!(file["sha256"], current.sha256);
+        }
+        assert_eq!(pack["project"]["write_enabled"], false);
+        assert_eq!(pack["project"]["exec_enabled"], false);
+        assert_eq!(pack["readiness"]["edit"], "read_only_workspace");
+        let rejected = workspace
+            .replace_text("src/a.rs", "alpha", "changed", &original.sha256)
+            .unwrap_err();
+        assert!(rejected.to_string().contains("writes are disabled"));
+        assert_eq!(
+            workspace.read_file("src/a.rs", 1, None).unwrap().content,
+            original.content
+        );
+        let after = serde_json::to_vec(pack).unwrap().len();
+        assert!(before.into_iter().all(|bytes| bytes > after));
+        let key = "dev.wcode/agentContextTelemetry";
+        assert_eq!(cold_meta[key]["cache_hit"], false);
+        assert_eq!(warm_meta[key]["cache_hit"], true);
+        assert!(cold_meta[key]["timing"].is_object());
+        assert_eq!(cold_meta[key]["model_serialized_bytes"], after);
+        assert_eq!(warm_meta[key]["model_serialized_bytes"], after);
+        assert_eq!(cold_meta[key]["model_estimated_tokens"], after.div_ceil(4));
+        assert!(pack.get("timing").is_none());
+        assert!(pack.get("cache_hit").is_none());
+        println!(
+            "handoff bytes cold={} warm={} isolated={after}",
+            before[0], before[1]
+        );
+    }
+
     #[tokio::test]
     async fn worker_lanes_route_claims_results_and_protected_public_observation() {
         let (state, root) = state_fixture();
@@ -727,8 +818,26 @@ mod worker_lanes {
         assert!(a["handoff"]["agent_context"].is_object());
         let pack = &a["handoff"]["agent_context"];
         let delivered_bytes = serde_json::to_vec(pack).unwrap().len() as u64;
-        assert_eq!(pack["serialized_bytes"], delivered_bytes);
-        assert_eq!(pack["estimated_tokens"], delivered_bytes.div_ceil(4));
+        let telemetry = &claim_a["_meta"]["dev.wcode/agentContextTelemetry"];
+        assert_eq!(telemetry["model_serialized_bytes"], delivered_bytes);
+        assert_eq!(
+            telemetry["model_estimated_tokens"],
+            delivered_bytes.div_ceil(4)
+        );
+        for key in [
+            "serialized_bytes",
+            "estimated_tokens",
+            "cache_hit",
+            "timing",
+        ] {
+            assert!(
+                pack.get(key).is_none(),
+                "handoff model payload contains {key}"
+            );
+        }
+        let text: Value =
+            serde_json::from_str(claim_a["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(text, claim_a["structuredContent"]);
         assert_eq!(a["handoff"]["write_paths"], json!(["src/a.rs"]));
         assert!(a["worklist"].get("claim_id").is_none());
         assert!(!a["worklist"].to_string().contains(&token_a));
@@ -744,7 +853,7 @@ mod worker_lanes {
         .await;
         assert_eq!(claim_b["isError"], false, "{claim_b}");
         let b = &claim_b["structuredContent"];
-        let revision = b["worklist"]["revision"].clone();
+        let mut revision = b["worklist"]["revision"].clone();
         for arguments in [
             json!({"expected_revision":a["worklist"]["revision"],"expected_repository_revision":repo,"item_id":"overlap","actor":"stale"}),
             json!({"expected_revision":revision,"expected_repository_revision":repo,"item_id":"overlap","actor":"conflict"}),
@@ -753,6 +862,20 @@ mod worker_lanes {
             let rejected = tool(&state, "worklist_claim", arguments).await;
             assert_eq!(rejected["isError"], true, "{rejected}");
         }
+        let renewed = tool(
+            &state,
+            "worklist_claim",
+            json!({
+                "expected_revision":revision,"expected_repository_revision":repo,
+                "item_id":"a","actor":"worker-a","claim_id":token_a
+            }),
+        )
+        .await;
+        assert_eq!(renewed["isError"], false, "{renewed}");
+        assert_eq!(renewed["structuredContent"]["claim_id"], token_a);
+        assert!(renewed["structuredContent"]["handoff"]["agent_context"].is_null());
+        assert!(renewed.get("_meta").is_none());
+        revision = renewed["structuredContent"]["worklist"]["revision"].clone();
         let before = tool(&state, "worklist_status", json!({})).await["structuredContent"].clone();
         assert_eq!(before["revision"], revision);
         let public = project(state.clone(), headers(&state)).await;
@@ -761,6 +884,7 @@ mod worker_lanes {
         assert_eq!(lanes["items"][0]["claim"]["actor"], "worker-a");
         assert_eq!(lanes["items"][1]["claim"]["actor"], "worker-b");
         let (_, workspace) = state.workspaces.select(None).unwrap();
+        assert!(!workspace.exec_enabled() && public["acceptance"].is_null());
         let base = super::super::web::web_status::revision_state(
             &state.harness,
             state.workspaces.default_id(),
@@ -783,6 +907,8 @@ mod worker_lanes {
         assert_eq!(cached["execution"]["worklist"]["revision"], revision);
         assert_eq!(cached["worklist_revision"]["revision"], revision);
         assert_eq!(cached["snapshot_refreshing"], false);
+        assert!(cached["acceptance"].is_null());
+        assert_eq!(cached["git_observation"]["reason"], "execution_disabled");
         assert!(
             !state.harness.observatory_refreshing(&workspace),
             "Worklist-only state changes must not rebuild unchanged project inputs"
@@ -795,6 +921,8 @@ mod worker_lanes {
             json!({"available":true,"exists":true,"revision":revision})
         );
         assert_eq!(signal["fingerprint"], absent_signal["fingerprint"]);
+        assert_eq!(signal["full_refresh_required"], false);
+        assert_eq!(signal["snapshot_revision"], cached["snapshot_revision"]);
         assert!(!signal.to_string().contains(&token_a));
         assert!(!public.to_string().contains(&token_a));
         assert!(!public.to_string().contains(b["claim_id"].as_str().unwrap()));

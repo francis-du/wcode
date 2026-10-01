@@ -11,6 +11,20 @@ permalink: /docs/reference/
 
 This page is the canonical compact reference for day-to-day wcode operation. Conceptual behavior lives in the focused guides; this page answers “what do I run or call?”.
 
+## Command timing and review output
+
+`run_command`, `command_task` and `verify_project` expose optional `timeout_seconds` to model clients: 600 seconds by default, with explicit values from 1 through 1800. These are operational runtime allowances, not hidden search-tuning parameters. Command execution time begins at process launch, not while waiting for Cargo or process capacity. Direct commands, local verification executables and runtime executors keep the full requested runtime allowance after successful admission. Queue waits retain independent bounds; cancellation while queued starts no process. This does not extend a client's transport deadline: use the existing durable command-task receipt and poll it for long operations, rather than rerunning a command.
+
+For a large current-worktree review, `review_changes` previews 32 file-detail rows by default while preserving all findings, totals, risk and recommended checks. `file_details` explicitly reports available/omitted rows and the full-detail request. Call with `detail="full"` to return every reported row. The original `truncated` flag still describes incomplete source discovery, not this preview. Internal review and Evidence rules are unchanged. Full-detail retrieval observes the current worktree again; it is not an immutable earlier snapshot. Small reviews and explicit base-revision inspection retain their complete existing shape.
+
+### Durable verification without a Tasks extension
+
+Call `verify_project` with `{"action":"start","level":"full"}` to receive a durable verification receipt without waiting for the checks to finish. This works through ordinary `tools/call` for modern and legacy clients, including clients without a Tasks extension. Follow the returned `next_poll`, `result_request` and `cancel_request` arguments, preserving the exact task ID and Workspace. Do not repeat `start` to poll. Omitting `action`, or using `action="run"`, preserves existing synchronous or native-Tasks behavior.
+
+`status` omits the potentially large final report. `result` returns the original report, including failed checks, under `result`; `terminal` means delivery has ended, not that verification passed. These operations use the same native verifier, durable TaskStore, cancellation and Evidence path, not a second runner. Polling does not rerun checks or mint Evidence. Status/result/cancel validate the authenticated transport owner, Workspace and `verify_project` identity, remain usable while execution slots are occupied, and reject command-task IDs. Lifecycle calls must be top-level, not nested in `parallel_tools`.
+
+Completed reports remain recorded execution results, not fresh Acceptance: receipts explicitly expose `current_acceptance=false` and `result_scope="recorded_execution_only"`. A recorded result can be read after source drift or a restart without claiming that the new revision passed. An interrupted task observed after runtime replacement becomes failed and is not replayed. A stdio restart changes the owner; creating a receipt does not guarantee recovery by a different owner or exactly-once execution after creation-response loss. Per-check timeouts, resource limits and verification authorization remain unchanged.
+
 ## Stable CLI command surface
 
 Running without a subcommand starts the normal runtime:
@@ -119,6 +133,8 @@ wcode setup --dry-run
 wcode setup --project
 wcode setup --json
 ```
+
+Global setup only configures agents. Explicit project setup seeds a completely missing Design with `.wcode/project.yaml` (directory name, empty description, no Policy) and an empty `.wcode/design/`; it does not invent Product intent, requirements or mappings. Dry-run reports the plan without writing. Existing/partial/invalid material is preserved with diagnostics; ordinary read-only/startup paths do not initialize it. Ask the agent to read README/manifests/CI and inspect actual code through `software_graph` / `find_symbol` / `file_outline`, then draft a small Design and confirm unknown business intent. It writes through guarded `create_files` or `read_files` → SHA-bound `apply_file_edits`; no automatic whole-repository Design generator is implied. Validate with `design_status`, `traceability_status` and `drift_status`; `reconciliation_plan` persists a plan and applies no fixes. See [gradual Design onboarding](../getting-started/#4-add-design-gradually-to-an-existing-project). Policy draft writing requires a separate interactive TTY confirmation and never activates Policy; native preview and exact operator approval remain separate.
 
 The hidden `agent-plugin` command remains available for advanced portable package
 export (`skill-only`, `local-stdio`, or `remote-http`) and compatibility with
@@ -284,7 +300,7 @@ evidence_status
 
 | Tool | Use it for |
 | --- | --- |
-| `design_init` | Create sparse Design State without overwriting existing design files. |
+| `design_init` | Explicitly create Project, Product and core constraints only for a completely uninitialized Workspace; existing or partial state is rejected and preserved. Project setup uses the smaller metadata-only seed. Extend existing records with guarded file tools, not a nonexistent `design_update`. |
 | `design_status` | Validate structured Desired State. |
 | `traceability_status` | Requirement → Component → implementation and Acceptance → verification coverage. |
 | `agent_context` | Primary coding entry point: adaptive/explicit token budget, relevant design, scope-aware repo-map, bounded hot source, SHA edit targets, active Worklist recovery, verification refs, readiness and next actions. |
@@ -311,7 +327,8 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | Create new workspace content without overwrite. |
 | `move_path` / `move_paths` | Move/rename bounded workspace paths without destination overwrite. |
 | `delete_path` | Delete one file or empty directory after exact one-shot local authorization. |
-| `run_command` | No-shell policy-checked execution. Non-default/risky operations remain authorization-bound. Modern task-capable clients may set `task_mode=true` for a cancellable bounded long run; normal calls stay synchronous. Optional `env` is not arbitrary process environment: it accepts at most five typed non-secret launch overrides from unprivileged `PORT=1024..65535`, numeric-loopback `HOST`, `NODE_ENV=development|test`, `RUST_LOG`, and `LOG_LEVEL`. Supplying `env` clears inherited values for those managed keys before applying the validated overrides; unknown names, credentials, PATH/config redirects, non-loopback hosts, control characters, and arbitrary values fail closed. Common runtime/loader injection variables are scrubbed from policy-checked child processes. |
+| `run_command` | No-shell policy-checked execution. Non-default/risky operations remain authorization-bound. Sync and task modes default to 600 seconds, with explicit integer timeouts from 1 to 1800; normal calls stay synchronous. `task_mode=true` returns a standard Task for modern task-capable clients, or an ordinary durable receipt for other/legacy clients. Optional `env` is not arbitrary process environment: it accepts at most five typed non-secret launch overrides from unprivileged `PORT=1024..65535`, numeric-loopback `HOST`, `NODE_ENV=development|test`, `RUST_LOG`, and `LOG_LEVEL`. Supplying `env` clears inherited values for those managed keys before applying the validated overrides; unknown names, credentials, PATH/config redirects, non-loopback hosts, control characters, and arbitrary values fail closed. Common runtime/loader injection variables are scrubbed from policy-checked child processes. |
+| `command_task` | Ordinary `create` / `status` / `result` / `cancel` calls for the same durable `run_command` store. Use returned task ID and Workspace, honor the poll interval, and never rerun to poll. Exact transport owner and selected Workspace are checked; owner/actor arguments are rejected. Terminal is not success: inspect the nested command result. Logs do not create Verification Evidence; no exactly-once or old-stdio-owner recovery is promised. |
 
 ### Graph, semantics, and language quality
 
@@ -342,8 +359,8 @@ evidence_status
 | `verification_plan` | Create risk-adaptive deterministic/stage/reviewer requirements. |
 | `verification_claim` / `verification_submit` | Blind independent reviewer jobs. |
 | `verification_executor_status` / `verification_execute_stages` | Property/Mutation/Fuzz/Runtime-Canary runner state and execution. |
-| `verification_stage_submit` | Attach external stage verdicts/artifact digests. |
-| `verification_approve` | Record explicit HumanApproval Evidence for critical plans. |
+| `verification_stage_submit` | Retain owner-bound advisory external reports; self-reported verdicts do not satisfy required stages. |
+| `verification_approve` | Request one-shot local operator authorization; record plan-bound HumanApproval separately from test outcomes. |
 | `verification_status` / `verification_history` | Read readiness, blockers, stale revision, disagreement, and plan history. |
 | `verify_project` | Run inferred quick/full repository quality gates and record deterministic Evidence. |
 | `evidence_status` | Read persistent provenance-bearing Evidence for the selected Workspace. |

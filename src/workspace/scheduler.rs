@@ -351,6 +351,49 @@ pub fn resource_model(
         "delete_path" => {
             push(&mut resources.deletes, required_path(args, "path")?)?;
         }
+        "run_command" => {
+            let program = args
+                .get("program")
+                .and_then(Value::as_str)
+                .ok_or("parallel run_command requires program")?;
+            let command_args = match args.get("args") {
+                None => Vec::new(),
+                Some(Value::Array(values)) => values
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .ok_or("parallel run_command args must contain strings")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                Some(_) => return Err("parallel run_command args must be an array".to_owned()),
+            };
+            let cargo_artifact_write = program == "cargo"
+                && command_args
+                    .iter()
+                    .find(|arg| !arg.starts_with('-'))
+                    .is_some_and(|command| {
+                        matches!(
+                            command.as_str(),
+                            "check"
+                                | "test"
+                                | "build"
+                                | "clippy"
+                                | "run"
+                                | "bench"
+                                | "doc"
+                                | "package"
+                        )
+                    });
+            if crate::workspace::command_writes_workspace(program, &command_args)
+                || cargo_artifact_write
+            {
+                resources.writes.push(PathBuf::new());
+            } else {
+                resources.reads.push(PathBuf::new());
+            }
+        }
         _ => {
             // Design, graph, semantic and context reads can inspect the whole workspace.
             resources.reads.push(PathBuf::new());

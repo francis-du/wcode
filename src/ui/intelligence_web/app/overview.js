@@ -56,6 +56,11 @@ function bindSummaryActions(node) {
     const target = button.dataset.summaryAction;
     if (target === "access") { setAccessPanel(true); await loadAccess(); }
     else if (target === "refresh") { els.refresh?.click(); }
+    else if (target === "acceptancePolicyBinding") {
+      revealSection("overviewSection");
+      const binding = document.getElementById("acceptancePolicyBinding");
+      if (binding) { binding.open = true; binding.scrollIntoView({ block: "nearest" }); binding.focus({ preventScroll: true }); }
+    }
     else if (target) {
       if (button.dataset.summaryPath && target === "filesSection") await openRepositoryFile(button.dataset.summaryPath);
       else {
@@ -163,15 +168,250 @@ function attentionItem(item) {
   const provenance = item.provenance ? `<small class="signal-provenance">${esc(item.provenance)}</small>` : "";
   return `<button type="button" class="attention-item ${item.tone}" ${attentionActionAttributes(item)}><span class="signal-mark signal-${esc(item.tone)}" aria-hidden="true"></span><span><strong>${esc(item.title)}</strong><span>${esc(item.detail)}</span>${provenance}</span>${item.target ? '<span class="attention-arrow" aria-hidden="true"></span>' : '<span></span>'}</button>`;
 }
+function acceptanceView() {
+  const record = state.project?.acceptance;
+  const text = value => typeof value === "string" && value.length > 0 && value.length <= 4096;
+  const object = value => value && typeof value === "object" && !Array.isArray(value);
+  const digest = value => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
+  const enums = {
+    state: ["ready", "blocked", "needs_review", "incomplete", "stale"],
+    execution: ["unknown", "executed", "skipped", "unavailable"],
+    outcome: ["pass", "fail", "inconclusive", "disagree", "unknown"],
+    freshness: ["current", "stale", "unbound", "missing"],
+  };
+  const knownActions = ["capture_context", "activate_policy", "refresh_policy", "capture_git", "plan_verification", "run_verification", "inspect_failure", "request_review", "request_human_approval", "refresh_revision", "resolve_discovery"];
+  const verification = record?.verification;
+  const gateResult = value => value === null || ["pass", "fail", "inconclusive", "disagree"].includes(value);
+  const validGates = verification === null || (object(verification) && gateResult(verification.deterministic_result)
+    && gateResult(verification.human_approval) && object(verification.stage_results)
+    && Object.entries(verification.stage_results).every(([stage, result]) => ["property", "mutation", "fuzz", "runtime_canary"].includes(stage) && gateResult(result) && result !== null)
+    && ["queued", "claimed", "submitted", "reviewer_failures", "reviewer_inconclusive", "disagreements"].every(key => Number.isSafeInteger(verification[key]) && verification[key] >= 0));
+  const valid = validGates && object(record) && record.schema_version === 1 && text(record.id)
+    && digest(record.record_digest) && text(record.workspace) && object(record.revision)
+    && text(record.revision.code) && (record.revision.design === null || text(record.revision.design))
+    && enums.state.includes(record.state) && ["low", "medium", "high", "critical"].includes(record.risk_level) && typeof record.partial === "boolean"
+    && object(record.summary) && ["required", "discovered", "mapped", "executed", "passed", "failed", "skipped", "unavailable", "stale", "unknown"]
+      .every(key => Number.isSafeInteger(record.summary[key]) && record.summary[key] >= 0)
+    && Array.isArray(record.reasons) && record.reasons.length <= 4096
+    && record.reasons.every(reason => object(reason) && text(reason.code) && (reason.subject === null || text(reason.subject)) && knownActions.includes(reason.action))
+    && Array.isArray(record.actions) && record.actions.length <= 128 && record.actions.every(action => knownActions.includes(action))
+    && Array.isArray(record.checks) && record.checks.length <= 4096
+    && record.checks.every(row => object(row) && text(row.id) && (row.signature === null || digest(row.signature))
+      && ["required", "discovered", "mapped"].every(key => typeof row[key] === "boolean")
+      && ["quick", "full"].includes(row.required_level) && (row.level === null || text(row.level))
+      && enums.execution.includes(row.execution) && enums.outcome.includes(row.outcome) && enums.freshness.includes(row.freshness)
+      && Array.isArray(row.evidence_ids) && row.evidence_ids.length <= 256 && row.evidence_ids.every(text));
+  if (!valid) return { record: null, status: "unknown", detail: record == null
+    ? localized("No canonical acceptance record was returned. Evidence counts do not establish acceptance.", "没有返回统一验收记录，证据数量不能决定是否通过验收。")
+    : localized("The acceptance response is incomplete or unsupported. Refresh before judging this change.", "验收响应不完整或版本不受支持，请刷新后再判断本次变更。") };
+  if (record.workspace !== state.current || record.workspace !== state.project.workspace) return {
+    record: null, status: "unknown", detail: localized("Acceptance belongs to another workspace.", "验收记录属于其他工作区。") };
+  const proof = state.project.proof || {};
+  if (!proof.revision_code || record.revision.code !== proof.revision_code
+    || (record.revision.design ?? null) !== (proof.revision_design ?? null)
+    || state.syncError || state.fitnessSnapshotFromCache || state.project.snapshot_refreshing === true
+    || state.project.snapshot_unconfirmed === true) return {
+    record, status: "stale", detail: localized("This acceptance snapshot is not confirmed for the current change. Refresh to obtain a current decision.", "此验收快照尚未确认对应当前变更，请刷新获取当前结论。") };
+  if (record.partial && record.state === "ready") return { record, status: "incomplete",
+    detail: localized("Partial acceptance inputs cannot establish readiness.", "不完整的验收输入不能建立就绪结论。") };
+  return { record, status: record.state, detail: "" };
+}
+function acceptanceStateLabel(value) {
+  return ({
+    ready: localized("Acceptance ready", "验收就绪"),
+    blocked: localized("Acceptance blocked", "验收阻塞"),
+    needs_review: localized("Review required", "需要复核"),
+    incomplete: localized("Acceptance incomplete", "验收不完整"),
+    stale: localized("Acceptance stale", "验收已过期"),
+    unknown: localized("Acceptance unknown", "验收未知"),
+  })[value] || localized("Acceptance unknown", "验收未知");
+}
+function acceptanceAction(code) {
+  const actions = {
+    capture_context: ["refresh", localized("Refresh acceptance context", "刷新验收上下文")],
+    activate_policy: ["acceptancePolicyBinding", localized("Prepare policy activation", "准备策略激活")],
+    refresh_policy: ["acceptancePolicyBinding", localized("Inspect stale policy", "检查过期策略")],
+    capture_git: ["changesSection", localized("Inspect Git change binding", "检查 Git 变更绑定")],
+    plan_verification: ["proofSection", localized("Inspect verification plan", "检查验证计划")],
+    run_verification: ["proofSection", localized("Inspect required verification", "检查必需验证")],
+    inspect_failure: ["proofSection", localized("Inspect failed evidence", "检查失败证据")],
+    request_review: ["proofSection", localized("Inspect required review", "检查必需复核")],
+    request_human_approval: ["access", localized("Review exact approval", "复核精确批准")],
+    refresh_revision: ["refresh", localized("Refresh current revision", "刷新当前版本")],
+    resolve_discovery: ["diagnosticsSection", localized("Inspect incomplete discovery", "检查不完整发现")],
+  };
+  const action = actions[code];
+  return { target: action?.[0] || "", label: action?.[1] || String(code).replaceAll("_", " ") };
+}
+function acceptanceActionButton(code) {
+  const action = acceptanceAction(code);
+  return action.target ? `<button type="button" class="quiet-action" data-summary-action="${action.target}">${esc(action.label)}</button>`
+    : `<span class="panel-meta">${esc(action.label)}</span>`;
+}
+function acceptanceCheckRows(record) {
+  const rows = record.checks.filter(row => row.required);
+  const paging = state.acceptanceCheckPage;
+  if (paging.record !== record.record_digest) { paging.record = record.record_digest; paging.offset = 0; }
+  paging.offset = Math.max(0, Math.min(paging.offset, Math.max(0, Math.ceil(rows.length / 64) - 1) * 64));
+  const shown = rows.slice(paging.offset, paging.offset + 64);
+  const headers = ["Required check", "Selection", "Execution", "Outcome", "Freshness", "Evidence"]
+    .map(label => `<th scope="col">${esc(localized(label, ({ "Required check": "必需检查", Selection: "选择", Execution: "执行", Outcome: "结果", Freshness: "新鲜度", Evidence: "证据" })[label]))}</th>`).join("");
+  const axis = (value, tone = "") => pill(statusLabel(value), tone);
+  const body = shown.map(row => {
+    const evidence = row.evidence_ids.slice(0, 4).map(id => `<button type="button" class="acceptance-evidence-link" data-acceptance-evidence="${esc(id)}" title="${esc(id)}">${esc(id)}</button>`).join("")
+      + (row.evidence_ids.length > 4 ? `<small>+${num(row.evidence_ids.length - 4)}</small>` : "");
+    return `<tr><th scope="row"><code>${esc(row.id)}</code><small title="${esc(row.signature || "")}">${esc(row.signature ? row.signature.slice(0, 19) : localized("Signature unavailable", "签名不可用"))}</small><small>${esc(localized(`Required: ${row.required_level} · Reported: ${row.level || "unknown"}`, `要求：${row.required_level} · 报告：${row.level || "未知"}`))}</small></th><td><span>${esc(row.discovered ? localized("Discovered", "已发现") : localized("Not discovered", "未发现"))}</span><small>${esc(row.mapped ? localized("Mapped", "已映射") : localized("Not mapped", "未映射"))}</small></td><td>${axis(row.execution, row.execution === "unavailable" ? "warn" : "")}</td><td>${axis(row.outcome, row.outcome === "fail" ? "bad" : row.outcome === "pass" ? "good" : "")}</td><td>${axis(row.freshness, row.freshness === "current" ? "" : "warn")}</td><td>${evidence || esc(localized("No linked receipt", "无关联回执"))}</td></tr>`;
+  }).join("");
+  return `<section class="acceptance-checks"><h3>${esc(localized("Required verification", "必需验证"))}</h3><p>${esc(localized("Discovery and mapping are separate from execution, outcome and revision freshness.", "发现和映射与执行、结果、版本新鲜度分别呈现。"))}</p>${rows.length ? `<div class="acceptance-check-table" tabindex="0" role="region" aria-label="${esc(localized("Required verification checks", "必需验证检查"))}"><table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table></div>` : `<p class="panel-meta">${esc(localized("No required check rows were returned. This is not a passing run.", "没有返回必需检查条目，不代表执行已通过。"))}</p>`}${rows.length > shown.length ? `<p class="warn">${esc(localized(`${num(shown.length)} of ${num(rows.length)} required checks shown; use the page controls to inspect every returned check.`, `展示 ${num(rows.length)} 项必需检查中的 ${num(shown.length)} 项；使用翻页控件检查全部已返回检查。`))}</p>` : ""}${rows.length > 64 ? `<nav class="acceptance-actions" aria-label="${esc(localized("Required check pages", "必需检查分页"))}"><button type="button" class="quiet-action" data-acceptance-check-page="-64" ${paging.offset === 0 ? "disabled" : ""}>${esc(localized("Previous checks", "上一页检查"))}</button><span class="panel-meta">${paging.offset + 1}–${paging.offset + shown.length} / ${rows.length}</span><button type="button" class="quiet-action" data-acceptance-check-page="64" ${paging.offset + 64 >= rows.length ? "disabled" : ""}>${esc(localized("Next checks", "下一页检查"))}</button></nav>` : ""}</section>`;
+}
+function acceptanceVerificationGates(record) {
+  const gates = record.verification;
+  if (!gates) return `<p class="panel-meta">${esc(localized("Review, stage and human-approval results were not returned.", "未返回复核、Stage 与人工批准结果。"))}</p>`;
+  const result = value => pill(statusLabel(value || "unknown"), value === "fail" ? "bad" : value === "pass" ? "good" : "info");
+  const stages = Object.entries(gates.stage_results || {}).map(([name, value]) => `<span><strong>${esc(dimensionLabel(name))}</strong>${result(value)}</span>`).join("");
+  return `<details class="acceptance-gates"><summary>${esc(localized("Review, stages and human approval", "复核、Stage 与人工批准"))}</summary><div class="acceptance-gate-results"><span><strong>${esc(localized("Deterministic result", "确定性结果"))}</strong>${result(gates.deterministic_result)}</span>${stages}<span><strong>${esc(localized("Human approval result", "人工批准结果"))}</strong>${result(gates.human_approval)}</span></div><p class="panel-meta">${esc(localized(`${num(gates.queued)} reviews queued · ${num(gates.claimed)} claimed · ${num(gates.submitted)} submitted · ${num(gates.reviewer_failures)} failed · ${num(gates.reviewer_inconclusive)} inconclusive · ${num(gates.disagreements)} disagreements`, `${num(gates.queued)} 项复核排队 · ${num(gates.claimed)} 项已领取 · ${num(gates.submitted)} 项已提交 · ${num(gates.reviewer_failures)} 项失败 · ${num(gates.reviewer_inconclusive)} 项未定 · ${num(gates.disagreements)} 项分歧`))}</p><small class="panel-meta">${esc(localized("Reported results are separate from whether the active policy requires each gate.", "报告结果与当前策略是否要求该门禁分别呈现。"))}</small></details>`;
+}
+
+function openAcceptanceEvidence(id) {
+  const rows = (state.project?.proof?.effective?.items || []).slice(0, 32);
+  const index = rows.findIndex(item => item.id === id || item.artifact_digest === id);
+  state.selectedEvidenceReference = index < 0 ? id : "";
+  if (index >= 0) {
+    const item = rows[index];
+    state.selectedEvidenceKey = String(item.artifact_digest || item.id || `${item.subject || "evidence"}:${item.producer || "unknown"}:${item.timestamp_ms || index}`);
+  }
+  state.evidenceInspectorOpen = true;
+  invalidate("proofSummary");
+  revealSection("proofSection");
+}
+function acceptanceInspectionView() {
+  const view = acceptanceView(), record = view.record, data = record?.inspection;
+  if (!data) return { data: null, status: "unknown" };
+  const text = value => typeof value === "string" && value.length > 0 && value.length <= 512;
+  const list = (value, limit, test) => Array.isArray(value) && value.length <= limit && value.every(test);
+  const path = value => text(value) && !/[\\:\x00-\x1f]/.test(value) && !value.split("/").some(part => !part || part === "." || part === "..");
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const binding = record.git?.binding, observed = data.git_binding;
+  const sameGit = binding && observed && ["repository", "head_sha", "tree_sha", "dirty", "index_fingerprint"]
+    .every(key => binding[key] !== undefined && observed[key] === binding[key]);
+  const coverage = data.coverage, risk = data.risk, impact = data.impact;
+  const valid = data.producer === "wcode/native-change-inspection/v1" && data.workspace === record.workspace
+    && data.revision?.code === record.revision.code && (data.revision?.design ?? null) === (record.revision.design ?? null)
+    && (data.base_sha ?? null) === (record.git?.base_sha ?? null) && (data.target_sha ?? null) === (record.git?.target_sha ?? null)
+    && record.git?.complete === true && record.git.authority === "metadata_only" && sameGit
+    && typeof data.complete === "boolean" && typeof data.truncated === "boolean"
+    && list(data.symbols, 128, row => text(row?.id) && path(row.path) && text(row.name) && text(row.provider)
+      && ["declared", "syntax", "semantic", "runtime", "deterministic", "heuristic", "mixed"].includes(row.precision)
+      && row.selection === "file_membership" && ["current", "stale", "unbound", "missing"].includes(row.freshness)
+      && ((row.start_line == null && row.end_line == null) || (count(row.start_line) && row.start_line > 0 && count(row.end_line) && row.end_line >= row.start_line)))
+    && new Set(data.symbols.map(row => row.id)).size === data.symbols.length
+    && ["impacted_components", "impacted_requirements", "impacted_acceptance"].every(key => list(data[key], 128, text))
+    && list(data.mapped_verification, 128, row => text(row?.owner) && text(row.target) && ["test", "check"].includes(row.kind)
+      && typeof row.resolved === "boolean" && text(row.provider) && text(row.precision) && row.relation === "declared_verification")
+    && coverage && ["changed_paths_total", "graph_files_indexed", "symbols_observed", "symbols_returned", "mapped_paths_total",
+      "unmapped_paths_total", "uncovered_paths_total", "verification_observed", "verification_returned", "components_observed",
+      "requirements_observed", "acceptance_observed"].every(key => count(coverage[key]))
+    && ["mappings_complete", "graph_complete", "totals_complete"].every(key => typeof coverage[key] === "boolean")
+    && list(coverage.unmapped_paths, 128, path) && list(coverage.uncovered_paths, 128, path)
+    && coverage.symbols_returned === data.symbols.length && coverage.symbols_observed >= data.symbols.length
+    && coverage.verification_returned === data.mapped_verification.length && coverage.verification_observed >= data.mapped_verification.length
+    && risk && text(risk.level) && text(risk.precision) && count(risk.findings_total) && count(risk.bug_pattern_matches)
+    && count(risk.drift_findings) && typeof risk.truncated === "boolean"
+    && list(risk.findings, 32, row => text(row?.id) && text(row.category) && text(row.level)) && risk.findings_total >= risk.findings.length
+    && impact && text(impact.graph_provider) && text(impact.graph_precision) && count(impact.transitive_callers)
+    && ["graph_truncated", "public_api", "security_boundary"].every(key => typeof impact[key] === "boolean")
+    && list(data.unknown_reasons, 32, text) && list(data.recommended_actions, 16, action => Boolean(acceptanceAction(action).target));
+  return { data: valid ? data : null, status: valid ? (view.status === "stale" ? "stale" : "current") : "unknown" };
+}
+async function openAcceptanceSymbol(id) {
+  const view = acceptanceInspectionView(), symbol = view.data?.symbols.find(row => row.id === id);
+  if (view.status !== "current" || symbol?.freshness !== "current") return false;
+  const record = acceptanceView().record, digest = record.record_digest, revision = { ...record.revision }, stamp = observationStamp();
+  state.codeGraphController?.abort(); clearCodeGraphSource();
+  state.codeGraph = null; state.codeGraphQuery = symbol.name; state.codeGraphSnapshot = "";
+  state.selectedCodeNode = ""; state.codeGraphView = "focus";
+  revealSection("codeGraphSection"); renderArchitecture();
+  const loaded = await loadCodeGraph({ nodeId: symbol.id, repositoryRevision: revision });
+  if (!loaded || !observationCurrent(stamp) || acceptanceView().record?.record_digest !== digest
+    || acceptanceInspectionView().status !== "current" || !repositorySourceRevisionMatches(revision)
+    || state.workspaceTab !== "architecture" || state.architectureView !== "codegraph") return false;
+  const node = state.codeGraph?.nodes?.find(row => row.node?.id === symbol.id && codeGraphPath(row.node) === symbol.path)?.node;
+  if (!node || state.codeGraph.query !== symbol.id) return false;
+  selectCodeGraphNode(symbol.id); setCodeGraphInspector(true);
+  return loadCodeGraphSource(node, { repositoryRevision: revision });
+}
+function acceptanceInspectionHtml() {
+  const view = acceptanceInspectionView(), data = view.data;
+  const heading = esc(localized("Inspect change scope", "检查变更范围"));
+  if (!data) return `<details class="acceptance-inspection"><summary>${heading}</summary><p class="panel-meta">${esc(localized("Bound change inspection was not returned or its identity is unsupported. Use changed files to inspect the current snapshot.", "未返回绑定变更检查或其身份不受支持，请从变更文件检查当前快照。"))}</p><button type="button" class="quiet-action" data-summary-action="changesSection">${esc(localized("Inspect changed files", "检查变更文件"))}</button></details>`;
+  const symbols = data.symbols.map(row => {
+    const label = `<code>${esc(row.path)}${row.start_line ? ":" + row.start_line + "–" + row.end_line : ""}</code><strong>${esc(row.name)}</strong><small>${esc(row.provider)} · ${esc(row.precision)} · ${esc(statusLabel(row.freshness))}</small>`;
+    return view.status === "current" && row.freshness === "current"
+      ? `<button type="button" class="acceptance-scope-row" data-acceptance-symbol="${esc(row.id)}">${label}</button>`
+      : `<span class="acceptance-scope-row">${label}</span>`;
+  }).join("");
+  const references = (values, label, requirement = false) => `<div><h4>${esc(label)}</h4>${values.map(id => requirement && (state.project.requirements || []).some(row => row.id === id)
+    ? `<button type="button" class="quiet-action" data-summary-action="requirementsSection" data-summary-requirement="${esc(id)}">${esc(id)}</button>`
+    : `<code class="inspector-chip">${esc(id)}</code>`).join("") || esc(localized("None observed", "未观测到"))}</div>`;
+  const mappings = data.mapped_verification.map(row => `<div class="acceptance-scope-row"><code>${esc(row.target)}</code><small>${esc(row.owner)} · ${esc(row.kind)} · ${esc(row.provider)} / ${esc(row.precision)} · ${esc(row.resolved ? localized("Resolved mapping", "映射已解析") : localized("Unresolved mapping", "映射未解析"))}</small></div>`).join("");
+  const coverage = data.coverage;
+  const gaps = [...new Set([...coverage.unmapped_paths, ...coverage.uncovered_paths])];
+  const partial = !data.complete || data.truncated || !coverage.totals_complete || !coverage.graph_complete || !coverage.mappings_complete;
+  return `<details class="acceptance-inspection"><summary>${heading} · ${num(coverage.changed_paths_total)} ${esc(localized("files", "个文件"))}</summary>
+    ${view.status === "stale" ? `<p class="warn">${esc(localized("Historical inspection; refresh before source navigation.", "历史检查结果；请刷新后再定位源码。"))}</p>` : ""}
+    <p class="panel-meta">${esc(localized("Symbols are members of changed files, not confirmed symbol-body changes. Mapping and risk observations do not establish execution or acceptance.", "符号属于变更文件，不代表已确认符号正文变化。映射与风险观测不能建立执行或验收结论。"))}</p>
+    ${partial ? `<p class="warn">${esc(localized("Inspection coverage is partial or bounded; absence is not proof of no impact.", "检查范围不完整或有界；未展示不能证明没有影响。"))}</p>` : ""}
+    <div class="acceptance-scope-facts"><span>${num(coverage.symbols_returned)} / ${num(coverage.symbols_observed)} ${esc(localized("file-member symbols", "文件成员符号"))}</span><span>${num(coverage.mapped_paths_total)} ${esc(localized("mapped paths", "已映射路径"))}</span><span>${esc(localized("Risk", "风险"))}: ${esc(data.risk.level)} · ${esc(data.risk.precision)}</span><span>${num(data.risk.findings_total)} ${esc(localized("risk findings", "项风险发现"))}</span><span>${esc(data.impact.graph_provider)} · ${esc(data.impact.graph_precision)} · ${num(data.impact.transitive_callers)} ${esc(localized("caller candidates", "调用方候选"))}</span></div>
+    <h4>${esc(localized("Symbols in changed files", "变更文件中的符号"))}</h4><div class="acceptance-scope-list">${symbols || esc(localized("No symbols observed; this does not prove no changes.", "未观测到符号；这不能证明没有变更。"))}</div>
+    ${references(data.impacted_requirements, localized("Impacted requirements", "受影响需求"), true)}${references(data.impacted_components, localized("Impacted components", "受影响组件"))}${references(data.impacted_acceptance, localized("Impacted acceptance criteria", "受影响验收条件"))}
+    <h4>${esc(localized("Declared verification mappings", "声明的验证映射"))}</h4><p class="panel-meta">${esc(localized("Resolved references are not executed tests or passing evidence.", "已解析引用不是已执行测试或通过证据。"))}</p><div class="acceptance-scope-list">${mappings || esc(localized("No verification mappings returned", "未返回验证映射"))}</div>
+    ${references(gaps, localized("Unmapped / uncovered paths", "未映射 / 未覆盖路径"))}${references(data.unknown_reasons, localized("Unknowns", "未知项"))}
+    ${data.risk.findings.map(row => `<div class="acceptance-scope-row"><code>${esc(row.id)}</code><small>${esc(row.category)} · ${esc(row.level)}</small></div>`).join("")}
+    <nav class="acceptance-actions">${data.recommended_actions.map(acceptanceActionButton).join("")}<button type="button" class="quiet-action" data-summary-action="proofSection">${esc(localized("Inspect required verification", "检查必需验证"))}</button></nav></details>`;
+}
+function acceptanceEvidenceMetadata(id) {
+  const record = acceptanceView().record, rows = record?.evidence;
+  if (!Array.isArray(rows) || rows.length > 4096) return null;
+  const matches = rows.filter(row => row?.id === id);
+  if (matches.length !== 1) return null;
+  const row = matches[0], text = value => typeof value === "string" && value.length > 0 && value.length <= 1024;
+  return text(row.id) && text(row.producer) && text(row.kind) && text(row.authority) && text(row.confidence)
+    && text(row.revision?.code) && (row.revision.design == null || text(row.revision.design))
+    && Number.isSafeInteger(row.timestamp_ms) && row.timestamp_ms >= 0
+    && ["current", "stale", "unbound", "missing"].includes(row.freshness) && text(row.verification_relation)
+    && Array.isArray(row.targets) && row.targets.length <= 256 && row.targets.every(text) ? row : null;
+}
+function acceptanceEvidenceMetadataHtml(row) {
+  return `<section class="evidence-inspector-section"><h4>${esc(localized("Canonical evidence metadata", "统一证据元数据"))}</h4><code>${esc(row.id)}</code><p>${esc(localized("Exact referenced metadata only; no receipt outcome or diagnostic body was returned here.", "仅精确引用元数据；此处未返回回执结果或诊断正文。"))}</p><dl class="acceptance-evidence-metadata"><dt>${esc(localized("Producer / authority", "来源 / 权威"))}</dt><dd>${esc(row.producer)} · ${esc(row.authority)} · ${esc(row.confidence)}</dd><dt>${esc(localized("Freshness / relation", "新鲜度 / 关系"))}</dt><dd>${esc(statusLabel(row.freshness))} · ${esc(row.verification_relation)}${acceptanceView().status === "stale" ? " · " + esc(localized("Snapshot stale", "快照已过期")) : ""}</dd><dt>${esc(localized("Code / Design", "代码 / 设计"))}</dt><dd><code>${esc(row.revision.code)}</code><small>${esc(row.revision.design || "—")}</small></dd><dt>${esc(localized("Targets", "目标"))}</dt><dd>${row.targets.map(target => `<code>${esc(target)}</code>`).join("")}</dd><dt>${esc(localized("Observed time", "观测时间"))}</dt><dd>${esc(time(row.timestamp_ms))}</dd></dl></section>`;
+}
+function renderAcceptanceSummary(first) {
+  const view = acceptanceView(), record = view.record, tone = view.status === "ready" ? "good"
+    : view.status === "blocked" ? "bad" : ["stale", "incomplete", "needs_review"].includes(view.status) ? "warn" : "info";
+  const reasons = record?.reasons || [], summary = record?.summary;
+  const observedRevision = record?.revision?.code || state.project?.proof?.revision_code || "";
+  const primary = view.status === "stale" ? "refresh_revision" : record?.actions?.[0];
+  const issueList = reasons.slice(0, 12).map(reason => `<li><div><strong>${esc(reason.subject || statusLabel(reason.code))}</strong><small>${esc(reason.code)}</small></div>${acceptanceActionButton(reason.action)}</li>`).join("");
+  const actions = [...new Set([primary, ...(record?.actions || [])].filter(Boolean))].slice(0, 8);
+  const fallback = !record && first ? `<p class="acceptance-observation"><strong>${esc(first.title)}</strong> · ${esc(first.detail)}</p><button type="button" class="quiet-action" ${attentionActionAttributes(first)}>${esc(localized("Inspect observation", "检查观测信号"))}</button>` : "";
+  const policy = record?.policy, selection = policy?.selection;
+  const binding = record ? `<details id="acceptancePolicyBinding" class="acceptance-binding" tabindex="-1"><summary>${esc(localized("Policy, record and revision binding", "策略、记录与版本绑定"))}</summary><p>${esc(localized("Prepare policy activation with the connected agent, then review its exact native operator request. An active policy alone does not establish acceptance.", "通过已连接的 Agent 准备策略激活，再复核精确的原生操作员请求。策略已激活不能单独建立验收结论。"))}</p><dl><dt>${esc(localized("Policy", "策略"))}</dt><dd><code>${esc(selection?.policy_id || localized("No active policy returned", "未返回已激活策略"))}</code><small>${esc(policy?.snapshot_digest || localized("Unbound", "未绑定"))}</small></dd><dt>${esc(localized("Generation / current", "代数 / 当前"))}</dt><dd>${esc(policy?.generation ?? "—")} / ${esc(policy?.current_generation ?? "—")}</dd><dt>${esc(localized("Plan", "计划"))}</dt><dd><code>${esc(record.plan?.id || localized("No plan returned", "未返回计划"))}</code></dd><dt>${esc(localized("Record", "记录"))}</dt><dd><code>${esc(record.id)}</code><small>${esc(record.record_digest)}</small></dd><dt>${esc(localized("Code / Design", "代码 / 设计"))}</dt><dd><code>${esc(record.revision.code)}</code><small>${esc(record.revision.design || localized("Unbound", "未绑定"))}</small></dd><dt>Git HEAD</dt><dd><code>${esc(record.git?.binding?.head_sha || localized("Unknown", "未知"))}</code><small>${esc(localized("Git metadata does not establish acceptance.", "Git 元数据不能单独建立验收结论。"))}</small></dd></dl></details>` : "";
+  const html = `<div class="acceptance-heading"><div><span class="eyebrow">${esc(localized("CURRENT CHANGE ACCEPTANCE", "当前变更验收"))}</span><h2>${esc(acceptanceStateLabel(view.status))}</h2></div>${pill(statusLabel(view.status), tone)}</div><p>${esc(view.detail || (reasons.length ? localized("Resolve the recorded blockers, then obtain a fresh acceptance record.", "处理已记录的阻塞原因后，获取新的验收记录。") : localized("This is the canonical local acceptance decision for the bound change.", "这是绑定变更的统一本地验收结论。")))}</p><div class="summary-facts"><span>${esc(localized("Risk", "风险"))}: ${esc(record?.risk_level || localized("Unknown", "未知"))}</span><span>${esc(state.project?.git_review?.available === true ? localized(`${num(state.project.code?.changed_files || 0)} changed files`, `${num(state.project.code?.changed_files || 0)} 个变更文件`) : localized("Changes unknown", "变更未知"))}</span>${observedRevision ? `<code title="${esc(observedRevision)}">${esc(observedRevision.slice(0, 19))}</code>` : ""}</div>${summary ? `<p class="acceptance-counts">${esc(localized(`${num(summary.required)} required · ${num(summary.executed)} executed · ${num(summary.passed)} passed · ${num(summary.failed)} failed · ${num(summary.unknown)} unknown`, `${num(summary.required)} 项必需 · ${num(summary.executed)} 项执行 · ${num(summary.passed)} 项通过 · ${num(summary.failed)} 项失败 · ${num(summary.unknown)} 项未知`))}</p>` : ""}${fallback}${issueList ? `<ul class="acceptance-blockers">${issueList}</ul>` : ""}${reasons.length > 12 ? `<p class="warn">${esc(localized("Additional recorded reasons are not shown in this bounded summary.", "此有界摘要未展示其余已记录原因。"))}</p>` : ""}<nav class="acceptance-actions" aria-label="${esc(localized("Acceptance next actions", "验收下一步"))}">${actions.map(acceptanceActionButton).join("")}<button type="button" class="quiet-action" data-summary-action="proofSection">${esc(localized("Evidence / verification", "证据 / 验证"))}</button><button type="button" class="quiet-action" data-summary-action="changesSection">${esc(localized("Changed files / symbols", "变更文件 / 符号"))}</button></nav>${record ? acceptanceCheckRows(record) + acceptanceVerificationGates(record) + acceptanceInspectionHtml() : ""}${binding}`;
+  setHtml("statusSummary", els.statusSummary, html, () => {
+    bindSummaryActions(els.statusSummary);
+    els.statusSummary.querySelectorAll("[data-acceptance-check-page]").forEach(button => button.addEventListener("click", () => {
+      state.acceptanceCheckPage.offset += Number(button.dataset.acceptanceCheckPage); invalidate("statusSummary"); renderAttention();
+      requestAnimationFrame(() => els.statusSummary.querySelector(`[data-acceptance-check-page="${button.dataset.acceptanceCheckPage}"]`)?.focus());
+    }));
+    els.statusSummary.querySelectorAll("[data-acceptance-evidence]").forEach(button => button.addEventListener("click", () => openAcceptanceEvidence(button.dataset.acceptanceEvidence)));
+    els.statusSummary.querySelectorAll("[data-acceptance-symbol]").forEach(button => button.addEventListener("click", () => void openAcceptanceSymbol(button.dataset.acceptanceSymbol)));
+  });
+}
+
 function renderAttention() {
   if (!state.project) return;
   renderObservationCoverage();
-  const items = attentionSignals(), first = items[0], proof = effectiveProof();
-  const urgent = items.filter(item => ["bad", "warn"].includes(item.tone)).length;
-  const snapshotLabel = state.syncError ? localized("Refresh needed", "需要刷新") : state.fitnessSnapshotFromCache ? localized("Cached snapshot", "缓存快照") : localized("Live snapshot", "实时快照");
-  const revision = state.project.attention?.revision?.code || state.project.proof?.revision_code || "";
-  const action = first.target ? `<button type="button" class="summary-inspect" ${attentionActionAttributes(first)}>${uiIcon(first.target === "refresh" ? "sync" : "target")} ${esc(first.target === "refresh" ? localized("Refresh snapshot", "刷新快照") : localized("Inspect signal", "检查信号"))}</button>` : "";
-  setHtml("statusSummary", els.statusSummary, `<div><span class="eyebrow">${esc(localized("PROJECT PULSE", "项目状态"))}</span><h2>${esc(first.title)}</h2><p>${esc(first.detail)}</p>${first.provenance ? `<small class="signal-provenance">${esc(first.provenance)}</small>` : ""}<div class="summary-facts"><span>${esc(snapshotLabel)}</span><span>${esc(state.project.git_review?.available === true ? localized(`${num(state.project.code?.changed_files || 0)} changed files`, `${num(state.project.code?.changed_files || 0)} 个变更文件`) : localized("Changes unknown", "变更未知"))}</span><span>${esc(proof.current_evidence ? localized(`${num(proof.current_evidence)} evidence records`, `${num(proof.current_evidence)} 条证据`) : localized("Evidence not verified", "证据未验证"))}</span>${revision ? `<code title="${esc(revision)}">${esc(revision.slice(0, 19))}</code>` : ""}</div>${action}</div><span class="summary-count ${urgent ? "warn" : "info"}">${esc(urgent ? localized(`${urgent} to review`, `${urgent} 项待处理`) : localized("Read the evidence", "请结合证据判断"))}</span>`, () => bindSummaryActions(els.statusSummary));
+  const items = attentionSignals(), first = items[0];
+  renderAcceptanceSummary(first);
   const rest = items.slice(1), important = rest.filter(item => ["bad", "warn"].includes(item.tone)), other = rest.filter(item => !["bad", "warn"].includes(item.tone));
   const html = important.map(attentionItem).join("") + (other.length ? `<details class="more-signals"><summary>${esc(localized(`${other.length} more observations`, `另有 ${other.length} 项观测`))}</summary>${other.map(attentionItem).join("")}</details>` : "");
   setHtml("attention", els.attention, html, () => bindSummaryActions(els.attention));
@@ -198,13 +438,15 @@ function renderEffectiveEvidence(rows) {
   return heading + explanation + `<div class="table-wrap"><table class="table proof-table"><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function renderProofSummary() {
+  renderVerificationTask();
   if (!state.project) return;
   const proof = state.project.proof || {}, acceptance = proof.acceptance || {}, effective = proof.effective || {},
     rows = Array.isArray(effective.items) ? effective.items.slice(0, 32) : [],
     evidenceKey = (item, index) => String(item.artifact_digest || item.id || `${item.subject || "evidence"}:${item.producer || "unknown"}:${item.timestamp_ms || index}`),
     keyed = rows.map((item, index) => ({ item, key: evidenceKey(item, index), index }));
   if (!keyed.some(entry => entry.key === state.selectedEvidenceKey)) state.selectedEvidenceKey = keyed[0]?.key || "";
-  const selectedEntry = keyed.find(entry => entry.key === state.selectedEvidenceKey) || keyed[0], selected = selectedEntry?.item,
+  const referenceMissing = Boolean(state.selectedEvidenceReference), referencedMetadata = referenceMissing ? acceptanceEvidenceMetadata(state.selectedEvidenceReference) : null;
+  const selectedEntry = referenceMissing ? null : keyed.find(entry => entry.key === state.selectedEvidenceKey) || keyed[0], selected = selectedEntry?.item,
     selectedIndex = selectedEntry?.index ?? -1,
     coverage = Number(acceptance.total || 0) > 0 ? Math.round((Number(acceptance.fresh || 0) / Number(acceptance.total || 1)) * 100) : 0,
     drift = Number(state.project.architecture?.blocking_drift_edges || 0),
@@ -223,19 +465,21 @@ function renderProofSummary() {
     return `<button type="button" class="evidence-ledger-row${active ? " selected" : ""}" data-evidence-key="${esc(key)}" role="row" aria-pressed="${active}"><span role="cell">${pill(statusLabel(result), statusClass(result))}</span><span role="cell"><code>${esc(String(id).slice(0, 16))}</code></span><span role="cell"><strong>${esc(item.subject || localized("Evidence", "证据"))}</strong><small>${esc(item.producer || "—")}</small></span><span role="cell"><code>${esc(String(plan).slice(0, 14))}</code></span><span role="cell"><code>${esc(revision.slice(0, 10))}</code></span><span role="cell">${esc(time(item.timestamp_ms))}</span><span role="cell"><strong>${esc(proofType)}</strong><small>#${index + 1}</small></span></button>`;
   }).join("") : `<div class="empty">${esc(localized("No effective verification evidence for this revision.", "此版本没有有效验证证据。"))}</div>`;
   const inspectorControls = keyed.length ? `<div class="evidence-inspector-controls"><button type="button" data-evidence-prev aria-label="${esc(localized("Previous evidence", "上一条证据"))}" ${selectedIndex <= 0 ? "disabled" : ""}>${uiIcon("chevron-left")}</button><button type="button" data-evidence-next aria-label="${esc(localized("Next evidence", "下一条证据"))}" ${selectedIndex >= keyed.length - 1 ? "disabled" : ""}>${uiIcon("chevron-right")}</button><button type="button" data-evidence-close aria-label="${esc(localized("Close inspector", "关闭检查器"))}">${uiIcon("close")}</button></div>` : "";
-  const inspector = selected ? `<div class="evidence-inspector-head"><div><span class="proof-metric-icon">${uiIcon("cube")}</span><strong>${esc(localized("Evidence inspector", "证据检查器"))}</strong></div>${inspectorControls}</div><div class="evidence-inspector-identity"><div class="evidence-inspector-state">${pill(statusLabel(selected.result || "unknown"), statusClass(selected.result || "unknown"))}<code>${esc(String(selected.id || selected.artifact_digest || state.selectedEvidenceKey).slice(0, 18))}</code></div><h3>${esc(selected.subject || localized("Verification evidence", "验证证据"))}</h3><span>${esc(selected.producer || "—")} · ${esc(selected.policy || "—")} · ${esc(time(selected.timestamp_ms))}</span></div><section class="evidence-inspector-section"><h4>${esc(localized("Exact revision", "精确版本"))}</h4><code>${esc(proof.revision_code || selected.revision || "—")}</code><small>${esc(proof.revision_design || "")}</small></section><section class="evidence-inspector-section"><h4>${esc(localized("Effective checks", "有效检查"))}</h4><div class="inspector-chip-list"><span class="inspector-chip">${esc(selected.stage || selected.kind || "deterministic")}</span><span class="inspector-chip">${esc(selected.policy || "—")}</span><span class="inspector-chip ${esc(statusClass(selected.result || "unknown"))}">${esc(statusLabel(selected.result || "unknown"))}</span></div></section><section class="evidence-inspector-section"><h4>${esc(localized("Adaptive verification", "自适应验证"))}</h4><div class="inspector-chip-list"><span class="inspector-chip">${esc(state.project.adaptive_verification?.mode || "static")}</span><span class="inspector-chip">${esc(selected.producer || "—")}</span></div></section><section class="evidence-inspector-section"><h4>${esc(localized("Diagnostic", "诊断"))}</h4>${selected.summary ? `<pre>${esc(selected.summary)}</pre>` : `<p>${esc(localized("No diagnostic summary was retained for this effective record.", "该有效记录没有保留诊断摘要。"))}</p>`}</section>` : `<div class="empty">${esc(localized("Select evidence to inspect its exact revision and producer.", "选择一条证据以查看精确版本和来源。"))}</div>`;
+  const inspector = referencedMetadata ? acceptanceEvidenceMetadataHtml(referencedMetadata) : selected ? `<div class="evidence-inspector-head"><div><span class="proof-metric-icon">${uiIcon("cube")}</span><strong>${esc(localized("Evidence inspector", "证据检查器"))}</strong></div>${inspectorControls}</div><div class="evidence-inspector-identity"><div class="evidence-inspector-state">${pill(statusLabel(selected.result || "unknown"), statusClass(selected.result || "unknown"))}<code>${esc(String(selected.id || selected.artifact_digest || state.selectedEvidenceKey).slice(0, 18))}</code></div><h3>${esc(selected.subject || localized("Verification evidence", "验证证据"))}</h3><span>${esc(selected.producer || "—")} · ${esc(selected.policy || "—")} · ${esc(time(selected.timestamp_ms))}</span></div><section class="evidence-inspector-section"><h4>${esc(localized("Exact revision", "精确版本"))}</h4><code>${esc(proof.revision_code || selected.revision || "—")}</code><small>${esc(proof.revision_design || "")}</small></section><section class="evidence-inspector-section"><h4>${esc(localized("Effective checks", "有效检查"))}</h4><div class="inspector-chip-list"><span class="inspector-chip">${esc(selected.stage || selected.kind || "deterministic")}</span><span class="inspector-chip">${esc(selected.policy || "—")}</span><span class="inspector-chip ${esc(statusClass(selected.result || "unknown"))}">${esc(statusLabel(selected.result || "unknown"))}</span></div></section><section class="evidence-inspector-section"><h4>${esc(localized("Adaptive verification", "自适应验证"))}</h4><div class="inspector-chip-list"><span class="inspector-chip">${esc(state.project.adaptive_verification?.mode || "static")}</span><span class="inspector-chip">${esc(selected.producer || "—")}</span></div></section><section class="evidence-inspector-section"><h4>${esc(localized("Diagnostic", "诊断"))}</h4>${selected.summary ? `<pre>${esc(selected.summary)}</pre>` : `<p>${esc(localized("No diagnostic summary was retained for this effective record.", "该有效记录没有保留诊断摘要。"))}</p>`}</section>` : `<div class="empty">${esc(localized("Select evidence to inspect its exact revision and producer.", "选择一条证据以查看精确版本和来源。"))}</div>`;
   const truncated = effective.truncated ? `<p class="proof-truncated warn">${esc(localized("Details truncated; counts include all retained effective records.", "详情已截断；计数包含全部已保留的有效记录。"))}</p>` : "";
-  const html = `<div class="proof-metric-strip">${metricCards}</div><div class="proof-main-grid${state.evidenceInspectorOpen ? "" : " inspector-closed"}"><section class="evidence-ledger-card"><header class="proof-card-head"><div><strong>${esc(localized("Evidence ledger", "证据账本"))}</strong><span>${esc(localized("Revision-bound verification evidence generated from effective checks.", "由有效检查生成、绑定版本的验证证据。"))}</span></div><span>${num(effective.total || rows.length)} ${esc(localized("items", "条"))}</span></header><div class="evidence-ledger-head" role="row"><span>${esc(localized("Status", "状态"))}</span><span>ID</span><span>${esc(localized("Subject", "目标"))}</span><span>${esc(localized("Plan", "计划"))}</span><span>${esc(localized("Revision", "版本"))}</span><span>${esc(localized("Timestamp", "时间"))}</span><span>${esc(localized("Proof type", "证据类型"))}</span></div><div class="evidence-ledger-body">${ledgerRows}</div></section>${state.evidenceInspectorOpen ? `<aside class="evidence-inspector-card">${inspector}</aside>` : ""}</div>${truncated}`;
+  const referenceNotice = referenceMissing ? `<p class="risk medium">${esc(localized("Referenced evidence is outside the returned bounded ledger; no substitute record is selected.", "引用证据不在已返回的有界账本中，不会替换成其他记录。"))} <code>${esc(state.selectedEvidenceReference)}</code></p>` : "";
+  const html = `${referenceNotice}<div class="proof-metric-strip">${metricCards}</div><div class="proof-main-grid${state.evidenceInspectorOpen ? "" : " inspector-closed"}"><section class="evidence-ledger-card"><header class="proof-card-head"><div><strong>${esc(localized("Evidence ledger", "证据账本"))}</strong><span>${esc(localized("Revision-bound verification evidence generated from effective checks.", "由有效检查生成、绑定版本的验证证据。"))}</span></div><span>${num(effective.total || rows.length)} ${esc(localized("items", "条"))}</span></header><div class="evidence-ledger-head" role="row"><span>${esc(localized("Status", "状态"))}</span><span>ID</span><span>${esc(localized("Subject", "目标"))}</span><span>${esc(localized("Plan", "计划"))}</span><span>${esc(localized("Revision", "版本"))}</span><span>${esc(localized("Timestamp", "时间"))}</span><span>${esc(localized("Proof type", "证据类型"))}</span></div><div class="evidence-ledger-body">${ledgerRows}</div></section>${state.evidenceInspectorOpen ? `<aside class="evidence-inspector-card">${inspector}</aside>` : ""}</div>${truncated}`;
   setHtml("proofSummary", els.proofSummary, html, () => {
     const focusSelected = () => requestAnimationFrame(() => [...els.proofSummary.querySelectorAll("[data-evidence-key]")].find(button => button.dataset.evidenceKey === state.selectedEvidenceKey)?.focus());
     els.proofSummary.querySelectorAll("[data-evidence-key]").forEach((button, index) => {
       button.addEventListener("click", () => {
-        state.selectedEvidenceKey = button.dataset.evidenceKey; state.evidenceInspectorOpen = true; invalidate("proofSummary"); renderProofSummary();
+        state.selectedEvidenceReference = ""; state.selectedEvidenceKey = button.dataset.evidenceKey; state.evidenceInspectorOpen = true; invalidate("proofSummary"); renderProofSummary();
       });
       button.addEventListener("keydown", event => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? keyed.length - 1 : event.key === "ArrowDown" ? Math.min(keyed.length - 1, index + 1) : Math.max(0, index - 1);
+        state.selectedEvidenceReference = "";
         state.selectedEvidenceKey = keyed[nextIndex]?.key || state.selectedEvidenceKey;
         state.evidenceInspectorOpen = true; invalidate("proofSummary"); renderProofSummary(); focusSelected();
       });

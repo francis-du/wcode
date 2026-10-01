@@ -61,6 +61,10 @@ Convention Engine 会按 Architecture Domain 与 Product Scope 分类源码，�
 
 Design State 把这些 Scope 映射到真实 Component、Implementation Symbol 与 Acceptance Test。不要增加没有真实实现映射的 Future-only Component。Refactor 后 Traceability 仍必须可解析；物理移动文件时要同步更新 Design State Path。
 
+## 产品与许可证归属
+
+12 个 canonical Scope 继续表示 OSS 能力分类；许可证和依赖层级单独记录在 `.wcode/architecture.toml`，不能凭目录名把能力移出 OSS。Core 包含 readiness 判断、本地安全、Policy evaluation、Verification 和 Evidence 真相；CLI、MCP/OAuth、TUI、WebUI、Setup 与 Agent integrations 保持完整 OSS 产品。新增 Team/Enterprise package 只消费明确的公开合同，不进入 OSS Registry，也不改变 MCP 语义。已审计源码依赖和迁移门禁见 [OSS / Commercial 边界](../oss-boundary/)。
+
 ## Scope 设计规则
 
 - 优先按产品责任命名，不使用泛化技术层名称代替产品边界；

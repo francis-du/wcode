@@ -54,6 +54,17 @@ fixture.fitness={schema_version:1,available:true,revision:fitnessRevision,observ
     history:[{revision:fitnessRevision,captured_at_ms:1,artifact_sha256:'f'.repeat(64),comparable_to_latest:true,current:true}]}};
 fixture.structure={entries:[{path:'src/'+long+'.rs',language:'rust',lines:500,bytes:10000,over_limit:false},{path:'src/small.rs',language:'rust',lines:4,bytes:44,over_limit:false}],largest_files:[{path:'src/'+long+'.rs',language:'rust',lines:500,bytes:10000,over_limit:false}],line_limit:1000,oversized_files:0,truncated:true};
 fixture.attention={revision:fitnessRevision,total:2,partial:true,partial_reasons:['bounded source scan'],items:[{id:'failed',kind:'verification_failure',severity:'high',subject:'Current verification failed',message:long,provider:'deterministic',precision:'deterministic',section:'proof'},{id:'coverage',kind:'partial_coverage',severity:'info',subject:'Partial source coverage',message:'Source scan is bounded',provider:'tree-sitter',precision:'syntax',section:'files'}]};
+// Public Acceptance protocol data only; real evaluation is covered in native Harness tests.
+fixture.acceptance=require('./acceptance.cjs').record();
+Object.assign(fixture.acceptance,{revision:fitnessRevision,risk_level:'critical',verification:{
+  deterministic_result:'fail',human_approval:null,stage_results:{property:'inconclusive'},queued:2,claimed:1,submitted:1,
+  reviewer_failures:0,reviewer_inconclusive:0,disagreements:0}});
+fixture.acceptance.reasons[0].subject='<script>NOT_EXECUTED</script> '+long;
+fixture.acceptance.checks=[
+  {...fixture.acceptance.checks[0],id:long,evidence_ids:['e0']},
+  {...fixture.acceptance.checks[0],id:'unavailable-'+long,signature:null,execution:'unavailable',outcome:'unknown',freshness:'missing',evidence_ids:[]},
+  {...fixture.acceptance.checks[0],id:'stale-'+long,outcome:'pass',freshness:'stale',evidence_ids:['e1']}
+];
 const data=JSON.stringify(fixture).replace(/</g,'\\u003c');
 const longGraphLabel='extremely_long_code_graph_symbol_name_for_adversarial_layout_';
 const codeGraphNodes=[

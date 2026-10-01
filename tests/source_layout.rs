@@ -61,7 +61,7 @@ fn repository_file_names_remain_concise() {
 fn rust_files_remain_bounded() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut oversized = Vec::new();
-    for area in ["src", "tests"] {
+    for area in ["src", "tests", "crates/core-types/src"] {
         for path in rust_files(&root.join(area)) {
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
@@ -85,7 +85,7 @@ fn rust_files_remain_bounded() {
 fn rust_file_names_remain_concise() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut long_names = Vec::new();
-    for area in ["src", "tests"] {
+    for area in ["src", "tests", "crates/core-types/src"] {
         for path in rust_files(&root.join(area)) {
             let stem = path
                 .file_stem()
@@ -139,7 +139,7 @@ fn rust_sources_parse_without_errors() {
         .set_language(&tree_sitter_rust::LANGUAGE.into())
         .expect("Rust grammar must load");
     let mut invalid = Vec::new();
-    for area in ["src", "tests"] {
+    for area in ["src", "tests", "crates/core-types/src"] {
         for path in rust_files(&root.join(area)) {
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));

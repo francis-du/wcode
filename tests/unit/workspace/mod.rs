@@ -1,13 +1,10 @@
 use super::*;
 
-#[path = "access.rs"]
 mod access;
-#[path = "files.rs"]
+mod dynamic_registry;
 mod files;
-#[path = "ignore.rs"]
 mod ignore;
 mod launch_profiles;
-#[path = "search.rs"]
 mod search;
 #[test]
 fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {

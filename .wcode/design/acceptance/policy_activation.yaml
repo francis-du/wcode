@@ -1,0 +1,14 @@
+schema_version: 1
+id: AC-POLICY-AUTHORITY-001
+title: Native Policy authority fails closed across drift and concurrency
+statement: Frozen Policy snapshots reject incomplete revision, unknown or mismatched command bindings, partial mappings and invalid bounded source digests. Trusted activation consumes exact local HumanDecision; MCP client responses and model-submitted snapshots cannot approve it. Fixed generation slots permit only one cross-process winner, committed records survive restart, and corrupt, half-written, expired or revoked heads cannot fall back to historical active Policy. Source definition changes with identical argv are detected. A historical activation revision anchors provenance and does not prohibit legitimate future candidate code changes. Actual authority roots are masked for broad command sandbox backends; this is not same-user OS isolation or authenticated team identity.
+verification:
+  - {kind: test, path: tests/unit/verification/policy.rs, symbol: every_policy_branch_requires_its_exact_frozen_checks}
+  - {kind: test, path: tests/unit/verification/policy_store.rs, symbol: policy_two_processes_compete_for_one_generation_without_losing_revocation}
+  - {kind: test, path: tests/unit/verification/policy_store.rs, symbol: policy_corrupt_highest_generation_never_falls_back_or_accepts_higher_repair}
+  - {kind: test, path: tests/unit/verification/policy_store.rs, symbol: native_policy_activation_expiry_and_revocation_survive_restart}
+  - {kind: test, path: tests/unit/runtime/harness/policy.rs, symbol: native_policy_recipe_change_invalidates_seal_even_when_command_signature_is_unchanged}
+  - {kind: test, path: tests/unit/runtime/harness/policy.rs, symbol: ordinary_readme_edit_preserves_definition_seal_without_reusing_current_revision}
+  - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: authority_state_roots_are_masked_inside_and_outside_the_workspace}
+  - {kind: test, path: tests/unit/integrations/mcp/policy.rs, symbol: mcp_policy_activation_requires_operator_transport_grant_and_exact_retry}
+  - {kind: test, path: tests/unit/integrations/mcp/policy.rs, symbol: mcp_policy_restart_namespaces_receipts_when_authorization_ids_repeat}

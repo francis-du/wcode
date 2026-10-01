@@ -1,0 +1,44 @@
+schema_version: 1
+id: component:change-acceptance
+name: Revision-bound OSS Change Acceptance
+responsibilities:
+  - Evaluate the approved local Policy against complete native change, verification and evidence snapshots without accepting imported JSON as authority.
+  - Preserve required, discovered, mapped, executed, skipped, failed and stale verification facts and distinct human decisions.
+  - Produce bounded revision-aware Change Acceptance Records and history, with structured blocking reasons and actionable navigation.
+  - Keep Git provider publication outside the deterministic acceptance engine and commercial dependencies outside OSS.
+  - Authenticate bounded original GitHub PR delivery bytes and exact enrollment routing without promoting signatures, sender labels or replayed payloads into engineering proof.
+  - Expose installed GitHub preflight and exact-candidate publication with separate configuration, read-only diagnostics and unchanged native authority.
+  - Reconcile one fixed candidate against fresh native authority in a supervised foreground controller, reuse only its owned Check, and distinguish confirmed denial from unavailable remote state.
+  - Receive authenticated bounded events into a private durable inbox with body-digest deduplication, independent diagnostics, retry recovery and no cached acceptance authority.
+  - Coordinate cooperative same-state-root publishers through nonblocking OS guards, without consuming delivery retries for contention or claiming distributed fencing.
+  - Archive terminal signed payloads only after durable export while retaining bounded online replay identities and explicit schema migration.
+  - Renew optional dedicated-App installation credentials with exact repository and permission scope, shared bounded exchange, explicit failure and no automatic Check replay.
+  - Validate a bounded credential-free Workspace GitHub publisher enrollment so setup and the isolated publisher share one exact repository/App/Check identity without granting remote or Acceptance authority.
+constraints:
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-COMMERCIAL-BOUNDARY
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+implementation:
+  - {kind: file, path: src/verification/acceptance.rs}
+  - {kind: file, path: src/runtime/harness/acceptance.rs}
+  - {kind: file, path: src/runtime/harness/policy_select.rs}
+  - {kind: file, path: src/verification/acceptance_native.rs}
+  - {kind: file, path: src/verification/acceptance_store.rs}
+  - {kind: file, path: src/intelligence/runtime/acceptance_plan.rs}
+  - {kind: file, path: src/integrations/mcp/dispatch/acceptance.rs}
+  - {kind: file, path: src/integrations/git/mod.rs}
+  - {kind: file, path: src/integrations/git/enrollment.rs}
+  - {kind: file, path: src/integrations/git/github.rs}
+  - {kind: file, path: src/integrations/git/credentials.rs}
+  - {kind: file, path: src/integrations/git/preflight.rs}
+  - {kind: file, path: src/integrations/git/watch.rs}
+  - {kind: file, path: src/integrations/git/publish_lock.rs}
+  - {kind: file, path: src/integrations/git/webhook.rs}
+  - {kind: file, path: src/integrations/git/inbox.rs}
+  - {kind: file, path: src/integrations/git/inbox_archive.rs}
+  - {kind: file, path: src/integrations/git/receiver.rs}
+  - {kind: file, path: src/app/github_inbox.rs}
+  - {kind: file, path: src/app/github_worker.rs}
+  - {kind: file, path: src/app/github.rs}
+  - {kind: file, path: src/app/acceptance.rs}

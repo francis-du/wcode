@@ -3,7 +3,6 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
-use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -224,21 +223,8 @@ fn valid_resource(value: &str) -> bool {
         && url.password().is_none()
 }
 
-fn state_root() -> Result<PathBuf> {
-    if let Some(path) = env::var_os("WCODE_STATE_DIR").filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(path));
-    }
-    if cfg!(target_os = "windows") {
-        let base = env::var_os("LOCALAPPDATA")
-            .or_else(|| env::var_os("USERPROFILE"))
-            .context("LOCALAPPDATA and USERPROFILE are not set")?;
-        return Ok(PathBuf::from(base).join("wcode"));
-    }
-    if let Some(base) = env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(base).join("wcode"));
-    }
-    let home = env::var_os("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local/state/wcode"))
+pub(crate) fn state_root() -> Result<PathBuf> {
+    Ok(crate::core_types::authority_state_root()?)
 }
 
 fn secure_file_metadata(path: &Path) -> Result<fs::Metadata> {

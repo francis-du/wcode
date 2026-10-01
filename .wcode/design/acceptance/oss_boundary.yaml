@@ -1,0 +1,33 @@
+schema_version: 1
+id: AC-OSS-BOUNDARY-001
+title: OSS builds independently and commercial composition preserves engineering truth
+statement: >-
+  Actual OSS Cargo metadata and all local dependency kinds have no path to commercial packages or sibling private repositories; renamed, optional, workspace-inherited, target, build and dev edges and source inclusion attempts are rejected by architecture tests. Public wcode contains no commercial source files and preserves Apache-2.0. The first physical extraction owns ExecutionGitBinding plus required-check/report facts and authority/intelligence state-root derivation in crates/core-types; Evidence no longer imports Verification for immutable binding/check ownership, Workspace safety no longer discovers authority roots through Evidence/Auth stores, verification::change keeps its established public path, and root/offline packaging consumes the same source owner without duplicating definitions. Neutral report_types/model_tools/telemetry/job-observation contracts remove Intelligence-to-Harness and core-runtime-to-UI-monitor ownership edges while TaskMonitor remains an OSS Product adapter. MCP durable TaskRecord keeps its existing persistence/wire schema and AppState remains host composition; neither is promoted into canonical verification truth. The standalone gate validates both package inventories, safely builds an aggregate commercial-free OSS workspace offline, independently creates and inspects the wcode-core-types Cargo package, and compares repacked source bytes. Team and Enterprise consume the same bounded OSS snapshot evaluator; malformed or partial state fails closed and commercial code cannot upgrade deterministic truth. This proves the current boundary and extraction sequence, not deployment isolation or a remote merge gate.
+verification:
+  - {kind: test, path: tests/architecture.rs, symbol: oss_dependency_graph_has_no_commercial_edges}
+  - {kind: test, path: tests/architecture.rs, symbol: oss_source_and_logical_ownership_stay_independent}
+  - {kind: test, path: tests/architecture.rs, symbol: oss_package_and_license_exclude_commercial_source}
+  - {kind: test, path: tests/architecture.rs, symbol: package_assets_cannot_follow_external_symlinks}
+  - {kind: test, path: tests/architecture.rs, symbol: reverse_dependency_alias_optional_target_build_and_transitive_paths_fail}
+  - {kind: test, path: tests/architecture.rs, symbol: inherited_workspace_reverse_dependency_fails}
+  - {kind: test, path: tests/architecture.rs, symbol: source_include_and_feature_bypasses_fail_but_comments_do_not}
+  - {kind: test, path: tests/architecture.rs, symbol: oss_path_dependency_cannot_escape_to_sibling_commercial_repository}
+  - {kind: test, path: tests/architecture.rs, symbol: oss_patch_and_replace_overrides_fail_before_dependency_resolution}
+  - {kind: test, path: tests/architecture.rs, symbol: automatic_build_script_cannot_include_commercial_source}
+  - {kind: test, path: tests/architecture.rs, symbol: explicit_external_compile_targets_fail_for_all_cargo_entry_kinds}
+  - {kind: test, path: tests/architecture.rs, symbol: transitive_oss_dependency_cannot_include_commercial_source}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_matches_native_engine_without_mutation}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_preserves_stale_partial_and_legacy_blockers}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_missing_or_skipped_check_is_not_pass}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_keeps_failure_over_narrower_or_equal_time_pass}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_self_reported_human_decision_is_not_authority}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_rejects_workspace_and_plan_mismatch}
+  - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_rejects_bounded_count_record_and_state_overflow}
+  - {kind: test, path: tests/unit/architecture/standalone.py, symbol: SourcePackageSafety}
+  - {kind: test, path: tests/oss_split.rs, symbol: extracted_git_binding_preserves_the_public_wire_shape_and_validation}
+  - {kind: test, path: tests/oss_split.rs, symbol: evidence_no_longer_depends_on_the_verification_module_for_git_binding}
+  - {kind: test, path: tests/oss_split.rs, symbol: authority_state_root_contract_no_longer_depends_on_store_modules}
+  - {kind: test, path: tests/oss_split.rs, symbol: intelligence_no_longer_depends_on_harness_report_or_capability_owners}
+  - {kind: test, path: tests/oss_split.rs, symbol: runtime_core_uses_neutral_telemetry_ports_instead_of_ui_monitor_types}
+  - {kind: test, path: tests/oss_split.rs, symbol: extracted_core_types_crate_stays_dependency_light_and_oss_only}
+  - {kind: check, id: rust-test}

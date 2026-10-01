@@ -776,7 +776,7 @@ fn help_and_footer_render_project_and_author_links() {
         .collect::<String>();
     assert!(text.contains("github.com/francis-du/wcode"));
     assert!(text.contains("@francis-du"));
-    assert!(text.contains("SLOTS 2 / 8"));
+    assert!(text.contains("SLOTS 0 / 4") && text.contains("RUN 2"));
     assert!(text.contains("PEAK 2"));
     assert!(text.contains("Pairing code 123456"));
     assert!(text.contains("INSTANCE"));

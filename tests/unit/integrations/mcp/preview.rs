@@ -39,6 +39,7 @@ async fn audit_verification_options_reject_invalid_explicit_values_before_execut
             "invalid {key} must be rejected directly: {error}"
         );
     }
+    assert_eq!(verification_options(&json!({})).unwrap().2, 600);
     assert!(verification_options(&json!({"timeout_seconds": 1800})).is_ok());
     assert!(state.workspaces.authorization_requests(10).is_empty());
 }

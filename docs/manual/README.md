@@ -8,9 +8,11 @@ alternate: /zh/docs/
 permalink: /docs/
 ---
 
-# Make any coding agent understand your repo before it changes it
+# Make AI-generated code shippable with evidence
 
 **wcode gives coding agents the task-ready context, real code relationships, guarded actions, and revision-bound proof they are usually missing.** Use the agent you already like; wcode helps it understand first, change less, and prove the result instead of rebuilding a partial picture from grep, file dumps, and chat history.
+
+wcode is an **Engineering Control Plane for AI-generated code**, serving the loop **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. Its first commercial scenario, **AI Change Acceptance**, is being developed from the existing core; the unified Acceptance Record, project policy and external merge gate are not a completed pilot workflow. See the [commercial capability audit, architecture and P0/P1/P2 plan](research-upgrades/#ai-change-acceptance-commercial-architecture-2026-09-30).
 
 ## Five-minute mental model
 
@@ -19,7 +21,7 @@ wcode is easiest to understand as five layers around the coding model:
 1. **Understand** — `agent_context` combines task-aware retrieval, Design State, code relationships, tests, verified history, and exact edit targets.
 2. **Change** — Workspace policy keeps edits bounded, SHA-guarded, root-scoped, and explicit about authority.
 3. **Prove** — focused quick checks give fast feedback; deterministic full verification remains the final broad gate.
-4. **Learn** — only stable verified changes may teach the local Experience Graph; failed or incomplete work does not become memory.
+4. **Learn** — stable verified changes improve the Experience Graph; bounded native failures feed [model-independent corrective advice](failure-memory/) without becoming evidence of success.
 5. **Observe** — Engineering Observatory acts as a project digital twin: architecture blueprint, live engineering flow, Vibe Coding change story, drift, provenance, risk, and current-revision proof without requiring an IDE.
 
 ![wcode Engineering Control Plane loop](/assets/wcode-engineering-loop.svg)
@@ -54,10 +56,16 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 
 ## Core concepts
 
+- [AI Change Acceptance commercial audit](research-upgrades/#ai-change-acceptance-commercial-architecture-2026-09-30) — current capability maturity, unified acceptance architecture, trusted actors and execution receipts, external merge gate and P0/P1/P2 plan; incomplete capabilities remain explicit.
+
 - [Read-only Change Inspection](change-inspection/) — inspect source diffs, symbols, impact, and proof inside Current changes, with explicit comparison layers and snapshot identity.
 
 - [IDE independent observability](ide-independent-observatory/) — official product comparisons, implemented attention and source navigation, verification boundaries, and the remaining observation gaps.
 
+- [Change Acceptance](change-acceptance/) — current native Record, candidate-bound checks, blockers, retained history and external gate boundaries.
+- [Local Acceptance Policy](acceptance-policy/) — native preview, exact operator approval, protected generation history and explicit remaining enforcement boundaries.
+- [OSS / Commercial boundaries](oss-boundary/) — public source-control ownership, one-way contracts, independent builds and license boundaries.
+- [Architecture and module boundaries](architecture-boundaries/) — enforceable file/module/directory/crate/repository split signals surfaced by `convention_status`.
 - [Product Scopes](product-scopes/) — product capabilities and source-ownership boundaries.
 - [Agentic Engineering](agentic-engineering/) — short instructions, on-demand context, parallel execution, and deterministic verification.
 - [Language Quality](language-quality/) — one capability matrix for all 22 indexed languages: syntax, validated semantics, format, lint, types, static analysis, tests, security, and advanced verification, with explicit gaps instead of a Rust-centric support bit.

@@ -19,6 +19,7 @@ depends_on:
   - component:verification-mesh
 implementation:
   - {kind: file, path: src/runtime/execution.rs}
+  - {kind: file, path: src/runtime/execution_view.rs}
   - {kind: file, path: src/runtime/worklist.rs}
   - {kind: file, path: src/reconciliation/approval.rs}
   - {kind: file, path: src/intelligence/runtime/approval.rs}

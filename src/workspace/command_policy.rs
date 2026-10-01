@@ -845,6 +845,9 @@ pub(super) fn scrub_sensitive_environment(
             || upper.contains("TOKEN")
             || upper.contains("SECRET")
             || upper.contains("PASSWORD")
+            || upper.contains("CREDENTIAL")
+            || upper.contains("PRIVATE_KEY")
+            || upper == "WCODE_GITHUB_APP_KEY_FILE"
             || upper.ends_with("_KEY")
             || upper.starts_with("AWS_")
             || upper.starts_with("AZURE_")

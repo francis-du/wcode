@@ -114,14 +114,16 @@ pub(super) fn refresh_access_token(
         let Some(saved) = tokens.get(&refresh) else {
             return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
         };
-        if saved.resource.as_deref().is_none_or(|resource| {
-            !state
-                .public_endpoints
-                .equivalent_mcp_resources(resource, expected_resource)
-        }) || form
-            .client_id
-            .as_deref()
-            .is_some_and(|client_id| client_id != saved.client_id)
+        if !credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, epoch_ms())
+            || saved.resource.as_deref().is_none_or(|resource| {
+                !state
+                    .public_endpoints
+                    .equivalent_mcp_resources(resource, expected_resource)
+            })
+            || form
+                .client_id
+                .as_deref()
+                .is_some_and(|client_id| client_id != saved.client_id)
             || form.resource.as_deref().is_some_and(|resource| {
                 !state
                     .public_endpoints
@@ -179,6 +181,10 @@ fn issue_tokens_locked(
     let now = epoch_ms();
     {
         let mut tokens = state.access_tokens.lock().expect("token lock poisoned");
+        tokens.retain(|_, saved| credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now));
+        if rotated_refresh.is_some() {
+            tokens.retain(|_, saved| saved.client_id != client_id || saved.owner_id != owner_id);
+        }
         if tokens.len() >= MAX_ACCESS_TOKENS {
             if let Some(oldest) = tokens
                 .iter()
@@ -200,6 +206,7 @@ fn issue_tokens_locked(
     }
     {
         let mut tokens = state.refresh_tokens.lock().expect("refresh lock poisoned");
+        tokens.retain(|_, saved| credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now));
         if let Some(rotated) = rotated_refresh {
             tokens.remove(rotated);
         }
@@ -230,11 +237,180 @@ fn issue_tokens_locked(
         tracing::error!(%error, "cannot persist OAuth tokens");
         return oauth_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error");
     }
-    Json(json!({
+    let mut response = Json(json!({
         "access_token": access,
         "token_type": "Bearer",
         "refresh_token": refresh,
+        "expires_in": ACCESS_TOKEN_TTL_MS / 1_000,
         "scope": "mcp",
     }))
-    .into_response()
+    .into_response();
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().expect("static header"));
+    response
+        .headers_mut()
+        .insert("pragma", "no-cache".parse().expect("static header"));
+    response
+}
+
+#[derive(Serialize)]
+struct OAuthSession {
+    id: String,
+    client_id: String,
+    resource: Option<String>,
+    access_count: usize,
+    refresh_count: usize,
+    access_expires_at_ms: Option<u64>,
+    refresh_expires_at_ms: Option<u64>,
+}
+
+fn oauth_session_id(client_id: &str, owner_id: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"wcode-oauth-session-v1\0");
+    digest.update(client_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(owner_id.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
+fn operator_request_allowed(state: &AuthState, headers: &HeaderMap) -> bool {
+    state.request_public_url(headers).is_some()
+        && state.origin_allowed(headers)
+        && state.ui_authorized(headers)
+}
+
+fn private_json(value: serde_json::Value) -> Response {
+    let mut response = Json(value).into_response();
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().expect("static header"));
+    response
+}
+
+pub(super) async fn oauth_sessions(
+    State(state): State<Arc<AuthState>>,
+    headers: HeaderMap,
+) -> Response {
+    if !operator_request_allowed(&state, &headers) {
+        return oauth_error(StatusCode::FORBIDDEN, "operator_authorization_required");
+    }
+    let _mutation = state
+        .mutation_lock
+        .lock()
+        .expect("auth mutation lock poisoned");
+    let now = epoch_ms();
+    let mut sessions = std::collections::BTreeMap::<String, OAuthSession>::new();
+    for saved in state
+        .access_tokens
+        .lock()
+        .expect("token lock poisoned")
+        .values()
+    {
+        if !credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now) {
+            continue;
+        }
+        let id = oauth_session_id(&saved.client_id, &saved.owner_id);
+        let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
+            id,
+            client_id: saved.client_id.clone(),
+            resource: saved.resource.clone(),
+            access_count: 0,
+            refresh_count: 0,
+            access_expires_at_ms: None,
+            refresh_expires_at_ms: None,
+        });
+        session.access_count += 1;
+        session.access_expires_at_ms = Some(
+            session
+                .access_expires_at_ms
+                .unwrap_or(0)
+                .max(saved.issued_at_ms.saturating_add(ACCESS_TOKEN_TTL_MS)),
+        );
+    }
+    for saved in state
+        .refresh_tokens
+        .lock()
+        .expect("refresh lock poisoned")
+        .values()
+    {
+        if !credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now) {
+            continue;
+        }
+        let id = oauth_session_id(&saved.client_id, &saved.owner_id);
+        let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
+            id,
+            client_id: saved.client_id.clone(),
+            resource: saved.resource.clone(),
+            access_count: 0,
+            refresh_count: 0,
+            access_expires_at_ms: None,
+            refresh_expires_at_ms: None,
+        });
+        session.refresh_count += 1;
+        session.refresh_expires_at_ms = Some(
+            session
+                .refresh_expires_at_ms
+                .unwrap_or(0)
+                .max(saved.issued_at_ms.saturating_add(REFRESH_TOKEN_TTL_MS)),
+        );
+    }
+    private_json(
+        json!({"sessions": sessions.into_values().collect::<Vec<_>>(), "authority": "local_operator"}),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RevokeSessionInput {
+    pub(super) session_id: String,
+}
+
+pub(super) async fn oauth_session_revoke(
+    State(state): State<Arc<AuthState>>,
+    headers: HeaderMap,
+    Json(input): Json<RevokeSessionInput>,
+) -> Response {
+    if !operator_request_allowed(&state, &headers) {
+        return oauth_error(StatusCode::FORBIDDEN, "operator_authorization_required");
+    }
+    if input.session_id.len() != 64
+        || !input
+            .session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return oauth_error(StatusCode::BAD_REQUEST, "invalid_session_id");
+    }
+    let _mutation = state
+        .mutation_lock
+        .lock()
+        .expect("auth mutation lock poisoned");
+    let removed_access = {
+        let mut saved = state.access_tokens.lock().expect("token lock poisoned");
+        let before = saved.len();
+        saved.retain(|_, grant| {
+            oauth_session_id(&grant.client_id, &grant.owner_id) != input.session_id
+        });
+        before - saved.len()
+    };
+    let removed_refresh = {
+        let mut saved = state.refresh_tokens.lock().expect("refresh lock poisoned");
+        let before = saved.len();
+        saved.retain(|_, grant| {
+            oauth_session_id(&grant.client_id, &grant.owner_id) != input.session_id
+        });
+        before - saved.len()
+    };
+    // Do not restore live credentials after a failed revoke write or acknowledge durability.
+    if state.persist().is_err() {
+        tracing::error!("cannot persist OAuth session revocation");
+        return oauth_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "revocation_not_persisted",
+        );
+    }
+    private_json(
+        json!({"revoked": true, "removed_access": removed_access, "removed_refresh": removed_refresh}),
+    )
 }

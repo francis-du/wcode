@@ -11,6 +11,8 @@ pub struct DesignStatus {
     pub workspace: String,
     pub initialized: bool,
     pub valid: bool,
+    pub operational: bool,
+    pub operational_blockers: Vec<String>,
     pub schema_version: u32,
     pub design_root: String,
     pub files_loaded: usize,
@@ -819,6 +821,8 @@ pub struct ProjectObservatory {
     pub workspace: String,
     pub root: String,
     pub repository_revision: crate::evidence::Revision,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<crate::verification::acceptance::ChangeAcceptanceRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

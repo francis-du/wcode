@@ -1,0 +1,7 @@
+schema_version: 1
+id: AC-DISCOVERY-COMPLETE-001
+title: Partial repository discovery cannot pass a complete verification matrix
+statement: Bounded repository discovery explicitly reports missing, invalid, unreadable or over-limit inputs. A partial scan must add an unmet deterministic requirement to quick and full native verification while preserving independent checks that actually executed. An available subset of project islands or checks cannot become a whole-project pass, native full receipt success or ready decision. Source fingerprints and parser inputs use the same captured bounded bytes; this is not an atomic filesystem snapshot. Native metadata evaluation is explicitly recorded as executed without inventing a process exit code; unknown, unavailable or timed-out process results cannot become passing Evidence merely by claiming execution.
+verification:
+  - {kind: test, path: tests/unit/runtime/harness/discovery_gate.rs, symbol: partial_discovery_cannot_pass_native_verification}
+  - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: process_execution_labels_without_exit_results_cannot_mint_passing_evidence}

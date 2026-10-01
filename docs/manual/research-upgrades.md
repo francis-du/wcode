@@ -253,3 +253,223 @@ Regression tests cover diagnostic-line retention at 1,000/1,400/4,000-token budg
 Run `review_changes` followed by `verify_project(level="full")`. The full Rust gate includes `cargo clippy --locked --all-targets -- -D warnings` so test code receives the same Clippy coverage as CI. Inspect the actual test report and revision-bound evidence; this document does not itself attest that a particular build passed.
 
 No universal latency, token-cost or solve-rate improvement is claimed. Measure context hit quality, tool round trips, payload size and wall-clock time separately on representative repositories before assigning a speedup. New runtime smoke tests and the cross-platform CI matrix remain necessary before publishing these changes.
+
+## AI Change Acceptance commercial architecture (2026-09-30)
+
+This is an audited target design and implementation plan, not a claim that the commercial workflow is shipped. Source baseline: `ce698df`, plus the preserved uncommitted source-inspection, TUI JobView and Web Jobs skeleton. The successful `c7a3d3f` CI/audit proves that earlier commit only. No release, tag, billing or hosted deployment is authorized by this plan.
+
+### A. Current capability map
+
+Maturity: **Complete** means the stated bounded contract is implemented; **Partial** means a usable implementation has material gaps; **Foundation** means the engine exists without the required product entry; **Missing** means no implementation was found; **Exclude** means outside this product's intended scope. All maturity statements below describe the audit baseline.
+
+| Capability | Current implementation | Maturity | Reusable components | Gap | Commercial importance |
+| --- | --- | --- | --- | --- | --- |
+| Engineering Control Plane positioning | README, Product State, software-intelligence manual | Partial | README / ProjectDesign / Product Scopes | Lead with acceptance of an AI change; preserve agent neutrality | Core |
+| Understand → Change → Inspect | MCP workflow prompts, agent_context, guarded writes, change review | Complete | ToolHarness / Workspace | These operations alone do not produce a Change Acceptance Record | Core |
+| Product ownership | 12 Product Scopes, source/test ownership and gate | Complete | scopes / convention_status | Reuse scopes; no parallel acceptance ownership taxonomy | Core |
+| Design State | Requirements, components, constraints, ADRs, AcceptanceCriterion | Complete | DesignState / AcceptanceCriterion | Criterion verification refs are mappings, not executed proof | Core |
+| Software Graph | Syntax graph, snapshots, bounded impact traversal | Complete | CodeIndex / SoftwareGraphSnapshot | Preserve syntax/provider precision and partial coverage | Core |
+| Semantic navigation | Optional provider capability, provenance and freshness | Partial | semantic_navigation / graph_provider_store | Availability depends on installed provider; never infer semantic certainty | High |
+| Traceability | Requirement/component/implementation/AC mappings | Complete | RequirementTrace / TraceResolutionSnapshot | Structural coverage must stay separate from execution coverage | Core |
+| Risk | Revision-bound heuristic profiles and escalation | Partial | Risk / VerificationProfile | Risk is advisory context; cannot clear deterministic failure | Core |
+| Change inspection | Staged/unstaged/untracked diff, files/symbols/impact/source | Complete | ChangeReviewReport / worktree status | Bounded and snapshot-aware; newly dirty editor changes still need final gates | Core |
+| Verification discovery | ProjectContext, CheckSpec, languages/islands/native check discovery | Complete | ProjectProfile / CheckSpec | Policy must select exact required check IDs and execution levels | Core |
+| Verification execution | verify_project; bounded no-shell runner; failed/skipped/reused reports | Complete | ToolHarness::verify_project / VerificationReport | Core runner preserves skipped failure and detects revision changes | Core |
+| Exact AC test execution | analysis mapping and generated AC Evidence | Partial | VerificationRef / execution receipt | A generic test check can currently imply other mapped tests ran | Critical |
+| Plan-strength enforcement | VerificationPlan, VerificationStatus, execution floor | Partial | VerificationPlan / Execution floor | Aggregate quick Pass does not prove every full-plan check executed | Critical |
+| Stage automation | Property/mutation/fuzz adapters and stage targets | Partial | StageExecutorRegistry / stage targets | Missing tooling remains automation gap; external reports need trusted receipts | High |
+| Evidence ledger | Revision, kind, producer, confidence, targets, bounded persistence | Partial | Evidence / evidence_store | Producer strings/digests are not authenticated execution identities | Critical |
+| Evidence freshness | Code + Design hash, effective/current aggregation | Complete | Revision / latest_current | Add Git head/base/tree and policy binding to acceptance envelope | Critical |
+| Human approval | verification_approve and frozen reconciliation snapshot | Partial | AuthorizationManager / plan digest | Caller-supplied confirmed/approver does not authenticate a human | Critical |
+| Independent review | Role jobs, claims, review submissions, disagreement | Partial | VerificationJob / ReviewerRole | Client names are forgeable; blind flag has no result access isolation | High |
+| Reconciliation | Desired-state drift, frozen plan, execution and readiness gate | Partial | ReconciliationPlan / ApprovedPlanSnapshot | Reuse gate after authority and coverage hardening | Core |
+| Local release gate | Design, scope, convention and structural coverage checks | Complete | release_gate / Scope / Convention | Not a customer merge gate; mapped coverage does not prove tests ran | High |
+| Change Acceptance Record | Existing evidence/status/review inputs | Missing | VerificationStatus / Evidence / Risk | One immutable, explainable revision-bound decision model | Critical |
+| Project Acceptance Policy | Design acceptance, risk profile, check refs, runtime policy | Foundation | ProjectDesign / AcceptanceCriterion / Risk | Versioned deterministic selection, trusted policy baseline, exceptions | Critical |
+| GitHub external merge gate | Own CI; bounded GitHub reads and repository workflow | Missing | Git reader / existing CI | Commit-bound publisher, PR events, required App check and stale handling | Critical |
+| Other Git providers | Vendor-neutral core | Missing | Provider-neutral core | Adapter contract now; GitLab/Bitbucket later | Later |
+| Team organizations and projects | Workspace registry | Missing | Workspaces registry | Organization/member/project identity and scoped authorization | High |
+| High-risk team roles | Command/risky/delete authorization | Foundation | AuthorizationManager | Owner/Admin/Developer/Reviewer/Viewer mapped to real operations | High |
+| Engineering journal | Bounded append-oriented milestone JSON | Partial | Engineering milestones / journal | No verified actor, policy/exception event, chain/checkpoint or audit export | High |
+| OAuth connection | Access/refresh grants, client binding, refresh rotation | Partial | AuthState / PublicEndpoints / auth tokens | No time expiry/revoke/session UI; old access remains after refresh | Critical |
+| Workspace access | Root/path guards and read-only enforcement | Complete | Workspace / Workspaces / fs_safety | Single operator chooses roots; OAuth client has no per-root principal ACL | Critical |
+| Command boundary | Direct argv, policy shapes, authorization, process limits | Complete | CommandResult / run_command | Ordinary repo builds/scripts run as host user; not OS tenant isolation | Critical |
+| Full Access / broad sandbox | macOS Seatbelt / Linux bubblewrap broad-command lane | Partial | WorkspaceSecurity / authorization | Does not isolate ordinary builds/LSP or shared authority state | Critical |
+| Protected paths / redaction | fs_safety, environment/content/header redaction | Partial | fs_safety / redaction | Runtime authority state needs protection; redaction is not write isolation | Critical |
+| Remote MCP / tunnel | OAuth, endpoint provenance, local probe and provider recovery | Partial | AppState / AuthState / tunnel health | Detailed anonymous health currently discloses roots/launch profiles | Critical |
+| LSP execution | Capability probes, bounded children, scrubbed environment | Complete | semantic providers / command execution | Installed LSP process retains host-user access | High |
+| Evidence storage isolation | User-state, permissions, bounded records | Partial | workspace_state_directory / Evidence | Same-user scripts can modify local authority state; not tamper-proof | Critical |
+| Engineering Observatory | Attention, change/source bridge, evidence inspector, graph | Partial | ProjectObservatory / ProjectAttentionView | Default architecture page; no unified current-change decision or actions | Core |
+| Acceptance → file → symbol | Typed AC path/symbol/provider refs and source bridge | Foundation | FeatureAcceptanceView / source bridge | AC rows are not actionable; retain selected change/revision throughout | Core |
+| TUI | Attention/proof/agents/provider views and Web handoff | Partial | TaskMonitor / console | No unified acceptance summary; JobView adapter not connected | High |
+| Web Jobs | Empty hosts and state/CSS skeleton | Missing | TaskRuntime / TaskRecord | No backend/API/module; not a delivered task console | Deferred |
+| Setup connection | Config preview/merge, agent setup hub, guarded configuration | Complete | Setup / agent_install | Public setup is a connection guide, not an approval authority | Core |
+| First acceptance onboarding | Native discovery and setup primitives | Foundation | ProjectProfile / setup planning | Dry-run suggestion → confirm → first revision-bound result | Core |
+| Agent integrations | Provider-neutral MCP, plugins/configs, implement/review/verify prompts | Partial | MCP / agent_plugin / agent_install | Host-version OAuth E2E is not implied by config tests; acceptance entry missing | Core |
+| Multi-agent work | Worklist CAS, scoped claims, private lease tokens, bounded results | Complete | Worklist / writer lease / task claim | Host spawns agents; reports do not become verification evidence | High |
+| Context efficiency | Bounded context, progressive schemas, compact acknowledgements | Complete | Agent Context / tool manifest | Byte/4 estimates do not establish billed token savings or model success | High |
+| Pilot metrics / export | Engineering Fitness and milestone foundations | Foundation | Engineering Fitness / journal | Acceptance counts, missing/stale findings and measured durations | High |
+| Vendor telemetry | Local engineering observations | Missing | Local runtime observation | Optional explicit schema and opt-in sink; no default source upload | Later |
+| Release pipeline / tests | Three-platform CI, native browser, adversarial artifacts | Complete | GitHub Actions / release contracts | Each result applies to its precise SHA; no current release requested | Core |
+| Own agent/IDE/chat/billing/remote shell | Not required for acceptance | Exclude | No component needed | Preserve useful OSS inspection/editing; stop expanding unrelated product surface | None |
+
+Audit sources: [Verification runtime](../../src/intelligence/runtime/design.rs), [analysis](../../src/intelligence/analysis.rs), [Verification protocol](../../src/verification/mod.rs), [Evidence](../../src/evidence/mod.rs), [Evidence store](../../src/evidence/store.rs), [journal](../../src/evidence/journal.rs), [authorization](../../src/workspace/authorization.rs), [OAuth](../../src/integrations/auth/mod.rs), [runtime](../../src/integrations/mcp/mod.rs), [command execution](../../src/workspace/operations/execution.rs), [setup](../../src/app/setup.rs), [release gate](../../src/intelligence/release_gate.rs), and current Design/Worklist/tool reports. Findings are source-call-chain observations, not a completed exploit test.
+
+### B. Target product architecture
+
+The first commercial scenario is **AI Change Acceptance**. The outcome is: make AI-generated code shippable with evidence. Existing coding agents remain replaceable. The product loop is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**.
+
+| Layer | Responsibility | Authority |
+| --- | --- | --- |
+| Existing Apache-2.0 OSS core | Workspace, Design, graph, risk, guarded changes, real verification, Evidence, reconciliation | Preserve current bounds, guards and deterministic failure precedence |
+| Acceptance layer, OSS | Harden existing VerificationStatus; deterministic policy selection; Change Acceptance projection/history/export | One canonical engine over existing plans/evidence; no second executor or front-end green-light algorithm |
+| Team layer | Verified actors, organization/project membership, policy changes, human decisions, shared history/audit | Project-scoped permissions, explicit separation of author and reviewer where policy requires it |
+| Integration layer | Trusted execution receipts, GitHub App publisher, PR revision synchronization | Provider adapter cannot weaken core decision; credentials stay outside untrusted workers |
+| Optional hosted layer | Shared coordination, operational management, federation and optional metrics | Explicit deployment/data contract; never required for useful local OSS acceptance |
+
+`stable` in the requirement view means structural convergence, not Accepted. `passed/fresh` aggregate counters can include historical records, so they must not decide current acceptance. Reconciliation and Execution continue consuming the same hardened Verification decision.
+
+Policy is a versioned extension of existing project Design acceptance, verification refs and risk constraints. It references existing component/requirement/AC/check identities. No arbitrary executable policy hooks or second requirements database. A customer policy is selected from a trusted approved baseline, not silently weakened by the PR being evaluated.
+
+### C. Data model and deterministic decision contract
+
+These are target contracts, not currently available APIs.
+
+| Model | Reuse / addition | Required contents and invariants |
+| --- | --- | --- |
+| Acceptance | New envelope over existing ChangeReviewReport, VerificationStatus, Risk and Evidence | Schema/id/project/workspace/repository, base/head/tree, dirty code hash + Design hash, policy version/digest, captured time, verified actor/producer/optional agent identity, bounded changes/impact/precision, verification items, evidence refs, human decisions and final decision |
+| Policy | Extend project Design State | Version/id/digest, selectors over paths/components/requirements/ACs, exact required checks/stages/levels, human-review/risk rules, explicit docs-only rules, allowed exceptions, immutable core constraints; sorted deterministic matches |
+| Actor | New authenticated authority type | ID, kind (operator/agent/integration/system), authentication source, organization/project permissions, optional verified host identity; producer display text is never authority |
+| Organization | New Team model | ID, members/roles, projects and policy/integration ownership; local single operator remains supported |
+| Project | Extend Workspace identity with Team binding | Stable ID, canonical repository identity, roots, trusted policy source, deployment mode, membership and integration bindings; aliases do not grant cross-project access |
+| Audit Event | Extend journal storage mechanics with a typed audit stream | Event ID/time, actor, project, exact revisions, operation/outcome, evidence/acceptance/policy refs, exception reason, previous/event digest and export checkpoint; explicit retention gaps |
+| Integration | New provider adapter model | Provider/install/repository binding, capability scopes, credential reference, expiry/revoke state, trusted receipt authority, delivery/idempotency state; no raw secrets in records |
+
+Each verification item separates orthogonal facts:
+- **Selection:** required, discovered and mapped, with mapping precision/provider.
+- **Execution:** not_executed, running, completed, skipped or unavailable; check ID, runner/command receipt, scope, start/end and exit.
+- **Result:** pass, fail, inconclusive or unknown. A completed command is not automatically a passed test.
+- **Freshness:** current, stale or unbound; code, Design, Git target and policy relation.
+- **Authority:** internal executor, authenticated integration, operator, self_reported or legacy_unknown.
+
+Test path/symbol mappings are not execution receipts. Output tails and generic `cargo test` check names cannot prove an individual test ran, particularly when tests are filtered, ignored, skipped or from another language island. Command-level success can satisfy an explicit command-level requirement; test-specific requirements need exact runner coverage.
+
+Evidence retains producer, kind/type, revision, scope/targets, timestamp, freshness, source/artifact digest, precision/confidence, verification/check relation and authenticated receipt authority. Historical records without authority remain `legacy_unknown`; migration must not promote them. Evidence limits/truncation stay explicit.
+
+Human decision is approved, rejected, needs_review or exception_approved, separate from test result. A one-shot operator grant binds workspace/server instance, plan digest, code+Design revision, policy, decision and statement digest, with expiry and replay protection. MCP client confirmation and OAuth client identity alone do not prove a human participated. Full Access never grants HumanDecision. Exceptions name the waived policy rule and reason; they cannot turn a failed test into a pass or waive core identity/revision/authorization constraints.
+
+Final decision contains `status`, `blocking_reasons`, `warnings`, `required_actions`, `evidence_summary`, `verification_summary`, `risk_summary` and full revision identity. All reasons are retained even when one determines the primary status:
+1. Candidate revision/policy mismatch → **stale**.
+2. Current deterministic failure, rejected required review or violated core constraint → **blocked**.
+3. Required execution/receipt/discovery unavailable, partial identity or coverage → **incomplete**.
+4. Deterministic requirements satisfied but authenticated human/independent review missing → **needs_review**.
+5. All required current authoritative conditions satisfied → **ready**.
+
+The engine captures inputs before evaluation and rechecks them before persisting or publishing. A changed Git commit invalidates old Acceptance even if source bytes match. Dirty local acceptance binds its content hash and cannot authorize an uncommitted GitHub SHA. Partial bounded scans never produce ready by omission. Corrupt, oversized or missing Evidence must remain visible as incomplete input; a failed read of the newest Verification snapshot must not silently recover an older approved state. CAR evaluation needs explicit input-completeness provenance, rather than interpreting discarded records as an absence of failure.
+
+### D. Threat model
+
+| Threat | Current concern | Required mitigation / failure behavior |
+| --- | --- | --- |
+| Agent bypass | Prompt/Skill compliance is advisory | Required external Git check; core decision remains authoritative |
+| Stale revision | Code hash alone does not identify Git head | Base/head/tree + code/Design/policy binding, pre/post validation and stale records |
+| Forged approval | confirmed=true and arbitrary approver | Operator-issued one-shot grant; authenticated actor; MCP self-approval denied |
+| Fake verification | Arbitrary producer/verdict/digest/targets | Internal or authenticated receipt, precise checks/test coverage; self-reports advisory |
+| Hidden deterministic failure | Same-producer later Pass can replace Fail | Authenticate producer and receipt; only real trusted re-execution may supersede |
+| False independent review | Same client claims several names/roles | Opaque owner-bound claims, result visibility rules and policy separation of duties |
+| Policy downgrade | Agent edits policy/workflow in evaluated change | Approved baseline policy digest; policy changes need authorized review |
+| Compromised integration | Publisher credential or replayed callback | Least privilege App, verified delivery, repo/project/SHA binding, idempotency and revoke |
+| Cross-project access | OAuth client currently accesses exposed roots | Verified principal → project ACL; do not advertise current root registry as Team RBAC |
+| Credential leakage | Detailed public health; logs/state/build environment | Minimal public probe, authenticated diagnostics, redaction and protected credential references |
+| Command escape | Builds/LSP execute as host user | Honest local trust model; isolated worker UID/container/VM for shared deployments |
+| Evidence tampering | Same-user local state and unsigned JSON | Separate authority store, trusted receipt validation, chained/checkpointed exports; corruption incomplete |
+| Integration outage | Lost check publish or stale head query | Leave gate pending/failing, surface retry action; no success fallback |
+| Restart/concurrency | Expired grant, changed head or interrupted record write | Atomic writes, one-shot/restart invalidation, bounded queues and recovery tests |
+| Shared deployment | One process/OS user shares roots and authority | One tenant/operator boundary per runtime until real project ACL + worker isolation exists |
+
+Workspace path isolation is not an OS sandbox. The current broad-command sandbox does not isolate ordinary builds or LSP processes. Local mode assumes a trusted OS account and repository toolchain. A team-managed runtime requires explicit tenant/project identity and isolated workers; a dedicated deployment has its own authority state and credentials.
+
+Do not claim “source never leaves the device”: source returned through MCP may reach the chosen host/model; configured remote MCP/tunnel clients can receive it; optional providers and Git/CI integrations have their own data flows. Evidence/export may contain source-derived paths, summaries or output. Document destinations and user-configured retention.
+
+Audit is append-oriented and practically tamper-evident with chained digests and trusted checkpoints, not legally immutable. A same-user attacker can rewrite an unanchored chain. Bounded retention/export must expose missing history rather than silently claim completeness.
+
+### E. UX and external merge flow
+
+1. **Setup:** `wcode setup` detects repository/languages/native tests/CI/Git provider/agents, shows a dry-run policy suggestion and data destinations, then applies only confirmed configuration.
+2. **Change:** The developer uses their existing coding agent. wcode selects an explicit base and candidate revision; shows dirty/clean state and partial coverage.
+3. **Acceptance:** The authenticated home opens Current Change and one decision: status, required passed/missing/skipped/stale, risk, reasons and next actions.
+4. **Blocked / Inspect:** Select a blocking reason → associated AC/check → evidence or missing receipt → changed file → symbol, retaining project/revision/breadcrumb.
+5. **Verify:** Run exact required verification via existing bounded executor; show actual running/completed/skipped/unavailable, not mapped-as-run.
+6. **Human Review:** An operator sees the frozen candidate, policy and evidence; approves/rejects or explicitly requests an allowed exception. This never updates test outcome.
+7. **Ready:** Generate a new immutable record when conditions are satisfied. Historical decisions remain inspectable.
+8. **Merge:** The Git adapter verifies live PR head and trusted policy/record binding, publishes the corresponding Check, and branch protection enforces it.
+
+Advanced graph, metrics, execution and provider detail remain available through progressive disclosure. Reuse existing attention, evidence inspector and source bridge. Do not add generic charts or a second command terminal as substitutes for an acceptance action.
+
+**GitHub P0 design:** a trusted GitHub App publisher owns `checks:write` outside the PR worker. Checks bind `head_sha` and record/policy digests. Branch protection requires the named check from the expected App. Only internally **ready** yields success; blocked/incomplete/stale/needs_review never publish neutral, skipped or success. Missing required checks fail internally even though GitHub itself can accept neutral/skipped conclusions.
+
+Handle PR opened/reopened/synchronize, publisher retry and head changes. If merge queue is enabled, support `merge_group` and its synthetic merge SHA as a distinct candidate. Required-gate jobs have no path/commit skip filters, run despite upstream failures, and explicitly inspect failed/missing dependencies. Distinguish PR head from synthetic test merge commits; never relabel a receipt for one as proof for the other.
+
+Untrusted PR code receives no publisher credentials and cannot edit the approved policy or trusted wcode binary. A privileged `pull_request_target`/`workflow_run` publisher must not check out and run PR code. Artifacts supplied by a worker are untrusted until their execution authority and revision binding are verified; a self-authored hash or Pass JSON is insufficient. Local same-user artifacts must not be advertised as adversarially secure hosted receipts.
+
+Primary sources: [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches), [required-check behavior](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks), [Checks API](https://docs.github.com/en/rest/checks/runs), [Actions security](https://docs.github.com/en/actions/reference/security/secure-use). These inform the adapter; the core engine remains Git-provider-neutral.
+
+### F. Implementation plan
+
+Each task includes purpose, owner scope, dependencies, location, acceptance criteria, verification and material risk. These are planned tasks; none is complete merely because it appears below.
+
+**P0 — a real paid-pilot path**
+
+- **P0-A authority hardening.** Purpose: stop agent self-approval and forged external proof. Owner: verification/evidence/workspace/integrations. Dependencies: this audit. Location: existing MCP dispatch, AuthorizationManager, Verification/Evidence runtime. Acceptance: MCP booleans/producer strings cannot create authoritative human or deterministic proof; operator grant is exact/expiring/one-shot. Verify: impersonation, all-command bypass, replay, stale plan and restart failures. Risk: existing permissive clients need explicit migration; do not silently discard their reports.
+- **P0-B exact verification coverage.** Purpose: keep mapped/executed/skipped/failed separate. Owner: verification/traceability. Depends: P0-A authority semantics. Location: analysis, Verification runtime and focused tests. Acceptance: generic test Pass cannot prove a specific mapped test; quick cannot satisfy a full required plan; failed/skipped required checks block. Verify: filtered/ignored/cross-language/missing/reused/fail-fast/full-level cases. Risk: conservative legacy evidence becomes incomplete rather than ready.
+- **P0-C versioned policy and candidate identity.** Purpose: choose requirements deterministically. Owner: design/verification/workspace. Depends: A+B. Location: Design State extensions, existing check discovery and Git reader. Acceptance: policy digest/version, trusted baseline, docs-only/auth/payment rules, exact base/head/tree/dirty binding, partial scans block. Verify: rule ordering, policy downgrade, identical-content new SHA and concurrent edits. Risk: unclear base revision must be explicit.
+- **P0-D canonical Acceptance Record.** Purpose: explain why this revision can advance. Owner: verification/evidence/reconciliation. Depends: C. Location: shared status projection, bounded store/history/export. Acceptance: statuses/reasons/actions/provenance, immutable record digest and before/after guards; all consumers share one decision. Verify: old evidence/new revision, negative outcomes, truncation/corruption and interrupted writes. Risk: bounded history cannot imply complete lifetime audit.
+- **P0-E operator acceptance UX.** Purpose: one continuous decision-to-source workflow. Owner: experience/integrations. Depends: D+A. Location: existing TUI/WebUI, protected narrow operation routes. Acceptance: current change/status/required failures and actionable evidence/check/file/symbol navigation; authenticated human decision stays separate. Verify: unknown/stale/cross-workspace/late-response/permission/keyboard/native browser cases. Risk: public Setup and OAuth-agent identity are not approval channels.
+- **P0-F guided setup dry-run.** Purpose: reach a first record without empty YAML. Owner: experience/runtime/integrations/design. Depends: C+D. Location: existing setup/discovery/templates. Acceptance: repository/stack/CI/provider/agents detected, exact policy preview, explicit confirmation, unrelated config preserved. Verify: no-write dry-run, ambiguous repository/tool unavailable/read-only and config merge. Risk: discovery does not prove every host connected.
+- **P0-G GitHub external gate.** Purpose: enforce acceptance outside Agent cooperation. Owner: integrations/verification/workspace. Depends: A–D+F. Location: narrow provider adapter + trusted publisher/setup contract. Acceptance: required App check exact SHA, synchronize invalidation, only ready success, no privileged untrusted checkout/credentials. Verify: stale head, neutral/skipped, forged artifact, outage, retry, revoked credential and policy downgrade. Risk: installation/repository permission and secure worker boundary must be provisioned.
+- **P0-H deployability and minimal audit.** Purpose: explain pilot trust/data boundaries and decisions. Owner: workspace/evidence/integrations. Depends: A+D+G. Location: OAuth lifecycle, public health, protected state, typed decision events/export and deployment docs. Acceptance: expiry/revoke/session visibility, minimal anonymous probe, bounded authorization, verified actors and revision/policy decision history. Verify: expired/revoked/rotated access, saturation, cross-root denial for team mode, corrupt/recovery/export gaps. Risk: do not call same-user local runtime multi-tenant isolation.
+- **P0-I real pilot demo and acceptance.** Purpose: demonstrate enforceable business value. Owner: verification/experience/integrations. Depends: A–H. Location: isolated real repository/PR, real native verification and downloaded check/audit records. Acceptance: existing Agent changes repository → required check missing → real PR blocked → real verification executes → current Evidence → new Record → real PR ready; preserve both records and exact SHAs. Verify: full suite + stale/concurrent/bypass/authorization/integration outage/restart adversarial cases. Risk: no mock core decision, no historical CI substitute, no claim complete without real Git platform result.
+
+**P1 — team operations and commercial validation**
+
+- **P1-A organization/roles.** Purpose: shared responsibility. Owner: workspace/integrations. Depends: P0-H. Location: principal/project registry and protected operator APIs. Acceptance: Owner/Admin manage projects/integrations; policy edit and exception require explicit permission; Reviewer can review, Viewer inspect, Developer verify; per-project ACL. Verify: forbidden role/cross-project/self-review. Risk: avoid blanket RBAC over harmless reads.
+- **P1-B shared policy/history/audit.** Purpose: explain past allow/block decisions. Owner: design/evidence. Depends: P1-A+P0-D. Location: existing persistence/export plus chain/checkpoints. Acceptance: actor/policy/revision/exception lineage, bounded retention and explicit gaps, export validation. Verify: tamper/corrupt/missing/checkpoint/restart. Risk: no legal immutability claim.
+- **P1-C reviewer ownership and visibility.** Purpose: authentic independent review. Owner: verification/integrations. Depends: P1-A+P0-A. Location: existing claim/job/status protocol. Acceptance: private owner-bound leases, no reviewer impersonation, blind output filtered until eligible, author/reviewer separation. Verify: forged names, stolen public ID, duplicate actor, expiry and unauthorized result reads. Risk: host identity must be verified.
+- **P1-D pilot metrics.** Purpose: measured customer comparison. Owner: evidence/experience. Depends: P0-D+H. Location: bounded aggregation/export. Acceptance: acceptance/blocked/missing/stale/review/exception counts, raw measured verification duration and acceptance lead time with denominators/window. Verify: duplicate/idempotent events, missing history, no source payload. Risk: never invent saved hours/tokens/production bugs.
+- **P1-E operations and integrations.** Purpose: reliable renewals. Owner: integrations/runtime. Depends: P0-G+H. Location: credential rotation/revoke, delivery retry/health, backups/export/import/support runbooks. Acceptance: recoverable safe outages and bounded queues, visible integration state. Verify: revoked secrets, prolonged outage, retries, restore. Risk: secret handling outside agent worker.
+
+**P2 — optional scale, after the pilot**
+
+- **P2-A optional hosted coordination/enterprise auth.** Purpose: reduce shared deployment burden. Owner: integrations/workspace. Depends: P1-A/B/E. Location: optional service adapter and deployment model. Acceptance: SSO/federation verified actors, tenant worker/state separation and explicit data contracts. Verify: tenant escape/credential scope/recovery. Risk: no mandatory cloud dependency for OSS.
+- **P2-B GitLab/Bitbucket/CI adapters.** Purpose: reuse core acceptance across providers. Owner: integrations. Depends: proven P0-G adapter contract. Location: provider-specific revision/publisher adapters. Acceptance: same SHA/policy/failure/receipt invariants. Verify: provider stale/outage/branch-policy bypass. Risk: prioritize measured customer demand.
+- **P2-C privacy-preserving optional telemetry.** Purpose: measured product onboarding/operations. Owner: runtime/evidence. Depends: P1-D. Location: explicit configurable event sink. Acceptance: documented opt-in and disable; setup/repository/agent/acceptance/block/verification/stale/review/exception/gate events only, no default source/file/command output/evidence upload. Verify: payload allowlist and disabled/offline operation. Risk: aggregate identifiers can still be sensitive.
+
+For every implementation stage: `review_changes` → `verify_project quick` → relevant focused tests; at P0 completion run full and negative/adversarial checks. No user-facing ready claim before the actual external gate is observed.
+
+### Commercial boundary and current Worklist
+
+The Apache-2.0 local core remains useful and unrestricted by artificial commercial limits. Team value is coordination, governance, shared evidence and operational convenience. No Stripe, CRM, cloud IDE, own model, arbitrary remote shell, mobile app or large enterprise console is planned here.
+
+Preserve unfinished source-inspection/editor work and JobView/Web Jobs skeleton. They are auxiliary Inspect/Change work, not evidence that the commercial flow exists. Existing Worklist history remains; add the commercial P0 dependency chain and defer incompatible IDE expansion without deleting its work. Release tasks remain blocked by the user's no-release instruction.
+
+Audit completion means that capabilities and gaps have been classified. P0 completion requires the real demo above. Documentation, counters, syntax mapping, an Agent report and an older clean CI are not acceptance evidence for a new revision.
+
+### First implementation checkpoint
+
+The first foundation slice hardens existing Verification, Evidence and operator boundaries: exact required-command receipts and minimum verification level, conservative named-test mappings, cache provenance, complete revision/plan-bound human grants, advisory MCP stage reports, expiring/revocable OAuth sessions and protected runtime state. It also rejects incomplete/unbound revision identities, conflicting evidence IDs, corrupt or oversized authoritative records and unsafe retention that would erase a current native failure. Verification snapshots carry a monotonic persistence generation, separate from their code/Design revision; a late older snapshot or conflicting newest generation cannot become the recovered decision. The existing TUI JobView is connected to real durable MCP command jobs, with bounded redacted logs, truthful failed outcomes and owner/workspace-bound cancellation.
+
+These changes reuse the OSS core. Their validation is tracked in the Worklist against the current code and Design revision. They do not implement a Change Acceptance Record, approved project Acceptance Policy, Git SHA/base/tree identity, exact per-test event adapter, trusted CI receipt, verified team actor, exception workflow, external merge gate, team deployment isolation or audit lineage. Job observation is supporting Inspect/Verify work; canonical Acceptance UX and Web Jobs remain pending. P0 remains incomplete until its full real PR flow is implemented and observed.
+
+### Commit-aware inputs and policy drafts
+
+The next slice adds bounded execution Git identity to native project and language-quality evidence: private repository/Workspace scope digest, full HEAD/tree object IDs, index fingerprint and dirty state. Static reuse and in-flight coalescing include this identity and validate the actual source receipt; an observed commit or index change during execution rejects publication. Old evidence with no Git binding stays unknown. The existing Code/Design content guards remain necessary: dirty is not a content digest, and before/after probes are not an atomic filesystem snapshot.
+
+Existing `review_changes` keeps its current worktree response by default. Explicit `base_revision` requests a separate base-change metadata response; `target_revision` defaults to `HEAD` and may be `worktree`. Clean current-commit inspection retains both rename paths and file modes. Unknown, truncated, denied, dirty commit or noncurrent target capture is incomplete and reports an error. Its `metadata_only` authority cannot approve a baseline or produce Acceptance.
+
+Repository discovery now reports bounded completeness, issue counts and reason tags. Fingerprinting and parsing share the same captured input bytes; invalid/unreadable/over-limit input cannot silently become a complete check inventory. A partial inventory adds an unmet deterministic requirement to quick/full verification while retaining independent checks that actually ran.
+
+`ProjectDesign` has an optional versioned, typed Acceptance Policy draft with a digest and deterministic rule accumulation. Explicit docs-only selection requires complete old/new paths, known ordinary nonexecutable modes and allowed Markdown scopes; Agent instruction and Skill Markdown retain baseline requirements. Arbitrary embedded Markdown still needs a trusted graph-based risk floor. Referenced check IDs and component/requirement mappings must be resolved from complete trusted inputs before any future activation.
+
+Evidence records distinguish native verification, native stage, local operator, self-reported and legacy unknown authority. Generic Agent submissions cannot satisfy native stage or human requirements; native failure cannot be replaced by advisory review. Parsing a draft, recording Git metadata or checking source labels never activates policy.
+
+Focused and full verification results for this slice are tracked against the current code and Design revision in the Worklist. Approved policy activation, the canonical Change Acceptance Record, Git-bound stage/human decisions, trusted external merge checks, Team actors and the real pilot PR demonstration remain pending. The running MCP process requires an explicit upgrade/restart to serve newly compiled behavior; local source tests alone do not prove deployment.

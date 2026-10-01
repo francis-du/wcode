@@ -1,5 +1,5 @@
 use super::*;
-use crate::evidence::Revision;
+use crate::evidence::{Confidence, Evidence, EvidenceResult, Revision};
 use std::time::{Duration, UNIX_EPOCH};
 
 const STATIC_REUSE_MAX_AGE: Duration = Duration::from_secs(10 * 60);
@@ -90,6 +90,8 @@ pub(super) struct CachedVerificationCheck {
 #[derive(Clone)]
 pub(super) struct VerificationReuseContext {
     revision: Revision,
+    execution_git_binding: Option<crate::verification::change::ExecutionGitBinding>,
+    policy_authority: String,
     level: String,
     fail_fast: bool,
     timeout_seconds: u64,
@@ -109,6 +111,8 @@ impl VerificationReuseContext {
     ) -> Self {
         Self {
             revision: revision.clone(),
+            execution_git_binding: None,
+            policy_authority: "none".into(),
             level: level.to_owned(),
             fail_fast,
             timeout_seconds,
@@ -117,6 +121,33 @@ impl VerificationReuseContext {
             risky_exec_enabled: workspace.risky_exec_enabled(),
             semantic_exec_enabled: workspace.semantic_exec_enabled(),
         }
+    }
+
+    pub(super) fn with_git_binding(
+        mut self,
+        binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Self {
+        self.execution_git_binding = binding;
+        self
+    }
+
+    pub(super) fn with_policy_authority(mut self, identity: String) -> Self {
+        self.policy_authority = identity;
+        self
+    }
+
+    pub(super) fn git_identity_key(&self) -> String {
+        self.execution_git_binding.as_ref().map_or_else(
+            || "non-git".into(),
+            |binding| {
+                format!(
+                    "sha256:{:x}",
+                    Sha256::digest(
+                        serde_json::to_vec(binding).expect("typed Git binding is serializable")
+                    )
+                )
+            },
+        )
     }
 
     fn complete_revision(&self) -> bool {
@@ -180,6 +211,7 @@ impl ToolHarness {
         workspace: &Workspace,
         context: &VerificationReuseContext,
         check: &CheckSpec,
+        proof: &[Evidence],
     ) -> Option<VerificationCheck> {
         if !context.complete_revision() || !reusable_static_check(check) {
             return None;
@@ -191,6 +223,17 @@ impl ToolHarness {
             cached.signature == signature
                 && cached.check.success
                 && cached.stored_at.elapsed() <= STATIC_REUSE_MAX_AGE
+                && cached.check.evidence_id.as_ref().is_some_and(|source| {
+                    proof.iter().any(|record| {
+                        record.id == *source
+                            && persisted_static_source_matches(
+                                record,
+                                context,
+                                check,
+                                &cached.check,
+                            )
+                    })
+                })
         });
         if !valid {
             cache.remove(&key);
@@ -227,6 +270,10 @@ impl ToolHarness {
         let Ok(mut cache) = self.verification_cache.lock() else {
             return;
         };
+        let proof = match crate::evidence_store::load(workspace) {
+            Ok(proof) => proof,
+            Err(_) => return,
+        };
         let limit = crate::resource::limits()
             .project_cache_limit()
             .saturating_mul(MAX_VERIFICATION_CHECKS)
@@ -238,6 +285,15 @@ impl ToolHarness {
             }) else {
                 continue;
             };
+            let source = proof
+                .iter()
+                .filter(|record| persisted_static_source_matches(record, context, spec, check))
+                .max_by_key(|record| record.timestamp_ms);
+            let Some(source) = source else {
+                continue;
+            };
+            let mut check = check.clone();
+            check.evidence_id = Some(source.id.clone());
             let key = cache_key(workspace, context, spec);
             if cache.len() >= limit && !cache.contains_key(&key) {
                 if let Some(oldest) = cache
@@ -255,16 +311,57 @@ impl ToolHarness {
                     signature: check_signature(workspace, context, spec),
                     stored_at: now,
                     last_used: now,
-                    check: check.clone(),
+                    check,
                 },
             );
         }
     }
 }
 
+fn persisted_static_source_matches(
+    record: &Evidence,
+    context: &VerificationReuseContext,
+    spec: &CheckSpec,
+    check: &VerificationCheck,
+) -> bool {
+    if record.effective_authority() != crate::evidence::EvidenceAuthority::NativeVerification
+        || record.revision != context.revision
+        || record.subject != format!("verification:{}", spec.id)
+        || record.producer != check.command
+        || record.confidence != Confidence::Deterministic
+        || record.result != EvidenceResult::Pass
+        || record.policy.as_deref() != Some(format!("deterministic/{}/v2", context.level).as_str())
+    {
+        return false;
+    }
+    let binding = verification_check_binding(spec);
+    let artifact = format!(
+        "sha256:{:x}",
+        Sha256::digest(format!(
+            "{}\n{:?}\n{}\n{}",
+            check.command, check.exit_code, check.stdout_tail, check.stderr_tail
+        ))
+    );
+    record.artifact_digest.as_ref() == Some(&artifact)
+        && record.execution_receipt.as_ref().is_some_and(|receipt| {
+            receipt.valid()
+                && receipt.execution_git_binding == context.execution_git_binding
+                && receipt.level == context.level
+                && receipt.required_checks.as_slice() == std::slice::from_ref(&binding)
+                && receipt.checks.len() == 1
+                && receipt.checks[0].check == binding
+                && receipt.checks[0].result == EvidenceResult::Pass
+                && receipt.checks[0].execution
+                    == crate::evidence::VerificationCheckExecution::Executed
+                && receipt.checks[0].reused_from.is_none()
+        })
+}
+
 fn verification_run_signature(workspace: &Workspace, context: &VerificationReuseContext) -> String {
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, "wcode-verification-run-flight-v1");
+    hash_field(&mut hasher, "wcode-verification-run-flight-v3");
+    hash_field(&mut hasher, &context.policy_authority);
+    hash_field(&mut hasher, &context.git_identity_key());
     hash_field(&mut hasher, &workspace.root().to_string_lossy());
     hash_field(&mut hasher, &context.revision.code);
     hash_field(
@@ -328,7 +425,9 @@ fn check_signature(
     check: &CheckSpec,
 ) -> String {
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, "wcode-static-verification-reuse-v1");
+    hash_field(&mut hasher, "wcode-static-verification-reuse-v3");
+    hash_field(&mut hasher, &context.policy_authority);
+    hash_field(&mut hasher, &context.git_identity_key());
     hash_field(&mut hasher, &context.revision.code);
     hash_field(
         &mut hasher,

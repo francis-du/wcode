@@ -643,6 +643,16 @@ impl Workspace {
             .unwrap_or_else(|| start.saturating_add(MAX_MODEL_READ_LINES.saturating_sub(1)));
         let bounded_end =
             requested_end.min(start.saturating_add(MAX_MODEL_READ_LINES.saturating_sub(1)));
+        let newline_count = content.bytes().filter(|byte| *byte == b'\n').count();
+        let crlf_count = content.matches("\r\n").count();
+        let carriage_count = content.bytes().filter(|byte| *byte == b'\r').count();
+        let line_ending = match (newline_count, crlf_count) {
+            _ if carriage_count != crlf_count => "mixed",
+            (0, _) => "none",
+            (lf, crlf) if lf == crlf => "crlf",
+            (_, 0) => "lf",
+            _ => "mixed",
+        };
         let mut total = 0usize;
         let mut selected = String::new();
         for (index, line) in content.split_inclusive('\n').enumerate() {
@@ -673,6 +683,7 @@ impl Workspace {
             total_lines: total,
             content: selected,
             redacted,
+            line_ending,
         })
     }
 
@@ -696,6 +707,8 @@ impl Workspace {
         }
         let source_path = self.existing_path(source)?;
         let destination_path = self.new_path(destination)?;
+        reject_authority_path(&source_path, true)?;
+        reject_authority_path(&destination_path, true)?;
         if fs::symlink_metadata(&destination_path).is_ok() {
             bail!("move destination already exists; overwriting is not allowed");
         }
@@ -716,6 +729,8 @@ impl Workspace {
 
         let locked_source = self.existing_path(source)?;
         let locked_destination = self.new_path(destination)?;
+        reject_authority_path(&locked_source, true)?;
+        reject_authority_path(&locked_destination, true)?;
         if locked_source != source_path || locked_destination != destination_path {
             bail!("move path changed while waiting for locks; retry the move");
         }
@@ -793,6 +808,7 @@ impl Workspace {
             bail!("workspace root deletion is permanently blocked");
         }
         let resolved = self.existing_path(path)?;
+        reject_authority_path(&resolved, true)?;
         let metadata = fs::symlink_metadata(&resolved)?;
         let (kind, operation) = if metadata.is_file() {
             ensure_single_link_file(&resolved)?;
@@ -834,11 +850,12 @@ impl Workspace {
                 AuthorizationKind::DestructiveDelete,
                 format!("delete {kind}: {}", portable_relative_path(&relative)),
                 fingerprint,
-            );
+            )?;
             return Err(AuthorizationRequired::new(request).into());
         }
 
         let locked = self.existing_path(path)?;
+        reject_authority_path(&locked, true)?;
         if locked != resolved {
             bail!("delete target changed after authorization; request approval again");
         }
@@ -870,10 +887,10 @@ pub use change_view::ChangeLayer;
 mod fs_safety;
 use fs_safety::{
     apply_text_edits, atomic_create_new, atomic_write, ensure_single_link_file, hard_link_count,
-    operation_fingerprint, protected_component_kind, reject_destructive_replacement,
-    reject_protected_path, root_identity, sha256, sha256_file, source_stamp, validate_batch_paths,
-    validate_independent_moves, validate_movable_directory, validate_source_metadata,
-    validate_workspace_root, validate_write_content, workspace_id,
+    operation_fingerprint, protected_component_kind, reject_authority_path,
+    reject_destructive_replacement, reject_protected_path, root_identity, sha256, sha256_file,
+    source_stamp, validate_batch_paths, validate_independent_moves, validate_movable_directory,
+    validate_source_metadata, validate_workspace_root, validate_write_content, workspace_id,
 };
 
 #[path = "command_policy.rs"]

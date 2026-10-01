@@ -3,15 +3,57 @@ use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "failure_memory.rs"]
+pub(crate) mod failure_memory;
 
 const JOURNAL_VERSION: u8 = 1;
 const MAX_ENGINEERING_MILESTONES: usize = 512;
 const MAX_MILESTONE_BYTES: u64 = 16 * 1024;
 const MAX_MILESTONE_PATHS: usize = 32;
+const MAX_FAILURE_CODES: usize = 8;
+const MAX_CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
+// Recovery reads at most twice the retained capacity, then still keeps 512.
+// Beyond this bound the journal fails closed rather than scanning without limit.
+const MAX_RECOVERY_SCAN_ENTRIES: usize = 2 * MAX_ENGINEERING_MILESTONES;
+// Serialize complete mutations and snapshots within this process. This is not
+// a cross-process lock, OS isolation or authentication of local store contents.
+static JOURNAL_ACCESS: Mutex<()> = Mutex::new(());
+
+/// Bounded historical observations, never Evidence, permission or new policy.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EngineeringFailureCode {
+    ShaMismatch,
+    AuthorizationRequired,
+    ProtectedPath,
+    SourceLimit,
+    VerificationFailure,
+    Timeout,
+    RevisionStale,
+    DiscoveryIncomplete,
+}
+
+impl EngineeringFailureCode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ShaMismatch => "sha_mismatch",
+            Self::AuthorizationRequired => "authorization_required",
+            Self::ProtectedPath => "protected_path",
+            Self::SourceLimit => "source_limit",
+            Self::VerificationFailure => "verification_failure",
+            Self::Timeout => "timeout",
+            Self::RevisionStale => "revision_stale",
+            Self::DiscoveryIncomplete => "discovery_incomplete",
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -26,6 +68,8 @@ pub(crate) struct EngineeringMilestone {
     pub tool: String,
     pub stage: String,
     pub outcome: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failure_codes: Vec<EngineeringFailureCode>,
     pub duration_ms: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
@@ -55,6 +99,7 @@ impl EngineeringMilestone {
             tool: tool.into(),
             stage: stage.into(),
             outcome: outcome.into(),
+            failure_codes: Vec::new(),
             duration_ms,
             paths,
             verification_level: None,
@@ -98,6 +143,19 @@ impl EngineeringMilestone {
         {
             bail!("invalid engineering journal record");
         }
+        if self.failure_codes.len() > MAX_FAILURE_CODES
+            || self
+                .failure_codes
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len()
+                != self.failure_codes.len()
+            || (!self.failure_codes.is_empty()
+                && !matches!(self.outcome.as_str(), "failed" | "blocked"))
+        {
+            bail!("invalid engineering journal failure codes");
+        }
         if self
             .verification_level
             .as_ref()
@@ -135,19 +193,28 @@ pub(crate) struct EngineeringJournalHistory {
 }
 
 pub(crate) fn persist(workspace: &Workspace, milestone: &EngineeringMilestone) -> Result<()> {
+    persist_with_error(workspace, milestone, None)
+}
+
+/// Match only a bounded native error in memory; journal bytes never contain it.
+pub(crate) fn persist_with_error(
+    workspace: &Workspace,
+    milestone: &EngineeringMilestone,
+    transient_error: Option<&str>,
+) -> Result<()> {
     milestone.validate()?;
+    let _access = JOURNAL_ACCESS
+        .lock()
+        .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;
     ensure_directory(&directory)?;
+    // Recover a bounded old overflow before adding another file.
+    prune_directory(&directory)?;
     let bytes = serde_json::to_vec(milestone).context("cannot encode engineering milestone")?;
     if bytes.len() as u64 > MAX_MILESTONE_BYTES {
         bail!("engineering milestone exceeds the persistent store size bound");
     }
-    let digest = digest_bytes(&bytes);
-    let path = directory.join(format!(
-        "{:020}-{}.json",
-        milestone.timestamp_ms,
-        &digest[..24]
-    ));
+    let path = directory.join(milestone_filename(milestone.timestamp_ms, &bytes));
     if path.exists() {
         return Ok(());
     }
@@ -165,7 +232,22 @@ pub(crate) fn persist(workspace: &Workspace, milestone: &EngineeringMilestone) -
         .with_context(|| format!("cannot write engineering milestone {}", path.display()))?;
     file.flush()
         .with_context(|| format!("cannot flush engineering milestone {}", path.display()))?;
-    prune_directory(&directory)?;
+    // Close the new record before removal, including Windows file handles.
+    drop(file);
+    if let Err(error) = prune_directory(&directory) {
+        fs::remove_file(&path).with_context(|| {
+            format!(
+                "engineering journal pruning failed ({error:#}); cannot remove new milestone {}",
+                path.display()
+            )
+        })?;
+        // This removes only our new record. Already pruned older records are
+        // not restored, and this is not a cross-process transaction rollback.
+        return Err(error.context("engineering journal pruning failed; new milestone removed"));
+    }
+    // Learning is advisory and must not turn a completed operation into a
+    // false failure. Recall exposes its own store/rule availability separately.
+    let _ = failure_memory::observe_tool_failure(workspace, milestone, transient_error);
     Ok(())
 }
 
@@ -173,6 +255,9 @@ pub(crate) fn load_recent(
     workspace: &Workspace,
     limit: usize,
 ) -> Result<EngineeringJournalHistory> {
+    let _access = JOURNAL_ACCESS
+        .lock()
+        .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;
     if !directory.exists() {
         return Ok(EngineeringJournalHistory {
@@ -211,16 +296,43 @@ fn read_milestone(path: &Path) -> Result<Option<EngineeringMilestone>> {
     {
         return Ok(None);
     }
-    let bytes = fs::read(path)
-        .with_context(|| format!("cannot read engineering milestone {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Ok(None);
+        }
+    }
+    let mut bytes = Vec::new();
+    File::open(path)
+        .with_context(|| format!("cannot read engineering milestone {}", path.display()))?
+        .take(MAX_MILESTONE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_MILESTONE_BYTES {
+        return Ok(None);
+    }
     let milestone: EngineeringMilestone = match serde_json::from_slice(&bytes) {
         Ok(milestone) => milestone,
         Err(_) => return Ok(None),
     };
-    Ok(milestone.validate().is_ok().then_some(milestone))
+    let canonical = milestone_filename(milestone.timestamp_ms, &bytes);
+    if path.file_name().and_then(|name| name.to_str()) != Some(canonical.as_str()) {
+        return Ok(None);
+    }
+    if milestone.validate().is_err()
+        || milestone.timestamp_ms > now_ms().saturating_add(MAX_CLOCK_SKEW_MS)
+    {
+        // A clock that jumped forward and then recovered must not make this
+        // observation a permanent latest anchor or manufacture current advice.
+        return Ok(None);
+    }
+    Ok(Some(milestone))
 }
 
 pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
+    let _access = JOURNAL_ACCESS
+        .lock()
+        .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;
     let metadata = match fs::symlink_metadata(&directory) {
         Ok(metadata) => metadata,
@@ -281,29 +393,78 @@ fn ensure_existing_directory(directory: &Path) -> Result<()> {
 }
 
 fn journal_paths(directory: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = fs::read_dir(directory)
-        .with_context(|| format!("cannot list engineering journal {}", directory.display()))?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.ends_with(".json"))
-                .then(|| entry.path())
-        })
-        .collect::<Vec<_>>();
-    if paths.len() > MAX_ENGINEERING_MILESTONES.saturating_add(1) {
-        bail!("engineering journal exceeds its record bound");
+    journal_paths_with_bound(directory, MAX_ENGINEERING_MILESTONES.saturating_add(1))
+}
+
+fn journal_paths_with_bound(directory: &Path, max_entries: usize) -> Result<Vec<PathBuf>> {
+    let entries = fs::read_dir(directory)
+        .with_context(|| format!("cannot list engineering journal {}", directory.display()))?;
+    collect_journal_paths(entries, max_entries)
+}
+
+fn collect_journal_paths(
+    entries: impl IntoIterator<Item = std::io::Result<fs::DirEntry>>,
+    max_entries: usize,
+) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index >= max_entries {
+            bail!("engineering journal exceeds its directory scan bound");
+        }
+        let entry = entry.context("cannot read engineering journal directory entry")?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".json"))
+        {
+            paths.push(entry.path());
+        }
     }
     paths.sort();
     Ok(paths)
 }
 
 fn prune_directory(directory: &Path) -> Result<()> {
-    let paths = journal_paths(directory)?;
-    let excess = paths.len().saturating_sub(MAX_ENGINEERING_MILESTONES);
-    for path in paths.into_iter().take(excess) {
-        let _ = fs::remove_file(path);
+    let paths = journal_paths_with_bound(directory, MAX_RECOVERY_SCAN_ENTRIES)?;
+    if paths.len() <= MAX_ENGINEERING_MILESTONES {
+        return Ok(());
+    }
+    // Keep at most two distinct observations per fixed failure category. These
+    // sixteen maximum anchors survive successful context traffic; they remain
+    // bounded historical advice, never a lifetime count or authority.
+    let mut seen: BTreeMap<EngineeringFailureCode, BTreeSet<String>> = BTreeMap::new();
+    let mut retained = BTreeSet::new();
+    for path in paths.iter().rev() {
+        let Some(event) = read_milestone(path)? else {
+            continue;
+        };
+        if !matches!(event.outcome.as_str(), "failed" | "blocked") {
+            continue;
+        }
+        let Some(event_id) = event.event_id else {
+            continue;
+        };
+        for code in event.failure_codes {
+            let ids = seen.entry(code).or_default();
+            if ids.len() < 2 && ids.insert(event_id.clone()) {
+                retained.insert(path.clone());
+            }
+        }
+    }
+    // Invalid/copied records cannot become anchors. The ordinary ring retains
+    // the newest paths as before; its reader reports invalid entries as partial.
+    for path in paths.iter().rev() {
+        if retained.len() >= MAX_ENGINEERING_MILESTONES {
+            break;
+        }
+        retained.insert(path.clone());
+    }
+    for path in paths {
+        if !retained.contains(&path) {
+            fs::remove_file(&path).with_context(|| {
+                format!("cannot prune engineering milestone {}", path.display())
+            })?;
+        }
     }
     Ok(())
 }
@@ -318,7 +479,7 @@ fn bounded_token(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
 
-fn valid_repository_path(value: &str) -> bool {
+pub(crate) fn valid_repository_path(value: &str) -> bool {
     if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
         return false;
     }
@@ -339,6 +500,10 @@ fn now_ms() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+fn milestone_filename(timestamp_ms: u64, bytes: &[u8]) -> String {
+    format!("{timestamp_ms:020}-{}.json", &digest_bytes(bytes)[..24])
 }
 
 fn digest_bytes(bytes: &[u8]) -> String {

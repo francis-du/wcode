@@ -5,6 +5,7 @@ responsibilities:
   - persist claim ownership, expiry, path coordination and reported child outcomes in the existing Worklist
   - publish private claim tokens only to the claimant and redact tokens from all public projections
   - provide bounded reusable source, Design, SHA, verification and host-native spawning handoffs
+  - prune unrelated global progress before handoff budget/readiness planning while preserving mandatory execution recovery
   - reject stale revisions, unfinished dependencies, overlapping live scopes and forged evidence references
   - describe tool batching, serial context continuation and host model spawning as distinct capabilities
 constraints:
@@ -17,6 +18,7 @@ depends_on:
 implementation:
   - {kind: file, path: src/runtime/worklist.rs}
   - {kind: file, path: src/runtime/worklist_delegation.rs}
+  - {kind: file, path: src/runtime/harness/context_handoff.rs}
   - {kind: file, path: src/runtime/harness/capabilities.rs}
   - {kind: file, path: src/runtime/harness/capability.rs}
   - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence.rs, symbol: call}

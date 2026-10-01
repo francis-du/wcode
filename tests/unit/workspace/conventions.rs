@@ -196,7 +196,51 @@ fn status_surfaces_oversized_and_flat_rust_domain_modules() {
         .findings
         .iter()
         .any(|finding| finding.code == "flat-rust-domain-modules"));
+    assert!(report
+        .findings
+        .iter()
+        .any(|finding| finding.code == "flat-rust-crate-root"));
     assert_eq!(report.unclassified_source_files, 16);
+}
+
+#[test]
+fn status_recommends_responsibility_splits_before_hard_limits_and_dense_buckets() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("src/domain");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(
+        directory.join("large.rs"),
+        "pub fn value() {}\n".repeat(SPLIT_SOURCE_LINES),
+    )
+    .unwrap();
+    for index in 0..23 {
+        std::fs::write(
+            directory.join(format!("part_{index}.rs")),
+            "pub fn value() {}\n",
+        )
+        .unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let report = status(&workspace).unwrap();
+    assert!(report
+        .findings
+        .iter()
+        .any(|finding| finding.code == "source-module-needs-split"));
+    assert!(report
+        .findings
+        .iter()
+        .any(|finding| finding.code == "dense-source-directory"));
+    for code in [
+        "split-growing-module",
+        "split-dense-directory",
+        "split-flat-crate-root",
+        "extract-package-on-stable-contract",
+    ] {
+        assert!(report
+            .architecture_guidance
+            .iter()
+            .any(|rule| rule.code == code));
+    }
 }
 
 #[test]

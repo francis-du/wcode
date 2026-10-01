@@ -1,4 +1,5 @@
 use super::*;
+use crate::monitor::TaskMonitor;
 use std::path::Path;
 
 fn registration() -> RegistrationRequest {
@@ -336,5 +337,435 @@ async fn persistent_client_capacity_reclaims_only_an_unbound_registration() {
             .unwrap()
             .len(),
         MAX_REGISTERED_CLIENTS
+    );
+}
+
+#[test]
+fn credential_expiry_rejects_boundary_unknown_and_future_timestamps() {
+    let now = ACCESS_TOKEN_TTL_MS * 2;
+    assert!(credential_current(now, ACCESS_TOKEN_TTL_MS, now));
+    assert!(credential_current(
+        now - ACCESS_TOKEN_TTL_MS + 1,
+        ACCESS_TOKEN_TTL_MS,
+        now
+    ));
+    assert!(!credential_current(
+        now - ACCESS_TOKEN_TTL_MS,
+        ACCESS_TOKEN_TTL_MS,
+        now
+    ));
+    assert!(!credential_current(0, ACCESS_TOKEN_TTL_MS, now));
+    assert!(!credential_current(now + 1, ACCESS_TOKEN_TTL_MS, now));
+    assert!(!credential_current(u64::MAX, ACCESS_TOKEN_TTL_MS, now));
+}
+
+#[test]
+fn expired_access_is_rejected_even_for_a_trusted_resource() {
+    let state = AuthState::new("https://example.com".to_owned());
+    state.insert_test_access_token("expires", "client", "https://example.com/mcp");
+    let mut headers = host_headers("example.com");
+    headers.insert("authorization", "Bearer expires".parse().unwrap());
+    assert!(state.authorized(&headers));
+    state
+        .access_tokens
+        .lock()
+        .unwrap()
+        .get_mut("expires")
+        .unwrap()
+        .issued_at_ms = epoch_ms() - ACCESS_TOKEN_TTL_MS;
+    assert!(!state.authorized(&headers));
+    assert_eq!(state.authorized_client_fingerprint(&headers), None);
+}
+
+fn operator_headers(state: &AuthState) -> HeaderMap {
+    let mut headers = host_headers("example.com");
+    headers.insert("x-wcode-ui-token", state.ui_token().parse().unwrap());
+    headers.insert("origin", "https://example.com".parse().unwrap());
+    headers
+}
+
+#[tokio::test]
+async fn oauth_rotation_expires_old_access_and_sessions_never_expose_credentials() {
+    let state = Arc::new(AuthState::new("https://example.com".to_owned()));
+    let response = issue_tokens(
+        &state,
+        "client".to_owned(),
+        Some("https://example.com/mcp".to_owned()),
+    );
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["pragma"], "no-cache");
+    let first = response_json(response).await;
+    assert_eq!(first["expires_in"], 3600);
+    let access = first["access_token"].as_str().unwrap();
+    let refresh = first["refresh_token"].as_str().unwrap();
+    let mut agent = host_headers("example.com");
+    agent.insert("authorization", format!("Bearer {access}").parse().unwrap());
+    assert!(state.authorized(&agent));
+    let owner = state.authorized_client_fingerprint(&agent).unwrap();
+    let denied = tokens::oauth_sessions(State(state.clone()), agent.clone()).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let headers = operator_headers(&state);
+    let list =
+        response_json(tokens::oauth_sessions(State(state.clone()), headers.clone()).await).await;
+    let encoded = list.to_string();
+    assert!(!encoded.contains(access));
+    assert!(!encoded.contains(refresh));
+    assert!(!encoded.contains("owner_"));
+    assert_eq!(list["sessions"].as_array().unwrap().len(), 1);
+    let session_id = list["sessions"][0]["id"].as_str().unwrap().to_owned();
+    let next = response_json(refresh_access_token(
+        &state,
+        TokenForm {
+            grant_type: "refresh_token".to_owned(),
+            code: None,
+            redirect_uri: None,
+            client_id: Some("client".to_owned()),
+            code_verifier: None,
+            refresh_token: Some(refresh.to_owned()),
+            resource: None,
+        },
+        "https://example.com/mcp",
+    ))
+    .await;
+    assert!(!state.authorized(&agent));
+    agent.insert(
+        "authorization",
+        format!("Bearer {}", next["access_token"].as_str().unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert_eq!(state.authorized_client_fingerprint(&agent).unwrap(), owner);
+    let list =
+        response_json(tokens::oauth_sessions(State(state.clone()), headers.clone()).await).await;
+    assert_eq!(list["sessions"][0]["id"], session_id);
+    assert_eq!(list["sessions"][0]["access_count"], 1);
+    assert!(!state.refresh_tokens.lock().unwrap().contains_key(refresh));
+    let denied = tokens::oauth_session_revoke(
+        State(state.clone()),
+        agent.clone(),
+        Json(tokens::RevokeSessionInput {
+            session_id: session_id.clone(),
+        }),
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let mut cross_origin = headers.clone();
+    cross_origin.insert("origin", "https://attacker.example".parse().unwrap());
+    assert_eq!(
+        tokens::oauth_session_revoke(
+            State(state.clone()),
+            cross_origin,
+            Json(tokens::RevokeSessionInput {
+                session_id: session_id.clone()
+            })
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let other = response_json(issue_tokens(
+        &state,
+        "client".to_owned(),
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    let revoked = tokens::oauth_session_revoke(
+        State(state.clone()),
+        headers,
+        Json(tokens::RevokeSessionInput { session_id }),
+    )
+    .await;
+    assert_eq!(revoked.status(), StatusCode::OK);
+    assert!(!state.authorized(&agent));
+    agent.insert(
+        "authorization",
+        format!("Bearer {}", other["access_token"].as_str().unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert!(state.authorized(&agent));
+    assert!(!state
+        .refresh_tokens
+        .lock()
+        .unwrap()
+        .contains_key(next["refresh_token"].as_str().unwrap()));
+}
+
+#[tokio::test]
+async fn session_revocation_is_persisted_and_recovery_does_not_restore_grants() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oauth.json");
+    let state = Arc::new(
+        AuthState::new_persistent("https://example.com".to_owned(), path.clone()).unwrap(),
+    );
+    let client = "wcode-782eef5c-7845-483c-b5de-7a1864d9ff65";
+    state.clients.lock().unwrap().insert(
+        client.to_owned(),
+        Client {
+            redirect_uris: vec!["https://agent.example/callback".to_owned()],
+        },
+    );
+    let first = response_json(issue_tokens(
+        &state,
+        client.to_owned(),
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    let headers = operator_headers(&state);
+    let list =
+        response_json(tokens::oauth_sessions(State(state.clone()), headers.clone()).await).await;
+    let session_id = list["sessions"][0]["id"].as_str().unwrap().to_owned();
+    let response = tokens::oauth_session_revoke(
+        State(state),
+        headers,
+        Json(tokens::RevokeSessionInput { session_id }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let restored = AuthState::new_persistent("https://example.com".to_owned(), path).unwrap();
+    let mut agent = host_headers("example.com");
+    agent.insert(
+        "authorization",
+        format!("Bearer {}", first["access_token"].as_str().unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert!(!restored.authorized(&agent));
+    assert!(restored.refresh_tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn failed_revoke_storage_never_reports_success_or_restores_live_access() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut state = AuthState::new("https://example.com".to_owned());
+    let first = response_json(issue_tokens(
+        &state,
+        "client".to_owned(),
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    state.store = Some(Arc::new(AuthStore::at_path(directory.path().to_owned())));
+    let state = Arc::new(state);
+    let headers = operator_headers(&state);
+    let list =
+        response_json(tokens::oauth_sessions(State(state.clone()), headers.clone()).await).await;
+    let session_id = list["sessions"][0]["id"].as_str().unwrap().to_owned();
+    let response = tokens::oauth_session_revoke(
+        State(state.clone()),
+        headers,
+        Json(tokens::RevokeSessionInput { session_id }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let mut agent = host_headers("example.com");
+    agent.insert(
+        "authorization",
+        format!("Bearer {}", first["access_token"].as_str().unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert!(!state.authorized(&agent));
+    assert!(state.refresh_tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn expired_persisted_grants_do_not_pin_registration_capacity() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oauth.json");
+    let state = Arc::new(persistent_state("https://example.com", &path));
+    for index in 0..MAX_REGISTERED_CLIENTS {
+        let client_id = format!("wcode-{}", Uuid::new_v4());
+        state.clients.lock().unwrap().insert(
+            client_id.clone(),
+            Client {
+                redirect_uris: vec!["https://chatgpt.com/callback".to_owned()],
+            },
+        );
+        state.access_tokens.lock().unwrap().insert(
+            format!("access_expired_{index}"),
+            AccessToken {
+                issued_at_ms: 1,
+                client_id: client_id.clone(),
+                owner_id: String::new(),
+                resource: Some("https://example.com/mcp".to_owned()),
+            },
+        );
+        state.refresh_tokens.lock().unwrap().insert(
+            format!("refresh_expired_{index}"),
+            RefreshToken {
+                issued_at_ms: 1,
+                client_id,
+                owner_id: String::new(),
+                resource: Some("https://example.com/mcp".to_owned()),
+            },
+        );
+    }
+    state.persist().unwrap();
+    let response = register_client(State(state.clone()), Json(registration())).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert!(state.access_tokens.lock().unwrap().is_empty());
+    assert!(state.refresh_tokens.lock().unwrap().is_empty());
+    assert_eq!(state.clients.lock().unwrap().len(), MAX_REGISTERED_CLIENTS);
+    let restored = persistent_state("https://example.com", &path);
+    assert!(restored.access_tokens.lock().unwrap().is_empty());
+    assert_eq!(
+        restored.clients.lock().unwrap().len(),
+        MAX_REGISTERED_CLIENTS
+    );
+}
+
+#[tokio::test]
+async fn expired_and_future_persisted_grants_are_not_renewed_on_load() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oauth.json");
+    let state = Arc::new(persistent_state("https://example.com", &path));
+    let client = registered_client(state.clone()).await;
+    let issued = response_json(issue_tokens(
+        &state,
+        client,
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    state
+        .access_tokens
+        .lock()
+        .unwrap()
+        .values_mut()
+        .for_each(|grant| grant.issued_at_ms = 1);
+    state
+        .refresh_tokens
+        .lock()
+        .unwrap()
+        .values_mut()
+        .for_each(|grant| grant.issued_at_ms = u64::MAX);
+    state.persist().unwrap();
+    let restored = persistent_state("https://example.com", &path);
+    assert!(restored.access_tokens.lock().unwrap().is_empty());
+    assert!(restored.refresh_tokens.lock().unwrap().is_empty());
+    let mut agent = host_headers("example.com");
+    agent.insert(
+        "authorization",
+        format!("Bearer {}", issued["access_token"].as_str().unwrap())
+            .parse()
+            .unwrap(),
+    );
+    assert!(!restored.authorized(&agent));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_refresh_and_revoke_cannot_resurrect_the_same_grant() {
+    let state = Arc::new(AuthState::new("https://example.com".to_owned()));
+    let first = response_json(issue_tokens(
+        &state,
+        "client".to_owned(),
+        Some("https://example.com/mcp".to_owned()),
+    ))
+    .await;
+    let headers = operator_headers(&state);
+    let list =
+        response_json(tokens::oauth_sessions(State(state.clone()), headers.clone()).await).await;
+    let session_id = list["sessions"][0]["id"].as_str().unwrap().to_owned();
+    let refresh = first["refresh_token"].as_str().unwrap().to_owned();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let state_a = state.clone();
+    let barrier_a = barrier.clone();
+    let rotate = tokio::spawn(async move {
+        barrier_a.wait();
+        refresh_access_token(
+            &state_a,
+            TokenForm {
+                grant_type: "refresh_token".to_owned(),
+                code: None,
+                redirect_uri: None,
+                client_id: Some("client".to_owned()),
+                code_verifier: None,
+                refresh_token: Some(refresh),
+                resource: None,
+            },
+            "https://example.com/mcp",
+        )
+        .status()
+    });
+    let state_b = state.clone();
+    let revoke = tokio::spawn(async move {
+        barrier.wait();
+        tokens::oauth_session_revoke(
+            State(state_b),
+            headers,
+            Json(tokens::RevokeSessionInput { session_id }),
+        )
+        .await
+        .status()
+    });
+    let result = rotate.await.unwrap();
+    assert!(matches!(result, StatusCode::OK | StatusCode::BAD_REQUEST));
+    assert_eq!(revoke.await.unwrap(), StatusCode::OK);
+    assert!(state.access_tokens.lock().unwrap().is_empty());
+    assert!(state.refresh_tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn session_routes_enforce_host_operator_and_strict_revoke_payload() {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+    let state = Arc::new(AuthState::new("https://example.com".to_owned()));
+    let app = router(state.clone());
+    let request = Request::builder()
+        .uri("/oauth/sessions")
+        .header("host", "example.com")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let request = Request::builder()
+        .uri("/oauth/sessions")
+        .header("host", "https://attacker.example")
+        .header("x-wcode-ui-token", state.ui_token())
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    // A syntactically valid custom reverse-proxy Host remains compatible;
+    // the operator token and browser Origin provide the protected UI boundary.
+    let request = Request::builder()
+        .uri("/oauth/sessions")
+        .header("host", "custom.example")
+        .header("x-wcode-ui-token", state.ui_token())
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::OK
+    );
+    let request = Request::builder()
+        .method("POST")
+        .uri("/oauth/sessions/revoke")
+        .header("host", "example.com")
+        .header("x-wcode-ui-token", state.ui_token())
+        .header("content-type", "application/json")
+        .body(Body::from(format!(
+            r#"{{"session_id":"{}","unexpected":true}}"#,
+            "0".repeat(64)
+        )))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let request = Request::builder()
+        .uri("/oauth/sessions")
+        .header("host", "example.com")
+        .header("x-wcode-ui-token", state.ui_token())
+        .header("origin", "https://attacker.example")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.oneshot(request).await.unwrap().status(),
+        StatusCode::FORBIDDEN
     );
 }

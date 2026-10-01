@@ -12,7 +12,7 @@ mod profile_polyglot;
 #[path = "profile_python.rs"]
 mod profile_python;
 #[path = "profile_scan.rs"]
-mod profile_scan;
+pub(super) mod profile_scan;
 pub(super) use contracts::contract_freshness_advisories;
 use contracts::discover_contract_topology_from_paths;
 use islands::{
@@ -25,6 +25,7 @@ pub(super) use islands::{
 };
 #[cfg(test)]
 pub(super) use islands::{verification_checks_for_snapshot, verification_gaps_for_snapshot};
+pub use profile_scan::ProfileDiscoveryCompleteness;
 
 const MAX_PROFILE_ISLANDS: usize = 32;
 const MAX_PROFILE_SCAN_DEPTH: usize = 8;
@@ -55,7 +56,13 @@ impl ToolHarness {
                 .project_cache
                 .lock()
                 .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
-            if let Some(cached) = cache.get_mut(&root) {
+            if let Some(cached) = cache.get_mut(&root).filter(|cached| {
+                // Coalescing does not transfer another Workspace's
+                // permission mode, even when both use the same root.
+                cached.profile.discovery.complete
+                    && cached.profile.write_enabled == workspace.write_enabled()
+                    && cached.profile.exec_enabled == workspace.exec_enabled()
+            }) {
                 cached.last_used = Instant::now();
                 return Ok((cached.profile.clone(), true));
             }
@@ -68,10 +75,9 @@ impl ToolHarness {
                 .project_cache
                 .lock()
                 .map_err(|_| anyhow::anyhow!("project context cache poisoned"))?;
-            if let Some(cached) = cache
-                .get_mut(&root)
-                .filter(|cached| cached.fingerprint == fingerprint)
-            {
+            if let Some(cached) = cache.get_mut(&root).filter(|cached| {
+                cached.fingerprint == fingerprint && cached.profile.discovery.complete
+            }) {
                 let profile = cached.profile.clone();
                 cached.last_used = Instant::now();
                 drop(cache);
@@ -84,7 +90,13 @@ impl ToolHarness {
         // Reuse the manifest candidate enumeration from fingerprinting. A cold
         // profile build previously walked the same tree a second time solely to
         // rediscover these directories.
-        let built = Arc::new(build_project_profile(workspace, &discovery)?);
+        let (built, capture_issues) =
+            profile_scan::with_captured_sources(workspace.root(), &discovery, || {
+                build_project_profile(workspace, &discovery)
+            });
+        let mut built = built?;
+        built.discovery.absorb_capture_issues(capture_issues);
+        let built = Arc::new(built);
         if !validation.is_current() {
             bail!("project profile cache invalidated while building; retry the request");
         }
@@ -133,6 +145,18 @@ pub(super) fn ensure_shared_project_fingerprint_current(
     Ok(())
 }
 
+// Policy authority must not rely on the non-cryptographic cache fingerprint.
+// Build commands and SHA256 source inventory from one fresh native capture.
+pub(super) fn capture_policy_profile(workspace: &Workspace) -> Result<ProjectProfile> {
+    let (_, discovery) = project_fingerprint(workspace);
+    let (built, issues) = profile_scan::with_captured_sources(workspace.root(), &discovery, || {
+        build_project_profile(workspace, &discovery)
+    });
+    let mut profile = built?;
+    profile.discovery.absorb_capture_issues(issues);
+    Ok(profile)
+}
+
 pub(super) fn known_checks_from_profile(profile: &ProjectProfile) -> HashSet<String> {
     profile
         .recommended_checks
@@ -146,6 +170,7 @@ fn build_project_profile(
     discovery: &profile_scan::ProfileDiscoveryPaths,
 ) -> Result<ProjectProfile> {
     let root = workspace.root();
+    let mut discovery_completeness = discovery.completeness.clone();
     let mut manifests = manifest_file_names(root);
     let mut project_types = project_types_for_manifests(root, &manifests);
     let mut checks = Vec::new();
@@ -192,8 +217,12 @@ fn build_project_profile(
         });
     }
 
-    for mut island in discover_nested_project_islands(root, &root_types, &discovery.candidate_dirs)
-    {
+    let (nested_islands, islands_truncated) =
+        discover_nested_project_islands(root, &root_types, &discovery.candidate_dirs);
+    if islands_truncated {
+        discovery_completeness.partial("island_budget");
+    }
+    for mut island in nested_islands {
         let start = checks.len();
         add_island_checks(
             &island.absolute_root,
@@ -235,11 +264,25 @@ fn build_project_profile(
     attach_manifest_dependencies(root, &mut islands);
     let contracts =
         discover_contract_topology_from_paths(root, &islands, &discovery.contract_configs);
+    discovery_completeness.islands_returned = islands.len();
+    if contracts.truncated {
+        discovery_completeness.partial("contract_topology_partial");
+    }
+    if contracts.diagnostics.iter().any(|diagnostic| {
+        matches!(
+            diagnostic.reason,
+            "static_config_unreadable_or_too_large" | "invalid_static_config"
+        )
+    }) {
+        discovery_completeness.partial("contract_source_unavailable");
+    }
     manifests.sort();
     manifests.dedup();
     deduplicate_checks(&mut checks);
     let guidance = collect_guidance(workspace)?;
     Ok(ProjectProfile {
+        discovery: discovery_completeness,
+        policy_sources: discovery.policy_sources(root)?,
         root: root.display().to_string(),
         project_types: project_types.into_iter().collect(),
         manifests,
@@ -725,7 +768,10 @@ fn php_quality_program(root: &Path, name: &str) -> String {
 }
 
 fn read_small_text(path: &Path) -> Option<String> {
-    let metadata = fs::metadata(path).ok()?;
+    if let Some(captured) = profile_scan::captured_text(path) {
+        return captured;
+    }
+    let metadata = fs::symlink_metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > MAX_PROFILE_SOURCE_BYTES {
         return None;
     }
@@ -809,51 +855,11 @@ fn deduplicate_checks(checks: &mut Vec<CheckSpec>) {
 
 fn project_fingerprint(workspace: &Workspace) -> (u64, profile_scan::ProfileDiscoveryPaths) {
     let root = workspace.root();
-    let discovery = profile_scan::scan(root);
+    let mut discovery = profile_scan::scan(root);
     let mut hasher = DefaultHasher::new();
     root.hash(&mut hasher);
     workspace.write_enabled().hash(&mut hasher);
     workspace.exec_enabled().hash(&mut hasher);
-    hash_profile_directory(root, root, &mut hasher);
-    for directory in &discovery.candidate_dirs {
-        hash_profile_directory(root, directory, &mut hasher);
-    }
-    for path in &discovery.contract_configs {
-        hash_profile_path(root, path, &mut hasher);
-    }
+    profile_scan::fingerprint_sources(root, &mut discovery, &mut hasher);
     (hasher.finish(), discovery)
-}
-
-fn hash_profile_path(root: &Path, path: &Path, hasher: &mut DefaultHasher) {
-    path.strip_prefix(root).unwrap_or(path).hash(hasher);
-    if let Ok(metadata) = fs::symlink_metadata(path) {
-        metadata.len().hash(hasher);
-        metadata.is_file().hash(hasher);
-        metadata.file_type().is_symlink().hash(hasher);
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                duration.as_nanos().hash(hasher);
-            }
-        }
-    }
-}
-
-fn hash_profile_directory(root: &Path, directory: &Path, hasher: &mut DefaultHasher) {
-    directory
-        .strip_prefix(root)
-        .unwrap_or(directory)
-        .hash(hasher);
-    for relative in PROFILE_FILES.iter().chain(MANIFEST_FILES.iter()).copied() {
-        relative.hash(hasher);
-        let path = directory.join(relative);
-        if let Ok(metadata) = fs::metadata(path) {
-            metadata.len().hash(hasher);
-            metadata.is_file().hash(hasher);
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                    duration.as_nanos().hash(hasher);
-                }
-            }
-        }
-    }
 }

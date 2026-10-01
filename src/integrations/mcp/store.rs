@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+#[path = "task_listing.rs"]
+mod listing;
+pub(crate) use listing::{list_recent, load_for_observation};
+
 const TASK_SCHEMA_VERSION: u32 = 1;
 const MAX_TASKS: usize = 256;
 const MAX_TASK_SNAPSHOTS: usize = 32;
@@ -53,6 +57,11 @@ pub(crate) struct TaskRecord {
     pub error: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_output: Option<Value>,
+    /// Server-captured request identity; legacy unbound tasks remain unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_revision: Option<crate::evidence::Revision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_git_binding: Option<crate::verification::change::ExecutionGitBinding>,
 }
 
 impl TaskRecord {
@@ -79,6 +88,8 @@ impl TaskRecord {
             result: None,
             error: None,
             live_output: None,
+            verification_revision: None,
+            verification_git_binding: None,
         }
     }
 
@@ -302,6 +313,24 @@ pub(crate) fn capabilities() -> Value {
 }
 
 fn validate_record(record: &TaskRecord) -> Result<()> {
+    if let Some(binding) = &record.verification_git_binding {
+        if record.verification_revision.is_none() || !binding.valid() {
+            bail!("invalid bound verification task Git identity");
+        }
+    }
+    if let Some(revision) = &record.verification_revision {
+        let full = |value: &str| {
+            value.strip_prefix("sha256:").is_some_and(|hash| {
+                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        };
+        if record.tool_name != "verify_project"
+            || !full(&revision.code)
+            || revision.design.as_deref().is_some_and(|value| !full(value))
+        {
+            bail!("invalid bound verification task revision");
+        }
+    }
     if record.schema_version != TASK_SCHEMA_VERSION
         || !valid_task_id(&record.task_id)
         || record.owner.len() != 64

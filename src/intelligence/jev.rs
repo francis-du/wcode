@@ -454,7 +454,7 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
     let capability_group = guidance.iter().find_map(|item| {
         item.as_str()
             .and_then(|value| value.strip_prefix("jev:capability_group:"))
-            .filter(|group| !crate::harness::model_tools_for_group(group).is_empty())
+            .filter(|group| !crate::model_tools::model_tools_for_group(group).is_empty())
     });
     let original_capabilities = context.get("capabilities").cloned();
     let lsp_install_required = context
@@ -526,7 +526,7 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
     }
     let mut promoted_tools = applied.clone();
     if let Some(group) = capability_group {
-        for tool in crate::harness::model_tools_for_group(group) {
+        for tool in crate::model_tools::model_tools_for_group(group) {
             if !promoted_tools.iter().any(|candidate| candidate == tool) {
                 promoted_tools.push((*tool).to_owned());
             }
@@ -546,7 +546,7 @@ fn apply_agent_context_guidance(context: &mut Value, telemetry: &Value) -> Value
         );
     }
     if let Some(capabilities) = context.get_mut("capabilities") {
-        crate::harness::promote_model_tools(capabilities, &promoted_tools);
+        crate::model_tools::promote_model_tools(capabilities, &promoted_tools);
     }
 
     if !context_fits_budget(context) {
@@ -789,7 +789,8 @@ pub(crate) fn advisory_guidance(
     {
         if choice_signal_is_concentrated(signal) {
             if let DecisionValue::Choice { selected } = &signal.value {
-                if selected != "none" && !crate::harness::model_tools_for_group(selected).is_empty()
+                if selected != "none"
+                    && !crate::model_tools::model_tools_for_group(selected).is_empty()
                 {
                     guidance.push(format!("jev:capability_group:{selected}"));
                 }

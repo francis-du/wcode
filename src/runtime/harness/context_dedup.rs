@@ -1,9 +1,55 @@
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
 struct SourceMetadata {
     range: Option<(u64, u64)>,
+}
+
+pub(super) fn explicit_retention_minima(value: &Value, budget: usize) -> (usize, usize) {
+    let literals = value
+        .get("query")
+        .and_then(Value::as_str)
+        .map(crate::intelligence::code_query_literals)
+        .unwrap_or_default()
+        .into_iter()
+        .take(4)
+        .collect::<BTreeSet<_>>();
+    let explicit_targets = value["targets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|target| {
+            target["qualified_name"]
+                .as_str()
+                .is_some_and(|name| literals.contains(&name.to_ascii_lowercase()))
+        })
+        .collect::<Vec<_>>();
+    let explicit_target_min = explicit_targets.len().max(1);
+    let explicit_ids = explicit_targets
+        .iter()
+        .filter_map(|target| target["id"].as_str())
+        .collect::<BTreeSet<_>>();
+    let explicit_body_bytes = value["hot_source"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|source| {
+            source["id"]
+                .as_str()
+                .is_some_and(|id| explicit_ids.contains(id))
+        })
+        .filter_map(|source| source.pointer("/body/content").and_then(Value::as_str))
+        .map(str::len)
+        .sum::<usize>();
+    let explicit_body_min = if explicit_ids.len() == explicit_target_min
+        && explicit_body_bytes.div_ceil(4) <= budget / 3
+    {
+        explicit_target_min
+    } else {
+        1
+    };
+    (explicit_target_min, explicit_body_min)
 }
 
 pub(super) fn valid_sha256(value: &Value) -> bool {

@@ -19,7 +19,18 @@ impl SoftwareIntelligenceRuntime {
             .iter()
             .filter(|stored| stored.workspace == workspace_id)
         {
-            records.insert(stored.evidence.id.clone(), stored.evidence.clone());
+            if records
+                .get(&stored.evidence.id)
+                .is_some_and(|record| record != &stored.evidence)
+            {
+                bail!(
+                    "conflicting content for immutable evidence ID {}",
+                    stored.evidence.id
+                );
+            }
+            records
+                .entry(stored.evidence.id.clone())
+                .or_insert_with(|| stored.evidence.clone());
         }
         drop(state);
         Ok(records.into_values().collect())

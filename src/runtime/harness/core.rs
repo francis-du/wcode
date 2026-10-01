@@ -1,5 +1,31 @@
 use super::*;
 
+pub(super) fn verification_check_plans(
+    profile: &ProjectProfile,
+    review: &ChangeReviewReport,
+) -> crate::verification::VerificationCheckPlans {
+    let snapshot = serde_json::json!({
+        "available": true,
+        "truncated": review.truncated,
+        "files": review.files.iter().map(|file| {
+            serde_json::json!({"path": file.path})
+        }).collect::<Vec<_>>(),
+    });
+    let impact = harness_profile::verification_impact_for_snapshot(profile, Some(&snapshot));
+    let bindings = |level| {
+        let mut checks = harness_profile::verification_checks_for_impact(profile, &impact, level);
+        if let Some(blocker) = harness_verification::discovery_completeness_check(profile, level) {
+            checks.push(blocker);
+            sort_checks(&mut checks);
+        }
+        checks.iter().map(verification_check_binding).collect()
+    };
+    crate::verification::VerificationCheckPlans {
+        quick: bindings("quick"),
+        full: bindings("full"),
+    }
+}
+
 impl ToolHarness {
     pub fn new(max_parallel: usize) -> Result<Self> {
         if !(1..=MAX_PARALLEL_TOOLS).contains(&max_parallel) {
@@ -8,6 +34,7 @@ impl ToolHarness {
         Ok(Self {
             slots: Arc::new(Semaphore::new(max_parallel)),
             execution_slots: Arc::new(Semaphore::new(Self::execution_limit(max_parallel))),
+            admission_waiters: Default::default(),
             max_parallel,
             project_cache: Default::default(),
             project_flights: Default::default(),
@@ -80,6 +107,7 @@ impl ToolHarness {
             schema_version: 1,
             name: name.to_owned(),
             description: description.trim().to_owned(),
+            acceptance_policy: None,
         };
         let product = design::ProductDesign {
             schema_version: 1,
@@ -199,13 +227,16 @@ impl ToolHarness {
         workspace: &Workspace,
         review: &ChangeReviewReport,
     ) -> Result<VerificationPlan> {
-        let known_checks = self.known_checks(workspace)?;
+        let (profile, _) = self.load_project_profile(workspace)?;
+        let known_checks = harness_profile::known_checks_from_profile(&profile);
+        let check_plans = verification_check_plans(&profile, review);
         self.intelligence.create_verification_plan(
             workspace_id,
             workspace,
             &self.code_index,
             &known_checks,
             review,
+            &check_plans,
         )
     }
 
@@ -572,6 +603,7 @@ impl ToolHarness {
         let revision = self
             .intelligence
             .current_revision_from_load(workspace, design.as_ref())?;
+        let execution_git_binding = self.execution_git_binding(workspace).await?;
         let started = Instant::now();
         let mut run =
             quality_provider::execute(workspace, language, provider_id, timeout_seconds).await?;
@@ -587,6 +619,13 @@ impl ToolHarness {
             ),
             success: run.success,
             reused: false,
+            execution: if run.command.timed_out {
+                crate::evidence::VerificationCheckExecution::TimedOut
+            } else if run.command.exit_code.is_some() {
+                crate::evidence::VerificationCheckExecution::Executed
+            } else {
+                crate::evidence::VerificationCheckExecution::Unavailable
+            },
             exit_code: run.command.exit_code,
             elapsed_ms,
             queue_wait_ms: run.command.process_queue_wait_ms,
@@ -594,8 +633,12 @@ impl ToolHarness {
             stdout_tail: tail_chars(&run.command.stdout, MAX_CHECK_OUTPUT_CHARS).0,
             stderr_tail: tail_chars(&run.command.stderr, MAX_CHECK_OUTPUT_CHARS).0,
             output_truncated: run.command.truncated,
+            signature: None,
+            evidence_id: None,
         };
         let report = VerificationReport {
+            execution_git_binding: execution_git_binding.clone(),
+            required_checks: None,
             workspace: workspace_id.to_owned(),
             level: "language-quality".to_owned(),
             execution: "repository-declared-check-only-provider".to_owned(),
@@ -611,6 +654,8 @@ impl ToolHarness {
             cost_model: None,
             checks: vec![check],
         };
+        self.ensure_execution_git_binding(workspace, &execution_git_binding)
+            .await?;
         run.evidence_records = self
             .intelligence
             .record_verification_report_from_design(
@@ -630,8 +675,20 @@ impl ToolHarness {
         workspace: &Workspace,
         plan_id: &str,
     ) -> Result<Value> {
-        let before = self.verification_status(workspace_id, workspace, plan_id)?;
+        let mut before = self.verification_status(workspace_id, workspace, plan_id)?;
         let registry = stage_executor::registry(workspace)?;
+        let execution_git_binding = self.execution_git_binding(workspace).await?;
+        // Legacy/unbound Stage passes cannot suppress execution on a new Git HEAD.
+        let evidence = evidence_store::load(workspace)?;
+        if evidence.iter().any(|item| {
+            item.execution_policy_binding.as_deref() == Some(before.plan.policy.as_str())
+                && item.effective_authority() == crate::evidence::EvidenceAuthority::NativeStage
+                && item.execution_git_binding != execution_git_binding
+        }) {
+            before.stage_results.clear();
+            before.stage_target_results.clear();
+            before.stage_producer_results.clear();
+        }
         let mut required = Vec::new();
         if before.plan.require_property {
             required.push(crate::verification::VerificationStage::Property);
@@ -733,7 +790,9 @@ impl ToolHarness {
                         continue;
                     }
                 };
-                self.intelligence.verification_stage_submit(
+                self.ensure_execution_git_binding(workspace, &execution_git_binding)
+                    .await?;
+                self.intelligence.verification_stage_submit_native_bound(
                     workspace_id,
                     workspace,
                     plan_id,
@@ -746,6 +805,7 @@ impl ToolHarness {
                         targets,
                         model: None,
                     },
+                    execution_git_binding.clone(),
                 )?;
                 results.push(execution);
             }
@@ -773,20 +833,20 @@ impl ToolHarness {
             .verification_stage_submit(workspace_id, workspace, plan_id, submission)
     }
 
-    pub fn verification_approve(
+    #[cfg(test)]
+    #[cfg(test)]
+    pub(crate) fn verification_stage_submit_native(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
+        submission: StageSubmission,
     ) -> Result<crate::evidence::Evidence> {
-        self.intelligence.verification_approve(
+        self.intelligence.verification_stage_submit_native(
             workspace_id,
             workspace,
             plan_id,
-            approver,
-            statement,
+            submission,
         )
     }
 

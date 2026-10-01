@@ -420,13 +420,14 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
 }
 
 #[test]
-fn engineering_console_groups_architecture_and_proof_instead_of_flat_intelligence_rows() {
+fn observations_console_preserves_architecture_and_proof_drilldowns() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = monitor_test_config(workspaces);
     let monitor = TaskMonitor::new(["backend".to_owned()]);
     seed_engineering_state(&monitor, "backend");
     let ui = DashboardState {
         intelligence_open: true,
+        console_tab: ConsoleTab::Summary,
         ..DashboardState::default()
     };
 

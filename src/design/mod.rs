@@ -5,6 +5,14 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path};
 
+mod local;
+mod project;
+pub use local::load_local_design;
+pub use project::{
+    AcceptancePolicy, AcceptanceRule, DocsOnlyPolicy, PolicyChangeSet, PolicyLevel, PolicyPath,
+    PolicyPathMappings, PolicyRequirements, PolicySelection, PolicySelector, ProjectDesign,
+};
+
 pub const DESIGN_ROOT: &str = ".wcode/design";
 pub const PROJECT_FILE: &str = ".wcode/project.yaml";
 pub(crate) const MAX_DESIGN_FILES: usize = 512;
@@ -86,16 +94,6 @@ pub struct DesignDiagnostic {
     pub code: String,
     pub path: String,
     pub message: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProjectDesign {
-    #[serde(default = "schema_version")]
-    pub schema_version: u32,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -748,6 +746,7 @@ fn validate_schema_version(version: u32, path: &str, load: &mut DesignLoad) {
 }
 
 fn validate_design_state(load: &mut DesignLoad) {
+    project::validate_project_policy(load);
     let mut seen = HashSet::new();
     let ids = load
         .state

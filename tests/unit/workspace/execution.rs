@@ -1,6 +1,9 @@
 use super::*;
 use std::sync::OnceLock;
 
+#[path = "execution_timing.rs"]
+mod timing;
+
 #[test]
 fn command_queue_wait_is_bounded_independently_from_execution_timeout() {
     assert_eq!(
@@ -275,6 +278,12 @@ fn main() {
             println!("password=synthetic-fixture-value");
             io::stdout().flush().unwrap();
             std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+        Some("--filter") if std::env::args().nth(2).as_deref() == Some("queue-budget") => {
+            std::fs::write("queue-started.txt", "started").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            std::fs::write("queue-finished.txt", "finished").unwrap();
+            println!("queue-budget-finished");
         }
         Some("count") => {
             let mut file = std::fs::OpenOptions::new()

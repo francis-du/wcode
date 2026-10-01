@@ -37,6 +37,13 @@ Tool visibility bootstrap:
   next, then `review_changes` and `verify_project`; use Design, Graph, drift,
   impact, risk, Evidence, and Verification tools when readiness or risk calls
   for them.
+- For long verification on a server advertising the lifecycle fields, use
+  `verify_project(action="start", level="full")` and follow its returned
+  status/result/cancel requests. This works without a Tasks extension. Never
+  repeat start to poll; preserve task ID, Workspace and authenticated owner.
+  Terminal is not passed: inspect the nested report. Recorded task results do
+  not establish current Acceptance. Older servers without these fields need
+  their advertised synchronous or native-Tasks route, not guessed arguments.
 
 Use the configured wcode MCP server for repository work. Prefer wcode's repository
 primitives over overlapping generic filesystem, shell, search, or code-edit tools
@@ -197,7 +204,13 @@ After editing:
    Interrupted workers are not automatically replayed. Legacy/non-Tasks hosts
    keep synchronous results; do not invent an async flag or assume host support.
    Use `language_quality_run` only for a declared, available, check-only provider.
-4. Continue `reconciliation_plan` when traceability or drift gaps remain.
+4. Continue `reconciliation_plan` when traceability or drift gaps remain. Keep
+   every declared feature and unfinished requirement in scope; refactoring,
+   phase verification, budget pressure or a deployment blocker never cancels it.
+   Read `execution_status`/`worklist_status` before claiming overall completion.
+   Follow `scope_completion`: when `allowed=false`, continue runnable work or
+   resolve its blockers. A passing phase and a worker's report are progress, not
+   completion of the parent objective. Host turn control remains Host-owned.
 5. Finish with `evidence_status`; report failures, disagreement, stale
    revisions, and remaining blockers. Never invent a Stage Pass or
    HumanApproval.

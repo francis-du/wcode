@@ -1,6 +1,7 @@
 use super::mcp_writer_recovery::writer_consistency_counts;
 use super::mcp_writer_scope::{
-    mutation_domain_path, mutation_domain_scopes, mutation_paths, scopes_allow_path,
+    enforce_design_mutation_admission, mutation_domain_path, mutation_domain_scopes,
+    mutation_paths, scopes_allow_path,
 };
 use super::*;
 use crate::execution_policy::{
@@ -796,6 +797,7 @@ pub(crate) fn before_tool(
     let effect = tool_effect(name, args);
     if effect.mutates_workspace() {
         let context = runtime_policy_context(state, name, args, args)?;
+        enforce_design_mutation_admission(&context.workspace, name, args)?;
         enforce_plan_approval(&context)?;
         runtime().enforce_tool_mutation(
             &state.workspaces,

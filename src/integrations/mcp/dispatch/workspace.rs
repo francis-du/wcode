@@ -29,27 +29,47 @@ pub(super) fn batch_succeeded(name: &str, value: &mut Value) -> bool {
     failed == 0
 }
 
-const MAX_SYNC_COMMAND_TIMEOUT_SECONDS: u64 = 60;
+const DEFAULT_COMMAND_TIMEOUT_SECONDS: u64 = 600;
+const MAX_COMMAND_TIMEOUT_SECONDS: u64 = 1800;
 
 pub(super) fn command_timeout_seconds(args: &Value) -> Result<u64, String> {
-    let task_mode = match args.get("task_mode") {
-        None => false,
-        Some(value) => value
+    if let Some(task_mode) = args.get("task_mode") {
+        task_mode
             .as_bool()
-            .ok_or("task_mode must be a boolean when provided")?,
-    };
-    let timeout_seconds = match args.get("timeout_seconds") {
-        None if task_mode => 120,
-        None => MAX_SYNC_COMMAND_TIMEOUT_SECONDS,
+            .ok_or("task_mode must be a boolean when provided")?;
+    }
+    match args.get("timeout_seconds") {
+        None => Ok(DEFAULT_COMMAND_TIMEOUT_SECONDS),
         Some(value) => value
             .as_u64()
-            .filter(|seconds| (1..=1800).contains(seconds))
-            .ok_or("timeout_seconds must be an integer between 1 and 1800")?,
-    };
-    if !task_mode && timeout_seconds > MAX_SYNC_COMMAND_TIMEOUT_SECONDS {
-        return Err("synchronous commands are limited to 60 seconds; set task_mode=true for longer commands".to_owned());
+            .filter(|seconds| (1..=MAX_COMMAND_TIMEOUT_SECONDS).contains(seconds))
+            .ok_or_else(|| "timeout_seconds must be an integer between 1 and 1800".to_owned()),
     }
-    Ok(timeout_seconds)
+}
+
+pub(super) fn preflight_sync_command(state: &AppState, args: &Value) -> Result<(), String> {
+    let (workspace_id, workspace) = selected_workspace(state, args)?;
+    required_string(args, "program")?;
+    command_arguments(args)?;
+    command_environment(args)?;
+    match args.get("cwd") {
+        None => {}
+        Some(value) => {
+            value
+                .as_str()
+                .filter(|cwd| !cwd.is_empty())
+                .ok_or("cwd must be a non-empty string when provided")?;
+        }
+    }
+    command_timeout_seconds(args)?;
+    let unrestricted = state
+        .workspaces
+        .all_commands_authorized(Some(&workspace_id))
+        .map_err(|error| error.to_string())?;
+    if !workspace.exec_enabled() && !unrestricted {
+        return Err("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace".to_owned());
+    }
+    Ok(())
 }
 
 pub(super) fn command_arguments(args: &Value) -> Result<Vec<String>, String> {

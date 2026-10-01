@@ -1,8 +1,14 @@
 schema_version: 1
 id: AC-SEC-001
 title: Parent traversal and stale-root escapes are rejected
-statement: Workspace path resolution rejects traversal outside the selected root and stale writes do not silently overwrite changed files.
+statement: Workspace path resolution rejects traversal outside the selected root and stale writes do not silently overwrite changed files. Actual configured authority state is excluded from file access and discovery, including Full Access, and cannot be replaced or removed through ancestor mutation; this does not isolate same-user host processes.
 verification:
   - kind: test
     path: tests/unit/workspace/files.rs
     symbol: blocks_path_traversal_and_stale_writes
+  - {kind: test, path: tests/unit/workspace/files.rs, symbol: authority_state_file_tools_remain_blocked_after_full_home_access}
+  - {kind: test, path: tests/unit/workspace/files.rs, symbol: authority_state_directory_moves_reject_ancestors_before_traversal}
+  - {kind: test, path: tests/unit/workspace/access.rs, symbol: authority_state_roots_are_rejected_even_with_full_access_security}
+  - {kind: test, path: tests/unit/workspace/access.rs, symbol: authority_state_configured_roots_cover_missing_paths_and_mutation_ancestors}
+  - {kind: test, path: tests/unit/workspace/access.rs, symbol: authority_state_root_resolution_preserves_existing_symlink_ancestors}
+  - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: authority_state_walkers_hide_state_and_keep_legitimate_wcode_projects}

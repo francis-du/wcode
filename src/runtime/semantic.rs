@@ -1,5 +1,5 @@
 use crate::harness::ToolHarness;
-use crate::monitor::TaskMonitor;
+use crate::runtime_telemetry::{TaskTelemetry, TaskTelemetryTicket};
 use crate::semantic_provider::{self, SemanticAutoState};
 use crate::workspace::{Workspace, Workspaces};
 use futures_util::FutureExt;
@@ -22,10 +22,10 @@ const DISCOVERY_POLL: Duration = Duration::from_secs(30);
 const MIN_RETRY: Duration = Duration::from_secs(10);
 const MAX_RETRY: Duration = Duration::from_secs(300);
 
-pub(crate) fn spawn(
+pub(crate) fn spawn<T: TaskTelemetry>(
     workspaces: Workspaces,
     harness: ToolHarness,
-    monitor: TaskMonitor,
+    monitor: T,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut workers = JoinSet::new();
@@ -75,11 +75,11 @@ where
     AssertUnwindSafe(worker).catch_unwind().await.is_ok()
 }
 
-async fn maintain_workspace(
+async fn maintain_workspace<T: TaskTelemetry>(
     workspace_id: &str,
     workspace: Workspace,
     harness: ToolHarness,
-    monitor: TaskMonitor,
+    monitor: T,
     probe_slots: Arc<Semaphore>,
 ) {
     let mut indexed_fingerprint = None::<String>;
@@ -142,11 +142,11 @@ async fn maintain_workspace(
     }
 }
 
-async fn refresh_workspace(
+async fn refresh_workspace<T: TaskTelemetry>(
     workspace_id: &str,
     workspace: &Workspace,
     harness: &ToolHarness,
-    monitor: &TaskMonitor,
+    monitor: &T,
     state: &SemanticAutoState,
 ) -> bool {
     let ticket = monitor.queue(
@@ -160,7 +160,7 @@ async fn refresh_workspace(
         ),
         0,
     );
-    let _permit = match harness.acquire().await {
+    let _permit = match harness.acquire_tool(true).await {
         Ok(permit) => permit,
         Err(_) => {
             ticket.finish(false, 0);
@@ -189,11 +189,11 @@ async fn refresh_workspace(
     success
 }
 
-fn refresh_monitor_state(
+fn refresh_monitor_state<T: TaskTelemetry>(
     workspace_id: &str,
     workspace: &Workspace,
     harness: &ToolHarness,
-    monitor: &TaskMonitor,
+    monitor: &T,
 ) {
     if let Ok(status) = harness.semantic_provider_status(workspace) {
         if let Ok(value) = serde_json::to_value(status) {

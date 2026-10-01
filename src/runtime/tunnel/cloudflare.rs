@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn ensure_cloudflared(install_missing: bool, monitor: &TaskMonitor) -> Result<()> {
+pub(super) fn ensure_cloudflared<T: RuntimeTelemetry>(
+    install_missing: bool,
+    monitor: &T,
+) -> Result<()> {
     monitor.operator_message(
         OperatorMessageKind::Info,
         "cloudflared",
@@ -76,7 +79,12 @@ pub(super) fn ensure_cloudflared(install_missing: bool, monitor: &TaskMonitor) -
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn run_installer(program: &str, args: &[&str], label: &str, monitor: &TaskMonitor) -> Result<()> {
+fn run_installer<T: RuntimeTelemetry>(
+    program: &str,
+    args: &[&str],
+    label: &str,
+    monitor: &T,
+) -> Result<()> {
     monitor.operator_message(
         OperatorMessageKind::Info,
         "cloudflared",

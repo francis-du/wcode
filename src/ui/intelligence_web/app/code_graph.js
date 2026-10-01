@@ -303,7 +303,7 @@ function codeGraphSourcePanel(graph, node) {
   if (state.codeGraphSourceError && state.codeGraphSourceKey === key) {
     return `<section class="code-graph-source"><div class="bad">${esc(state.codeGraphSourceError)}</div><button type="button" class="code-graph-source-open" data-code-source>${esc(localized("Retry source read", "重试源码读取"))}</button></section>`;
   }
-  if (state.codeGraphSource && state.codeGraphSourceKey === key) return codeGraphSourcePreview(state.codeGraphSource);
+  if (state.codeGraphSource && state.codeGraphSourceKey === key) return codeGraphSourcePreview(state.codeGraphSource) + codeSourceEditorPanel(state.codeGraphSource);
   return `<section class="code-graph-source"><button type="button" class="code-graph-source-open" data-code-source>${esc(localized("Read source at this snapshot", "读取该快照源码"))}</button><p>${esc(localized("Uses the selected graph node and snapshot; no arbitrary path or revision is accepted.", "只使用所选图谱节点和快照，不接受任意路径或版本表达式。"))}</p></section>`;
 }
 async function loadCodeGraphSource(node, { startLine, repositoryRevision } = {}) {
@@ -412,6 +412,7 @@ function renderCodeGraphInspector() {
     <div class="code-graph-why"><strong>${esc(localized("Why this node is related", "为什么这个节点相关"))}</strong>${why || `<p>${esc(localized("No retained relation touches this node in the current bounded graph.", "当前有界图谱中没有保留与该节点相连的关系。"))}</p>`}</div>
     ${codeGraphSourcePanel(graph, node)}
     <button type="button" class="primary code-graph-focus" data-code-focus="${esc(node.id)}">${esc(localized("Focus graph here", "以此节点为中心"))}</button>`;
+  if (state.codeGraphSource && state.codeGraphSourceKey === codeGraphSourceRequestKey(graph, node)) bindCodeSourceEditor(state.codeGraphSource);
   els.codeGraphInspector.querySelector("[data-code-source]")?.addEventListener("click", () => {
     void loadCodeGraphSource(node);
   });

@@ -7,7 +7,8 @@ use crate::tunnel::{
 };
 use crate::workspace::{WorkspaceSecurity, Workspaces};
 use crate::{
-    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, resource, semantic_runtime,
+    agent_install, agent_plugin, auth, design, mcp, mcp_stdio, power, resource, runtime_presence,
+    semantic_runtime,
 };
 use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
 use anyhow::{bail, Context, Result};
@@ -29,6 +30,10 @@ const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 #[path = "commands.rs"]
 mod commands;
 use commands::ControlCommand;
+#[path = "acceptance.rs"]
+mod acceptance;
+#[path = "github.rs"]
+mod github;
 #[path = "intelligence.rs"]
 mod intelligence;
 use intelligence::{run_intelligence_cli, run_verification_cli};
@@ -64,10 +69,13 @@ QUICK START
   wcode help-all                 Show every supported CLI command and parameter.
   wcode help-all setup           Inspect one command, including advanced options.
   wcode mcp-stdio               Connect an MCP Host; its current directory becomes the project.
+  wcode menu-bar                Observe HTTP/MCP and stdio runtime status from the macOS menu bar.
   wcode intelligence            Inspect project intelligence and LSP readiness.
   wcode intelligence --refresh-semantic
                                 Discover and initialize available language servers.
   wcode verification            Inspect project verification state.
+  wcode acceptance              Inspect revision-bound change acceptance.
+  wcode github --help           Inspect deployment preflight and exact-candidate publication.
   wcode update                  Update WCode, then reconnect running MCP Host sessions.
 
 The current directory is used automatically. Most users do not need --workspace.
@@ -259,6 +267,10 @@ pub async fn run() -> Result<()> {
                 dry_run,
                 global,
                 project,
+                github_repository,
+                github_repository_id,
+                github_app_id,
+                github_check_name,
                 json,
             } => {
                 if args.workspace.len() != 1 {
@@ -270,13 +282,33 @@ pub async fn run() -> Result<()> {
                     .map(PathBuf::as_path)
                     .unwrap_or_else(|| std::path::Path::new("."));
                 let launch_args = args.setup_launch_args()?;
-                setup::run(root, *dry_run, *json, *global, *project, &launch_args)?;
+                setup::run(
+                    root,
+                    *dry_run,
+                    *json,
+                    *global,
+                    *project,
+                    &launch_args,
+                    setup::GitHubEnrollmentInput {
+                        repository: github_repository.as_deref(),
+                        repository_id: *github_repository_id,
+                        app_id: *github_app_id,
+                        check_name: github_check_name.as_deref(),
+                    },
+                )?;
                 return Ok(());
+            }
+            ControlCommand::MenuBar { json } => {
+                return crate::menu_bar::run(*json);
+            }
+            ControlCommand::GitHub { action } => {
+                return github::run(&args, action).await;
             }
             ControlCommand::HelpAll { .. }
             | ControlCommand::AgentPlugin { .. }
             | ControlCommand::McpStdio
             | ControlCommand::Intelligence { .. }
+            | ControlCommand::Acceptance { .. }
             | ControlCommand::Verification { .. } => {}
         }
     }
@@ -370,8 +402,13 @@ pub async fn run() -> Result<()> {
         .map(|task| AbortTaskOnDrop(task.abort_handle()));
     if let Some(command) = args.command.as_ref() {
         match command {
-            ControlCommand::Setup { .. } | ControlCommand::HelpAll { .. } => {
-                unreachable!("setup and help-all return before runtime initialization")
+            ControlCommand::Setup { .. }
+            | ControlCommand::HelpAll { .. }
+            | ControlCommand::MenuBar { .. }
+            | ControlCommand::GitHub { .. } => {
+                unreachable!(
+                    "setup, help-all, menu-bar and github return before runtime initialization"
+                )
             }
             ControlCommand::AgentPlugin {
                 output,
@@ -429,6 +466,10 @@ pub async fn run() -> Result<()> {
                 .await?;
                 return Ok(());
             }
+            ControlCommand::Acceptance { action } => {
+                acceptance::run_acceptance_cli(&workspaces, &harness, &monitor, action).await?;
+                return Ok(());
+            }
             ControlCommand::Verification {
                 plan,
                 execute_stages,
@@ -466,6 +507,37 @@ pub async fn run() -> Result<()> {
         monitor: monitor.clone(),
         tasks: mcp::TaskRuntime::default(),
     });
+    let runtime_presence = match runtime_presence::RuntimePresencePublisher::new(
+        auth.instance_id(),
+        runtime_presence::RuntimeTransport::Http,
+        workspaces.roots().into_iter().map(|(id, _)| id),
+        Some(&local_url),
+    ) {
+        Ok(publisher) => {
+            if let Err(error) = publisher.publish(&monitor) {
+                monitor.operator_message(
+                    OperatorMessageKind::Warning,
+                    "runtime-presence",
+                    format!("menu bar status is unavailable: {error}"),
+                );
+            }
+            Some(publisher)
+        }
+        Err(error) => {
+            monitor.operator_message(
+                OperatorMessageKind::Warning,
+                "runtime-presence",
+                format!("menu bar status is unavailable: {error}"),
+            );
+            None
+        }
+    };
+    let mut runtime_presence_heartbeat = runtime_presence
+        .as_ref()
+        .map(|publisher| publisher.spawn_heartbeat(monitor.clone()));
+    let _runtime_presence_abort = runtime_presence_heartbeat
+        .as_ref()
+        .map(|task| AbortTaskOnDrop(task.abort_handle()));
     let app = auth::router(auth.clone()).merge(mcp::router(app_state));
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
@@ -706,6 +778,14 @@ pub async fn run() -> Result<()> {
         server_task.abort();
         let _ = server_task.await;
     }
+    if let Some(task) = runtime_presence_heartbeat.as_mut() {
+        task.abort();
+        let _ = task.await;
+    }
+    if let Some(publisher) = runtime_presence.as_ref() {
+        publisher.remove()?;
+    }
+    drop(runtime_presence);
     Ok(())
 }
 

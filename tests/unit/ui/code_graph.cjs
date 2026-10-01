@@ -48,6 +48,49 @@ async function run(){
     catch(error){results.push({name,passed:false,error:error.stack});}
   }
 
+  const editableSource=()=>({snapshot_id:'GRAPH-overview',node_id:'symbol:alpha',path:'src/a.rs',
+    provider:'tree-sitter',precision:'syntax',source_revision:'sha256:'+'a'.repeat(64),current_sha256:'a'.repeat(64),
+    start_line:1,end_line:1,total_lines:1,focus_start_line:1,focus_end_line:1,
+    content:'fn alpha() {}',redacted:false,truncated:false,editable:true,line_ending:'lf'});
+  const editing=()=>{const s=sandbox();s.context.TextEncoder=TextEncoder;s.context.graph=focusGraph();s.context.source=editableSource();
+    s.run('state.codeGraph=graph;state.selectedCodeNode="symbol:alpha";state.codeGraphSource=source;state.codeGraphSourceKey=codeGraphSourceRequestKey(graph,graph.nodes[0].node);beginCodeSourceEdit(source);draft=codeSourceDraft(source);draft.text="fn alpha() { changed(); }";');return s;};
+  await test('source editing is explicit, escapes drafts and respects backend editability',async()=>{
+    const s=editing();s.run('draft.text="<script>alert(1)</script>";renderCodeGraphInspector();');
+    const html=s.node('#codeGraphInspector').innerHTML;assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+    for(const override of [{editable:false},{redacted:true},{line_ending:'mixed'},{current_sha256:'bad'}]){
+      s.context.candidate={...editableSource(),...override};assert.equal(s.run('codeSourceEditable(candidate)'),false);
+    }
+    assert.equal(s.requests.length,0,'opening or typing never executes a save');
+  });
+  await test('guarded source save sends exact snapshot SHA and old window once',async()=>{
+    const s=editing();const p=s.run('saveCodeSourceDraft(draft)');await flush();
+    assert.equal(s.requests.length,1);assert.equal(s.requests[0].options.method,'POST');
+    const body=JSON.parse(s.requests[0].options.body);assert.equal(body.expected_sha256,'a'.repeat(64));
+    assert.equal(body.old_text,'fn alpha() {}');assert.equal(body.new_text,'fn alpha() { changed(); }');
+    assert.equal(body.snapshot_id,'GRAPH-overview');assert.equal(body.start_line,1);assert.equal(body.end_line,1);
+    assert.equal(s.run('draft.status'),'saving');assert.equal(await s.run('saveCodeSourceDraft(draft)'),false);
+    s.requests[0].resolve({ok:false,status:409,json:async()=>({workspace:'A',code:'stale_source',error:'changed'})});
+    assert.equal(await p,false);assert.equal(s.run('draft.status'),'conflict');assert.match(s.run('draft.text'),/changed/);
+    assert.equal(await s.run('saveCodeSourceDraft(draft)'),false);assert.equal(s.requests.length,1,'no automatic stale retry');
+  });
+  await test('uncertain source saves retain draft and reject a blind retry',async()=>{
+    const s=editing();const p=s.run('saveCodeSourceDraft(draft)');await flush();
+    respond(s.requests[0],{workspace:'A',code:'source_updated',edit:{path:'WRONG',sha256_before:'a'.repeat(64),sha256_after:'b'.repeat(64),bytes_written:20}});
+    assert.equal(await p,false);assert.equal(s.run('draft.status'),'uncertain');
+    assert.equal(await s.run('saveCodeSourceDraft(draft)'),false);assert.equal(s.requests.length,1);
+  });
+  await test('source save returning after A to B to A cannot refresh the new view',async()=>{
+    const s=editing();const p=s.run('saveCodeSourceDraft(draft)');await flush();
+    s.run('state.current="B";state.workspaceEpoch++;state.current="A";state.workspaceEpoch++;');
+    respond(s.requests[0],{workspace:'A',code:'source_updated',edit:{path:'src/a.rs',sha256_before:'a'.repeat(64),sha256_after:'b'.repeat(64),bytes_written:20}});
+    assert.equal(await p,true);assert.equal(s.run('draft.status'),'saved');assert.equal(s.requests.length,1,'obsolete completion must not reload or mutate new view');
+  });
+  await test('source drafts are bounded and never displayed in another workspace',async()=>{
+    const s=editing();s.run('state.current="B";');assert.equal(s.run('codeSourceDraft(source)'),undefined);
+    for(let index=0;index<4;index++){s.context.index=index;s.run('source={...source,path:"src/window"+index+".rs"};beginCodeSourceEdit(source);');}
+    assert.equal(s.run('codeSourceDrafts.size'),4);assert.equal(s.requests.length,0);
+  });
+
   await test('empty source files preserve SHA and snapshot identity without fake rows or pagination',async()=>{
     const s=sandbox();s.context.graph=focusGraph('file:src/a.rs');s.run('state.codeGraph=graph;state.selectedCodeNode="file:src/a.rs";node=graph.nodes[0].node;');
     const pending=s.run('loadCodeGraphSource(node)');await flush();const sha='e'.repeat(64);

@@ -1,4 +1,7 @@
 use super::*;
+#[path = "credential_redaction.rs"]
+mod credential_redaction;
+use credential_redaction::redact_credential_tokens;
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock, Semaphore,
 };
@@ -372,7 +375,7 @@ impl Workspace {
                 self.authorization_workspace_id(),
                 program,
                 fingerprint,
-            );
+            )?;
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
@@ -426,7 +429,6 @@ impl Workspace {
             cargo_contention_wait(command_timeout),
         )
         .await?;
-        let deadline = tokio::time::Instant::now() + command_timeout;
         let queue_wait = process_queue_wait(command_timeout);
         let governor = crate::resource::global();
         let (_probe_permit, _child_permit, process_queue_wait_ms) =
@@ -489,6 +491,9 @@ impl Workspace {
         }
         crate::resource::apply_child_limits(&mut command);
 
+        // Admission has its own bound. Start the runtime budget only when
+        // launching, so a successfully queued command gets its full allowance.
+        let deadline = tokio::time::Instant::now() + command_timeout;
         let child = command.spawn().context("failed to start command")?;
         let result =
             collect_command_result(child, program, args, deadline, process_queue_wait_ms).await;
@@ -638,7 +643,6 @@ impl Workspace {
             bail!("cwd is not a directory");
         }
         let command_timeout = Duration::from_secs(timeout_seconds.clamp(1, 1800));
-        let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
             .acquire_child_for_workspace_with_wait_timeout(
                 &self.root,
@@ -656,6 +660,7 @@ impl Workspace {
             .kill_on_drop(true);
         scrub_sensitive_environment(&mut command, program, args, false);
         crate::resource::apply_child_limits(&mut command);
+        let deadline = tokio::time::Instant::now() + command_timeout;
         let child = command
             .spawn()
             .context("failed to start workspace verification executable")?;
@@ -706,7 +711,6 @@ impl Workspace {
             cargo_contention_wait(command_timeout),
         )
         .await?;
-        let deadline = tokio::time::Instant::now() + command_timeout;
         let (_child_permit, process_queue_wait_ms) = crate::resource::global()
             .acquire_child_for_workspace_with_wait_timeout(
                 &self.root,
@@ -724,6 +728,7 @@ impl Workspace {
             .kill_on_drop(true);
         scrub_sensitive_environment(&mut command, program, args, false);
         crate::resource::apply_child_limits(&mut command);
+        let deadline = tokio::time::Instant::now() + command_timeout;
         let child = command
             .spawn()
             .with_context(|| format!("failed to start runtime executor {program}"))?;
@@ -867,6 +872,8 @@ pub(crate) fn redact_sensitive_text(text: &str) -> (String, bool) {
 }
 
 pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
+    let (safe, recognized_redacted) = redact_credential_tokens(line);
+    let line = safe.as_str();
     let sensitive = [
         "api_key",
         "apikey",
@@ -881,7 +888,7 @@ pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
     ];
     let lower = line.to_ascii_lowercase();
     let Some(separator) = line.find('=').or_else(|| line.find(':')) else {
-        return (line.to_owned(), false);
+        return (line.to_owned(), recognized_redacted);
     };
     let key_side = &lower[..separator.min(lower.len())];
     let credential_header = matches!(
@@ -889,7 +896,7 @@ pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
         "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
     );
     if !credential_header && !sensitive.iter().any(|needle| key_side.contains(needle)) {
-        return (line.to_owned(), false);
+        return (line.to_owned(), recognized_redacted);
     }
     let value = line[separator + 1..].trim();
     let looks_literal = (credential_header && !value.is_empty())
@@ -898,7 +905,7 @@ pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
         || value.starts_with('`')
         || (!value.is_empty() && !value.contains(char::is_whitespace));
     if !looks_literal {
-        return (line.to_owned(), false);
+        return (line.to_owned(), recognized_redacted);
     }
     (
         format!(

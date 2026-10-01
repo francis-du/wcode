@@ -1,5 +1,50 @@
 use super::*;
 
+fn fixture_report(success: bool) -> VerificationReport {
+    let binding = RequiredVerificationCheck::from_command(
+        "rust-check",
+        "cargo",
+        &["check".into(), "--locked".into()],
+        ".",
+        "workspace",
+    );
+    VerificationReport {
+        execution_git_binding: None,
+        required_checks: Some(vec![binding.clone()]),
+        workspace: "demo".into(),
+        level: "quick".into(),
+        execution: "fixture".into(),
+        phases_run: 1,
+        passed: success,
+        checks_run: 1,
+        checks_reused: 0,
+        checks_failed: usize::from(!success),
+        skipped_checks: Vec::new(),
+        elapsed_ms: 1,
+        summary: "fixture passed".into(),
+        impact: None,
+        cost_model: None,
+        checks: vec![crate::harness::VerificationCheck {
+            id: "rust-check".into(),
+            phase: 0,
+            command: "cargo check --locked".into(),
+            reason: "fixture".into(),
+            success,
+            reused: false,
+            execution: crate::evidence::VerificationCheckExecution::Executed,
+            exit_code: Some(if success { 0 } else { 1 }),
+            elapsed_ms: 1,
+            queue_wait_ms: 0,
+            execution_ms: 1,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            output_truncated: false,
+            signature: Some(binding.signature),
+            evidence_id: None,
+        }],
+    }
+}
+
 #[test]
 fn verification_targets_follow_changed_source_languages() {
     let mut review = ChangeReviewReport {
@@ -194,9 +239,9 @@ fn required_stage_without_local_executor_is_an_explicit_verification_gap() {
     assert!(risks[0]
         .signals
         .contains(&"missing-local-stage-target:mutation:language:rust".to_owned()));
-    assert!(risks[0]
-        .summary
-        .contains("External stage evidence remains admissible"));
+    assert!(risks[0].summary.contains(
+        "Run a configured native stage executor; submitted stage reports remain advisory."
+    ));
 }
 
 #[test]
@@ -237,36 +282,7 @@ fn low_risk_verification_becomes_ready_after_deterministic_and_blind_review_pass
             "demo",
             &workspace,
             &runtime.current_revision(&workspace).unwrap(),
-            &VerificationReport {
-                workspace: "demo".into(),
-                level: "quick".into(),
-                execution: "fixture".into(),
-                phases_run: 1,
-                passed: true,
-                checks_run: 1,
-                checks_reused: 0,
-                checks_failed: 0,
-                skipped_checks: Vec::new(),
-                elapsed_ms: 1,
-                summary: "fixture passed".into(),
-                impact: None,
-                cost_model: None,
-                checks: vec![crate::harness::VerificationCheck {
-                    id: "rust-check".into(),
-                    phase: 0,
-                    command: "cargo check --locked".into(),
-                    reason: "fixture".into(),
-                    success: true,
-                    reused: false,
-                    exit_code: Some(0),
-                    elapsed_ms: 1,
-                    queue_wait_ms: 0,
-                    execution_ms: 1,
-                    stdout_tail: String::new(),
-                    stderr_tail: String::new(),
-                    output_truncated: false,
-                }],
-            },
+            &fixture_report(true),
         )
         .unwrap();
     let status = runtime
@@ -323,36 +339,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
             "demo",
             &workspace,
             &runtime.current_revision(&workspace).unwrap(),
-            &VerificationReport {
-                workspace: "demo".into(),
-                level: "quick".into(),
-                execution: "fixture".into(),
-                phases_run: 1,
-                passed: true,
-                checks_run: 1,
-                checks_reused: 0,
-                checks_failed: 0,
-                skipped_checks: Vec::new(),
-                elapsed_ms: 1,
-                summary: "fixture passed".into(),
-                impact: None,
-                cost_model: None,
-                checks: vec![crate::harness::VerificationCheck {
-                    id: "rust-check".into(),
-                    phase: 0,
-                    command: "cargo check --locked".into(),
-                    reason: "fixture".into(),
-                    success: true,
-                    reused: false,
-                    exit_code: Some(0),
-                    elapsed_ms: 1,
-                    queue_wait_ms: 0,
-                    execution_ms: 1,
-                    stdout_tail: String::new(),
-                    stderr_tail: String::new(),
-                    output_truncated: false,
-                }],
-            },
+            &fixture_report(true),
         )
         .unwrap();
     let before = runtime
@@ -387,36 +374,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
             "demo",
             &workspace,
             &runtime.current_revision(&workspace).unwrap(),
-            &VerificationReport {
-                workspace: "demo".into(),
-                level: "quick".into(),
-                execution: "revised-contract-fixture".into(),
-                phases_run: 1,
-                passed: false,
-                checks_run: 1,
-                checks_reused: 0,
-                checks_failed: 1,
-                skipped_checks: Vec::new(),
-                elapsed_ms: 1,
-                summary: "revised contract fixture failed".into(),
-                impact: None,
-                cost_model: None,
-                checks: vec![crate::harness::VerificationCheck {
-                    id: "rust-check".into(),
-                    phase: 0,
-                    command: "cargo check --locked".into(),
-                    reason: "revised fixture".into(),
-                    success: false,
-                    reused: false,
-                    exit_code: Some(1),
-                    elapsed_ms: 1,
-                    queue_wait_ms: 0,
-                    execution_ms: 1,
-                    stdout_tail: String::new(),
-                    stderr_tail: "fixture failure".into(),
-                    output_truncated: false,
-                }],
-            },
+            &fixture_report(false),
         )
         .unwrap();
     let old_plan = runtime
@@ -485,7 +443,7 @@ fn required_stage_evidence_replaces_automation_gap_blockers() {
 
     for stage in [VerificationStage::Property, VerificationStage::Mutation] {
         runtime
-            .verification_stage_submit(
+            .verification_stage_submit_native(
                 "demo",
                 &workspace,
                 &plan.id,
@@ -546,6 +504,7 @@ fn stage_readiness_requires_every_changed_language_target() {
             RiskLevel::Medium,
             vec!["language:javascript".into(), "language:rust".into()],
             &registry,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -554,7 +513,7 @@ fn stage_readiness_requires_every_changed_language_target() {
     );
 
     runtime
-        .verification_stage_submit(
+        .verification_stage_submit_native(
             "demo",
             &workspace,
             &plan.id,
@@ -586,7 +545,7 @@ fn stage_readiness_requires_every_changed_language_target() {
     assert!(!partial.stage_results.contains_key("property"));
 
     runtime
-        .verification_stage_submit(
+        .verification_stage_submit_native(
             "demo",
             &workspace,
             &plan.id,
@@ -630,7 +589,7 @@ fn stage_readiness_aggregates_latest_result_per_producer_fail_closed() {
         ),
     ] {
         runtime
-            .verification_stage_submit(
+            .verification_stage_submit_native(
                 "demo",
                 &workspace,
                 &plan.id,
@@ -668,7 +627,7 @@ fn stage_readiness_aggregates_latest_result_per_producer_fail_closed() {
         .contains(&"property-evidence-failed".to_owned()));
 
     runtime
-        .verification_stage_submit(
+        .verification_stage_submit_native(
             "demo",
             &workspace,
             &plan.id,
@@ -762,7 +721,7 @@ async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
     .unwrap();
     assert_eq!(execution.verdict, crate::verification::ReviewVerdict::Pass);
     runtime
-        .verification_stage_submit(
+        .verification_stage_submit_native(
             "demo",
             &workspace,
             &plan.id,
@@ -814,6 +773,8 @@ fn equal_timestamp_human_approval_conflict_fails_closed() {
         Confidence::High,
     )
     .unwrap();
+    denied.authority = EvidenceAuthority::LocalOperator;
+    denied.policy = Some(verification_snapshot::human_approval_policy(&plan).unwrap());
     denied.timestamp_ms = 42;
     let mut approved = Evidence::new(
         "EV-z".into(),
@@ -825,6 +786,8 @@ fn equal_timestamp_human_approval_conflict_fails_closed() {
         Confidence::High,
     )
     .unwrap();
+    approved.authority = EvidenceAuthority::LocalOperator;
+    approved.policy = denied.policy.clone();
     approved.timestamp_ms = 42;
     crate::evidence_store::persist(&workspace, &denied).unwrap();
     crate::evidence_store::persist(&workspace, &approved).unwrap();
@@ -865,7 +828,7 @@ fn explicit_human_approval_clears_only_the_human_blocker() {
         .blockers
         .contains(&"human-approval-required".to_owned()));
     runtime
-        .verification_approve(
+        .verification_approve_authorized(
             "demo",
             &workspace,
             &plan.id,

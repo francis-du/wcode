@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-PROJECT-BOOTSTRAP-001
+title: Existing repositories start with sparse local Design State
+intent: Project setup uses its current Workspace without requiring a manually supplied project name or YAML. A completely missing Design State receives neutral project metadata and an empty Design directory through existing guarded local writes. This is a bootstrap of engineering state, not inferred business intent, accepted Policy, human approval or executed verification. Existing, partial or invalid Design State is preserved and diagnosed for gradual source-grounded completion.
+priority: high
+implemented_by:
+  - component:project-bootstrap
+  - component:agent-host-install
+acceptance:
+  - AC-PROJECT-BOOTSTRAP-001
+constraints:
+  - CONSTRAINT-SPARSE-DESIGN-STATE
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-SYMLINK-REJECTION
+  - CONSTRAINT-POLICY-AUTHORITY
+risk:
+  reliability: high
+  security: high

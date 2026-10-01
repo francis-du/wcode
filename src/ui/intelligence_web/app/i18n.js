@@ -6,6 +6,11 @@ const translations = {
     "fitness observatory meta": "记录的工具结果、版本历史与描述性趋势。缺失数据保持未知。",
     "Project digital twin": "项目数字孪生",
     "Overview": "总览",
+    "Acceptance": "变更验收",
+    "AI CHANGE ACCEPTANCE": "AI 变更验收",
+    "Current change acceptance": "当前变更验收",
+    "acceptance overview meta": "先看验收结论，再逐层检查阻塞检查、精确证据与变更源码。",
+    "Supporting observations": "辅助观测",
     "Architecture": "架构",
     "Activity": "活动",
     "Proof": "证据",
@@ -352,6 +357,8 @@ Object.assign(translations["zh-CN"], {
 Object.assign(translations["zh-CN"], {
   "observatory subtitle": "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
   "Task activity": "任务活动", "Verification evidence": "验证证据",
+  "Command jobs": "命令任务",
+  "command jobs observation": "检查真实保留的命令任务与有界脱敏输出。此处仅可取消当前 UI 所属的运行中任务；MCP 所属任务仅供观测。此页面不启动命令。",
   "DURABLE EXECUTION": "持久化执行", "Durable execution": "持久化执行",
   "execution observatory meta": "只读展示目标、进度、计划与证明状态；不保存也不显示聊天记录。",
   "Engineering closed loop": "工程闭环流程",
@@ -382,6 +389,7 @@ Object.assign(translations["zh-CN"], {
 
 // Descriptive translation keys need English copy too, not their internal IDs.
 translations.en = {
+  "command jobs observation": "Inspect real retained command tasks and bounded redacted output. Only current UI-owned running jobs can be cancelled here; MCP-owned jobs remain observation-only. This page does not launch commands.",
   "Diagnostics meta": "Code distribution, graph revisions and recorded risks.",
   "adaptive verification meta": "Read-only preview of focused tests and fail-fast checks. Full verification coverage is unchanged.",
   "verified learning meta": "Temporal holdout evaluation of prompt-free verified change history.",

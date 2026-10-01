@@ -4,6 +4,26 @@ use super::*;
 pub(crate) struct ObservatoryRevisionState {
     pub stable_inputs_key: String,
     pub full_snapshot_key: String,
+    pub git_observation: Value,
+}
+
+// A stable observation key can describe known unavailability. It is never
+// a Git receipt or authorization to execute a command in a read-only workspace.
+pub(super) async fn git_revision_signal(
+    harness: &ToolHarness,
+    workspace: &Workspace,
+) -> AnyResult<(String, Value)> {
+    if !workspace.exec_enabled() {
+        let observation = json!({"available":false,"reason":"execution_disabled"});
+        return Ok((serde_json::to_string(&observation)?, observation));
+    }
+    let binding = harness.execution_git_binding(workspace).await?;
+    let observation = if binding.is_some() {
+        json!({"available":true})
+    } else {
+        json!({"available":false,"reason":"not_a_repository"})
+    };
+    Ok((serde_json::to_string(&binding)?, observation))
 }
 
 pub(crate) async fn revision_state(
@@ -15,6 +35,7 @@ pub(crate) async fn revision_state(
     if source.full_refresh_required || source.truncated {
         anyhow::bail!("observatory revision inputs are truncated");
     }
+    let (git, git_observation) = git_revision_signal(harness, workspace).await?;
     let harness = harness.clone();
     let workspace = workspace.clone();
     let workspace_id = workspace_id.to_owned();
@@ -32,14 +53,15 @@ pub(crate) async fn revision_state(
     })
     .await?;
     let source_key = source.fingerprint.unwrap_or_else(|| "full".to_owned());
-    let stable_inputs_key = format!("{source_key}|{proof}|{engineering}");
+    let stable_inputs_key = format!("{source_key}|{proof}|{engineering}|git={git}");
     let graph_key = graph
         .map(|(revision, signal)| if signal.is_empty() { revision } else { signal })
         .unwrap_or_default();
-    let full_snapshot_key = format!("{source_key}|{graph_key}|{proof}|{engineering}");
+    let full_snapshot_key = format!("{source_key}|{graph_key}|{proof}|{engineering}|git={git}");
     Ok(ObservatoryRevisionState {
         stable_inputs_key,
         full_snapshot_key,
+        git_observation,
     })
 }
 

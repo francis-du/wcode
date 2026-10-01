@@ -87,28 +87,66 @@ anonymous compatibility path.
 
 Managed public connectivity is automatic in the normal runtime. Advanced tunnel provider selection and stable reverse-proxy options are documented in the [CLI & MCP Reference](../reference/); they are not required for the normal local setup path.
 
-OAuth client registrations and tokens have no clock expiry. They are stored in
-the user's state directory for the configured Workspace roots and loaded by the
-next wcode process. A replacement tunnel can keep the session after it passes
-the current instance health check. Authorization always stays on the domain
-that received the request, and unknown or inactive hosts are rejected.
+OAuth client registrations remain persistent without a clock TTL. Access tokens expire after one hour; responses advertise `expires_in: 3600` with `Cache-Control: no-store` and `Pragma: no-cache`. Refresh tokens have a 30-day idle TTL, renewed only by successful refresh rotation. Rotation removes the same grant's old access tokens and preserves other owners. Expired, zero or future issuance timestamps fail closed. State is stored for the configured Workspace roots; restart and migration retain original issuance times rather than extending token lifetime. A replacement tunnel can continue a still-valid session after its current-instance health check; authorization stays on the request's domain.
 
-## 4. Let the agent start small
+Local operators can inspect sessions with `GET /oauth/sessions` and revoke a `session_id` through `POST /oauth/sessions/revoke`. These administration APIs require the existing Host/Origin checks and current `X-Wcode-UI-Token`, not an ordinary MCP bearer. Session listings expose no credentials. A successful revoke is persisted across restart; a storage error removes live credentials but does not confirm durable revocation. They are not an RFC 7009 endpoint or Team ACL/SSO; Team ACL and SSO are not implemented.
 
-You do not need to design the whole repository before the first task. A connected
-agent starts with `agent_context`, which defaults ordinary work toward a minimal
-change and asks for stronger context only when the task needs it.
+## 4. Add Design gradually to an existing project
 
-If the project benefits from durable requirements or architecture constraints,
-call `design_init` then. It creates sparse Project/Product state and practical
-baseline constraints without overwriting existing Design State.
+You can use source search, guarded editing and native checks before modeling the whole repository. Global setup configures the agent only. Explicit project setup (`wcode setup --project`, or the interactive Current project choice) seeds a completely missing Design with `.wcode/project.yaml` and an empty `.wcode/design/` directory. The project name comes from the directory; its description is empty and it has no Policy, invented Product vision, requirements or component mappings.
 
-Inspect it with:
+`--dry-run` reports the planned seed without writing. Existing, partial or invalid Design material is preserved and reported for inspection; setup does not reset or silently repair it. Starting wcode and ordinary read-only tools do not perform this initialization. A bare `.wcode` directory is not a completed Design, traceability proof or passing Acceptance.
+
+Ask your connected agent to onboard one real behavior at a time; you do not need to write a YAML model by hand. It should show a draft and ask about unknown business intent:
+
+1. Have the agent read the README, manifests and CI configuration, then inspect actual code with `software_graph`, `file_outline` and `find_symbol`; `project_context` discovers real checks. Confirm its proposed intended behavior and leave unknown intent explicit, instead of converting every observed implementation into a requirement.
+2. Declare one Requirement → Component → implementation path/symbol, and Requirement → Acceptance → actual test/check. Mapping lives in these records; there is no separate `mappings.yaml` format.
+3. Add missing files with `create_files`. For existing files, `read_files` supplies their SHA and `apply_file_edits` applies guarded updates. There is no `design_update` tool. A completely uninitialized workspace can explicitly use `design_init` for its fuller Product/core-constraint scaffold; after project setup has seeded metadata, extend it rather than calling initialization again.
+4. Check `design_status`, then `traceability_status` and `drift_status`. `reconciliation_plan` can turn gaps into a persisted task plan; it does not edit or automatically fix the project. Review changes and run `verify_project`; only actual evidence for the current code-plus-Design Revision proves execution.
+
+The agent's small Rust draft could use these collection-file shapes. It must replace the example behavior, source path and test symbol with inspected facts; this is a format example, not automatic whole-repository Design generation:
+
+```yaml
+# .wcode/design/requirements.yaml
+- schema_version: 1
+  id: REQ-SESSION
+  title: Reject expired sessions
+  intent: An expired session cannot access the service.
+  implemented_by: [component:session]
+  acceptance: [AC-SESSION]
+
+# .wcode/design/components.yaml
+- schema_version: 1
+  id: component:session
+  name: Sessions
+  responsibilities: [Validate session lifetime]
+  implementation:
+    - kind: file
+      path: src/session.rs
+
+# .wcode/design/acceptance.yaml
+- schema_version: 1
+  id: AC-SESSION
+  title: Expired session is rejected
+  statement: The expired-session regression test rejects access.
+  verification:
+    - kind: test
+      path: tests/session.rs
+      symbol: rejects_expired_session
+```
+
+Collections are YAML lists; a single item under `design/requirements/`, `design/components/` or `design/acceptance/` is one object instead. IDs must be unique and references must resolve. A component can use `{kind: symbol, path: src/session.rs, symbol: validate_session}` for a discovered symbol; Acceptance can use `{kind: check, id: rust-test}` only when that check is actually discovered. A resolvable mapping is not a test run or a Pass.
+
+Project setup may also suggest an Acceptance Policy draft. Only a separate interactive TTY confirmation can write that draft; dry-run/JSON does not accept it, and existing Policy fields are preserved. Activating Policy is a separate native preview plus exact operator approval flow. Neither metadata initialization nor installation confirmation activates Policy.
+
+Inspect local state with:
 
 ```bash
 wcode intelligence
 wcode intelligence --check --json
 ```
+
+Use the strict `--check` gate after addressing the declared Design and coverage gaps; an incomplete onboarding state should remain incomplete. See [Software Intelligence](../software-intelligence/) for the full schema and verification workflow.
 
 ## 5. Give the agent the right first calls
 

@@ -30,6 +30,31 @@ fn git(root: &std::path::Path, args: &[&str]) {
     );
 }
 
+fn committed_git(root: &std::path::Path) {
+    git(root, &["init", "-q"]);
+    std::fs::write(root.join(".gitignore"), ".wcode/\n").unwrap();
+    std::fs::write(root.join("README.md"), "# Verification task fixture\n").unwrap();
+    git(root, &["add", "--", ".gitignore", "README.md"]);
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=Task Fixture",
+            "-c",
+            "user.email=task@example.invalid",
+            "-c",
+            "core.hooksPath=",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--no-verify",
+            "-m",
+            "committed task baseline",
+        ],
+    );
+}
+
 fn tool_request(name: &str, arguments: Value, capable: bool) -> Value {
     let capabilities = if capable {
         json!({"extensions": {(TASK_EXTENSION_ID): {}}})
@@ -128,7 +153,7 @@ fn verification_and_explicit_long_runs_are_task_eligible_without_backgrounding_m
 }
 
 #[tokio::test]
-async fn run_command_task_mode_requires_task_capability_and_completes_durably() {
+async fn run_command_task_mode_supports_task_and_ordinary_receipts_durably() {
     let root = tempfile::tempdir().unwrap();
     let state = fixture(root.path());
     let owner = "a".repeat(64);
@@ -139,7 +164,7 @@ async fn run_command_task_mode_requires_task_capability_and_completes_durably() 
         "task_mode":true
     });
 
-    let rejected = crate::mcp::handle_message_isolated(
+    let ordinary = crate::mcp::handle_message_isolated(
         state.clone(),
         tool_request("run_command", arguments.clone(), false),
         crate::mcp::MODERN_PROTOCOL_VERSION,
@@ -147,8 +172,14 @@ async fn run_command_task_mode_requires_task_capability_and_completes_durably() 
     )
     .await
     .unwrap();
-    assert_eq!(rejected["error"]["code"], -32021);
-    assert!(rejected.get("result").is_none());
+    assert!(ordinary.get("error").is_none(), "{ordinary}");
+    assert_ne!(ordinary["result"]["resultType"], "task");
+    let receipt = &ordinary["result"]["structuredContent"];
+    assert_eq!(receipt["kind"], "command_task");
+    let ordinary_id = receipt["task_id"].as_str().unwrap();
+    let completed = terminal(&state, ordinary_id, &owner).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["result"]["structuredContent"]["success"], true);
 
     let created = crate::mcp::handle_message_isolated(
         state.clone(),
@@ -233,7 +264,7 @@ async fn task_mode_applies_bounded_non_secret_launch_environment() {
 }
 
 #[tokio::test]
-async fn run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_rejected() {
+async fn run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is_pollable() {
     let root = tempfile::tempdir().unwrap();
     let state = fixture(root.path());
     let owner = "a".repeat(64);
@@ -255,7 +286,7 @@ async fn run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is
     assert_eq!(synchronous["result"]["structuredContent"]["success"], true);
 
     let legacy = crate::mcp::handle_message_isolated(
-        state,
+        state.clone(),
         tool_request(
             "run_command",
             json!({"program":"cargo","args":["--version"],"task_mode":true}),
@@ -266,8 +297,14 @@ async fn run_command_without_task_mode_stays_synchronous_and_legacy_task_mode_is
     )
     .await
     .unwrap();
-    assert_eq!(legacy["error"]["code"], -32021);
-    assert!(legacy.get("result").is_none());
+    assert!(legacy.get("error").is_none(), "{legacy}");
+    assert!(legacy["result"].get("resultType").is_none());
+    let receipt = &legacy["result"]["structuredContent"];
+    assert_eq!(receipt["kind"], "command_task");
+    let id = receipt["task_id"].as_str().unwrap();
+    let completed = terminal(&state, id, &owner).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["result"]["structuredContent"]["success"], true);
 }
 
 #[tokio::test]
@@ -629,7 +666,7 @@ async fn malformed_verification_options_never_create_tasks() {
 async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
     for already_expired in [false, true] {
         let root = tempfile::tempdir().unwrap();
-        git(root.path(), &["init", "-q"]);
+        committed_git(root.path());
         let state = fixture(root.path());
         let held = state.harness.acquire().await.unwrap();
         let (workspace_id, workspace) = state.workspaces.select(None).unwrap();
@@ -655,6 +692,7 @@ async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
             json!({"name": "verify_project"}),
             "resume-test-owner".to_owned(),
             deadline,
+            None,
         ));
         state
             .tasks
@@ -684,7 +722,7 @@ async fn task_deadlines_cancel_without_polling_or_starting_expired_work() {
 async fn verification_task_reconnects_without_rerunning_checks_and_preserves_failures() {
     for failing in [false, true] {
         let root = tempfile::tempdir().unwrap();
-        git(root.path(), &["init", "-q"]);
+        committed_git(root.path());
         if failing {
             std::fs::write(root.path().join("file.txt"), "before\n").unwrap();
             git(root.path(), &["add", "--", "file.txt"]);
@@ -737,7 +775,7 @@ async fn verification_task_reconnects_without_rerunning_checks_and_preserves_fai
 #[tokio::test]
 async fn verification_task_cancellation_releases_queued_checks_without_evidence() {
     let root = tempfile::tempdir().unwrap();
-    git(root.path(), &["init", "-q"]);
+    committed_git(root.path());
     let state = fixture(root.path());
     let held = state.harness.acquire().await.unwrap();
     let owner = "a".repeat(64);
@@ -761,7 +799,7 @@ async fn verification_task_cancellation_releases_queued_checks_without_evidence(
 #[tokio::test]
 async fn verification_keeps_synchronous_fallback_without_modern_tasks() {
     let root = tempfile::tempdir().unwrap();
-    git(root.path(), &["init", "-q"]);
+    committed_git(root.path());
     let state = fixture(root.path());
     for (protocol, capable) in [
         (crate::mcp::MODERN_PROTOCOL_VERSION, false),

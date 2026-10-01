@@ -1,4 +1,302 @@
 use super::*;
+use crate::verification::change::{
+    parse_raw_changes, parse_status_changes, ExecutionGitBinding, GitChangeSnapshot,
+    GitChangeTarget,
+};
+
+#[derive(Eq, PartialEq)]
+struct GitBindingInputs {
+    binding: ExecutionGitBinding,
+    status: String,
+    index: String,
+}
+
+impl ToolHarness {
+    pub async fn git_change_snapshot(
+        &self,
+        workspace: &Workspace,
+        base: &str,
+        target: GitChangeTarget,
+    ) -> Result<GitChangeSnapshot> {
+        if base != "HEAD" && !crate::verification::change::full_oid(base) {
+            bail!("Git change requires HEAD or a complete base commit object ID");
+        }
+        if let GitChangeTarget::Commit { revision } = &target {
+            if revision != "HEAD" && !crate::verification::change::full_oid(revision) {
+                bail!("Git change requires HEAD or a complete target commit object ID");
+            }
+        }
+        let mut snapshot = GitChangeSnapshot::pending(base, target);
+        if capture_git_candidate(workspace, &mut snapshot)
+            .await
+            .is_err()
+        {
+            snapshot.unknown("git_capture_unavailable_or_changed");
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) async fn execution_git_binding(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Option<ExecutionGitBinding>> {
+        let Some(root) = git_repository_root(workspace).await? else {
+            return Ok(None);
+        };
+        let before = git_binding_inputs(workspace, &root).await?;
+        let after = git_binding_inputs(workspace, &root).await?;
+        if before != after || git_repository_root(workspace).await?.as_ref() != Some(&root) {
+            bail!("Git metadata changed during capture");
+        }
+        Ok(Some(before.binding))
+    }
+
+    pub(crate) async fn ensure_execution_git_binding(
+        &self,
+        workspace: &Workspace,
+        expected: &Option<ExecutionGitBinding>,
+    ) -> Result<()> {
+        if &self.execution_git_binding(workspace).await? != expected {
+            bail!("verification Git identity changed during execution; results are stale, no evidence was recorded");
+        }
+        Ok(())
+    }
+}
+
+fn complete_git_output(result: CommandResult) -> Result<String> {
+    if !result.success
+        || result.timed_out
+        || result.output_incomplete
+        || result.truncated
+        || result.redacted
+    {
+        bail!("Git metadata is unavailable or incomplete");
+    }
+    let output = result
+        .raw_stdout
+        .ok_or_else(|| anyhow::anyhow!("Git raw metadata is unavailable"))?;
+    if output.contains('\u{fffd}') {
+        bail!("Git metadata cannot be represented losslessly");
+    }
+    Ok(output)
+}
+
+async fn git_repository_root(workspace: &Workspace) -> Result<Option<PathBuf>> {
+    if !workspace.exec_enabled() {
+        bail!("Git inspection requires Workspace execution access");
+    }
+    // Discovery needs the native exit status to distinguish a positively
+    // identified non-repository from an unavailable/denied Git probe.
+    let args = vec!["rev-parse".into(), "--show-toplevel".into()];
+    let result = workspace.run_command("git", &args, ".", 10).await?;
+    if !result.success {
+        let known_non_git = result.exit_code == Some(128)
+            && !result.timed_out
+            && !result.truncated
+            && !result.redacted
+            && !result.output_incomplete
+            && result.stdout.is_empty()
+            && result.stderr.starts_with(
+                "fatal: not a git repository (or any of the parent directories): .git",
+            );
+        if known_non_git {
+            for ancestor in workspace.root().ancestors() {
+                match std::fs::symlink_metadata(ancestor.join(".git")) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    _ => bail!("Git repository discovery is unavailable"),
+                }
+            }
+            return Ok(None);
+        }
+        bail!("Git repository discovery is unavailable");
+    }
+    let output = complete_git_output(result)?;
+    let path = output.strip_suffix('\n').unwrap_or(&output);
+    let path = if cfg!(windows) {
+        path.strip_suffix('\r').unwrap_or(path)
+    } else {
+        path
+    };
+    if path.is_empty() || path.chars().any(char::is_control) {
+        bail!("Git repository root is invalid");
+    }
+    let root = Path::new(path)
+        .canonicalize()
+        .context("Git repository root is unavailable")?;
+    if !workspace.root().starts_with(&root) {
+        bail!("Git repository root does not contain the Workspace");
+    }
+    Ok(Some(root))
+}
+
+async fn git_resolve_commit(workspace: &Workspace, revision: &str) -> Result<String> {
+    if revision != "HEAD" && !crate::verification::change::full_oid(revision) {
+        bail!("Git change requires HEAD or a complete commit object ID");
+    }
+    let peeled = format!("{revision}^{{commit}}");
+    let output = complete_git_output(
+        workspace
+            .change_probe(&["rev-parse", "--verify", "--end-of-options", &peeled])
+            .await?,
+    )?;
+    let resolved = output.trim();
+    if !crate::verification::change::full_oid(resolved) {
+        bail!("Git commit identity is incomplete");
+    }
+    Ok(resolved.to_owned())
+}
+
+async fn git_binding_inputs(workspace: &Workspace, root: &Path) -> Result<GitBindingInputs> {
+    let head_sha = git_resolve_commit(workspace, "HEAD").await?;
+    let tree = format!("{head_sha}^{{tree}}");
+    let tree_args = ["rev-parse", "--verify", "--end-of-options", &tree];
+    let status_args = [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+        "--",
+        ".",
+    ];
+    let index_args = ["ls-files", "--stage", "-z", "--", "."];
+    let (tree, status, index) = tokio::try_join!(
+        workspace.change_probe(&tree_args),
+        workspace.change_probe(&status_args),
+        workspace.change_probe(&index_args),
+    )?;
+    let tree_sha = complete_git_output(tree)?.trim().to_owned();
+    let status = complete_git_output(status)?;
+    let index = complete_git_output(index)?;
+    if (!status.is_empty() && !status.ends_with('\0'))
+        || (!index.is_empty() && !index.ends_with('\0'))
+    {
+        bail!("Git metadata records are incomplete");
+    }
+    // The repository and selected scope both participate in the private local
+    // identity. Sub-Workspaces only hash their own status/index output.
+    let identity = serde_json::to_vec(&(
+        root.to_str().context("Git root is not UTF-8")?,
+        workspace
+            .root()
+            .to_str()
+            .context("Workspace root is not UTF-8")?,
+    ))?;
+    let binding = ExecutionGitBinding {
+        repository: format!("sha256:{:x}", Sha256::digest(identity)),
+        head_sha,
+        tree_sha,
+        dirty: !status.is_empty(),
+        index_fingerprint: format!("sha256:{:x}", Sha256::digest(index.as_bytes())),
+    };
+    if !binding.valid() {
+        bail!("Git execution binding is incomplete");
+    }
+    Ok(GitBindingInputs {
+        binding,
+        status,
+        index,
+    })
+}
+
+async fn capture_git_candidate(
+    workspace: &Workspace,
+    snapshot: &mut GitChangeSnapshot,
+) -> Result<()> {
+    let Some(root) = git_repository_root(workspace).await? else {
+        snapshot.unknown("not_git");
+        return Ok(());
+    };
+    if root != workspace.root() {
+        snapshot.unknown("workspace_not_git_root");
+        return Ok(());
+    }
+    let before = git_binding_inputs(workspace, &root).await?;
+    snapshot.binding = Some(before.binding.clone());
+    let base = git_resolve_commit(workspace, &snapshot.requested_base).await?;
+    let target = match &snapshot.target {
+        GitChangeTarget::Worktree => before.binding.head_sha.clone(),
+        GitChangeTarget::Commit { revision } => git_resolve_commit(workspace, revision).await?,
+    };
+    snapshot.base_sha = Some(base.clone());
+    snapshot.target_sha = Some(target.clone());
+    if matches!(snapshot.target, GitChangeTarget::Commit { .. }) {
+        if before.binding.dirty {
+            snapshot.unknown("dirty_commit_candidate");
+        }
+        if before.binding.head_sha != target {
+            snapshot.unknown("target_not_current_head");
+        }
+        if !snapshot.unknown_reasons.is_empty() {
+            return Ok(());
+        }
+    }
+    let mut args = vec![
+        "diff",
+        "--raw",
+        "-z",
+        "--no-abbrev",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--find-renames",
+        &base,
+    ];
+    if matches!(snapshot.target, GitChangeTarget::Commit { .. }) {
+        args.push(&target);
+    }
+    args.extend(["--", "."]);
+    let raw = complete_git_output(workspace.change_probe(&args).await?)?;
+    snapshot.changes = parse_raw_changes(&raw, MAX_REVIEW_FILES)?;
+    if matches!(snapshot.target, GitChangeTarget::Worktree) {
+        for change in parse_status_changes(&before.status, MAX_REVIEW_FILES)? {
+            if change.status == "??" {
+                if snapshot.changes.len() == MAX_REVIEW_FILES {
+                    bail!("Git change path limit exceeded");
+                }
+                snapshot.changes.push(change);
+            }
+        }
+    }
+    let after = git_binding_inputs(workspace, &root).await?;
+    let raw_after = complete_git_output(workspace.change_probe(&args).await?)?;
+    if before != after
+        || raw != raw_after
+        || git_repository_root(workspace).await?.as_ref() != Some(&root)
+    {
+        bail!("Git metadata changed during candidate capture");
+    }
+    let mut executable = false;
+    let mut regular = true;
+    let mut known_modes = true;
+    let mut unmerged = false;
+    for change in &snapshot.changes {
+        if change.status == "??" || (change.old_mode.is_none() && change.new_mode.is_none()) {
+            known_modes = false;
+        }
+        unmerged |= change.status.starts_with('U');
+        for mode in change.old_mode.iter().chain(change.new_mode.iter()) {
+            match mode.as_str() {
+                "100644" => {}
+                "100755" => executable = true,
+                "120000" | "160000" => regular = false,
+                _ => known_modes = false,
+            }
+        }
+    }
+    if unmerged {
+        snapshot.unknown("unmerged_change");
+    }
+    if known_modes {
+        snapshot.executable_changes = Some(executable);
+        snapshot.regular_file_changes = Some(regular);
+    } else {
+        snapshot.unknown("file_mode_unknown");
+    }
+    snapshot.complete = snapshot.unknown_reasons.is_empty();
+    // These guards compare bounded metadata, not an atomic worktree byte
+    // snapshot. Acceptance must also bind the canonical content revision.
+    Ok(())
+}
 
 impl ToolHarness {
     pub async fn worktree_status_snapshot(&self, workspace: &Workspace) -> Result<Value> {
@@ -71,9 +369,9 @@ pub(super) fn review_probe_specs() -> [ReviewProbeSpec; 5] {
     ]
 }
 
-pub(super) async fn run_review_probe(
+pub(super) async fn run_review_probe<T: TaskTelemetry>(
     harness: ToolHarness,
-    monitor: TaskMonitor,
+    monitor: T,
     workspace_id: String,
     workspace: Workspace,
     spec: ReviewProbeSpec,
@@ -86,7 +384,7 @@ pub(super) async fn run_review_probe(
         command.clone(),
         command.len() as u64,
     );
-    let _permit = match harness.acquire().await {
+    let _permit = match harness.acquire_tool(true).await {
         Ok(permit) => permit,
         Err(error) => {
             task.finish(false, error.len() as u64);
@@ -566,3 +864,7 @@ pub(super) fn security_sensitive_path(path: &str) -> bool {
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/review.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/git_change.rs"]
+mod git_change_tests;

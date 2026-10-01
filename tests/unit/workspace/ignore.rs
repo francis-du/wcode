@@ -126,3 +126,68 @@ fn subspace_discovery_honors_gitignore_for_custom_generated_projects() {
         "ignored subspace leaked into discovery: {entries:#?}"
     );
 }
+
+#[test]
+fn authority_state_walkers_hide_state_and_keep_legitimate_wcode_projects() {
+    let state =
+        fs_safety::normalize_authority_root(&crate::evidence_store::state_root().unwrap()).unwrap();
+    fs::create_dir_all(&state).unwrap();
+    let hidden = tempfile::Builder::new()
+        .prefix("hidden-fixture-")
+        .tempdir_in(&state)
+        .unwrap();
+    let marker = format!("authority_hidden_{}", Uuid::new_v4().simple());
+    fs::write(
+        hidden.path().join("hidden.rs"),
+        format!("fn {marker}() {{}}\n"),
+    )
+    .unwrap();
+    let parent = state.parent().unwrap();
+    let visible = tempfile::Builder::new()
+        .prefix("visible-fixture-")
+        .tempdir_in(parent)
+        .unwrap();
+    fs::create_dir(visible.path().join("wcode")).unwrap();
+    fs::write(
+        visible.path().join("wcode/main.rs"),
+        "fn legitimate_project() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(parent, false, false).unwrap();
+    let state_relative = portable_relative_path(state.strip_prefix(workspace.root()).unwrap());
+
+    assert!(workspace.search(&marker, ".", 100).unwrap().is_empty());
+    let files = workspace.list_files(".", 1000).unwrap();
+    assert!(files
+        .iter()
+        .all(|path| !path.starts_with(&format!("{state_relative}/"))));
+    let (sources, _) = workspace.source_files(".", 1000).unwrap();
+    assert!(sources
+        .iter()
+        .all(|path| !path.starts_with(&format!("{state_relative}/"))));
+    // The parent contains historical PID stores; its bounded results need not
+    // reach this fixture. Check ordinary project visibility in its own subtree.
+    let visible_relative =
+        portable_relative_path(visible.path().strip_prefix(workspace.root()).unwrap());
+    let expected = vec![format!("{visible_relative}/wcode/main.rs")];
+    assert_eq!(
+        workspace.list_files(&visible_relative, 10).unwrap(),
+        expected
+    );
+    assert_eq!(
+        workspace.source_files(&visible_relative, 10).unwrap().0,
+        expected
+    );
+    assert_eq!(
+        workspace
+            .search("legitimate_project", &visible_relative, 10)
+            .unwrap()[0]["path"],
+        expected[0]
+    );
+    assert!(!workspace
+        .bounded_directory_entries(".", 128)
+        .unwrap()
+        .contains(&state_relative));
+    assert!(workspace.search(&marker, &state_relative, 100).is_err());
+    assert!(workspace.list_files(&state_relative, 100).is_err());
+}

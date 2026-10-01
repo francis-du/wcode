@@ -488,7 +488,7 @@ fn expired_authorization_code_is_rejected_and_removed() {
 }
 
 #[test]
-fn old_refresh_token_remains_valid_for_runtime_lifetime() {
+fn expired_refresh_token_cannot_rotate_credentials() {
     let state = AuthState::new("https://example.com".to_owned());
     state.refresh_tokens.lock().unwrap().insert(
         "old-refresh".to_owned(),
@@ -512,18 +512,18 @@ fn old_refresh_token_remains_valid_for_runtime_lifetime() {
         },
         "https://example.com/mcp",
     );
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(!state.refresh_tokens.lock().unwrap().is_empty());
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(state.access_tokens.lock().unwrap().is_empty());
 }
 
 #[test]
-fn old_access_tokens_follow_verified_tunnel_aliases_without_expiry() {
+fn current_access_tokens_follow_verified_tunnel_aliases() {
     let state = AuthState::new("https://example.com".to_owned());
     let token = "access_expired".to_owned();
     state.access_tokens.lock().unwrap().insert(
         token.clone(),
         AccessToken {
-            issued_at_ms: 1,
+            issued_at_ms: epoch_ms(),
             client_id: "client".to_owned(),
             owner_id: String::new(),
             resource: Some("https://example.com/mcp".to_owned()),
@@ -556,7 +556,7 @@ fn refresh_token_moves_to_a_verified_reconnected_tunnel() {
     state.refresh_tokens.lock().unwrap().insert(
         "old-refresh".to_owned(),
         RefreshToken {
-            issued_at_ms: 1,
+            issued_at_ms: epoch_ms(),
             client_id: "client".to_owned(),
             owner_id: String::new(),
             resource: Some("https://one.example/mcp".to_owned()),
@@ -608,7 +608,7 @@ async fn oauth_metadata_uses_the_tunnel_that_received_the_request() {
 }
 
 #[tokio::test]
-async fn token_response_does_not_advertise_access_token_expiry() {
+async fn token_response_advertises_bounded_access_token_expiry() {
     let state = AuthState::new("https://example.com".to_owned());
     let response = issue_tokens(
         &state,
@@ -621,7 +621,7 @@ async fn token_response_does_not_advertise_access_token_expiry() {
     let value: Value = serde_json::from_slice(&body).expect("valid token response JSON");
     assert!(value.get("access_token").is_some());
     assert!(value.get("refresh_token").is_some());
-    assert!(value.get("expires_in").is_none());
+    assert_eq!(value["expires_in"], ACCESS_TOKEN_TTL_MS / 1_000);
 }
 
 #[test]

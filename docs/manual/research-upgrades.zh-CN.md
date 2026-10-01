@@ -253,3 +253,223 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 先运行 `review_changes`，再运行 `verify_project(level="full")`。Rust 全量检查包含 `cargo clippy --locked --all-targets -- -D warnings`，让测试代码获得与 CI 相同的 Clippy 覆盖。应以实际测试报告和绑定版本的证据为准；本文本身不是某个构建通过的证明。
 
 不宣称通用延迟、Token 成本或修复成功率提升。在代表性仓库上分别测量上下文命中、工具往返次数、负载大小和耗时后，才能给出提速数值。发布这些变更前仍需新运行时冒烟测试与跨平台 CI。
+
+## AI 变更验收商业架构（2026-09-30）
+
+这是经过审计的目标设计和实施计划，不代表商业工作流已经交付。源码基线为 `ce698df`，另有保留的未提交源码检查、TUI JobView 和 Web Jobs 骨架。已通过的 `c7a3d3f` CI 与审计只证明此前那次提交。本计划不授权发版、打 tag、计费或托管部署。
+
+### A. 当前能力地图
+
+成熟度定义：**完整**表示所述有界契约已经实现；**部分**表示已有可用实现，但仍有实质缺口；**底层缺入口**表示引擎已存在，但缺少所需产品入口；**未实现**表示审计中未找到实现；**不应该实现**表示不属于本产品的目标范围。下表所有成熟度都描述审计基线。
+
+| 能力 | 当前实现 | 成熟度 | 可复用组件 | 缺口 | 商业重要性 |
+| --- | --- | --- | --- | --- | --- |
+| 工程控制平面定位 | README、Product State、仓库智能手册 | 部分 | README / ProjectDesign / Product Scopes | 以 AI 变更验收为主线，同时保持 Agent 中立 | 核心 |
+| 理解 → 修改 → 检查 | MCP 工作流 prompts、agent_context、受保护写入、变更审查 | 完整 | ToolHarness / Workspace | 仅完成这些操作，还不会产生 Change Acceptance Record | 核心 |
+| 产品责任归属 | 12 个 Product Scopes、源码／测试归属及门禁 | 完整 | scopes / convention_status | 复用现有 Scopes，不另建一套验收归属分类 | 核心 |
+| Design State | 需求、组件、约束、ADR、AcceptanceCriterion | 完整 | DesignState / AcceptanceCriterion | 验收条件的 verification 引用只是映射，不是已执行证明 | 核心 |
+| Software Graph | 语法图、快照、有界影响遍历 | 完整 | CodeIndex / SoftwareGraphSnapshot | 保留语法／Provider 精度和部分覆盖状态 | 核心 |
+| 语义导航 | 可选 Provider 能力、来源与新鲜度 | 部分 | semantic_navigation / graph_provider_store | 可用性取决于已安装 Provider，不能推断语义确定性 | 高 |
+| Traceability | 需求／组件／实现／AC 映射 | 完整 | RequirementTrace / TraceResolutionSnapshot | 结构覆盖与执行覆盖必须分开 | 核心 |
+| 风险 | 绑定版本的启发式风险档案与升级策略 | 部分 | Risk / VerificationProfile | 风险是建议性上下文，不能消除确定性失败 | 核心 |
+| 变更检查 | 暂存／未暂存／未跟踪 diff、文件／符号／影响／源码 | 完整 | ChangeReviewReport / worktree status | 有界且感知快照；新产生的未提交编辑仍需最终门禁 | 核心 |
+| 验证发现 | ProjectContext、CheckSpec、语言／语言岛／原生检查发现 | 完整 | ProjectProfile / CheckSpec | 策略必须选择精确的必需检查 ID 与执行级别 | 核心 |
+| 验证执行 | verify_project、有界无 shell 执行器、失败／跳过／复用报告 | 完整 | ToolHarness::verify_project / VerificationReport | 核心执行器保留跳过与失败信息，并检测版本变化 | 核心 |
+| 精确 AC 测试执行 | analysis 映射与生成的 AC Evidence | 部分 | VerificationRef / execution receipt | 当前通用测试检查可能暗示其他映射测试也已运行 | 关键 |
+| 计划强度强制执行 | VerificationPlan、VerificationStatus、执行下限 | 部分 | VerificationPlan / Execution floor | 汇总 quick Pass 不能证明完整计划的每项检查都已执行 | 关键 |
+| 阶段自动化 | Property／Mutation／Fuzz 适配器与阶段目标 | 部分 | StageExecutorRegistry / stage targets | 缺少工具时仍是自动化缺口；外部报告需要可信执行回执 | 高 |
+| Evidence 账本 | 版本、类型、producer、置信度、目标、有界持久化 | 部分 | Evidence / evidence_store | producer 字符串／摘要不是经过认证的执行身份 | 关键 |
+| Evidence 新鲜度 | Code + Design hash、有效／当前聚合 | 完整 | Revision / latest_current | 验收封装还需绑定 Git head／base／tree 与策略 | 关键 |
+| 人工批准 | verification_approve 与冻结的协调快照 | 部分 | AuthorizationManager / plan digest | 调用者提供的 confirmed／approver 不能认证真人 | 关键 |
+| 独立审查 | 角色任务、领取、审查提交、分歧 | 部分 | VerificationJob / ReviewerRole | 客户端名称可伪造；blind 标志没有结果访问隔离 | 高 |
+| Reconciliation | 期望状态 drift、冻结计划、执行与就绪门禁 | 部分 | ReconciliationPlan / ApprovedPlanSnapshot | 先强化权限与覆盖，再复用门禁 | 核心 |
+| 本地发布门禁 | Design、Scope、Convention 与结构覆盖检查 | 完整 | release_gate / Scope / Convention | 不是客户合并门禁；映射覆盖不能证明测试已运行 | 高 |
+| Change Acceptance Record | 现有 Evidence／Status／Review 输入 | 未实现 | VerificationStatus / Evidence / Risk | 缺少统一、不可变、可解释且绑定版本的决策模型 | 关键 |
+| 项目验收策略 | Design acceptance、风险档案、检查引用、运行时策略 | 底层缺入口 | ProjectDesign / AcceptanceCriterion / Risk | 版本化的确定性选择、可信策略基线与例外规则 | 关键 |
+| GitHub 外部合并门禁 | 自身 CI、有界 GitHub 读取与仓库工作流 | 未实现 | Git reader / existing CI | 绑定提交的发布器、PR 事件、必需 App Check 与过期处理 | 关键 |
+| 其他 Git Provider | Provider 中立的核心 | 未实现 | Provider-neutral core | 现在定义适配器契约，之后再做 GitLab／Bitbucket | 后续 |
+| 团队组织与项目 | Workspace 注册表 | 未实现 | Workspaces registry | 组织／成员／项目身份与有范围的授权 | 高 |
+| 高风险团队角色 | 命令／风险执行／删除授权 | 底层缺入口 | AuthorizationManager | 把 Owner／Admin／Developer／Reviewer／Viewer 映射到真实操作 | 高 |
+| 工程日志 | 有界、以追加为主的里程碑 JSON | 部分 | Engineering milestones / journal | 缺少已验证 actor、策略／例外事件、链／检查点和审计导出 | 高 |
+| OAuth 连接 | Access／Refresh grants、客户端绑定、Refresh 轮换 | 部分 | AuthState / PublicEndpoints / auth tokens | 没有时间到期／撤销／会话 UI；Refresh 后旧 Access 仍有效 | 关键 |
+| Workspace 访问 | 根目录／路径保护与只读强制执行 | 完整 | Workspace / Workspaces / fs_safety | 单一操作者选择根目录；OAuth 客户端没有按根目录的主体 ACL | 关键 |
+| 命令边界 | 直接 argv、策略形态、授权、进程限制 | 完整 | CommandResult / run_command | 普通仓库构建／脚本以宿主用户运行，不是 OS 租户隔离 | 关键 |
+| Full Access／宽权限沙箱 | macOS Seatbelt／Linux bubblewrap 的宽权限命令通道 | 部分 | WorkspaceSecurity / authorization | 不隔离普通构建／LSP 或共享权限状态 | 关键 |
+| 受保护路径／脱敏 | fs_safety、环境／内容／Header 脱敏 | 部分 | fs_safety / redaction | 运行时权限状态需要保护；脱敏不是写入隔离 | 关键 |
+| 远程 MCP／隧道 | OAuth、端点来源、本地探测与 Provider 恢复 | 部分 | AppState / AuthState / tunnel health | 当前详细匿名健康信息会披露根目录／启动配置 | 关键 |
+| LSP 执行 | 能力探测、有界子进程、清理后的环境 | 完整 | semantic providers / command execution | 已安装 LSP 进程仍保有宿主用户访问权 | 高 |
+| Evidence 存储隔离 | 用户状态、权限、有界记录 | 部分 | workspace_state_directory / Evidence | 同用户脚本可修改本地权限状态，不防篡改 | 关键 |
+| 工程观测台 | Attention、变更／源码桥、Evidence 检查器、图谱 | 部分 | ProjectObservatory / ProjectAttentionView | 默认架构页，没有统一的当前变更决定与操作 | 核心 |
+| Acceptance → 文件 → 符号 | 类型化 AC path／symbol／provider 引用与源码桥 | 底层缺入口 | FeatureAcceptanceView / source bridge | AC 行不可操作；全程保留所选变更／版本 | 核心 |
+| TUI | Attention／Proof／Agents／Provider 视图与 Web 跳转 | 部分 | TaskMonitor / console | 没有统一验收摘要；JobView 适配器尚未接入 | 高 |
+| Web Jobs | 空容器与 State／CSS 骨架 | 未实现 | TaskRuntime / TaskRecord | 没有后端／API／模块，不是已交付任务台 | 延后 |
+| Setup 连接 | 配置预览／合并、Agent Setup Hub、受保护配置 | 完整 | Setup / agent_install | 公开 Setup 是连接指南，不是批准权限来源 | 核心 |
+| 首次验收 onboarding | 原生发现与 Setup 基础能力 | 底层缺入口 | ProjectProfile / setup planning | Dry-run 建议 → 确认 → 首个绑定版本的结果 | 核心 |
+| Agent 集成 | Provider 中立 MCP、插件／配置、implement／review／verify prompts | 部分 | MCP / agent_plugin / agent_install | 配置测试不代表各宿主版本 OAuth E2E；缺少验收入口 | 核心 |
+| 多 Agent 工作 | Worklist CAS、有范围的领取、私有租约 Token、有界结果 | 完整 | Worklist / writer lease / task claim | Agent 由 Host 创建；工作报告不会成为验证 Evidence | 高 |
+| 上下文效率 | 有界上下文、渐进式 Schema、紧凑确认响应 | 完整 | Agent Context / tool manifest | 字节／4 估算不能证明实际计费 Token 节省或模型成功率 | 高 |
+| 试点指标／导出 | Engineering Fitness 与里程碑基础能力 | 底层缺入口 | Engineering Fitness / journal | 验收计数、缺失／过期发现和实测耗时 | 高 |
+| 产品方遥测 | 本地工程观测 | 未实现 | Local runtime observation | 可选的显式 Schema 与 opt-in 接收端，不默认上传源码 | 后续 |
+| 发布流水线／测试 | 三平台 CI、原生浏览器、对抗性验证产物 | 完整 | GitHub Actions / release contracts | 每项结果只适用于其精确 SHA；当前未要求发布 | 核心 |
+| 自建 Agent／IDE／聊天／计费／远程 shell | 验收不需要这些能力 | 不应该实现 | No component needed | 保留有用的 OSS 检查／编辑，停止扩张无关产品界面 | 无 |
+
+审计来源：[验证运行时](../../src/intelligence/runtime/design.rs)、[analysis](../../src/intelligence/analysis.rs)、[验证协议](../../src/verification/mod.rs)、[Evidence](../../src/evidence/mod.rs)、[Evidence 存储](../../src/evidence/store.rs)、[日志](../../src/evidence/journal.rs)、[授权](../../src/workspace/authorization.rs)、[OAuth](../../src/integrations/auth/mod.rs)、[运行时](../../src/integrations/mcp/mod.rs)、[命令执行](../../src/workspace/operations/execution.rs)、[Setup](../../src/app/setup.rs)、[发布门禁](../../src/intelligence/release_gate.rs)，以及当前 Design／Worklist／工具报告。发现来自源码调用链观察，不代表已经完成漏洞利用测试。
+
+### B. 目标产品架构
+
+首个商业场景是 **AI Change Acceptance（AI 变更验收）**。目标结果是让 AI 生成的代码具备有证据支持的交付条件。现有编码 Agent 始终可替换。产品闭环为 **理解 → 修改 → 检查 → 验证 → 证据 → 接受／阻止**。
+
+| 层 | 职责 | 权限与权威边界 |
+| --- | --- | --- |
+| 现有 Apache-2.0 OSS 核心 | Workspace、Design、Graph、Risk、受保护变更、真实验证、Evidence、Reconciliation | 保留现有边界、保护和确定性失败优先规则 |
+| OSS 验收层 | 强化现有 VerificationStatus；确定性策略选择；Change Acceptance 投影／历史／导出 | 基于现有计划与证据的唯一规范引擎，不另建执行器或前端放行算法 |
+| 团队层 | 已验证 actor、组织／项目成员、策略变更、人工决定、共享历史／审计 | 项目范围的权限；策略要求时明确分离作者与审查者 |
+| 集成层 | 可信执行回执、GitHub App 发布器、PR 版本同步 | Provider 适配器不能削弱核心决定；凭据留在不可信工作进程之外 |
+| 可选托管层 | 共享协调、运行管理、身份联合与可选指标 | 显式部署／数据契约；实用的本地 OSS 验收不依赖它 |
+
+需求视图中的 `stable` 表示结构收敛，不表示 Accepted。`passed/fresh` 汇总计数可能包含历史记录，不能用于决定当前验收。Reconciliation 与 Execution 继续使用同一个经过强化的验证决定。
+
+策略是对现有项目 Design acceptance、verification 引用和风险约束的版本化扩展，引用已有组件／需求／AC／检查身份。不引入任意可执行策略 hooks 或第二套需求数据库。客户策略从可信、已批准的基线选择，不能被正在评估的 PR 悄悄削弱。
+
+### C. 数据模型与确定性决策契约
+
+以下是目标契约，不是当前可用 API。
+
+| 模型 | 复用／新增 | 必需内容与不变量 |
+| --- | --- | --- |
+| Acceptance | 在现有 ChangeReviewReport、VerificationStatus、Risk、Evidence 上新增封装 | Schema／ID／Project／Workspace／Repository，base／head／tree，未提交代码 hash + Design hash，策略版本／摘要，捕获时间，已验证 actor／producer／可选 Agent 身份，有界变更／影响／精度，验证项、Evidence 引用、人工决定与最终决定 |
+| Policy | 扩展项目 Design State | Version／ID／digest，针对路径／组件／需求／AC 的选择器，精确必需检查／阶段／级别，人工审查／风险规则，显式 docs-only 规则，允许的例外，不可变核心约束；排序后的确定性匹配 |
+| Actor | 新增经过认证的权限类型 | ID、kind（operator／agent／integration／system）、认证来源、组织／项目权限、可选的已验证 Host 身份；producer 展示文字始终不构成权限 |
+| Organization | 新增团队模型 | ID、成员／角色、项目以及策略／集成归属；继续支持本地单一操作者 |
+| Project | 给 Workspace 身份扩展团队绑定 | 稳定 ID、规范仓库身份、根目录、可信策略来源、部署模式、成员与集成绑定；别名不授予跨项目访问 |
+| Audit Event | 复用日志存储机制，扩展类型化审计流 | 事件 ID／时间、actor、project、精确版本、操作／结果、Evidence／Acceptance／Policy 引用、例外原因、前一事件／本事件摘要和导出检查点；显式保留缺口 |
+| Integration | 新增 Provider 适配器模型 | Provider／Installation／Repository 绑定、能力范围、凭据引用、到期／撤销状态、可信回执权限、投递／幂等状态；记录中不保存原始密钥 |
+
+每个验证项区分互相独立的事实：
+- **选择：** required、discovered、mapped，以及映射精度／Provider。
+- **执行：** not_executed、running、completed、skipped、unavailable；检查 ID、执行器／命令回执、范围、开始／结束时间和退出状态。
+- **结果：** pass、fail、inconclusive、unknown。命令执行完成不自动等于测试通过。
+- **新鲜度：** current、stale、unbound；Code、Design、Git 目标与策略关系。
+- **权限来源：** internal executor、authenticated integration、operator、self_reported、legacy_unknown。
+
+测试路径／符号映射不是执行回执。输出尾部和通用 `cargo test` 检查名不能证明某个测试运行过，尤其当测试被筛选、忽略、跳过，或者来自另一语言岛时。命令级成功可以满足显式的命令级要求；针对具体测试的要求需要精确的执行器覆盖。
+
+Evidence 保留 producer、kind／type、revision、scope／targets、timestamp、freshness、source／artifact digest、precision／confidence、verification／check 关联，以及经过认证的回执权限来源。缺少权限来源的历史记录保持为 `legacy_unknown`，迁移不能升级其权威性。Evidence 数量限制／截断保持显式。
+
+人工决定为 approved、rejected、needs_review、exception_approved，与测试结果分开。操作者的一次性授权绑定 Workspace／服务器实例、计划摘要、Code + Design 版本、策略、决定和陈述摘要，并具备到期与防重放机制。仅有 MCP 客户端确认和 OAuth 客户端身份，不能证明真人参与。Full Access 永远不授予 HumanDecision 权限。例外必须写明豁免的策略规则与理由；不能把失败测试变成通过，也不能豁免核心身份／版本／授权约束。
+
+最终决定包含 `status`、`blocking_reasons`、`warnings`、`required_actions`、`evidence_summary`、`verification_summary`、`risk_summary` 与完整版本身份。即使某个原因决定主状态，其他原因仍全部保留：
+1. 候选版本／策略不匹配 → **stale**。
+2. 当前确定性失败、必需审查被拒绝或违反核心约束 → **blocked**。
+3. 必需执行／回执／发现不可用，或身份／覆盖不完整 → **incomplete**。
+4. 确定性要求已满足，但缺少经过认证的人工／独立审查 → **needs_review**。
+5. 所有必需条件均由当前、具备权威来源的输入满足 → **ready**。
+
+引擎在评估前捕获输入，并在持久化或发布前重新检查。即使源码字节相同，Git 提交变化也使旧 Acceptance 失效。本地未提交变更的验收绑定内容 hash，不能授权一个尚未提交的 GitHub SHA。有界扫描不完整时，不能因为遗漏而产生 ready。Evidence 读取的损坏、超限或缺失必须显式报告；最新 Verification 快照不可因读取失败而静默回退到旧批准状态。CAR 评估需要完整性来源，不能把被丢弃的记录解释成没有失败。
+
+### D. 威胁模型
+
+| 威胁 | 当前问题 | 必需缓解措施／失败行为 |
+| --- | --- | --- |
+| Agent 绕过 | Prompt／Skill 遵循只是建议 | 必需的外部 Git Check；核心决定保持权威性 |
+| 过期版本 | 只有代码 hash 不能识别 Git head | Base／head／tree + Code／Design／Policy 绑定，前后检查与过期记录 |
+| 伪造批准 | confirmed=true 与任意 approver | 操作者签发的一次性授权、经过认证的 actor、拒绝 MCP 自我批准 |
+| 伪造验证 | 任意 producer／verdict／digest／targets | 内部或经过认证的回执、精确检查／测试覆盖；自报结果仅供参考 |
+| 隐藏确定性失败 | 同 producer 后续 Pass 可替换 Fail | 认证 producer 与回执；只有真实可信的重新执行可替代旧结果 |
+| 伪独立审查 | 同一客户端领取多个名称／角色 | 不透明且绑定所有者的领取、结果可见性规则、策略职责分离 |
+| 策略降级 | Agent 修改被评估变更中的策略／工作流 | 已批准的基线策略摘要；策略变更需要授权审查 |
+| 集成被攻破 | 发布器凭据或重放回调 | 最小权限 App、已验证投递、Repository／Project／SHA 绑定、幂等与撤销 |
+| 跨项目访问 | OAuth 客户端当前可访问暴露的根目录 | 已验证主体 → 项目 ACL；不能把当前根目录注册表宣传为团队 RBAC |
+| 凭据泄露 | 详细公开健康信息、日志／状态／构建环境 | 最小公开探测、经过认证的诊断、脱敏与受保护凭据引用 |
+| 命令逃逸 | 构建／LSP 以宿主用户执行 | 如实描述本地信任模型；共享部署使用独立 Worker UID／容器／VM |
+| Evidence 篡改 | 同用户本地状态与未签名 JSON | 独立权限存储、可信回执校验、链式／带检查点导出；损坏时 incomplete |
+| 集成中断 | Check 发布丢失或 head 查询过期 | 门禁维持 pending／failing，展示重试操作；不回退为成功 |
+| 重启／并发 | 授权到期、head 改变或记录写入中断 | 原子写入、一次性／重启失效、有界队列和恢复测试 |
+| 共享部署 | 一个进程／OS 用户共享根目录与权限状态 | 在具备真实项目 ACL + Worker 隔离前，每个运行时只承载一个租户／操作者边界 |
+
+Workspace 路径隔离不是 OS 沙箱。当前宽权限命令沙箱不隔离普通构建或 LSP 进程。本地模式假设 OS 账号和仓库工具链可信。团队托管运行时需要显式租户／项目身份与隔离 Worker；专属部署使用自己的权限状态和凭据。
+
+不能宣称“源码永不离开设备”：通过 MCP 返回的源码可能进入所选 Host／模型；配置的远程 MCP／隧道客户端可以收到源码；可选 Provider 与 Git／CI 集成有各自的数据流。Evidence／导出可能包含源码派生的路径、摘要或输出。应记录数据目的地和用户配置的保留策略。
+
+审计采用追加机制，通过链式摘要和可信检查点提供实际的篡改可察觉能力，不属于法律意义上的不可变。同用户攻击者可以重写没有外部锚点的链。有界保留／导出必须披露历史缺失，不能默默宣称完整。
+
+### E. UX 与外部合并流程
+
+1. **Setup：** `wcode setup` 检测仓库／语言／原生测试／CI／Git Provider／Agent，展示 dry-run 策略建议与数据目的地，仅应用已确认配置。
+2. **Change：** 开发者使用现有编码 Agent。wcode 选择明确的 base 与候选版本，展示未提交／干净状态和部分覆盖。
+3. **Acceptance：** 认证后的首页打开 Current Change 和一个决定：状态、必需项的 passed／missing／skipped／stale、风险、原因与下一步操作。
+4. **Blocked／Inspect：** 选择阻塞原因 → 关联 AC／检查 → Evidence 或缺少的回执 → 变更文件 → 符号，全程保留 Project／Revision／Breadcrumb。
+5. **Verify：** 通过现有有界执行器运行精确的必需验证，展示真实 running／completed／skipped／unavailable，不把映射当作运行。
+6. **Human Review：** 操作者查看冻结的候选版本、策略和证据，批准／拒绝，或明确请求允许的例外。该操作不更新测试结果。
+7. **Ready：** 条件满足时生成一条新的不可变记录，历史决定仍可检查。
+8. **Merge：** Git 适配器验证实时 PR head 及可信策略／记录绑定，发布相应 Check，再由分支保护强制执行。
+
+高级图谱、指标、执行与 Provider 详情继续通过渐进式披露提供。复用现有 Attention、Evidence 检查器与源码桥。不要增加通用图表或第二个命令终端来代替验收操作。
+
+**GitHub P0 设计：** 可信 GitHub App 发布器在 PR Worker 之外持有 `checks:write`。Check 绑定 `head_sha` 和 Record／Policy 摘要。分支保护要求由预期 App 发布的指定 Check。只有内部 **ready** 才产生 success；blocked／incomplete／stale／needs_review 永不发布 neutral、skipped 或 success。缺少必需检查在内部判为失败，即使 GitHub 本身可以接受 neutral／skipped 结论。
+
+处理 PR opened／reopened／synchronize、发布器重试与 head 变化。启用合并队列时，支持 `merge_group`，把它的合成合并 SHA 作为独立候选。必需门禁任务不使用路径／提交跳过过滤器，即使上游失败也运行，并明确检查失败／缺失的依赖。区分 PR head 与合成测试合并提交，不能把某一版本的回执改标为另一版本的证明。
+
+不可信 PR 代码拿不到发布器凭据，也不能修改已批准策略或可信 wcode 二进制。高权限 `pull_request_target`／`workflow_run` 发布器不能 checkout 并执行 PR 代码。Worker 提供的产物在执行权限来源与版本绑定得到验证前都不可信；自行编写的 hash 或 Pass JSON 不够。本地同用户产物不能宣传为具有对抗安全性的托管回执。
+
+一手资料：[受保护分支](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)、[必需检查行为](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)、[Checks API](https://docs.github.com/en/rest/checks/runs)、[Actions 安全](https://docs.github.com/en/actions/reference/security/secure-use)。这些资料用于设计适配器；核心引擎保持 Git Provider 中立。
+
+### F. 实施计划
+
+每项任务都列出目的、责任 Scope、依赖、位置、验收条件、验证与实质风险。以下均为计划任务，列在这里不代表已完成。
+
+**P0 — 真实的付费试点路径**
+
+- **P0-A 权限来源强化。** 目的：阻止 Agent 自我批准与伪造外部证明。责任：verification／evidence／workspace／integrations。依赖：本次审计。位置：现有 MCP dispatch、AuthorizationManager、Verification／Evidence 运行时。验收：MCP 布尔值／producer 字符串不能生成具有权威性的人工或确定性证明；操作者授权必须精确、可到期、仅用一次。验证：冒名、all-command 绕过、重放、过期计划与重启失败场景。风险：现有宽松客户端需要显式迁移，不能默默丢弃其报告。
+- **P0-B 精确验证覆盖。** 目的：区分 mapped／executed／skipped／failed。责任：verification／traceability。依赖：P0-A 权限来源语义。位置：analysis、Verification 运行时与定向测试。验收：通用测试 Pass 不能证明某个映射测试；quick 不能满足要求 full 的计划；必需检查失败／跳过时阻止推进。验证：筛选／忽略／跨语言／缺失／复用／fail-fast／full 级别场景。风险：保守处理的历史 Evidence 变为 incomplete，不能变为 ready。
+- **P0-C 版本化策略与候选身份。** 目的：确定性选择要求。责任：design／verification／workspace。依赖：A+B。位置：Design State 扩展、现有检查发现与 Git 读取器。验收：策略摘要／版本、可信基线、docs-only／认证／支付规则、精确 base／head／tree／未提交状态绑定；部分扫描阻止推进。验证：规则排序、策略降级、相同内容的新 SHA 与并发编辑。风险：基线版本不明确时必须显式展示。
+- **P0-D 规范 Acceptance Record。** 目的：解释为何该版本可以推进。责任：verification／evidence／reconciliation。依赖：C。位置：共享状态投影、有界存储／历史／导出。验收：状态／原因／操作／来源、不可变记录摘要与前后保护；所有消费者共用一个决定。验证：旧 Evidence／新版本、负面结果、截断／损坏与中断写入。风险：有界历史不能暗示完整生命周期审计。
+- **P0-E 操作者验收 UX。** 目的：形成连续的决定到源码流程。责任：experience／integrations。依赖：D+A。位置：现有 TUI／WebUI、受保护的窄操作路由。验收：当前变更／状态／必需项失败，以及可操作的 Evidence／Check／File／Symbol 导航；经过认证的人工决定仍单独处理。验证：unknown／stale／跨 Workspace／迟到响应／权限／键盘／原生浏览器场景。风险：公开 Setup 与 OAuth Agent 身份都不是批准通道。
+- **P0-F 引导式 Setup dry-run。** 目的：无需空 YAML 即可得到首条记录。责任：experience／runtime／integrations／design。依赖：C+D。位置：现有 Setup／发现／模板。验收：检测仓库／技术栈／CI／Provider／Agent，精确策略预览、显式确认、保留无关配置。验证：不写入的 dry-run、仓库歧义／工具不可用／只读与配置合并。风险：发现能力不代表所有 Host 已连接。
+- **P0-G GitHub 外部门禁。** 目的：在 Agent 配合之外强制执行验收。责任：integrations／verification／workspace。依赖：A–D+F。位置：窄 Provider 适配器 + 可信发布器／Setup 契约。验收：必需 App Check 绑定精确 SHA，synchronize 使旧结果失效，只有 ready 才 success，不进行高权限的不可信 checkout，也不向不可信代码提供凭据。验证：过期 head、neutral／skipped、伪造产物、中断、重试、撤销凭据与策略降级。风险：必须配好安装／仓库权限与安全 Worker 边界。
+- **P0-H 可部署性与最小审计。** 目的：解释试点信任／数据边界与决定。责任：workspace／evidence／integrations。依赖：A+D+G。位置：OAuth 生命周期、公开健康接口、受保护状态、类型化决定事件／导出与部署文档。验收：到期／撤销／会话可见性、最小匿名探测、有界授权、已验证 actor、版本／策略决定历史。验证：到期／撤销／轮换后的访问、容量饱和、团队模式跨根目录拒绝、损坏／恢复／导出缺口。风险：不能把同用户本地运行时称作多租户隔离。
+- **P0-I 真实试点演示与验收。** 目的：展示可强制执行的商业价值。责任：verification／experience／integrations。依赖：A–H。位置：隔离的真实仓库／PR、真实原生验证与下载的 Check／审计记录。验收：现有 Agent 修改仓库 → 必需检查缺失 → 真实 PR 被阻止 → 真实验证执行 → 当前 Evidence → 新 Record → 真实 PR ready；保留前后两份记录与精确 SHA。验证：全量套件 + 过期／并发／绕过／授权／集成中断／重启的对抗场景。风险：不能 mock 核心决定，不能用历史 CI 代替，未观测到真实 Git 平台结果前不能宣称完成。
+
+**P1 — 团队运行与商业验证**
+
+- **P1-A 组织／角色。** 目的：共享责任。责任：workspace／integrations。依赖：P0-H。位置：主体／项目注册表与受保护操作者 API。验收：Owner／Admin 管理项目／集成；策略编辑与例外需要显式权限；Reviewer 可审查、Viewer 可检查、Developer 可验证；按项目 ACL。验证：禁止的角色操作／跨项目／自我审查。风险：不要对无害读取套用一刀切 RBAC。
+- **P1-B 共享策略／历史／审计。** 目的：解释过去的放行／阻止决定。责任：design／evidence。依赖：P1-A+P0-D。位置：现有持久化／导出 + 链／检查点。验收：actor／policy／revision／exception 谱系、有界保留与显式缺口、导出校验。验证：篡改／损坏／缺失／检查点／重启。风险：不宣称法律意义上的不可变。
+- **P1-C 审查者归属与可见性。** 目的：真实独立审查。责任：verification／integrations。依赖：P1-A+P0-A。位置：现有 claim／job／status 协议。验收：私有、绑定所有者的租约；不能冒充审查者；获得资格前过滤 blind 输出；作者／审查者分离。验证：伪造名称、窃取公开 ID、重复 actor、到期与未授权结果读取。风险：Host 身份必须经过验证。
+- **P1-D 试点指标。** 目的：让客户比较有实测依据。责任：evidence／experience。依赖：P0-D+H。位置：有界聚合／导出。验收：acceptance／blocked／missing／stale／review／exception 计数，带分母／时间窗口的原始实测验证耗时与验收周期。验证：重复／幂等事件、历史缺失、不含源码负载。风险：不得编造节省工时／Token／线上缺陷数。
+- **P1-E 运行管理与集成。** 目的：支持可靠续约。责任：integrations／runtime。依赖：P0-G+H。位置：凭据轮换／撤销、投递重试／健康、备份／导出／导入／支持手册。验收：安全可恢复的中断、有界队列、可见集成状态。验证：撤销密钥、长期中断、重试、恢复。风险：密钥处理留在 Agent Worker 之外。
+
+**P2 — 试点之后的可选规模化**
+
+- **P2-A 可选托管协调／企业认证。** 目的：减轻共享部署负担。责任：integrations／workspace。依赖：P1-A/B/E。位置：可选服务适配器与部署模型。验收：SSO／联合认证的已验证 actor、租户 Worker／状态隔离、显式数据契约。验证：租户逃逸／凭据范围／恢复。风险：OSS 不强制依赖云。
+- **P2-B GitLab／Bitbucket／CI 适配器。** 目的：跨 Provider 复用核心验收。责任：integrations。依赖：已证明的 P0-G 适配器契约。位置：Provider 专用版本／发布器适配器。验收：相同的 SHA／Policy／Failure／Receipt 不变量。验证：Provider 过期／中断／分支策略绕过。风险：以实测客户需求决定优先级。
+- **P2-C 保护隐私的可选遥测。** 目的：测量产品 onboarding／运行。责任：runtime／evidence。依赖：P1-D。位置：显式、可配置的事件接收端。验收：文档说明 opt-in 与禁用；仅记录 Setup／Repository／Agent／Acceptance／Block／Verification／Stale／Review／Exception／Gate 事件，不默认上传源码／文件／命令输出／Evidence。验证：负载白名单与禁用／离线运行。风险：聚合标识符仍可能敏感。
+
+每个实施阶段都执行：`review_changes` → `verify_project quick` → 相关定向测试；P0 完成时运行全量与负面／对抗检查。实际外部门禁得到观测前，不向用户宣称 ready。
+
+### 商业边界与当前 Worklist
+
+Apache-2.0 本地核心继续实用，不施加人为商业限制。团队价值来自协调、治理、共享证据与运行便利。这里不规划 Stripe、CRM、云 IDE、自建模型、任意远程 shell、移动 App 或大型企业控制台。
+
+保留未完成的源码检查／编辑器工作和 JobView／Web Jobs 骨架。它们是辅助 Inspect／Change 工作，不是商业流程已存在的证据。保留现有 Worklist 历史，追加商业 P0 依赖链，并延后不兼容的 IDE 扩展，不删除已有工作。发布任务仍因用户“不发版”的指令而阻塞。
+
+审计完成意味着能力与缺口已分类。P0 完成需要上述真实演示。文档、计数器、语法映射、Agent 报告或过去干净的 CI，都不是新版本的验收 Evidence。
+
+### 首个实施阶段记录
+
+首个底座阶段强化现有 Verification、Evidence 与操作者边界：精确必需命令回执和最低验证级别、保守处理命名测试映射、缓存来源校验、完整版本／计划绑定的人工单次授权、仅作自报的 MCP 阶段报告、可到期／撤销的 OAuth 会话与受保护运行时状态。同时拒绝不完整／未绑定的版本身份、冲突 Evidence ID、损坏或超限的权威记录，以及会抹掉当前原生失败的危险回收。Verification 快照带单调持久化序号，代码／Design 版本仍单独绑定；迟到旧快照或最新同代冲突不能成为恢复后的决定。现有 TUI JobView 已接入真实持久化 MCP 命令任务，日志有界并脱敏，保留真实失败结果，取消操作绑定所有者和 Workspace。
+
+这些改动复用 OSS 核心，验证结果在 Worklist 中绑定当前代码与 Design 版本记录。尚未实现 Change Acceptance Record、已批准的项目 Acceptance Policy、Git SHA／base／tree 身份、精确逐测试事件适配器、可信 CI 回执、已验证团队 actor、例外流程、外部门禁、团队部署隔离或审计谱系。任务观测属于 Inspect／Verify 辅助工作；规范 Acceptance UX 与 Web Jobs 仍待实现。P0 必须完整实现并观测上述真实 PR 流程才算完成。
+
+### Commit 感知输入与 Policy 草案
+
+下一阶段为原生项目验证与语言质量 Evidence 增加有界执行 Git 身份：私有 repository／Workspace 范围摘要、完整 HEAD／tree 对象 ID、index 指纹和 dirty 状态。静态复用和执行中合并都纳入此身份，并校验实际来源回执；执行期间观测到 commit 或 index 变化会拒绝发布 Evidence。缺少 Git 绑定的旧 Evidence 保留 unknown。现有 Code／Design 内容守卫仍必需：dirty 不是内容摘要，前后探测也不是原子文件系统快照。
+
+既有 `review_changes` 默认保留当前工作树响应。显式传入 `base_revision` 才返回独立的基线改动元数据；`target_revision` 默认 `HEAD`，也可为 `worktree`。干净当前 commit 的检查保留重命名两侧路径和文件模式。未知、截断、拒绝、dirty commit 或非当前目标捕获均为 incomplete 并报告错误。其 `metadata_only` 来源不能批准基线或产生 Acceptance。
+
+仓库发现现在报告有界完整性、问题数量和原因标签。指纹与解析共用本次捕获的输入字节；无效、不可读或超限输入不能静默成为完整检查清单。扫描不完整会给 quick／full 验证增加一个未满足的确定性要求，同时保留实际执行的独立检查。
+
+`ProjectDesign` 增加可选、带版本的 typed Acceptance Policy 草案、摘要和确定性规则累积。显式 docs-only 选择要求完整 old／new 路径、已知普通且不可执行的文件模式以及允许的 Markdown 范围；Agent 指令和 Skill Markdown 保留默认要求。任意嵌入式 Markdown 仍需可信图谱提供 risk floor。未来激活前，必须从完整可信输入解析检查 ID 与组件／需求映射。
+
+Evidence 区分 native verification、native stage、local operator、self-reported 和 legacy unknown 来源。通用 Agent 提交不能满足原生阶段或人工要求；自报 review 不能覆盖原生失败。解析草案、记录 Git 元数据或检查来源标签，都不代表激活 Policy。
+
+本阶段定向与完整验证结果在 Worklist 中绑定当前代码与 Design 版本记录。已批准 Policy 激活、规范 Change Acceptance Record、Git 绑定的阶段／人工决定、可信外部 merge check、Team actor 和真实试点 PR 演示仍待完成。运行中的 MCP 进程需要明确升级／重启才能提供新编译行为；本地源码测试不能证明已部署。

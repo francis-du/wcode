@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn rust_toolchain_home_overrides_are_limited_to_rust_tools() {
+    for program in ["node", "python3", "git", "unknown-agent-tool"] {
+        assert!(
+            rust_toolchain_home_overrides(Path::new(program)).is_empty(),
+            "non-Rust command received toolchain home access: {program}"
+        );
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if let Some(home) = home.and_then(|path| path.canonicalize().ok()) {
+        let expected = [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")]
+            .into_iter()
+            .filter_map(|(key, child)| {
+                let path = std::env::var_os(key)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join(child));
+                let path = path.canonicalize().ok()?;
+                (path.is_dir() && path.starts_with(&home)).then_some((key, path))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rust_toolchain_home_overrides(Path::new("cargo")), expected);
+        assert_eq!(rust_toolchain_home_overrides(Path::new("rustc")), expected);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_sandbox_runs_installed_cargo_with_isolated_home() {
+    let root = tempfile::tempdir().unwrap();
+    let args = vec!["--version".to_owned()];
+    let (mut command, _guard) =
+        prepare_macos(root.path(), root.path(), Path::new("cargo"), &args).unwrap();
+    let output = command.output().await.unwrap();
+    assert!(
+        output.status.success(),
+        "sandboxed cargo could not use the installed read-only toolchain: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("cargo "));
+}
+
+#[test]
 fn broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only() {
     assert!(!command_requires_sandbox(
         false,
@@ -103,7 +144,8 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     assert!(profile.contains("deny file-read* file-write*"));
     assert!(!profile.contains("(allow network"));
 
-    let args = linux_bwrap_prefix(&workspace, &cwd, &scratch)
+    let protected = sandbox_protected_paths_with_roots(&workspace, &[], None).unwrap();
+    let args = linux_bwrap_prefix_from_paths(&workspace, &cwd, &scratch, &protected)
         .unwrap()
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -195,4 +237,155 @@ fn broad_execution_requires_sandbox_only_for_unbounded_bypass() {
     assert!(!broad_execution_requires_sandbox(false, true));
     assert!(!broad_execution_requires_sandbox(true, true));
     assert!(broad_execution_requires_sandbox(true, false));
+}
+
+fn assert_read_only_mask(args: &[OsString], source: &Path, target: &Path) {
+    assert!(
+        args.windows(3).any(|items| {
+            items[0].as_os_str() == std::ffi::OsStr::new("--ro-bind")
+                && items[1].as_os_str() == source.as_os_str()
+                && items[2].as_os_str() == target.as_os_str()
+        }),
+        "missing read-only mask for {}",
+        target.display()
+    );
+}
+
+#[test]
+fn authority_state_roots_are_masked_inside_and_outside_the_workspace() {
+    let fixture = tempfile::tempdir().unwrap();
+    let workspace = fixture.path().join("repo");
+    let scratch = fixture.path().join("scratch");
+    let inside = workspace.join("storage");
+    let outside = fixture.path().join("external-state");
+    let ordinary = workspace.join("wcode");
+    for path in [
+        &inside,
+        &inside.join("intelligence"),
+        &outside,
+        &ordinary,
+        &scratch.join("empty"),
+    ] {
+        fs::create_dir_all(path).unwrap();
+    }
+    fs::write(inside.join(".env"), "fixture").unwrap();
+    #[cfg(unix)]
+    fs::hard_link(inside.join(".env"), inside.join("alias")).unwrap();
+    fs::write(ordinary.join("main.rs"), "fn main() {}").unwrap();
+
+    let roots = vec![inside.clone(), inside.join("intelligence"), outside.clone()];
+    let protected = sandbox_protected_paths_with_roots(&workspace, &roots, None).unwrap();
+    let inside = inside.canonicalize().unwrap();
+    let outside = outside.canonicalize().unwrap();
+    assert_eq!(protected.len(), 2);
+    assert!(protected.contains(&inside));
+    assert!(protected.contains(&outside));
+    assert!(!protected.contains(&inside.join("intelligence")));
+    assert!(!protected.contains(&ordinary.canonicalize().unwrap()));
+
+    let profile = macos_profile_from_paths(&workspace, &scratch, &protected).unwrap();
+    for root in [&inside, &outside] {
+        let escaped = sandbox_string(root).unwrap();
+        assert!(profile.contains(&format!(
+            "(deny file-read* file-write* (literal \"{escaped}\"))"
+        )));
+        assert!(profile.contains(&format!(
+            "(deny file-read* file-write* (subpath \"{escaped}\"))"
+        )));
+    }
+    let args = linux_bwrap_prefix_from_paths(&workspace, &workspace, &scratch, &protected).unwrap();
+    for root in [&inside, &outside] {
+        assert_read_only_mask(&args, &scratch.join("empty"), root);
+    }
+    assert!(!args.windows(3).any(|items| {
+        items[0].as_os_str() == std::ffi::OsStr::new("--ro-bind")
+            && items[2].as_os_str() == ordinary.canonicalize().unwrap().as_os_str()
+    }));
+}
+
+#[test]
+fn missing_authority_roots_are_denied_on_macos_and_fail_closed_on_linux() {
+    let fixture = tempfile::tempdir().unwrap();
+    let workspace = fixture.path().join("repo");
+    let scratch = fixture.path().join("scratch");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&scratch).unwrap();
+    let roots = vec![
+        workspace.join("future/state"),
+        fixture.path().join("future/state"),
+    ];
+    let protected = sandbox_protected_paths_with_roots(&workspace, &roots, None).unwrap();
+    assert_eq!(protected.len(), 2);
+    let profile = macos_profile_from_paths(&workspace, &scratch, &protected).unwrap();
+    for root in &protected {
+        assert!(!root.exists());
+        let escaped = sandbox_string(root).unwrap();
+        assert!(profile.contains(&format!(
+            "(deny file-read* file-write* (literal \"{escaped}\"))"
+        )));
+        assert!(profile.contains(&format!(
+            "(deny file-read* file-write* (subpath \"{escaped}\"))"
+        )));
+    }
+    let error = linux_bwrap_prefix_from_paths(&workspace, &workspace, &scratch, &protected)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("sandbox_unavailable: cannot mask protected path"));
+    assert!(protected.iter().all(|root| !root.exists()));
+}
+
+#[test]
+fn authority_state_workspace_selection_and_disappearing_roots_fail_closed() {
+    let fixture = tempfile::tempdir().unwrap();
+    let state = fixture.path().join("state");
+    let workspace = fixture.path().join("repo");
+    let child = state.join("subworkspace");
+    let scratch = fixture.path().join("scratch");
+    for path in [&child, &workspace, &scratch] {
+        fs::create_dir_all(path).unwrap();
+    }
+    for selected in [&state, &child] {
+        let error =
+            sandbox_protected_paths_with_roots(selected, std::slice::from_ref(&state), None)
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("Workspace is inside an authority-state root"));
+    }
+    let protected =
+        sandbox_protected_paths_with_roots(&workspace, std::slice::from_ref(&state), None).unwrap();
+    fs::remove_dir_all(&state).unwrap();
+    let error = linux_bwrap_prefix_from_paths(&workspace, &workspace, &scratch, &protected)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cannot mask protected path"));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&workspace, &state).unwrap();
+        let error = linux_bwrap_prefix_from_paths(&workspace, &workspace, &scratch, &protected)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unsupported protected path"));
+    }
+}
+
+#[test]
+fn authority_state_roots_resolve_parent_aliases_before_masking() {
+    let fixture = tempfile::tempdir().unwrap();
+    let workspace = fixture.path().join("repo");
+    let state = fixture.path().join("state");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&state).unwrap();
+    let aliases = vec![
+        workspace.join("../state"),
+        workspace.join("../future/state"),
+    ];
+    let protected = sandbox_protected_paths_with_roots(&workspace, &aliases, None).unwrap();
+    assert!(protected.contains(&state.canonicalize().unwrap()));
+    assert!(protected.contains(&fixture.path().canonicalize().unwrap().join("future/state")));
+    assert!(protected.iter().all(|path| path.is_absolute()));
+    assert!(protected.iter().all(|path| {
+        !path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    }));
 }

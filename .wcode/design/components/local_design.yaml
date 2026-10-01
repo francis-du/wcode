@@ -1,0 +1,8 @@
+schema_version: 1
+id: component:local-design
+name: Local read-only Design facade
+responsibilities:
+  - Delegate bounded metadata loading to the existing canonical Workspace reader with write and execution disabled.
+  - Return unchanged Design diagnostics, without supplying native approval, execution receipts or commercial dependencies.
+implementation:
+  - {kind: file, path: src/design/local.rs}

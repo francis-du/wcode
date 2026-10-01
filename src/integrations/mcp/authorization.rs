@@ -36,7 +36,9 @@ pub(crate) fn authorization_request_from_tool_result(
 }
 
 pub(crate) fn authorization_elicitation_params(request: &AuthorizationRequest) -> Value {
-    let scopes = if request.kind == crate::authorization::AuthorizationKind::DestructiveDelete {
+    let scopes = if request.kind == crate::authorization::AuthorizationKind::HumanDecision {
+        json!(["deny"])
+    } else if request.kind == crate::authorization::AuthorizationKind::DestructiveDelete {
         json!(["exact", "deny"])
     } else {
         json!(["exact", "all_commands", "deny"])
@@ -159,6 +161,11 @@ pub(crate) fn apply_authorization_response(
                         .map(|approved| if approved { "exact" } else { "deny" }.to_owned())
                 })
                 .ok_or("accepted authorization response must contain content.scope or legacy content.approved")?;
+            if request.kind == crate::authorization::AuthorizationKind::HumanDecision
+                && scope != "deny"
+            {
+                return Err("HumanDecision requires exact approval in the local TUI or protected WebUI; MCP client responses cannot establish human authority".to_owned());
+            }
             match scope.as_str() {
                 "exact" => {
                     state
@@ -196,6 +203,109 @@ pub(crate) fn apply_authorization_response(
         )),
         None => Err("authorization elicitation response is missing action".to_owned()),
     }
+}
+
+pub(super) async fn human_decision_tool(
+    state: &AppState,
+    args: &Value,
+    action: &str,
+) -> anyhow::Result<Value> {
+    let (workspace_id, workspace) = selected_workspace(state, args).map_err(anyhow::Error::msg)?;
+    let plan_id = mcp_tools::required_string(args, "plan_id")
+        .map_err(anyhow::Error::msg)?
+        .to_owned();
+    let label = mcp_tools::required_string(args, "approver")
+        .map_err(anyhow::Error::msg)?
+        .trim()
+        .to_owned();
+    let statement = mcp_tools::required_string(args, "statement")
+        .map_err(anyhow::Error::msg)?
+        .trim()
+        .to_owned();
+    if args.get("confirmed").and_then(Value::as_bool) != Some(true) {
+        anyhow::bail!("confirmed=true acknowledges the requested decision; local operator authorization is still required");
+    }
+    if label.is_empty()
+        || label.len() > 256
+        || statement.is_empty()
+        || label.chars().any(char::is_control)
+        || statement
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        anyhow::bail!("invalid approval display label or statement");
+    }
+    // Reserve the native summary's bounded space for a server-generated receipt.
+    if statement.len() + label.len() > 1_650 {
+        anyhow::bail!("approval label and statement exceed 1650 bytes of receipt-bound summary");
+    }
+    let execution_git_binding = state.harness.execution_git_binding(&workspace).await?;
+    let git_guard = execution_git_binding.clone();
+    let guard_workspace = workspace.clone();
+    let requester = mcp_writer::owner_binding(&mcp_writer::current_owner());
+    let harness = state.harness.clone();
+    let workspaces = state.workspaces.clone();
+    let instance = state.auth.instance_id().to_owned();
+    let action = action.to_owned();
+    let result = mcp_tools::run_blocking(move || {
+        let revision = harness.current_revision(&workspace)?;
+        if revision.code.ends_with(":partial")
+            || revision.design.as_deref().is_some_and(|value| value.ends_with(":partial")) {
+            anyhow::bail!("complete repository revision is required for operator approval");
+        }
+        let plan = match action.as_str() {
+            "verification" => serde_json::to_value(harness.verification_status(&workspace_id, &workspace, &plan_id)?.plan)?,
+            "reconciliation" => serde_json::to_value(harness.reconciliation_status(&workspace, &plan_id)?)?,
+            _ => anyhow::bail!("unsupported human decision"),
+        };
+        if action == "verification" && plan.get("require_human_approval").and_then(Value::as_bool) != Some(true) {
+            anyhow::bail!("verification plan does not require human approval");
+        }
+        if plan.get("workspace").and_then(Value::as_str) != Some(workspace_id.as_str()) {
+            anyhow::bail!("approval plan does not belong to the selected workspace");
+        }
+        let plan_revision = if action == "verification" { plan.get("revision") }
+            else { plan.pointer("/verification_plan/revision") };
+        if plan_revision != Some(&serde_json::to_value(&revision)?) {
+            anyhow::bail!("replan_required: operator approval plan revision is stale or missing");
+        }
+        let policy = if action == "verification" { plan.get("policy") }
+            else { plan.pointer("/verification_plan/policy") };
+        let digest = format!("sha256:{:x}", Sha256::digest(serde_json::to_vec(&plan)?));
+        let binding = json!({
+            "domain":"wcode/local-operator-decision/v1", "instance":instance, "requester":requester,
+            "root":workspace.root(), "workspace":workspace_id, "action":action,
+            "plan_id":plan_id, "plan_digest":digest, "revision":revision,
+            "policy":policy, "statement":statement, "display_label":label,
+            "execution_git_binding":execution_git_binding,
+        });
+        let fingerprint = format!("sha256:{:x}", Sha256::digest(serde_json::to_vec(&binding)?));
+        let summary = format!(
+            "Local operator {action} approval (one use, 2 minute expiry): {plan_id}\nRequester: {requester}\nPlan: {digest}\nCode: {}\nDesign: {}\nPolicy: {}\nDisplay label: {label}\nStatement: {statement}",
+            revision.code, revision.design.as_deref().unwrap_or("none"), policy.unwrap_or(&Value::Null)
+        );
+        // Full access and command session grants do not participate in this decision.
+        let receipt = workspaces.require_human_decision(&workspace_id, &summary, &fingerprint)?;
+        let approved_statement = format!(
+            "Local operator request {} ({fingerprint}); requester={requester}; display label: {label}\n{statement}", receipt.id
+        );
+        let operator = format!("local_operator:{}", receipt.id);
+        // A native stale-revision rejection leaves the one-shot grant consumed.
+        let mut value = if action == "verification" {
+            serde_json::to_value(harness.verification_approve_authorized_bound(&workspace_id, &workspace, &plan_id, &operator, &approved_statement, execution_git_binding)?)?
+        } else {
+            harness.reconciliation_approve_authorized(&workspace_id, &workspace, &plan_id, &operator, &approved_statement)?
+        };
+        value["operator_authorization"] = serde_json::to_value(receipt)?;
+        value["display_approver"] = Value::String(label);
+        value["requester_binding"] = Value::String(requester);
+        Ok(value)
+    }).await?;
+    state
+        .harness
+        .ensure_execution_git_binding(&guard_workspace, &git_guard)
+        .await?;
+    Ok(result)
 }
 
 pub(super) fn apply_authorization_retry(

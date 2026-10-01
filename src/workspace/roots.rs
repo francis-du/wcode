@@ -243,7 +243,7 @@ impl Workspace {
             kind,
             summary,
             fingerprint,
-        );
+        )?;
         Err(AuthorizationRequired::new(request).into())
     }
 
@@ -590,6 +590,7 @@ impl Workspace {
         if !resolved.starts_with(&self.root) {
             bail!("path escapes workspace");
         }
+        reject_authority_path(&resolved, false)?;
         Ok(resolved)
     }
 
@@ -601,6 +602,7 @@ impl Workspace {
         }
         self.ensure_no_symlink_components(&relative, true)?;
         let target = self.root.join(&relative);
+        reject_authority_path(&target, true)?;
         let parent = target
             .parent()
             .ok_or_else(|| anyhow!("invalid target path"))?;

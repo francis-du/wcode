@@ -28,4 +28,6 @@ pub struct FileView {
     pub total_lines: usize,
     pub content: String,
     pub redacted: bool,
+    #[serde(skip_serializing)]
+    pub(crate) line_ending: &'static str,
 }

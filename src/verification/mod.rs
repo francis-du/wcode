@@ -1,8 +1,20 @@
-use crate::evidence::{Confidence, Evidence, EvidenceResult, Revision};
+use crate::evidence::{Confidence, Evidence, EvidenceResult, RequiredVerificationCheck, Revision};
 use crate::graph::NodeId;
 use crate::risk::{RiskLevel, VerificationProfile};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+pub mod acceptance;
+pub(crate) mod acceptance_metrics;
+pub mod acceptance_native;
+mod acceptance_plans;
+pub(crate) mod acceptance_store;
+pub(crate) use acceptance_plans::PolicyPlanRequirements;
+pub mod change;
+mod contract;
+pub(crate) mod policy;
+pub(crate) mod policy_store;
+pub use contract::evaluate_snapshot;
 
 pub const MAX_VERIFICATION_JOBS: usize = 256;
 const MAX_REVIEW_GUIDANCE_ITEMS: usize = 16;
@@ -119,6 +131,7 @@ impl ReviewSubmission {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationJob {
     pub id: String,
     pub plan_id: String,
@@ -141,9 +154,17 @@ pub(crate) struct VerificationPlanBinding {
     pub revision: Revision,
     pub stage_targets: Vec<String>,
     pub automation_gaps: Vec<String>,
+    pub required_checks: Option<Vec<RequiredVerificationCheck>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct VerificationCheckPlans {
+    pub quick: Vec<RequiredVerificationCheck>,
+    pub full: Vec<RequiredVerificationCheck>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationPlan {
     pub id: String,
     pub workspace: String,
@@ -154,6 +175,8 @@ pub struct VerificationPlan {
     pub policy: String,
     pub deterministic_level: String,
     pub deterministic_checks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_checks: Option<Vec<RequiredVerificationCheck>>,
     pub reviewer_roles: Vec<ReviewerRole>,
     pub require_property: bool,
     pub require_mutation: bool,
@@ -187,7 +210,10 @@ pub struct VerificationStatus {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationState {
+    #[serde(default)]
+    generation: u64,
     plans: BTreeMap<String, VerificationPlan>,
     jobs: BTreeMap<String, VerificationJob>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -195,6 +221,10 @@ pub struct VerificationState {
 }
 
 impl VerificationState {
+    pub(crate) fn persistence_generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn plans_for_workspace(&self, workspace: &str) -> Vec<VerificationPlan> {
         let ordered_ids = self
             .plan_order
@@ -271,6 +301,7 @@ impl VerificationState {
             .cloned()
             .collect();
         Self {
+            generation: self.generation,
             plans,
             jobs,
             plan_order,
@@ -305,6 +336,10 @@ impl VerificationState {
                     .any(|target| !valid_target(target))
                 || plan.stage_targets.iter().collect::<BTreeSet<_>>().len()
                     != plan.stage_targets.len()
+                || plan
+                    .required_checks
+                    .as_ref()
+                    .is_some_and(|checks| !valid_required_checks(checks))
                 || plan.automation_gaps.len() > 32
                 || plan
                     .automation_gaps
@@ -335,6 +370,7 @@ impl VerificationState {
                 return Err(VerificationError::InvalidPersistedState);
             }
         }
+        self.generation = self.generation.max(snapshot.generation);
         self.plans.extend(snapshot.plans);
         self.jobs.extend(snapshot.jobs);
         for id in snapshot.plan_order {
@@ -354,10 +390,60 @@ impl VerificationState {
         risk_level: RiskLevel,
         job_ids: impl Iterator<Item = String>,
     ) -> Result<VerificationPlan, VerificationError> {
+        self.create_plan_configured(
+            plan_id,
+            workspace,
+            subject,
+            binding,
+            acceptance_plans::PlanConfiguration {
+                risk_level,
+                policy: None,
+            },
+            job_ids,
+        )
+    }
+
+    pub(crate) fn create_plan_with_policy(
+        &mut self,
+        plan_id: String,
+        workspace: String,
+        subject: NodeId,
+        binding: VerificationPlanBinding,
+        policy: PolicyPlanRequirements,
+        job_ids: impl Iterator<Item = String>,
+    ) -> Result<VerificationPlan, VerificationError> {
+        let risk_level = policy.risk_level;
+        self.create_plan_configured(
+            plan_id,
+            workspace,
+            subject,
+            binding,
+            acceptance_plans::PlanConfiguration {
+                risk_level,
+                policy: Some(policy),
+            },
+            job_ids,
+        )
+    }
+
+    fn create_plan_configured(
+        &mut self,
+        plan_id: String,
+        workspace: String,
+        subject: NodeId,
+        binding: VerificationPlanBinding,
+        configuration: acceptance_plans::PlanConfiguration,
+        job_ids: impl Iterator<Item = String>,
+    ) -> Result<VerificationPlan, VerificationError> {
+        let risk_level = configuration.risk_level;
         if self.plans.contains_key(&plan_id) {
             return Err(VerificationError::DuplicatePlan);
         }
-        if binding.stage_targets.len() > 32
+        if binding
+            .required_checks
+            .as_ref()
+            .is_some_and(|checks| !valid_required_checks(checks))
+            || binding.stage_targets.len() > 32
             || binding
                 .stage_targets
                 .iter()
@@ -372,29 +458,39 @@ impl VerificationState {
         {
             return Err(VerificationError::InvalidPlan);
         }
-        let profile = VerificationProfile::for_risk(risk_level);
-        let roles = reviewer_roles(&profile);
+        let requirements =
+            acceptance_plans::resolve(configuration, binding.required_checks.as_deref())?;
+        let profile = requirements.profile;
+        let roles = requirements.roles;
         let ids = job_ids.take(roles.len()).collect::<Vec<_>>();
-        if ids.len() != roles.len() {
+        if ids.len() != roles.len()
+            || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+            || ids.iter().any(|id| {
+                id.trim().is_empty()
+                    || id.len() > 160
+                    || id.chars().any(char::is_control)
+                    || self.jobs.contains_key(id)
+            })
+        {
             return Err(VerificationError::CapacityExceeded);
         }
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(VerificationError::GenerationExhausted)?;
         if !self.reclaim_superseded_capacity(&workspace, &binding.revision, ids.len()) {
             return Err(VerificationError::CapacityExceeded);
         }
-        let deterministic_level = if risk_level >= RiskLevel::Medium {
-            "full"
-        } else {
-            "quick"
-        };
         let plan = VerificationPlan {
             id: plan_id.clone(),
             workspace: workspace.clone(),
             subject: subject.clone(),
             revision: Some(binding.revision),
             risk_level,
-            policy: format!("risk-adaptive/v2/{risk_level:?}").to_ascii_lowercase(),
-            deterministic_level: deterministic_level.to_owned(),
+            policy: requirements.policy_binding,
+            deterministic_level: requirements.deterministic_level,
             deterministic_checks: profile.deterministic_checks.clone(),
+            required_checks: binding.required_checks,
             reviewer_roles: roles.clone(),
             require_property: profile.require_property,
             require_mutation: profile.require_mutation,
@@ -424,6 +520,7 @@ impl VerificationState {
         }
         self.plans.insert(plan_id.clone(), plan.clone());
         self.plan_order.push(plan_id);
+        self.generation = generation;
         Ok(plan)
     }
 
@@ -573,12 +670,17 @@ impl VerificationState {
         else {
             return Err(VerificationError::NoMatchingJob);
         };
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(VerificationError::GenerationExhausted)?;
         let job = self
             .jobs
             .get_mut(&job_id)
             .ok_or(VerificationError::UnknownJob)?;
         job.status = VerificationJobStatus::Claimed;
         job.claimed_by = Some(reviewer.to_owned());
+        self.generation = generation;
         Ok(job.clone())
     }
 
@@ -600,8 +702,13 @@ impl VerificationState {
         {
             return Err(VerificationError::InvalidJobState);
         }
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(VerificationError::GenerationExhausted)?;
         job.status = VerificationJobStatus::Submitted;
         job.submission = Some(submission);
+        self.generation = generation;
         Ok(job.clone())
     }
 
@@ -759,8 +866,8 @@ fn role_guidance(role: ReviewerRole) -> Vec<String> {
     }
 }
 
-fn role_capabilities(role: ReviewerRole) -> Vec<String> {
-    let capability = match role {
+pub const fn reviewer_role_capability(role: ReviewerRole) -> &'static str {
+    match role {
         ReviewerRole::DesignCompliance => "design_review",
         ReviewerRole::Correctness => "correctness_review",
         ReviewerRole::Maintainability => "maintainability_review",
@@ -770,8 +877,11 @@ fn role_capabilities(role: ReviewerRole) -> Vec<String> {
         ReviewerRole::Compatibility => "compatibility_review",
         ReviewerRole::Adversarial => "adversarial_review",
         ReviewerRole::TestSynthesis => "test_synthesis",
-    };
-    vec![capability.to_owned()]
+    }
+}
+
+fn role_capabilities(role: ReviewerRole) -> Vec<String> {
+    vec![reviewer_role_capability(role).to_owned()]
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -787,6 +897,7 @@ pub enum VerificationError {
     InvalidSubmission,
     InvalidEvidence,
     InvalidPersistedState,
+    GenerationExhausted,
 }
 
 impl std::fmt::Display for VerificationError {
@@ -803,6 +914,7 @@ impl std::fmt::Display for VerificationError {
             Self::InvalidSubmission => "verification submission is invalid",
             Self::InvalidEvidence => "verification evidence could not be produced",
             Self::InvalidPersistedState => "persisted verification state is invalid",
+            Self::GenerationExhausted => "verification persistence generation exhausted",
         };
         formatter.write_str(message)
     }
@@ -817,3 +929,14 @@ fn valid_target(value: &str) -> bool {
 #[cfg(test)]
 #[path = "../../tests/unit/verification/mod.rs"]
 mod tests;
+fn valid_required_checks(checks: &[RequiredVerificationCheck]) -> bool {
+    !checks.is_empty()
+        && checks.len() <= 32
+        && checks.iter().all(RequiredVerificationCheck::valid)
+        && checks
+            .iter()
+            .map(|check| &check.id)
+            .collect::<BTreeSet<_>>()
+            .len()
+            == checks.len()
+}

@@ -1,0 +1,18 @@
+schema_version: 1
+id: component:project-bootstrap
+name: Sparse Project Setup Bootstrap
+responsibilities:
+  - Derive a bounded project display name from the already selected Workspace and create only neutral ProjectDesign metadata plus the Design directory when no Design State exists.
+  - Preserve existing or partial Design bytes, report repair needs, and honor create-only writes, path integrity and local write authorization.
+  - Keep dry-run pure, global host setup separate, and Policy drafting and exact operator activation independent from metadata initialization.
+  - Support gradual brownfield mapping through existing source intelligence, guarded Design edits, traceability and reconciliation without inventing Product vision or business requirements.
+constraints:
+  - CONSTRAINT-SPARSE-DESIGN-STATE
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-SYMLINK-REJECTION
+  - CONSTRAINT-POLICY-AUTHORITY
+depends_on:
+  - component:agent-host-install
+implementation:
+  - {kind: file, path: src/app/setup_design.rs}
+  - {kind: file, path: src/app/setup.rs}

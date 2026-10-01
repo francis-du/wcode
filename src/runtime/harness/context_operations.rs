@@ -17,13 +17,22 @@ pub(super) fn build(
         }
         "git status" | "查看git状态" | "检查git状态" | "工作区状态" => "git_status",
         "verify project" | "运行检查" | "全量检查" => "verification",
+        "poll command task"
+        | "command task status"
+        | "command task result"
+        | "cancel command task"
+        | "查看命令任务"
+        | "轮询命令任务"
+        | "取消命令任务" => "command_task",
         "run app" | "run the app" | "run project" | "start app" | "start the app"
         | "start project" | "start server" | "run server" | "启动项目" | "运行项目"
         | "启动应用" | "运行应用" | "启动服务" | "运行服务" => "launch",
         _ => return Ok(None),
     };
     let budget = requested_budget.unwrap_or(MIN_AGENT_CONTEXT_BUDGET);
-    let next_actions = if !profile.exec_enabled {
+    let next_actions = if intent == "command_task" {
+        vec!["command_task"]
+    } else if !profile.exec_enabled {
         Vec::new()
     } else {
         match intent {
@@ -34,12 +43,18 @@ pub(super) fn build(
         }
     };
     let workflow = match intent {
+        "command_task" => vec![
+            "Observe or cancel an existing durable command task; no new command was requested.",
+            "Use command_task status/result/cancel with the receipt's task_id and exact selected Workspace. Owner comes from the authenticated transport, never from arguments.",
+            "Poll the same task; fetch result once terminal. Terminal or delivery is not command success or Verification Evidence; preserve result.isError, success and exit_code.",
+            "Never rerun a command to poll or automatically replay it after a restart. Creating a task remains subject to normal command policy.",
+        ],
         "launch" => vec![
             "This is an operator launch workflow, not a source-edit task. No source index or Design scan was requested.",
             "Call workspace_info and inspect only the selected Workspace's bounded launch_profiles. Discovery is read-only, never auto-runs a profile, and never transfers script bodies into command arguments.",
             "Treat program_available=false as a preflight stop: do not call run_command and do not silently substitute another runner. program_available=true proves only bounded PATH presence of the bare executable, not that a subcommand/plugin is installed.",
             "Execute only the selected profile's program and args through run_command; do not guess a hidden script body or infer network trust from a discovered entry.",
-            "For a long-lived app or development server, prefer task_mode=true so Tasks owns live output, cancellation and the supervised process tree; never detach a background process.",
+            "For long-lived apps use task_mode=true: Tasks clients poll tasks/get; other clients poll command_task with the receipt's task_id. Never rerun to poll or detach a background process.",
             "If the selected profile exposes status_probe, use only that exact bounded probe for follow-up runtime observation. Report its declared precision literally: Docker Health may be empty, which means unknown rather than healthy.",
             "If discovery yields no unambiguous profile, inspect the relevant recognized manifest with bounded repository reads before choosing an explicit command.",
         ],

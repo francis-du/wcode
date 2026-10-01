@@ -1,0 +1,19 @@
+schema_version: 1
+id: component:failure-memory
+name: Model-independent Failure Memory
+responsibilities:
+  - Retain bounded prompt-free native failure categories in the existing project engineering journal, without turning failed work into positive retrieval experience.
+  - Recall fixed corrective rules relevant to the next task across model and runtime changes; report recurrence and partial history explicitly.
+  - Keep historical advice separate from current Evidence, operator authorization, verification results and Acceptance.
+  - Match native MCP payload.error only within a 4096-byte transient bound; never inspect arbitrary arguments, stdout or stderr as rule input.
+  - Share the same recall engine with Agent Context and feed currently discovered native check IDs before context compaction.
+constraints:
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-SHA-PRECONDITION
+  - CONSTRAINT-OSS-INDEPENDENCE
+implementation:
+  - {kind: file, path: src/evidence/store.rs}
+  - {kind: file, path: src/evidence/journal.rs}
+  - {kind: file, path: src/evidence/failure_memory.rs}
+  - {kind: file, path: src/integrations/mcp/dispatch/journal.rs}
+  - {kind: file, path: src/runtime/harness/context_lessons.rs}

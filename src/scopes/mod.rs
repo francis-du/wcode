@@ -235,8 +235,10 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         | "read_files" | "read_media" | "path_info" | "replace_text" | "apply_edits"
         | "write_file" | "create_directory" | "create_file" | "create_files"
         | "apply_file_edits" | "move_path" | "move_paths" | "delete_path" | "run_command"
-        | "parallel_tools" | "review_changes" => &[Workspace],
+        | "command_task" | "parallel_tools" | "review_changes" => &[Workspace],
         "design_init" | "design_status" => &[Design],
+        "acceptance_policy" => &[Design, Verification, Workspace],
+        "change_acceptance" => &[Design, Verification, Workspace, Evidence],
         "software_graph"
         | "graph_provider_import"
         | "graph_provider_status"

@@ -18,14 +18,20 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(audit.contains("extraRustRounds.length,70"));
     assert!(audit.contains("POSTLUDE_RUST_ROUNDS = 200"));
-    assert!(audit.contains("rounds.length,FULL_AUDIT_ROUNDS"));
+    assert!(audit.contains("allRounds.length,FULL_AUDIT_ROUNDS"));
     assert!(audit.contains("--rounds must stay within 1-300"));
     assert!(audit.contains("--ignored"));
     assert!(webkit.contains("--cases="));
     assert!(webkit.contains("totalCases=scenarios.count"));
     assert!(webkit.contains("for width in [320,720,1024,1440]"));
     assert!(webkit.contains("\"codegraph\""));
-    assert!(audit.contains("240 WebKit scenarios including Code Graph fullscreen"));
+    assert!(audit.contains("256 WebKit scenarios including Code Graph fullscreen"));
+    assert!(audit.contains("expected_suite"));
+    assert!(audit.contains("validateBrowserMatrix(report.results)"));
+    assert!(audit.contains("validateLayoutMatrix(report.results)"));
+    assert!(webkit.contains("report[\"scenario\"]=tab"));
+    assert!(webkit.contains("requested viewport not observed"));
+    assert!(webkit.contains("requested architecture view not observed"));
     assert!(audit.contains("tests/unit/ui/code_graph.cjs"));
     assert!(audit.contains("tests/unit/ui/web_i18n.cjs"));
     assert!(audit.contains("positive_harness_tools_flow_through_mcp"));
@@ -41,6 +47,34 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
         !adversarial_workflow.contains("--rounds=") && !adversarial_workflow.contains("--cases="),
         "CI must keep the complete unsharded release audit"
     );
+}
+
+#[test]
+fn adversarial_release_runner_contracts_fail_closed() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .args([
+            "--test",
+            "--test-reporter=tap",
+            "tests/unit/architecture/release_audit.cjs",
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("Node must run the release-audit behavioral regressions");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "release-audit regressions failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let count = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("# tests ")?.parse::<usize>().ok())
+        .expect("Node test runner must report the actual test count");
+    assert!(count >= 70, "zero or missing audit regression coverage");
+    for summary in ["# fail 0", "# cancelled 0", "# skipped 0"] {
+        assert!(stdout.lines().any(|line| line == summary), "{summary}");
+    }
 }
 
 #[test]

@@ -11,7 +11,7 @@ pub(super) fn discover_nested_project_islands(
     workspace_root: &Path,
     root_project_types: &[String],
     candidate_dirs: &[PathBuf],
-) -> Vec<DiscoveredProjectIsland> {
+) -> (Vec<DiscoveredProjectIsland>, bool) {
     let mut discovered = Vec::<DiscoveredProjectIsland>::new();
     for directory in candidate_dirs.iter().cloned() {
         let manifest_names = manifest_file_names(&directory);
@@ -47,6 +47,9 @@ pub(super) fn discover_nested_project_islands(
             .iter()
             .map(|manifest| format!("{relative}/{manifest}"))
             .collect::<Vec<_>>();
+        if discovered.len() >= MAX_PROFILE_ISLANDS {
+            return (discovered, true);
+        }
         discovered.push(DiscoveredProjectIsland {
             absolute_root: directory,
             descriptor: ProjectIsland {
@@ -63,11 +66,8 @@ pub(super) fn discover_nested_project_islands(
                 precision: "structural",
             },
         });
-        if discovered.len() >= MAX_PROFILE_ISLANDS {
-            break;
-        }
     }
-    discovered
+    (discovered, false)
 }
 
 const DOTNET_MANIFEST_EXTENSIONS: &[&str] = &["sln", "slnx", "csproj", "fsproj", "vbproj"];
@@ -87,7 +87,9 @@ pub(super) fn is_manifest_file_name(name: &str) -> bool {
 pub(super) fn manifest_file_names(root: &Path) -> Vec<String> {
     let mut names = MANIFEST_FILES
         .iter()
-        .filter(|manifest| root.join(manifest).is_file())
+        .filter(|manifest| {
+            std::fs::symlink_metadata(root.join(manifest)).is_ok_and(|metadata| metadata.is_file())
+        })
         .map(|manifest| (*manifest).to_owned())
         .collect::<Vec<_>>();
     if let Ok(entries) = std::fs::read_dir(root) {

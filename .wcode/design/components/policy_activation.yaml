@@ -1,0 +1,16 @@
+schema_version: 1
+id: component:policy-activation
+name: Local Acceptance Policy Authority
+responsibilities:
+  - Freeze native Policy drafts, complete Design file mappings, native check identities and same-capture SHA256 definition sources without accepting imported JSON as authority.
+  - Bind one-shot local operator approval to exact workspace, root, revision, generation, action, snapshot digest and expiry before bounded protected activation or revocation.
+  - Persist append-oriented generation CAS records; corrupt, incomplete or expired authority never falls back to historical active policy.
+  - Keep historical activation revision distinct from candidate revisions; active baseline selection must detect definition drift and never claim executed verification or Change Acceptance.
+constraints:
+  - CONSTRAINT-POLICY-AUTHORITY
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+implementation:
+  - {kind: file, path: src/verification/policy.rs}
+  - {kind: file, path: src/verification/policy_store.rs}
+  - {kind: file, path: src/runtime/harness/policy.rs}

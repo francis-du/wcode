@@ -481,6 +481,8 @@ mod tests {
             &workspace,
             &harness.intelligence.current_revision(&workspace).unwrap(),
             &crate::harness::VerificationReport {
+                execution_git_binding: None,
+                required_checks: None,
                 workspace: "demo".into(),
                 level: "quick".into(),
                 execution: "fixture".into(),
@@ -501,6 +503,7 @@ mod tests {
                     reason: "fixture".into(),
                     success: true,
                     reused: false,
+                    execution: crate::evidence::VerificationCheckExecution::Executed,
                     exit_code: Some(0),
                     elapsed_ms: 1,
                     queue_wait_ms: 0,
@@ -508,6 +511,8 @@ mod tests {
                     stdout_tail: String::new(),
                     stderr_tail: String::new(),
                     output_truncated: false,
+                    signature: None,
+                    evidence_id: None,
                 }],
             },
         )
@@ -516,9 +521,18 @@ mod tests {
         .project_observatory("demo", &workspace, None)
         .unwrap();
     assert_eq!(proved.proof.acceptance.mapped, 1);
-    assert_eq!(proved.proof.acceptance.executed, 1);
-    assert_eq!(proved.proof.acceptance.passed, 1);
-    assert_eq!(proved.proof.acceptance.fresh, 1);
+    assert_eq!(
+        proved.proof.acceptance.executed, 0,
+        "a test check does not prove a named Test executed"
+    );
+    assert_eq!(
+        proved.proof.acceptance.passed, 0,
+        "a test check does not prove a named Test executed"
+    );
+    assert_eq!(
+        proved.proof.acceptance.fresh, 0,
+        "a test check does not prove a named Test executed"
+    );
 
     fs::write(
         root.path().join("src/lib.rs"),
@@ -543,8 +557,14 @@ mod tests {
     let changed = harness
         .project_observatory("demo", &workspace, None)
         .unwrap();
-    assert_eq!(changed.proof.acceptance.executed, 1);
-    assert_eq!(changed.proof.acceptance.passed, 1);
+    assert_eq!(
+        changed.proof.acceptance.executed, 0,
+        "a test check does not prove a named Test executed"
+    );
+    assert_eq!(
+        changed.proof.acceptance.passed, 0,
+        "a test check does not prove a named Test executed"
+    );
     assert_eq!(changed.proof.acceptance.fresh, 0);
     assert!(changed.history.len() >= 2);
     let changed_feature = changed

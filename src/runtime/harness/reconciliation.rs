@@ -7,13 +7,16 @@ impl ToolHarness {
         workspace: &Workspace,
         review: &ChangeReviewReport,
     ) -> Result<ReconciliationPlan> {
-        let known_checks = self.known_checks(workspace)?;
+        let (profile, _) = self.load_project_profile(workspace)?;
+        let known_checks = harness_profile::known_checks_from_profile(&profile);
+        let check_plans = harness_core::verification_check_plans(&profile, review);
         self.intelligence.reconciliation_plan(
             workspace_id,
             workspace,
             &self.code_index,
             &known_checks,
             review,
+            &check_plans,
         )
     }
 
@@ -43,7 +46,7 @@ impl ToolHarness {
             .reconciliation_execution_status(workspace_id, workspace, plan_id)
     }
 
-    pub fn reconciliation_approve(
+    pub(crate) fn reconciliation_approve_authorized(
         &self,
         workspace_id: &str,
         workspace: &Workspace,
@@ -51,7 +54,7 @@ impl ToolHarness {
         approver: &str,
         statement: &str,
     ) -> Result<Value> {
-        self.intelligence.reconciliation_approve(
+        self.intelligence.reconciliation_approve_authorized(
             workspace_id,
             workspace,
             plan_id,

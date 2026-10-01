@@ -500,6 +500,7 @@ fn scope_steering_against_bound_plan_requires_replan() {
             risk_level: RiskLevel::Low,
             policy: "risk-adaptive/v1/low".into(),
             deterministic_level: "quick".into(),
+            required_checks: None,
             deterministic_checks: vec![],
             reviewer_roles: vec![],
             require_property: false,
@@ -746,6 +747,7 @@ fn verification_steering_floor_raises_policy_and_rejects_weaker_proof() {
         risk_level: RiskLevel::High,
         policy: "risk-adaptive/v2/high".into(),
         deterministic_level: "full".into(),
+        required_checks: None,
         deterministic_checks: vec!["cargo test --locked".into()],
         reviewer_roles: vec![],
         require_property: true,
@@ -790,6 +792,7 @@ fn execution_refresh_rebinds_plan_after_verification_floor_strengthens() {
                     "floor-recovery".to_owned(),
                     format!("change:{}", revision.code),
                     crate::verification::VerificationPlanBinding {
+                        required_checks: None,
                         revision: revision.clone(),
                         stage_targets: Vec::new(),
                         automation_gaps: Vec::new(),

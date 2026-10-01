@@ -1,6 +1,9 @@
 use super::*;
 use crate::authorization::AuthorizationStatus;
 
+#[path = "registry/dynamic.rs"]
+mod dynamic;
+
 const MAX_SUBSPACE_SCAN_DEPTH: usize = 8;
 const SUBSPACE_FILE_MARKERS: &[(&str, &str)] = &[
     ("Cargo.toml", "cargo"),
@@ -121,6 +124,9 @@ impl Workspaces {
 
     pub fn select(&self, id: Option<&str>) -> Result<(String, Workspace)> {
         let requested = id.unwrap_or(&self.default_id).trim_matches('/');
+        if id.is_some() {
+            self.refresh_requested_subspace(requested)?;
+        }
         let roots = self.roots.read().expect("workspace registry lock poisoned");
         if let Some(root) = roots.iter().find(|root| root.id == requested) {
             return Ok((root.id.clone(), root.workspace.clone()));
@@ -487,8 +493,30 @@ impl Workspaces {
                 args.join(" ")
             ),
             fingerprint,
-        );
+        )?;
         self.approve_authorization_session_result(&request.id)
+    }
+
+    pub(crate) fn require_human_decision(
+        &self,
+        workspace_id: &str,
+        summary: &str,
+        fingerprint: &str,
+    ) -> Result<AuthorizationRequest> {
+        self.select(Some(workspace_id))?;
+        if let Some(receipt) = self
+            .authorization
+            .consume_human_decision(workspace_id, fingerprint)
+        {
+            return Ok(receipt);
+        }
+        let request = self.authorization.request(
+            workspace_id,
+            AuthorizationKind::HumanDecision,
+            summary,
+            fingerprint,
+        )?;
+        Err(AuthorizationRequired::new(request).into())
     }
 
     pub fn deny_authorization(&self, id: &str) -> bool {
@@ -496,6 +524,7 @@ impl Workspaces {
     }
 
     pub fn capabilities(&self) -> serde_json::Value {
+        self.refresh_dynamic_subspaces();
         let roots = self.roots.read().expect("workspace registry lock poisoned");
         let security = self.effective_security();
         serde_json::json!({
@@ -522,7 +551,10 @@ impl Workspaces {
             "subspace_discovery": {
                 "enabled": true,
                 "max_depth": MAX_SUBSPACE_SCAN_DEPTH,
-                "routing": "select the most specific discovered workspace id for project-scoped work",
+                "dynamic_refresh_max_depth": dynamic::DYNAMIC_SUBSPACE_SCAN_DEPTH,
+                "dynamic_refresh_entry_limit": dynamic::MAX_DYNAMIC_SUBSPACE_SCAN_ENTRIES,
+                "exact_requested_workspace_refresh": true,
+                "routing": "refresh exact requested child workspaces on demand and select the most specific discovered workspace id for project-scoped work",
                 "markers": [".git", ".wcode/project.yaml", "Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "Package.swift"],
             },
             "launch_discovery": {

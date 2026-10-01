@@ -9,7 +9,9 @@ use std::path::Path;
 
 const MAX_CONVENTION_FILES: usize = 10_000;
 const MAX_FINDINGS: usize = 256;
+pub(crate) const SPLIT_SOURCE_LINES: usize = 600;
 pub(crate) const OVERSIZED_SOURCE_LINES: usize = 1_000;
+const DENSE_DIRECTORY_FILES: usize = 24;
 const FLAT_RUST_MODULE_THRESHOLD: usize = 16;
 const DOMAIN_PREFIX_THRESHOLD: usize = 3;
 
@@ -47,6 +49,13 @@ pub struct ConventionFinding {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ArchitectureGuideline {
+    pub code: &'static str,
+    pub trigger: &'static str,
+    pub action: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ArchitectureDomain {
     pub name: String,
     pub files: usize,
@@ -64,6 +73,7 @@ pub struct ProductScopeSummary {
 pub struct ConventionReport {
     pub provider: &'static str,
     pub policies: Vec<LanguageConvention>,
+    pub architecture_guidance: Vec<ArchitectureGuideline>,
     pub detected_languages: Vec<SemanticLanguage>,
     pub architecture_domains: Vec<ArchitectureDomain>,
     pub product_scopes: Vec<ProductScopeSummary>,
@@ -110,6 +120,13 @@ pub(crate) fn status_from_paths(
     files: Vec<String>,
     scan_truncated: bool,
 ) -> Result<ConventionReport> {
+    let canonical_product_scopes_required = crate::design::load_design(workspace)
+        .map(|load| {
+            load.state
+                .constraints
+                .contains_key("CONSTRAINT-PRODUCT-SCOPE-CANONICAL")
+        })
+        .unwrap_or(false);
     let mut findings = Vec::new();
     let mut detected_languages = BTreeSet::new();
     let mut architecture_domains = BTreeMap::<String, (usize, BTreeSet<SemanticLanguage>)>::new();
@@ -118,6 +135,7 @@ pub(crate) fn status_from_paths(
     let mut unmapped_product_scope_files = 0usize;
     let mut rust_root_modules = Vec::new();
     let mut prefix_counts = BTreeMap::<String, usize>::new();
+    let mut directory_counts = BTreeMap::<String, usize>::new();
     let mut files_checked = 0usize;
     let source_inspections = crate::resource::parallel_io(&files, |path| {
         let language = language_for_path(path)?;
@@ -151,16 +169,18 @@ pub(crate) fn status_from_paths(
             entry.1.insert(language);
         } else if path.starts_with("src/") {
             unmapped_product_scope_files = unmapped_product_scope_files.saturating_add(1);
-            push_finding(
-                &mut findings,
-                ConventionFinding {
-                    code: "unmapped-product-scope".to_owned(),
-                    severity: ConventionSeverity::Warning,
-                    path: path.clone(),
-                    language: Some(language),
-                    message: "Source file is not mapped to a canonical wcode Product Scope; classify it in src/scopes before extending the subsystem.".to_owned(),
-                },
-            );
+            if canonical_product_scopes_required {
+                push_finding(
+                    &mut findings,
+                    ConventionFinding {
+                        code: "unmapped-product-scope".to_owned(),
+                        severity: ConventionSeverity::Warning,
+                        path: path.clone(),
+                        language: Some(language),
+                        message: "Source file is not mapped to a canonical wcode Product Scope; classify it in src/scopes before extending the subsystem.".to_owned(),
+                    },
+                );
+            }
         }
         let policy = language_convention(language);
         let file_name = Path::new(&path)
@@ -202,19 +222,37 @@ pub(crate) fn status_from_paths(
         if let Some(source_inspection) = source_inspection {
             match source_inspection {
                 Ok((lines, generated)) => {
-                    if lines > OVERSIZED_SOURCE_LINES && !generated {
-                        push_finding(
-                            &mut findings,
-                            ConventionFinding {
-                                code: "oversized-source-module".to_owned(),
-                                severity: ConventionSeverity::Error,
-                                path: path.clone(),
-                                language: Some(language),
-                                message: format!(
-                                    "source module has {lines} lines; wcode core policy requires maintained source to stay at or below {OVERSIZED_SOURCE_LINES} lines, so split protocol/UI/orchestration/domain responsibilities before adding more behavior"
-                                ),
-                            },
-                        );
+                    if !generated {
+                        if let Some(parent) = Path::new(&path).parent().and_then(Path::to_str) {
+                            *directory_counts.entry(parent.replace('\\', "/")).or_default() += 1;
+                        }
+                        if lines > OVERSIZED_SOURCE_LINES {
+                            push_finding(
+                                &mut findings,
+                                ConventionFinding {
+                                    code: "oversized-source-module".to_owned(),
+                                    severity: ConventionSeverity::Error,
+                                    path: path.clone(),
+                                    language: Some(language),
+                                    message: format!(
+                                        "source module has {lines} lines; maintained source must stay at or below {OVERSIZED_SOURCE_LINES} lines, so split protocol/UI/orchestration/domain responsibilities before adding more behavior"
+                                    ),
+                                },
+                            );
+                        } else if lines >= SPLIT_SOURCE_LINES {
+                            push_finding(
+                                &mut findings,
+                                ConventionFinding {
+                                    code: "source-module-needs-split".to_owned(),
+                                    severity: ConventionSeverity::Warning,
+                                    path: path.clone(),
+                                    language: Some(language),
+                                    message: format!(
+                                        "source module has {lines} lines; review a responsibility-based split before the {OVERSIZED_SOURCE_LINES}-line hard limit instead of continuing monolithic growth"
+                                    ),
+                                },
+                            );
+                        }
                     }
                 }
                 Err(error) => push_finding(
@@ -273,7 +311,37 @@ pub(crate) fn status_from_paths(
         }
     }
 
+    for (directory, count) in directory_counts {
+        if count >= DENSE_DIRECTORY_FILES {
+            push_finding(
+                &mut findings,
+                ConventionFinding {
+                    code: "dense-source-directory".to_owned(),
+                    severity: ConventionSeverity::Warning,
+                    path: directory,
+                    language: None,
+                    message: format!(
+                        "directory has {count} maintained source files; group cohesive ownership/lifecycle responsibilities into submodules or subdirectories instead of continuing a flat file bucket"
+                    ),
+                },
+            );
+        }
+    }
+
     if rust_root_modules.len() >= FLAT_RUST_MODULE_THRESHOLD {
+        push_finding(
+            &mut findings,
+            ConventionFinding {
+                code: "flat-rust-crate-root".to_owned(),
+                severity: ConventionSeverity::Warning,
+                path: "src".to_owned(),
+                language: Some(SemanticLanguage::Rust),
+                message: format!(
+                    "crate root contains {} non-entry Rust modules; introduce cohesive src/<domain>/ module boundaries before adding more root modules",
+                    rust_root_modules.len()
+                ),
+            },
+        );
         for (prefix, count) in prefix_counts {
             if count >= DOMAIN_PREFIX_THRESHOLD {
                 push_finding(
@@ -308,6 +376,7 @@ pub(crate) fn status_from_paths(
             .into_iter()
             .map(language_convention)
             .collect(),
+        architecture_guidance: architecture_guidance(),
         detected_languages: detected_languages.into_iter().collect(),
         architecture_domains: architecture_domains
             .into_iter()
@@ -333,6 +402,31 @@ pub(crate) fn status_from_paths(
         findings,
         truncated,
     })
+}
+
+fn architecture_guidance() -> Vec<ArchitectureGuideline> {
+    vec![
+        ArchitectureGuideline {
+            code: "split-growing-module",
+            trigger: "maintained source reaches 600 lines; 1000 lines is a hard limit",
+            action: "split by cohesive protocol, storage, UI, orchestration or domain responsibility while preserving one owner per fact",
+        },
+        ArchitectureGuideline {
+            code: "split-dense-directory",
+            trigger: "one directory contains 24 or more maintained source files",
+            action: "introduce cohesive submodules/subdirectories by ownership or lifecycle instead of another flat file",
+        },
+        ArchitectureGuideline {
+            code: "split-flat-crate-root",
+            trigger: "non-entry Rust modules accumulate directly under src/ or repeat a domain prefix",
+            action: "move the responsibility into src/<domain>/ and keep main/lib as composition boundaries",
+        },
+        ArchitectureGuideline {
+            code: "extract-package-on-stable-contract",
+            trigger: "a responsibility has an independently testable public contract and one-way dependency direction",
+            action: "only then consider a crate/repository extraction; never duplicate canonical state merely to satisfy a diagram",
+        },
+    ]
 }
 
 fn non_maintained_roots(workspace: &Workspace) -> BTreeSet<String> {

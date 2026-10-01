@@ -245,7 +245,7 @@
 - schema_version: 1
   id: REQ-MCP-003
   title: Standards-based OAuth and connector interoperability
-  intent: Remote MCP registration and authorization must use PKCE, protected-resource metadata, resource binding, bounded DCR metadata and safe same-origin handling. Metadata and redirects use the verified tunnel that received the request. Client registrations and bounded tokens persist without clock expiry across process restarts for the same configured Workspace-root scope, while historical resources never activate stale Hosts or widen access to another scope.
+  intent: Remote MCP registration and authorization must use PKCE, protected-resource metadata, resource binding, bounded DCR metadata and safe same-origin handling. Metadata and redirects use the verified tunnel that received the request. Client registrations and unexpired bounded tokens persist across process restarts for the same configured Workspace-root scope within their original token expiry, while historical resources never activate stale Hosts or widen access to another scope.
   priority: critical
   implemented_by:
     - component:oauth-interoperability
@@ -341,6 +341,7 @@
   acceptance:
     - AC-VERIFY-001
     - AC-ADVERSARIAL-QA-001
+    - AC-ACCEPTANCE-POLICY-001
   constraints:
     - CONSTRAINT-BOUNDED-VERIFICATION
     - CONSTRAINT-FAIL-CLOSED-VERIFICATION
@@ -569,7 +570,7 @@
   id: REQ-EXPERIENCE-001
   title: Verified repository experience improves future retrieval
   intent: >-
-    Successful stable quick or full deterministic verification may persist bounded prompt-free per-Workspace co-change experience so later repository retrieval can recover likely edit-ripple files. Failed, unverified, incomplete, truncated or overly broad work must not teach. Historical relevance must remain explicitly heuristic and weaker than exact symbols, Design State and fresh semantic, deterministic or runtime graph evidence; missing or removed paths must never be promoted. Retrieval must resist popularity and release-sweep bias by normalizing pair affinity against per-path support, shrinking low-evidence relationships, discounting broad change sets, applying bounded recency decay with full verification stronger than quick, and keeping the final history contribution capped below direct lexical evidence. wcode must evaluate this memory without storing prompts, queries, model reasoning or chain-of-thought by replaying verified history through a global temporal A/B holdout: records from the same timestamp batch cannot teach one another, only earlier batches may predict later verified co-changes, stale paths are excluded, and the normalized candidate is compared against the prior raw-count baseline on the same cases. Engineering Observatory must expose both model identities, raw denominators, baseline values and percentage-point deltas for coverage, hit-rate, precision@K and recall@K with provider, heuristic precision and evaluation method, distinguish unavailable from cold-start, and must not collapse the result into an opaque self-score.
+    Successful stable quick or full deterministic verification may persist bounded prompt-free per-Workspace co-change experience so later repository retrieval can recover likely edit-ripple files. Failed, unverified, incomplete, truncated or overly broad work must not teach positive retrieval affinity; bounded native failure advisories are handled separately by REQ-FAILURE-MEMORY-001. Historical relevance must remain explicitly heuristic and weaker than exact symbols, Design State and fresh semantic, deterministic or runtime graph evidence; missing or removed paths must never be promoted. Retrieval must resist popularity and release-sweep bias by normalizing pair affinity against per-path support, shrinking low-evidence relationships, discounting broad change sets, applying bounded recency decay with full verification stronger than quick, and keeping the final history contribution capped below direct lexical evidence. wcode must evaluate this memory without storing prompts, queries, model reasoning or chain-of-thought by replaying verified history through a global temporal A/B holdout: records from the same timestamp batch cannot teach one another, only earlier batches may predict later verified co-changes, stale paths are excluded, and the normalized candidate is compared against the prior raw-count baseline on the same cases. Engineering Observatory must expose both model identities, raw denominators, baseline values and percentage-point deltas for coverage, hit-rate, precision@K and recall@K with provider, heuristic precision and evaluation method, distinguish unavailable from cold-start, and must not collapse the result into an opaque self-score.
   priority: critical
   implemented_by:
     - component:experience-graph

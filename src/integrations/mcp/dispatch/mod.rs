@@ -6,7 +6,13 @@ use super::mcp_tools::{
 };
 use super::*;
 use crate::scopes;
+mod acceptance;
+mod change;
+use change::change_intelligence_tool;
 mod checkpoint;
+mod policy;
+mod review;
+use review::review_changes_tool;
 
 #[path = "intelligence.rs"]
 mod leaf_intelligence;
@@ -39,6 +45,7 @@ pub(crate) async fn call_tool(state: &AppState, mut params: Value) -> Result<Val
     if matches!(
         name.as_str(),
         "review_changes"
+            | "change_acceptance"
             | "verify_project"
             | "drift_status"
             | "risk_status"
@@ -72,6 +79,10 @@ async fn call_orchestration_tool(
     task.start();
     let outcome = match name {
         "review_changes" => review_changes_tool(state, &args).await,
+        "change_acceptance" => Ok(match acceptance::call(state, &args).await {
+            Ok(value) => tool_result(value, false),
+            Err(error) => tool_result(json!({"error":error.to_string()}), true),
+        }),
         "verify_project" => verify_project_tool(state, &args).await,
         "drift_status"
         | "risk_status"
@@ -90,6 +101,7 @@ async fn call_orchestration_tool(
         .map(|value| serialized_size(value) as u64)
         .unwrap_or_else(|error| error.len() as u64);
     task.finish(success, response_bytes);
+    let journal_error = outcome.as_ref().err().map(|error| json!({"error":error}));
     let journal_outcome = outcome
         .as_ref()
         .map(|value| {
@@ -110,7 +122,7 @@ async fn call_orchestration_tool(
             .as_millis()
             .try_into()
             .unwrap_or(u64::MAX),
-        outcome.as_ref().ok(),
+        outcome.as_ref().ok().or(journal_error.as_ref()),
     )
     .await;
     outcome
@@ -139,6 +151,15 @@ async fn call_leaf_tool_mode(
     include_text: bool,
 ) -> Result<Value, String> {
     let writer_guard = mcp_writer::before_tool(state, name, &mut args)?;
+    if name == "workspace_info" {
+        if let Some(diagnostic) = state.harness.overload_diagnostic() {
+            return Ok(if include_text {
+                tool_result(diagnostic, false)
+            } else {
+                structured_tool_result(diagnostic, false)
+            });
+        }
+    }
     let journal_started = std::time::Instant::now();
     let workspace_label = if name == "workspace_info" {
         "system".to_owned()
@@ -152,14 +173,38 @@ async fn call_leaf_tool_mode(
     let task = state
         .monitor
         .queue(workspace_label.clone(), name, detail, request_bytes);
-    let permit = acquire_tool_permit(
-        state,
-        matches!(name, "run_command" | "language_quality_run"),
-    )
-    .await?;
+    crate::mcp_tasks::bind_monitor_task(name, &task);
+    let permit = if name == "workspace_info" {
+        match super::mcp_tools::acquire_status_permit(state).await {
+            Ok(permit) => permit,
+            Err(diagnostic) => {
+                task.finish(true, serialized_size(&diagnostic) as u64);
+                return Ok(if include_text {
+                    tool_result(diagnostic, false)
+                } else {
+                    structured_tool_result(diagnostic, false)
+                });
+            }
+        }
+    } else {
+        acquire_tool_permit(
+            state,
+            matches!(
+                name,
+                "run_command"
+                    | "language_quality_run"
+                    | "semantic_provider_install"
+                    | "semantic_provider_refresh"
+                    | "semantic_navigation"
+                    | "verification_execute_stages",
+            ),
+        )
+        .await?
+    };
     task.start();
     let operation = async {
         match name {
+            "acceptance_policy" => Ok(policy::call(state, &args).await),
             name if leaf_intelligence::handles(name) => {
                 leaf_intelligence::call(state, name, &args).await
             }
@@ -289,7 +334,7 @@ async fn call_leaf_tool_mode(
                         .as_millis()
                         .try_into()
                         .unwrap_or(u64::MAX),
-                    None,
+                    Some(&json!({"error":message})),
                 )
                 .await;
                 let value = if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
@@ -309,6 +354,13 @@ async fn call_leaf_tool_mode(
         }
     }
 
+    let handoff_meta = (name == "worklist_claim")
+        .then(|| outcome.as_mut().ok().and_then(isolate_handoff_telemetry))
+        .flatten();
+    let journal_error = outcome
+        .as_ref()
+        .err()
+        .map(|error| json!({"error":error.to_string()}));
     let serialized_response = match &outcome {
         Ok(value) if include_text => serde_json::to_string(value).ok(),
         _ => None,
@@ -341,19 +393,25 @@ async fn call_leaf_tool_mode(
             .as_millis()
             .try_into()
             .unwrap_or(u64::MAX),
-        outcome.as_ref().ok(),
+        outcome.as_ref().ok().or(journal_error.as_ref()),
     )
     .await;
     match outcome {
-        Ok(value) => Ok(if include_text {
-            tool_result_with_text(
-                value,
-                !success,
-                serialized_response.unwrap_or_else(|| "{}".to_owned()),
-            )
-        } else {
-            structured_tool_result(value, !success)
-        }),
+        Ok(value) => {
+            let mut response = if include_text {
+                tool_result_with_text(
+                    value,
+                    !success,
+                    serialized_response.unwrap_or_else(|| "{}".to_owned()),
+                )
+            } else {
+                structured_tool_result(value, !success)
+            };
+            if let Some(meta) = handoff_meta {
+                response["_meta"] = meta;
+            }
+            Ok(response)
+        }
         Err(error) => {
             let value = if let Some(required) = error.downcast_ref::<AuthorizationRequired>() {
                 json!({
@@ -370,6 +428,16 @@ async fn call_leaf_tool_mode(
             })
         }
     }
+}
+
+pub(super) fn isolate_handoff_telemetry(value: &mut Value) -> Option<Value> {
+    let context = value.pointer_mut("/handoff/agent_context")?;
+    if !context.is_object() {
+        return None;
+    }
+    let mut response = agent_context_structured_result(context.take(), false);
+    *context = response["structuredContent"].take();
+    Some(response["_meta"].take())
 }
 
 fn agent_context_model_tokens(context: &Value) -> u64 {
@@ -499,48 +567,15 @@ pub(super) fn estimated_context_bytes_avoided(
         .saturating_sub(response_bytes)
 }
 
-async fn review_changes_tool(state: &AppState, args: &Value) -> Result<Value, String> {
-    let adversarial = match args.get("adversarial") {
-        None => false,
-        Some(Value::Bool(value)) => *value,
-        Some(_) => return Err("adversarial must be a boolean when provided".to_owned()),
-    };
-    let (workspace_id, workspace) = selected_workspace(state, args)?;
-    let timeout_seconds = args
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(30);
-    match state
-        .harness
-        .review_changes(workspace_id, &workspace, timeout_seconds, &state.monitor)
-        .await
-    {
-        Ok(report) => {
-            let mut value = serde_json::to_value(&report).map_err(|error| error.to_string())?;
-            checkpoint::augment_review_checkpoint(state, &report, adversarial, &mut value).await;
-            if adversarial {
-                let permit = acquire_tool_permit(state, false).await?;
-                let harness = state.harness.clone();
-                let packet = super::mcp_tools::BLOCKING_PERMIT
-                    .scope(
-                        permit,
-                        run_blocking(move || {
-                            Ok(harness.adversarial_review_with_candidates(&workspace, &report))
-                        }),
-                    )
-                    .await
-                    .map_err(|error| error.to_string())?;
-                value["adversarial"] =
-                    serde_json::to_value(packet).map_err(|error| error.to_string())?;
-            }
-            Ok(tool_result(value, false))
-        }
-        Err(error) => Ok(tool_result(json!({"error": error.to_string()}), true)),
-    }
-}
-
 pub(crate) fn verification_options(args: &Value) -> Result<(String, bool, u64), String> {
     workspace_arg(args)?;
+    if args.get("task_id").is_some()
+        || args
+            .get("action")
+            .is_some_and(|action| action.as_str() != Some("run"))
+    {
+        return Err("verification lifecycle actions require a top-level tools/call".to_owned());
+    }
     let level = match args.get("level") {
         None => "quick".to_owned(),
         Some(Value::String(level)) if matches!(level.as_str(), "quick" | "full") => level.clone(),
@@ -552,7 +587,7 @@ pub(crate) fn verification_options(args: &Value) -> Result<(String, bool, u64), 
         Some(_) => return Err("fail_fast must be a boolean when provided".to_owned()),
     };
     let timeout_seconds = match args.get("timeout_seconds") {
-        None => 120,
+        None => 600,
         Some(value) => value
             .as_u64()
             .filter(|value| (1..=1800).contains(value))
@@ -596,66 +631,6 @@ async fn verify_project_tool(state: &AppState, args: &Value) -> Result<Value, St
     }
 }
 
-async fn change_intelligence_tool(
-    state: &AppState,
-    name: &str,
-    args: &Value,
-) -> Result<Value, String> {
-    let (workspace_id, workspace) = selected_workspace(state, args)?;
-    let timeout_seconds = args
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(30)
-        .clamp(1, 120);
-    let review = match state
-        .harness
-        .review_changes(
-            workspace_id.clone(),
-            &workspace,
-            timeout_seconds,
-            &state.monitor,
-        )
-        .await
-    {
-        Ok(review) => review,
-        Err(error) => return Ok(tool_result(json!({"error": error.to_string()}), true)),
-    };
-
-    let result: AnyResult<Value> = match name {
-        "drift_status" => state
-            .harness
-            .drift_status(workspace_id.clone(), &workspace, &review)
-            .and_then(|status| serde_json::to_value(status).map_err(Into::into)),
-        "risk_status" => state
-            .harness
-            .risk_status(workspace_id.clone(), &workspace, &review)
-            .and_then(|status| serde_json::to_value(status).map_err(Into::into)),
-        "impact_analysis" => state
-            .harness
-            .impact_analysis(workspace_id.clone(), &workspace, &review)
-            .and_then(|impact| serde_json::to_value(impact).map_err(Into::into)),
-        "verification_plan" => state
-            .harness
-            .verification_plan(workspace_id.clone(), &workspace, &review)
-            .and_then(|plan| serde_json::to_value(plan).map_err(Into::into)),
-        "reconciliation_plan" => state
-            .harness
-            .reconciliation_plan(workspace_id.clone(), &workspace, &review)
-            .and_then(|plan| serde_json::to_value(plan).map_err(Into::into)),
-        _ => return Err(format!("unknown change intelligence tool: {name}")),
-    };
-
-    Ok(match result {
-        Ok(value) => {
-            state
-                .monitor
-                .record_intelligence_result(&workspace_id, name, &value);
-            tool_result(value, false)
-        }
-        Err(error) => tool_result(json!({"error": error.to_string()}), true),
-    })
-}
-
 fn parallel_tool_allowed(name: &str) -> bool {
     PARALLEL_READ_TOOLS.contains(&name) || PARALLEL_WRITE_TOOLS.contains(&name)
 }
@@ -690,6 +665,21 @@ async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, Str
     }
 
     for (index, item) in items.iter().enumerate() {
+        let tool = item.get("tool").and_then(Value::as_str);
+        if tool == Some("command_task")
+            || (tool == Some("verify_project")
+                && (item.pointer("/arguments/task_id").is_some()
+                    || item
+                        .pointer("/arguments/action")
+                        .is_some_and(|action| action.as_str() != Some("run"))))
+            || (tool == Some("run_command")
+                && item.pointer("/arguments/task_mode") == Some(&Value::Bool(true)))
+        {
+            return Err(format!(
+                "parallel task {} failed preflight: durable command tasks require a top-level tools/call; no tasks executed",
+                index + 1
+            ));
+        }
         if let Some(arguments) = item.get("arguments") {
             workspace_arg(arguments).map_err(|error| {
                 format!(
@@ -752,6 +742,12 @@ async fn parallel_tools(state: &AppState, args: &mut Value) -> Result<Value, Str
             continue;
         }
         inherit_parallel_workspace(&mut arguments, &inherited_workspace);
+        if name == "run_command" {
+            if let Err(error) = leaf_workspace::preflight_sync_command(state, &arguments) {
+                results[index] = Some(parallel_item_error(id, name, error));
+                continue;
+            }
+        }
         match scheduler::resource_model(&inherited_workspace, &name, &arguments).and_then(
             |resources| {
                 selected_workspace(state, &arguments)

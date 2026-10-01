@@ -70,6 +70,13 @@ const PAGE: &str = r##"<!doctype html>
 <details><summary data-i18n="Other verified endpoints">Other verified endpoints</summary><div id="endpoints" aria-live="polite"></div></details>
 <p class="hint" data-i18n="Localhost is not a cloud endpoint. Temporary tunnel addresses can change after reconnecting.">Localhost is not a cloud endpoint. Temporary tunnel addresses can change after reconnecting.</p></section>
 </div>
+<details class="card acceptance"><summary data-i18n="Project acceptance · draft and operator approval">Project acceptance · draft and operator approval</summary>
+<p data-i18n="Preview native check IDs and Policy draft advice in the project terminal. This does not execute checks or activate Policy.">Preview native check IDs and Policy draft advice in the project terminal. This does not execute checks or activate Policy.</p>
+<code class="example">wcode setup --project --dry-run --json</code>
+<p data-i18n="Initialize Design State first when needed. Existing Policy fields are preserved; draft writing requires a separate local terminal review.">Initialize Design State first when needed. Existing Policy fields are preserved; draft writing requires a separate local terminal review.</p>
+<p data-i18n="Ask your coding agent for acceptance_policy preview, then an exact activation request. Approve it in the TUI or protected workbench; the same requester retries after approval.">Ask your coding agent for acceptance_policy preview, then an exact activation request. Approve it in the TUI or protected workbench; the same requester retries after approval.</p>
+<p><a href="/intelligence" data-i18n="Open protected workbench">Open protected workbench</a> <span class="hint" data-i18n="Operator access is required. This public guide cannot approve requests or activate Policy.">Operator access is required. This public guide cannot approve requests or activate Policy.</span></p>
+</details>
 <details class="card preferences"><summary data-i18n="Manual connection & performance">Manual connection & performance</summary>
 <p data-i18n="Optional. Build a command for the next process; this does not change the running instance or save settings.">Optional. Build a command for the next process; this does not change the running instance or save settings.</p>
 <div class="fields">
@@ -141,6 +148,12 @@ if(typeof module!=='undefined'&&module.exports)module.exports={buildCommand:buil
 if(typeof document==='undefined')return;
 var language='en';
 var zh={
+ 'Project acceptance · draft and operator approval':'项目验收 · 草稿与操作者批准',
+ 'Preview native check IDs and Policy draft advice in the project terminal. This does not execute checks or activate Policy.':'在项目终端预览原生检查 ID 与 Policy 草稿建议。此操作不会执行检查或激活 Policy。',
+ 'Initialize Design State first when needed. Existing Policy fields are preserved; draft writing requires a separate local terminal review.':'必要时先初始化 Design State。已有 Policy 字段会保留；写入草稿需单独在本地终端审阅。',
+ 'Ask your coding agent for acceptance_policy preview, then an exact activation request. Approve it in the TUI or protected workbench; the same requester retries after approval.':'让编程智能体调用 acceptance_policy 预览，再请求精确激活。在 TUI 或受保护工作台批准后，由同一请求者重试。',
+ 'Open protected workbench':'打开受保护工作台',
+ 'Operator access is required. This public guide cannot approve requests or activate Policy.':'需要操作者访问权限。此公开指南不能批准请求或激活 Policy。',
  'ONE PROJECT. YOUR CODING AGENT.':'当前项目，你熟悉的编程智能体。','Less setup. More building.':'少点配置，多写好代码。',
  'Choose how your agent connects. Defaults are ready; permissions stay in your control.':'选好接入方式即可开始。默认配置开箱可用，权限始终由你决定。',
  'RECOMMENDED · SAME MACHINE':'推荐 · 同一台电脑','Local coding agent':'本地编程智能体','Remote connector':'远程连接器','CLOUD OR WEB CLIENT':'云端或网页客户端',

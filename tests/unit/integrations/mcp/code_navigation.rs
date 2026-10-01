@@ -397,3 +397,223 @@ async fn empty_file_source_has_explicit_empty_range() {
     assert_eq!(body["source"]["content"], "");
     assert_eq!(body["source"]["truncated"], false);
 }
+
+async fn source_edit_fixture(
+    content: &str,
+    writable: bool,
+) -> (Arc<AppState>, tempfile::TempDir, String, Value) {
+    let (mut state, root) = origin_test_state();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/editor.rs"), content).unwrap();
+    Arc::get_mut(&mut state).unwrap().workspaces =
+        Workspaces::new([root.path()], writable, true).unwrap();
+    let workspace_id = state.workspaces.default_id().to_owned();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let graph = state
+        .harness
+        .software_graph(workspace_id.clone(), &workspace, "src", 100, 500)
+        .unwrap();
+    let node_id = graph
+        .graph
+        .nodes
+        .values()
+        .find(|node| node.kind == crate::graph::NodeKind::File)
+        .unwrap()
+        .id
+        .clone();
+    let snapshot_id = state.harness.graph_history(&workspace, 1).unwrap()[0]
+        .id
+        .clone();
+    let response = intelligence_web_code_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Query(IntelligenceCodeSourceQuery {
+            node_id,
+            snapshot_id,
+            context_lines: None,
+            start_line: Some(1),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    (
+        state,
+        root,
+        workspace_id,
+        response_json(response).await["source"].clone(),
+    )
+}
+
+fn source_edit_body(source: &Value, new_text: &str) -> Value {
+    json!({"node_id":source["node_id"],"snapshot_id":source["snapshot_id"],
+        "expected_sha256":source["current_sha256"],"start_line":source["start_line"],
+        "end_line":source["end_line"],"old_text":source["content"],"new_text":new_text})
+}
+
+#[tokio::test]
+async fn guarded_source_edit_preserves_line_endings_and_empty_file_identity() {
+    for (original, new_text, expected, newline) in [
+        (
+            "fn alpha() {}\r\nfn untouched() {}\r\n",
+            "fn alpha() { changed(); }\nfn untouched() {}",
+            "fn alpha() { changed(); }\r\nfn untouched() {}\r\n",
+            "crlf",
+        ),
+        (
+            "fn alpha() {}\nfn untouched() {}\n",
+            "fn alpha() { changed(); }\nfn untouched() {}",
+            "fn alpha() { changed(); }\nfn untouched() {}\n",
+            "lf",
+        ),
+        (
+            "fn alpha() {}",
+            "fn alpha() { changed(); }",
+            "fn alpha() { changed(); }",
+            "none",
+        ),
+        ("", "fn alpha() {}", "fn alpha() {}", "none"),
+    ] {
+        let (state, root, workspace_id, source) = source_edit_fixture(original, true).await;
+        assert_eq!(source["editable"], true);
+        assert_eq!(source["line_ending"], newline);
+        let response = intelligence_web_edit_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Json(source_edit_body(&source, new_text)),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{}",
+            response_json(response).await
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+            expected
+        );
+    }
+}
+
+#[tokio::test]
+async fn source_edit_changes_only_the_original_line_window() {
+    let original = "fn first() {}\r\nfn middle() {}\r\nfn last() {}\r\n";
+    let (state, root, workspace_id, source) = source_edit_fixture(original, true).await;
+    let mut body = source_edit_body(&source, "fn middle() { changed(); }");
+    body["start_line"] = json!(2);
+    body["end_line"] = json!(2);
+    body["old_text"] = json!("fn middle() {}");
+    let response = intelligence_web_edit_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Json(body),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "{}",
+        response_json(response).await
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+        "fn first() {}\r\nfn middle() { changed(); }\r\nfn last() {}\r\n"
+    );
+}
+
+#[tokio::test]
+async fn source_edit_is_authenticated_readonly_guarded_and_cannot_choose_a_path() {
+    let (state, root, workspace_id, source) = source_edit_fixture("fn alpha() {}\n", false).await;
+    assert_eq!(source["editable"], false);
+    let body = source_edit_body(&source, "fn alpha() { changed(); }");
+    assert_eq!(
+        intelligence_web_edit_source(State(state.clone()), HeaderMap::new(), Json(body.clone()))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        intelligence_web_edit_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Json(body)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+        "fn alpha() {}\n"
+    );
+    let (state, root, workspace_id, source) = source_edit_fixture("fn alpha() {}\n", true).await;
+    let mut body = source_edit_body(&source, "fn alpha() { changed(); }");
+    body["path"] = json!("../escape.rs");
+    assert_eq!(
+        intelligence_web_edit_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Json(body)
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+        "fn alpha() {}\n"
+    );
+}
+
+#[tokio::test]
+async fn source_edit_rejects_stale_windows_redaction_and_mixed_newlines_without_replaying() {
+    for original in [
+        "fn alpha() {}\r\nfn untouched() {}\n",
+        concat!("API_TOKEN", "=", "private-source-value\nfn alpha() {}\n"),
+        "fn alpha() {}\rfn untouched() {}",
+    ] {
+        let (state, root, workspace_id, source) = source_edit_fixture(original, true).await;
+        assert_eq!(source["editable"], false, "{source}");
+        let response = intelligence_web_edit_source(
+            State(state.clone()),
+            ui_headers(&state, &workspace_id),
+            Json(source_edit_body(&source, "fn alpha() { changed(); }")),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+            original
+        );
+    }
+    let (state, root, workspace_id, source) = source_edit_fixture("fn alpha() {}\n", true).await;
+    let mut forged = source_edit_body(&source, "fn alpha() { changed(); }");
+    forged["old_text"] = json!("wrong window");
+    let response = intelligence_web_edit_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Json(forged),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    fs::write(
+        root.path().join("src/editor.rs"),
+        "fn external_change() {}\n",
+    )
+    .unwrap();
+    let response = intelligence_web_edit_source(
+        State(state.clone()),
+        ui_headers(&state, &workspace_id),
+        Json(source_edit_body(&source, "fn alpha() { changed(); }")),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(!response_json(response)
+        .await
+        .to_string()
+        .contains("external_change"));
+    assert_eq!(
+        fs::read_to_string(root.path().join("src/editor.rs")).unwrap(),
+        "fn external_change() {}\n"
+    );
+}

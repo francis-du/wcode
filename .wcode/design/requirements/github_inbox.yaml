@@ -1,0 +1,23 @@
+schema_version: 1
+id: REQ-GITHUB-INBOX-001
+title: Persist authenticated GitHub deliveries without blocking diagnosis or trusting replay
+intent: >-
+  A trusted deployment can receive original PR webhook bytes over a bounded loopback intake, acknowledge only durable authenticated receipt, and process due entries independently of HTTP response time. Exact signed body digests deduplicate retained deliveries even when an unsigned delivery header changes. Restart, concurrent intake, interrupted publication and retry exhaustion remain explicit; every publication reauthenticates the saved bytes and captures current native Acceptance. Queue state never becomes proof, and neither snapshot checksums nor local file permissions establish remote exactly-once effects, hostile same-user isolation or rollback resistance.
+
+  Pending entries signed with a previous key cannot starve later current-key deliveries. They remain retained for reconciliation; a current-key authenticated redelivery of identical bytes can refresh only queued/retry authentication without resetting attempts, weakening backoff or replaying completed work. A key that cannot authenticate any due entry produces an explicit unavailable result, not a false idle or completion.
+
+  The opt-in foreground work-inbox process polls due events without external shell polling, preserves existing retry and replay rules, reports bounded sanitized outcomes, and drains its current operation on shutdown. It does not install itself, execute candidate verification or refresh completed Acceptance automatically.
+  A locally owned candidate is not a failed delivery attempt. Shared publication admission precedes claim mutation, does not spend retry budget when busy, remains held through persistence, and lets unrelated authenticated due candidates proceed. Queue diagnostics and intake do not wait for that admission.
+priority: high
+implemented_by:
+  - component:change-acceptance
+acceptance:
+  - AC-GITHUB-INBOX-001
+constraints:
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-NO-SHELL
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  security: high
+  reliability: high

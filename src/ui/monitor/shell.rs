@@ -446,6 +446,12 @@ fn render_header(
     language: UiLanguage,
 ) {
     let totals = totals(snapshot);
+    let admission = config.harness.admission_snapshot();
+    let configured_limit = if config.max_parallel != admission.total_limit {
+        format!(" · configured {}", config.max_parallel)
+    } else {
+        String::new()
+    };
     let resources = crate::resource::snapshot();
     let process_text = process_queue_text(&resources);
     let cpu_text = match (resources.cpu_percent, resources.sustained_cpu_percent) {
@@ -566,7 +572,11 @@ fn render_header(
         ]))
         .title(
             Line::from(Span::styled(
-                format!(" INSTANCE {} ", truncate_end(&config.instance_id, 8)),
+                format!(
+                    " INSTANCE {} · PID {} ",
+                    truncate_end(&config.instance_id, 8),
+                    std::process::id()
+                ),
                 Style::default().fg(TEXT_DIM),
             ))
             .right_aligned(),
@@ -604,11 +614,14 @@ fn render_header(
                 ]),
                 Line::from(vec![
                     Span::styled(
-                        format!("SLOTS {} / {}", totals.active, config.max_parallel),
+                        format!(
+                            "SLOTS {} / {}{configured_limit}",
+                            admission.slots_in_use, admission.total_limit
+                        ),
                         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("  PEAK {}", snapshot.peak_active),
+                        format!("  RUN {} · PEAK {}", totals.active, snapshot.peak_active),
                         Style::default().fg(SECONDARY),
                     ),
                     Span::styled(
@@ -616,7 +629,11 @@ fn render_header(
                         Style::default().fg(WARNING),
                     ),
                     Span::styled(
-                        format!("  FAIL {}", totals.failed),
+                        format!(
+                            "  FAIL {}  {}",
+                            totals.failed,
+                            admission_wait_text(&config.harness)
+                        ),
                         Style::default().fg(if totals.failed > 0 { DANGER } else { TEXT_DIM }),
                     ),
                 ]),
@@ -689,7 +706,10 @@ fn render_header(
             Line::from(vec![
                 Span::styled("SLOTS ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
-                    format!("{} / {}", totals.active, config.max_parallel),
+                    format!(
+                        "{} / {} · RUN {}",
+                        admission.slots_in_use, admission.total_limit, totals.active
+                    ),
                     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("   PEAK ", Style::default().fg(TEXT_DIM)),
@@ -798,7 +818,10 @@ fn render_header(
             Line::from(vec![
                 Span::styled("SLOTS ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
-                    format!("{} / {}", totals.active, config.max_parallel),
+                    format!(
+                        "{} / {} · RUN {}",
+                        admission.slots_in_use, admission.total_limit, totals.active
+                    ),
                     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("   PEAK ", Style::default().fg(TEXT_DIM)),

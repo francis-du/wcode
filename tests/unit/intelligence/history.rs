@@ -140,6 +140,7 @@ fn current_revision_lookup_is_not_limited_by_legacy_recent_history_window() {
                 "history".into(),
                 format!("change:stale-{index}"),
                 VerificationPlanBinding {
+                    required_checks: None,
                     revision: Revision {
                         design: None,
                         code: format!("sha256:stale-{index}"),
@@ -158,6 +159,7 @@ fn current_revision_lookup_is_not_limited_by_legacy_recent_history_window() {
             "history".into(),
             format!("change:{}", current_revision.code),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: current_revision.clone(),
                 stage_targets: vec![],
                 automation_gaps: vec![],
@@ -204,6 +206,7 @@ fn current_revision_lookup_fails_closed_for_ambiguous_legacy_plans() {
                 "history".into(),
                 format!("change:{}", current_revision.code),
                 VerificationPlanBinding {
+                    required_checks: None,
                     revision: current_revision.clone(),
                     stage_targets: vec![],
                     automation_gaps: vec![],
@@ -250,7 +253,28 @@ fn history_snapshot_is_not_cached_across_edits_or_new_evidence() {
         )
         .unwrap();
         record.timestamp_ms = timestamp;
-        record.policy = Some("deterministic/full/v1".into());
+        record.policy = Some("deterministic/full/v2".into());
+        let required = plan
+            .required_checks
+            .clone()
+            .expect("fixture plan has exact checks");
+        record.execution_receipt = Some(crate::evidence::VerificationExecutionReceipt {
+            execution_git_binding: None,
+            schema_version: 1,
+            level: "full".into(),
+            checks: required
+                .iter()
+                .cloned()
+                .map(|check| crate::evidence::VerificationCheckReceipt {
+                    execution: crate::evidence::VerificationCheckExecution::Executed,
+                    check,
+                    result,
+                    reused_from: None,
+                })
+                .collect(),
+            required_checks: required,
+            skipped_checks: vec![],
+        });
         crate::evidence_store::persist(&workspace, &record).unwrap();
         assert_eq!(
             runtime
@@ -269,4 +293,48 @@ fn history_snapshot_is_not_cached_across_edits_or_new_evidence() {
         .blockers
         .iter()
         .any(|item| item.contains("revision-changed")));
+}
+
+#[test]
+fn evidence_disk_memory_identity_conflict_is_not_a_favorable_override() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let revision = runtime.current_revision(&workspace).unwrap();
+    let failure = Evidence::new(
+        "EV-immutable-conflict".into(),
+        format!("change:{}", revision.code),
+        EvidenceKind::Verification,
+        "native-fixture".into(),
+        revision,
+        EvidenceResult::Fail,
+        Confidence::Deterministic,
+    )
+    .unwrap();
+    crate::evidence_store::persist(&workspace, &failure).unwrap();
+    let mut foreign = failure.clone();
+    foreign.result = EvidenceResult::Pass;
+    {
+        let mut state = runtime.state.lock().unwrap();
+        state.evidence.push(StoredEvidence {
+            workspace: "history".into(),
+            evidence: failure.clone(),
+        });
+        state.evidence.push(StoredEvidence {
+            workspace: "another-workspace".into(),
+            evidence: foreign,
+        });
+    }
+    let records = runtime.evidence_records("history", &workspace).unwrap();
+    assert_eq!(
+        records,
+        vec![failure],
+        "identical disk/memory copies deduplicate; another Workspace cannot override"
+    );
+    runtime.state.lock().unwrap().evidence[0].evidence.result = EvidenceResult::Pass;
+    let error = runtime
+        .evidence_status("history", &workspace, None, 10)
+        .unwrap_err();
+    assert!(error.to_string().contains("conflicting content"));
 }

@@ -1,8 +1,8 @@
 use crate::graph::{EdgeKind, NodeKind, SoftwareGraphSnapshot};
-use crate::harness::ChangeReviewReport;
 use crate::intelligence_types::{
     CodeStatBreakdown, ProjectCodeStats, ProjectFileView, ProjectStructureView,
 };
+use crate::report_types::ChangeReviewReport;
 use crate::scopes;
 use crate::semantic_provider::language_for_path;
 use std::collections::{BTreeMap, BTreeSet};

@@ -11,6 +11,20 @@ permalink: /zh/docs/reference/
 
 这页是 wcode 日常操作的规范参考。概念解释放在专题文档里；这里主要回答“该运行什么命令、该调用哪个工具”。
 
+## 执行时限与审查回包
+
+`run_command`、`command_task` 和 `verify_project` 向模型客户端公开可选的 `timeout_seconds`：默认 600 秒，可显式选择 1 至 1800 秒。这是实际运行额度，不再随检索调优参数被隐藏。命令执行时限从启动进程时开始，不再被 Cargo 或进程容量排队消耗。直接命令、本地验证程序和运行执行器在准入成功后，都保留完整的请求运行额度。排队有独立上限；排队期间取消不会启动进程。这不会延长客户端的连接时限：长操作使用已有持久命令任务回执查询进度，而不是重新执行命令。
+
+`review_changes` 对较大的当前工作树审查默认预览 32 行文件明细，但保留全部发现项、总数、风险与建议检查。`file_details` 明确返回可用／省略行数和完整查询参数；传入 `detail="full"` 可取得全部已报告行。原有 `truncated` 仍表示源码发现不完整，不是明细预览。内部审查和 Evidence 规则不变。完整明细查询会重新观察当前工作树，不是较早状态的不可变快照。小型审查及显式基线提交检查保持已有完整形态。
+
+### 不依赖 Tasks 扩展的持久验证
+
+调用 `verify_project`，传入 `{"action":"start","level":"full"}`，会先返回持久验证回执，不再要求连接一直等待检查结束。现代及旧协议客户端都能通过普通 `tools/call` 使用，不必支持 Tasks 扩展。随后按回执中的 `next_poll`、`result_request`、`cancel_request` 调用，保留原任务 ID 和 Workspace；不要重复 `start` 查询进度。省略 `action` 或使用 `action="run"`，保留原有同步／原生 Tasks 行为。
+
+`status` 不重复传输大型最终报告；`result` 在内层 `result` 返回原报告，包括失败检查。`terminal` 只表示交付结束，不代表验证通过。复用原生验证器、TaskStore、取消与 Evidence 路径，不另建执行器；轮询不重跑检查、不生成新证据。状态、结果和取消均绑定传输层认证身份、Workspace 及 `verify_project` 类型，执行名额满时仍可查询与取消，不能访问命令任务的结果。生命周期调用必须独立执行，不能嵌入 `parallel_tools`。
+
+完成的报告只是已记录执行结果，不是实时 Acceptance。回执明确返回 `current_acceptance=false`、`result_scope="recorded_execution_only"`；代码改变或运行时重启后，仍能读取原结果，但不会声称新版本通过。运行时被替换后观察到的中断任务标记失败，不自动重放。stdio 重启会改变任务所有者；不同所有者不能接管旧任务，创建回执丢失也不承诺恰好执行一次。每项检查时限、资源保护和验证授权保持不变。
+
 ## 稳定 CLI 命令面
 
 不带子命令时启动默认运行时：
@@ -110,6 +124,8 @@ wcode setup --dry-run
 wcode setup --project
 wcode setup --json
 ```
+
+全局 setup 只配置智能体。显式项目 setup 在 Design 完全缺失时创建 `.wcode/project.yaml`（目录名、空描述、无 Policy）和空 `.wcode/design/`，不推测 Product 意图、需求或映射。Dry-run 只报告计划，不写入；已有、部分存在或无效的内容保留并给出诊断，普通只读/启动流程不初始化。老项目让 Agent 先读 README/项目清单/CI，并用 `software_graph` / `find_symbol` / `file_outline` 检查实际代码，展示小范围草稿并确认未知业务意图；写入用 `create_files` 新建，或 `read_files` → SHA 绑定的 `apply_file_edits` 更新，不表示已有整仓 Design 自动生成器；用 `design_status`、`traceability_status`、`drift_status` 校验，`reconciliation_plan` 只持久保存计划，不自动修正。参见[渐进 Design 接入](../getting-started/#4-老项目逐步补充-design)。Policy 草稿写入需要单独的交互 TTY 确认，不会激活 Policy；原生预览与精确操作者批准仍是独立流程。
 
 隐藏的 `agent-plugin` 继续保留高级可移植插件包导出（`skill-only`、
 `local-stdio`、`remote-http`）以及旧自动化兼容；本机日常接入不需要它，
@@ -260,7 +276,7 @@ evidence_status
 
 | Tool | 用途 |
 | --- | --- |
-| `design_init` | 稀疏初始化 Design State，不覆盖已有文件。 |
+| `design_init` | 只在完全未初始化的 Workspace 中显式创建 Project、Product 与核心约束；已有或部分状态被拒绝并保留。项目 setup 使用更小的元数据种子；已有记录用受控文件工具补充，没有 `design_update`。 |
 | `design_status` | 校验结构化 Desired State。 |
 | `traceability_status` | Requirement → Component → implementation、Acceptance → verification 覆盖。 |
 | `agent_context` | 编程主入口：自适应 / 显式 Token Budget、相关 Design、按任务收窄的 Repo Map、Hot Source、SHA 编辑目标、活动 Worklist 恢复、验证引用、Readiness 与下一步动作。 |
@@ -287,7 +303,8 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
-| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。现代且支持 Tasks 的客户端可设置 `task_mode=true` 启动可取消的有界长任务；普通调用仍保持同步。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
+| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
+| `command_task` | 普通 `create` / `status` / `result` / `cancel` 调用复用同一份持久 `run_command` 状态；使用返回的 Task ID 与 Workspace，遵守轮询间隔，不得为了轮询重跑命令。检查精确 Transport Owner 与所选 Workspace，拒绝 Owner/Actor 参数。Terminal 不等于成功，应检查内层命令结果；日志不生成 Verification Evidence，不承诺 exactly-once 或旧 stdio Owner 恢复。 |
 
 ### Graph、Semantic 与 Language Quality
 
@@ -318,8 +335,8 @@ evidence_status
 | `verification_plan` | 生成确定性 / Stage / Reviewer 验证要求。 |
 | `verification_claim` / `verification_submit` | 独立盲审 Reviewer Job。 |
 | `verification_executor_status` / `verification_execute_stages` | Property / Mutation / Fuzz / Runtime-Canary Runner。 |
-| `verification_stage_submit` | 提交外部 Stage Verdict / Artifact Digest。 |
-| `verification_approve` | Critical Plan 的显式 HumanApproval Evidence。 |
+| `verification_stage_submit` | 保留调用者绑定的外部自报；自报 Verdict 不能满足必需 Stage。 |
+| `verification_approve` | 请求本地操作者一次性授权，保存计划绑定的 HumanApproval，与测试结果分开。 |
 | `verification_status` / `verification_history` | Ready、Blocker、Stale Revision、Disagreement、Plan History。 |
 | `verify_project` | 运行推断出的 quick/full 仓库质量门，并记录确定性 Evidence。 |
 | `evidence_status` | 读取当前 Workspace 的持久化 Provenance-bearing Evidence。 |

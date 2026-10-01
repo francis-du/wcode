@@ -31,14 +31,34 @@ fn record(
         id.into(),
         subject.into(),
         EvidenceKind::IntegrationTest,
-        "test-runner".into(),
+        "deterministic-verification-mesh".into(),
         revision.clone(),
         result,
         Confidence::Deterministic,
     )
     .unwrap();
     record.timestamp_ms = timestamp;
-    record.policy = Some("deterministic/full/v1".into());
+    record.policy = Some("acceptance/full/v2".into());
+    let check = crate::evidence::RequiredVerificationCheck::from_command(
+        "rust-test",
+        "cargo",
+        &["test".into(), "--locked".into()],
+        ".",
+        "workspace",
+    );
+    record.execution_receipt = Some(crate::evidence::VerificationExecutionReceipt {
+        execution_git_binding: None,
+        schema_version: 1,
+        level: "full".into(),
+        required_checks: vec![check.clone()],
+        checks: vec![crate::evidence::VerificationCheckReceipt {
+            execution: crate::evidence::VerificationCheckExecution::Executed,
+            check,
+            result,
+            reused_from: None,
+        }],
+        skipped_checks: vec![],
+    });
     record
 }
 
@@ -117,10 +137,8 @@ fn acceptance_summary_does_not_choose_a_favorable_uuid_or_cross_scope_pass() {
     );
 }
 
-#[test]
-fn current_observatory_plans_require_both_code_and_design_revision() {
-    let (root, workspace, harness) = fixture();
-    let review = ChangeReviewReport {
+fn clean_review() -> ChangeReviewReport {
+    ChangeReviewReport {
         workspace: "proof".into(),
         execution: "fixture".into(),
         clean: true,
@@ -142,7 +160,48 @@ fn current_observatory_plans_require_both_code_and_design_revision() {
         findings: vec![],
         probes: vec![],
         truncated: false,
-    };
+    }
+}
+
+#[test]
+fn reconciliation_and_verification_bind_identical_required_checks() {
+    let (root, workspace, harness) = fixture();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "pub fn entry() {}\n").unwrap();
+    fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"proof-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    for level in ["low", "high"] {
+        let mut review = clean_review();
+        review.risk_level = level.into();
+        let standalone = harness
+            .verification_plan("proof", &workspace, &review)
+            .unwrap();
+        let reconciliation = harness
+            .reconciliation_plan("proof", &workspace, &review)
+            .unwrap();
+        assert_eq!(
+            standalone.revision,
+            reconciliation.verification_plan.revision
+        );
+        assert!(!standalone
+            .required_checks
+            .as_ref()
+            .expect("profile has checks")
+            .is_empty());
+        assert_eq!(
+            standalone.required_checks, reconciliation.verification_plan.required_checks,
+            "both entry points must bind the same exact required commands at {level} risk"
+        );
+    }
+}
+
+#[test]
+fn current_observatory_plans_require_both_code_and_design_revision() {
+    let (root, workspace, harness) = fixture();
+    let review = clean_review();
     harness
         .verification_plan("proof", &workspace, &review)
         .unwrap();

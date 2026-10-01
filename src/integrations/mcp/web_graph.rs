@@ -42,45 +42,9 @@ pub(crate) async fn intelligence_web_code_source(
     let node_id_for_read = node_id.clone();
     let snapshot_id_for_read = snapshot_id.clone();
     let result = mcp_tools::run_blocking(move || -> AnyResult<Value> {
-        let chain = harness.graph_chain(
-            &workspace_for_read,
-            &GraphChainInput {
-                snapshot_id: Some(snapshot_id_for_read),
-                node_id: Some(node_id_for_read.clone()),
-                label_contains: None,
-                depth: 1,
-                limit: 16,
-                mode: GraphChainMode::All,
-            },
+        let (resolved_snapshot, node, path, expected_sha256) = code_source_identity(
+            &harness, &workspace_for_read, &node_id_for_read, &snapshot_id_for_read,
         )?;
-        let item = chain
-            .nodes
-            .iter()
-            .find(|entry| entry.node.id == node_id_for_read)
-            .ok_or_else(|| anyhow::anyhow!("code source node is unavailable in graph snapshot"))?;
-        let node = &item.node;
-        let path = node
-            .attributes
-            .get("path")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| anyhow::anyhow!("code source path is unavailable in graph snapshot"))?;
-        let expected_sha256 = node
-            .attributes
-            .get("source_sha256")
-            .and_then(Value::as_str)
-            .or_else(|| node.attributes.get("sha256").and_then(Value::as_str))
-            .map(str::to_owned)
-            .or_else(|| {
-                node.provenance
-                    .revision
-                    .strip_prefix("sha256:")
-                    .map(str::to_owned)
-            })
-            .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-            .ok_or_else(|| {
-                anyhow::anyhow!("code source identity is unavailable in graph snapshot")
-            })?;
         let range = node.attributes.get("range");
         let focus_start = range
             .and_then(|value| value.get("start_line"))
@@ -108,7 +72,7 @@ pub(crate) async fn intelligence_web_code_source(
             focus_end.saturating_add(context_lines).max(start_line)
         };
         let end_line = requested_end.min(start_line.saturating_add(239));
-        let file = workspace_for_read.read_file(path, start_line, Some(end_line))?;
+        let file = workspace_for_read.read_file(&path, start_line, Some(end_line))?;
         if file.sha256 != expected_sha256 {
             anyhow::bail!("code source changed since graph snapshot");
         }
@@ -125,7 +89,7 @@ pub(crate) async fn intelligence_web_code_source(
                 (0, 0)
             };
         Ok(json!({
-            "snapshot_id": chain.snapshot_id,
+            "snapshot_id": resolved_snapshot,
             "node_id": node.id,
             "path": file.path,
             "provider": node.provenance.provider,
@@ -141,6 +105,8 @@ pub(crate) async fn intelligence_web_code_source(
             "total_lines": file.total_lines,
             "content": file.content,
             "redacted": file.redacted,
+            "line_ending": file.line_ending,
+            "editable": workspace_for_read.write_enabled() && !file.redacted && file.line_ending != "mixed" && file.content.len() <= 131_072,
             "truncated": file.total_lines > 0 && (end_line < requested_end || file.end_line < file.total_lines),
         }))
     })
@@ -175,6 +141,197 @@ pub(crate) async fn intelligence_web_code_source(
             }
         }
     };
+    (status, [(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
+}
+
+fn code_source_identity(
+    harness: &ToolHarness,
+    workspace: &Workspace,
+    node_id: &str,
+    snapshot_id: &str,
+) -> AnyResult<(String, crate::graph::GraphNode, String, String)> {
+    let chain = harness.graph_chain(
+        workspace,
+        &GraphChainInput {
+            snapshot_id: Some(snapshot_id.to_owned()),
+            node_id: Some(node_id.to_owned()),
+            label_contains: None,
+            depth: 1,
+            limit: 16,
+            mode: GraphChainMode::All,
+        },
+    )?;
+    let node = chain
+        .nodes
+        .iter()
+        .find(|entry| entry.node.id == node_id)
+        .ok_or_else(|| anyhow::anyhow!("code source node is unavailable in graph snapshot"))?
+        .node
+        .clone();
+    let path = node
+        .attributes
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("code source path is unavailable in graph snapshot"))?
+        .to_owned();
+    let sha = node
+        .attributes
+        .get("source_sha256")
+        .and_then(Value::as_str)
+        .or_else(|| node.attributes.get("sha256").and_then(Value::as_str))
+        .map(str::to_owned)
+        .or_else(|| {
+            node.provenance
+                .revision
+                .strip_prefix("sha256:")
+                .map(str::to_owned)
+        })
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| anyhow::anyhow!("code source identity is unavailable in graph snapshot"))?;
+    Ok((chain.snapshot_id, node, path, sha))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IntelligenceCodeSourceEdit {
+    node_id: String,
+    snapshot_id: String,
+    expected_sha256: String,
+    start_line: usize,
+    end_line: usize,
+    old_text: String,
+    new_text: String,
+}
+
+pub(crate) async fn intelligence_web_edit_source(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    let (workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
+        Ok(selected) => selected,
+        Err(response) => return *response,
+    };
+    if !workspace.write_enabled() {
+        return source_edit_response(
+            StatusCode::FORBIDDEN,
+            json!({"code":"edit_forbidden","error":"Workspace is read-only."}),
+        );
+    }
+    let query: IntelligenceCodeSourceEdit = match serde_json::from_value(body) {
+        Ok(value) => value,
+        Err(_) => {
+            return bad_request("Source edit requires an exact snapshot, SHA and line window.")
+        }
+    };
+    if query.node_id.is_empty()
+        || query.node_id.len() > 512
+        || query.snapshot_id.is_empty()
+        || query.snapshot_id.len() > 256
+        || query.expected_sha256.len() != 64
+        || !query
+            .expected_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        || query.start_line == 0
+        || (query.end_line < query.start_line && (query.start_line, query.end_line) != (1, 0))
+        || query.end_line.saturating_sub(query.start_line) >= 240
+        || query.new_text.len() > 131_072
+        || query.new_text.lines().count() > 240
+        || query.old_text.len() > 1_048_576
+    {
+        return bad_request("Source edit exceeds the bounded line window or has invalid identity.");
+    }
+    let harness = state.harness.clone();
+    let workspace_for_read = workspace.clone();
+    let prepared = mcp_tools::run_blocking(move || -> AnyResult<(&'static str, Value)> {
+        let (_, _, path, sha) = code_source_identity(&harness, &workspace_for_read, &query.node_id, &query.snapshot_id)?;
+        let file = workspace_for_read.read_file(&path, query.start_line, Some(query.end_line.max(1)))?;
+        if sha != query.expected_sha256 || file.sha256 != sha {
+            anyhow::bail!("stale_source");
+        }
+        if (file.start_line, file.end_line) != (query.start_line, query.end_line)
+            || file.content != query.old_text {
+            anyhow::bail!("stale_window");
+        }
+        if file.redacted || file.line_ending == "mixed" {
+            anyhow::bail!("source_not_editable");
+        }
+        let normalized = query.new_text.replace("\r\n", "\n");
+        if normalized.contains('\r') { anyhow::bail!("source_not_editable"); }
+        let new_text = if file.line_ending == "crlf" { normalized.replace('\n', "\r\n") } else { normalized };
+        if file.total_lines == 0 {
+            Ok(("write_file", json!({"path":path,"expected_sha256":sha,"content":new_text})))
+        } else {
+            Ok(("apply_edits", json!({"path":path,"expected_sha256":sha,
+                "edits":[{"start_line":query.start_line,"end_line":query.end_line,"old_text":query.old_text,"new_text":new_text}]})))
+        }
+    }).await;
+    let (name, mut arguments) = match prepared {
+        Ok(value) => value,
+        Err(error) => return source_edit_error(&error.to_string()),
+    };
+    arguments["workspace"] = json!(workspace_id);
+    let owner = format!("ui:{}", state.auth.instance_id());
+    let result = match crate::mcp::call_tool_owned(
+        &state,
+        json!({"name":name,"arguments":arguments}),
+        &owner,
+    )
+    .await
+    {
+        Ok(value) if value.get("isError").and_then(Value::as_bool) != Some(true) => value,
+        Ok(value) => {
+            return source_edit_error(
+                value
+                    .pointer("/structuredContent/error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("edit rejected"),
+            )
+        }
+        Err(error) => return source_edit_error(&error),
+    };
+    let data = &result["structuredContent"];
+    source_edit_response(
+        StatusCode::OK,
+        json!({"workspace":workspace_id,"code":"source_updated",
+        "edit":{"path":data["path"],"sha256_before":data["sha256_before"],
+            "sha256_after":data["sha256_after"],"bytes_written":data["bytes_written"]}}),
+    )
+}
+
+fn source_edit_error(message: &str) -> Response {
+    let (status, code, error) = if message.contains("stale_source")
+        || message.contains("stale_window")
+        || message.contains("SHA-256 mismatch")
+        || message.contains("sha256 mismatch")
+        || message.contains("expected SHA")
+    {
+        (
+            StatusCode::CONFLICT,
+            "stale_source",
+            "Source changed. Reload and compare before saving.",
+        )
+    } else if missing_graph_snapshot(message) {
+        (
+            StatusCode::CONFLICT,
+            "stale_graph",
+            "Graph snapshot expired. Reload and compare before saving.",
+        )
+    } else if message.contains("source_not_editable") {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "source_not_editable",
+            "Redacted or mixed-newline source cannot be edited here.",
+        )
+    } else {
+        (StatusCode::UNPROCESSABLE_ENTITY, "edit_rejected", "The guarded edit was rejected. Inspect workspace policy and reload source before retrying.")
+    };
+    source_edit_response(status, json!({"code":code,"error":error}))
+}
+
+fn source_edit_response(status: StatusCode, body: Value) -> Response {
     (status, [(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
 }
 

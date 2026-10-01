@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-GIT-PROVIDER-ENROLLMENT-001
+title: Configure exact GitHub publisher identity without storing credentials
+intent: >-
+  Project setup can explicitly enroll the repository name, stable GitHub repository ID, expected GitHub App ID and required Check name into a bounded local Workspace manifest. Enrollment is configuration only: it never stores publisher credentials, mutates GitHub, activates Policy, creates Acceptance, or infers account-side settings. Dry-run is pure, existing conflicting identity fails closed, and the publisher reuses the validated manifest instead of accepting repeated ad-hoc repository identity arguments.
+priority: high
+implemented_by:
+  - component:change-acceptance
+acceptance:
+  - AC-GIT-PROVIDER-ENROLLMENT-001
+constraints:
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-SYMLINK-REJECTION
+  - CONSTRAINT-NO-SHELL
+  - CONSTRAINT-POLICY-AUTHORITY
+risk:
+  reliability: high
+  security: high

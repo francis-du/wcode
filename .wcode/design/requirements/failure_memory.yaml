@@ -1,0 +1,16 @@
+schema_version: 1
+id: REQ-FAILURE-MEMORY-001
+title: Retain recurring native mistakes across coding models
+intent: The next coding model must receive relevant bounded corrective advice derived from actual native failures in the same project. Learning is model-independent, excludes raw prompts and command output, and never weakens deterministic security or verification. Failed work remains ineligible for positive co-change experience. Bounded native MCP payload errors must reach in-memory literal matching without being persisted. Generic context queries must retain relevant no-path native failures through the currently discovered native check IDs; check relevance remains historical advice, not current proof.
+priority: high
+implemented_by:
+  - component:failure-memory
+  - component:agent-context
+acceptance:
+  - AC-FAILURE-MEMORY-001
+constraints:
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-SHA-PRECONDITION
+risk:
+  reliability: high
+  security: high

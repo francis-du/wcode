@@ -1,5 +1,12 @@
 use super::*;
 
+struct VerificationApprovalInput<'a> {
+    approver: &'a str,
+    statement: &'a str,
+    authority: EvidenceAuthority,
+    git_binding: Option<crate::verification::change::ExecutionGitBinding>,
+}
+
 impl SoftwareIntelligenceRuntime {
     pub(crate) fn current_revision(&self, workspace: &Workspace) -> Result<Revision> {
         let load = self.design_load(workspace)?;
@@ -23,10 +30,30 @@ impl SoftwareIntelligenceRuntime {
         let errors = load.error_count();
         let warnings = load.warning_count();
         let state = &load.state;
+        let valid = load.initialized && errors == 0;
+        let mut operational_blockers = Vec::new();
+        if load.initialized && state.product.is_none() {
+            operational_blockers.push("missing_product".to_owned());
+        }
+        if load.initialized && state.components.is_empty() {
+            operational_blockers.push("missing_components".to_owned());
+        }
+        if load.initialized
+            && !state.components.is_empty()
+            && !state
+                .components
+                .values()
+                .any(|component| !component.implementation.is_empty())
+        {
+            operational_blockers.push("missing_implementation_ownership".to_owned());
+        }
+        let operational = valid && operational_blockers.is_empty();
         Ok(DesignStatus {
             workspace: workspace_id.into(),
             initialized: load.initialized,
-            valid: load.initialized && errors == 0,
+            valid,
+            operational,
+            operational_blockers,
             schema_version: 1,
             design_root: load.design_root.clone(),
             files_loaded: load.files_loaded,
@@ -349,6 +376,27 @@ impl SoftwareIntelligenceRuntime {
         state: &design::DesignState,
         risk_level: RiskLevel,
     ) -> Result<ImpactAnalysis> {
+        self.impact_analysis_with_graph_from_snapshot(
+            workspace_id,
+            workspace,
+            code_index,
+            review,
+            state,
+            risk_level,
+        )
+        .map(|(impact, _)| impact)
+    }
+
+    /// Reuse the exact bounded Graph used by native impact analysis.
+    pub(crate) fn impact_analysis_with_graph_from_snapshot(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        code_index: &CodeIndex,
+        review: &ChangeReviewReport,
+        state: &design::DesignState,
+        risk_level: RiskLevel,
+    ) -> Result<(ImpactAnalysis, SoftwareGraphSnapshot)> {
         let workspace_id = workspace_id.into();
         let mut graph = code_index.software_graph(
             workspace_id.clone(),
@@ -358,13 +406,8 @@ impl SoftwareIntelligenceRuntime {
             MAX_IMPACT_GRAPH_SYMBOLS,
         )?;
         graph_provider_store::overlay_latest(workspace, &mut graph)?;
-        Ok(build_impact_analysis(
-            workspace_id,
-            state,
-            review,
-            risk_level,
-            Some(&graph),
-        ))
+        let impact = build_impact_analysis(workspace_id, state, review, risk_level, Some(&graph));
+        Ok((impact, graph))
     }
 
     pub(crate) fn create_verification_plan(
@@ -374,6 +417,7 @@ impl SoftwareIntelligenceRuntime {
         code_index: &CodeIndex,
         known_checks: &HashSet<String>,
         review: &ChangeReviewReport,
+        check_plans: &VerificationCheckPlans,
     ) -> Result<VerificationPlan> {
         let workspace_id = workspace_id.into();
         let risk = self.risk_status(
@@ -392,6 +436,14 @@ impl SoftwareIntelligenceRuntime {
             verification_risk,
             stage_targets,
             &registry,
+            Some(
+                if verification_risk >= RiskLevel::Medium {
+                    &check_plans.full
+                } else {
+                    &check_plans.quick
+                }
+                .clone(),
+            ),
         )
     }
 
@@ -444,12 +496,13 @@ impl SoftwareIntelligenceRuntime {
                 .verification
                 .submit(workspace_id, job_id, reviewer, submission)?;
             let status = state.verification.status(&job.plan_id)?;
-            let evidence = VerificationState::evidence_for_submission(
+            let mut evidence = VerificationState::evidence_for_submission(
                 &job,
                 self.next_id("EV"),
                 revision.clone(),
                 status.plan.policy.clone(),
             )?;
+            evidence.authority = EvidenceAuthority::SelfReported;
             let mut produced = vec![evidence.clone()];
             push_evidence(&mut state.evidence, workspace_id, evidence);
             if status.disagreements > 0 {
@@ -469,6 +522,7 @@ impl SoftwareIntelligenceRuntime {
                         EvidenceResult::Disagree,
                         Confidence::High,
                     )?;
+                    disagreement.authority = EvidenceAuthority::SelfReported;
                     disagreement.policy = Some(status.plan.policy.clone());
                     disagreement.artifact_digest = Some(digest_text(&format!(
                         "plan={};submitted={};disagreements={}",
@@ -496,6 +550,62 @@ impl SoftwareIntelligenceRuntime {
         plan_id: &str,
         submission: StageSubmission,
     ) -> Result<Evidence> {
+        self.record_stage_submission(
+            workspace_id,
+            workspace,
+            plan_id,
+            submission,
+            EvidenceAuthority::SelfReported,
+            None,
+        )
+    }
+
+    // Only native stage execution calls this entry point; it is not a tool input.
+    #[cfg(test)]
+    pub(crate) fn verification_stage_submit_native(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        submission: StageSubmission,
+    ) -> Result<Evidence> {
+        self.record_stage_submission(
+            workspace_id,
+            workspace,
+            plan_id,
+            submission,
+            EvidenceAuthority::NativeStage,
+            None,
+        )
+    }
+
+    pub(crate) fn verification_stage_submit_native_bound(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        submission: StageSubmission,
+        binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Evidence> {
+        self.record_stage_submission(
+            workspace_id,
+            workspace,
+            plan_id,
+            submission,
+            EvidenceAuthority::NativeStage,
+            binding,
+        )
+    }
+
+    fn record_stage_submission(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        submission: StageSubmission,
+        authority: EvidenceAuthority,
+        git_binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Evidence> {
         submission.validate()?;
         self.ensure_verification_loaded(workspace_id, workspace)?;
         let plan = {
@@ -508,6 +618,14 @@ impl SoftwareIntelligenceRuntime {
         if plan.workspace != workspace_id {
             return Err(anyhow!(
                 "verification plan does not belong to the selected workspace"
+            ));
+        }
+        let revision = plan.revision.clone().ok_or_else(|| {
+            anyhow!("verification plan has no bound revision; create a current plan")
+        })?;
+        if revision.code.ends_with(":partial") || self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "stale verification plan cannot authorize current evidence"
             ));
         }
         let required = match submission.stage {
@@ -549,10 +667,17 @@ impl SoftwareIntelligenceRuntime {
             plan.subject.clone(),
             kind,
             submission.producer.clone(),
-            self.current_revision(workspace)?,
+            revision.clone(),
             result,
-            Confidence::High,
+            if authority == EvidenceAuthority::SelfReported {
+                Confidence::Low
+            } else {
+                Confidence::High
+            },
         )?;
+        evidence.authority = authority;
+        evidence.execution_git_binding = git_binding;
+        evidence.execution_policy_binding = Some(plan.policy.clone());
         evidence.model = submission.model.clone();
         evidence.policy =
             Some(format!("{}/stage/{:?}", plan.policy, submission.stage).to_ascii_lowercase());
@@ -560,6 +685,11 @@ impl SoftwareIntelligenceRuntime {
         evidence.summary = Some(submission.summary.clone());
         evidence.targets = submission.targets.clone();
         evidence.validate()?;
+        if self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "revision changed before stage evidence persistence"
+            ));
+        }
         evidence_store::persist(workspace, &evidence)?;
         let mut state = self
             .state
@@ -569,6 +699,7 @@ impl SoftwareIntelligenceRuntime {
         Ok(evidence)
     }
 
+    #[cfg(test)]
     pub(crate) fn verification_approve(
         &self,
         workspace_id: &str,
@@ -577,6 +708,77 @@ impl SoftwareIntelligenceRuntime {
         approver: &str,
         statement: &str,
     ) -> Result<Evidence> {
+        self.record_verification_approval(
+            workspace_id,
+            workspace,
+            plan_id,
+            VerificationApprovalInput {
+                approver,
+                statement,
+                authority: EvidenceAuthority::LegacyUnknown,
+                git_binding: None,
+            },
+        )
+    }
+
+    // Called only after the local operator's exact one-shot grant is consumed.
+    #[cfg(test)]
+    pub(crate) fn verification_approve_authorized(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+    ) -> Result<Evidence> {
+        self.record_verification_approval(
+            workspace_id,
+            workspace,
+            plan_id,
+            VerificationApprovalInput {
+                approver,
+                statement,
+                authority: EvidenceAuthority::LocalOperator,
+                git_binding: None,
+            },
+        )
+    }
+
+    pub(crate) fn verification_approve_authorized_bound(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approver: &str,
+        statement: &str,
+        binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Evidence> {
+        self.record_verification_approval(
+            workspace_id,
+            workspace,
+            plan_id,
+            VerificationApprovalInput {
+                approver,
+                statement,
+                authority: EvidenceAuthority::LocalOperator,
+                git_binding: binding,
+            },
+        )
+    }
+
+    fn record_verification_approval(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        approval: VerificationApprovalInput<'_>,
+    ) -> Result<Evidence> {
+        let VerificationApprovalInput {
+            approver,
+            statement,
+            authority,
+            git_binding,
+        } = approval;
         let approver = approver.trim();
         let statement = statement.trim();
         if approver.is_empty()
@@ -599,6 +801,14 @@ impl SoftwareIntelligenceRuntime {
                 "verification plan does not belong to the selected workspace"
             ));
         }
+        let revision = plan.revision.clone().ok_or_else(|| {
+            anyhow!("verification plan has no bound revision; create a current plan")
+        })?;
+        if revision.code.ends_with(":partial") || self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "stale verification plan cannot authorize current evidence"
+            ));
+        }
         if !plan.require_human_approval {
             return Err(anyhow!("verification plan does not require human approval"));
         }
@@ -607,14 +817,23 @@ impl SoftwareIntelligenceRuntime {
             plan.subject.clone(),
             EvidenceKind::HumanApproval,
             format!("human:{approver}"),
-            self.current_revision(workspace)?,
+            revision.clone(),
             EvidenceResult::Pass,
             Confidence::High,
         )?;
-        evidence.policy = Some(format!("{}/human-approval", plan.policy));
+        evidence.authority = authority;
+        evidence.execution_git_binding = git_binding;
+        evidence.execution_policy_binding = Some(plan.policy.clone());
+        evidence.policy = Some(verification_snapshot::human_approval_policy(&plan)?);
+        evidence.claims = vec![format!("approved-plan:{}", plan.id)];
         evidence.artifact_digest = Some(format!("sha256:{}", digest_text(statement)));
         evidence.summary = Some(statement.to_owned());
         evidence.validate()?;
+        if self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "revision changed before human approval persistence"
+            ));
+        }
         evidence_store::persist(workspace, &evidence)?;
         let mut state = self
             .state
@@ -646,113 +865,6 @@ impl SoftwareIntelligenceRuntime {
         let revision = self.current_revision(workspace)?;
         let evidence = self.evidence_records(workspace_id, workspace)?;
         Self::verification_status_from_snapshot(status, &revision, &evidence)
-    }
-
-    pub(super) fn verification_status_from_snapshot(
-        mut status: VerificationStatus,
-        current_revision: &Revision,
-        evidence: &[Evidence],
-    ) -> Result<VerificationStatus> {
-        if let Some(plan_revision) = status.plan.revision.as_ref() {
-            if current_revision.code != plan_revision.code {
-                status
-                    .blockers
-                    .push("workspace-revision-changed-since-plan".into());
-            }
-            if current_revision.design != plan_revision.design {
-                status
-                    .blockers
-                    .push("design-revision-changed-since-plan".into());
-            }
-        } else {
-            let current_subject = format!("change:{}", current_revision.code);
-            if current_subject != status.plan.subject {
-                status
-                    .blockers
-                    .push("workspace-revision-changed-since-plan".into());
-            }
-        }
-        status.deterministic_result =
-            aggregate_verification_results(evidence.iter().filter(|record| {
-                evidence_matches_plan_revision(record, &status.plan)
-                    && record.kind == EvidenceKind::Verification
-            }));
-        match status.deterministic_result {
-            Some(EvidenceResult::Pass) => {}
-            Some(EvidenceResult::Fail) => status
-                .blockers
-                .push("deterministic-verification-failed".into()),
-            Some(EvidenceResult::Inconclusive | EvidenceResult::Disagree) => status
-                .blockers
-                .push("deterministic-verification-inconclusive".into()),
-            None => status
-                .blockers
-                .push("deterministic-verification-missing".into()),
-        }
-        let require_property = status.plan.require_property;
-        let require_mutation = status.plan.require_mutation;
-        let require_fuzz = status.plan.require_fuzz;
-        apply_stage_status(
-            &mut status,
-            evidence,
-            VerificationStage::Property,
-            EvidenceKind::Property,
-            require_property,
-        );
-        apply_stage_status(
-            &mut status,
-            evidence,
-            VerificationStage::Mutation,
-            EvidenceKind::Mutation,
-            require_mutation,
-        );
-        apply_stage_status(
-            &mut status,
-            evidence,
-            VerificationStage::Fuzz,
-            EvidenceKind::Fuzz,
-            require_fuzz,
-        );
-        let runtime_required = status
-            .plan
-            .deterministic_checks
-            .iter()
-            .any(|check| check == "runtime-gate");
-        apply_stage_status(
-            &mut status,
-            evidence,
-            VerificationStage::RuntimeCanary,
-            EvidenceKind::Runtime,
-            runtime_required,
-        );
-        let human_approvals = evidence
-            .iter()
-            .filter(|record| {
-                evidence_matches_plan_revision(record, &status.plan)
-                    && record.kind == EvidenceKind::HumanApproval
-            })
-            .collect::<Vec<_>>();
-        let latest_human_timestamp = human_approvals
-            .iter()
-            .map(|record| record.timestamp_ms)
-            .max();
-        status.human_approval = latest_human_timestamp.is_some_and(|timestamp| {
-            aggregate_results(
-                human_approvals
-                    .iter()
-                    .filter(|record| record.timestamp_ms == timestamp)
-                    .map(|record| record.result),
-            ) == Some(EvidenceResult::Pass)
-        });
-        if status.plan.require_human_approval && !status.human_approval {
-            status.blockers.push("human-approval-required".into());
-        }
-        status.blockers.sort();
-        status.blockers.dedup();
-        status.ready = status.blockers.is_empty()
-            && status.submitted == status.plan.job_ids.len()
-            && status.deterministic_result == Some(EvidenceResult::Pass);
-        Ok(status)
     }
 
     pub(super) fn verification_base_history(
@@ -807,179 +919,5 @@ impl SoftwareIntelligenceRuntime {
             .into_iter()
             .map(|status| Self::verification_status_from_snapshot(status, revision, evidence))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn record_verification_report(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        expected_revision: &Revision,
-        report: &VerificationReport,
-    ) -> Result<Vec<Evidence>> {
-        self.record_verification_report_from_design(
-            workspace_id,
-            workspace,
-            expected_revision,
-            None,
-            report,
-        )
-    }
-
-    pub(crate) fn record_verification_report_from_design(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        expected_revision: &Revision,
-        design_snapshot: Option<&design::DesignLoad>,
-        report: &VerificationReport,
-    ) -> Result<Vec<Evidence>> {
-        // A bounded scan is not proof of the whole workspace, even when two
-        // partial digests match. Never mint complete verification evidence.
-        if expected_revision.code.ends_with(":partial")
-            || expected_revision
-                .design
-                .as_deref()
-                .is_some_and(|revision| revision.ends_with(":partial"))
-        {
-            return Err(anyhow!(
-                "verification revision is incomplete; no evidence was recorded; use a workspace within the revision scan limit"
-            ));
-        }
-        // Evidence belongs to the inputs captured before execution, never to
-        // whichever files happen to exist when the checks finish. Reused
-        // checks already have exact-revision proof from the earlier run and
-        // must not mint duplicate Evidence merely because a report cites them.
-        let revision = expected_revision.clone();
-        let executed_checks = report.checks.iter().filter(|check| !check.reused).count();
-        let loaded_design = if executed_checks > 0 && design_snapshot.is_none() {
-            Some(self.design_load(workspace)?)
-        } else {
-            None
-        };
-        let design = if executed_checks > 0 {
-            design_snapshot.or(loaded_design.as_deref())
-        } else {
-            None
-        };
-        let mut produced = Vec::new();
-        for check in report.checks.iter().filter(|check| !check.reused) {
-            let mut evidence = Evidence::new(
-                self.next_id("EV"),
-                format!("verification:{}", check.id),
-                evidence_kind_for_check(&check.id),
-                check.command.clone(),
-                revision.clone(),
-                if check.success {
-                    EvidenceResult::Pass
-                } else {
-                    EvidenceResult::Fail
-                },
-                Confidence::Deterministic,
-            )?;
-            evidence.policy = Some(format!("deterministic/{}/v1", report.level));
-            evidence.summary = Some(crate::harness::verification_metrics_summary(
-                check.execution_ms,
-                check.phase,
-            ));
-            evidence.artifact_digest = Some(format!(
-                "sha256:{}",
-                digest_text(&format!(
-                    "{}\n{:?}\n{}\n{}",
-                    check.command, check.exit_code, check.stdout_tail, check.stderr_tail
-                ))
-            ));
-            produced.push(evidence);
-        }
-        // A single language provider proves only its own check, never the
-        // complete project gate. Keep quick/full policies distinct as well.
-        if executed_checks > 0 && matches!(report.level.as_str(), "quick" | "full") {
-            let mut aggregate = Evidence::new(
-                self.next_id("EV"),
-                format!("change:{}", revision.code),
-                EvidenceKind::Verification,
-                "verify_project".into(),
-                revision.clone(),
-                if report.passed {
-                    EvidenceResult::Pass
-                } else {
-                    EvidenceResult::Fail
-                },
-                Confidence::Deterministic,
-            )?;
-            aggregate.policy = Some(format!("deterministic/{}/v1", report.level));
-            aggregate.artifact_digest = Some(format!(
-                "sha256:{}",
-                digest_text(&format!(
-                    "{}\n{}\n{}\n{}\n{}",
-                    report.level,
-                    report.checks_run,
-                    report.checks_reused,
-                    report.checks_failed,
-                    report.summary
-                ))
-            ));
-            produced.push(aggregate);
-        }
-        if let Some(design) = design.as_ref() {
-            for criterion in design.state.acceptance.values() {
-                if !criterion
-                    .verification
-                    .iter()
-                    .any(|reference| verification_reference_executed(reference, report))
-                {
-                    continue;
-                }
-                let outcomes = criterion
-                    .verification
-                    .iter()
-                    .filter_map(|reference| verification_reference_outcome(reference, report))
-                    .collect::<Vec<_>>();
-                if outcomes.is_empty() {
-                    continue;
-                }
-                let result = if outcomes.iter().any(|outcome| !outcome) {
-                    EvidenceResult::Fail
-                } else if outcomes.len() < criterion.verification.len() {
-                    EvidenceResult::Inconclusive
-                } else {
-                    EvidenceResult::Pass
-                };
-                let mut evidence = Evidence::new(
-                    self.next_id("EV"),
-                    criterion.id.clone(),
-                    EvidenceKind::IntegrationTest,
-                    "deterministic-verification-mesh".into(),
-                    revision.clone(),
-                    result,
-                    Confidence::Deterministic,
-                )?;
-                evidence.policy = Some(format!("acceptance/{}/v1", report.level));
-                produced.push(evidence);
-            }
-        }
-        let current = self.current_revision(workspace)?;
-        if current.code != revision.code || current.design != revision.design {
-            let code_changed = current.code != revision.code;
-            let design_changed = current.design != revision.design;
-            return Err(anyhow!(
-                "verification revision changed during execution (code_changed={code_changed}, design_changed={design_changed}, expected_code={}, current_code={}, expected_design={}, current_design={}); results are stale, no evidence was recorded; rerun verification on a stable workspace",
-                revision.code,
-                current.code,
-                revision.design.as_deref().unwrap_or("none"),
-                current.design.as_deref().unwrap_or("none"),
-            ));
-        }
-        for evidence in &produced {
-            evidence_store::persist(workspace, evidence)?;
-        }
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("software intelligence state poisoned"))?;
-        for evidence in &produced {
-            push_evidence(&mut state.evidence, workspace_id, evidence.clone());
-        }
-        Ok(produced)
     }
 }

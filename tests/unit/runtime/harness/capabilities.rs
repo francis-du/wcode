@@ -46,7 +46,7 @@ fn v080_capabilities_are_runtime_declared_and_bounded() {
 
 #[test]
 fn model_action_registry_keeps_core_small_and_groups_on_demand_tools() {
-    assert_eq!(MODEL_PRELOAD_TOOLS.len(), 4);
+    assert_eq!(model_preload_tool_count(), 4);
     for bootstrap in [
         "agent_context",
         "workspace_info",
@@ -119,4 +119,49 @@ fn readiness_priority_displaces_optional_defaults_without_growing_manifest() {
         .unwrap()
         .iter()
         .any(|action| action["tool"] == "run_command" && action["group"] == "runtime"));
+}
+
+#[test]
+fn command_task_discovery_requires_explicit_polling_intent() {
+    assert!(!model_tool_preload_recommended("command_task"));
+    assert_eq!(model_tool_group("command_task"), "runtime");
+    assert_eq!(model_tool_disclosure("command_task"), "on_demand");
+    assert_eq!(model_tools_for_group("runtime"), ["workspace_info"]);
+
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    for query in ["poll command task", "command task result", "查看命令任务"] {
+        let pack = harness
+            .agent_context("demo", &workspace, query, 0, &[])
+            .unwrap();
+        assert_eq!(pack["intent"], "command_task");
+        assert_eq!(pack["readiness"]["next_actions"], json!(["command_task"]));
+        let tools = pack["capabilities"]["recommended_tools"]
+            .as_array()
+            .unwrap();
+        assert_eq!(tools[0], "command_task");
+        assert!(!tools.iter().any(|tool| tool == "run_command"));
+        let workflow = serde_json::to_string(&pack["workflow"]).unwrap();
+        assert!(workflow.contains("no new command was requested"));
+        assert!(workflow.contains("never from arguments"));
+        assert!(workflow.contains("not command success or Verification Evidence"));
+        assert!(pack["hot_source"].as_array().unwrap().is_empty());
+    }
+    for query in [
+        "implement command task parser",
+        "fix task status parser",
+        "重构任务队列",
+    ] {
+        let pack = harness
+            .agent_context("demo", &workspace, query, 0, &[])
+            .unwrap();
+        assert_ne!(pack["intent"], "command_task");
+        let tools = pack["capabilities"]["recommended_tools"]
+            .as_array()
+            .unwrap();
+        assert!(!tools
+            .iter()
+            .any(|tool| tool == "command_task" || tool == "run_command"));
+    }
 }

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "../tests/unit/integrations/git/native.rs"]
+pub(crate) mod native_acceptance_fixture;
+
 #[path = "integrations/agent_install/mod.rs"]
 mod agent_install;
 #[path = "integrations/agent_plugin/mod.rs"]
@@ -12,6 +16,8 @@ mod authorization;
 mod code_index;
 #[path = "workspace/conventions.rs"]
 mod conventions;
+#[path = "../crates/core-types/src/lib.rs"]
+pub mod core_types;
 #[path = "intelligence/decision.rs"]
 pub mod decision;
 #[path = "design/mod.rs"]
@@ -28,6 +34,8 @@ mod execution;
 mod execution_policy;
 #[path = "evidence/experience.rs"]
 mod experience_store;
+#[path = "integrations/git/mod.rs"]
+pub mod git_provider;
 #[path = "graph/mod.rs"]
 pub mod graph;
 #[path = "graph/chain.rs"]
@@ -58,10 +66,16 @@ mod mcp_legacy_sse;
 mod mcp_stdio;
 #[path = "integrations/mcp/tasks.rs"]
 mod mcp_tasks;
+#[path = "ui/menu_bar.rs"]
+mod menu_bar;
 #[path = "verification/migration.rs"]
 mod migration_audit;
+#[path = "runtime/contracts/model_tools.rs"]
+mod model_tools;
 #[path = "ui/monitor/mod.rs"]
 mod monitor;
+#[path = "runtime/contracts/job_observation.rs"]
+mod monitor_jobs;
 #[path = "runtime/power.rs"]
 mod power;
 #[path = "verification/quality_catalog.rs"]
@@ -80,10 +94,16 @@ mod reconciliation_approval;
 mod reconciliation_execution_store;
 #[path = "reconciliation/store.rs"]
 mod reconciliation_store;
+#[path = "runtime/contracts/report_types.rs"]
+mod report_types;
 #[path = "runtime/resource.rs"]
 mod resource;
 #[path = "intelligence/risk.rs"]
 pub mod risk;
+#[path = "runtime/presence.rs"]
+mod runtime_presence;
+#[path = "runtime/contracts/telemetry.rs"]
+mod runtime_telemetry;
 #[path = "workspace/scheduler.rs"]
 mod scheduler;
 #[path = "scopes/mod.rs"]

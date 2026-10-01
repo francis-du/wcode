@@ -1,0 +1,19 @@
+schema_version: 1
+id: REQ-CHANGE-INPUTS-001
+title: Commit-aware acceptance input foundation
+intent: Prepare exact bounded Git metadata and execution-time verification identity for the existing verification/evidence model. Metadata capture and draft policy selection are not trusted Policy activation, a Change Acceptance Record or a Git provider merge decision.
+priority: critical
+implemented_by:
+  - component:change-inputs
+  - component:verification-harness
+  - component:evidence-runtime
+acceptance:
+  - AC-EXECUTION-GIT-001
+  - AC-DISCOVERY-COMPLETE-001
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  reliability: critical
+  security: high

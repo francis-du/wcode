@@ -654,6 +654,7 @@ fn parse_elapsed_ms(summary: &str) -> Option<u128> {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn metrics_summary(elapsed_ms: u128, phase: u8) -> String {
     format!("{COST_METRICS_PREFIX};elapsed_ms={elapsed_ms};phase={phase}")
 }

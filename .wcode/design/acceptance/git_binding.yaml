@@ -1,0 +1,13 @@
+schema_version: 1
+id: AC-EXECUTION-GIT-001
+title: Native verification observes execution Git identity
+statement: Native Git probes retain exact full HEAD/tree/root/index/dirty facts or fail closed. Real commit changes with identical tracked bytes must not reuse the old execution receipt; observed HEAD/index drift during a real check must reject publication. Legacy receipts remain readable with unknown Git identity and cannot be promoted to commit acceptance. This contract does not claim OS snapshots, authenticated remote approvals or an installed merge gate.
+verification:
+  - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_git_base_inspection_reports_clean_head_rename_and_modes}
+  - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_git_dirty_commit_is_error_and_worktree_target_is_explicit}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: language_quality_git_metadata_is_retained_without_fake_full_receipt}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: native_verification_receipts_bind_execution_commit_and_preserve_legacy_unknown}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: execution_git_identity_separates_static_reuse_and_inflight_runs}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: execution_git_source_mismatch_cannot_be_rebound_by_reused_report}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: git_probe_failure_prevents_native_verification_evidence}
+  - {kind: test, path: tests/unit/runtime/harness/verification_git.rs, symbol: execution_git_drift_during_real_check_cannot_publish_current_evidence}

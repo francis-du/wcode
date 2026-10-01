@@ -1,0 +1,48 @@
+schema_version: 1
+id: AC-GITHUB-INBOX-001
+title: Durable intake and retry preserve native authority and remain diagnosable
+statement: >-
+  inbox-init creates only a new private absolute directory pinned to its root and repository/App/installation/Check binding. Missing, corrupt, foreign or partial state never silently reinitializes. enqueue-event authenticates raw bytes before persistence, retains at most 128 signed deliveries within an 8 MiB snapshot, and acknowledges an unchanged duplicate only after confirming persistence without incrementing generation. A new delivery of the identical raw body, authenticated with the current key, may refresh obsolete saved signature headers only for queued/retry records; it advances generation and explicitly reports reauthenticated=true without changing original bytes, identity, receive time, attempts or shortening backoff. Completed, exhausted and in-flight records cannot be resurrected or modified by this path. Signed-body digests, not unsigned delivery IDs, deduplicate through reopen and completed tombstones are never evicted for capacity. Separate nonblocking process locks serialize brief snapshot mutations and one whole publication attempt; enqueue and lock-free status remain usable while a worker publishes. An RAII guard explicitly unlocks at the end of the operation, including unwinding or cancellation, so a duplicated file descriptor cannot prolong a completed critical section. Five attempts with bounded exponential backoff, retry/exhausted state and interrupted publishing recovery replace expiring-lease takeover. Saved bodies are authenticated again with the current key before every attempt and only fresh preflight/native publication can return a receipt. The bounded scan skips, but never deletes or completes, due entries that cannot authenticate with that key so later valid deliveries cannot be starved by an old-key head. If all due entries fail authentication, processing reports an explicit unavailable error without advancing their attempts or pretending the inbox is idle. Invalid-length worker keys are rejected before recovery writes or locks. Concurrent arrivals survive completion writes. Queue status excludes payloads, signatures, keys and cached green receipts and explicitly has no current Acceptance authority. The installed foreground serve-inbox binds only an explicitly selected loopback socket and exposes only POST /github/webhook. Intake preserves duplicate headers, bounds body size and read/response time, rejects excess concurrent requests, and keeps blocking storage permits until real work ends even after an unconfirmed response timeout. The opt-in foreground work-inbox process automatically polls one due event at a time, waits one second after successful/idle polls and five seconds after unavailable polls without overriding persisted event backoff, never performs interval catch-up or replays completed receipts, and emits sanitized bounded JSON Lines instead of idle log floods. Read-only, no-exec, overlapping candidate/config/inbox roots and an invalid webhook key prevent startup before publication. Ready shutdown wins over new work; SIGINT/SIGTERM handlers are registered before startup on Unix and let the current attempt finish before stopping. Output or signal failures are not reported as successful shutdown. TLS, connection/header limits, service installation/supervision, key rollover, trusted archival/anti-rollback checkpoints, deployment isolation and real remote GitHub Pilot remain separate deployment responsibilities; Windows ACL isolation is not established by Unix permission tests.
+  Inbox publication also acquires shared native-state-root admission after delivery authentication but before incrementing its attempts or entering publishing. Local contention leaves that entry's attempts, state and backoff untouched, skips to another authenticated due candidate within the bounded snapshot, and reports explicit unavailability when no due candidate can be admitted. The opaque guard is retained through remote publication and final snapshot acknowledgement, not just passed transiently to the HTTP layer. Read-only status and intake remain independent; interrupted-attempt recovery retains its separate existing rules.
+verification:
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_deduplicates_body_across_delivery_ids_and_restart_without_exposing_payload}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_bad_authentication_or_foreign_binding_has_no_write_effect}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_missing_corrupt_or_partial_state_is_never_rebootstrapped}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_attempt_bounds_clock_and_duplicate_entries_are_validated}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_released_guard_does_not_leave_an_inherited_descriptor_lock}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_retry_backoff_and_exhaustion_are_durable}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_publication_keeps_receiver_and_status_available_and_preserves_new_entries}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_cancelled_worker_releases_os_lock_without_replaying_a_success_receipt}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_reauthenticates_persisted_bodies_before_any_publication}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_key_rotation_does_not_starve_later_authenticated_deliveries}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_invalid_worker_key_does_not_mutate_interrupted_attempts}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_authenticated_redelivery_refreshes_pending_signature_without_resetting_attempts}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_rotated_redelivery_cannot_resurrect_terminal_or_inflight_work}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_real_http_refreshes_only_a_current_authenticated_redelivery}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_cli_rotated_redelivery_is_durable_without_duplicate_work}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_rejects_private_path_aliases_permissions_and_hardlinks}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_capacity_never_evicts_completed_replay_tombstones}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_real_http_acknowledges_only_authenticated_durable_events}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_rejects_ambiguous_signature_encoding_and_oversized_input}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_slow_body_has_deadline_and_releases_intake_slot}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_capacity_and_store_busy_never_acknowledge_success}
+  - {kind: test, path: tests/unit/integrations/git/receiver.rs, symbol: inbox_receiver_response_timeout_keeps_permit_until_actual_storage_work_ends}
+  - {kind: test, path: tests/unit/integrations/git/preflight.rs, symbol: github_inbox_drains_real_native_acceptance_and_never_replays_a_green_receipt}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_commands_are_available_without_starting_a_service}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_cli_persists_and_deduplicates_across_processes}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_cross_process_lock_rejects_writes_but_not_status_and_recovers}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_cli_restrictions_and_missing_state_do_not_reset_history}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_receiver_denies_public_bind_and_readonly_before_starting}
+  - {kind: test, path: tests/unit/app/github_worker.rs, symbol: inbox_worker_ready_shutdown_starts_no_publication}
+  - {kind: test, path: tests/unit/app/github_worker.rs, symbol: inbox_worker_shutdown_finishes_current_attempt_without_starting_another}
+  - {kind: test, path: tests/unit/app/github_worker.rs, symbol: inbox_worker_failure_is_sanitized_and_retried_without_a_busy_loop}
+  - {kind: test, path: tests/unit/app/github_worker.rs, symbol: inbox_worker_idle_polls_are_paced_and_do_not_flood_output}
+  - {kind: test, path: tests/unit/app/github_worker.rs, symbol: inbox_worker_output_and_signal_failures_are_not_successful_shutdowns}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_worker_has_help_and_rejects_unsafe_start_before_secrets}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_worker_real_process_stops_on_signals_without_mutating_idle_history}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_worker_rejects_bad_key_before_starting_or_mutating_history}
+  - {kind: test, path: tests/github_publisher.rs, symbol: github_deployment_template_invokes_the_installed_cli_with_guarded_exact_candidate}
+  - {kind: test, path: tests/unit/integrations/git/watch.rs, symbol: github_watch_busy_inbox_keeps_attempts_and_backoff_unchanged}
+  - {kind: test, path: tests/unit/integrations/git/inbox.rs, symbol: inbox_busy_candidate_does_not_starve_unrelated_due_delivery}
+  - {kind: check, id: rust-check}
+  - {kind: check, id: rust-clippy}

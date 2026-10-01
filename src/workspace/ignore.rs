@@ -18,7 +18,13 @@ pub(crate) fn repository_ignore_builder(start: &Path, honor_parent_ignores: bool
 
 pub(crate) fn repository_walk_builder(start: &Path, honor_parent_ignores: bool) -> WalkBuilder {
     let mut builder = repository_ignore_builder(start, honor_parent_ignores);
-    builder.filter_entry(source_visible_entry);
+    let authority = super::fs_safety::authority_roots();
+    builder.filter_entry(move |entry| {
+        source_visible_entry(entry)
+            && authority.as_ref().is_ok_and(|roots| {
+                super::fs_safety::reject_authority_path_against(entry.path(), roots, false).is_ok()
+            })
+    });
     builder
 }
 

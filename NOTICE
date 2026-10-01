@@ -1,0 +1,6 @@
+wcode OSS
+
+wcode Core and the local product are Apache-2.0; see LICENSE.
+Commercial Team and Enterprise source is maintained in a separate sibling
+repository and is not part of this source-control, Cargo workspace or source
+package boundary. No Apache-2.0 source is relicensed by that separation.

@@ -232,6 +232,7 @@ pub(super) fn render_throughput(
     language: UiLanguage,
 ) {
     let totals = totals(snapshot);
+    let admission = config.harness.admission_snapshot();
     let bins = request_bins(snapshot, 10, Duration::from_secs(3));
     let sparkline = sparkline(&bins);
     let (requests, rx, tx) = window_totals(snapshot, Duration::from_secs(30));
@@ -296,7 +297,7 @@ pub(super) fn render_throughput(
                     Span::styled(short_tokens(saved_tokens_30s), Style::default().fg(SUCCESS)),
                     Span::styled(" · SLOTS ", Style::default().fg(TEXT_DIM)),
                     Span::styled(
-                        format!("{}/{}", totals.active, config.max_parallel),
+                        format!("{}/{}", admission.slots_in_use, admission.total_limit),
                         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
@@ -347,7 +348,11 @@ pub(super) fn render_throughput(
     );
 
     let bar_width = columns[1].width.saturating_sub(23).clamp(6, 18) as usize;
-    let (filled, empty, color) = slot_bar(totals.active, config.max_parallel as u64, bar_width);
+    let (filled, empty, color) = slot_bar(
+        admission.slots_in_use as u64,
+        admission.total_limit as u64,
+        bar_width,
+    );
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(agent_context, Style::default().fg(TEXT_DIM))).right_aligned(),
@@ -360,7 +365,7 @@ pub(super) fn render_throughput(
                 Span::styled(
                     format!(
                         "  {} / {} · peak {}",
-                        totals.active, config.max_parallel, snapshot.peak_active
+                        admission.slots_in_use, admission.total_limit, snapshot.peak_active
                     ),
                     Style::default().fg(TEXT),
                 ),
@@ -369,6 +374,14 @@ pub(super) fn render_throughput(
         ]),
         columns[1],
     );
+}
+
+pub(super) fn admission_wait_text(harness: &ToolHarness) -> String {
+    let admission = harness.admission_snapshot();
+    format!(
+        "RES {} · EXEC {} · SLOT {}",
+        admission.waiting_for_resource, admission.waiting_for_execution, admission.waiting_for_slot
+    )
 }
 
 pub(super) fn process_queue_text(resources: &crate::resource::ResourceSnapshot) -> String {

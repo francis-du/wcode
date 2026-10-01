@@ -24,6 +24,7 @@ fn seed_verification_jobs(
             risk_level: RiskLevel::Low,
             policy: "test".into(),
             deterministic_level: "quick".into(),
+            required_checks: None,
             deterministic_checks: vec![],
             reviewer_roles: vec![ReviewerRole::Correctness],
             require_property: false,
@@ -76,6 +77,7 @@ fn capacity_reclamation_uses_creation_order_not_random_plan_id() {
                 "demo".into(),
                 format!("change:stale-{index}"),
                 VerificationPlanBinding {
+                    required_checks: None,
                     revision: Revision {
                         design: None,
                         code: format!("sha256:stale-{index}"),
@@ -95,6 +97,7 @@ fn capacity_reclamation_uses_creation_order_not_random_plan_id() {
             "demo".into(),
             "change:current".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: None,
                     code: "sha256:current".into(),
@@ -123,6 +126,7 @@ fn recent_plan_order_is_creation_bound_even_after_more_than_twenty_random_ids() 
                 "demo".into(),
                 "change:current".into(),
                 VerificationPlanBinding {
+                    required_checks: None,
                     revision: Revision {
                         design: Some("sha256:design".into()),
                         code: "sha256:current".into(),
@@ -170,6 +174,7 @@ fn maintainability_jobs_carry_the_structural_review_rubric() {
             "demo".into(),
             "change:maintainability".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: Some("sha256:design".into()),
                     code: "sha256:maintainability".into(),
@@ -216,6 +221,7 @@ fn correctness_jobs_carry_contract_first_rubric() {
             "demo".into(),
             "change:correctness".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: Some("sha256:design".into()),
                     code: "sha256:correctness".into(),
@@ -263,6 +269,7 @@ fn adversarial_jobs_carry_falsification_first_rubric() {
             "demo".into(),
             "change:adversarial".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: Some("sha256:design".into()),
                     code: "sha256:adversarial".into(),
@@ -321,6 +328,7 @@ fn create_plan_reclaims_superseded_unclaimed_jobs_only_under_capacity_pressure()
             "demo".into(),
             "change:current".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: None,
                     code: "sha256:current".into(),
@@ -360,6 +368,7 @@ fn capacity_failure_preserves_all_existing_verification_state() {
         "demo".into(),
         "change:blocked".into(),
         VerificationPlanBinding {
+            required_checks: None,
             revision: Revision {
                 design: None,
                 code: "sha256:current".into(),
@@ -393,6 +402,7 @@ fn capacity_reclamation_preserves_current_revision_and_unpressured_history() {
             "demo".into(),
             "change:current".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: None,
                     code: "sha256:current".into(),
@@ -425,6 +435,7 @@ fn verification_capacity_is_scoped_per_workspace() {
             "demo".into(),
             "change:demo".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: None,
                     code: "sha256:demo".into(),
@@ -458,6 +469,7 @@ fn create_plan_never_reclaims_claimed_superseded_jobs() {
         "demo".into(),
         "change:blocked".into(),
         VerificationPlanBinding {
+            required_checks: None,
             revision: Revision {
                 design: None,
                 code: "sha256:current".into(),
@@ -482,6 +494,7 @@ fn blind_jobs_are_claimed_by_capability_and_do_not_expose_other_submissions() {
             "demo".into(),
             "change:1".into(),
             VerificationPlanBinding {
+                required_checks: None,
                 revision: Revision {
                     design: None,
                     code: "sha256:1".into(),
@@ -521,4 +534,200 @@ fn blind_jobs_are_claimed_by_capability_and_do_not_expose_other_submissions() {
     let status = state.status("VP-1").unwrap();
     assert_eq!(status.submitted, 1);
     assert_eq!(status.queued, 1);
+}
+
+fn generation_plan(
+    state: &mut VerificationState,
+    workspace: &str,
+    suffix: &str,
+) -> Result<VerificationPlan, VerificationError> {
+    state.create_plan(
+        format!("VP-{workspace}-{suffix}"),
+        workspace.into(),
+        format!("change:{suffix}"),
+        VerificationPlanBinding {
+            required_checks: None,
+            revision: Revision {
+                code: format!("sha256:{suffix}"),
+                design: None,
+            },
+            stage_targets: vec![],
+            automation_gaps: vec![],
+        },
+        RiskLevel::Low,
+        [format!("VJ-{workspace}-{suffix}")].into_iter(),
+    )
+}
+
+fn generation_submission() -> ReviewSubmission {
+    ReviewSubmission {
+        verdict: ReviewVerdict::Pass,
+        summary: "Independent review completed.".into(),
+        claims: vec![],
+        risks: vec![],
+        model: None,
+    }
+}
+
+#[test]
+fn persistence_generation_increments_only_successful_mutations() {
+    let mut state = VerificationState::default();
+    assert_eq!(state.persistence_generation(), 0);
+    let plan = generation_plan(&mut state, "demo", "first").unwrap();
+    assert_eq!(state.persistence_generation(), 1);
+    let snapshot = state.workspace_snapshot("demo");
+    assert_eq!(snapshot.persistence_generation(), 1);
+    assert_eq!(serde_json::to_value(&snapshot).unwrap()["generation"], 1);
+    state.status(&plan.id).unwrap();
+    state.plans_for_workspace("demo");
+    state.latest_plan_for_workspace_revision("demo", plan.revision.as_ref().unwrap());
+    state.workspace_snapshot("missing");
+    assert_eq!(
+        state.persistence_generation(),
+        1,
+        "read-only views never advance ordering"
+    );
+
+    let before = serde_json::to_value(&state).unwrap();
+    assert!(matches!(
+        generation_plan(&mut state, "demo", "first"),
+        Err(VerificationError::DuplicatePlan)
+    ));
+    assert!(matches!(
+        state.claim("demo", "", &BTreeSet::new(), None),
+        Err(VerificationError::InvalidReviewer)
+    ));
+    assert_eq!(serde_json::to_value(&state).unwrap(), before);
+    let capabilities = BTreeSet::from(["correctness_review".into()]);
+    let job = state
+        .claim("demo", "reviewer", &capabilities, None)
+        .unwrap();
+    assert_eq!(state.persistence_generation(), 2);
+    let before = serde_json::to_value(&state).unwrap();
+    assert!(matches!(
+        state.claim("demo", "reviewer", &capabilities, None),
+        Err(VerificationError::NoMatchingJob)
+    ));
+    assert!(matches!(
+        state.submit("demo", &job.id, "other-reviewer", generation_submission()),
+        Err(VerificationError::InvalidJobState)
+    ));
+    let mut invalid = generation_submission();
+    invalid.summary.clear();
+    assert!(matches!(
+        state.submit("demo", &job.id, "reviewer", invalid),
+        Err(VerificationError::InvalidSubmission)
+    ));
+    assert_eq!(serde_json::to_value(&state).unwrap(), before);
+    state
+        .submit("demo", &job.id, "reviewer", generation_submission())
+        .unwrap();
+    assert_eq!(state.persistence_generation(), 3);
+    let before = serde_json::to_value(&state).unwrap();
+    assert!(state
+        .submit("demo", &job.id, "reviewer", generation_submission())
+        .is_err());
+    assert_eq!(serde_json::to_value(&state).unwrap(), before);
+}
+
+#[test]
+fn persistence_generation_survives_scoped_snapshots_and_legacy_restore() {
+    let mut state = VerificationState::default();
+    generation_plan(&mut state, "first", "one").unwrap();
+    generation_plan(&mut state, "second", "two").unwrap();
+    let first = state.workspace_snapshot("first");
+    let second = state.workspace_snapshot("second");
+    assert_eq!(first.persistence_generation(), 2);
+    assert_eq!(second.persistence_generation(), 2);
+    assert_eq!(first.plans.len(), 1);
+    let mut legacy = serde_json::to_value(first).unwrap();
+    legacy.as_object_mut().unwrap().remove("generation");
+    let legacy: VerificationState = serde_json::from_value(legacy).unwrap();
+    assert_eq!(legacy.persistence_generation(), 0);
+    let mut restored = VerificationState::default();
+    restored.restore_workspace(second).unwrap();
+    restored.restore_workspace(legacy).unwrap();
+    assert_eq!(
+        restored.persistence_generation(),
+        2,
+        "legacy restore cannot lower generation"
+    );
+    assert_eq!(restored.plans.len(), 2);
+    generation_plan(&mut restored, "first", "three").unwrap();
+    assert_eq!(restored.persistence_generation(), 3);
+    let higher = VerificationState {
+        generation: 10,
+        ..VerificationState::default()
+    };
+    restored.restore_workspace(higher).unwrap();
+    assert_eq!(restored.persistence_generation(), 10);
+    let before = serde_json::to_value(&restored).unwrap();
+    let invalid = VerificationState {
+        generation: 99,
+        plan_order: vec!["VP-missing".into()],
+        ..VerificationState::default()
+    };
+    assert!(matches!(
+        restored.restore_workspace(invalid),
+        Err(VerificationError::InvalidPersistedState)
+    ));
+    assert_eq!(
+        serde_json::to_value(&restored).unwrap(),
+        before,
+        "invalid restore is atomic"
+    );
+}
+
+#[test]
+fn persistence_generation_overflow_rejects_before_reclamation_or_job_changes() {
+    let capabilities = BTreeSet::from(["correctness_review".into()]);
+    for mutation in ["create", "claim", "submit"] {
+        let mut state = VerificationState::default();
+        let job_id = if mutation == "create" {
+            seed_verification_jobs(
+                &mut state,
+                "demo",
+                "stale",
+                VerificationJobStatus::Queued,
+                MAX_VERIFICATION_JOBS,
+            );
+            String::new()
+        } else {
+            let plan = generation_plan(&mut state, "demo", "current").unwrap();
+            if mutation == "submit" {
+                state
+                    .claim("demo", "reviewer", &capabilities, None)
+                    .unwrap();
+            }
+            plan.job_ids[0].clone()
+        };
+        state.generation = u64::MAX;
+        let before = serde_json::to_value(&state).unwrap();
+        let error = match mutation {
+            "create" => generation_plan(&mut state, "demo", "new").unwrap_err(),
+            "claim" => state
+                .claim("demo", "reviewer", &capabilities, None)
+                .unwrap_err(),
+            "submit" => state
+                .submit("demo", &job_id, "reviewer", generation_submission())
+                .unwrap_err(),
+            _ => unreachable!(),
+        };
+        assert_eq!(error, VerificationError::GenerationExhausted, "{mutation}");
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            before,
+            "{mutation} partially mutated"
+        );
+    }
+    let mut state = VerificationState {
+        generation: u64::MAX - 1,
+        ..VerificationState::default()
+    };
+    generation_plan(&mut state, "demo", "last").unwrap();
+    assert_eq!(state.persistence_generation(), u64::MAX);
+    assert!(matches!(
+        generation_plan(&mut state, "demo", "overflow"),
+        Err(VerificationError::GenerationExhausted)
+    ));
 }

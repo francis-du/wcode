@@ -29,6 +29,18 @@ pub(super) enum ControlCommand {
         /// Configure only the current project.
         #[arg(long, conflicts_with = "global")]
         project: bool,
+        /// Enroll a GitHub publisher repository as owner/repo. No credential is stored.
+        #[arg(long, conflicts_with = "global", requires_all = ["github_repository_id", "github_app_id"])]
+        github_repository: Option<String>,
+        /// Stable numeric GitHub repository ID used to reject repository-name drift.
+        #[arg(long, conflicts_with = "global", requires_all = ["github_repository", "github_app_id"])]
+        github_repository_id: Option<u64>,
+        /// Expected GitHub App ID for the required Check source.
+        #[arg(long, conflicts_with = "global", requires_all = ["github_repository", "github_repository_id"])]
+        github_app_id: Option<u64>,
+        /// Required Check name. Defaults to wcode/change-acceptance.
+        #[arg(long, conflicts_with = "global", requires = "github_repository")]
+        github_check_name: Option<String>,
         /// Print JSON. Without a prompt, setup changes only this project.
         #[arg(long)]
         json: bool,
@@ -59,6 +71,12 @@ pub(super) enum ControlCommand {
     },
     /// Connect a coding agent over MCP using its current project directory.
     McpStdio,
+    /// Observe local WCode runtimes from the system menu bar.
+    MenuBar {
+        /// Print the portable bounded status projection and exit without opening native UI.
+        #[arg(long)]
+        json: bool,
+    },
     /// Show project health, language-server readiness, and code intelligence.
     Intelligence {
         /// Discover and initialize available language servers before showing status.
@@ -70,6 +88,17 @@ pub(super) enum ControlCommand {
         /// Print JSON instead of the terminal summary.
         #[arg(long)]
         json: bool,
+    },
+    /// Inspect and govern exact-candidate native Change Acceptance.
+    Acceptance {
+        #[command(subcommand)]
+        action: super::acceptance::AcceptanceCommand,
+    },
+    /// Inspect deployment configuration or publish exact-candidate GitHub Checks.
+    #[command(name = "github")]
+    GitHub {
+        #[command(subcommand)]
+        action: super::github::GitHubCommand,
     },
     /// Show verification plans and whether they are ready to run.
     Verification {

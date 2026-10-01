@@ -11,6 +11,32 @@ documentation = "https://wcode.francis.run/"
 readme = "README.md"
 keywords = ["mcp", "coding", "vibe", "intelligence", "developer-tools"]
 categories = ["development-tools", "command-line-utilities"]
+include = [
+    "/.cargo/**",
+    "/.gitattributes",
+    "/.github/**",
+    "/.gitignore",
+    "/.wcode/**",
+    "/Cargo.lock",
+    "/Cargo.toml",
+    "/LICENSE",
+    "/NOTICE",
+    "/README.md",
+    "/crates/core-types/src/**",
+    "/docs/**",
+    "/examples/**",
+    "/install.ps1",
+    "/install.sh",
+    "/marketplace.json",
+    "/plugin/**",
+    "/src/**",
+    "/tests/**",
+]
+
+[workspace]
+members = [".", "crates/core-types"]
+default-members = ["."]
+resolver = "2"
 
 [dependencies]
 anyhow = "1"
@@ -23,6 +49,7 @@ libc = "0.2"
 rayon = "1"
 memchr = "2"
 regex = "1"
+ring = "0.17.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "0.29"
@@ -63,8 +90,14 @@ walkdir = "2"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = { version = "0.25.1", default-features = false }
+winit = "0.30.13"
+
 [dev-dependencies]
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+wcode-core-types = { path = "crates/core-types" }
 
 [profile.release]
 opt-level = "z"

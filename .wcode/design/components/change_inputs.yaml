@@ -1,0 +1,25 @@
+schema_version: 1
+id: component:change-inputs
+name: Commit-aware Acceptance Inputs
+responsibilities:
+  - Capture bounded real Git base/target/worktree identity through the existing no-shell workspace command lane without inferring a trusted policy or acceptance result.
+  - Distinguish clean committed changes from empty worktree diffs and retain both rename paths plus regular/executable mode knowledge for conservative policy matching.
+  - Bind native verification receipts, static reuse and in-flight coalescing to the captured execution Git identity; observed HEAD/index drift must not publish current evidence.
+constraints:
+  - CONSTRAINT-BOUNDED-VERIFICATION
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-EXPLICIT-EXECUTION-TRUST
+implementation:
+  - kind: file
+    path: src/verification/change.rs
+  - kind: symbol
+    path: src/runtime/harness/review.rs
+    symbol: ToolHarness::execution_git_binding
+  - kind: symbol
+    path: src/runtime/harness/review.rs
+    symbol: ToolHarness::git_change_snapshot
+  - kind: symbol
+    path: src/runtime/harness/verification_cache.rs
+    symbol: persisted_static_source_matches
+  - kind: file
+    path: src/integrations/mcp/dispatch/review.rs

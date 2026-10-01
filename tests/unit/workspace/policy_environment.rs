@@ -1,6 +1,63 @@
 use super::*;
 
 #[test]
+fn team_secret_environment_does_not_reach_child_processes() {
+    const MARKER: &str = "WCODE_TEST_INHERITANCE_STAGE";
+    const TEST: &str = "team_secret_environment_does_not_reach_child_processes";
+    let protected = [
+        "WCODE_TEAM_CREDENTIAL",
+        "WCODE_TEAM_CREDENTIAL_FILE",
+        "WCODE_GITHUB_APP_PRIVATE_KEY",
+        "WCODE_GITHUB_APP_PRIVATE_KEY_FILE",
+        "WCODE_GITHUB_APP_KEY_FILE",
+    ];
+    match std::env::var(MARKER).as_deref() {
+        Ok("observe") => {
+            for name in protected {
+                assert!(
+                    std::env::var_os(name).is_none(),
+                    "protected key inherited: {name}"
+                );
+            }
+            assert_eq!(std::env::var("WCODE_TEST_ORDINARY").unwrap(), "ordinary");
+        }
+        Ok("scrub") => {
+            for program in ["git", "node", "gh"] {
+                let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([TEST, "--nocapture", "--test-threads=1"])
+                    .env(MARKER, "observe");
+                scrub_sensitive_environment(&mut command, program, &[], false);
+                let output = command.as_std_mut().output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "child inherited a protected key for {program}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+        _ => {
+            // Test-owned subprocess environment only; no process-global mutation
+            // races with other tests or alters the operator's actual credentials.
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([TEST, "--nocapture", "--test-threads=1"])
+                .env(MARKER, "scrub")
+                .env("WCODE_TEST_ORDINARY", "ordinary");
+            for name in protected {
+                command.env(name, "ISOLATED-TEST-NOT-LIVE");
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "sensitive environment test failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[test]
 fn python_execution_uses_one_isolated_nonwriting_bytecode_namespace() {
     let mut prefixes = Vec::new();
     for program in ["python3", "pytest"] {

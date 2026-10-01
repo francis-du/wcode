@@ -286,9 +286,9 @@ async fn observatory_revision_stamp_is_server_bound_and_changes_with_source_inpu
     let (state, root) = origin_test_state();
     let workspace_id = state.workspaces.default_id().to_owned();
     let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    assert!(!workspace.exec_enabled());
     fs::create_dir_all(root.path().join("src")).unwrap();
     fs::write(root.path().join("src/lib.rs"), "fn first() {}\n").unwrap();
-
     let before = super::web::web_status::revision_state(&state.harness, &workspace_id, &workspace)
         .await
         .unwrap();
@@ -297,12 +297,11 @@ async fn observatory_revision_stamp_is_server_bound_and_changes_with_source_inpu
         .await
         .unwrap();
     assert_ne!(before.stable_inputs_key, after.stable_inputs_key);
-
     let full =
         intelligence_web_project(State(state.clone()), ui_headers(&state, &workspace_id)).await;
     assert_eq!(full.status(), StatusCode::OK);
-    let _ = response_json(full).await;
-
+    let full = response_json(full).await;
+    assert!(full["snapshot_revision"].is_string() && full["acceptance"].is_null());
     let mut forged = ui_headers(&state, &workspace_id);
     forged.insert("x-wcode-prefer-cached", "1".parse().unwrap());
     forged.insert(
@@ -310,9 +309,9 @@ async fn observatory_revision_stamp_is_server_bound_and_changes_with_source_inpu
         "client-forged-revision".parse().unwrap(),
     );
     let cached = response_json(intelligence_web_project(State(state.clone()), forged).await).await;
-    assert_ne!(cached["snapshot_revision"], "client-forged-revision");
+    assert_eq!(cached["snapshot_revision"], full["snapshot_revision"]);
+    assert!(cached["acceptance"].is_null());
 }
-
 #[tokio::test]
 async fn observatory_code_graph_is_protected_bounded_and_preserves_provenance() {
     let (state, root) = origin_test_state();
@@ -547,14 +546,17 @@ async fn observatory_revision_exposes_proof_freshness_without_starting_commands(
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     let value = response_json(response).await;
     assert_eq!(value["workspace"], workspace);
-    assert!(value.get("graph_signal").is_some());
-    assert!(value.get("proof_revision").is_some());
-    assert!(value.get("engineering_revision").is_some());
+    for key in ["graph_signal", "proof_revision", "engineering_revision"] {
+        assert!(value.get(key).is_some());
+    }
     assert!(value["fingerprint"].as_str().is_some());
     assert_eq!(value["full_refresh_required"], false);
+    assert_eq!(value["git_observation"]["reason"], "execution_disabled");
+    assert_eq!(value["git_observation"]["available"], false);
+    assert!(value["snapshot_revision"].is_string());
     assert_eq!(state.monitor.connection_status().active_tasks, 0);
+    assert_eq!(state.monitor.observatory_activity(&workspace)["calls"], 0);
 }
-
 fn ui_headers(state: &AppState, workspace: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("host", "127.0.0.1:8765".parse().unwrap());
@@ -767,7 +769,7 @@ async fn setup_status_is_compact_and_preserves_connection_truth() {
     );
     state.monitor.mark_public_url_check(true, None);
     state.monitor.mark_mcp_initialized();
-    let full = health(State(state.clone()), HeaderMap::new()).await.0;
+    let full = health_diagnostics_snapshot(&state, &HeaderMap::new());
     let response = setup_status(State(state.clone()), HeaderMap::new()).await;
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     let compact = response_json(response).await;

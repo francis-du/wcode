@@ -1,6 +1,90 @@
 use super::*;
 
 #[tokio::test]
+async fn admission_regression_saturated_workspace_info_still_diagnoses_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let state = AppState {
+        harness: ToolHarness::new(2).unwrap(),
+        ..batch_test_state(root.path())
+    };
+    let held = [
+        state.harness.acquire().await.unwrap(),
+        state.harness.acquire().await.unwrap(),
+    ];
+    let response = tokio::time::timeout(
+        std::time::Duration::from_millis(300),
+        call_tool(&state, json!({"name":"workspace_info","arguments":{}})),
+    )
+    .await
+    .expect("overload diagnostics must not queue behind the work they diagnose")
+    .unwrap();
+    let diagnostic = &response["structuredContent"];
+    assert_eq!(response["isError"], false);
+    assert_eq!(diagnostic["status"], "partial");
+    assert_eq!(diagnostic["diagnostic_only"], true);
+    assert_eq!(diagnostic["admission"]["slots_in_use"], 2);
+    assert_eq!(diagnostic["admission"]["total_limit"], 2);
+    assert!(diagnostic.get("workspaces").is_none());
+    assert!(diagnostic["runtime"]["process_id"].as_u64().is_some());
+    assert!(serde_json::to_vec(diagnostic).unwrap().len() < 4096);
+    let read = tokio::time::timeout(
+        std::time::Duration::from_millis(25),
+        call_tool(
+            &state,
+            json!({"name":"read_file","arguments":{"path":"missing"}}),
+        ),
+    )
+    .await;
+    assert!(
+        read.is_err(),
+        "diagnostics must not grant a general admission bypass"
+    );
+    assert_eq!(state.monitor.connection_status().queued_tasks, 0);
+    drop(held);
+    let recovered = call_tool(&state, json!({"name":"workspace_info","arguments":{}}))
+        .await
+        .unwrap();
+    assert_eq!(recovered["isError"], false);
+    assert!(recovered["structuredContent"].get("workspaces").is_some());
+}
+
+#[tokio::test]
+async fn admission_regression_status_race_falls_back_without_extending_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let state = AppState {
+        harness: ToolHarness::new(1).unwrap(),
+        ..batch_test_state(root.path())
+    };
+    assert!(state.harness.overload_diagnostic().is_none());
+    // Capacity changes after the initial overload observation, before admission.
+    let held = state.harness.acquire_tool(false).await.unwrap();
+    let diagnostic = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        crate::mcp::mcp_tools::acquire_status_permit(&state),
+    )
+    .await
+    .unwrap()
+    .err()
+    .unwrap();
+    assert_eq!(diagnostic["diagnostic_only"], true);
+    assert_eq!(diagnostic["admission"]["slots_in_use"], 1);
+    assert_eq!(state.harness.admission_snapshot().waiting_for_slot, 0);
+    let invalid = call_tool(
+        &state,
+        json!({"name":"workspace_info","arguments":{"workspace":123}}),
+    )
+    .await;
+    assert!(
+        invalid.is_err(),
+        "diagnostics must not bypass argument validation"
+    );
+    drop(held);
+    assert!(crate::mcp::mcp_tools::acquire_status_permit(&state)
+        .await
+        .is_ok());
+}
+
+#[tokio::test]
 async fn queued_commands_leave_capacity_for_real_file_reads() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(

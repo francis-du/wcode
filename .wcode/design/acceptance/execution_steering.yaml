@@ -14,6 +14,7 @@ statement: >-
   The Engineering Observatory renders pending steering, replan state, verification floor and handoff lineage from
   the durable Execution projection without mutating Execution or introducing chat history.
 verification:
+  - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: full_plan_rejects_quick_receipt_and_legacy_gate_claims}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_steering_is_revision_guarded_and_survives_reload}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: scope_steering_against_bound_plan_requires_replan}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_handoff_creates_clean_lineage_without_transcript_state}

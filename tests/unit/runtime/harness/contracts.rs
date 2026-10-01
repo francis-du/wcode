@@ -1,4 +1,5 @@
 use super::*;
+use crate::monitor::TaskMonitor;
 
 #[test]
 fn contract_bridges_propagate_static_codegen_inputs_to_consumer_islands_only() {

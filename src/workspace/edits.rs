@@ -60,6 +60,7 @@ impl Workspace {
             });
         }
 
+        reject_authority_path(&self.root.join(&relative), false)?;
         let mut current = self.root.clone();
         let mut created = false;
         for component in relative.components() {
@@ -112,13 +113,22 @@ impl Workspace {
         if !directory.is_dir() {
             bail!("path is not a directory");
         }
-        let mut entries = fs::read_dir(&directory)?
-            .take(max_entries.clamp(1, 128))
-            .map(|entry| {
-                let path = entry?.path();
-                Ok(portable_relative_path(path.strip_prefix(&self.root)?))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let authority = fs_safety::authority_roots()?;
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&directory)?.take(max_entries.clamp(1, 128)) {
+            let entry = entry?;
+            let relative = entry.path().strip_prefix(&self.root)?.to_path_buf();
+            if reject_protected_path(&relative).is_ok()
+                && fs_safety::reject_authority_path_against(
+                    entry.path().as_path(),
+                    &authority,
+                    false,
+                )
+                .is_ok()
+            {
+                entries.push(portable_relative_path(&relative));
+            }
+        }
         if self.existing_path(path)? != directory {
             bail!("directory changed during bounded discovery");
         }

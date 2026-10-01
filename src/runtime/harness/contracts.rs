@@ -631,6 +631,9 @@ fn bridge_source_matches(bridge: &ProjectContractBridge, path: &str) -> bool {
 }
 
 fn read_static_config(path: &Path) -> Option<String> {
+    if let Some(captured) = profile_scan::captured_text(path) {
+        return captured.filter(|text| text.len() as u64 <= MAX_CONTRACT_CONFIG_BYTES);
+    }
     let metadata = std::fs::symlink_metadata(path).ok()?;
     if !metadata.is_file()
         || metadata.file_type().is_symlink()

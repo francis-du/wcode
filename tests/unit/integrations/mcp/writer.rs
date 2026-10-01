@@ -65,6 +65,7 @@ fn writer_plan(workspace_id: &str) -> ReconciliationPlan {
             risk_level: RiskLevel::Low,
             policy: "risk-adaptive/v1/low".into(),
             deterministic_level: "quick".into(),
+            required_checks: None,
             deterministic_checks: vec![],
             reviewer_roles: vec![],
             require_property: false,
@@ -619,4 +620,212 @@ fn claim_admission_routes_parallel_owners_to_disjoint_scopes() {
 
     runtime.cancel(&src);
     runtime.cancel(&tests);
+}
+
+#[tokio::test]
+async fn mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_failure() {
+    use crate::evidence::EvidenceResult;
+    use crate::verification::{ReviewVerdict, VerificationStage};
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/a.rs"), "fn alpha() {}\n").unwrap();
+    fs::write(root.path().join("src/b.rs"), "fn beta() {}\n").unwrap();
+    let workspaces = Workspaces::new([root.path()], false, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".into())),
+        workspaces,
+        harness: ToolHarness::new(4).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    };
+    let (workspace_id, workspace) = state.workspaces.select(None).unwrap();
+    let plan = state
+        .harness
+        .verification_plan(
+            workspace_id.clone(),
+            &workspace,
+            &crate::harness::ChangeReviewReport {
+                workspace: workspace_id.clone(),
+                execution: "stage-boundary-fixture".into(),
+                clean: false,
+                files_changed: 0,
+                staged_files: 0,
+                unstaged_files: 0,
+                untracked_files: 0,
+                additions: 0,
+                deletions: 0,
+                binary_files: 0,
+                source_changed: false,
+                tests_changed: false,
+                docs_only: false,
+                risk_level: "moderate".into(),
+                recommended_verification: "full".into(),
+                recommended_checks: vec![],
+                summary: "Require property and mutation stages.".into(),
+                files: vec![],
+                findings: vec![],
+                probes: vec![],
+                truncated: false,
+            },
+        )
+        .unwrap();
+    assert!(plan.require_property && plan.require_mutation);
+    assert!(!plan.stage_targets.is_empty());
+    let mut report = json!({"name":"verification_stage_submit","arguments":{
+        "plan_id":plan.id,"submission":{"stage":"property","producer":"executor:fixture-property",
+        "verdict":"pass","summary":"Claimed runner output","artifact_digest":"sha256:unverified","targets":plan.stage_targets}}});
+    let mut forged_authority = report.clone();
+    forged_authority["arguments"]["submission"]["authority"] = json!("native_stage");
+    let rejected = crate::mcp::call_tool_owned(&state, forged_authority, "owner-a")
+        .await
+        .unwrap_err();
+    assert!(
+        rejected.contains("unknown field") && rejected.contains("authority"),
+        "{rejected}"
+    );
+    assert!(crate::evidence_store::load(&workspace).unwrap().is_empty());
+    let mut ids = Vec::new();
+    for (owner, claimed) in [
+        ("owner-a", "pass"),
+        ("owner-a", "fail"),
+        ("owner-b", "pass"),
+    ] {
+        report["arguments"]["submission"]["verdict"] = json!(claimed);
+        let result = crate::mcp::call_tool_owned(&state, report.clone(), owner)
+            .await
+            .unwrap();
+        assert_eq!(result["isError"], false, "{result}");
+        let record = &result["structuredContent"];
+        assert_eq!(record["producer"], format!("self-reported:mcp:{owner}"));
+        assert_eq!(record["result"], "inconclusive");
+        assert_eq!(record["confidence"], "low");
+        assert_eq!(record["authority"], "self_reported");
+        let summary = record["summary"].as_str().unwrap();
+        assert!(summary.contains("executor:fixture-property"));
+        assert!(summary.to_lowercase().contains(claimed));
+        ids.push(record["id"].as_str().unwrap().to_owned());
+    }
+    let missing = state
+        .harness
+        .verification_status(&workspace_id, &workspace, &plan.id)
+        .unwrap();
+    assert!(!missing.ready);
+    for stage in ["property", "mutation"] {
+        assert!(!missing.stage_results.contains_key(stage));
+        assert!(!missing.stage_producer_results.contains_key(stage));
+        assert!(missing
+            .blockers
+            .iter()
+            .any(|reason| reason.contains(&format!("{stage}-evidence-missing"))));
+    }
+    let executing = crate::workspace::Workspace::new_with_security(
+        root.path(),
+        false,
+        true,
+        crate::workspace::WorkspaceSecurity {
+            allow_risky_exec: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let execution = crate::stage_executor::execute(
+        &executing,
+        &crate::stage_executor::StageExecutorSpec {
+            id: "fixture-property".into(),
+            stage: VerificationStage::Property,
+            languages: vec![crate::semantic_provider::SemanticLanguage::Rust],
+            program: "rustc".into(),
+            args: vec!["--wcode-invalid-stage-option".into()],
+            cwd: ".".into(),
+            timeout_seconds: 10,
+            builtin: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(execution.verdict, ReviewVerdict::Fail);
+    let native = state
+        .harness
+        .verification_stage_submit_native(
+            &workspace_id,
+            &workspace,
+            &plan.id,
+            crate::verification::StageSubmission {
+                stage: execution.stage,
+                producer: format!("executor:{}", execution.executor_id),
+                verdict: execution.verdict,
+                summary: execution.summary,
+                artifact_digest: execution.artifact_digest,
+                targets: plan.stage_targets.clone(),
+                model: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(native.result, EvidenceResult::Fail);
+    assert_eq!(
+        native.authority,
+        crate::evidence::EvidenceAuthority::NativeStage
+    );
+    let forged = crate::mcp::call_tool_owned(&state, report, "owner-a")
+        .await
+        .unwrap();
+    assert_eq!(forged["isError"], false, "{forged}");
+    assert_eq!(forged["structuredContent"]["result"], "inconclusive");
+    let failed = state
+        .harness
+        .verification_status(&workspace_id, &workspace, &plan.id)
+        .unwrap();
+    assert!(!failed.ready);
+    assert_eq!(failed.stage_results["property"], EvidenceResult::Fail);
+    assert_eq!(
+        failed.stage_producer_results["property"]["executor:fixture-property"],
+        EvidenceResult::Fail
+    );
+    assert_eq!(failed.stage_producer_results["property"].len(), 1);
+    assert!(failed.stage_target_results["property"]
+        .values()
+        .all(|result| *result == EvidenceResult::Fail));
+    assert!(failed
+        .blockers
+        .iter()
+        .any(|reason| reason.contains("property") && reason.contains("failed")));
+    assert!(failed
+        .blockers
+        .iter()
+        .any(|reason| reason.contains("mutation-evidence-missing")));
+    let evidence = state
+        .harness
+        .evidence_status(&workspace_id, &workspace, Some(&plan.subject), 50)
+        .unwrap();
+    for id in ids {
+        assert!(evidence.evidence.iter().any(|record| record.id == id));
+    }
+    assert!(evidence
+        .evidence
+        .iter()
+        .any(|record| record.id == native.id && record.result == EvidenceResult::Fail));
+    let advisory = evidence
+        .evidence
+        .iter()
+        .filter(|record| record.producer.starts_with("self-reported:mcp:"))
+        .collect::<Vec<_>>();
+    assert_eq!(advisory.len(), 4);
+    assert!(advisory
+        .iter()
+        .all(|record| record.result == EvidenceResult::Inconclusive));
+    assert_eq!(
+        advisory
+            .iter()
+            .filter(|record| record.producer == "self-reported:mcp:owner-a")
+            .count(),
+        3
+    );
+    assert_eq!(
+        advisory
+            .iter()
+            .filter(|record| record.producer == "self-reported:mcp:owner-b")
+            .count(),
+        1
+    );
 }

@@ -121,11 +121,12 @@ pub(crate) fn active_summary(workspace: &Workspace) -> Result<Option<Value>> {
     Ok(Some(json!({
         "revision": worklist.revision,
         "goal": worklist.goal,
+        "complete": false,
         "open_items": worklist.items.iter().filter(|item| item.status != WorkItemStatus::Done).count(),
         "runnable": runnable,
         "parallel_runnable": parallel_runnable_ids(&worklist),
         "items": open,
-        "guidance": "Resume runnable incomplete items before inventing a new sequence. Update this worklist as items start/finish; a stale revision must be reread rather than overwritten."
+        "guidance": "Continue unfinished declared scope; phase verification is progress, never overall completion. Preserve blocked requirements and reread stale revisions."
     })))
 }
 

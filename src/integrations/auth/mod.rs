@@ -1,5 +1,5 @@
 use crate::auth_origin::PublicEndpoints;
-use crate::monitor::TaskMonitor;
+use crate::runtime_telemetry::AuthTelemetry;
 use crate::{AUTHOR_HANDLE, AUTHOR_URL, PROJECT_URL};
 use anyhow::Result;
 use axum::extract::{Form, RawQuery, State};
@@ -27,10 +27,20 @@ mod store;
 mod tokens;
 use clients::*;
 use pages::*;
+pub(crate) use store::state_root as authority_state_root;
 use store::AuthStore;
 use tokens::*;
 
 const AUTHORIZATION_CODE_TTL: Duration = Duration::from_secs(5 * 60);
+const ACCESS_TOKEN_TTL_MS: u64 = 60 * 60 * 1_000;
+const REFRESH_TOKEN_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
+
+fn credential_current(issued_at_ms: u64, ttl_ms: u64, now_ms: u64) -> bool {
+    issued_at_ms > 0
+        && now_ms
+            .checked_sub(issued_at_ms)
+            .is_some_and(|age| age < ttl_ms)
+}
 const MAX_REGISTERED_CLIENTS: usize = 128;
 const MAX_PENDING_AUTHORIZATION_CODES: usize = 256;
 const MAX_ACCESS_TOKENS: usize = 2_048;
@@ -56,7 +66,7 @@ pub struct AuthState {
     refresh_tokens: Arc<Mutex<HashMap<String, RefreshToken>>>,
     mutation_lock: Arc<Mutex<()>>,
     store: Option<Arc<AuthStore>>,
-    monitor: Option<TaskMonitor>,
+    monitor: Option<Arc<dyn AuthTelemetry>>,
 }
 
 struct PairingAttempt {
@@ -114,11 +124,18 @@ impl AuthState {
     ) -> Result<Self> {
         let pairing_code = format!("{:06}", Uuid::new_v4().as_u128() % 1_000_000);
         let ui_token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-        let saved = store
+        let mut saved = store
             .as_ref()
             .map(AuthStore::load)
             .transpose()?
             .unwrap_or_default();
+        let now = epoch_ms();
+        saved
+            .access_tokens
+            .retain(|_, saved| credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now));
+        saved
+            .refresh_tokens
+            .retain(|_, saved| credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now));
         let public_endpoints = PublicEndpoints::new(initial_public_url);
         for resource in saved
             .access_tokens
@@ -151,9 +168,9 @@ impl AuthState {
         })
     }
 
-    pub fn new_with_monitor(
+    pub fn new_with_monitor<T: AuthTelemetry + 'static>(
         initial_public_url: String,
-        monitor: TaskMonitor,
+        monitor: T,
         workspace_roots: &[PathBuf],
         authorization_password: Option<String>,
     ) -> Result<Self> {
@@ -172,17 +189,17 @@ impl AuthState {
     }
 
     #[cfg(test)]
-    fn new_persistent_with_monitor(
+    fn new_persistent_with_monitor<T: AuthTelemetry + 'static>(
         initial_public_url: String,
         path: PathBuf,
-        monitor: TaskMonitor,
+        monitor: T,
     ) -> Result<Self> {
         let mut state = Self::new_persistent(initial_public_url, path)?;
         state.attach_monitor(monitor);
         Ok(state)
     }
 
-    fn attach_monitor(&mut self, monitor: TaskMonitor) {
+    fn attach_monitor<T: AuthTelemetry + 'static>(&mut self, monitor: T) {
         if !self
             .clients
             .lock()
@@ -204,7 +221,7 @@ impl AuthState {
         {
             monitor.mark_oauth_authorized();
         }
-        self.monitor = Some(monitor);
+        self.monitor = Some(Arc::new(monitor));
     }
 
     fn persist(&self) -> Result<()> {
@@ -293,7 +310,8 @@ impl AuthState {
         let expected_resource = format!("{public_url}/mcp");
         let tokens = self.access_tokens.lock().expect("token lock poisoned");
         let saved = tokens.get(token)?;
-        if saved.client_id.is_empty()
+        if !credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, epoch_ms())
+            || saved.client_id.is_empty()
             || saved.resource.as_deref().is_some_and(|resource| {
                 !self
                     .public_endpoints
@@ -369,6 +387,8 @@ pub fn router(state: Arc<AuthState>) -> Router {
         .route("/authorize", get(authorize_page).post(authorize_submit))
         .route("/authorize/", get(authorize_page).post(authorize_submit))
         .route("/token", post(token))
+        .route("/oauth/sessions", get(tokens::oauth_sessions))
+        .route("/oauth/sessions/revoke", post(tokens::oauth_session_revoke))
         .with_state(state)
 }
 

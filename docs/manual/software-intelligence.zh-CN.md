@@ -172,16 +172,17 @@ Design-aware 工具会读取当前 Workspace 下的：
 
 对应 MCP 工具是 `design_init`。它会安全创建**稀疏的** `.wcode/` Desired State，已经存在的 Design 文件不会被覆盖。
 
-wcode 自己已经在 Dogfood 这套格式。初始化时只创建真正有意义的 Project / Product：
+wcode 自己已经在 Dogfood 这套格式。显式调用 `design_init` 时创建 Project / Product 与基础约束：
 
 ```text
 .wcode/
 ├── project.yaml
 └── design/
-    └── product.yaml
+    ├── product.yaml
+    └── constraints.yaml
 ```
 
-`requirements.yaml`、`components.yaml`、`constraints.yaml`、`acceptance.yaml`、`decisions.yaml` 不再为了凑 Schema 预先创建成空 `[]` 文件。只有真正出现对应 Desired State 时才创建集合文件。也支持拆成单文件目录：
+项目级 `wcode setup` 则只创建中性的项目元数据和空 Design 目录；之后通过 SHA 守护编辑逐步补齐，不要再次初始化。显式 `design_init` 包含有意义的基础约束。`requirements.yaml`、`components.yaml`、`acceptance.yaml`、`decisions.yaml` 不再为了凑 Schema 预先创建成空 `[]` 文件。只有真正出现对应 Desired State 时才创建集合文件。也支持拆成单文件目录：
 
 ```text
 .wcode/design/requirements/
@@ -457,7 +458,7 @@ Medium 及以上风险的 Plan 会额外加入一个盲审 `maintainability` Rev
 
 Verification Plan 和 Reviewer Job 会按 Workspace 持久化，因此 wcode 重启或换模型后可以继续领取/提交同一个 Plan。
 
-`verification_executor_status` 会返回跨语言 Executor Registry，并区分“已经注册”和“本机真实可执行”；`verification_execute_stages` 会运行当前 Stage 下**所有适用且真实可用**的 Executor，只跳过“这个 Producer 自己已经有最新 Pass Evidence”的 Runner，并把每次真实 Command Result 分别写成 Stage Evidence。`verification_status` 会保留每个 Producer 的最新结果，并按 `Fail > Disagree > Inconclusive > Pass` fail-closed 聚合，所以另一个晚到的 Pass 不能盖掉真实 Runner 的 Fail。CI 或其他外部系统仍然可以用 `verification_stage_submit` 提交真实 Verdict、Producer、Summary 与 Artifact Digest；Workspace Code Revision 变化后旧 Plan 仍会被 stale-revision blocker 阻止。
+`verification_executor_status` 会返回跨语言 Executor Registry，并区分“已经注册”和“本机真实可执行”；`verification_execute_stages` 会运行当前 Stage 下**所有适用且真实可用**的 Executor，只跳过“这个 Producer 自己已经有最新 Pass Evidence”的 Runner，并把每次真实 Command Result 分别写成 Stage Evidence。`verification_status` 会保留每个 Producer 的最新结果，并按 `Fail > Disagree > Inconclusive > Pass` fail-closed 聚合，所以另一个晚到的 Pass 不能盖掉真实 Runner 的 Fail。CI 或其他外部系统仍可通过 `verification_stage_submit` 留存报告，但 MCP 自报会绑定调用者，保存原声明并标记低可信、Inconclusive；客户端给出的 Producer、Verdict、Digest 不能自证真实执行，不能满足必需 Stage。权威 CI 导入仍需要可信集成凭据适配器；Workspace Code Revision 变化后旧 Plan 仍会被 stale-revision blocker 阻止。
 
 wcode 会自动发现一批常见生态，例如 Rust proptest/quickcheck/cargo-fuzz/cargo-mutants、Go Property/Fuzz、Python Hypothesis/mutmut、使用固定 Vitest/Jest Runner 的 JS/TS fast-check、Java jqwik/PIT、C# FsCheck/.NET Stryker、SwiftCheck/Muter、Elixir StreamData、Dart Glados、Ruby Rantly、PHP Eris/Infection、OCaml QCheck、R quickcheck。Property Adapter 同时要求框架声明和对应语言源码里的真实使用；只有依赖名不算 Property Suite 证据。任意 Package Script 不会被重标成 Property/Mutation Evidence。由于 Stryker Config 本身可以执行 Repository JavaScript，JS/TS Stryker 保持显式 `.wcode/executors.yaml` 决定。这些内置发现只是便捷适配器，不是封闭清单。对于其他框架和所有 22 种语言，都可以通过同一份 `.wcode/executors.yaml` 接入：
 
@@ -483,11 +484,25 @@ executors:
 
 源码修改和 release build 成功不能证明当前 MCP 进程已经加载这些修改。运行态加载需在获准维护时单独核实，不能为了让状态看起来更新而重启承载当前操作的 MCP 服务。
 
-### MCP 2026 长任务 Tasks
+### 持久命令与 MCP Tasks
 
-在 MCP `2026-07-28` 下，wcode 已支持官方 `io.modelcontextprotocol/tasks` Extension，而且严格按**每个请求显式 opt-in**：客户端必须在该请求的 `_meta.io.modelcontextprotocol/clientCapabilities.extensions` 中声明 Tasks。长耗时的语义安装/刷新、验证阶段执行与 `verify_project` 支持 Task；`run_command` 只有调用方显式设置 `task_mode=true` 时才进入 Task，普通命令即使客户端支持 Tasks 也继续同步执行。若客户端/协议不支持 Tasks 却请求 `task_mode=true`，会明确失败，不会悄悄退回阻塞式执行。
+`run_command` 的同步与 Task 模式都默认使用 600 秒执行超时；显式 `timeout_seconds` 必须是 1 到 1800 的整数，同步模式不再有单独的 60 秒上限。Host 仍可能限制单次请求时长，因此需要在连接中断后继续执行的命令应使用持久模式。普通调用保持同步，只有请求 `task_mode=true` 才进入持久执行。
 
-Task Handle 返回前状态已经持久化；Owner 使用当前 OAuth `client_id` 的 SHA-256 Fingerprint，不保存原始 Bearer Token。`tasks/get` 轮询并在完成时返回原始 Tool Result；当 task-mode 命令仍在运行时，私有 `dev.wcode/liveCommandOutput` 元数据只暴露每路 32 KiB 的**独立有界 Progress Stream 尾窗**，不会每次轮询都把完整累计输出重放进模型上下文。即使最终 Tool Result 的每路 256 KiB 前缀 Capture 已经饱和，Pipe Reader 仍会继续排空子进程输出并通过有容量上限的 Progress Channel 交给 Task Worker；Worker 会先按完整行脱敏再形成尾窗，未换行内容也有独立上限，超长行直接 Fail Closed 为已脱敏占位，因此不会靠无限内存换取实时日志，也不会先丢掉敏感 Key 前缀再暴露后续 Value。元数据会分别标记最终结果 Capture 是否截断，以及仅为了形成当前已脱敏尾窗而丢弃了多少前缀字节；Completed Tool Result 仍保持原有有界前缀 Capture Contract 不变。`tasks/update` 当前是 ack-only，因为这些任务不会发 Input Request；`tasks/cancel` 先持久化 `cancelled`，再 Abort Worker，避免迟到的 Completed 覆盖取消。对 `run_command`，Task Worker 与同步命令共享同一套受监管子进程/进程树所有权，因此取消 Task 会终止有界 Dev Server，而不是留下 Detached Background Process；命令策略、授权、Sandbox、CWD/资源/输出上限以及 1800 秒命令上限都不放宽。Task Store 有 Workspace 级容量上限，只会在创建新 Task 前回收 Terminal Task，Active Task 不会为了腾空间被删。如果 Runtime 在 Task 仍是 `working` 时被替换，下一次读取会把它标成 Failed，而不是假装 Worker 跨进程存活。
+在 MCP `2026-07-28` 下，官方 [Tasks 扩展](https://tasks.extensions.modelcontextprotocol.io/seps/2663-tasks-extension) 仍通过每个请求的 `_meta.io.modelcontextprotocol/clientCapabilities.extensions` 显式启用。支持扩展的客户端收到标准 Task Handle，使用 `tasks/get` 轮询；语义安装/刷新、验证阶段执行和 `verify_project` 也支持该扩展。`tasks/update` 当前只确认请求，因为这些任务没有 Input Request；`tasks/cancel` 负责取消。
+
+不支持扩展的客户端，包括旧协议客户端，可以调用普通 `command_task` 工具，使用 `action=create|status|result|cancel`。这些客户端调用 `run_command` 并设置 `task_mode=true` 时，也会收到普通命令收据。收据是正常 Tool Result，不冒充标准 Task Response；两种形式复用同一个 TaskRuntime 和持久 TaskStore。例如，调用 `command_task`：
+
+```json
+{"action":"create","program":"cargo","args":["check"]}
+```
+
+保存返回的 `task_id` 和 Workspace，按收据的 `next_poll` 请求轮询，并遵守 `poll_interval_ms`；只有 `result_available` 为 true 时，才用 `result_request` 读取原始有界 Tool Result。Failed/Cancelled 任务可能没有 Tool Result，应检查 Error/Status；运行期间用 `cancel_request` 停止。轮询不会重新执行命令。Task 进入 terminal/completed 只表示结果交付状态，不等于命令成功；必须检查内层 `isError`、`structuredContent.success`、Exit Code、Error 和截断字段。命令输出及退出码不会生成 Verification Evidence。
+
+Handle 只在任务持久创建后返回。每次读取和取消都检查 Transport 提供的认证 Owner，以及精确的所选 Workspace、Task ID 和 `run_command` 身份；调用方不能提交 Owner/Actor，也不能操作其他客户端的任务。HTTP Owner 绑定 OAuth Client 和 Authorization Grant，不公开原始 Bearer Token 或私有 Owner/Runtime 标识。stdio Owner 绑定运行时实例，新 stdio 进程无法恢复旧 Owner 的任务；Runtime 替换后仍为 working 的任务，在下一次读取时标为 Failed，不接管、不重放。创建响应丢失时没有 exactly-once 保证，重新启动前须检查实际副作用。
+
+两种调用形式都暴露同一份已脱敏、每路 32 KiB 的**独立有界 Progress Stream 尾窗**。未换行内容最多 64 KiB，Progress Channel 最多 32 个 Chunk；8 KiB 是读取 Buffer 的 Chunk 大小，不是日志尾窗上限。最终结果的每路 256 KiB 前缀 Capture 饱和后，Pipe Reader 仍继续排空输出。Worker 先按完整行脱敏再取尾窗；超长未换行内容被抑制，避免先丢掉敏感 Key 再暴露 Value。Capture 截断与尾窗丢弃前缀的来源分别保留，最终结果仍遵守有界前缀合同。
+
+Create 继续经过正常 Writer、可执行文件/命令策略、授权、无 Shell 的 argv、CWD、环境、Sandbox 和资源检查。取消会 Abort 所属 Worker，进而请求终止受监管进程树；取消和最终结果写入串行化，迟到的完成不能覆盖已经保存的取消状态。这不会回滚已发生的副作用。每个 Workspace 最多保留 256 个任务，每个任务最多 32 个 Snapshot；Task Deadline 为 24 小时，默认轮询间隔 1 秒。容量不足时回收 Terminal Task，不逐出 Active Task；命令默认 600 秒或显式最多 1800 秒的执行超时与 Task Deadline 独立。
 
 ### Independent Reviewer Job
 

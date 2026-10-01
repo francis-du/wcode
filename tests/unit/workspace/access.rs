@@ -189,3 +189,108 @@ fn model_reads_preserve_source_and_cap_each_request_at_one_thousand_lines() {
     assert_eq!(oversized.end_line, 1_100);
     assert_eq!(oversized.content.lines().count(), 1_000);
 }
+
+#[test]
+fn authority_state_roots_are_rejected_even_with_full_access_security() {
+    let state =
+        fs_safety::normalize_authority_root(&crate::evidence_store::state_root().unwrap()).unwrap();
+    fs::create_dir_all(&state).unwrap();
+    let fixture = tempfile::Builder::new()
+        .prefix("root-fixture-")
+        .tempdir_in(&state)
+        .unwrap();
+    let security = WorkspaceSecurity {
+        allow_risky_exec: true,
+        allow_unrestricted_commands: true,
+        allow_destructive_writes: true,
+        allow_overlapping_workspaces: true,
+        allow_user_home_workspace: true,
+        allow_broad_workspace: true,
+        ..WorkspaceSecurity::default()
+    };
+    for root in [state.as_path(), fixture.path()] {
+        let error = Workspace::new_with_security(root, true, true, security)
+            .err()
+            .expect("authority state workspace root was accepted")
+            .to_string();
+        assert!(error.contains("authority state"), "{error}");
+    }
+    let project = tempfile::tempdir().unwrap();
+    fs::create_dir(project.path().join("wcode")).unwrap();
+    let ordinary =
+        Workspace::new_with_security(project.path().join("wcode"), true, true, security).unwrap();
+    ordinary.create_file("main.rs", "fn main() {}\n").unwrap();
+}
+
+#[test]
+fn authority_state_configured_roots_cover_missing_paths_and_mutation_ancestors() {
+    let project = tempfile::tempdir().unwrap();
+    let base = project.path().canonicalize().unwrap();
+    for configured in [
+        base.join(".local/state/wcode"),
+        base.join("xdg-state/wcode"),
+        base.join("local-app-data/wcode"),
+        base.join("custom-authority-directory/missing"),
+        base.join("not-created/../normalized-state"),
+    ] {
+        let root = fs_safety::normalize_authority_root(&configured).unwrap();
+        assert!(!root.exists());
+        let roots = [root.clone()];
+        for path in [
+            &root,
+            &root.join("intelligence/v1/evidence/forged.json"),
+            &root.join("oauth/new.json"),
+        ] {
+            assert!(fs_safety::reject_authority_path_against(path, &roots, false).is_err());
+        }
+        assert!(
+            fs_safety::reject_authority_path_against(root.parent().unwrap(), &roots, true).is_err()
+        );
+        assert!(
+            fs_safety::reject_authority_path_against(root.parent().unwrap(), &roots, false).is_ok()
+        );
+        assert!(fs_safety::reject_authority_path_against(
+            &root.with_file_name("legitimate-wcode-project"),
+            &roots,
+            true
+        )
+        .is_ok());
+    }
+    let relative = PathBuf::from(format!("missing-authority-{}", Uuid::new_v4()));
+    assert_eq!(
+        fs_safety::normalize_authority_root(&relative).unwrap(),
+        std::env::current_dir()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .join(relative)
+    );
+    #[cfg(windows)]
+    {
+        let roots = [base.join("OperatorState")];
+        assert!(fs_safety::reject_authority_path_against(
+            &base.join("operatorstate. /oauth"),
+            &roots,
+            false
+        )
+        .is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn authority_state_root_resolution_preserves_existing_symlink_ancestors() {
+    use std::os::unix::fs::symlink;
+    let project = tempfile::tempdir().unwrap();
+    let base = project.path().canonicalize().unwrap();
+    fs::create_dir(base.join("physical")).unwrap();
+    symlink(base.join("physical"), base.join("configured")).unwrap();
+    let root = fs_safety::normalize_authority_root(&base.join("configured/missing/state")).unwrap();
+    assert_eq!(root, base.join("physical/missing/state"));
+    assert!(fs_safety::reject_authority_path_against(
+        &base.join("physical/missing/state/forged.json"),
+        &[root],
+        false
+    )
+    .is_err());
+}

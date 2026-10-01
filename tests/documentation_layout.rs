@@ -277,8 +277,11 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     let intelligence_zh =
         fs::read_to_string(docs_root.join("software-intelligence.zh-CN.md")).unwrap();
     for phrase in [
-        "Make any coding agent understand your repo before it changes it.",
-        "engineering control plane for coding agents",
+        "Make AI-generated code shippable with evidence.",
+        "Engineering Control Plane for AI-generated code",
+        "Understand → Change → Inspect → Verify → Evidence → Accept / Block",
+        "AI Change Acceptance",
+        "not yet a completed pilot workflow",
         "Engineering Observatory",
         "Understand first. Change less. Prove it works. Learn only from proof.",
         "wcode-engineering-loop.svg",

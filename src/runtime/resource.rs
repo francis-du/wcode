@@ -6,7 +6,7 @@
 //! memory pressure is allowed to pause new work.
 
 use crate::harness::{ToolHarness, REPO_MAP_MAX_FILES};
-use crate::monitor::{OperatorMessageKind, TaskMonitor};
+use crate::runtime_telemetry::{OperatorMessageKind, RuntimeTelemetry};
 use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -843,7 +843,7 @@ pub fn terminate_child(child: &mut Child) {
     let _ = child.start_kill();
 }
 
-pub fn spawn_monitor(harness: ToolHarness, monitor: TaskMonitor) -> JoinHandle<()> {
+pub fn spawn_monitor<T: RuntimeTelemetry>(harness: ToolHarness, monitor: T) -> JoinHandle<()> {
     tokio::spawn(async move {
         let governor = global();
         let mut ticker = tokio::time::interval(SAMPLE_INTERVAL);

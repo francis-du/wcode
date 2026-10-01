@@ -74,3 +74,14 @@ html.code-graph-fullscreen-open #architectureSection.workspace-panel{content-vis
   .code-graph-stage.code-graph-fullscreen .code-graph-viewport{min-height:0;height:100%}
   .code-graph-stage.code-graph-fullscreen .code-graph-inspector{position:fixed;inset:auto 8px 8px 8px;width:auto;height:min(52dvh,520px);min-height:0}
 }
+
+.code-source-edit{margin-top:12px}
+.code-source-editor{display:grid;gap:10px;margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0}
+.code-source-editor small{overflow-wrap:anywhere;color:var(--muted)}
+.code-source-editor textarea{box-sizing:border-box;width:100%;min-height:240px;max-height:65dvh;resize:vertical;tab-size:4;white-space:pre;overflow:auto;font:12px/1.6 var(--font-mono);background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px}
+.code-source-editor details{min-width:0}
+.code-source-editor summary{cursor:pointer}
+.code-source-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.code-source-comparison pre{max-height:260px;overflow:auto;font:12px/1.6 var(--font-mono);padding:8px;background:var(--bg);border:1px solid var(--line)}
+.code-source-edit-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:600px){.code-source-comparison{grid-template-columns:minmax(0,1fr)}}

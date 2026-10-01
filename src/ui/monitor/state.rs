@@ -7,6 +7,7 @@ impl TaskMonitor {
             .map(|id| (id, WorkspaceStats::default()))
             .collect::<BTreeMap<_, _>>();
         Self {
+            job_access: Arc::new(Mutex::new(None)),
             state: Arc::new(Mutex::new(MonitorState {
                 next_id: 1,
                 started_at: Instant::now(),
@@ -92,6 +93,7 @@ impl TaskMonitor {
         });
         state.tasks.push_back(TaskRecord {
             id,
+            command_job_id: None,
             workspace,
             tool,
             detail,
@@ -514,6 +516,7 @@ impl TaskMonitor {
 
     pub fn connection_status(&self) -> MonitorConnectionStatus {
         let state = self.state.lock().expect("task monitor lock poisoned");
+        let activity = runtime_activity_counts(&state);
         MonitorConnectionStatus {
             oauth_client_registered: state.oauth_client_registered,
             oauth_authorized: state.oauth_authorized,
@@ -533,6 +536,10 @@ impl TaskMonitor {
             tunnel_error: state.tunnel_error.clone(),
             active_tasks: state.active_total,
             queued_tasks: state.workspaces.values().map(|stats| stats.queued).sum(),
+            active_verifications: activity.active_verifications,
+            queued_verifications: activity.queued_verifications,
+            active_jobs: activity.active_jobs,
+            queued_jobs: activity.queued_jobs,
             peak_active_tasks: state.peak_active,
         }
     }
@@ -682,6 +689,7 @@ impl TaskMonitor {
             }
             "project_observatory" => {
                 stats.project_attention = value.get("attention").cloned();
+                stats.project_acceptance = value.get("acceptance").cloned();
                 stats.project_revision = value.get("repository_revision").cloned();
                 stats.project_observed_at = Some(Instant::now());
             }

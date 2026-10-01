@@ -73,7 +73,7 @@ pub(crate) fn claim(
     input: WorklistClaimInput,
 ) -> Result<Value> {
     claim_with_context(harness, workspace, input, |query| {
-        harness.agent_context(workspace_id, workspace, query, 0, &[])
+        harness.agent_handoff_context(workspace_id, workspace, query)
     })
 }
 
@@ -158,20 +158,6 @@ fn claim_with_context(
     } else {
         Value::Null
     };
-    if let Some(pack) = context.as_object_mut() {
-        pack.remove("worklist");
-        if let Some(execution) = pack.get_mut("execution").and_then(Value::as_object_mut) {
-            execution.retain(|key, _| {
-                matches!(
-                    key.as_str(),
-                    "id" | "revision"
-                        | "pending_directive"
-                        | "verification_floor"
-                        | "replan_required"
-                )
-            });
-        }
-    }
     ToolHarness::finalize_handoff_context(&mut context)?;
     let source = paths.iter().map(|path| {
         match workspace.path_info(path) {

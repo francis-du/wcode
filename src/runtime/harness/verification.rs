@@ -1,19 +1,47 @@
 use super::*;
 
 const DEFAULT_VERIFICATION_TIMEOUT_SECONDS: u64 = 120;
-const COLD_BUILD_TIMEOUT_FLOOR_SECONDS: u64 = 300;
+const COLD_RUST_GATE_TIMEOUT_FLOOR_SECONDS: u64 = 300;
 
 fn verification_check_timeout_seconds(check: &CheckSpec, requested: u64) -> u64 {
     let requested = requested.clamp(1, 1800);
-    if check.id == "rust-release-build"
-        && check.level == "full"
-        && check.phase == 3
-        && requested == DEFAULT_VERIFICATION_TIMEOUT_SECONDS
-    {
-        COLD_BUILD_TIMEOUT_FLOOR_SECONDS
+    let canonical_full_rust_gate = check.level == "full"
+        && ((check.id == "rust-test" && check.phase == 1)
+            || (check.id == "rust-release-build" && check.phase == 3));
+    if canonical_full_rust_gate && requested == DEFAULT_VERIFICATION_TIMEOUT_SECONDS {
+        COLD_RUST_GATE_TIMEOUT_FLOOR_SECONDS
     } else {
         requested
     }
+}
+
+/// Discovery is a precondition of matrix coverage, never a skipped command.
+/// Include the same binding in execution and frozen plans so a known subset
+/// cannot replace an unavailable project inventory.
+pub(super) fn discovery_completeness_check(
+    profile: &ProjectProfile,
+    level: &str,
+) -> Option<CheckSpec> {
+    if profile.discovery.complete {
+        return None;
+    }
+    let mut reasons = profile.discovery.reasons.clone();
+    reasons.sort();
+    reasons.dedup();
+    if reasons.is_empty() {
+        reasons.push("discovery_incomplete".to_owned());
+    }
+    Some(CheckSpec {
+        id: "profile-discovery-completeness".to_owned(),
+        level: level.to_owned(),
+        phase: 0,
+        program: "wcode-discovery".to_owned(),
+        args: reasons,
+        cwd: ".".to_owned(),
+        island: "workspace".to_owned(),
+        languages: Vec::new(),
+        reason: "Project discovery is incomplete; observed checks remain valid, but the complete verification matrix is unavailable.".to_owned(),
+    })
 }
 
 impl ToolHarness {
@@ -38,9 +66,9 @@ impl ToolHarness {
     }
 }
 
-pub(super) async fn run_verification_check(
+pub(super) async fn run_verification_check<T: TaskTelemetry>(
     harness: ToolHarness,
-    monitor: TaskMonitor,
+    monitor: T,
     workspace_id: String,
     workspace: Workspace,
     check: CheckSpec,
@@ -55,9 +83,24 @@ pub(super) async fn run_verification_check(
         format!("phase {} · {command}", check.phase),
         request_bytes,
     );
+    if check.id == "profile-discovery-completeness" && check.program == "wcode-discovery" {
+        task.start();
+        let message = format!(
+            "{} Discovery reasons: {}.",
+            check.reason,
+            check.args.join(", ")
+        );
+        task.finish(false, message.len() as u64);
+        let mut evaluated = verification_error(check, message, 0);
+        evaluated.execution = crate::evidence::VerificationCheckExecution::Executed;
+        return evaluated;
+    }
     let _permit = match harness.acquire_tool(true).await {
         Ok(permit) => permit,
-        Err(error) => return verification_error(check, error, 0),
+        Err(error) => {
+            task.finish(false, error.len() as u64);
+            return verification_error(check, error, 0);
+        }
     };
     task.start();
     let started = Instant::now();
@@ -149,6 +192,7 @@ fn verification_command_error(check: &CheckSpec, error: &anyhow::Error) -> Strin
 }
 
 fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> VerificationCheck {
+    let signature = verification_check_binding(&check).signature;
     let command = verification_command_text(&check);
     VerificationCheck {
         id: check.id,
@@ -157,6 +201,7 @@ fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> Veri
         reason: check.reason,
         success: false,
         reused: false,
+        execution: crate::evidence::VerificationCheckExecution::Unavailable,
         exit_code: None,
         elapsed_ms,
         queue_wait_ms: 0,
@@ -164,9 +209,15 @@ fn verification_error(check: CheckSpec, error: String, elapsed_ms: u128) -> Veri
         stdout_tail: String::new(),
         stderr_tail: error,
         output_truncated: false,
+        signature: Some(signature),
+        evidence_id: None,
     }
 }
 
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/verification_errors.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/discovery_gate.rs"]
+mod discovery_gate;

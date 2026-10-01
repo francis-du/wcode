@@ -11,7 +11,14 @@ statement: >-
   truncated recent-history window or interpret random plan IDs as creation time. New plans persist creation order;
   a unique matching legacy plan may be recovered, but ambiguous legacy same-revision plans cannot supply authority.
   Missing plans may trigger exact-revision lookup; foreign-workspace plans and other status errors must fail closed.
+  Completion projections retain an explicit allowed flag, unfinished count and required action through budget
+  compaction and scoped handoff. A passing phase with unfinished work cannot permit an overall completion claim.
+  Completed Execution remains visible in context instead of being filtered out as absent. A damaged or unreadable latest snapshot must not resurrect an older completion; bounded snapshot discovery fails closed. Context and handoff retain allowed=false with unknown unfinished count and an explicit restore_execution_state action, without leaking damaged state bytes.
+  This exposes authoritative runtime state; arbitrary MCP Hosts still own their model-turn lifecycle.
 verification:
+  - {kind: test, path: tests/unit/runtime/harness/steering.rs, symbol: scope_completion_corrupt_execution_remains_unknown_in_context_and_handoff}
+  - {kind: test, path: tests/unit/runtime/execution_scope.rs, symbol: scope_completion_preserves_unfinished_work_even_when_phase_verification_passes}
+  - {kind: test, path: tests/unit/runtime/harness/steering.rs, symbol: scope_completion_survives_context_compaction_and_worker_handoff}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: execution_checkpoint_tracks_worklist_and_requires_verification_to_complete}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: model_terminal_proposal_is_advisory_and_cannot_self_complete}
   - {kind: test, path: tests/unit/runtime/execution.rs, symbol: verification_ready_cannot_complete_until_current_reconciliation_converges}

@@ -9,13 +9,17 @@
   <a href="https://wcode.francis.run/"><img src="https://img.shields.io/badge/website-wcode.francis.run-f05aa6" alt="wcode website"></a>
 </p>
 
-# Make any coding agent understand your repo before it changes it.
+# Make AI-generated code shippable with evidence.
 
-**wcode is an engineering control plane for coding agents.** It gives an existing agent repository intelligence, guarded file operations, project-aware verification, durable evidence, and operator visibility through MCP.
+**wcode is an Engineering Control Plane for AI-generated code.** Keep the coding agent you already use. wcode provides repository understanding, guarded changes, inspection, real verification, revision-bound evidence and operator visibility through MCP.
+
+The product loop is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. The first commercial scenario, **AI Change Acceptance**, is being developed from the existing core. Its unified Acceptance Record, project policy and external merge gate are not yet a completed pilot workflow. See the [source-audited capability map, architecture and P0 plan](docs/manual/research-upgrades.md#ai-change-acceptance-commercial-architecture-2026-09-30).
 
 > **Understand first. Change less. Prove it works. Learn only from proof.**
 
 [Website](https://wcode.francis.run/) · [Documentation](https://wcode.francis.run/docs/) · [Getting started](https://wcode.francis.run/docs/getting-started/)
+
+The Apache-2.0 Core and complete local product remain independently useful. New commercial composition packages consume OSS public contracts in a separate workspace; see the [OSS / Commercial architecture audit and migration boundaries](docs/manual/oss-boundary.md).
 
 The website is the canonical product documentation and includes its own language switcher. The four system SVGs below are **living product documentation**: when wcode changes its engineering loop, repository model, verification contract, or security boundary, the diagrams are expected to evolve with the product.
 
@@ -59,9 +63,10 @@ The loop is intentionally conservative:
 
 - **Understand** — build task-ready context from Design State, syntax, semantics, graph relationships, conventions, and current work.
 - **Change** — mutate only inside the selected Workspace with bounded writes and SHA-guarded edits.
-- **Prove** — run deterministic checks, language-native quality providers, advanced verification stages, and independent review as required.
-- **Learn** — retain only trustworthy, revision-bound evidence and verified repository experience.
-- **Observe & reconcile** — expose architecture, changes, requirements, risk, drift, verification, and convergence state to humans and agents.
+- **Inspect** — explain changed files and symbols, impacted components and requirements, precision, risk and missing coverage.
+- **Verify** — execute required deterministic checks and language-native providers; keep mapped, skipped, failed and unavailable distinct.
+- **Evidence** — retain execution provenance and exact revisions; verified repository experience depends on proof.
+- **Accept / Block** — enforce existing Verification and Reconciliation gates. The unified commercial Acceptance Record and external merge gate remain in development.
 
 ## Repository intelligence
 

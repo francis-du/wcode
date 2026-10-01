@@ -23,10 +23,10 @@ fn validate_devtunnel_id(tunnel_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) async fn start_devtunnel_once(
+pub(super) async fn start_devtunnel_once<T: RuntimeTelemetry>(
     local_url: &str,
     tunnel_id: &str,
-    monitor: &TaskMonitor,
+    monitor: &T,
 ) -> Result<(TunnelChild, String)> {
     validate_devtunnel_id(tunnel_id)?;
     let local = Url::parse(local_url).context("invalid local tunnel target URL")?;

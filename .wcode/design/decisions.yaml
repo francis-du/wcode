@@ -139,3 +139,54 @@
     - component:execution-sandbox
     - component:workspace-operations
     - component:execution-policy
+
+- schema_version: 1
+  id: ADR-012-AI-CHANGE-ACCEPTANCE
+  title: AI Change Acceptance reuses one hardened engineering decision
+  status: proposed
+  decision: >-
+    The first commercial scenario is a revision-bound Change Acceptance Record over existing Design acceptance,
+    Verification plans, real execution Evidence, Risk and Reconciliation. Required mapping, execution, result,
+    freshness and authenticated authority remain separate. A generic test command cannot prove every mapped test
+    ran; quick evidence cannot satisfy a stronger full-plan requirement. Human decisions require a protected
+    operator-issued one-shot grant and never become test success. External reports remain advisory until their
+    execution authority is verified. Git provider adapters bind the same canonical decision to an exact commit
+    and trusted policy digest; only ready can publish success. No billing, own agent, IDE expansion or release
+    is required for this work.
+  rationale: >-
+    Source audit found permissive client-reported approvals and producers, imprecise mapped-test execution,
+    missing Git commit/policy binding and no customer merge gate. These must be repaired before a real paid
+    pilot. Preserve Apache-2.0 local capabilities and unfinished work; sell shared coordination, governance,
+    evidence and operational convenience. Planning and historical green CI are not current acceptance proof.
+  affects:
+    - product:wcode
+    - component:verification-harness
+    - component:reconciliation-engine
+    - component:workspace-operations
+    - component:mcp-runtime
+    - component:documentation-governance
+
+- schema_version: 1
+  id: ADR-013-OSS-COMMERCIAL-BOUNDARY
+  title: Logical OSS ownership precedes physical crate extraction
+  status: accepted
+  decision: >-
+    Keep the current Apache-2.0 wcode package as the cohesive Core and local product.
+    Record logical ownership in a machine-checked architecture policy and expose one bounded
+    public read-only verification snapshot evaluator over the existing canonical decision.
+    A separate non-publishable commercial workspace contains only new Team and Enterprise
+    composition skeletons. OSS cannot depend on any of their source or state. Defer physical
+    Core extraction until actual report, Git binding and authority state-root cycles are removed.
+  rationale: >-
+    Source audit confirmed intelligence/harness, evidence/verification and Workspace/state-root
+    cross-references. Immediate directory-driven extraction would expand private APIs or lose
+    safety invariants. Existing OAuth, local authorization, complete verification and local UI
+    remain OSS. License boundary does not imply private source, tenancy, CAR or product completion.
+  affects:
+    - product:wcode
+    - component:oss-commercial-boundary
+    - component:verification-mesh
+    - component:evidence-runtime
+    - component:workspace-security
+    - component:mcp-runtime
+    - component:product-scopes

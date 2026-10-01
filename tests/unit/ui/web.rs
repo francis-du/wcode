@@ -4,7 +4,12 @@ use super::*;
 mod observatory;
 
 #[test]
-fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
+fn project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns() {
+    assert!(INTELLIGENCE_JS.contains("workspaceTab: \"overview\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("data-i18n=\"Acceptance\">Acceptance"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("class=\"acceptance-supporting\""));
+    assert!(INTELLIGENCE_JS.contains("function acceptanceView"));
+    assert!(INTELLIGENCE_JS.contains("function acceptanceCheckRows"));
     assert!(INTELLIGENCE_APP_PAGE.contains("Engineering Observatory"));
     assert!(INTELLIGENCE_APP_PAGE.contains("/intelligence/logo.svg"));
     assert!(INTELLIGENCE_APP_PAGE.contains("class=\"brand-logo\""));
@@ -126,7 +131,7 @@ fn project_observatory_page_is_architecture_first_and_has_no_ball_graph() {
 }
 
 #[test]
-fn observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first() {
+fn observatory_visual_contract_stays_compact_brand_aligned_with_acceptance_first() {
     for forbidden in ["#b69761", "#9e7b49", "#8c8374", "#151512"] {
         assert!(
             !INTELLIGENCE_CSS.contains(forbidden),

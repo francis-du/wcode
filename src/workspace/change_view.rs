@@ -175,7 +175,7 @@ fn unified_changed_ranges(content: &str) -> (Vec<ChangeLineRange>, Vec<ChangeLin
 }
 
 impl Workspace {
-    async fn change_probe(&self, args: &[&str]) -> Result<CommandResult> {
+    pub(crate) async fn change_probe(&self, args: &[&str]) -> Result<CommandResult> {
         let args = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
         let result = self.run_command("git", &args, ".", 10).await?;
         if !result.success || result.timed_out || result.output_incomplete {

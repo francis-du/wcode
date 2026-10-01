@@ -1,0 +1,30 @@
+schema_version: 1
+id: AC-FAILURE-MEMORY-001
+title: Failure memory survives model changes without becoming authority
+statement: Native failures retain only bounded known categories and safe relative paths in the existing 512-record project journal. Legacy events without categories do not infer causes. Canonical payload identities and event deduplication prevent copied observations from inflating recurrence. Agent Context recalls at most two relevant fixed rules, one under a 1000-token budget, while preserving current source SHA. New Harness and Workspace instances recover the same project observations; another project does not, including roots with identical lossy text. UTF8 state remains compatible and non-UTF8 state never imports an ambiguous legacy store. In-process concurrent appends preserve the bound and recurring anchors; bounded old overflow is recovered before append, excessive scans fail closed, and excessive future timestamps remain partial historical data. Removed paths and irrelevant failures are not promoted. Corrupt or truncated history is explicit, advice is not Evidence or approval, and no historical failure or success changes current verification truth. A real native MCP callback matches a configured literal against at most 4096 UTF8 bytes of payload.error, ignoring arguments and output. Error bytes are never persisted, and replayed event IDs are deduplicated. Generic queries in a new Harness recall no-path failures through currently discovered native check IDs; different projects remain isolated and matching IDs alone never establish recovery, proof or approval.
+verification:
+  - {kind: test, path: tests/unit/integrations/mcp/journal.rs, symbol: failure_memory_mcp_callback_matches_literal_without_retaining_private_payloads}
+  - {kind: test, path: tests/unit/integrations/mcp/journal.rs, symbol: failure_memory_mcp_callback_bounds_native_error_and_ignores_arguments_and_output}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: failure_memory_generic_context_recalls_native_checks_after_restart_without_paths}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_failed_postappend_cleanup_removes_new_record}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_failed_existing_overflow_cleanup_does_not_append}
+  - {kind: test, path: tests/unit/evidence/store.rs, symbol: utf8_workspace_state_identity_preserves_legacy_evidence_and_journal}
+  - {kind: test, path: tests/unit/evidence/store.rs, symbol: non_utf8_workspace_root_keys_do_not_use_lossy_identity}
+  - {kind: test, path: tests/unit/evidence/store.rs, symbol: non_utf8_real_workspace_stores_isolate_evidence_and_journal_without_legacy_fallback}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_future_records_are_partial_without_rejecting_append}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_entry_errors_propagate_and_directory_scan_is_bounded}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_concurrent_writers_at_capacity_keep_both_failures}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_bounded_old_overflow_is_recovered_before_append}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_excessive_recovery_scan_fails_before_new_append}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_isolate_real_non_utf8_roots_with_identical_lossy_names}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_all_invalid_history_is_explicit_without_changing_readiness}
+  - {kind: test, path: tests/unit/evidence/journal.rs, symbol: engineering_journal_failure_anchors_survive_513_future_success_events}
+  - {kind: test, path: tests/unit/integrations/mcp/journal.rs, symbol: mcp_journal_failed_native_verification_report_overrides_success_flag}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_survive_new_harness_and_workspace_without_model_identity}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_are_scoped_deduplicated_and_do_not_teach_success}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_filter_irrelevant_errors_and_removed_paths}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_keep_tight_budget_and_current_source_sha}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_corrupt_history_is_reported_without_changing_readiness}
+  - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_tight_budget_retains_the_same_complete_target_body}
+  - {kind: test, path: tests/unit/runtime/harness/convention_cache.rs, symbol: concurrent_project_profiles_keep_same_root_permission_modes_separate}
+  - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: handoff_cold_warm_context_keeps_identical_model_body_and_private_guards}

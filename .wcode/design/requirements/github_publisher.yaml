@@ -1,0 +1,21 @@
+schema_version: 1
+id: REQ-GITHUB-PUBLISHER-001
+title: Operate an exact-candidate publisher from an installed trusted binary
+intent: >-
+  Operators can inspect live GitHub required-check configuration and publish from fresh native Acceptance without compiling an example in the candidate checkout. The trusted configuration directory is explicit and disjoint from the candidate; credentials never enter argv or diagnostics. Read-only preflight observes exact repository, PR base/head, strict App-bound classic protection or an active inherited ruleset with visible empty bypass actors. Partial metadata, candidate drift, unsupported merge queues and missing native proof never become green. The installed event entrypoints authenticate bounded original PR webhook bytes with a separately provisioned HMAC-SHA256 secret, require pinned repository and installation identities, and derive exact candidate SHAs without trusting sender or proof fields. Authenticated routing is not freshness, durable replay protection, human approval or native verification. Operational publication keeps the existing red-first native recapture protocol. Configuration observation does not prove Check write permission, OS isolation, current Acceptance or an atomic merge lock.
+
+  An opt-in foreground watch-candidate controller continually recaptures native verification and Policy for a fixed trusted repository/PR/base/head. It reuses its own Check without rewriting unchanged facts, denies that original Check on unavailable or changed authority, and never imports historical success or replays completed inbox deliveries. Polls are serial with bounded error backoff. Graceful shutdown drains the current attempt and confirms denial before reporting a safe stop; force-kill, platform outage and concurrent external writers remain explicit deployment limits.
+  Cooperative publisher processes using the same native state root must share nonblocking OS admission for API/repository ID/App/Check/head identity, independent of token, PR number, base or local checkout label. Watchers retain admission across rounds and shutdown denial; one-shot and inbox publishers retain it through their actual operation. No path may bypass admission by using a lower-level Check write. Busy admission is not an attempted delivery, cannot consume retries, and cannot block unrelated due candidates or read-only diagnosis. Local locks do not fence remote requests already accepted before a crash or coordinate separate hosts/state roots.
+priority: high
+implemented_by:
+  - component:change-acceptance
+acceptance:
+  - AC-GITHUB-PUBLISHER-001
+constraints:
+  - CONSTRAINT-ROOT-ISOLATION
+  - CONSTRAINT-NO-SHELL
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+risk:
+  security: high
+  reliability: high

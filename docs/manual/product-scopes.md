@@ -61,6 +61,10 @@ Recommended agent flow:
 
 Design State maps these scopes to real components, implementation symbols and acceptance tests. Do not add future-only components without a real implementation mapping. Traceability must remain resolvable after refactors; physical file moves require corresponding Design State path updates.
 
+## Product and license ownership
+
+The 12 canonical scopes remain OSS capability categories. License and dependency layers are recorded separately in `.wcode/architecture.toml`; a directory name does not move a capability out of OSS. Core includes the readiness evaluator, local safety, policy evaluation, verification and Evidence truth. CLI, MCP/OAuth, TUI, WebUI, Setup and agent integrations remain the complete OSS product. New Team/Enterprise packages consume explicit public contracts and do not enter the OSS registry or change MCP semantics. See [OSS / Commercial boundaries](../oss-boundary/) for the audited source dependencies and migration gates.
+
 ## Scope design rules
 
 - Prefer product responsibility over generic technical-layer names.

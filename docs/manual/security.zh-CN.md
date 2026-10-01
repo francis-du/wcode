@@ -15,7 +15,7 @@ wcode 的基本原则很简单：连接模型不等于把整台机器暴露给�
 
 ## Workspace 隔离
 
-模型只能看到显式配置的 Workspace 根目录。面向模型的文件操作会拒绝绝对路径、父级穿越、受保护路径、Symlink 组件、Workspace 逃逸和不安全 Hard-link 情况。
+模型只能看到显式配置的 Workspace 根目录。面向模型的文件操作会拒绝绝对路径、父级穿越、受保护路径、Symlink 组件、Workspace 逃逸和不安全 Hard-link 情况。 实际配置的 OAuth 与工程权威状态目录会被文件入口和递归发现排除，包括 Full Access 的 Home Workspace；文件工具不能写入、替换、移动或删除这些目录及其祖先。这只保护文件工具入口：普通构建、脚本、LSP 与显式信任的命令仍使用宿主用户权限，不等于租户隔离，也不能防御控制该 OS 账户的攻击者。
 
 应当暴露仓库根目录，而不是用户主目录或文件系统根目录。
 
@@ -43,7 +43,9 @@ LSP Server 可能加载仓库控制的配置或代码，因此 wcode 保留独�
 
 ## 人工授权只能在本地完成
 
-待授权请求出现在 TUI 和受保护 WebUI 中。模型可以发起请求，但不能批准自己的请求。
+待授权请求出现在 TUI 和受保护 WebUI 中。模型可以发起请求，但不能通过 MCP 响应或文件工具写入批准自己的 HumanDecision 请求。
+
+HumanApproval 使用独立的本地操作者精确授权，两分钟到期且只能消费一次；它绑定服务器实例、Workspace、请求的 MCP Owner、完整 Plan 摘要、Code／Design 版本、Policy 和决定陈述。调用者提供的 `confirmed`、`approver` 或 producer 名称、普通 MCP Form Elicitation、命令会话授权及 Full Access 都不能授权这类决定。人工批准记录为人工决定，不会变成已执行或已通过的测试。这个本地操作者边界不提供 Team 角色，也不隔离同一 OS 用户下的恶意进程。
 
 ![wcode 授权与访问控制](/assets/wcode-access-management.png)
 
@@ -64,6 +66,8 @@ N      拒绝
 
 精确授权仍保持命令检查；全部命令授权则明确允许命令本身使用当前 OS 用户拥有的能力，但 WCode 自己的文件工具仍保持 Workspace 隔离。
 
+本地 Policy 激活与撤销复用精确 HumanDecision，并记录独立治理历史，见[本地验收 Policy](../acceptance-policy/)。宽命令沙箱使用实际配置的权威状态根，而不是仅匹配目录名称；macOS 拒绝读写，Linux 无法遮罩则拒绝启动。普通有界构建和测试仍运行仓库代码并拥有宿主用户权限，可能触及该用户的状态。因此带校验和的本地历史不能独立证明面对任意仓库代码的权威防伪；商业 merge gate 还需要不可信 Worker 之外的可信 Policy 和执行集成。
+
 ## OAuth 与远程 MCP
 
 云端或 Web 客户端通常通过受保护的 `/mcp` Resource 连接。旧客户端可以
@@ -77,12 +81,11 @@ N      拒绝
 - Refresh Token 轮换；
 - 浏览器 Origin 校验。
 
-Client 注册以及 Access / Refresh Token 不按时间过期。wcode 按配置的
-Workspace 根目录集合把它们写入用户状态目录，进程重启后重新载入。写盘
-使用原子替换；Unix 文件权限为 `0600`；Symlink 状态文件会被拒绝；损坏的
-状态会失败关闭。Authorization Code 仍只存在内存中，并保持短时、一次性。
-Store 继续使用固定容量：Client 达到上限时可回收尚未绑定 Token 的注册，
-Token 达到上限时淘汰最旧项，不会无限增长。
+Client 注册继续持久保存，不设置时钟 TTL。Access Token 在一小时后过期；令牌响应返回 `expires_in: 3600`、`Cache-Control: no-store` 和 `Pragma: no-cache`。Refresh Token 在 30 天没有成功轮换后过期；每次刷新都会签发新 Refresh Token、重新计算这段空闲 TTL，并立即移除同一 Client、同一授权 Grant 的旧 Access Token，其他 Grant Owner 不受影响。过期、为零或来自未来的 `issued_at_ms` 都失败关闭。已有持久 Grant 在迁移和重启时保留原签发时间，重新载入不会续命。
+
+状态按配置的 Workspace 根目录集合写入用户状态目录，进程重启后重新载入。写盘使用原子替换；Unix 文件权限为 `0600`；Symlink 状态文件会被拒绝；损坏状态失败关闭。Authorization Code 仍只存在内存中，并保持短时、一次性。Store 继续使用固定容量：Client 达到上限时可回收尚未绑定 Token 的注册，Token 达到上限时淘汰最旧项，不会无限增长。
+
+已实现的本地操作者会话管理 API 为 `GET /oauth/sessions` 和 `POST /oauth/sessions/revoke`，撤销使用 JSON 字段 `session_id`。它们遵循现有 Host／Origin 规则，并要求当前服务器的 `X-Wcode-UI-Token`；普通 MCP Bearer 不能授权这些操作。列表只含有界会话信息和不透明会话 ID，不返回 Access／Refresh Token 或私有 Grant Owner ID。成功撤销会持久移除该 Grant 的 Access／Refresh Token，重启也不会恢复。写盘失败返回 `revocation_not_persisted`，移除当前运行中的凭据，但不确认持久撤销。这是操作者管理 API，不是 RFC 7009 接口、Team ACL 或 SSO；Team ACL 与 SSO 尚未实现。
 
 替换隧道只有在公网健康响应与当前进程一致后才会成为有效入口，旧 Token
 的 Resource 随后才能迁移到这个入口。OAuth Metadata 与授权页仍使用请求

@@ -179,7 +179,120 @@ fn observatory_code_graph_opens_loads_and_renders_real_graph_data() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 38
+                .is_some_and(|results| results.len() == 43
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+use crate::native_acceptance_fixture;
+
+#[tokio::test]
+async fn acceptance_real_native_serializer_is_consumed_by_the_webui() {
+    let fixture = native_acceptance_fixture::NativeFixture::new();
+    assert_eq!(
+        fixture.root.path().canonicalize().unwrap(),
+        fixture.workspace.root()
+    );
+    let incomplete = fixture.capture().await;
+    assert_eq!(
+        incomplete.record().state,
+        crate::verification::acceptance::AcceptanceState::Incomplete
+    );
+    fixture.activate();
+    let ready = fixture.verify_and_review().await;
+    let snapshots = [incomplete, ready].into_iter().map(|native| {
+        let record = native.record();
+        serde_json::json!({
+            "workspace": record.workspace, "repository_revision": record.revision,
+            "proof": {"revision_code": record.revision.code, "revision_design": record.revision.design},
+            "acceptance": record,
+        })
+    }).collect::<Vec<_>>();
+    let input = fixture.root.path().join("native-acceptance-protocol.json");
+    std::fs::write(&input, serde_json::to_vec(&snapshots).unwrap()).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/acceptance.cjs"))
+        .arg(root)
+        .arg(&input)
+        .output()
+        .expect("Node is required for native Acceptance serializer interoperability");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["snapshots"], 2);
+    assert_eq!(report["passed"], true);
+}
+
+#[test]
+fn acceptance_ui_keeps_canonical_state_required_axes_and_stale_scope_explicit() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/acceptance.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for Acceptance UI protocol regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 33
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn verification_ui_runs_observes_cancels_and_refreshes_canonical_acceptance() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/verification.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for native verification UI protocol regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 16
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn jobs_ui_observation_and_verification_recovery_preserve_native_authority() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/jobs.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for native Jobs UI protocol regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 18
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

@@ -1,0 +1,38 @@
+schema_version: 1
+id: component:oss-commercial-boundary
+name: OSS and Commercial Architecture Boundary
+responsibilities:
+  - Keep Core and the complete local OSS product independently buildable under Apache-2.0 without commercial source, secrets or a private registry.
+  - Provide a bounded read-only verification snapshot contract that reuses the canonical OSS readiness evaluator and rejects malformed state rather than accepting pre-filled ready values.
+  - Isolate new Team and Enterprise composition packages, license files and persistence ownership from local authorization and evidence truth.
+  - Check dependency kinds, source inclusions, package payload and standalone source build with deterministic negative cases.
+  - Own the first dependency-light physical OSS fact/config package and preserve established root public/wire contracts while cutting Evidence-to-Verification type ownership and Workspace-to-store authority-root ownership.
+  - Keep Harness-facing report DTOs and model-tool routing in neutral contracts so Intelligence never imports Harness implementation ownership.
+  - Keep runtime/auth/task telemetry and durable-job observation behind neutral Core ports; TaskMonitor is an OSS Product adapter and cannot grant authority or job ownership.
+constraints:
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-COMMERCIAL-BOUNDARY
+  - CONSTRAINT-LICENSE-BOUNDARY
+depends_on:
+  - component:verification-mesh
+  - component:evidence-runtime
+  - component:product-scopes
+implementation:
+  - {kind: file, path: Cargo.toml}
+  - {kind: file, path: crates/core-types/Cargo.toml}
+  - {kind: file, path: crates/core-types/src/lib.rs}
+  - {kind: file, path: crates/core-types/src/reports.rs}
+  - {kind: file, path: src/runtime/contracts/report_types.rs}
+  - {kind: file, path: src/runtime/contracts/model_tools.rs}
+  - {kind: file, path: src/runtime/contracts/telemetry.rs}
+  - {kind: file, path: src/runtime/contracts/job_observation.rs}
+  - {kind: file, path: src/ui/monitor/telemetry.rs}
+  - {kind: file, path: .wcode/architecture.toml}
+  - {kind: file, path: src/verification/contract.rs}
+  - {kind: file, path: tests/architecture.rs}
+  - {kind: file, path: tests/oss_split.rs}
+  - {kind: file, path: tests/standalone.py}
+  - {kind: file, path: tests/unit/architecture/standalone.py}
+  - {kind: file, path: NOTICE}
+  - {kind: file, path: .gitattributes}
+  - {kind: file, path: .github/workflows/oss.yml}

@@ -1,0 +1,27 @@
+schema_version: 1
+id: component:acceptance-observation
+name: Local Acceptance inspection and native verification actions
+responsibilities:
+  - Navigate canonical Acceptance blockers and exact Evidence into protected files and syntax symbols without treating candidate paths as proof.
+  - Start and observe bounded native verification only after an explicit authenticated operator action, preserving workspace, revision, Git binding and original check outcomes.
+  - Keep completed transport tasks distinct from passing verification and refresh canonical Acceptance after result delivery.
+  - Discover bounded retained native job IDs within the authenticated selected Workspace; expose redacted command tails and permit cancellation only for the current UI owner.
+  - Recover lost verification launch replies only by reading real server-owned records; never guess IDs or automatically duplicate a run.
+constraints:
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-EVIDENCE-PROVENANCE
+  - CONSTRAINT-FAIL-CLOSED-VERIFICATION
+depends_on:
+  - component:change-acceptance
+  - component:verification-harness
+  - component:intelligence-ui
+implementation:
+  - {kind: file, path: src/ui/monitor/inspect.rs}
+  - {kind: file, path: src/ui/monitor/acceptance.rs}
+  - {kind: file, path: src/integrations/mcp/web_verification.rs}
+  - {kind: file, path: src/ui/intelligence_web/app/verification.js}
+  - {kind: file, path: src/integrations/mcp/web_jobs.rs}
+  - {kind: file, path: src/integrations/mcp/task_listing.rs}
+  - {kind: file, path: src/integrations/mcp/task_observation.rs}
+  - {kind: file, path: src/ui/intelligence_web/app/jobs.js}
+  - {kind: file, path: src/ui/intelligence_web/app/verification_recovery.js}

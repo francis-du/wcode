@@ -1,0 +1,8 @@
+schema_version: 1
+id: REQ-LOCAL-DESIGN-001
+title: Local integrations can read canonical Design without runtime capabilities
+intent: Expose the existing bounded native Design loader through an explicit trusted-local-path read-only facade. Preserve canonical diagnostics and Workspace file restrictions without exporting the Workspace implementation, execution capabilities, write authority or native approval.
+priority: high
+implemented_by: [component:local-design]
+acceptance: [AC-LOCAL-DESIGN-001]
+constraints: [CONSTRAINT-ROOT-ISOLATION, CONSTRAINT-SYMLINK-REJECTION, CONSTRAINT-OSS-INDEPENDENCE]

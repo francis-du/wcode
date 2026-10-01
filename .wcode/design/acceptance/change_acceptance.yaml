@@ -1,0 +1,8 @@
+schema_version: 1
+id: AC-CHANGE-ACCEPTANCE-001
+title: Acceptance preserves engineering truth across stale and adversarial inputs
+statement: The same trusted Change, Policy, Evidence and Revision produces identical OSS acceptance semantics. Required skipped or mapped-only checks cannot pass; old commit proof cannot approve a new commit even with identical files; model or human decisions cannot erase deterministic failures. Native capture guards revision, Policy authority and complete evidence/verification state before returning a Record. Partial, revoked, expired, unavailable and conflicting inputs fail closed. History is bounded, protected and restart-readable, and UI has no alternate readiness algorithm.
+verification:
+  - {kind: test, path: tests/unit/verification/acceptance.rs, symbol: acceptance_skipped_required_check_cannot_pass}
+  - {kind: test, path: tests/unit/verification/acceptance.rs, symbol: acceptance_old_revision_cannot_approve_new_commit}
+  - {kind: test, path: tests/unit/runtime/harness/acceptance.rs, symbol: native_acceptance_capture_rejects_input_drift}

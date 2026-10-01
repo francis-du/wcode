@@ -464,3 +464,130 @@ async function openChangeSymbolImpact(nodeId) {
   }
   return Boolean(current.relationImpact);
 }
+
+const codeSourceDrafts = new Map();
+function codeSourceDraftKey(source) {
+  return JSON.stringify([state.current, source.path, source.start_line, source.end_line]);
+}
+function codeSourceEditable(source) {
+  return source?.editable === true && source.redacted === false
+    && ["none", "lf", "crlf"].includes(source.line_ending)
+    && /^[0-9a-f]{64}$/i.test(source.current_sha256 || "");
+}
+function codeSourceDraft(source) {
+  return codeSourceDrafts.get(codeSourceDraftKey(source)) || [...codeSourceDrafts.values()].find(draft =>
+    draft.workspace === state.current && draft.source.path === source.path && draft.status !== "saved");
+}
+function beginCodeSourceEdit(source) {
+  if (!codeSourceEditable(source)) return false;
+  const key = codeSourceDraftKey(source);
+  let draft = codeSourceDrafts.get(key);
+  if (!draft) {
+    if (codeSourceDrafts.size >= 4) {
+      const disposable = [...codeSourceDrafts].find(([, value]) => value.status === "saved");
+      if (!disposable) return false;
+      codeSourceDrafts.delete(disposable[0]);
+    }
+    draft = { key, workspace:state.current, source:{...source}, text:source.content.replace(/\r\n/g, "\n"),
+      status:"editing", error:"", stamp:observationStamp() };
+    codeSourceDrafts.set(key, draft);
+  } else if (!draft.controller && draft.status === "editing") {
+    draft.stamp = observationStamp();
+    if (draft.source.current_sha256 !== source.current_sha256) {
+      draft.status = "conflict";
+      draft.error = localized("Source changed. Your draft is retained; compare it with current source.", "源码已变化。草稿已保留，请与当前源码比较。");
+    }
+  }
+  renderCodeGraphInspector();
+  return true;
+}
+function codeSourceEditorPanel(source) {
+  const draft = codeSourceDraft(source);
+  if (!draft) return codeSourceEditable(source)
+    ? `<button type="button" class="code-source-edit" data-code-edit>${esc(localized("Edit this window", "编辑当前行区间"))}</button>` : "";
+  const blocked = draft.status !== "editing" || draft.source.current_sha256 !== source.current_sha256
+    || draft.source.start_line !== source.start_line || draft.source.end_line !== source.end_line;
+  const pending = draft.status === "saving";
+  const title = pending ? localized("Saving guarded edit…", "正在校验并保存…")
+    : draft.status === "saved" ? localized("Saved. Reload current file to inspect changes.", "已保存。重新读取当前文件以检查变更。")
+    : localized("Source draft", "源码草稿");
+  return `<section class="code-source-editor"><strong>${esc(title)}</strong>
+    <small>${esc(draft.source.path)} · ${draft.source.start_line}–${draft.source.end_line} · ${esc(draft.source.current_sha256.slice(0,12))}</small>
+    <textarea data-code-draft spellcheck="false" aria-label="${esc(localized("Source draft", "源码草稿"))}" ${pending ? "readonly" : ""}>${esc(draft.text)}</textarea>
+    <details><summary>${esc(localized("Compare original and draft", "比较原文与草稿"))}</summary>
+      <div class="code-source-comparison"><div><b>${esc(localized("Original", "原文"))}</b><pre>${esc(draft.source.content)}</pre></div><div><b>${esc(localized("Draft", "草稿"))}</b><pre data-code-draft-diff>${esc(draft.text)}</pre></div></div>
+    </details>
+    ${draft.error ? `<p class="warn" role="status">${esc(draft.error)}</p>` : ""}
+    <div class="code-source-edit-actions"><button type="button" class="primary" data-code-save ${blocked ? "disabled" : ""}>${esc(localized("Save this window", "保存当前行区间"))}</button>
+    <button type="button" data-code-reload ${pending ? "disabled" : ""}>${esc(localized("Inspect current file", "检查当前文件"))}</button>
+    <button type="button" data-code-discard ${pending ? "disabled" : ""}>${esc(localized("Discard draft", "丢弃草稿"))}</button></div>
+    <p>${esc(localized("Only this line window changes. Concurrent edits are checked against the original SHA. A save does not establish verification.", "只修改当前行区间，保存时按原始 SHA 检查并发变动；保存不代表验证通过。"))}</p>
+  </section>`;
+}
+function bindCodeSourceEditor(source) {
+  const host = els.codeGraphInspector;
+  host?.querySelector("[data-code-edit]")?.addEventListener("click", () => beginCodeSourceEdit(source));
+  const draft = codeSourceDraft(source);
+  if (!draft) return;
+  host.querySelector("[data-code-draft]")?.addEventListener("input", event => {
+    if (draft.status === "saving") return;
+    draft.text = event.currentTarget.value;
+    const preview = host.querySelector("[data-code-draft-diff]");
+    if (preview) preview.textContent = draft.text;
+  });
+  host.querySelector("[data-code-save]")?.addEventListener("click", () => void saveCodeSourceDraft(draft));
+  host.querySelector("[data-code-reload]")?.addEventListener("click", () => void openRepositoryFile(source.path));
+  host.querySelector("[data-code-discard]")?.addEventListener("click", () => {
+    if (draft.status === "saving") return;
+    codeSourceDrafts.delete(draft.key);
+    renderCodeGraphInspector();
+  });
+}
+async function saveCodeSourceDraft(draft) {
+  if (!draft || draft.status !== "editing" || !observationCurrent(draft.stamp)
+      || draft.workspace !== state.current || state.codeGraphSource?.current_sha256 !== draft.source.current_sha256
+      || state.codeGraphSource?.start_line !== draft.source.start_line || state.codeGraphSource?.end_line !== draft.source.end_line
+      || codeSourceDraft(state.codeGraphSource) !== draft) return false;
+  if (new TextEncoder().encode(draft.text).length > 131072 || draft.text.split("\n").length > 240) {
+    draft.error = localized("Draft exceeds 240 lines or 128 KiB.", "草稿超过 240 行或 128 KiB。");
+    renderCodeGraphInspector(); return false;
+  }
+  const controller = new AbortController(), stamp = observationStamp(), source = draft.source;
+  draft.status = "saving"; draft.error = ""; draft.controller = controller;
+  renderCodeGraphInspector();
+  const current = () => observationCurrent(stamp) && codeSourceDrafts.get(draft.key) === draft
+    && draft.controller === controller && state.codeGraphSource?.current_sha256 === source.current_sha256
+    && codeSourceDraft(state.codeGraphSource) === draft;
+  try {
+    const result = await uiJson("/intelligence/code-source", "POST", {
+      node_id:source.node_id, snapshot_id:source.snapshot_id, expected_sha256:source.current_sha256,
+      start_line:source.start_line, end_line:source.end_line, old_text:source.content, new_text:draft.text,
+    }, { workspace:draft.workspace, signal:controller.signal, timeout:60000 });
+    if (result?.workspace !== draft.workspace || result?.code !== "source_updated"
+        || result?.edit?.path !== source.path || result?.edit?.sha256_before !== source.current_sha256
+        || !/^[0-9a-f]{64}$/i.test(result?.edit?.sha256_after || "")
+        || !Number.isSafeInteger(result?.edit?.bytes_written) || result.edit.bytes_written < 0) {
+      throw new Error("Invalid guarded edit response");
+    }
+    const apply = current();
+    draft.status = "saved";
+    if (apply) {
+      renderCodeGraphInspector();
+      void openRepositoryFile(source.path);
+      void refresh();
+    }
+    return true;
+  } catch (error) {
+    draft.status = error.status === 409 ? "conflict" : "uncertain";
+    draft.error = error.status === 409
+      ? localized("Source changed. Draft retained; inspect and compare current source.", "源码已变化，草稿已保留；请检查并比较当前源码。")
+      : localized("Save was not confirmed. Draft retained. Inspect current source before any new save.", "保存尚未确认，草稿已保留。再次保存前请先检查当前源码。");
+    if (current()) renderCodeGraphInspector();
+    return false;
+  } finally {
+    if (draft.controller === controller) {
+      draft.controller = null;
+      if (observationCurrent(stamp) && codeSourceDrafts.get(draft.key) === draft) renderCodeGraphInspector();
+    }
+  }
+}

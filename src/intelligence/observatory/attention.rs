@@ -1,7 +1,7 @@
 //! Bounded, revision-bound issue projection shared by terminal and browser.
 use crate::evidence::{Confidence, EvidenceKind, EvidenceResult, Revision};
-use crate::harness::ChangeReviewReport;
 use crate::intelligence_types::ProjectObservatory;
+use crate::report_types::ChangeReviewReport;
 use crate::verification::VerificationStatus;
 use serde::Serialize;
 use sha2::{Digest, Sha256};

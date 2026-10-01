@@ -31,6 +31,7 @@ fn plan(bound: Revision) -> ReconciliationPlan {
             risk_level: RiskLevel::Medium,
             policy: "risk-adaptive/v1/medium".into(),
             deterministic_level: "full".into(),
+            required_checks: None,
             deterministic_checks: vec!["cargo test --locked".into()],
             reviewer_roles: vec![],
             require_property: false,

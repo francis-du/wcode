@@ -9,29 +9,46 @@ pub(super) fn request_intelligence_refresh(
     config: &MonitorConfig,
     workspace_id: String,
 ) {
-    monitor.register_workspace(workspace_id.clone());
-    if !monitor.begin_intelligence_refresh(&workspace_id) {
-        return;
-    }
     let refresh_monitor = monitor.clone();
-    let failure_monitor = monitor.clone();
     let harness = config.harness.clone();
     let workspaces = config.workspaces.clone();
+    let refresh_workspace = workspace_id.clone();
+    let _ = spawn_intelligence_refresh(monitor, workspace_id, move || {
+        refresh_intelligence_now(&refresh_monitor, &harness, &workspaces, &refresh_workspace)
+    });
+}
+
+pub(super) fn spawn_intelligence_refresh(
+    monitor: &TaskMonitor,
+    workspace_id: String,
+    refresh: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+) -> Option<std::thread::JoinHandle<()>> {
+    monitor.register_workspace(workspace_id.clone());
+    if !monitor.begin_intelligence_refresh(&workspace_id) {
+        return None;
+    }
+    let refresh_monitor = monitor.clone();
     let failure_workspace = workspace_id.clone();
-    let spawn = std::thread::Builder::new()
+    match std::thread::Builder::new()
         .name("wcode-intelligence".to_owned())
         .spawn(move || {
-            let error =
-                refresh_intelligence_now(&refresh_monitor, &harness, &workspaces, &workspace_id)
-                    .err()
-                    .map(|error| error.to_string());
+            // A refresh may unwind after publishing partial observations. Always
+            // settle its loading flag, keep those observations explicitly stale,
+            // and permit a later retry without exposing the panic payload in UI.
+            let error = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(refresh)) {
+                Ok(result) => result.err().map(|error| error.to_string()),
+                Err(_) => Some("refresh worker panicked; press R to retry".to_owned()),
+            };
             refresh_monitor.finish_intelligence_refresh(&workspace_id, error);
-        });
-    if let Err(error) = spawn {
-        failure_monitor.finish_intelligence_refresh(
-            &failure_workspace,
-            Some(format!("cannot start refresh: {error}")),
-        );
+        }) {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            monitor.finish_intelligence_refresh(
+                &failure_workspace,
+                Some(format!("cannot start refresh: {error}")),
+            );
+            None
+        }
     }
 }
 
@@ -154,20 +171,18 @@ pub(super) fn refresh_intelligence_now(
     let mut errors = concurrent_errors
         .into_inner()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if harness.cached_project_observatory(&workspace).is_none() {
-        if let Err(error) = harness.project_observatory(workspace_id, &workspace, None) {
-            errors.push(format!("project_observatory: {error}"));
-        }
-    }
-    if let Some(observatory) = harness.cached_project_observatory(&workspace) {
-        record_refresh(
-            monitor,
-            workspace_id,
-            "project_observatory",
-            Ok(observatory),
-            &mut errors,
-        );
-    }
+    // This refresh thread must capture current Acceptance, never relabel a cached
+    // historical Record. Viewing does not execute checks or approve requests.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    record_refresh(
+        monitor,
+        workspace_id,
+        "project_observatory",
+        runtime.block_on(harness.project_observatory_live(workspace_id, &workspace, None)),
+        &mut errors,
+    );
     refresh_graph_diff(monitor, harness, workspace_id, &workspace, &mut errors);
     refresh_verification(monitor, harness, workspace_id, &workspace, &mut errors);
     refresh_reconciliation(monitor, harness, workspace_id, &workspace, &mut errors);
@@ -329,6 +344,14 @@ pub(super) fn render_intelligence_overlay(
         .verification_ready
         .map(|ready| language.tr(if ready { "ready" } else { "blocked" }))
         .unwrap_or_else(|| language.tr("unknown"));
+    let admission = config.harness.admission_snapshot();
+    let admission_line = format!(
+        " SLOTS {}/{} · RUN {} · {} ",
+        admission.slots_in_use,
+        admission.total_limit,
+        totals(snapshot).active,
+        admission_wait_text(&config.harness)
+    );
     let reconciliation = stats
         .reconciliation_converged
         .map(|converged| language.tr(if converged { "converged" } else { "active" }))
@@ -357,6 +380,10 @@ pub(super) fn render_intelligence_overlay(
             ))
             .right_aligned(),
         );
+    let block = block.title_bottom(Line::from(Span::styled(
+        truncate_end(&admission_line, popup.width.saturating_sub(2) as usize),
+        Style::default().fg(TEXT_MUTED),
+    )));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     render_console_tabs(frame, inner, ui);

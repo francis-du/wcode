@@ -59,7 +59,7 @@ fn schema(mut properties: Value, required: &[&str]) -> Value {
             "workspace".to_owned(),
             json!({
                 "type": "string",
-                "description": "Omit for the default Workspace."
+                "description": "Omit for default."
             }),
         );
     }
@@ -93,6 +93,17 @@ pub(crate) fn selected_workspace(
 tokio::task_local! {
     pub(super) static BLOCKING_PERMIT: std::sync::Arc<crate::harness::ToolPermit>;
     pub(super) static BLOCKING_TASK: crate::monitor::TaskTicket;
+}
+
+pub(super) async fn acquire_status_permit(
+    state: &AppState,
+) -> Result<std::sync::Arc<crate::harness::ToolPermit>, Value> {
+    state
+        .harness
+        .acquire_tool_with_wait_timeout(false, std::time::Duration::from_millis(250))
+        .await
+        .map(std::sync::Arc::new)
+        .map_err(|_| state.harness.admission_diagnostic())
 }
 
 pub(super) async fn acquire_tool_permit(
@@ -180,21 +191,23 @@ const MODEL_HIDDEN_TUNING_ARGS: &[&str] = &[
     "max_body_lines",
 ];
 
-fn strip_model_tuning_args(value: &mut Value) {
+fn strip_model_tuning_args(value: &mut Value, expose_timeout: bool) {
     match value {
         Value::Object(object) => {
             if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
                 for key in MODEL_HIDDEN_TUNING_ARGS {
-                    properties.remove(*key);
+                    if *key != "timeout_seconds" || !expose_timeout {
+                        properties.remove(*key);
+                    }
                 }
             }
             for child in object.values_mut() {
-                strip_model_tuning_args(child);
+                strip_model_tuning_args(child, expose_timeout);
             }
         }
         Value::Array(items) => {
             for child in items {
-                strip_model_tuning_args(child);
+                strip_model_tuning_args(child, expose_timeout);
             }
         }
         _ => {}
@@ -239,7 +252,10 @@ fn tool(
     destructive: bool,
 ) -> Value {
     strip_schema_defaults(&mut input_schema);
-    strip_model_tuning_args(&mut input_schema);
+    // Runtime allowance is an operational control, not retrieval tuning.
+    // Keep it discoverable on long-command entry points; parser bounds apply.
+    let expose_timeout = matches!(name, "run_command" | "command_task" | "verify_project");
+    strip_model_tuning_args(&mut input_schema, expose_timeout);
     let product_scopes = scopes::tool_scopes(name)
         .into_iter()
         .map(|scope| scope.as_str())
@@ -495,6 +511,10 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
         }
         "scope_status" => "audit Product Scope source coverage and unmapped files".to_owned(),
         "design_status" => "validate structured desired software state".to_owned(),
+        "acceptance_policy" => format!(
+            "{} native Acceptance Policy",
+            string_arg(args, "action").unwrap_or("status")
+        ),
         "design_init" => "initialize minimal structured desired software state".to_owned(),
         "software_graph" => format!(
             "{} · software graph · {} files · {} symbols",
@@ -594,9 +614,9 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
             "execute required property/mutation/fuzz/runtime stages".to_owned()
         }
         "verification_stage_submit" => {
-            "submit property/mutation/fuzz/runtime stage evidence".to_owned()
+            "retain advisory property/mutation/fuzz/runtime report".to_owned()
         }
-        "verification_approve" => "record explicit human approval evidence".to_owned(),
+        "verification_approve" => "request exact local operator approval".to_owned(),
         "verification_status" => "inspect verification readiness and reviewer states".to_owned(),
         "verification_history" => format!(
             "list persisted verification plans · limit {}",
@@ -632,7 +652,7 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
             string_arg(args, "level").unwrap_or("quick"),
             args.get("timeout_seconds")
                 .and_then(Value::as_u64)
-                .unwrap_or(120)
+                .unwrap_or(600)
         ),
         "parallel_tools" => format!("{} independent tool requests", array_len(args, "tasks")),
         "list_files" => format!(

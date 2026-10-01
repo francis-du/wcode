@@ -4,6 +4,8 @@ use serde_json::json;
 
 #[path = "admission.rs"]
 mod admission;
+#[path = "dispatch/parallel_command.rs"]
+mod parallel_command;
 #[path = "preview.rs"]
 mod preview;
 
@@ -98,7 +100,6 @@ async fn strict_command_rejects_invalid_optional_settings() {
         ("timeout_seconds", json!(-1)),
         ("timeout_seconds", json!(1.5)),
         ("timeout_seconds", json!(1801)),
-        ("timeout_seconds", json!(61)),
         ("task_mode", Value::Null),
         ("task_mode", json!("yes")),
     ] {
@@ -114,12 +115,12 @@ async fn strict_command_rejects_invalid_optional_settings() {
     let accepted = leaf_workspace::call(
         &state,
         "run_command",
-        &json!({"program": "git", "args": ["--version"], "timeout_seconds": 60}),
+        &json!({"program": "git", "args": ["--version"], "timeout_seconds": 1800}),
     )
     .await;
     assert!(
         accepted.is_ok(),
-        "60-second synchronous timeout must be accepted"
+        "1800-second synchronous timeout must be accepted"
     );
 
     let accepted_task = leaf_workspace::call(
@@ -132,6 +133,25 @@ async fn strict_command_rejects_invalid_optional_settings() {
         accepted_task.is_ok(),
         "1800-second Task timeout must be accepted"
     );
+    assert_eq!(
+        leaf_workspace::command_timeout_seconds(&json!({})).unwrap(),
+        600
+    );
+    assert_eq!(
+        leaf_workspace::command_timeout_seconds(&json!({"task_mode":true})).unwrap(),
+        600
+    );
+    for task_mode in [false, true] {
+        for seconds in [1, 60, 61, 600, 1800] {
+            assert_eq!(
+                leaf_workspace::command_timeout_seconds(
+                    &json!({"task_mode":task_mode,"timeout_seconds":seconds})
+                )
+                .unwrap(),
+                seconds
+            );
+        }
+    }
     assert!(state.workspaces.authorization_requests(10).is_empty());
 }
 
@@ -328,7 +348,23 @@ async fn command_and_verification_failures_keep_reports_and_error_flags() {
     let root = tempfile::tempdir().unwrap();
     let note = root.path().join("note.txt");
     std::fs::write(&note, "clean\n").unwrap();
-    for args in [vec!["init", "--quiet"], vec!["add", "note.txt"]] {
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["add", "note.txt"],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--quiet",
+            "--no-verify",
+            "-m",
+            "baseline",
+        ],
+    ] {
         let output = std::process::Command::new("git")
             .args(args)
             .current_dir(root.path())
@@ -817,5 +853,111 @@ async fn media_protocol_matrix_is_standard_and_type_bounded() {
     assert_eq!(
         video_content["structuredContent"]["content_returned"],
         false
+    );
+}
+
+#[tokio::test]
+async fn anonymous_health_is_minimal_and_probe_keeps_instance_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let state = Arc::new(batch_test_state(root.path()));
+    let value = health(State(state.clone()), HeaderMap::new()).await.0;
+    assert_eq!(
+        value,
+        json!({"ok": true, "name": "wcode", "version": env!("CARGO_PKG_VERSION")})
+    );
+    assert!(!value
+        .to_string()
+        .contains(&root.path().to_string_lossy().to_string()));
+    for key in [
+        "workspaces",
+        "resources",
+        "harness",
+        "tunnels",
+        "active_tasks",
+        "oauth_authorized",
+    ] {
+        assert!(value.get(key).is_none(), "anonymous health leaked {key}");
+    }
+    assert_eq!(
+        health_probe(State(state.clone())).await.0,
+        json!({"ok": true, "instance_id": state.auth.instance_id()})
+    );
+}
+
+#[tokio::test]
+async fn full_health_diagnostics_require_operator_ui_authorization() {
+    use axum::body::to_bytes;
+
+    let root = tempfile::tempdir().unwrap();
+    let state = Arc::new(batch_test_state(root.path()));
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "127.0.0.1:8765".parse().unwrap());
+    assert_eq!(
+        intelligence_diagnostics(State(state.clone()), headers.clone())
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    state.auth.insert_test_access_token(
+        "access_diagnostics",
+        "client",
+        "http://127.0.0.1:8765/mcp",
+    );
+    headers.insert(
+        "authorization",
+        "Bearer access_diagnostics".parse().unwrap(),
+    );
+    assert_eq!(
+        intelligence_diagnostics(State(state.clone()), headers.clone())
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    headers.insert("x-wcode-ui-token", state.auth.ui_token().parse().unwrap());
+    headers.insert("origin", "https://untrusted.example".parse().unwrap());
+    assert_eq!(
+        intelligence_diagnostics(State(state.clone()), headers.clone())
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    headers.insert("origin", "http://127.0.0.1:8765".parse().unwrap());
+    let response = intelligence_diagnostics(State(state.clone()), headers.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = to_bytes(response.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    let value: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        value["workspaces"]["workspaces"][0]["root"],
+        state
+            .workspaces
+            .select(None)
+            .unwrap()
+            .1
+            .root()
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert!(value.get("resources").is_some());
+    assert!(value.get("harness").is_some());
+    assert!(!String::from_utf8(body.to_vec())
+        .unwrap()
+        .contains(state.auth.ui_token()));
+    headers.insert("host", "untrusted.example".parse().unwrap());
+    assert_eq!(
+        intelligence_diagnostics(State(state.clone()), headers.clone())
+            .await
+            .status(),
+        StatusCode::OK,
+        "valid reverse-proxy Host remains compatible with operator UI authorization"
+    );
+    headers.insert("host", "https://untrusted.example".parse().unwrap());
+    assert_eq!(
+        intelligence_diagnostics(State(state), headers)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
     );
 }

@@ -3,17 +3,19 @@ use super::*;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum ConsoleTab {
     #[default]
-    Summary,
+    Acceptance,
     Attention,
     Tasks,
     Providers,
     Agents,
+    Summary,
 }
 
 impl ConsoleTab {
     fn index(self) -> usize {
         match self {
-            Self::Summary => 0,
+            Self::Acceptance => 0,
+            Self::Summary => 5,
             Self::Attention => 1,
             Self::Tasks => 2,
             Self::Providers => 3,
@@ -23,12 +25,13 @@ impl ConsoleTab {
 
     fn from_index(index: usize) -> Self {
         [
-            Self::Summary,
+            Self::Acceptance,
             Self::Attention,
             Self::Tasks,
             Self::Providers,
             Self::Agents,
-        ][index % 5]
+            Self::Summary,
+        ][index % 6]
     }
 }
 
@@ -44,12 +47,19 @@ struct AttentionSignal {
 }
 
 pub(super) fn render_console_tabs(frame: &mut Frame<'_>, area: Rect, ui: &DashboardState) {
-    let labels = if area.width >= 66 {
-        ["Summary", "Attention", "Tasks", "Providers", "Agents"]
-    } else if area.width >= 50 {
-        ["Summary", "Issues", "Tasks", "LSP/AI", "Agents"]
+    let labels = if area.width >= 80 {
+        [
+            "Acceptance",
+            "Attention",
+            "Tasks",
+            "Providers",
+            "Agents",
+            "Observations",
+        ]
+    } else if area.width >= 61 {
+        ["Accept", "Issues", "Tasks", "LSP/AI", "Agents", "Observe"]
     } else {
-        ["S", "!", "T", "P", "A"]
+        ["AC", "!", "T", "P", "A", "O"]
     };
     let spans = labels
         .into_iter()
@@ -73,11 +83,17 @@ pub(super) fn render_console_tabs(frame: &mut Frame<'_>, area: Rect, ui: &Dashbo
         Rect::new(area.x, area.y, area.width, 1),
     );
     if area.height > 1 {
-        let label =
-            ["Summary", "Attention", "Tasks", "Providers", "Agents"][ui.console_tab.index()];
+        let label = [
+            "Acceptance",
+            "Attention",
+            "Tasks",
+            "Providers",
+            "Agents",
+            "Observations",
+        ][ui.console_tab.index()];
         frame.render_widget(
             Paragraph::new(Span::styled(
-                format!("{} · Tab / Shift-Tab · 1-5", ui.language.tr(label)),
+                format!("{} · Tab / Shift-Tab · 1-6", ui.language.tr(label)),
                 Style::default().fg(TEXT_DIM),
             )),
             Rect::new(area.x, area.y + 1, area.width, 1),
@@ -85,7 +101,7 @@ pub(super) fn render_console_tabs(frame: &mut Frame<'_>, area: Rect, ui: &Dashbo
     }
 }
 
-fn console_workspace(
+pub(super) fn console_workspace(
     ui: &DashboardState,
     snapshot: &MonitorSnapshot,
     config: &MonitorConfig,
@@ -95,7 +111,10 @@ fn console_workspace(
         .or_else(|| focused_workspace_id(config, snapshot, ui.workspace_focus))
 }
 
-fn console_tasks<'a>(snapshot: &'a MonitorSnapshot, workspace: &str) -> Vec<&'a TaskRecord> {
+pub(super) fn console_tasks<'a>(
+    snapshot: &'a MonitorSnapshot,
+    workspace: &str,
+) -> Vec<&'a TaskRecord> {
     let mut tasks = snapshot
         .tasks
         .iter()
@@ -115,7 +134,7 @@ fn console_tasks<'a>(snapshot: &'a MonitorSnapshot, workspace: &str) -> Vec<&'a 
     tasks
 }
 
-fn task_selection(ui: &DashboardState, tasks: &[&TaskRecord]) -> usize {
+pub(super) fn task_selection(ui: &DashboardState, tasks: &[&TaskRecord]) -> usize {
     ui.console_task_id
         .and_then(|id| tasks.iter().position(|task| task.id == id))
         .unwrap_or(ui.console_focus)
@@ -362,11 +381,21 @@ pub(super) fn handle_console_key(
     {
         return false;
     }
+    if handle_source_inspection_key(key, ui) {
+        return true;
+    }
+    if key.kind == KeyEventKind::Press
+        && matches!(key.code, KeyCode::Char('f' | 'F'))
+        && ui.console_tab == ConsoleTab::Acceptance
+    {
+        open_source_inspection(ui, snapshot, config);
+        return true;
+    }
     let press = key.kind == KeyEventKind::Press;
     let tab = match key.code {
         KeyCode::Tab if press => Some(ConsoleTab::from_index(ui.console_tab.index() + 1)),
-        KeyCode::BackTab if press => Some(ConsoleTab::from_index(ui.console_tab.index() + 4)),
-        KeyCode::Char('1'..='5') if press => {
+        KeyCode::BackTab if press => Some(ConsoleTab::from_index(ui.console_tab.index() + 5)),
+        KeyCode::Char('1'..='6') if press => {
             if let KeyCode::Char(digit) = key.code {
                 Some(ConsoleTab::from_index(digit as usize - '1' as usize))
             } else {
@@ -380,6 +409,8 @@ pub(super) fn handle_console_key(
         ui.console_focus = 0;
         ui.console_task_id = None;
         ui.console_scroll = 0;
+        ui.acceptance_detail_open = false;
+        ui.source_inspection = None;
         return true;
     }
     let Some(workspace) = console_workspace(ui, snapshot, config) else {
@@ -393,6 +424,10 @@ pub(super) fn handle_console_key(
         ui.console_focus
     };
     let total = match ui.console_tab {
+        ConsoleTab::Acceptance => snapshot
+            .intelligence
+            .get(&workspace)
+            .map_or(0, |stats| acceptance_entry_count(stats, &workspace)),
         ConsoleTab::Tasks => tasks.len(),
         ConsoleTab::Attention => signals.len(),
         ConsoleTab::Agents => snapshot
@@ -407,7 +442,10 @@ pub(super) fn handle_console_key(
         KeyCode::Up | KeyCode::Down
             if matches!(
                 ui.console_tab,
-                ConsoleTab::Attention | ConsoleTab::Tasks | ConsoleTab::Agents
+                ConsoleTab::Acceptance
+                    | ConsoleTab::Attention
+                    | ConsoleTab::Tasks
+                    | ConsoleTab::Agents
             ) =>
         {
             ui.console_focus = if key.code == KeyCode::Up {
@@ -419,6 +457,7 @@ pub(super) fn handle_console_key(
                 .then(|| tasks.get(ui.console_focus).map(|task| task.id))
                 .flatten();
             ui.console_scroll = 0;
+            ui.acceptance_detail_open = false;
         }
         KeyCode::Up | KeyCode::PageUp => {
             ui.console_scroll = ui
@@ -430,6 +469,10 @@ pub(super) fn handle_console_key(
                 .console_scroll
                 .saturating_add(if key.code == KeyCode::Down { 1 } else { 5 })
                 .min(4096)
+        }
+        KeyCode::Enter if press && ui.console_tab == ConsoleTab::Acceptance => {
+            ui.acceptance_detail_open = !ui.acceptance_detail_open;
+            ui.console_scroll = 0;
         }
         KeyCode::Enter if press && ui.console_tab == ConsoleTab::Attention => {
             if let Some(signal) = signals.get(ui.console_focus.min(signals.len().saturating_sub(1)))
@@ -516,6 +559,7 @@ pub(super) fn render_console_tab(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
     match ui.console_tab {
+        ConsoleTab::Acceptance => render_acceptance_console(frame, rows[0], stats, ui, workspace),
         ConsoleTab::Attention => render_attention(frame, rows[0], snapshot, ui, workspace, stats),
         ConsoleTab::Tasks => render_task_console(frame, rows[0], snapshot, ui, workspace),
         ConsoleTab::Providers => {
@@ -739,37 +783,34 @@ fn render_task_console(
         .started_at
         .map(|start| format!("{}ms", end.saturating_duration_since(start).as_millis()))
         .unwrap_or_else(|| "not started".to_owned());
-    console_paragraph(
-        frame,
-        rows[2],
-        vec![
-            Line::from(Span::styled(
-                format!(
-                    "#{} {} · {} · workspace {}",
-                    task.id,
-                    task.tool,
-                    task_status(task.status),
-                    task.workspace
-                ),
-                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(format!(
-                "Wait {wait}ms · Run {run} · {}",
-                if task.slot_counted {
-                    "execution slot"
-                } else {
-                    "orchestration"
-                }
-            )),
-            Line::from(format!(
-                "Request {}B · Response {}B · Context avoided {}B",
-                task.request_bytes, task.response_bytes, task.context_bytes_avoided
-            )),
-            Line::from(Span::styled("DETAIL", Style::default().fg(TEXT_DIM))),
-            Line::from(console_clean(&task.detail)),
-        ],
-        ui.console_scroll,
-    );
+    let mut details = vec![
+        Line::from(Span::styled(
+            format!(
+                "#{} {} · {} · workspace {}",
+                task.id,
+                task.tool,
+                task_status(task.status),
+                task.workspace
+            ),
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!(
+            "Wait {wait}ms · Run {run} · {}",
+            if task.slot_counted {
+                "execution slot"
+            } else {
+                "orchestration"
+            }
+        )),
+        Line::from(format!(
+            "Request {}B · Response {}B · Context avoided {}B",
+            task.request_bytes, task.response_bytes, task.context_bytes_avoided
+        )),
+        Line::from(Span::styled("DETAIL", Style::default().fg(TEXT_DIM))),
+        Line::from(console_clean(&task.detail)),
+    ];
+    details.extend(command_job_lines(task, ui));
+    console_paragraph(frame, rows[2], details, ui.console_scroll);
 }
 
 fn render_provider_console(

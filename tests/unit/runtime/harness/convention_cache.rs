@@ -268,3 +268,80 @@ fn code_invalidation_rejects_late_convention_validation_success() {
         "the next validation should publish only the current revision"
     );
 }
+
+#[test]
+fn concurrent_project_profiles_keep_same_root_permission_modes_separate() {
+    // Exercise each independent restriction. Whichever caller owns the first
+    // validation, the other must not inherit its write or execution mode.
+    for restricted_mode in [(false, true), (true, false), (false, false)] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"profile-permissions\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let workspaces = [
+            Workspace::new(root.path(), true, true).unwrap(),
+            Workspace::new(root.path(), restricted_mode.0, restricted_mode.1).unwrap(),
+        ];
+        let harness = ToolHarness::new(4).unwrap();
+        let flight = harness.project_flight(workspaces[0].root()).unwrap();
+        let guard = flight
+            .gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let generation_before = flight.generation.load(Ordering::Acquire);
+        let entrants_before = flight.entrants.load(Ordering::Acquire);
+        let profiles = std::thread::scope(|scope| {
+            let (started_tx, started_rx) = mpsc::channel();
+            let mut handles = Vec::new();
+            for workspace in &workspaces {
+                let started_tx = started_tx.clone();
+                let harness = &harness;
+                handles.push(scope.spawn(move || {
+                    started_tx.send(()).unwrap();
+                    harness.load_project_profile(workspace).unwrap()
+                }));
+            }
+            drop(started_tx);
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while flight.entrants.load(Ordering::Acquire) < entrants_before + 2 {
+                assert!(
+                    Instant::now() < deadline,
+                    "different permission modes did not join the shared root flight"
+                );
+                std::thread::yield_now();
+            }
+            drop(guard);
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        for ((profile, cache_hit), workspace) in profiles.iter().zip(&workspaces) {
+            assert!(profile.discovery.complete);
+            assert_eq!(profile.write_enabled, workspace.write_enabled());
+            assert_eq!(profile.exec_enabled, workspace.exec_enabled());
+            assert!(
+                !cache_hit,
+                "a different permission mode must validate its own profile"
+            );
+        }
+        assert_eq!(
+            flight.generation.load(Ordering::Acquire),
+            generation_before + 4,
+            "different permission snapshots require separate completed validation epochs"
+        );
+        // Public consumers must also reflect the caller after either mode has
+        // populated the single-root cache; validation remains fresh each time.
+        for workspace in &workspaces {
+            let context = harness
+                .project_context("permission-fixture", workspace)
+                .unwrap();
+            assert_eq!(context.write_enabled, workspace.write_enabled());
+            assert_eq!(context.exec_enabled, workspace.exec_enabled());
+        }
+    }
+}

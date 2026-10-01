@@ -1,6 +1,7 @@
 use super::*;
+use crate::monitor::TaskMonitor;
 
-fn static_check(id: &str, args: &[&str]) -> CheckSpec {
+pub(super) fn static_check(id: &str, args: &[&str]) -> CheckSpec {
     CheckSpec {
         id: id.to_owned(),
         level: "quick".to_owned(),
@@ -14,7 +15,7 @@ fn static_check(id: &str, args: &[&str]) -> CheckSpec {
     }
 }
 
-fn check_result(spec: &CheckSpec, success: bool) -> VerificationCheck {
+pub(super) fn check_result(spec: &CheckSpec, success: bool) -> VerificationCheck {
     VerificationCheck {
         id: spec.id.clone(),
         phase: spec.phase,
@@ -22,6 +23,7 @@ fn check_result(spec: &CheckSpec, success: bool) -> VerificationCheck {
         reason: spec.reason.clone(),
         success,
         reused: false,
+        execution: crate::evidence::VerificationCheckExecution::Executed,
         exit_code: Some(if success { 0 } else { 1 }),
         elapsed_ms: 11,
         queue_wait_ms: 1,
@@ -29,11 +31,19 @@ fn check_result(spec: &CheckSpec, success: bool) -> VerificationCheck {
         stdout_tail: String::new(),
         stderr_tail: String::new(),
         output_truncated: false,
+        signature: Some(verification_check_binding(spec).signature),
+        evidence_id: None,
     }
 }
 
-fn report(check: VerificationCheck, passed: bool) -> VerificationReport {
+pub(super) fn report(check: VerificationCheck, passed: bool) -> VerificationReport {
+    let binding = crate::evidence::RequiredVerificationCheck {
+        id: check.id.clone(),
+        signature: check.signature.clone().unwrap(),
+    };
     VerificationReport {
+        execution_git_binding: None,
+        required_checks: Some(vec![binding]),
         workspace: "demo".to_owned(),
         level: "quick".to_owned(),
         execution: "fixture".to_owned(),
@@ -51,7 +61,7 @@ fn report(check: VerificationCheck, passed: bool) -> VerificationReport {
     }
 }
 
-fn workspace_fixture() -> (tempfile::TempDir, Workspace, ToolHarness) {
+pub(super) fn workspace_fixture() -> (tempfile::TempDir, Workspace, ToolHarness) {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("src")).unwrap();
     std::fs::write(
@@ -87,7 +97,12 @@ fn exact_revision_static_pass_reuses_without_minting_duplicate_evidence() {
         &first,
     );
     let reused = harness
-        .cached_verification_check(&workspace, &context, &spec)
+        .cached_verification_check(
+            &workspace,
+            &context,
+            &spec,
+            &crate::evidence_store::load(&workspace).unwrap(),
+        )
         .expect("same-revision static pass should be reusable");
     assert!(reused.reused);
     assert!(reused.success);
@@ -130,6 +145,10 @@ fn source_design_and_command_changes_invalidate_static_reuse() {
         &workspace, &initial, "quick", true, 30,
     );
     let first = report(check_result(&spec, true), true);
+    harness
+        .intelligence
+        .record_verification_report("demo", &workspace, &initial, &first)
+        .unwrap();
     harness.cache_successful_verification_checks(
         &workspace,
         &initial_context,
@@ -137,12 +156,22 @@ fn source_design_and_command_changes_invalidate_static_reuse() {
         &first,
     );
     assert!(harness
-        .cached_verification_check(&workspace, &initial_context, &spec)
+        .cached_verification_check(
+            &workspace,
+            &initial_context,
+            &spec,
+            &crate::evidence_store::load(&workspace).unwrap()
+        )
         .is_some());
 
     let changed_command = static_check("rust-check", &["check"]);
     assert!(harness
-        .cached_verification_check(&workspace, &initial_context, &changed_command)
+        .cached_verification_check(
+            &workspace,
+            &initial_context,
+            &changed_command,
+            &crate::evidence_store::load(&workspace).unwrap()
+        )
         .is_none());
 
     std::fs::write(
@@ -160,7 +189,12 @@ fn source_design_and_command_changes_invalidate_static_reuse() {
         30,
     );
     assert!(harness
-        .cached_verification_check(&workspace, &source_context, &spec)
+        .cached_verification_check(
+            &workspace,
+            &source_context,
+            &spec,
+            &crate::evidence_store::load(&workspace).unwrap()
+        )
         .is_none());
 
     std::fs::write(
@@ -184,7 +218,12 @@ fn source_design_and_command_changes_invalidate_static_reuse() {
         30,
     );
     assert!(harness
-        .cached_verification_check(&workspace, &design_context, &spec)
+        .cached_verification_check(
+            &workspace,
+            &design_context,
+            &spec,
+            &crate::evidence_store::load(&workspace).unwrap()
+        )
         .is_none());
 }
 
@@ -204,7 +243,12 @@ fn failures_behavioral_tests_and_unknown_checks_are_never_reused() {
         &failed,
     );
     assert!(harness
-        .cached_verification_check(&workspace, &context, &static_spec)
+        .cached_verification_check(
+            &workspace,
+            &context,
+            &static_spec,
+            &crate::evidence_store::load(&workspace).unwrap()
+        )
         .is_none());
 
     for spec in [
@@ -221,7 +265,12 @@ fn failures_behavioral_tests_and_unknown_checks_are_never_reused() {
             &successful,
         );
         assert!(harness
-            .cached_verification_check(&workspace, &context, &spec)
+            .cached_verification_check(
+                &workspace,
+                &context,
+                &spec,
+                &crate::evidence_store::load(&workspace).unwrap()
+            )
             .is_none());
     }
     assert!(harness_verification_cache::reusable_static_check(
@@ -276,11 +325,21 @@ fn mixed_run_does_not_remint_acceptance_for_only_reused_check() {
         &initial,
     );
     let reused = harness
-        .cached_verification_check(&workspace, &context, &static_spec)
+        .cached_verification_check(
+            &workspace,
+            &context,
+            &static_spec,
+            &crate::evidence_store::load(&workspace).unwrap(),
+        )
         .unwrap();
     let test_spec = static_check("rust-test", &["test", "--locked"]);
     let executed_test = check_result(&test_spec, true);
     let mixed = VerificationReport {
+        execution_git_binding: None,
+        required_checks: Some(vec![
+            verification_check_binding(&static_spec),
+            verification_check_binding(&test_spec),
+        ]),
         workspace: "demo".to_owned(),
         level: "quick".to_owned(),
         execution: "fixture+exact-revision-static-reuse".to_owned(),
@@ -399,4 +458,118 @@ async fn cancelled_verification_leader_releases_followers_with_an_error() {
         .expect("follower must not hang after leader cancellation")
         .unwrap_err();
     assert!(error.to_string().contains("leader ended"), "{error}");
+}
+
+#[tokio::test]
+async fn missing_or_changed_reuse_source_executes_and_persists_real_failure() {
+    for changed_source in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::fs::create_dir(root.path().join(".git")).unwrap();
+        for (path, content) in [
+            ("Cargo.toml", "[package]\nname='cache_recovery_fixture'\nversion='0.1.0'\nedition='2021'\n"),
+            ("Cargo.lock", "version = 3\n[[package]]\nname = \"cache_recovery_fixture\"\nversion = \"0.1.0\"\n"),
+            ("src/lib.rs", "pub fn value() -> usize { 1 }\n"),
+            ("build.rs", "fn main() {\nprintln!(\"cargo:rerun-if-changed=.git/force-fail\");\nif std::path::Path::new(\".git/force-fail\").exists() { panic!(\"cache recovery fixture failed\"); }\n}\n"),
+        ] {
+            std::fs::write(root.path().join(path), content).unwrap();
+        }
+        let workspace = Workspace::new(root.path(), true, true).unwrap();
+        let harness = ToolHarness::new(2).unwrap();
+        let monitor = TaskMonitor::new(["demo".to_owned()]);
+        let spec = static_check("rust-check", &["check", "--locked"]);
+        let revision = harness.intelligence.current_revision(&workspace).unwrap();
+        let context = harness_verification_cache::VerificationReuseContext::new(
+            &workspace, &revision, "quick", true, 30,
+        );
+        let initial = run_verification_check(
+            harness.clone(),
+            monitor.clone(),
+            "demo".into(),
+            workspace.clone(),
+            spec.clone(),
+            None,
+            30,
+        )
+        .await;
+        assert!(initial.success, "{}", initial.stderr_tail);
+        let initial = report(initial, true);
+        let produced = harness
+            .intelligence
+            .record_verification_report("demo", &workspace, &revision, &initial)
+            .unwrap();
+        harness.cache_successful_verification_checks(
+            &workspace,
+            &context,
+            std::slice::from_ref(&spec),
+            &initial,
+        );
+        let proof = crate::evidence_store::load(&workspace).unwrap();
+        let reused = harness
+            .cached_verification_check(&workspace, &context, &spec, &proof)
+            .unwrap();
+        let source_id = reused.evidence_id.unwrap();
+        let mut source = produced
+            .into_iter()
+            .find(|item| item.id == source_id)
+            .unwrap();
+        let directory = crate::evidence_store::workspace_state_directory(&workspace)
+            .unwrap()
+            .join("evidence");
+        for entry in std::fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            let record: crate::evidence::Evidence =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            if record.id == source_id {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+        if changed_source {
+            source.result = crate::evidence::EvidenceResult::Fail;
+            source.execution_receipt.as_mut().unwrap().checks[0].result =
+                crate::evidence::EvidenceResult::Fail;
+            crate::evidence_store::persist(&workspace, &source).unwrap();
+        }
+        std::fs::write(root.path().join(".git/force-fail"), "fail").unwrap();
+        assert_eq!(
+            harness.intelligence.current_revision(&workspace).unwrap(),
+            revision
+        );
+        let proof = crate::evidence_store::load(&workspace).unwrap();
+        assert!(harness
+            .cached_verification_check(&workspace, &context, &spec, &proof)
+            .is_none());
+        // A removed source cannot leave a poisoned reusable entry behind.
+        assert!(harness.verification_cache.lock().unwrap().is_empty());
+        let failed = run_verification_check(
+            harness.clone(),
+            monitor.clone(),
+            "demo".into(),
+            workspace.clone(),
+            spec.clone(),
+            None,
+            30,
+        )
+        .await;
+        assert!(!failed.success);
+        assert!(failed.exit_code.is_some_and(|code| code != 0));
+        assert!(
+            failed.stderr_tail.contains("cache recovery fixture failed"),
+            "{}",
+            failed.stderr_tail
+        );
+        let produced = harness
+            .intelligence
+            .record_verification_report("demo", &workspace, &revision, &report(failed, false))
+            .unwrap();
+        assert!(produced
+            .iter()
+            .any(|item| item.subject == "verification:rust-check"
+                && item.result == crate::evidence::EvidenceResult::Fail
+                && item.execution_receipt.is_some()));
+        let retained = crate::evidence_store::load(&workspace).unwrap();
+        assert!(produced
+            .iter()
+            .all(|item| retained.iter().any(|saved| saved.id == item.id)));
+    }
 }

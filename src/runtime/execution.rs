@@ -1,15 +1,19 @@
 use crate::evidence::Revision;
+#[path = "execution_view.rs"]
+mod view;
 use crate::harness::ToolHarness;
 use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+pub(crate) use view::active_summary;
+use view::{empty_status, status_value};
 
 const EXECUTION_SCHEMA_VERSION: u32 = 1;
 const MAX_EXECUTION_SNAPSHOTS: usize = 128;
@@ -272,31 +276,6 @@ pub(crate) fn refresh(
     sync(workspace, &worklist, current, restart, signals)
 }
 
-pub(crate) fn active_summary(
-    harness: &ToolHarness,
-    workspace_id: &str,
-    workspace: &Workspace,
-) -> Result<Option<Value>> {
-    let status = refresh(harness, workspace_id, workspace, false)?;
-    if !status["exists"].as_bool().unwrap_or(false) || !status["active"].as_bool().unwrap_or(false)
-    {
-        return Ok(None);
-    }
-    Ok(Some(json!({
-        "id": status["execution_id"],
-        "revision": status["revision"],
-        "objective": status["objective"],
-        "phase": status["phase"],
-        "checkpoint": status["checkpoint"],
-        "proposal": status["proposal"],
-        "pending_directive": status["pending_directive"],
-        "replan_required": status["replan_required"],
-        "verification_floor": status["verification_floor"],
-        "lineage": status["lineage"],
-        "guidance": "Resume from this checkpoint before reconstructing completed work. Apply pending structured steering through a newer Worklist revision and, when replan_required=true, a new Reconciliation plan before unrelated work. A model proposal is advisory only; current-revision Worklist/Reconciliation/Verification authority settles terminal state."
-    })))
-}
-
 pub(crate) fn stored_status(workspace: &Workspace) -> Result<Value> {
     Ok(match load(workspace)? {
         Some(execution) => status_value(&execution),
@@ -540,40 +519,6 @@ fn phase(
     }
 }
 
-fn status_value(execution: &Execution) -> Value {
-    json!({
-        "exists": true,
-        "active": execution.phase != ExecutionPhase::Completed,
-        "execution_id": execution.execution_id,
-        "revision": execution.revision,
-        "objective": execution.objective,
-        "phase": execution.phase,
-        "created_at_ms": execution.created_at_ms,
-        "updated_at_ms": execution.updated_at_ms,
-        "checkpoint": execution.checkpoint,
-        "proposal": execution.proposal,
-        "pending_directive": execution.pending_directive,
-        "replan_required": execution.pending_directive.as_ref().is_some_and(|directive| directive.requires_replan),
-        "lineage": execution.lineage,
-        "verification_floor": execution.verification_floor,
-        "settlement_authority": "worklist+reconciliation+verification_evidence",
-    })
-}
-
-fn empty_status() -> Value {
-    json!({
-        "exists": false,
-        "active": false,
-        "revision": 0,
-        "checkpoint": Value::Null,
-        "proposal": Value::Null,
-        "pending_directive": Value::Null,
-        "replan_required": false,
-        "lineage": Value::Null,
-        "verification_floor": Value::Null,
-    })
-}
-
 pub(crate) fn steer(workspace: &Workspace, input: ExecutionDirectiveInput) -> Result<Value> {
     let mut execution =
         load(workspace)?.ok_or_else(|| anyhow::anyhow!("active execution does not exist"))?;
@@ -771,30 +716,36 @@ fn load(workspace: &Workspace) -> Result<Option<Execution>> {
         return Ok(None);
     }
     ensure_regular_directory(&directory)?;
-    for path in snapshot_paths(&directory)?.into_iter().rev() {
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.len() > MAX_EXECUTION_BYTES
-        {
-            continue;
-        }
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(_) => continue,
-        };
-        let execution: Execution = match serde_json::from_slice(&bytes) {
-            Ok(execution) => execution,
-            Err(_) => continue,
-        };
-        if validate(&execution).is_ok() {
-            return Ok(Some(execution));
-        }
+    let Some(path) = snapshot_paths(&directory)?.pop() else {
+        return Ok(None);
+    };
+    // A published but unreadable latest revision is not an absent execution.
+    // Falling back could resurrect a superseded completion or drop steering.
+    let metadata = fs::symlink_metadata(&path).context("execution snapshot unavailable")?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_EXECUTION_BYTES
+    {
+        bail!("execution snapshot is not a bounded regular file");
     }
-    Ok(None)
+    let mut bytes = Vec::new();
+    fs::File::open(&path)
+        .context("execution snapshot unreadable")?
+        .take(MAX_EXECUTION_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .context("execution snapshot unreadable")?;
+    if bytes.len() as u64 > MAX_EXECUTION_BYTES {
+        bail!("execution snapshot exceeds its read bound");
+    }
+    let execution: Execution =
+        serde_json::from_slice(&bytes).context("execution snapshot is corrupt")?;
+    validate(&execution)?;
+    if path.file_name().and_then(|name| name.to_str())
+        != Some(format!("{:020}.json", execution.revision).as_str())
+    {
+        bail!("execution snapshot revision does not match its identity");
+    }
+    Ok(Some(execution))
 }
 
 fn persist(workspace: &Workspace, execution: &Execution) -> Result<()> {
@@ -948,19 +899,24 @@ fn execution_directory(workspace: &Workspace) -> Result<PathBuf> {
 }
 
 fn snapshot_paths(directory: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = fs::read_dir(directory)
-        .with_context(|| format!("cannot list execution store {}", directory.display()))?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let name = entry.file_name();
-            let name = name.to_str()?;
-            (name.ends_with(".json")
-                && name[..name.len().saturating_sub(5)]
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit()))
-            .then(|| entry.path())
-        })
-        .collect::<Vec<_>>();
+    let mut paths = Vec::new();
+    for (index, entry) in fs::read_dir(directory)
+        .context("cannot list execution store")?
+        .enumerate()
+    {
+        if index >= MAX_EXECUTION_SNAPSHOTS.saturating_mul(2) {
+            bail!("execution store scan exceeds recovery bound");
+        }
+        let entry = entry.context("execution store entry unavailable")?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.ends_with(".json") {
+            if name.len() != 25 || !name[..20].bytes().all(|byte| byte.is_ascii_digit()) {
+                bail!("execution snapshot has invalid identity");
+            }
+            paths.push(entry.path());
+        }
+    }
     paths.sort();
     Ok(paths)
 }
@@ -998,3 +954,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 #[path = "../../tests/unit/runtime/execution.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/runtime/execution_scope.rs"]
+mod scope_tests;

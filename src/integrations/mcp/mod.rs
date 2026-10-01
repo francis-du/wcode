@@ -8,9 +8,9 @@ pub(crate) use crate::mcp_tasks::TaskRuntime;
 #[cfg(test)]
 use crate::mcp_tasks::TASK_EXTENSION_ID;
 use crate::mcp_tasks::{
-    cancel_task, capabilities as task_capabilities, client_supports_tasks, create_tool_task,
-    get_task, requires_task_capability, task_augmented_tool, task_rpc_error, update_task,
-    TaskRpcError,
+    cancel_task, capabilities as task_capabilities, client_supports_tasks,
+    create_ordinary_command_task, create_tool_task, get_task, ordinary_task_tool,
+    requires_task_capability, task_augmented_tool, task_rpc_error, update_task, TaskRpcError,
 };
 use crate::monitor::TaskMonitor;
 use crate::reconcile::{ReconciliationTaskKind, ReconciliationTaskSubmission};
@@ -89,6 +89,7 @@ const PARALLEL_READ_TOOLS: &[&str] = &[
     "path_info",
 ];
 const PARALLEL_WRITE_TOOLS: &[&str] = &[
+    "run_command",
     "replace_text",
     "apply_edits",
     "write_file",
@@ -133,6 +134,7 @@ pub struct AppState {
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
+    crate::mcp_tasks::register_monitor_bridge(&state);
     Router::new()
         .route("/", get(setup_page))
         .route("/healthz", get(health))
@@ -144,11 +146,38 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence/logo.svg", get(intelligence_logo))
         .route("/intelligence/project", get(intelligence_web_project))
         .route("/intelligence/revision", get(intelligence_web_revision))
+        .route("/intelligence/jobs", get(intelligence_web_jobs))
+        .route("/intelligence/jobs/{task_id}", get(intelligence_web_job))
+        .route(
+            "/intelligence/jobs/{task_id}/cancel",
+            post(intelligence_web_job_cancel),
+        )
+        .route(
+            "/intelligence/verification/tasks",
+            get(intelligence_web_verification_tasks),
+        )
+        .route(
+            "/intelligence/verification/run",
+            post(intelligence_web_verification_run),
+        )
+        .route(
+            "/intelligence/verification/{task_id}",
+            get(intelligence_web_verification_status),
+        )
+        .route(
+            "/intelligence/verification/{task_id}/result",
+            get(intelligence_web_verification_result),
+        )
+        .route(
+            "/intelligence/verification/{task_id}/cancel",
+            post(intelligence_web_verification_cancel),
+        )
+        .route("/intelligence/diagnostics", get(intelligence_diagnostics))
         .route("/intelligence/activity", get(intelligence_web_activity))
         .route("/intelligence/code-graph", get(intelligence_web_code_graph))
         .route(
             "/intelligence/code-source",
-            get(intelligence_web_code_source),
+            get(intelligence_web_code_source).post(intelligence_web_edit_source),
         )
         .route(
             "/intelligence/change-detail",
@@ -222,13 +251,32 @@ async fn health_probe(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({"ok": true, "instance_id": state.auth.instance_id()}))
 }
 
-async fn health(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<Value> {
+async fn health(_state: State<Arc<AppState>>, _headers: HeaderMap) -> Json<Value> {
+    Json(json!({"ok": true, "name": "wcode", "version": env!("CARGO_PKG_VERSION")}))
+}
+
+async fn intelligence_diagnostics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = intelligence_ui_authorized(&state, &headers) {
+        return *response;
+    }
+    (
+        StatusCode::OK,
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(health_diagnostics_snapshot(&state, &headers)),
+    )
+        .into_response()
+}
+
+fn health_diagnostics_snapshot(state: &AppState, headers: &HeaderMap) -> Value {
     let connection = state.monitor.connection_status();
     let public_url = state
         .auth
-        .request_public_url(&headers)
+        .request_public_url(headers)
         .unwrap_or_else(|| state.auth.public_url());
-    Json(json!({
+    json!({
         "ok": true,
         "name": "wcode",
         "instance_id": state.auth.instance_id(),
@@ -280,7 +328,7 @@ async fn health(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<
         "active_tasks": connection.active_tasks,
         "queued_tasks": connection.queued_tasks,
         "peak_active_tasks": connection.peak_active_tasks,
-    }))
+    })
 }
 
 async fn mcp(
@@ -700,8 +748,23 @@ pub(crate) async fn handle_message(
     }
     if method == "tools/call" {
         let params = message.get("params").cloned().unwrap_or_default();
+        if let Some(result) = ordinary_task_tool(state.clone(), &params, owner).await {
+            return Some(match result {
+                Ok(value) => {
+                    json!({"jsonrpc":"2.0","id":id,"result":if modern { modern_result(value) } else { value }})
+                }
+                Err(error) => task_rpc_error(id, error),
+            });
+        }
         if requires_task_capability(&params) && (!modern || !client_supports_tasks(&message)) {
-            return Some(task_rpc_error(id, TaskRpcError::missing_capability()));
+            return Some(
+                match create_ordinary_command_task(state, params, owner).await {
+                    Ok(value) => {
+                        json!({"jsonrpc":"2.0","id":id,"result":if modern { modern_result(value) } else { value }})
+                    }
+                    Err(error) => task_rpc_error(id, error),
+                },
+            );
         }
         if modern && client_supports_tasks(&message) && task_augmented_tool(&params) {
             return Some(
@@ -887,6 +950,10 @@ use mcp_dispatch::{estimated_context_bytes_avoided, parallel_item_from_response}
 #[cfg(test)]
 #[path = "../../../tests/unit/integrations/mcp/http.rs"]
 mod web_tests;
+
+pub(crate) fn command_task_result(value: Value) -> Value {
+    mcp_tools::tool_result(value, false)
+}
 
 pub(crate) fn selected_workspace(
     state: &AppState,

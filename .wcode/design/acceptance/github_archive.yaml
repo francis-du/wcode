@@ -1,0 +1,19 @@
+schema_version: 1
+id: AC-GITHUB-ARCHIVE-001
+title: Explicit terminal archive preserves payload integrity and online replay tombstones
+statement: >-
+  archive-inbox is available from the installed binary and rejects read-only mode before mutation. It opens only an existing valid bound inbox, uses nonblocking worker then snapshot locks, checks the requested generation, and never archives queued, retry or interrupted publishing work. Completed/exhausted raw signed bodies and headers are exported to a normalized create-only private path outside the inbox under an existing private parent. The archive is synchronized and re-read through the private reader against exact bytes/digest before snapshot compaction. Invalid generation, busy worker, existing output, aliases, capacity or archive persistence failure cannot prune live payloads. Compaction uncertainty after a durable archive is reported as uncertain rather than rollback; an interrupted archive can leave a create-only partial output requiring inspection.
+
+  Compact tombstones preserve body identity, original terminal state, attempts and timestamps plus archive digest. The bounded inbox validator rejects duplicate/overlapping active and archived identities, nonterminal or impossible states, invalid digests/clocks and over-capacity indices. Incoming redelivery authenticates first and then returns duplicate=true and archived=true for retained tombstones, without allocating an active slot, resetting retries or republishing. Archive-file loss or public archive permissions cannot erase the online index. Active entries and compact tombstones have separate bounded counts in status; neither status nor checkpoint is current Acceptance. Legacy version-1 snapshots omit the empty new field and preserve their original checksum on reads; explicit archive writes version 2, which old readers must reject. inspect-inbox-archive is read-only, requires an independently supplied digest, validates source-root and enrollment identity, and returns bounded metadata without body, signature or keys. Archives are confidential unencrypted data, not native proof, rollback freshness or a distributed transaction.
+verification:
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_preserves_raw_payload_and_replay_identity_across_reopen}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_frees_payload_slots_without_evicting_completed_digests}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_rejects_stale_busy_existing_and_unsafe_destinations_without_pruning}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_retains_pending_and_interrupted_work_but_never_replays_exhausted}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_legacy_checksum_survives_and_corrupt_replay_index_fails_closed}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_full_replay_index_refuses_without_deleting_old_tombstones}
+  - {kind: test, path: tests/unit/integrations/git/inbox_archive.rs, symbol: inbox_archive_rejects_parent_aliases_and_nonprivate_exports}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_archive_cli_is_available_and_empty_or_readonly_rejects_without_writes}
+  - {kind: test, path: tests/github_inbox.rs, symbol: github_inbox_archive_cli_migrates_legacy_terminal_history_and_preserves_replay}
+  - {kind: check, id: rust-check}
+  - {kind: check, id: rust-clippy}

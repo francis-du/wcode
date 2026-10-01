@@ -1,4 +1,5 @@
 use super::*;
+use crate::monitor::TaskMonitor;
 use std::fs;
 
 #[path = "harness/admission.rs"]
@@ -27,6 +28,8 @@ mod review_generated;
 mod selective;
 #[path = "harness/steering.rs"]
 mod steering;
+#[path = "harness/verification_git.rs"]
+mod verification_git;
 #[path = "harness/verification_reuse.rs"]
 mod verification_reuse;
 

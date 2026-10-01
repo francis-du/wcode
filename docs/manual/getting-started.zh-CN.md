@@ -82,18 +82,57 @@ MCP Host 启动进程时的当前目录就是默认 Workspace。stdio 不走 HTT
 
 Runtime 默认会自动处理公网连接。Tunnel Provider 选择、稳定反向代理等高级选项统一放在 [CLI 与 MCP 参考手册](../reference/)；本机接入不需要先理解这些参数。
 
-OAuth Client 注册和 Token 不按时间过期。wcode 按配置的 Workspace 根目录
-把它们保存在用户状态目录中，下一次启动 wcode 时会重新载入。替换隧道通过
-当前实例健康校验后可以继续原会话；授权始终留在请求实际进入的域名，未知或
-已经失效的 Host 仍会被拒绝。
+OAuth Client 注册继续持久保存，不设置时钟 TTL。Access Token 在一小时后过期；响应通过 `expires_in: 3600`、`Cache-Control: no-store` 和 `Pragma: no-cache` 明示生命周期。Refresh Token 的空闲 TTL 为 30 天，只有成功刷新轮换才重新计算。轮换移除同一 Grant 的旧 Access Token，其他 Owner 不受影响。过期、为零或未来签发时间失败关闭。状态按配置的 Workspace 根目录保存；重启与迁移保留原签发时间，不延长 Token 生命周期。替换隧道通过当前实例健康校验后，可继续仍有效的会话；授权始终留在请求实际进入的域名。
 
-## 4. 先让 Agent 从小改动开始
+本地操作者可以通过 `GET /oauth/sessions` 检查会话，并通过 `POST /oauth/sessions/revoke` 撤销 `session_id`。这些管理 API 遵循现有 Host／Origin 检查并要求当前 `X-Wcode-UI-Token`，不接受普通 MCP Bearer 作为授权。会话列表不暴露凭据。成功撤销持久保存，重启不会恢复；存储错误会移除运行中的凭据，但不确认持久撤销。它们不是 RFC 7009 接口或 Team ACL／SSO；Team ACL 与 SSO 尚未实现。
 
-第一次使用不需要先把整个仓库建模完。连接后的 Agent 从 `agent_context` 开始，
-普通任务默认按最小改动处理，只有任务真的需要时才继续展开更深上下文。
+## 4. 老项目逐步补充 Design
 
-当项目确实需要持久 Requirement 或架构约束时，再调用 `design_init`。它会稀疏
-创建 Project/Product 状态与基础约束，不会覆盖已有 Design State。
+不需要先把整个仓库建模完，源码搜索、受控编辑和原生检查就能开始使用。全局 setup 只配置智能体；显式项目 setup（`wcode setup --project`，或交互选择“当前项目”）会在 Design 完全缺失时创建 `.wcode/project.yaml` 和空的 `.wcode/design/` 目录。项目名取目录名，描述为空，不写入 Policy，也不推测 Product 愿景、需求或组件映射。
+
+`--dry-run` 只报告计划，不写文件。已有、部分存在或无效的 Design 都会保留并提示检查，不重置、不静默修复。启动 wcode 和普通只读工具不会进行这项初始化。仅有 `.wcode` 目录不代表 Design 完整、可追溯或 Acceptance 已通过。
+
+让已连接的 Agent 每次补一个真实行为，不需要用户手写整套 YAML。Agent 应先展示草稿，对未知业务意图向你确认：
+
+1. 让 Agent 读取 README、项目清单和 CI 配置，再用 `software_graph`、`file_outline`、`find_symbol` 检查实际代码，用 `project_context` 发现真实检查项。由你确认它提出的预期行为，未知意图明确保留，不把每个现有实现都倒推成需求。
+2. 补一条 Requirement → Component → 实现路径/Symbol，以及 Requirement → Acceptance → 真实 Test/Check。映射就在这些记录中，没有独立的 `mappings.yaml` 格式。
+3. 新文件用 `create_files`；已有文件先用 `read_files` 取得 SHA，再用 `apply_file_edits` 受控修改，没有 `design_update` 工具。完全未初始化的 Workspace 可以显式调用 `design_init` 创建更完整的 Product/核心约束骨架；项目 setup 已生成元数据后，应继续补充，不要再次初始化。
+4. 先检查 `design_status`，再看 `traceability_status` 和 `drift_status`。`reconciliation_plan` 可以把缺口转成持久任务计划，但不会自动编辑或修复项目。之后审查变更并运行 `verify_project`；只有当前代码与 Design Revision 的实际 Evidence 能证明执行。
+
+Agent 的 Rust 草稿可以采用下面的集合文件格式，业务行为、源码路径和测试 Symbol 必须换成已经检查过的真实对象。这是格式示例，不是已有的整仓 Design 自动生成功能：
+
+```yaml
+# .wcode/design/requirements.yaml
+- schema_version: 1
+  id: REQ-SESSION
+  title: 拒绝过期会话
+  intent: 过期会话不能访问服务。
+  implemented_by: [component:session]
+  acceptance: [AC-SESSION]
+
+# .wcode/design/components.yaml
+- schema_version: 1
+  id: component:session
+  name: 会话
+  responsibilities: [验证会话有效期]
+  implementation:
+    - kind: file
+      path: src/session.rs
+
+# .wcode/design/acceptance.yaml
+- schema_version: 1
+  id: AC-SESSION
+  title: 过期会话被拒绝
+  statement: 过期会话回归测试拒绝访问。
+  verification:
+    - kind: test
+      path: tests/session.rs
+      symbol: rejects_expired_session
+```
+
+集合文件使用 YAML 列表；拆到 `design/requirements/`、`design/components/`、`design/acceptance/` 目录时，每个文件是单个对象。ID 必须唯一，引用必须可解析。已发现的 Symbol 可写为组件的 `{kind: symbol, path: src/session.rs, symbol: validate_session}`；只有实际发现对应检查时，Acceptance 才能声明 `{kind: check, id: rust-test}`。映射能解析不代表测试已经运行或通过。
+
+项目 setup 还可能建议 Acceptance Policy 草稿；只有单独的交互 TTY 确认能写草稿，dry-run/JSON 不确认，已有 Policy 字段保持不变。可信激活仍需独立的原生预览与精确操作者批准；基础元数据初始化和安装确认都不会激活 Policy。
 
 本地查看：
 
@@ -101,6 +140,8 @@ OAuth Client 注册和 Token 不按时间过期。wcode 按配置的 Workspace �
 wcode intelligence
 wcode intelligence --check --json
 ```
+
+处理声明的 Design 与覆盖缺口后，再使用严格 `--check` 门禁；渐进接入中的不完整状态应如实保留。完整格式及验证流程见 [Software Intelligence](../software-intelligence/)。
 
 ## 5. 让 Agent 先做正确的发现
 

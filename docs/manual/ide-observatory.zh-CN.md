@@ -39,7 +39,7 @@ wcode 的目标是让操作者理解仓库、查看 Agent 活动、定位问题�
 
 `worklist_claim` 与 `worklist_submit` 给模型提供标准领取和提交入口。租约、依赖、当前版本和范围冲突保护协作；主 Agent 对组合结果独立验证。多 Agent 提高并行度与减少总 token 是两个需要分别测量的目标。
 
-领取、续租和提交回复携带 Worklist 摘要，明确标记 `items_included: false`，保留当前版本、状态计数和可运行任务。当前领取项仍在 `handoff.item`，提交结果仍在 `result`。需要完整保留清单时读取 `worklist_status`（`items_included: true`）。这样避免每次单任务交接重复无关历史，不删除持久化任务，也不改变归属和证明规则。交接上下文在精简后重新计算字节数和字节/4的 token 估算。序列化回复字节只是本地测量，不代表提供方 token 或计费节省。
+领取、续租和提交回复携带 Worklist 摘要，明确标记 `items_included: false`，保留当前版本、状态计数和可运行任务。当前领取项仍在 `handoff.item`，提交结果仍在 `result`。需要完整保留清单时读取 `worklist_status`（`items_included: true`）。这样避免每次单任务交接重复无关历史，不删除持久化任务，也不改变归属和证明规则。单任务交接在上下文预算和行动规划之前移除全局 Worklist 与 Execution 进度，避免无关任务错误要求子任务重复并行。待处理指令、强制验证级别和重新规划要求仍保留，普通协调者的 Agent Context 仍提供 Worklist 发现。交接上下文在精简后重新计算字节数和字节/4的 token 估算。序列化回复字节只是本地测量，不代表提供方 token 或计费节省。
 
 ## 已有基础
 
@@ -59,8 +59,11 @@ wcode 的目标是让操作者理解仓库、查看 Agent 活动、定位问题�
 | TUI | Summary 总览、Attention 问题、Tasks 任务、Agents 协作和 Providers 提供方支持逐行选择与上下文详情。 | 实时数据变化时，选择仍绑定到当前工作区与记录身份；窄屏保留可读控件。 |
 | WebUI | 可操作的观测覆盖条与可选待处理条目通向现有工作台视图。 | 导航不会执行检查、批准请求或将工作标记完成。 |
 | 项目文件 | 可交互的文件树与最大文件条目连接受保护源码检查，支持每页 240 行并校验快照与 SHA。 | 读取有界且校验版本；受保护、缺失、过期、脱敏和二进制内容明确呈现。 |
+| macOS Menu Bar | `wcode menu-bar` 读取 HTTP/MCP runtime 与 `wcode mcp-stdio` 共同发布的受保护本机 runtime-presence；`wcode menu-bar --json` 输出同一份可移植有界投影。 | 首版只观测 runtime/MCP/任务计数以及 partial/unknown；不保存 UI/OAuth token、owner、命令参数、源码路径或原始诊断，也不能批准、执行、取消或建立 Verification/Acceptance。 |
 
-操作者路径是：选择工作区 → 选择待处理问题 → 查看详情 → 打开相关源码、活动、提供方、变更或证据视图 → 通过 Agent 或已授权操作解决原因 → 检查新证据。TUI 和 WebUI 可以采用不同布局，但应解释同一份底层状态。
+操作者路径是：选择工作区 → 选择待处理问题 → 查看详情 → 打开相关源码、活动、提供方、变更或证据视图 → 通过 Agent 或已授权操作解决原因 → 检查新证据。TUI、WebUI 与 Menu Bar 可以采用不同布局，但应解释同一份底层运行时事实。
+
+Menu Bar 是独立 accessory UI 进程，不是第二套 wcode daemon，也不会作为普通 Dock App 抢前台；原生状态项只在 macOS 主线程事件循环已经运行后创建。HTTP/MCP 与 stdio 进程在受保护的本机 authority state root 下发布短生命周期心跳；超过活动窗口的记录不会继续算在线。菜单直接展示 transport 数量、最新 runtime 版本与 Workspace ID、最近 MCP 活动、任务/队列数量和覆盖状态。损坏、别名、超量或覆盖不完整都保持 partial/unknown。非 macOS 平台目前还没有原生托盘，但 `wcode menu-bar --json` 保留跨平台状态契约，供后续 Windows/Linux tray 复用。
 
 ## 后续优先级与取舍
 

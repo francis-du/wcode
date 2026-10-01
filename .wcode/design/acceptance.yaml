@@ -49,8 +49,8 @@
     cargo test commands may run concurrently as shared readers only up to the resource governor child-process capacity.
     Exclusive commands wait for active test readers, new test readers wait behind an acquired exclusive command, and
     all lanes retain bounded queue waits, hardened arguments, child CPU/thread limits and unchanged verification
-    semantics. The default 120-second verification timeout remains unchanged for ordinary checks; only the canonical full Rust release-build gate
-    receives a deterministic 300-second cold-build floor at that default, while explicit non-default timeouts keep their requested bound and every check remains capped at 1800 seconds.
+    semantics. The default 120-second verification timeout remains unchanged for ordinary checks; the canonical full Rust test and release-build gates
+    receive a deterministic 300-second cold-run floor at that default so a growing complete suite is not converted into false failure by the generic bound, while explicit non-default timeouts keep their requested bound and every check remains capped at 1800 seconds.
     Foreground CPU/process capacity remains hardware- and memory-bounded but no longer hard-caps all profiles
     at eight CPU burst lanes. 1 GiB+ profiles can scale toward sixteen CPU burst lanes and eight heavy children on
     capable hosts while the 512 MiB balanced profile remains bounded by its memory budget. Failed verification exposes
@@ -60,8 +60,20 @@
     Workspace, and rejected when they escape it; generic Agent Context text keeps its stricter URL rejection. Redacted
     source windows are never marked editable. Python verification isolates bytecode caches so checks neither dirty the
     repository with __pycache__ nor reuse same-second stale project bytecode after guarded edits.
+    All command-producing admission, including internal review/verification probes and automatic LSP refresh, preserves read headroom.
+    Resource backpressure precedes permit reservation; a single bounded deadline identifies resource, execution
+    or slot wait explicitly. Cancellation releases waiting counters and reservations, but detached blocking work
+    retains its permits until the real worker exits. Under saturation workspace_info returns a bounded, read-only,
+    explicitly partial current-process diagnostic without repository scans or a general admission/authorization
+    bypass; races into saturation use a short bounded fallback. TUI slot counts come from live semaphore
+    reservations, not started-task counters; resource/execution/slot waiters, RUN, process queues and PID remain distinct.
+    The default engineering console keeps current admission counts visible even before project data finishes loading.
+    Large MCP worktree reviews preview 32 file rows, preserve every finding/count/check and explicitly report omitted details;
+    detail=full returns all reported rows. Projection never changes internal review, source-truncation or Evidence semantics.
   verification:
     - {kind: test, path: tests/unit/workspace/mod.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
+    - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_output_large_worktree_avoids_repeating_all_file_details}
+    - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_output_rejects_invalid_detail_before_inspection}
     - {kind: test, path: tests/unit/workspace/execution.rs, symbol: git_probe_finishes_while_repository_process_capacity_is_occupied}
     - {kind: test, path: tests/unit/runtime/parallelism.rs, symbol: perf_blocking_pool_can_start_all_32_independent_requests}
     - {kind: test, path: tests/unit/runtime/harness/experience.rs, symbol: failed_phase_skips_expensive_checks_but_diagnostic_mode_runs_them}
@@ -69,7 +81,7 @@
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: cost_backtest_circuit_breaker_stops_proven_regressions_but_allows_cold_start}
     - {kind: test, path: tests/unit/runtime/harness/cost.rs, symbol: duplicate_retry_evidence_cannot_manufacture_revision_sample_confidence}
     - {kind: test, path: tests/unit/runtime/harness/focus.rs, symbol: quick_verification_prioritizes_one_resolved_design_test_after_static_checks}
-    - {kind: test, path: tests/unit/runtime/harness/verification_errors.rs, symbol: default_verification_timeout_gives_only_rust_release_a_bounded_cold_build_floor}
+    - {kind: test, path: tests/unit/runtime/harness/verification_errors.rs, symbol: default_verification_timeout_gives_full_rust_gates_a_bounded_cold_floor}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_reaches_verified_edit_and_recovers_from_failures}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: verification_failure_context_redacts_secrets_and_never_claims_edit_ready}
@@ -101,6 +113,16 @@
     - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: verification_task_cancellation_releases_queued_checks_without_evidence}
     - {kind: test, path: tests/unit/integrations/mcp/resume.rs, symbol: verification_keeps_synchronous_fallback_without_modern_tasks}
     - {kind: test, path: tests/unit/integrations/mcp/admission.rs, symbol: queued_commands_leave_capacity_for_real_file_reads}
+    - {kind: test, path: tests/unit/integrations/mcp/admission.rs, symbol: admission_regression_saturated_workspace_info_still_diagnoses_capacity}
+    - {kind: test, path: tests/unit/integrations/mcp/admission.rs, symbol: admission_regression_status_race_falls_back_without_extending_capacity}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_internal_review_preserves_read_headroom}
+    - {kind: test, path: tests/unit/runtime/semantic.rs, symbol: admission_regression_automatic_semantics_preserves_read_headroom}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_resource_wait_never_holds_execution_or_global_slots}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_resource_rejection_and_timeout_are_distinct_and_leak_free}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_execution_timeout_preserves_read_capacity}
+    - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_slot_timeout_releases_already_reserved_execution_permit}
+    - {kind: test, path: tests/unit/ui/process_metrics.rs, symbol: admission_regression_tui_slots_follow_permits_not_started_task_counters}
+    - {kind: test, path: tests/unit/ui/process_metrics.rs, symbol: admission_regression_loading_console_keeps_capacity_visible_in_both_languages}
     - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_headroom_keeps_total_cap_and_single_slot_compatibility}
     - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_waiters_keep_fifo_order_and_cancel_without_leaks}
     - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: cancelled_execution_worker_retains_both_admission_permits}
@@ -240,7 +262,7 @@
 - schema_version: 1
   id: AC-AUTH-001
   title: Human approval remains operation client and challenge bound
-  statement: "Exact destructive file authorization remains operation-fingerprinted and one-shot. The bounded Git/GitHub and local developer lifecycle stays autonomous by default, with risky command shapes otherwise using explicit authorization. Modern MCP authorization remains owner/challenge-bound and legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a current-runtime Workspace all-command authorization that can be enabled or revoked. Once explicitly enabled, it is authoritative for direct command execution: WCode does not reject a command because of executable family, shell usage, argument/path shape, credential/API/publish/destructive command policy, read-only command classification, or startup no-exec, and it does not inject Git policy overrides or scrub command environment. Full Access enables the same unrestricted command lane and may add current-user Home. Resource/process/timeout/output controls remain bounded, while protected-path/symlink/hard-link/SHA/file-delete rules for WCode file primitives remain separate."
+  statement: "Exact destructive file authorization remains operation-fingerprinted and one-shot. The bounded Git/GitHub and local developer lifecycle stays autonomous by default, with risky command shapes otherwise using explicit authorization. Modern MCP authorization remains owner/challenge-bound and legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a current-runtime Workspace all-command authorization that can be enabled or revoked. Once explicitly enabled, it is authoritative for direct command execution: WCode does not reject a command because of executable family, shell usage, argument/path shape, credential/API/publish/destructive command policy, read-only command classification, or startup no-exec, and it does not inject Git policy overrides or scrub command environment. Full Access enables the same unrestricted command lane and may add current-user Home. Resource/process/timeout/output controls remain bounded, while protected-path/symlink/hard-link/SHA/file-delete rules for WCode file primitives remain separate. Human decisions require an exact local-operator one-shot two-minute grant bound to runtime, requester, workspace, complete plan, revision, policy and statement. Client confirmation, generic MCP elicitation and Full Access cannot approve them. Pending authorizations and client challenges have hard capacity limits; approved grants remain available until consumed or expired."
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
@@ -295,6 +317,12 @@
       path: tests/unit/workspace/access.rs
       symbol: full_access_and_workspace_addition_publish_consistent_policy
 
+    - {kind: test, path: tests/unit/workspace/authorization.rs, symbol: human_decision_is_one_shot_and_never_covered_by_command_trust}
+    - {kind: test, path: tests/unit/workspace/authorization.rs, symbol: approved_one_shot_grants_expire_without_renewal_or_replay}
+    - {kind: test, path: tests/unit/workspace/authorization.rs, symbol: human_decision_pending_lease_is_short_and_concurrent_consume_is_atomic}
+    - {kind: test, path: tests/unit/workspace/authorization.rs, symbol: authorization_capacity_preserves_unconsumed_operator_grants}
+    - {kind: test, path: tests/unit/integrations/mcp/dispatch.rs, symbol: anonymous_health_is_minimal_and_probe_keeps_instance_identity}
+    - {kind: test, path: tests/unit/integrations/mcp/dispatch.rs, symbol: full_health_diagnostics_require_operator_ui_authorization}
 - schema_version: 1
   id: AC-MCP-002
   title: MCP exposes compact portable capabilities durable tasks and negotiated human input
@@ -370,7 +398,7 @@
 - schema_version: 1
   id: AC-MCP-003
   title: OAuth discovery and registration remain resource-bound
-  statement: OAuth metadata and redirects use the syntactically valid Host that received the request, including stable custom HTTPS reverse-proxy domains without requiring managed-tunnel registration. DCR clients and resource-bound tokens survive a fresh runtime load for the same configured Workspace roots without clock expiry; malformed or duplicate Host headers, symlinked state and different Workspace scopes remain outside the boundary. The OAuth authorization page accepts either the ephemeral six-digit pairing code or an optional startup password, applies the same bounded lockout to both, compares secrets without early byte mismatch, and never persists or returns the startup password. MCP GET/POST, legacy SSE and protected WebUI retain active-alias Origin validation, authentication and Workspace authorization; historical token resources do not authorize browser origins.
+  statement: OAuth metadata and redirects use the syntactically valid Host that received the request, including stable custom HTTPS reverse-proxy domains without requiring managed-tunnel registration. DCR clients and unexpired resource-bound tokens survive a fresh runtime load for the same configured Workspace roots within their original expiry; expired tokens cannot authorize requests or rotate credentials; malformed or duplicate Host headers, symlinked state and different Workspace scopes remain outside the boundary. The OAuth authorization page accepts either the ephemeral six-digit pairing code or an optional startup password, applies the same bounded lockout to both, compares secrets without early byte mismatch, and never persists or returns the startup password. MCP GET/POST, legacy SSE and protected WebUI retain active-alias Origin validation, authentication and Workspace authorization; historical token resources do not authorize browser origins.
   verification:
     - kind: test
       path: tests/unit/integrations/auth.rs
@@ -383,7 +411,19 @@
       symbol: oauth_metadata_uses_the_tunnel_that_received_the_request
     - kind: test
       path: tests/unit/integrations/auth.rs
-      symbol: old_access_tokens_follow_verified_tunnel_aliases_without_expiry
+      symbol: current_access_tokens_follow_verified_tunnel_aliases
+    - kind: test
+      path: tests/unit/integrations/auth.rs
+      symbol: expired_refresh_token_cannot_rotate_credentials
+    - kind: test
+      path: tests/unit/integrations/auth.rs
+      symbol: token_response_advertises_bounded_access_token_expiry
+    - kind: test
+      path: tests/unit/integrations/auth/session.rs
+      symbol: expired_access_is_rejected_even_for_a_trusted_resource
+    - kind: test
+      path: tests/unit/integrations/auth/session.rs
+      symbol: expired_and_future_persisted_grants_are_not_renewed_on_load
     - kind: test
       path: tests/unit/integrations/auth.rs
       symbol: refresh_token_moves_to_a_verified_reconnected_tunnel
@@ -427,6 +467,11 @@
       path: tests/unit/integrations/auth/session.rs
       symbol: persistent_client_capacity_reclaims_only_an_unbound_registration
 
+    - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: oauth_rotation_expires_old_access_and_sessions_never_expose_credentials}
+    - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: session_revocation_is_persisted_and_recovery_does_not_restore_grants}
+    - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: failed_revoke_storage_never_reports_success_or_restores_live_access}
+    - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: concurrent_refresh_and_revoke_cannot_resurrect_the_same_grant}
+    - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: session_routes_enforce_host_operator_and_strict_revoke_payload}
 - schema_version: 1
   id: AC-GRAPH-001
   title: Composite graph history distinguishes structure from provenance churn
@@ -570,7 +615,7 @@
 - schema_version: 1
   id: AC-VERIFY-001
   title: Verification readiness aggregates required evidence fail closed
-  statement: Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, equal-timestamp conflicting evidence from one producer keeps the less favorable verdict, and one changed language's pass cannot clear another changed language's target. HumanApproval uses only the newest decision timestamp and fails closed when decisions at that timestamp conflict, while a strictly newer human decision may resolve the conflict. Verification Plans bind the exact active code and Design State revision plus fixed risk-relevant behavioral changed-language stage targets so stale or under-scoped evidence cannot clear readiness. High/Critical targeting prefers deterministically risk-attributed changed source when available; presentation-only CSS/HTML stays out of language target cross-products unless an explicit advanced executor opts it in, and required stages remain global blockers rather than falling back to unrelated detected languages when no behavioral target applies. Project and language-quality checks capture revisions before execution and reject changed or incomplete code or Design State revisions before persisting report evidence; stable results retain the captured revision. MCP command and verification error flags reflect actual failures and zero-check verification rather than mere successful report serialization. Correctness reviewers receive a contract-first counterexample rubric, risk reporting exposes required stage/target pairs that lack runnable local executors while keeping explicitly target-attested external stage evidence admissible, and per-Workspace reviewer capacity may reclaim only superseded revision plans whose jobs are not actively claimed; active reviewer claims are never evicted and unrelated Workspaces cannot consume another Workspace's bounded plan capacity.
+  statement: Incomplete or unbound current and plan revisions cannot be ready even when every other requirement has proof. Persistence generations advance only on successful mutations and prevent older or conflicting snapshots from becoming the recovered state; unknown, corrupt, oversized or linked latest snapshots fail closed rather than falling back. Stage readiness keeps the latest result per producer and required verification target, a producer failure cannot be masked by another producer pass, equal-timestamp conflicting evidence from one producer keeps the less favorable verdict, and one changed language's pass cannot clear another changed language's target. HumanApproval matches the complete immutable plan digest including policy and required checks, then uses only the newest decision timestamp and fails closed when decisions at that timestamp conflict, while a strictly newer human decision may resolve the conflict. Verification Plans bind the exact active code and Design State revision plus fixed risk-relevant behavioral changed-language stage targets so stale or under-scoped evidence cannot clear readiness. High/Critical targeting prefers deterministically risk-attributed changed source when available; presentation-only CSS/HTML stays out of language target cross-products unless an explicit advanced executor opts it in, and required stages remain global blockers rather than falling back to unrelated detected languages when no behavioral target applies. Project and language-quality checks capture revisions before execution and reject changed or incomplete code or Design State revisions before persisting report evidence; stable results retain the captured revision. MCP command and verification error flags reflect actual failures and zero-check verification rather than mere successful report serialization. Correctness reviewers receive a contract-first counterexample rubric, exact typed execution receipts freeze required check IDs and argv signatures, quick cannot satisfy full, missing/skipped/legacy receipts cannot prove readiness, test path/symbol mappings remain unknown without exact test events, risk reporting exposes required stage/target pairs that lack runnable local executors while retaining unauthenticated MCP stage claims only as self-reported, low-confidence inconclusive evidence, and per-Workspace reviewer capacity may reclaim only superseded revision plans whose jobs are not actively claimed; active reviewer claims are never evicted and unrelated Workspaces cannot consume another Workspace's bounded plan capacity.
   verification:
     - kind: test
       path: tests/unit/intelligence/verification.rs
@@ -629,14 +674,49 @@
     - kind: check
       id: rust-test
 
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: named_test_without_event_does_not_mint_acceptance_evidence}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: mixed_check_test_is_inconclusive_and_known_failure_is_preserved}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: full_plan_rejects_quick_receipt_and_legacy_gate_claims}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: required_check_missing_skipped_or_changed_signature_blocks_ready}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: inconsistent_or_duplicate_native_report_cannot_mint_receipts}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: reuse_without_exact_source_receipt_cannot_mint_evidence}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: exact_receipt_failure_precedence_keeps_ties_and_independent_scope}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: legacy_plan_without_required_checks_remains_readable_but_unknown}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_receipt_narrow_pass_cannot_hide_broad_failure}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_receipt_changed_signature_is_a_distinct_scope}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_receipt_full_supersedes_only_covered_quick}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_receipt_same_timestamp_keeps_failure_in_any_order}
+    - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_receipt_invalid_or_inconsistent_pass_cannot_hide_failure}
+    - {kind: test, path: tests/unit/integrations/mcp/writer.rs, symbol: mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_failure}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: partial_revision_identity_never_ready_even_with_all_required_proof}
+    - {kind: test, path: tests/unit/intelligence/revision.rs, symbol: unbound_legacy_plan_is_readable_but_never_revision_ready}
+    - {kind: test, path: tests/unit/verification/mod.rs, symbol: persistence_generation_increments_only_successful_mutations}
+    - {kind: test, path: tests/unit/verification/mod.rs, symbol: persistence_generation_survives_scoped_snapshots_and_legacy_restore}
+    - {kind: test, path: tests/unit/verification/mod.rs, symbol: persistence_generation_overflow_rejects_before_reclamation_or_job_changes}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: latest_bad_verification_snapshot_never_rolls_back_and_can_recover}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: legacy_verification_snapshot_remains_readable_without_new_optional_fields}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: verification_enumeration_errors_and_bounds_fail_closed_at_capacity}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: latest_linked_snapshot_and_dangling_store_never_fall_back}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: native_generation_rejects_late_capture_and_restores_the_newest_failure}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: same_generation_conflicts_and_bad_peers_never_select_by_uuid}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: concurrent_same_generation_forks_have_only_one_persisted_winner}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: generation_header_mismatch_blocks_load_until_a_genuinely_newer_mutation}
+    - {kind: test, path: tests/unit/verification/store.rs, symbol: legacy_timestamp_ties_fail_closed_and_native_generations_dominate_legacy_clock}
 - schema_version: 1
   id: AC-EVIDENCE-001
   title: Evidence persists with workspace isolation
-  statement: Provenance-bearing evidence survives a fresh runtime load and remains scoped to its owning workspace.
+  statement: Provenance-bearing evidence survives a fresh runtime load and remains scoped to its owning workspace. Authoritative reads reject corrupt, oversized, linked, conflicting-ID or over-capacity records, including memory/disk identity conflicts; exact duplicates are idempotent. Bounded append retention protects effective current native failures from advisory flooding and narrow passes, or rejects the append when no safe victim exists.
   verification:
     - kind: test
       path: tests/unit/evidence/store.rs
       symbol: evidence_survives_a_fresh_load_and_is_workspace_scoped
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: authoritative_evidence_load_rejects_bad_records_and_recovers_after_repair}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: evidence_enumeration_errors_and_bounds_are_not_complete_proof}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: authoritative_evidence_load_rejects_links_and_dangling_store_directory}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: evidence_identity_conflicts_fail_closed_but_exact_duplicates_are_idempotent}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: advisory_append_cannot_evict_current_native_failure_across_restart}
+    - {kind: test, path: tests/unit/evidence/store.rs, symbol: protected_capacity_rejects_append_without_losing_current_negative_proof}
+    - {kind: test, path: tests/unit/intelligence/history.rs, symbol: evidence_disk_memory_identity_conflict_is_not_a_favorable_override}
 
 - schema_version: 1
   id: AC-RECONCILE-001
@@ -646,6 +726,7 @@
     - kind: test
       path: tests/unit/reconciliation/mod.rs
       symbol: execution_enforces_dependencies_retries_and_system_evidence_gates
+    - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: reconciliation_and_verification_bind_identical_required_checks}
     - kind: test
       path: tests/unit/intelligence/intent_audit.rs
       symbol: core_policy_intent_audit_blocks_false_convergence_until_structure_changes
@@ -656,8 +737,12 @@
   id: AC-UX-001
   title: Operator surfaces remain usable across terminal layouts
   statement: >-
-    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. First load may return a bounded pending shell immediately while heavy snapshot construction continues; usable snapshots are cached per workspace and served stale-while-revalidate, revision/activity fetches run asynchronously with generation guards, and switching to a cached project preserves the rendered view instead of blanking it before refresh. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes; OAuth provides real light/dark token variants, and Observatory refresh/synchronization state remains visibly readable in the control layer. TUI input resolves to exactly one context-aware action, rejects unrelated modifier chords and repeated permission grants, reserves A for visible all-command approval, and uses B for the author link with matching help. Nested Observatory statistics and verification content use shrinkable tracks, wrapping long text and content-driven heights rather than fixed-height spacers; English descriptions must not render internal translation keys.
+    The TUI, protected Engineering Observatory, public Setup Hub and OAuth pages share the canonical wcode Logo/homepage palette: dark foundations #0b0812/#120d1c/#151020, primary accents #8b7cff/#665cff, secondary accent #f05aa6, and Logo gradient #665cff → #9b4dff → #f43f8f, with semantic success/warning/error colors remaining subordinate. Web surfaces render the real repository Logo instead of a text/initial substitute, use open/free Inter + Noto Sans SC/Noto Sans for interface copy and JetBrains Mono + Noto Sans Mono for technical text, exclude proprietary platform font names from product CSS, and keep readable light/dark text contrast. Desktop controls are compact while narrow/touch layouts retain at least 44px interaction targets. The TUI keeps a compact connection/status hierarchy with rounded terminal borders, actively loads the focused project, settles the per-Workspace loading flag after success/error/unwinding panic without discarding cached observations or publishing panic payloads, permits retry only after the prior worker has stopped, keeps other Workspace refreshes independent, keeps the pairing code visible after connection, shows the complete supported-command catalog, distinguishes installed LSP availability from launch-ready trust and live-validated sessions, exposes real warm LSP session/document/start/query telemetry, and claims terminal output while ratatui owns the alternate screen. The WebUI uses rounded frosted/liquid-glass shell layers with roughly 20–28px primary curvature, smaller secondary radii and one continuous System → Subsystem topology canvas with visible dependency edges and Design-vs-Actual state before component detail surfaces; a floating/drill-down inspector, component index and raw component dependency graph stay secondary. First load may return a bounded pending shell immediately while heavy snapshot construction continues; usable snapshots are cached per workspace and served stale-while-revalidate, revision/activity fetches run asynchronously with generation guards, and switching to a cached project preserves the rendered view instead of blanking it before refresh. It must not use square geometry or decorative card/panel stacking as the primary architecture or page composition, distinguishes Executable access from Exact repository operation, and retains bounded project-tree/largest-file visibility. The Setup Hub keeps local and remote setup distinct with the same brand/curvature hierarchy, compact single-flight polling and no operator credentials or configuration writes; OAuth provides real light/dark token variants, and Observatory refresh/synchronization state remains visibly readable in the control layer. TUI input resolves to exactly one context-aware action, rejects unrelated modifier chords and repeated permission grants, reserves A for visible all-command approval, and uses B for the author link with matching help. Nested Observatory statistics and verification content use shrinkable tracks, wrapping long text and content-driven heights rather than fixed-height spacers; English descriptions must not render internal translation keys.
   verification:
+    - {kind: test, path: tests/unit/integrations/mcp/tasks.rs, symbol: monitor_task_bridge_enforces_exact_workspace_and_ui_only_cancel}
+    - {kind: test, path: tests/unit/integrations/mcp/tasks.rs, symbol: monitor_task_bridge_redacts_bounded_utf8_and_preserves_failed_command_outcome}
+    - {kind: test, path: tests/unit/integrations/mcp/tasks.rs, symbol: monitor_task_bridge_restart_or_orphan_is_visible_and_never_cancelable}
+    - {kind: test, path: tests/unit/ui/monitor/job_view.rs, symbol: monitor_task_bridge_real_run_command_binds_only_durable_id_and_ignores_claimed_ui_owner}
     - {kind: test, path: tests/unit/ui/monitor.rs, symbol: narrow_and_tiny_layouts_do_not_panic}
     - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: author_and_bulk_authorization_never_share_a_key}
     - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: modified_keys_cannot_trigger_unmodified_permissions_or_navigation}
@@ -690,6 +775,9 @@
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls
+    - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: intelligence_refresh_panic_releases_loading_state_and_allows_retry}
+    - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: intelligence_refresh_error_keeps_cached_data_and_retry_clears_failure}
+    - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: intelligence_refresh_single_flight_preserves_other_workspaces}
     - kind: test
       path: tests/unit/ui/monitor.rs
       symbol: command_overlay_shows_the_complete_catalog_and_two_authorization_layers
@@ -706,8 +794,8 @@
       path: tests/unit/ui/authorization_layout.rs
       symbol: audit_narrow_authorization_keeps_approve_and_deny_visible
     - {kind: test, path: tests/unit/ui/monitor/i18n.rs, symbol: manual_toggle_defaults_to_english_and_covers_chinese}
-    - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph}
-    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_visual_contract_stays_compact_brand_aligned_and_blueprint_first}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_visual_contract_stays_compact_brand_aligned_with_acceptance_first}
     - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_assets_support_incremental_refresh_precision_and_light_mode}
     - {kind: test, path: tests/unit/integrations/auth.rs, symbol: auth_pages_fit_mobile_viewports_without_disabling_zoom}
     - kind: test
@@ -769,7 +857,7 @@
     The WebUI first exposes one continuous rounded System → Subsystem → Component → Code topology canvas derived from Design State and current implementation ownership. Subsystems expose purpose, membership, source/requirement scale, dependency direction, current changes, strong drift and evidence gaps directly in that architecture-first hierarchy; component indexes and dependency evidence remain secondary drill-down surfaces rather than card walls. Engineering Architecture contains an internal Code Graph mode—not an eighth top-level tab—that searches bounded code roots and shows callers/callees, dependency/reference paths, impact radius, test/requirement/proof context and why-related evidence while preserving provider and precision on every edge. Existing bounded activity telemetry drives a realtime Understand → Change → Prove → Learn → Observe flow, exposes descriptive Agent Context candidate→delivery, cache, saved-context and build-latency facts without treating selection ratio as a quality score, keeps cancelled callers whose started blocking workers still retain real capacity visible as active until release, and the working-tree story maps Files → Components → Requirements → Verification → confirmed Drift. The TUI automatically loads the focused project engineering model; wide terminals put Workspace Activity and a compact Engineering/connection control rail side-by-side, medium/narrow terminals omit the permanent Engineering Pulse so real task rows remain dominant, and Architecture plus Proof/Runtime stays available in a rounded Engineering Console. WebUI, TUI, Setup and OAuth share the canonical wcode Logo/homepage palette and corresponding fluid hierarchy: rounded primary workbenches, frosted/liquid-glass Web depth, small refined controls and subordinate semantic colors. Overview, Architecture/Digital Twin, Task Activity, Verification Evidence, Current Changes, Requirements and Runtime reuse one glanceable visual grammar with project pulse, semantic status beacons, metric/relationship strips, timelines and inspectors; supporting metadata is at least 12px, and stale, unknown, inconclusive, failed or unverified state is visibly distinct from current passing proof. Component/Requirement drill-down keeps responsibilities, implementation, dependencies, Desired vs Actual, Change, revision-exact Proof and Convergence explicit; verification mapping remains distinct from Executed, Passed and Fresh evidence. Missing bounded-syntax relationships remain advisory and runtime activity remains the single control-state source. A shared attention projection keeps independent evidence-policy failures and disagreement visible, never promotes ModelReview to deterministic precision, preserves current revision and partial coverage, ranks risk and structural violations, and uses newest-first current verification history. Native TUI tabs expose Summary, Attention, Tasks and Providers with keyboard selection and scrolling. Web attention and the observation strip lead to existing drilldowns; source tree and largest-file controls read bounded 240-line SHA-bound pages with clipped focus, explicit total ranges and stale-source rejection.
   verification:
     - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_builds_requirement_architecture_from_current_code}
-    - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph}
+    - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns}
     - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_assets_support_incremental_refresh_precision_and_light_mode}
     - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_exposes_bounded_file_structure_and_oversized_files}
     - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_file_structure_and_largest_files}
@@ -782,7 +870,7 @@
     - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable}
     - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: source_scans_honor_ignore_files_and_allow_explicit_ignored_paths}
     - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: subspace_discovery_honors_gitignore_for_custom_generated_projects}
-    - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: engineering_console_groups_architecture_and_proof_instead_of_flat_intelligence_rows}
+    - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: observations_console_preserves_architecture_and_proof_drilldowns}
     - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_retry_replaces_only_its_exact_scope}
     - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_ties_keep_failure_and_revisions_stay_isolated}
     - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_full_can_supersede_quick_but_never_in_reverse}
@@ -836,12 +924,13 @@
       symbol: project_context_detects_guidance_and_quality_checks
     - kind: test
       path: tests/unit/ui/web.rs
-      symbol: project_observatory_page_is_architecture_first_and_has_no_ball_graph
+      symbol: project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns
 
 - schema_version: 1
   id: AC-DOCS-001
   title: Documentation is organized and published as site HTML
-  statement: Root, website and bilingual manual entry points share one maintained documentation tree, the English and Chinese structures stay paired, and layout tests reject stale integration or transport wording.
+  statement: >-
+    Root, website and bilingual manual entry points share one maintained documentation tree, the English and Chinese structures stay paired, and layout tests reject stale integration or transport wording. Release-audit reports bind their explicit OSS source, extracted crate, fixture, binary asset and build/configuration input scope before test discovery; omitted, changed, linked or oversized inputs fail closed. A report cannot promote partial browser coverage, duplicate or unexpected scenario rows, contradictory failure fields, runner timeouts or nested Rust fixture output into successful outer-test coverage. Browser matrices must cover every reviewed width/language/theme/requested-view identity exactly once and match the observed active tab, architecture/graph mode, fullscreen and source-inspector state with completed font loading. Layout matrices must contain the twelve distinct reviewed actual viewport widths. The native runner preserves requested view identity separately from shared DOM tabs and rejects an unobserved requested viewport. Local shard reports retain distinct ranges, complete plan/inventory digests and dirty-worktree identity; they are not clean-candidate, full-project or cross-platform release approval. Audit help and invalid arguments execute no tests.
   verification:
     - {kind: test, path: tests/documentation_layout.rs, symbol: documentation_is_unified_bilingual_and_hosted_as_html}
     - {kind: test, path: tests/documentation_layout.rs, symbol: frontier_research_docs_distinguish_implementation_from_roadmap}
@@ -849,6 +938,7 @@
     - {kind: test, path: tests/cli.rs, symbol: release_binary_version_matches_the_package_without_starting_services}
     - {kind: test, path: tests/release_contract.rs, symbol: release_windows_packaging_stops_after_each_native_failure}
     - {kind: test, path: tests/release_contract.rs, symbol: release_ci_installs_the_javascript_behavior_runtime}
+    - {kind: test, path: tests/release_contract.rs, symbol: adversarial_release_runner_contracts_fail_closed}
 
 
 - schema_version: 1

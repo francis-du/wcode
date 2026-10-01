@@ -1,0 +1,58 @@
+# Copy to .github/workflows only after provisioning and reviewing the publisher.
+# Keep this workflow on a protected, trusted ref. It never checks out PR code.
+name: Native change acceptance publisher
+on:
+  workflow_dispatch:
+    inputs:
+      pull:
+        description: Pull request number in francis-du/wcode
+        required: true
+        type: number
+      base:
+        description: Complete reviewed PR base commit SHA; never a branch name
+        required: true
+        type: string
+      head:
+        description: Complete reviewed PR head commit SHA; stale dispatches are rejected
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: native-acceptance-${{ inputs.pull }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: [self-hosted, wcode-publisher]
+    environment: wcode-publisher
+    timeout-minutes: 10
+    env:
+      # Provision a fresh, short-lived GitHub App installation token.
+      # Only this protected publisher receives Checks:write.
+      WCODE_GITHUB_PUBLISHER_TOKEN: ${{ secrets.WCODE_PUBLISHER_INSTALLATION_TOKEN }}
+      WCODE_STATE_DIR: ${{ vars.WCODE_PUBLISHER_STATE_DIR }}
+      NATIVE_WORKSPACE: ${{ vars.WCODE_PUBLISHER_WORKSPACE }}
+      NATIVE_WORKSPACE_ID: ${{ vars.WCODE_PUBLISHER_WORKSPACE_ID }}
+      PUBLISHER_CONFIG_ROOT: ${{ vars.WCODE_PUBLISHER_CONFIG_ROOT }}
+      PULL_NUMBER: ${{ inputs.pull }}
+      CANDIDATE_BASE: ${{ inputs.base }}
+      CANDIDATE_HEAD: ${{ inputs.head }}
+    steps:
+      # Install this fixed binary from a reviewed tool revision beforehand.
+      # No checkout, build, npm/cargo, PR artifact download or JSON CAR import.
+      - name: Publish from native trusted state
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${NATIVE_WORKSPACE:?trusted checkout required}"
+          : "${NATIVE_WORKSPACE_ID:?trusted workspace identity required}"
+          : "${PUBLISHER_CONFIG_ROOT:?trusted enrollment directory required}"
+          : "${CANDIDATE_BASE:?complete PR base SHA required}"
+          : "${CANDIDATE_HEAD:?complete PR head SHA required}"
+          : "${WCODE_STATE_DIR:?isolated native state required}"
+          test "${GITHUB_REPOSITORY}" = "francis-du/wcode"
+          /opt/wcode/bin/wcode -w "$NATIVE_WORKSPACE" github publish \
+            --config-root "$PUBLISHER_CONFIG_ROOT" \
+            --workspace-id "$NATIVE_WORKSPACE_ID" \
+            --pull "$PULL_NUMBER" \
+            --base "$CANDIDATE_BASE" --head "$CANDIDATE_HEAD" --json

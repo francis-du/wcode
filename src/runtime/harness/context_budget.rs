@@ -221,10 +221,23 @@ fn compact_readiness_explanation(value: &mut Value) -> bool {
 }
 
 fn compact_project_explanation(value: &mut Value) -> bool {
-    let Some(project) = value.get_mut("project").and_then(Value::as_object_mut) else {
-        return false;
-    };
     let mut changed = false;
+    if let Some(state) = value.get_mut("design_state").and_then(Value::as_object_mut) {
+        let before = state.len();
+        let initialized = state.get("initialized").and_then(Value::as_bool) == Some(true);
+        state.retain(|key, _| {
+            key == "initialized"
+                || initialized
+                    && matches!(
+                        key.as_str(),
+                        "valid" | "operational" | "operational_blockers" | "errors" | "warnings"
+                    )
+        });
+        changed |= state.len() != before;
+    }
+    let Some(project) = value.get_mut("project").and_then(Value::as_object_mut) else {
+        return changed;
+    };
     for key in [
         "islands",
         "contracts",
@@ -617,11 +630,11 @@ fn restore_symbol_range(value: &mut Value, source: &Value) {
     }
 }
 
-fn pop_secondary_source(value: &mut Value) -> bool {
+fn pop_secondary_source(value: &mut Value, preserve_min: usize) -> bool {
     let Some(items) = value.get_mut("hot_source").and_then(Value::as_array_mut) else {
         return false;
     };
-    if items.len() <= 1 {
+    if items.len() <= preserve_min.max(1) {
         return false;
     }
     let source = items.pop().expect("secondary source exists");
@@ -675,23 +688,8 @@ pub(super) fn trim_agent_context_from_tokens(
     mut current_tokens: usize,
 ) -> Result<()> {
     let mut truncated = value["truncated"].as_bool().unwrap_or(false);
-    let explicit_target_min = value
-        .get("query")
-        .and_then(Value::as_str)
-        .map(crate::intelligence::code_query_literals)
-        .map(|literals| {
-            let literals = literals.into_iter().take(4).collect::<HashSet<_>>();
-            value
-                .get("targets")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|target| target.get("qualified_name").and_then(Value::as_str))
-                .filter(|name| literals.contains(&name.to_ascii_lowercase()))
-                .count()
-        })
-        .unwrap_or(0)
-        .max(1);
+    let (explicit_target_min, explicit_body_min) =
+        super::context_dedup::explicit_retention_minima(value, budget);
     const MAX_COMPACTION_STEPS: usize = 128;
     let mut compaction_steps = 0usize;
     while current_tokens > budget {
@@ -746,6 +744,7 @@ pub(super) fn trim_agent_context_from_tokens(
             || pop_nested_array(value, "repo_map", "items", 1)
             || pop_array(value, "design", 1)
             || compact_optional_model_tools(value)
+            || super::context_lessons::compact(value)
             || pop_array(value, "checks", 1)
             || pop_array(value, "semantic_provider_hints", 1)
             || pop_array(value, "tests", 1)
@@ -762,7 +761,7 @@ pub(super) fn trim_agent_context_from_tokens(
             // shrinking the strongest direct body so tight budgets preserve
             // the most useful edit context for as long as possible.
             || compact_selection_explanation(value)
-            || pop_secondary_source(value)
+            || pop_secondary_source(value, explicit_body_min)
             || compact_primary_hot_source(value)
             || shrink_hot_source_body(value, budget, current_tokens);
         if !changed {
@@ -938,13 +937,14 @@ fn compact_execution_summary(value: &mut Value) -> bool {
         "id": execution.get("id"),
         "revision": execution.get("revision"),
         "phase": execution.get("phase"),
+        "scope_completion": execution.get("scope_completion"),
         "checkpoint": checkpoint,
         "pending_directive": execution.get("pending_directive"),
         "replan_required": execution.get("replan_required"),
         "verification_floor": execution.get("verification_floor"),
         "lineage": execution.get("lineage"),
         "compacted": true,
-        "guidance": "Pending structured steering and its verification floor are never dropped by context compaction. Apply steering through Worklist/replan state first; call execution_status for the full checkpoint."
+        "guidance": "Preserve declared scope. Follow scope_completion; passing a phase does not finish open work. Resume steering/Worklist; query execution_status for omitted detail."
     });
     let before = serialized_json_bytes(execution).unwrap_or(0);
     let after = serialized_json_bytes(&compact).unwrap_or(usize::MAX);

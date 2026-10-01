@@ -5,7 +5,10 @@ intent: >-
   Models may propose that an Execution is complete or blocked, but must not directly author the durable terminal
   truth. The runtime settles completion from authoritative Worklist/Reconciliation state plus current-revision
   deterministic Verification, required reviewer/stage Evidence and HumanApproval where policy requires it. Failed,
-  stale, inconclusive or missing proof keeps the Execution non-terminal with explicit blockers.
+  stale, inconclusive or missing proof keeps the Execution non-terminal with explicit blockers. Declared features
+  and unfinished requirements remain in scope across phase boundaries, context compaction and handoff. A phase
+  check passing does not authorize reporting the overall objective complete; the current machine-derived scope
+  completion contract remains explicit when runnable work or blockers exist.
 priority: critical
 implemented_by:
   - component:execution-runtime

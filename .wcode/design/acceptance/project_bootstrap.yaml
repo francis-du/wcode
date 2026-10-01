@@ -1,0 +1,10 @@
+schema_version: 1
+id: AC-PROJECT-BOOTSTRAP-001
+title: Project setup initializes only missing neutral Design State
+statement: Project setup needs no explicit Workspace argument when run in the repository. Missing Design State gets a bounded directory-derived project name, empty description, no Acceptance Policy and an empty Design directory; no Product vision, Component, Requirement, verification receipt or approval is fabricated. Dry-run performs no writes. Existing valid, partial and invalid Design inputs remain byte-identical. Read-only and path alias denials fail closed through existing Workspace operations. Plain read-only discovery and global host setup do not initialize projects. Subsequent mappings remain distinct from executed and passing current-revision Evidence.
+verification:
+  - {kind: test, path: tests/unit/app/setup_design.rs, symbol: setup_design_initializes_neutral_metadata_without_execution_or_approval}
+  - {kind: test, path: tests/unit/app/setup_design.rs, symbol: setup_design_preview_and_existing_state_are_non_destructive}
+  - {kind: test, path: tests/unit/app/setup_design.rs, symbol: setup_design_rejects_readonly_and_aliases}
+  - {kind: test, path: tests/cli.rs, symbol: setup_project_bootstraps_design_without_workspace_argument}
+  - {kind: test, path: tests/cli.rs, symbol: setup_project_readonly_does_not_bootstrap_design}

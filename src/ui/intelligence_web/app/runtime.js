@@ -21,7 +21,7 @@ function renderTabPanels(tab) {
       renderExecutionStatus(); renderAdaptiveVerification(); renderVerifiedLearning();
       break;
     case "activity":
-      renderActivity(); renderExecutionStatus();
+      renderActivity(); renderExecutionStatus(); renderRuntimeJobs();
       break;
     case "proof":
       renderProofSummary(); renderAdaptiveVerification(); renderVerifiedLearning();
@@ -53,7 +53,7 @@ function renderProject(force = false) {
     // is on the codegraph architecture surface — not on every force refresh.
     renderFitnessObservatory();
     renderCodeStats(); renderRevisions(); renderLanguageQuality();
-    renderExecutionStatus(); renderActivity(); renderProofSummary();
+    renderExecutionStatus(); renderActivity(); renderProofSummary(); renderRuntimeJobs();
     renderAdaptiveVerification(); renderVerifiedLearning();
     return;
   }
@@ -166,7 +166,7 @@ const workspaceTabForSection = {
 };
 function renderWorkspaceHero(tab) {
   const copy = {
-    overview: [localized("ENGINEERING OBSERVATORY", "工程观测台"), localized("System overview", "系统总览"), localized("Current project health, engineering signals, diagnostics and language quality in one operational summary.", "把当前项目健康度、工程信号、诊断与语言质量汇总在一个运行视图中。")],
+    overview: [localized("AI CHANGE ACCEPTANCE", "AI 变更验收"), localized("Current change acceptance", "当前变更验收"), localized("Start with the acceptance decision, then inspect blocking checks, exact evidence and changed source.", "先看验收结论，再逐层检查阻塞检查、精确证据与变更源码。")],
     architecture: [localized("SYSTEM ARCHITECTURE", "系统架构"), localized("Engineering architecture", "工程架构"), localized("Read the system from semantic architecture down to the bounded code graph, callers, dependencies and proof context.", "从语义架构深入到有界代码图谱、调用关系、依赖与证明上下文。")],
     activity: [localized("LIVE WORK", "实时工作"), localized("Task activity", "任务活动"), localized("Running work, queue pressure and execution time without mixing waiting time into runtime.", "区分排队与执行时间，查看实时工作与资源压力。")],
     proof: [localized("REVISION-BOUND PROOF", "版本绑定证据"), localized("Verification evidence", "验证证据"), localized("Current-revision evidence, verification readiness and adaptive checks kept separate from historical passes.", "当前版本证据、验证就绪度与自适应检查，与历史通过记录分开呈现。")],
@@ -180,7 +180,7 @@ function renderWorkspaceHero(tab) {
 }
 function activateWorkspaceTab(tab, { scroll = false } = {}) {
   const valid = ["overview", "architecture", "activity", "proof", "changes", "requirements", "files"];
-  const next = valid.includes(tab) ? tab : "architecture";
+  const next = valid.includes(tab) ? tab : "overview";
   state.workspaceTab = next;
   renderWorkspaceHero(next);
   let activeTabButton = null;
@@ -328,13 +328,14 @@ function renderProjectPlaceholder(failed = false) {
 }
 function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
-  setHtml("observationCoverage", els.observationCoverage, "");
   if (typeof clearChangeInspection === "function") clearChangeInspection();
+  suspendVerificationTasks(); clearRuntimeJobs();
+  setHtml("observationCoverage", els.observationCoverage, "");
   state.pendingValue = null; state.pendingApplied = 0;
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
   state.fitnessSnapshotFromCache = false;
-  state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.evidenceInspectorOpen = true;
+  state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true;
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;
   state.codeGraphSourceController?.abort(); state.codeGraphSourceController = null;
@@ -365,13 +366,16 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
     els.reqCount.textContent = "—"; els.componentCount.textContent = "—";
     els.structureSummary.textContent = "—"; els.qualitySummary.textContent = "—";
   }
-  renderAccess(true);
+  renderVerificationTask(); renderRuntimeJobs(); renderAccess(true);
 }
 const worklistRevisionSuffix = (signal) => signal?.available === true && typeof signal.exists === "boolean"
   && Number.isSafeInteger(signal.revision) && signal.revision >= 0
   ? `|worklist:${signal.exists ? `1:${signal.revision}` : "0:0"}` : "|worklist:unknown";
-const revisionKey = (revision) => `${revision.fingerprint || "full"}|${revision.graph_signal || revision.graph_revision || ""}|${revision.proof_revision || ""}|${revision.engineering_revision || ""}${Object.prototype.hasOwnProperty.call(revision, "worklist_revision") ? worklistRevisionSuffix(revision.worklist_revision) : ""}`;
-async function refreshProject({ workspace, reason = "auto", force = false, revision, preferCached = false } = {}) {
+const snapshotRevisionKey = (value) => typeof value === "string" && value.length > 0 && value.length <= 32768 ? value : null;
+const revisionKey = (revision) => Object.prototype.hasOwnProperty.call(revision, "snapshot_revision")
+  ? snapshotRevisionKey(revision.snapshot_revision)
+  : `${revision.fingerprint || "full"}|${revision.graph_signal || revision.graph_revision || ""}|${revision.proof_revision || ""}|${revision.engineering_revision || ""}${Object.prototype.hasOwnProperty.call(revision, "worklist_revision") ? worklistRevisionSuffix(revision.worklist_revision) : ""}`;
+async function refreshProject({ workspace, reason = "auto", force = false, revision, preferCached = false, applyIf } = {}) {
   if (workspace !== undefined && workspace !== state.current) {
     cacheWorkspaceSnapshot();
     const hasCachedSnapshot = state.projectCache.has(workspace);
@@ -387,7 +391,7 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
   const controller = new AbortController(), epoch = ++state.requestEpoch, selectedWorkspace = state.current;
   state.controller = controller; state.inFlight = true;
   const stamp = observationStamp();
-  const current = () => epoch === state.requestEpoch && observationCurrent(stamp);
+  const current = () => epoch === state.requestEpoch && observationCurrent(stamp) && (!applyIf || applyIf());
   const foregroundSync = reason === "manual" || reason === "initial";
   const continuationReason = foregroundSync ? reason : "background";
   const previousSnapshot = { project: state.project, revisionKey: state.revisionKey, lastUpdated: state.lastUpdated, lastChecked: state.lastChecked };
@@ -444,21 +448,24 @@ async function refreshProject({ workspace, reason = "auto", force = false, revis
       }
     }
     const cachedResponse = typeof data.snapshot_cache === "string";
-    const snapshotRevision = typeof data.snapshot_revision === "string"
-      ? data.snapshot_revision
-      : null;
+    const hasSnapshotRevision = Object.prototype.hasOwnProperty.call(data, "snapshot_revision");
+    const snapshotRevision = snapshotRevisionKey(data.snapshot_revision);
     const snapshotRefreshing = data.snapshot_refreshing === true;
+    const unknownSnapshotRevision = hasSnapshotRevision && !snapshotRevision;
+    data.snapshot_unconfirmed = unknownSnapshotRevision || (cachedResponse && !snapshotRevision);
     phase = "render";
     if (typeof invalidateChangeInspection === "function") invalidateChangeInspection();
     state.project = data; state.current = data.workspace;
     state.fitnessSnapshotFromCache = false;
     if (state.activitySnapshot && state.activitySnapshot.workspace !== data.workspace) state.activitySnapshot = null;
-    state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = false; state.syncFailure = null;
-    state.revisionKey = snapshotRevision || (!cachedResponse ? observedKey : null);
+    state.lastUpdated = Date.now(); state.lastChecked = state.lastUpdated; state.syncError = unknownSnapshotRevision; state.syncFailure = null;
+    state.revisionKey = hasSnapshotRevision ? snapshotRevision : (!cachedResponse ? observedKey : null);
     if (state.selected && !data.requirements?.some(r => r.id === state.selected)) state.selected = "";
     renderProject(force);
     cacheWorkspaceSnapshot();
-    if (snapshotRefreshing || (cachedResponse && !snapshotRevision)) {
+    if (unknownSnapshotRevision && !snapshotRefreshing) {
+      setSync("error", localized("Snapshot identity unavailable · retry current context", "快照身份不可用 · 请重试当前上下文"));
+    } else if (snapshotRefreshing || (cachedResponse && !snapshotRevision)) {
       if (foregroundSync) setSync("loading", localized("Cached snapshot · refreshing…", "已显示缓存 · 后台刷新…"));
       scheduleSnapshotProbe();
     } else {
@@ -495,7 +502,7 @@ async function pollRevision() {
       if (accepted && state.authorizations.length !== revision.pending_authorizations) state.accessLoaded = false;
       renderStats(); renderAttention();
     }
-    if (!state.project || state.syncError || revision.full_refresh_required || revisionKey(revision) !== state.revisionKey) {
+    if (!state.project || state.syncError || revision.full_refresh_required || !revisionKey(revision) || revisionKey(revision) !== state.revisionKey) {
       await refreshProject({ reason: "auto", revision, preferCached: true });
     } else {
       state.lastChecked = Date.now(); renderLive();
@@ -634,7 +641,7 @@ async function activityTick() {
   } finally { state.activityTickActive = false; scheduleActivity(); }
 }
 const commandActions = () => [
-  ["overview", localized("Open Overview", "打开总览"), localized("Health, evidence and engineering signals", "健康度、证据与工程信号"), "chart"],
+  ["overview", localized("Open acceptance", "打开变更验收"), localized("Current decision, blockers and required checks", "当前结论、阻塞原因与必需检查"), "shield"],
   ["architecture", localized("Open architecture", "打开架构"), localized("System map and dependency evidence", "系统图谱与依赖证据"), "layers"],
   ["activity", localized("Open task activity", "打开任务活动"), localized("Durable execution and runtime work", "持久化执行与实时工作"), "monitor"],
   ["proof", localized("Open verification evidence", "打开验证证据"), localized("Revision-bound checks and proof ledger", "版本绑定检查与证据账本"), "shield"],

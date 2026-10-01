@@ -10,6 +10,7 @@ responsibilities:
   - assemble validated original-byte edit ranges once while retaining stale SHA and overlap rejection
   - report AST early termination and read failures without promoting syntax into semantic proof
   - keep reproducible local microbenchmarks separate from model capability rankings
+  - redact recognized bare credential tokens through the canonical source and output redactor while preserving safe UTF8 source and ordinary identifiers
 depends_on:
   - component:workspace-security
   - component:workspace-operations
@@ -24,3 +25,4 @@ implementation:
   - {kind: symbol, path: src/integrations/mcp/dispatch/workspace.rs, symbol: search_request}
   - {kind: symbol, path: src/graph/code_index/indexing.rs, symbol: 'CodeIndex::search_ast_nodes'}
   - {kind: file, path: src/integrations/mcp/tools.rs}
+  - {kind: file, path: src/workspace/operations/credential_redaction.rs}

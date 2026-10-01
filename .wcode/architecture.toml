@@ -1,0 +1,42 @@
+schema_version = 1
+oss_manifest = "Cargo.toml"
+oss_packages = ["wcode", "wcode-core-types"]
+
+# These package names belong to the separate private commercial repository.
+# Any dependency from OSS to them is a boundary violation regardless of source.
+commercial_packages = ["wcode-team", "wcode-enterprise"]
+forbidden_oss_features = ["team", "enterprise", "commercial", "cloud", "paid"]
+
+[repository_boundary]
+commercial_source = "external-repository"
+forbidden_in_repo_roots = ["commercial", "wcode-commercial"]
+commercial_dependency_direction = "external-commercial -> public-wcode-only"
+
+# The first physical OSS extraction owns only immutable cross-domain facts.
+[ownership.core_types]
+manifest = "crates/core-types/Cargo.toml"
+roots = ["crates/core-types/src/"]
+contracts = [
+    "wcode_core_types::ExecutionGitBinding",
+    "wcode_core_types::authority_state_root",
+    "wcode_core_types::intelligence_state_root",
+    "wcode_core_types::RequiredVerificationCheck",
+    "wcode_core_types::VerificationCheckExecution",
+    "wcode_core_types::VerificationReport",
+    "wcode_core_types::ChangeReviewReport",
+]
+
+# Remaining logical ownership is not yet a claim that these coupled domains are separate crates.
+[ownership.core]
+roots = ["src/workspace/", "src/design/", "src/graph/", "src/semantics/", "src/verification/", "src/evidence/", "src/reconciliation/", "src/intelligence/", "src/runtime/harness/", "src/runtime/contracts/"]
+contracts = ["verification::evaluate_snapshot", "design::AcceptancePolicy", "evidence::Evidence", "graph::SoftwareGraph", "runtime::contracts::TaskTelemetry", "runtime::contracts::RuntimeTelemetry", "runtime::contracts::MonitorJobAccess"]
+
+[ownership.oss_product]
+roots = ["src/app/", "src/integrations/", "src/ui/", "src/main.rs", "src/lib.rs"]
+shared_runtime = ["src/runtime/", "src/scopes/"]
+
+[distribution]
+oss_license = "Apache-2.0"
+oss_source_policy = "explicit-root-include-allowlist"
+commercial_source_policy = "separate-source-control-repository"
+commercial_runtime_dependency = "forbidden"

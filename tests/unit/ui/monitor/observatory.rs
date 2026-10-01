@@ -1,6 +1,106 @@
 use super::*;
 use ratatui::backend::TestBackend;
 
+#[test]
+fn intelligence_refresh_panic_releases_loading_state_and_allows_retry() {
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    let worker = spawn_intelligence_refresh(&monitor, "backend".to_owned(), || {
+        panic!("fixture private panic payload");
+    })
+    .unwrap();
+    let joined = worker.join();
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.intelligence["backend"];
+    assert!(
+        !stats.refreshing,
+        "a stopped worker must not leave permanent Loading state"
+    );
+    assert!(
+        stats.refresh_error.is_some(),
+        "failed refresh must stay visibly stale"
+    );
+    assert!(!stats
+        .refresh_error
+        .as_ref()
+        .unwrap()
+        .contains("private panic payload"));
+    assert!(
+        joined.is_ok(),
+        "refresh panics must be contained at the worker boundary"
+    );
+    spawn_intelligence_refresh(&monitor, "backend".to_owned(), || Ok(()))
+        .expect("a stopped worker must not block retry")
+        .join()
+        .unwrap();
+    let snapshot = monitor.snapshot();
+    assert!(!snapshot.intelligence["backend"].refreshing);
+    assert!(snapshot.intelligence["backend"].refresh_error.is_none());
+}
+
+#[test]
+fn intelligence_refresh_error_keeps_cached_data_and_retry_clears_failure() {
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    monitor.record_intelligence_result(
+        "backend",
+        "worklist_status",
+        &serde_json::json!({
+            "exists": true, "revision": 7, "items": [], "counts": {}, "complete": false
+        }),
+    );
+    let before = monitor.snapshot().intelligence["backend"]
+        .project_worklist
+        .clone();
+    assert!(before.is_some(), "fixture must retain real cached data");
+    spawn_intelligence_refresh(&monitor, "backend".to_owned(), || {
+        Err(anyhow::anyhow!("fixture refresh failed"))
+    })
+    .unwrap()
+    .join()
+    .unwrap();
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.intelligence["backend"];
+    assert!(!stats.refreshing);
+    assert_eq!(
+        stats.refresh_error.as_deref(),
+        Some("fixture refresh failed")
+    );
+    assert_eq!(stats.project_worklist, before);
+    spawn_intelligence_refresh(&monitor, "backend".to_owned(), || Ok(()))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(monitor.snapshot().intelligence["backend"]
+        .refresh_error
+        .is_none());
+}
+
+#[test]
+fn intelligence_refresh_single_flight_preserves_other_workspaces() {
+    let monitor = TaskMonitor::new(["backend".to_owned(), "frontend".to_owned()]);
+    let (release, wait) = std::sync::mpsc::channel();
+    let first = spawn_intelligence_refresh(&monitor, "backend".to_owned(), move || {
+        wait.recv_timeout(Duration::from_secs(5))?;
+        Ok(())
+    })
+    .unwrap();
+    let duplicate = spawn_intelligence_refresh(&monitor, "backend".to_owned(), || {
+        panic!("duplicate refresh must never run");
+    });
+    let other = spawn_intelligence_refresh(&monitor, "frontend".to_owned(), || Ok(()));
+    release.send(()).unwrap();
+    first.join().unwrap();
+    assert!(duplicate.is_none());
+    other
+        .expect("another Workspace must remain independent")
+        .join()
+        .unwrap();
+    assert!(monitor
+        .snapshot()
+        .intelligence
+        .values()
+        .all(|stats| !stats.refreshing));
+}
+
 fn fixture() -> (tempfile::TempDir, MonitorConfig, TaskMonitor) {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("backend");
@@ -71,7 +171,7 @@ fn console_tabs_keep_global_stop_and_authorization_separate() {
     let (_root, config, monitor) = fixture();
     let snapshot = monitor.snapshot();
     let area = Rect::new(0, 0, 100, 24);
-    let mut ui = console(ConsoleTab::Summary);
+    let mut ui = console(ConsoleTab::Acceptance);
     assert!(handle_console_key(
         key(KeyCode::Tab),
         &mut ui,
@@ -87,7 +187,7 @@ fn console_tabs_keep_global_stop_and_authorization_separate() {
         &snapshot,
         &config
     ));
-    assert_eq!(ui.console_tab, ConsoleTab::Summary);
+    assert_eq!(ui.console_tab, ConsoleTab::Acceptance);
     assert!(!handle_console_key(
         event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         &mut ui,
@@ -136,7 +236,7 @@ fn shared_attention_retains_revision_provenance_and_incomplete_observation() {
     let snapshot = monitor.snapshot();
     let ui = console(ConsoleTab::Attention);
     let text = render(&snapshot, &config, &ui, 120, 30);
-    assert!(text.contains("1 Summary"));
+    assert!(text.contains("1 Acceptance"));
     assert!(text.contains("2 Attention"));
     assert!(text.contains("sha256:current-code"));
     assert!(text.contains("partial"));
@@ -236,7 +336,45 @@ fn selected_task_identity_survives_runtime_reordering_and_details_scroll() {
     let last_text = render(&snapshot, &config, &ui, 80, 20);
     assert!(last_text.contains("END_OF_DETAIL"));
     assert!(last_text.contains("PgUp/PgDn"));
-    assert!(last_text.contains("1 Summary"));
+    assert_eq!(ui.console_task_id, Some(1));
+    // The 80-column overlay has a 72-column inner area, so all six routes
+    // use compact labels while task details retain their independent scroll.
+    for label in [
+        "1 Accept",
+        "2 Issues",
+        "3 Tasks",
+        "4 LSP/AI",
+        "5 Agents",
+        "6 Observe",
+        "Tasks · Tab / Shift-Tab · 1-6",
+    ] {
+        assert!(last_text.contains(label), "missing {label}: {last_text}");
+    }
+    let wide_text = render(&snapshot, &config, &ui, 120, 30);
+    assert!(wide_text.contains("1 Acceptance"));
+    assert!(wide_text.contains("6 Observations"));
+    assert!(wide_text.contains("END_OF_DETAIL"));
+
+    assert!(handle_console_key(
+        key(KeyCode::Char('6')),
+        &mut ui,
+        area,
+        &snapshot,
+        &config
+    ));
+    assert_eq!(ui.console_tab, ConsoleTab::Summary);
+    assert_eq!(ui.console_scroll, 0);
+    assert!(
+        render(&snapshot, &config, &ui, 80, 20).contains("Observations · Tab / Shift-Tab · 1-6")
+    );
+    assert!(handle_console_key(
+        key(KeyCode::Tab),
+        &mut ui,
+        area,
+        &snapshot,
+        &config
+    ));
+    assert_eq!(ui.console_tab, ConsoleTab::Acceptance);
 }
 
 #[test]

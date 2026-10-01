@@ -186,6 +186,13 @@ pub(super) fn render_authorization_overlay(
                 language.tr("Exact repository operation")
             }
             crate::authorization::AuthorizationKind::DestructiveDelete => language.tr("DELETE"),
+            crate::authorization::AuthorizationKind::HumanDecision => {
+                if language == UiLanguage::ZhCn {
+                    "人工决定"
+                } else {
+                    "Human decision"
+                }
+            }
         };
         let prefix = if selected { "›" } else { " " };
         let summary_width = inner.width.saturating_sub(39) as usize;
@@ -214,6 +221,11 @@ pub(super) fn render_authorization_overlay(
             ),
         ]));
     }
+    let exact_only = matches!(
+        requests[focus].kind,
+        crate::authorization::AuthorizationKind::DestructiveDelete
+            | crate::authorization::AuthorizationKind::HumanDecision
+    );
     let wide_controls = inner.width >= 64;
     let control_rows = if wide_controls { 2 } else { 1 };
     let status_rows = usize::from(status_message.is_some());
@@ -250,12 +262,16 @@ pub(super) fn render_authorization_overlay(
     }
     if wide_controls {
         lines.push(Line::from(vec![
-            keycap("A"),
+            keycap(if exact_only { "Y" } else { "A" }),
             Span::styled(
-                format!(
-                    " {}",
-                    language.tr("authorize commands for request workspace")
-                ),
+                if exact_only {
+                    " Exact local operator decision".to_owned()
+                } else {
+                    format!(
+                        " {}",
+                        language.tr("authorize commands for request workspace")
+                    )
+                },
                 Style::default().fg(WARNING),
             ),
         ]));
@@ -278,9 +294,13 @@ pub(super) fn render_authorization_overlay(
         ]));
     } else {
         lines.push(Line::from(vec![
-            keycap("A"),
+            keycap(if exact_only { "↑/↓" } else { "A" }),
             Span::styled(
-                format!(" {}  ", language.tr("all")),
+                if exact_only {
+                    " exact  ".to_owned()
+                } else {
+                    format!(" {}  ", language.tr("all"))
+                },
                 Style::default().fg(WARNING),
             ),
             keycap("Y"),

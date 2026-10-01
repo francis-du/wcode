@@ -72,7 +72,7 @@
   id: component:verification-harness
   name: Verification Harness
   responsibilities:
-    - infer bounded verification checks
+    - infer bounded verification checks with shared command admission that preserves read headroom, holds no permits during resource waits, and exposes bounded overload diagnostics with real reservation/wait-stage telemetry
     - run deterministic verification through the approved command lane
     - persist versioned deterministic check timing facts, normalize exact-command history to the latest observation per revision so retries cannot inflate sample confidence, and select a bounded fail-fast frontier of at most two sentinels without removing any required checks
     - admit a second cost sentinel only from shared revision evidence where the first sentinel did not fail but the second did, with sufficient marginal samples, marginal failures and positive incremental time savings after charging its own runtime; correlated failures remain in the parallel remainder
@@ -89,6 +89,7 @@
     - kind: symbol
       path: src/runtime/harness/quality/adversarial.rs
       symbol: ToolHarness::adversarial_review
+    - {kind: file, path: src/runtime/harness/admission.rs}
     - kind: symbol
       path: src/runtime/harness/quality/adversarial.rs
       symbol: ToolHarness::adversarial_review_with_candidates
@@ -137,7 +138,7 @@
   id: component:design-state
   name: Design State Engine
   responsibilities:
-    - load structured desired software state from versioned repository files
+    - load structured desired software state from versioned repository files; parse bounded versioned acceptance-policy drafts without granting activation authority
     - validate stable identifiers and cross-document references
     - cache parsed desired state only behind a content-sensitive fingerprint so metadata replay cannot preserve stale Design State
     - initialize sparse meaningful Design State with repository-wide source, test, and design-sync constraints
@@ -156,6 +157,8 @@
     - kind: symbol
       path: src/runtime/harness/core.rs
       symbol: ToolHarness::design_init
+    - {kind: symbol, path: src/design/project.rs, symbol: AcceptancePolicy}
+    - {kind: symbol, path: src/design/project.rs, symbol: PolicySelection}
 
 - schema_version: 1
   id: component:graph-persistence
@@ -273,8 +276,8 @@
   id: component:evidence-runtime
   name: Evidence Runtime
   responsibilities:
-    - persist immutable provenance-bearing verification evidence per workspace
-    - reload evidence across runtime restarts without mutating repositories
+    - persist immutable provenance-bearing verification evidence per workspace with bounded typed exact-command receipts; mapped test references are not executed test events
+    - reload evidence across runtime restarts without mutating repositories; reject incomplete or conflicting authoritative storage and protect current native failures during bounded retention
     - retain bounded prompt-free engineering milestones with unique event identities and optional post-operation code/design observations, keeping legacy events unbound and unreadable records explicit
   constraints:
     - CONSTRAINT-EVIDENCE-PROVENANCE
@@ -287,14 +290,16 @@
       symbol: load
     - kind: file
       path: src/evidence/journal.rs
+    - {kind: symbol, path: src/evidence/mod.rs, symbol: VerificationExecutionReceipt}
+    - {kind: symbol, path: src/intelligence/runtime/verification_snapshot.rs, symbol: SoftwareIntelligenceRuntime::record_verification_report_from_design}
 
 - schema_version: 1
   id: component:verification-mesh
   name: Verification Mesh
   responsibilities:
-    - create persistent blind independent reviewer jobs with contract-first correctness guidance and reclaim only superseded unclaimed plan jobs when per-Workspace capacity is exhausted
+    - create persistent blind independent reviewer jobs with contract-first correctness guidance and reclaim only superseded unclaimed plan jobs when per-Workspace capacity is exhausted; monotonic mutation generations prevent stale or conflicting persistence from restoring old decisions
     - bind plans and admissible evidence to the exact active code plus Design State revision and fixed changed-language verification targets
-    - aggregate deterministic reviewer and stage evidence fail closed by producer and required target, preserving the less favorable verdict for equal-time conflicts and rejecting conflicted newest HumanApproval decisions
+    - aggregate exact required-check signatures at the required level and authoritative stage targets fail closed; self-reported MCP stages are advisory, equal-time conflicts preserve failure, and HumanApproval is bound to the complete immutable plan
     - discover and execute bounded property mutation fuzz and runtime-canary adapters with explicit per-target coverage
   constraints:
     - CONSTRAINT-FAIL-CLOSED-VERIFICATION
@@ -320,6 +325,8 @@
     - kind: symbol
       path: src/verification/stage_executor.rs
       symbol: execute
+    - {kind: symbol, path: src/intelligence/runtime/verification_snapshot.rs, symbol: SoftwareIntelligenceRuntime::verification_status_from_snapshot}
+    - {kind: symbol, path: src/intelligence/runtime/verification_snapshot.rs, symbol: human_approval_policy}
 
 - schema_version: 1
   id: component:reconciliation-engine
@@ -364,7 +371,7 @@
   responsibilities:
     - expose live design traceability risk evidence graph and reconciliation state in the TUI
     - share a bounded revision-bound actionable attention projection across TUI and WebUI, preserving evidence scope and precision, raw counts, partial coverage and current-plan ordering
-    - provide native selectable TUI attention tasks and providers plus protected paged source inspection from the Web file tree
+    - provide native selectable TUI attention tasks and providers plus protected paged source inspection and explicit snapshot SHA guarded line-window editing from the Web file tree with bounded drafts and stale-response isolation
     - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
     - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
     - serve bounded per-Workspace revision-stamped cached project snapshots immediately on first paint or Workspace switch, then revalidate Git-heavy project state through one server-side single-flight background refresh while browsers use lightweight cache probes and never create a heavy refresh storm
@@ -602,7 +609,7 @@
     - honor per-request client capability metadata for form elicitation and Tasks, while media uses standard MCP image/audio content blocks behind explicit include_content opt-in
     - keep model-facing Tool schemas compact by omitting runtime defaults and low-frequency tuning fields while preserving runtime compatibility for explicit legacy arguments
     - guide agents to omit default/inferable arguments and use host-level concurrent top-level calls for independent lanes instead of large nested parallel_tools payloads
-    - preserve owner-scoped task execution across modern MCP requests
+    - preserve owner-scoped durable command execution through modern Tasks and ordinary legacy-compatible tools/call receipts
   constraints:
     - CONSTRAINT-MCP-COMPATIBILITY
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
@@ -621,6 +628,7 @@
     - kind: symbol
       path: src/integrations/mcp/tasks.rs
       symbol: create_tool_task
+    - {kind: symbol, path: src/integrations/mcp/task_tools.rs, symbol: command_task_tool}
     - kind: symbol
       path: src/integrations/mcp/catalog.rs
       symbol: resources_list
@@ -632,9 +640,9 @@
     - publish protected-resource and authorization-server metadata
     - enforce PKCE resource binding and bounded dynamic client registration
     - derive OAuth metadata and redirects from the verified tunnel that received each request
-    - persist bounded DCR clients and resource-bound tokens per configured Workspace-root scope so sessions survive restarts without clock expiry
+    - persist bounded DCR clients and unexpired resource-bound tokens per configured Workspace-root scope so sessions survive restarts within their original token expiry
     - distinguish active health-verified request Hosts from historical token resources so tunnel migration cannot reactivate a stale Host
-    - support safe web and native MCP registration profiles
+    - support safe web and native MCP registration profiles; one-hour access and 30-day refresh expiry survive restarts without renewal, refresh rotates same-owner grants, and protected operator APIs list opaque sessions and revoke both grants
   constraints:
     - CONSTRAINT-INTEROPERABILITY-STANDARDS
   implementation:
@@ -963,7 +971,7 @@
     - persist bounded prompt-free per-Workspace co-change facts only after successful stable deterministic verification
     - turn verified historical co-change into an explicit heuristic retrieval signal without outranking exact, Design, semantic, deterministic or runtime evidence
     - normalize co-change affinity against per-path popularity, shrink low-support relationships, discount broad change sets, decay stale evidence with a bounded half-life, and keep full verification stronger than quick while capping the final repository-map boost below direct lexical evidence
-    - ignore failed or unverified work, incomplete revisions, truncated snapshots, missing paths and overly broad change sets so experience cannot silently become a new source of truth
+    - ignore failed or unverified work, incomplete revisions, truncated snapshots, missing paths and overly broad change sets when learning positive co-change affinity; bounded native failure advisories remain a separate non-authoritative concern
     - never persist user prompts, model reasoning or chain-of-thought as repository experience
     - evaluate verified co-change memory with global temporal A/B holdout so equal-timestamp records cannot leak into one another, stale paths are ignored, the normalized candidate is compared against raw-count-v1 on identical cases, and coverage/hit-rate/precision@K/recall@K retain raw denominators plus percentage-point deltas
   constraints:

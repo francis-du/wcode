@@ -1,0 +1,18 @@
+schema_version: 1
+id: REQ-OSS-BOUNDARY-001
+title: Commercial layers consume an independently useful OSS product
+intent: >-
+  Core intelligence, workspace safety, policy evaluation, verification, evidence, local history, MCP OAuth and local CLI/TUI/WebUI remain Apache-2.0. Commercial Team and Enterprise may only consume explicit public contracts; they must not introduce reverse dependencies, alter deterministic truth, require a proprietary store for startup or relicense existing source. Physical extraction proceeds only after a stable owner is found: immutable cross-domain facts now live under the dependency-light wcode-core-types package while the root package preserves its existing public paths and offline package behavior from the same source owner. Immutable Git binding and platform state-root derivation remove the Evidence-to-Verification and Workspace-to-store-root ownership cycles. Harness report DTOs, model-tool routing, runtime/auth/task telemetry and durable-job observation are neutral Core contracts, so Intelligence, Harness, Auth, resource, semantic maintenance, tunnel providers and MCP job observation no longer depend on UI-owned monitor types. AppState and TaskRecord remain OSS Product composition/persistence owners rather than new Core facts. Real OSS package inventories and an aggregate commercial-free OSS workspace must build and test without commercial source.
+priority: critical
+implemented_by:
+  - component:oss-commercial-boundary
+acceptance:
+  - AC-OSS-BOUNDARY-001
+constraints:
+  - CONSTRAINT-OSS-INDEPENDENCE
+  - CONSTRAINT-COMMERCIAL-BOUNDARY
+  - CONSTRAINT-LICENSE-BOUNDARY
+risk:
+  compatibility: high
+  security: critical
+  reliability: high

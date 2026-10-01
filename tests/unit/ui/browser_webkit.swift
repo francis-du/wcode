@@ -12,7 +12,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
     var totalCases = 0
     var finished = false
     var phase = "initializing"
-    var timeoutSeconds: Double = 90
+    // The 256-case matrix needs bounded headroom on shared CI runners.
+    var timeoutSeconds: Double = 180
     let check = #"""
     (()=>{
       const errors=[], diagnostics=[], r=e=>e.getBoundingClientRect(), visible=e=>e.getClientRects().length>0;
@@ -28,6 +29,24 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         diagnostics.push({label,element:describe(el),parent:describe(parent)});
       };
       check(window.__layoutReady===true,'production boot failed');
+      check(document.fonts.status==='loaded','font geometry not ready');
+      const expected=window.__auditExpected;
+      check(Boolean(expected),'missing requested scenario');
+      if(expected){
+        check(innerWidth===expected.width,'requested viewport not observed');
+        check(state.language===expected.language&&state.theme===expected.theme,'requested language/theme not observed');
+        const graph=expected.view.startsWith('codegraph'),architecture=expected.view.startsWith('architecture-');
+        check(state.workspaceTab===(graph||architecture?'architecture':expected.view),'requested tab not observed');
+        if(graph||architecture){
+          const view=graph?'codegraph':expected.view==='architecture-components'?'components':expected.view==='architecture-dependencies'?'graph':'blueprint';
+          check(state.architectureView===view,'requested architecture view not observed');
+        }
+        if(graph){
+          check(state.codeGraphView===(expected.view==='codegraph'?'overview':'focus'),'requested graph view not observed');
+          check((state.codeGraphFull===true)===(expected.view==='codegraph-full'),'requested fullscreen state not observed');
+          if(expected.view==='codegraph-source')check(state.codeGraphInspectorOpen===true,'requested source inspector not observed');
+        }
+      }
       check(document.documentElement.scrollWidth<=innerWidth+1,'page overflow',document.documentElement);
       if(document.documentElement.scrollWidth>innerWidth+1){
         const overflowers=[...document.querySelectorAll('body *')].filter(el=>{if(!visible(el))return false;const b=r(el);return b.right>innerWidth+1||b.left<-1;}).slice(0,20).map(describe);
@@ -90,6 +109,16 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(ownership?.querySelector('.execution-worker-result .pill')?.classList.contains('warn'),'worker completion certified as verification',ownership);
       }
       if(state.workspaceTab==='overview'){
+        const acceptance=document.getElementById('statusSummary'),table=acceptance?.querySelector('.acceptance-check-table');
+        check((acceptance?.textContent||'').includes(state.language==='zh-CN'?'验收阻塞':'Acceptance blocked'),'canonical acceptance failure missing',acceptance);
+        check(acceptance?.querySelectorAll('.acceptance-check-table tbody tr').length===3,'required checks missing',acceptance);
+        check(!acceptance?.querySelector('script'),'acceptance markup executed',acceptance);
+        check(table?.getAttribute('tabindex')==='0'&&table?.getAttribute('role')==='region','required checks are not keyboard scrollable',table);
+        if(table){const a=r(table),b=r(acceptance);check(a.left>=b.left-1&&a.right<=b.right+1,'required checks viewport escapes acceptance',table,acceptance);}
+        const evidenceLink=acceptance?.querySelector('[data-acceptance-evidence="e0"]');
+        evidenceLink?.click();
+        check(state.workspaceTab==='proof'&&state.selectedEvidenceKey==='e0','acceptance evidence did not select exact ledger row',evidenceLink);
+        activateWorkspaceTab('overview');
         const section=document.getElementById('fitnessSection');
         check(section&&visible(section),'fitness overview hidden',section);
         check(document.querySelectorAll('#fitnessBenchmark tbody tr').length===6,'fitness benchmark matrix missing',section);
@@ -140,6 +169,8 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       const header=document.querySelector('.global-bar');
       const headerChildren=header&&header.scrollWidth>header.clientWidth+1?[...header.querySelectorAll('*')].filter(el=>visible(el)&&(r(el).right>r(header).right+1||r(el).left<r(header).left-1)).slice(0,12).map(describe):[];
       return {width:innerWidth,language:state.language,theme:state.theme,tab:state.workspaceTab,errors,diagnostics,headerChildren,
+        architectureView:state.architectureView,codeGraphView:state.codeGraphView,
+        codeGraphFull:state.codeGraphFull===true,codeGraphInspectorOpen:state.codeGraphInspectorOpen===true,
         scrollX,scrollY,devicePixelRatio,fontStatus:document.fonts.status,
         coarsePointer:matchMedia('(pointer:coarse)').matches,
         gutter:getComputedStyle(document.documentElement).getPropertyValue('--page-gutter-x'),
@@ -205,16 +236,18 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         fputs("WebKit case \(index)/\(scenarios.count): \(width) \(lang) \(theme) \(tab)\n",stderr)
         web.setFrameSize(NSSize(width:width,height:900));web.layoutSubtreeIfNeeded()
         let setup="""
-        (()=>{const scenario='\(tab)';setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';state.codeGraphView=scenario==='codegraph'?'overview':'focus';state.selectedCodeNode=scenario==='codegraph'?'':'node:focus';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);if(scenario==='codegraph-source')setCodeGraphInspector(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
+        (()=>{const scenario='\(tab)';window.__auditExpected={width:\(width),language:'\(lang)',theme:'\(theme)',view:scenario};setCodeGraphFull(false);state.language='\(lang)';state.theme='\(theme)';applyTheme();applyLanguage();if(scenario.startsWith('codegraph')){state.architectureView='codegraph';state.codeGraphView=scenario==='codegraph'?'overview':'focus';state.selectedCodeNode=scenario==='codegraph'?'':'node:focus';activateWorkspaceTab('architecture');renderArchitecture();if(scenario==='codegraph-full')setCodeGraphFull(true);if(scenario==='codegraph-source')setCodeGraphInspector(true);}else if(scenario.startsWith('architecture-')){state.architectureView=scenario==='architecture-components'?'components':scenario==='architecture-dependencies'?'graph':'blueprint';activateWorkspaceTab('architecture');renderArchitecture();}else{activateWorkspaceTab(scenario);}window.scrollTo(0,0);return innerWidth;})()
         """
         web.evaluateJavaScript(setup){value,error in
             if let error {self.finish("Browser setup failed: \(error)");return}
-            guard let actual=value as? NSNumber,actual.intValue==width else{self.finish("Requested viewport \(width), received \(String(describing:value))");return}
+            guard let actual=value as? NSNumber,actual.doubleValue==Double(width) else{self.finish("Requested viewport \(width), received \(String(describing:value))");return}
             self.web.layoutSubtreeIfNeeded()
             DispatchQueue.main.asyncAfter(deadline:.now()+0.15){
                 self.phase="check-\(self.index)"
                 self.web.evaluateJavaScript(self.check){value,error in
-                    guard error==nil,let report=value as? [String:Any] else{self.finish("Browser check failed: \(String(describing:error))");return}
+                    guard error==nil,var report=value as? [String:Any] else{self.finish("Browser check failed: \(String(describing:error))");return}
+                    // Preserve the requested view separately from its shared DOM tab.
+                    report["scenario"]=tab
                     self.reports.append(report);self.next()
                 }
             }

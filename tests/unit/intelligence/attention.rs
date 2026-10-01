@@ -181,6 +181,7 @@ fn attention_latest_plan_does_not_reintroduce_older_blockers() {
             risk_level: crate::risk::RiskLevel::Low,
             policy: "test".into(),
             deterministic_level: "full".into(),
+            required_checks: None,
             deterministic_checks: vec![],
             reviewer_roles: vec![],
             require_property: false,

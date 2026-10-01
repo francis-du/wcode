@@ -21,6 +21,12 @@ instructions; MCP is what gives the client access to wcode tools.
 | Remote, preferred | Streamable HTTP | `https://host/mcp` with OAuth |
 | Older remote client | SSE compatibility | `GET /sse` and `POST /message?sessionId=...` with OAuth |
 
+### Local Menu Bar status
+
+On macOS, `wcode menu-bar` opens an observation-only Menu Bar item for the local WCode runtimes. The main HTTP/MCP runtime and every `wcode mcp-stdio` process publish the same bounded heartbeat contract under WCode's protected local state. The menu shows active HTTP/stdio runtime counts, MCP activity, and active/queued task counts without opening an IDE.
+
+The presence records contain transport, version, bounded Workspace IDs, activity timestamps, and aggregate status only. They do **not** contain the UI token, OAuth credentials, MCP owner identity, command arguments, source paths, or raw diagnostics. Stale or damaged records are shown as partial/unknown rather than connected. The Menu Bar cannot approve authorization, cancel jobs, execute arbitrary commands, or establish Verification/Acceptance. Use `wcode menu-bar --json` for the same portable read-only projection on any platform.
+
 These are three entrances to one implementation. They share JSON-RPC dispatch,
 the Harness, Workspace selection, command policy, authorization, Tools,
 Prompts, Resources, and repository-intelligence / engineering-control-plane state. SSE is kept for clients
@@ -172,11 +178,9 @@ ChatGPT Web, Claude Web, Grok Web, and Mistral use account-level connector
 settings. Paste the current HTTPS `/mcp` URL and complete OAuth in the browser.
 No local repository file can safely perform that account action.
 
-OAuth client registrations, access tokens, and refresh tokens do not expire by
-time. wcode stores them in the user's state directory, scoped by the configured
-Workspace roots, and reloads them after a restart. A tunnel admitted by the
-instance-matched health check can continue the session; refreshing through a
-replacement hostname moves the token binding to that hostname.
+OAuth client registrations remain persistent without a clock TTL. Access tokens expire after one hour; responses return `expires_in: 3600`, `Cache-Control: no-store` and `Pragma: no-cache`. Refresh tokens expire after 30 days of inactivity, and each successful refresh rotates them and renews that idle TTL. Rotation immediately invalidates old access tokens for the same client/grant owner, while separate owners remain valid. Expired, zero and future issuance timestamps fail closed. wcode stores state per configured Workspace roots; restart or migration keeps original issuance times rather than renewing existing grants. A tunnel admitted by the instance-matched health check can continue a still-valid session; refresh through a replacement hostname moves its resource binding to that hostname.
+
+`GET /oauth/sessions` lists bounded, credential-free session metadata; `POST /oauth/sessions/revoke` takes a JSON `session_id` and removes that grant's access/refresh credentials. Both are local-operator administration APIs protected by the existing Host/Origin checks and the current server's `X-Wcode-UI-Token`; an ordinary MCP bearer is insufficient. Successful revocation survives restart. Persistence failure returns `revocation_not_persisted`, removes live credentials and does not claim durable revocation. These are not an RFC 7009 endpoint, Team ACL or SSO; Team ACL and SSO remain unimplemented.
 
 The authorize page, token endpoint, and metadata use the exact Host from the
 incoming request, so tunnel B cannot redirect the browser to tunnel A. Unknown

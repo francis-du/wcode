@@ -1,0 +1,11 @@
+schema_version: 1
+id: AC-ACCEPTANCE-POLICY-001
+title: Project policy drafts select bounded requirements without granting authority
+statement: ProjectDesign accepts an optional versioned typed AcceptancePolicy; invalid schema, paths, unknown Design references, duplicate or excessive requirements and executable command fields fail closed. Matching rules accumulate check and reviewer requirements, stage requirements, maximum verification level and human approval independently of order. Explicit docs-only selection requires a complete nonempty Markdown change set, every old/new path in an allowed scope and known absence of executable changes, ordinary file modes and no Agent instruction or Skill Markdown; risk floors remain. Arbitrary embedded Markdown still requires a trusted graph-based risk floor before activation. Component and requirement matching uses complete frozen mapping inputs rather than candidate-controlled remapping. A parsed draft or selection is never an activated policy, verification execution or human approval.
+verification:
+  - {kind: test, path: tests/unit/design/project.rs, symbol: project_policy_is_optional_and_unknown_commands_are_rejected}
+  - {kind: test, path: tests/unit/design/project.rs, symbol: policy_validation_rejects_bounds_paths_duplicates_and_unknown_design_refs}
+  - {kind: test, path: tests/unit/design/project.rs, symbol: policy_rules_accumulate_order_independently_and_keep_risk_floor}
+  - {kind: test, path: tests/unit/design/project.rs, symbol: docs_only_requires_complete_old_and_new_markdown_paths_and_known_modes}
+  - {kind: test, path: tests/unit/design/project.rs, symbol: policy_mapping_inputs_fail_closed_and_use_frozen_file_scopes}
+  - {kind: test, path: tests/unit/design/project.rs, symbol: policy_digest_is_versioned_and_parsing_does_not_activate}
