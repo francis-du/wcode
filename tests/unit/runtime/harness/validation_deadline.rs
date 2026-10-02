@@ -87,31 +87,36 @@ fn native_validation_waiters_release_slots_without_releasing_the_owner() {
 
 #[test]
 fn native_validation_waiter_still_coalesces_before_deadline() {
-    let flight = Arc::new(ValidationFlight::default());
-    let owner = flight.gate.lock().unwrap();
-    let worker_flight = flight.clone();
-    let (started, ready) = mpsc::channel();
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        started.send(()).unwrap();
-        let result = worker_flight
-            .acquire()
-            .map(|_| ())
-            .map_err(|error| error.to_string());
-        tx.send(result).unwrap();
-    });
-    ready.recv_timeout(Duration::from_secs(5)).unwrap();
-    let early = rx.recv_timeout(Duration::from_millis(50));
-    drop(owner);
-    let result = early
-        .clone()
-        .unwrap_or_else(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap());
-    worker.join().unwrap();
+    let flight = ValidationFlight::default();
+    let mut owner = Some(flight.gate.lock().unwrap());
+    let mut waits = 0;
+    // Release the real mutex only after the production loop observes contention.
+    // A short recv_timeout cannot establish that ordering on a loaded CI host:
+    // the owner thread can be descheduled past the entire acquisition deadline.
+    let acquired = flight
+        .acquire_with_wait(|delay| {
+            assert!(delay > Duration::ZERO && delay <= Duration::from_millis(5));
+            assert!(matches!(
+                flight.gate.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            waits += 1;
+            drop(
+                owner
+                    .take()
+                    .expect("owner must survive until the first wait"),
+            );
+        })
+        .unwrap();
+    assert_eq!(waits, 1, "native contention must wait and then retry");
+    assert!(owner.is_none());
     assert!(
-        early.is_err(),
-        "native contention should not discard normal coalescing"
+        flight.gate.try_lock().is_err(),
+        "the returned guard must own the mutex"
     );
-    assert!(result.is_ok(), "{result:?}");
+    assert!(!flight.can_reuse_after(0));
+    drop(acquired);
+    assert!(flight.acquire().is_ok());
 }
 
 #[test]
