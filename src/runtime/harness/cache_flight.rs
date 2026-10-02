@@ -217,3 +217,7 @@ impl ToolHarness {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/validation_deadline.rs"]
+mod deadline_tests;
