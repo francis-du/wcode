@@ -52,11 +52,12 @@ fn value<'a>(item: &'a Item, name: &str) -> Option<&'a str> {
 }
 
 fn check_entry(checkout: &Path, base: &Path, entry: &str) -> Result<(), String> {
+    let checkout = checkout.canonicalize().map_err(|error| error.to_string())?;
     let path = base
         .join(entry)
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    if !path.starts_with(checkout) || !path.is_file() {
+    if !path.starts_with(&checkout) || !path.is_file() {
         return Err(format!("non-OSS compile target: {}", path.display()));
     }
     if path.extension().is_some_and(|extension| extension == "rs") {
@@ -423,7 +424,9 @@ fn oss_package_and_license_exclude_commercial_source() {
         .unwrap();
     assert!(
         output.status.success(),
-        "actual OSS cargo package list failed"
+        "actual OSS cargo package list failed (exit {:?}): {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
     let paths = String::from_utf8(output.stdout).unwrap();
     assert!(paths.lines().any(|path| path == "src/lib.rs"));
@@ -445,6 +448,24 @@ fn fixture(checkout: &Path, relative: &str, body: &str) {
     let path = checkout.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, body).unwrap();
+}
+
+#[test]
+fn compile_target_ownership_compares_canonical_checkout_and_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let checkout = temp.path().join("oss");
+    fixture(&checkout, "src/lib.rs", "pub fn normal() {}\n");
+    fs::create_dir(checkout.join("nested")).unwrap();
+    let alias = checkout.join("nested/..");
+    let source = checkout.join("src/lib.rs").canonicalize().unwrap();
+    check_entry(&alias, &checkout, source.to_str().unwrap()).unwrap();
+    fixture(temp.path(), "external.rs", "pub fn external() {}\n");
+    assert!(
+        check_entry(&alias, &checkout, "../external.rs")
+            .unwrap_err()
+            .starts_with("non-OSS compile target:"),
+        "normalizing checkout spelling must preserve the ownership boundary"
+    );
 }
 
 fn fixture_policy() -> DocumentMut {
