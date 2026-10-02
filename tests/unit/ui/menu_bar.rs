@@ -159,6 +159,19 @@ fn menu_bar_summary_reports_verification_and_jobs_as_work() {
 }
 
 #[test]
+fn menu_bar_startup_diagnostics_keep_only_a_bounded_tail() {
+    let mut bytes = vec![b'x'; 20000];
+    bytes.extend_from_slice(b"startup failed");
+    let tail = companion_error_tail(std::io::Cursor::new(&bytes)).unwrap();
+    assert_eq!(tail.len(), 4096);
+    assert_eq!(tail, bytes[bytes.len() - 4096..]);
+    assert_eq!(
+        companion_error_tail(std::io::empty()).unwrap(),
+        Vec::<u8>::new()
+    );
+}
+
+#[test]
 fn menu_bar_companion_respects_launch_context() {
     assert!(companion_allowed(true, true, false, false));
     for flags in [

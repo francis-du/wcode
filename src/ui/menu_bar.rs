@@ -104,6 +104,24 @@ fn companion_allowed(enabled: bool, macos: bool, ci: bool, remote_session: bool)
     enabled && macos && !ci && !remote_session
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn companion_error_tail(mut input: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+    let mut tail = Vec::with_capacity(4096);
+    let mut buffer = [0; 1024];
+    loop {
+        let count = match input.read(&mut buffer) {
+            Ok(0) => return Ok(tail),
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        tail.extend_from_slice(&buffer[..count]);
+        if tail.len() > 4096 {
+            tail.drain(..tail.len() - 4096);
+        }
+    }
+}
+
 pub(crate) fn launch_companion(enabled: bool) -> Result<()> {
     let ci = std::env::var("CI").is_ok_and(|value| !matches!(value.as_str(), "" | "0" | "false"));
     let remote_session = ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
@@ -125,12 +143,20 @@ pub(crate) fn launch_companion(enabled: bool) -> Result<()> {
                     .arg("menu-bar")
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::inherit())
+                    // Never let a long-lived companion hold an MCP client's pipes open.
+                    .stderr(Stdio::piped())
                     .spawn()
-                    .and_then(|mut child| child.wait());
+                    .and_then(|mut child| {
+                        let detail = child.stderr.take().map(companion_error_tail).transpose();
+                        let status = child.wait()?;
+                        Ok((status, detail?.unwrap_or_default()))
+                    });
                 match result {
-                    Ok(status) if status.success() => {}
-                    Ok(status) => eprintln!("WCode menu bar exited: {status}"),
+                    Ok((status, _)) if status.success() => {}
+                    Ok((status, detail)) => eprintln!(
+                        "WCode menu bar exited: {status}: {}",
+                        String::from_utf8_lossy(&detail).trim()
+                    ),
                     Err(error) => eprintln!("WCode menu bar unavailable: {error}"),
                 }
             })?;

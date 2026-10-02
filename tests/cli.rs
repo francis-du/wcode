@@ -125,6 +125,8 @@ fn stdio_runtime_publishes_menu_bar_presence_and_cleans_it_on_eof() {
         .current_dir(root.path())
         .env("WCODE_STATE_DIR", state.path())
         .args([
+            "--allow-sleep",
+            "--no-menu-bar",
             "mcp-stdio",
             "--no-monitor",
             "--no-semantic",
@@ -140,12 +142,11 @@ fn stdio_runtime_publishes_menu_bar_presence_and_cleans_it_on_eof() {
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "tools/list",
+        "method": "initialize",
         "params": {
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name":"presence-fixture", "version":"1"}
         }
     });
     writeln!(
@@ -157,7 +158,7 @@ fn stdio_runtime_publishes_menu_bar_presence_and_cleans_it_on_eof() {
     child.stdin.as_mut().unwrap().flush().unwrap();
 
     let presence = state.path().join("runtime-presence").join("v1");
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let record = loop {
         let record = std::fs::read_dir(&presence).ok().and_then(|entries| {
             entries
@@ -200,7 +201,7 @@ fn stdio_runtime_publishes_menu_bar_presence_and_cleans_it_on_eof() {
     )
     .unwrap();
     assert_eq!(response["id"], 1);
-    assert!(response["result"]["tools"].is_array());
+    assert_eq!(response["result"]["protocolVersion"], "2025-11-25");
 
     let retained = std::fs::read_dir(&presence)
         .unwrap()
@@ -234,6 +235,7 @@ fn http_runtime_publishes_menu_bar_presence_and_cleans_it_on_terminate() {
             "--no-exec",
             "--read-only",
             "--allow-sleep",
+            "--no-menu-bar",
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

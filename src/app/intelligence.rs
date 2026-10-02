@@ -14,8 +14,15 @@ pub(super) async fn run_intelligence_cli(
         .into_iter()
         .map(|(workspace_id, _)| workspace_id)
         .collect::<std::collections::BTreeSet<_>>();
+    // Discovered packages share their selected repository's project configuration.
+    // Only explicit roots are independent CLI audit targets; MCP discovery is unchanged.
+    let configured = workspaces.configured_roots();
     let mut entries = Vec::new();
-    for (workspace_id, root) in workspaces.roots() {
+    for (workspace_id, root) in workspaces
+        .roots()
+        .into_iter()
+        .filter(|(_, root)| configured.contains(root))
+    {
         let (_, workspace) = workspaces.select(Some(&workspace_id))?;
         let semantic_refresh = if refresh_semantic {
             Some(
@@ -119,7 +126,7 @@ pub(super) async fn run_intelligence_cli(
         }
         return Ok(());
     }
-    println!("WCode Intelligence {}", env!("CARGO_PKG_VERSION"));
+    println!("WCode project status");
     for workspace in value["workspaces"].as_array().into_iter().flatten() {
         let id = workspace["workspace"].as_str().unwrap_or("workspace");
         let root = workspace["root"].as_str().unwrap_or(".");
