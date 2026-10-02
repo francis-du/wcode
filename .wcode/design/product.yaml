@@ -1,7 +1,7 @@
 schema_version: 1
 id: product:wcode
-name: wcode Engineering Control Plane
-vision: Make AI-generated code shippable with evidence. Teams retain their coding agents while wcode makes every change understandable, constrained, verified, traceable and reviewable before acceptance.
+name: wcode
+vision: Help coding assistants read repositories, edit code, run checks and review changes. Teams keep their existing assistants; wcode records the results and requires applicable checks before accepting a change.
 principles:
   - Design State is the desired software state.
   - Models are replaceable executors, not the source of truth.
@@ -9,7 +9,7 @@ principles:
   - Understand, Change, Inspect, Verify, Evidence and Accept or Block form one engineering loop.
   - Acceptance requires current revision-bound execution and authenticated decisions; mappings and self-reports are not proof.
   - The Apache-2.0 local core remains useful; team value is coordination, governance, shared evidence and operational convenience.
-  - Commercial layers consume explicit OSS contracts; OSS has no commercial dependency and paying more cannot weaken engineering truth.
+  - Commercial packages use public OSS interfaces. The open-source product runs independently, and paid features cannot bypass checks or authorization.
   - Software graph precision and provenance must remain explicit.
-  - wcode dogfoods its own engineering control plane and repository-intelligence substrate.
+  - wcode uses its own repository tools and checks during development.
   - Maintained documentation has one canonical WIKI and one hosted HTML surface.

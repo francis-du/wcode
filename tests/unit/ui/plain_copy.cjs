@@ -20,6 +20,13 @@ test('functional UI names do not contain release numbers or invented product ter
     assert.doesNotMatch(source,/WCode\s+v?\d+\.\d+\s+(?:control plane|控制平面)|工程数字孪生|交接血缘|后台单飞|工程适应度|From code to confidence/i,name);
   }
 });
+test('project and plugin descriptions use concrete function names',()=>{
+  for(const name of ['.wcode/project.yaml','.wcode/design/product.yaml','marketplace.json','plugin/marketplace.json','plugin/plugin.json','plugin/.claude-plugin/plugin.json','plugin/.codex-plugin/plugin.json','plugin/.zcode-plugin/plugin.json']){
+    const source=fs.readFileSync(path.join(root,name),'utf8');
+    if(name.endsWith('.json'))assert.doesNotThrow(()=>JSON.parse(source),name);
+    assert.doesNotMatch(source,/engineering[ -]control[ -]plane|shippable with evidence|repository-intelligence substrate|Vibe Coding/i,name);
+  }
+});
 test('English capabilities use functional names and keep model checks separate',()=>{
   const html=render('en',featureData());
   for(const label of ['Repository features','Code relationships','Repository scanning','Background refresh','Model checks','Unknown'])assert.ok(html.includes(label),label);

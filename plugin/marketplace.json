@@ -5,10 +5,10 @@
     {
       "name": "wcode",
       "source": ".",
-      "description": "wcode engineering control-plane skill with current-directory MCP defaults.",
+      "description": "wcode repository tools and checks, using the current directory as the default workspace.",
       "version": "0.9.0",
       "category": "developer-tools",
-      "tags": ["mcp", "engineering-control-plane", "software-intelligence", "verification"],
+      "tags": ["mcp", "repository-tools", "code-review", "verification"],
       "strict": true
     }
   ]
