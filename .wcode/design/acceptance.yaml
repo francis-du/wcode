@@ -68,6 +68,7 @@
     bypass; races into saturation use a short bounded fallback. TUI slot counts come from live semaphore
     reservations, not started-task counters; resource/execution/slot waiters, RUN, process queues and PID remain distinct.
     The default engineering console keeps current admission counts visible even before project data finishes loading.
+    Contended cache validation on Rayon workers returns an explicit retryable busy error without parking the pool, changing cached authority, or retaining tool permits after the real work exits; native-thread freshness coalescing remains intact.
     Large MCP worktree reviews preview 32 file rows, preserve every finding/count/check and explicitly report omitted details;
     detail=full returns all reported rows. Projection never changes internal review, source-truncation or Evidence semantics.
   verification:
@@ -123,6 +124,11 @@
     - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: admission_regression_slot_timeout_releases_already_reserved_execution_permit}
     - {kind: test, path: tests/unit/ui/process_metrics.rs, symbol: admission_regression_tui_slots_follow_permits_not_started_task_counters}
     - {kind: test, path: tests/unit/ui/process_metrics.rs, symbol: admission_regression_loading_console_keeps_capacity_visible_in_both_languages}
+    - {kind: test, path: tests/unit/runtime/harness/parallel_liveness.rs, symbol: parallel_liveness_profile_contention_releases_worker_and_permit}
+    - {kind: test, path: tests/unit/runtime/harness/parallel_liveness.rs, symbol: parallel_liveness_convention_contention_releases_worker_and_permit}
+    - {kind: test, path: tests/unit/runtime/harness/parallel_liveness.rs, symbol: parallel_liveness_repo_map_contention_releases_worker_and_permit}
+    - {kind: test, path: tests/unit/runtime/harness/parallel_liveness.rs, symbol: parallel_liveness_saturated_followers_release_all_64_slots}
+    - {kind: test, path: tests/unit/runtime/harness/parallel_liveness.rs, symbol: parallel_liveness_mixed_64_requests_drain_and_recover}
     - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_headroom_keeps_total_cap_and_single_slot_compatibility}
     - {kind: test, path: tests/unit/runtime/harness/admission.rs, symbol: execution_waiters_keep_fifo_order_and_cancel_without_leaks}
     - {kind: test, path: tests/unit/integrations/mcp/definitions.rs, symbol: cancelled_execution_worker_retains_both_admission_permits}

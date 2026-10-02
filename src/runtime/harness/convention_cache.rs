@@ -17,10 +17,7 @@ impl ToolHarness {
             harness_cache_flight::ValidationParticipant::join(&flight, observed_generation);
         #[cfg(test)]
         flight.entrants.fetch_add(1, Ordering::AcqRel);
-        let _flight = flight
-            .gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _flight = flight.acquire()?;
 
         // An overlapping caller may reuse the report only when the owner
         // completed a successful validation against the current invalidation

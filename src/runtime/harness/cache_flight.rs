@@ -75,6 +75,27 @@ impl Drop for ValidationGuard<'_> {
 }
 
 impl ValidationFlight {
+    pub(super) fn acquire(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
+        if rayon::current_thread_index().is_none() {
+            return Ok(self
+                .gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner));
+        }
+        // Validation can call parallel iterators while owning this gate. Rayon
+        // may then steal another request for the same cache onto that owner's
+        // stack. Blocking here would wait for our own suspended caller, or pin
+        // every worker needed to finish it. Do not yield/spin for the same reason.
+        // A busy result leaves generation, freshness and cached proof unchanged.
+        match self.gate.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(std::sync::TryLockError::Poisoned(error)) => Ok(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                bail!("shared validation busy on parallel worker; retry after current validation completes")
+            }
+        }
+    }
+
     pub(super) fn can_reuse_after(&self, observed_generation: u64) -> bool {
         if !observed_generation.is_multiple_of(2) {
             return false;

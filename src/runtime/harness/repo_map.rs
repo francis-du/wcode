@@ -476,10 +476,7 @@ impl ToolHarness {
             harness_cache_flight::ValidationParticipant::join(&flight, observed_generation);
         #[cfg(test)]
         flight.entrants.fetch_add(1, Ordering::AcqRel);
-        let _flight = flight
-            .gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _flight = flight.acquire()?;
 
         // Even generations are completed validation epochs; odd generations
         // mean a validation is already in progress. Only a caller that observed

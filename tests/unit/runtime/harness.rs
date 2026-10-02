@@ -20,6 +20,8 @@ mod cost;
 mod experience;
 #[path = "harness/focus.rs"]
 mod focus;
+#[path = "harness/parallel_liveness.rs"]
+mod parallel_liveness;
 #[path = "harness/repo_map.rs"]
 mod repo_map;
 #[path = "harness/review_generated.rs"]
