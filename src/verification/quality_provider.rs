@@ -272,23 +272,28 @@ pub(crate) fn registry_for_project_roots(
         .iter()
         .flat_map(|(_, project_types)| semantic_languages_for_project_types(project_types))
         .collect::<BTreeSet<_>>();
+    let root_languages = project_roots
+        .iter()
+        .filter(|(root, _)| root == ".")
+        .flat_map(|(_, project_types)| semantic_languages_for_project_types(project_types))
+        .collect::<BTreeSet<_>>();
     for status in &mut aggregate.languages {
         if covered_languages.contains(&status.language) {
-            status.providers.clear();
+            // Reuse this request's root discovery instead of scanning it again.
+            // Languages owned only by nested manifests still replace root hints.
+            if status.detected_files == 0 || !root_languages.contains(&status.language) {
+                status.providers.clear();
+            }
             status.gaps.clear();
         }
     }
 
     for (root, project_types) in project_roots {
         let languages = semantic_languages_for_project_types(project_types);
-        if languages.is_empty() {
+        if languages.is_empty() || root == "." {
             continue;
         }
-        let scoped_workspace = if root == "." {
-            workspace.clone()
-        } else {
-            workspace.readonly_subspace(root)?
-        };
+        let scoped_workspace = workspace.readonly_subspace(root)?;
         let scoped = registry(&scoped_workspace, None)?;
         aggregate.truncated |= scoped.truncated;
         for scoped_status in scoped

@@ -101,6 +101,70 @@ fn js_property_uses_fixed_runner_and_ignores_arbitrary_test_scripts() {
 }
 
 #[test]
+fn framework_discovery_preserves_source_use_after_noisy_documentation() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname='property-fixture'\nversion='0.1.0'\n[dev-dependencies]\nproptest='1'\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("pyproject.toml"),
+        "[project]\nname='property-fixture'\ndependencies=['hypothesis']\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("000-notes.md"),
+        "proptest hypothesis\n".repeat(1_100),
+    )
+    .unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "use proptest::prelude::*;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("src/property.py"),
+        "from hypothesis import given\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let discovered = registry(&workspace).unwrap();
+    for id in ["builtin-rust-property", "builtin-python-property"] {
+        assert!(
+            discovered.executors.iter().any(|entry| entry.spec.id == id),
+            "documentation matches must not hide source use of {id}"
+        );
+    }
+}
+
+#[test]
+fn framework_discovery_preserves_query_evidence_in_each_source_language() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname='property-fixture'\nversion='0.1.0'\n[dev-dependencies]\nquickcheck='1'\n",
+    )
+    .unwrap();
+    std::fs::write(root.path().join("DESCRIPTION"), "Imports: quickcheck\n").unwrap();
+    std::fs::write(
+        root.path().join("000-noisy.rs"),
+        "quickcheck\n".repeat(1_100),
+    )
+    .unwrap();
+    std::fs::write(root.path().join("property.R"), "library(quickcheck)\n").unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let discovered = registry(&workspace).unwrap();
+    for id in ["builtin-rust-property", "builtin-r-property"] {
+        assert!(
+            discovered.executors.iter().any(|entry| entry.spec.id == id),
+            "frequent source hits must not hide another language's use of {id}"
+        );
+    }
+}
+
+#[test]
 fn r_property_executor_uses_vanilla_startup() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(

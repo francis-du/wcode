@@ -202,6 +202,50 @@ fn parallel_liveness_saturated_followers_release_all_64_slots() {
 }
 
 #[test]
+fn parallel_liveness_framework_discovery_avoids_saturated_global_pool() {
+    isolated_case(
+        "framework-discovery",
+        "harness::tests::parallel_liveness::parallel_liveness_framework_discovery_avoids_saturated_global_pool",
+        || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build_global()
+                .unwrap();
+            let (_root, workspace) = fixture();
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let mut releases = Vec::new();
+            for _ in 0..2 {
+                let (release_tx, release_rx) = mpsc::channel::<()>();
+                releases.push(release_tx);
+                let ready_tx = ready_tx.clone();
+                rayon::spawn(move || {
+                    ready_tx.send(()).unwrap();
+                    let _ = release_rx.recv();
+                });
+            }
+            for _ in 0..2 {
+                ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            let (result_tx, result_rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let result = crate::stage_executor::registry(&workspace)
+                    .map_err(|error| error.to_string());
+                let _ = result_tx.send(result);
+            });
+            let early = result_rx.recv_timeout(Duration::from_secs(5));
+            // Release every global worker even when the old scanner blocks.
+            drop(releases);
+            worker.join().unwrap();
+            assert!(
+                early.is_ok(),
+                "framework discovery waited for the saturated global Rayon pool"
+            );
+            early.unwrap().unwrap();
+        },
+    );
+}
+
+#[test]
 fn parallel_liveness_mixed_64_requests_drain_and_recover() {
     isolated_case(
         "mixed",
