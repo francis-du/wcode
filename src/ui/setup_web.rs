@@ -183,12 +183,15 @@ var zh={
 };
 function t(text){return language==='zh'?(zh[text]||text):text;}
 var timer=null,inflight=null,lastData=null,lastError=false;
-var copyFeedbackTimers=new Map();
-function resetCopyFeedback(button){clearTimeout(copyFeedbackTimers.get(button));copyFeedbackTimers.delete(button);button.textContent=t('Copy');}
+var copyFeedbackTimers=new Map(),copyFeedbackVersions=new WeakMap(),copyBusy=new WeakSet();
+function resetCopyFeedback(button){clearTimeout(copyFeedbackTimers.get(button));copyFeedbackTimers.delete(button);copyFeedbackVersions.set(button,(copyFeedbackVersions.get(button)||0)+1);button.textContent=t('Copy');}
+function copyStillCurrent(button,target,text,version){return !document.hidden&&!button.disabled&&target.textContent===text&&copyFeedbackVersions.get(button)===version;}
 var endpoint=document.getElementById('remote-endpoint'),copyEndpoint=document.getElementById('copy-endpoint');
 function showHealth(data,failed){
   var selected=selectEndpoint(data),activity=mcpActivity(data);
-  endpoint.textContent=selected||t('No verified public endpoint yet');
+  var endpointText=selected||t('No verified public endpoint yet');
+  if(endpoint.textContent!==endpointText||copyEndpoint.disabled!==!selected){resetCopyFeedback(copyEndpoint);document.getElementById('copy-status').textContent='';}
+  endpoint.textContent=endpointText;
   copyEndpoint.disabled=!selected;
   var status=failed?'Connection status unavailable · do not use stale endpoints':selected?'Verified public endpoint ready':data&&data.public_endpoint==='local-only'?'Local-only mode · use a local agent':data&&data.public_url_healthy===false?'Public endpoint unavailable · waiting for recovery':'Waiting for a verified public endpoint';
   if(selected){
@@ -206,6 +209,7 @@ function showHealth(data,failed){
 }
 function updateCommand(){
   document.querySelectorAll('[data-copy]').forEach(resetCopyFeedback);
+  document.getElementById('copy-status').textContent='';
   var mode=document.getElementById('mode').value,preset=document.getElementById('performance').value,access=document.getElementById('access').value;
   var command=buildCommand(mode,preset,access);document.getElementById('launch-command').textContent=command;
   var setup=buildSetup(preset,access);document.getElementById('setup-command').textContent=setup;
@@ -228,11 +232,12 @@ function syncChoice(id){var model=document.getElementById(id);document.querySele
 ['mode','performance','access'].forEach(function(id){document.getElementById(id).addEventListener('change',function(){syncChoice(id);updateCommand();});syncChoice(id);});
 document.querySelectorAll('[data-choice]').forEach(function(button){button.addEventListener('click',function(){var id=button.dataset.choice,model=document.getElementById(id);model.value=button.dataset.value;syncChoice(id);updateCommand();});});
 document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',async function(){
-  if(button.disabled)return;var target=document.getElementById(button.dataset.copy),feedback=document.getElementById('copy-status');
-  button.setAttribute('aria-busy','true');
-  try{if(!navigator.clipboard)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(target.textContent);feedback.textContent=t('Copied.');resetCopyFeedback(button);button.textContent=t('Copied.');copyFeedbackTimers.set(button,setTimeout(function(){resetCopyFeedback(button);},2500));}
-  catch(_){var range=document.createRange();range.selectNodeContents(target);var selection=window.getSelection();if(selection){selection.removeAllRanges();selection.addRange(range);}target.focus();feedback.textContent=t('Clipboard unavailable; text selected for manual copy.');button.textContent=t('Copy');}
-  finally{button.setAttribute('aria-busy','false');}
+  if(button.disabled||copyBusy.has(button))return;var target=document.getElementById(button.dataset.copy),feedback=document.getElementById('copy-status');
+  resetCopyFeedback(button);var text=target.textContent,version=copyFeedbackVersions.get(button);
+  copyBusy.add(button);button.setAttribute('aria-busy','true');feedback.textContent='';
+  try{if(!navigator.clipboard)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(text);if(!copyStillCurrent(button,target,text,version))return;feedback.textContent=t('Copied.');resetCopyFeedback(button);button.textContent=t('Copied.');copyFeedbackTimers.set(button,setTimeout(function(){resetCopyFeedback(button);},2500));}
+  catch(_){if(!copyStillCurrent(button,target,text,version))return;var range=document.createRange();range.selectNodeContents(target);var selection=window.getSelection();if(selection){selection.removeAllRanges();selection.addRange(range);}target.focus();feedback.textContent=t('Clipboard unavailable; text selected for manual copy.');button.textContent=t('Copy');}
+  finally{copyBusy.delete(button);button.setAttribute('aria-busy','false');}
 });});
 function schedule(){clearTimeout(timer);timer=document.hidden?null:setTimeout(tick,6000);}
 async function tick(){
@@ -242,7 +247,7 @@ async function tick(){
   catch(_){lastData=null;lastError=true;showHealth(null,true);}
   finally{clearTimeout(deadline);inflight=null;schedule();}
 }
-document.addEventListener('visibilitychange',function(){clearTimeout(timer);timer=null;if(document.hidden){document.querySelectorAll('[data-copy]').forEach(resetCopyFeedback);if(inflight)inflight.abort();}else if(!inflight){tick();}});
+document.addEventListener('visibilitychange',function(){clearTimeout(timer);timer=null;if(document.hidden){document.querySelectorAll('[data-copy]').forEach(resetCopyFeedback);document.getElementById('copy-status').textContent='';if(inflight)inflight.abort();}else if(!inflight){tick();}});
 translate();tick();
 })();
 "#;
