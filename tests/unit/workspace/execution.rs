@@ -264,7 +264,11 @@ fn main() {
             io::stdout().flush().unwrap();
             io::stderr().flush().unwrap();
             std::fs::write("timeout-ready.txt", "ready").unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(30));
+            // A stalled test runner must not release the side effect before
+            // it has even started collecting the command's timed result.
+            let mut release = String::new();
+            io::stdin().read_line(&mut release).unwrap();
+            assert_eq!(release, "release\n");
             std::fs::write("late-effect.txt", "must-not-run").unwrap();
         }
         Some("cancel") => {
@@ -378,11 +382,13 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
     command
         .arg("timeout")
         .current_dir(root.path())
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let child = command.spawn().expect("timeout fixture must start");
+    let mut child = command.spawn().expect("timeout fixture must start");
+    // Keep stdin outside Child: wait() otherwise closes it before the timeout.
+    let mut release = child.stdin.take().unwrap();
     let ready = root.path().join("timeout-ready.txt");
     timeout(Duration::from_secs(10), async {
         while !ready.exists() {
@@ -408,6 +414,11 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
         std::fs::read_to_string(root.path().join("effect.txt")).unwrap(),
         "already-applied"
     );
+    use tokio::io::AsyncWriteExt;
+    assert!(
+        release.write_all(b"release\n").await.is_err(),
+        "the timed out child must be gone, not merely waiting for its next action"
+    );
     assert!(!root.path().join("late-effect.txt").exists());
     let value = serde_json::to_value(result).unwrap();
     assert_eq!(value["timed_out"], true);
@@ -416,6 +427,33 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
         .as_str()
         .unwrap()
         .contains("Inspect"));
+}
+
+#[tokio::test]
+async fn timeout_fixture_reaches_its_side_effect_when_not_terminated() {
+    use tokio::io::AsyncWriteExt;
+    let (root, _workspace, program) = command_fixture();
+    let mut child = tokio::process::Command::new(root.path().join(program))
+        .arg("timeout")
+        .current_dir(root.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut release = child.stdin.take().unwrap();
+    release.write_all(b"release\n").await.unwrap();
+    drop(release);
+    let output = timeout(Duration::from_secs(10), child.wait_with_output())
+        .await
+        .expect("released timeout fixture must exit")
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("late-effect.txt")).unwrap(),
+        "must-not-run"
+    );
 }
 
 #[tokio::test]
