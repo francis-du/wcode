@@ -201,6 +201,24 @@ fn menu_bar_lock_is_single_instance_and_released_on_drop() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn menu_bar_lock_releases_even_with_an_inherited_file_description() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("state");
+    let first = macos::InstanceLock::acquire_at(&root).unwrap().unwrap();
+    // A fork before exec temporarily retains this same open file description.
+    // Duplicate it without forking the multithreaded test process.
+    let inherited = first.clone_file_for_test().unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).unwrap().is_none());
+    drop(first);
+    let next = macos::InstanceLock::acquire_at(&root).unwrap().unwrap();
+    drop(inherited);
+    assert!(macos::InstanceLock::acquire_at(&root).unwrap().is_none());
+    drop(next);
+    assert!(macos::InstanceLock::acquire_at(&root).unwrap().is_some());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn menu_bar_lock_rejects_links_nonempty_files_and_permissive_directories() {
     use std::os::unix::fs::{symlink, PermissionsExt};
     let directory = tempfile::tempdir().unwrap();

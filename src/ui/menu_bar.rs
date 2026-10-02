@@ -216,7 +216,20 @@ mod macos {
         _file: File,
     }
 
+    impl Drop for InstanceLock {
+        fn drop(&mut self) {
+            // A concurrent fork can inherit this open file description until exec.
+            // Its lifetime must not extend the menu bar owner's exclusive lock.
+            let _ = self._file.unlock();
+        }
+    }
+
     impl InstanceLock {
+        #[cfg(test)]
+        pub(super) fn clone_file_for_test(&self) -> std::io::Result<File> {
+            self._file.try_clone()
+        }
+
         fn acquire() -> Result<Option<Self>> {
             Self::acquire_at(&crate::auth::authority_state_root()?)
         }
@@ -273,7 +286,10 @@ mod macos {
             validate()?;
             match file.try_lock() {
                 Ok(()) => {
-                    validate()?;
+                    if let Err(error) = validate() {
+                        let _ = file.unlock();
+                        return Err(error);
+                    }
                     Ok(Some(Self { _file: file }))
                 }
                 Err(TryLockError::WouldBlock) => Ok(None),
