@@ -387,11 +387,38 @@ function casesFromOutput(step, stdout) {
   if(step.expected_suite==='webkit-layout') validateLayoutMatrix(report.results);
   return cases;
 }
-async function check(step) {
-  const started=Date.now();
-  const {stdout,stderr}=await exec(step.program,step.args,{cwd:root,timeout:120000,maxBuffer:2*1024*1024,windowsHide:true});
-  const cases=casesFromOutput(step,stdout);
-  return {command:[path.basename(step.program),...step.args],exit_code:0,elapsed_ms:Date.now()-started,cases,output_sha256:crypto.createHash('sha256').update(stdout).update(stderr).digest('hex')};
+function rustBuildStep() {
+  // Compile every audited integration target before the per-test deadline starts.
+  // --no-run is preparation, never evidence that any test actually passed.
+  const targets=new Set();
+  for(const round of rounds) for(const step of round.steps) {
+    if(step.program!=='cargo') continue;
+    const index=step.args.indexOf('--test');
+    if(index>=0) targets.add(step.args[index+1]);
+  }
+  return {program:'cargo',args:['test','--locked','--no-run','--lib',
+    ...[...targets].sort().flatMap(target=>['--test',target])],kind:'build'};
+}
+async function check(step,run=exec) {
+  const started=Date.now(),timeout_ms=step.kind==='build'?600000:120000;
+  const command=[path.basename(step.program),...step.args];
+  let stdout='',stderr='',processComplete=false;
+  try {
+    const output=await run(step.program,step.args,{cwd:root,timeout:timeout_ms,maxBuffer:2*1024*1024,windowsHide:true});
+    stdout=String(output.stdout||'');stderr=String(output.stderr||'');processComplete=true;
+    const cases=step.kind==='build'?0:casesFromOutput(step,stdout);
+    return {command,exit_code:0,elapsed_ms:Date.now()-started,cases,
+      output_sha256:crypto.createHash('sha256').update(stdout).update(stderr).digest('hex')};
+  } catch(error) {
+    if(!processComplete) {stdout=String(error.stdout||'');stderr=String(error.stderr||'');}
+    const failure=new Error(String(error.message||'Audit step failed').slice(0,2000));
+    failure.audit_step={command,phase:processComplete?'report':'process',
+      exit_code:processComplete?0:Number.isInteger(error.code)?error.code:null,
+      signal:typeof error.signal==='string'?error.signal:null,killed:error.killed===true,
+      elapsed_ms:Date.now()-started,timeout_ms,
+      diagnostics:stderr.slice(-6000)+'\n--- stdout ---\n'+stdout.slice(-6000)};
+    throw failure;
+  }
 }
 // A failed final scan must still leave a failed report with completed round results.
 // Never reuse the initial snapshot or turn an unreadable Git state into success.
@@ -418,6 +445,7 @@ async function main() {
   if(requireClean) assert.ok(git_before.clean,'Final release audit requires a clean worktree');
   // Bind source before discovery/compilation, not after an inventory may have gone stale.
   const before=digest(), started_at=new Date().toISOString(), results=[];
+  const preparation=await check(rustBuildStep());
   const currentLibTests=listedLibTests(), allRounds=buildRounds(currentLibTests);
   const selected=selectedRounds(argv,allRounds);
   const plan_sha256=crypto.createHash('sha256').update(JSON.stringify(allRounds)).digest('hex');
@@ -429,9 +457,8 @@ async function main() {
       try {for(const step of round.steps) result.steps.push(await check(step));result.passed=true;}
       catch(error) {
         result.error=String(error.message);
-        const stderr=String(error.stderr||'');
-        const stdout=String(error.stdout||'');
-        result.diagnostics=(stderr+'\n--- stdout ---\n'+stdout).slice(-12000);
+        result.failed_step=error.audit_step||null;
+        result.diagnostics=error.audit_step?.diagnostics||'';
       }
       results.push(result);
     }
@@ -444,7 +471,7 @@ async function main() {
     suite:complete?'release-adversarial-300':'release-adversarial-shard',
     started_at,finished_at:new Date().toISOString(),
     git:{before:git_before,after:git_after,require_clean:requireClean},
-    input:before,input_after:after,input_failures,stable_inputs:stable,plan_sha256,inventory_sha256,
+    input:before,input_after:after,input_failures,stable_inputs:stable,plan_sha256,inventory_sha256,preparation,
     rounds:results.length,total_rounds:allRounds.length,selected_rounds:{start,end},
     passed:results.every(r=>r.passed)&&stable,results
   };
@@ -457,5 +484,5 @@ async function main() {
   console.log(JSON.stringify(report,null,2));
   assert.ok(report.passed,'Adversarial audit failed, Git state changed, or source changed during the run');
 }
-module.exports={digest,finalInputState,casesFromOutput,selectedRounds,buildRounds,parseOptions};
+module.exports={digest,finalInputState,casesFromOutput,selectedRounds,buildRounds,parseOptions,rustBuildStep,check};
 if(require.main===module) main().catch(error=>{console.error(error);process.exitCode=1;});

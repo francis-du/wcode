@@ -107,6 +107,70 @@ test('audit failure diagnostics stay bounded',()=>{
   assert.ok(result.failures[0].message.length<=2000);
 });
 
+test('audit prepares library and integration binaries before timed test rounds',()=>{
+  const step=audit.rustBuildStep();
+  assert.equal(step.program,'cargo');
+  assert.equal(step.kind,'build');
+  assert.deepEqual(step.args,['test','--locked','--no-run','--lib','--test','release_contract']);
+  assert.ok(!step.args.includes('--quiet'),'build diagnostics must remain visible');
+  const source=fs.readFileSync(path.join(root,'tests/release_audit.cjs'),'utf8');
+  const main=source.slice(source.indexOf('async function main()'));
+  const compileAt=main.indexOf('await check(rustBuildStep())');
+  const inventoryAt=main.indexOf('listedLibTests()');
+  assert.ok(compileAt>=0&&inventoryAt>compileAt);
+});
+test('compilation has its own bound and is not counted as executed tests',async()=>{
+  let calls=0;
+  const built=await audit.check(audit.rustBuildStep(),async(program,args,options)=>{
+    calls++;assert.equal(options.timeout,600000);assert.ok(args.includes('--no-run'));
+    return {stdout:'',stderr:'Finished test profile'};
+  });
+  assert.equal(calls,1);assert.equal(built.cases,0);assert.equal(built.exit_code,0);
+});
+test('test execution keeps the existing timeout and positive case count',async()=>{
+  const step={program:'cargo',args:['test','--lib'],kind:'rust'};
+  const result=await audit.check(step,async(program,args,options)=>{
+    assert.equal(options.timeout,120000);
+    return {stdout:'test result: ok. 1 passed; 0 failed;\n',stderr:''};
+  });
+  assert.equal(result.cases,1);
+});
+test('a terminated silent child retains signal, elapsed time and command without retry',async()=>{
+  let calls=0;
+  await assert.rejects(audit.check({program:'cargo',args:['test'],kind:'rust'},async()=>{
+    calls++;throw Object.assign(new Error('Command failed'),{code:null,signal:'SIGTERM',killed:true,stdout:'',stderr:''});
+  }),error=>{
+    assert.equal(error.audit_step.signal,'SIGTERM');assert.equal(error.audit_step.killed,true);
+    assert.equal(error.audit_step.exit_code,null);assert.equal(error.audit_step.timeout_ms,120000);
+    assert.ok(error.audit_step.elapsed_ms>=0);assert.deepEqual(error.audit_step.command,['cargo','test']);
+    assert.equal(error.audit_step.phase,'process');return true;
+  });
+  assert.equal(calls,1);
+});
+test('a zero-test report retains process output instead of an empty failure',async()=>{
+  const output='test result: ok. 0 passed; 0 failed;\n';
+  await assert.rejects(audit.check({program:'cargo',args:['test'],kind:'rust'},async()=>({stdout:output,stderr:'diagnostic'})),error=>{
+    assert.equal(error.audit_step.exit_code,0);assert.equal(error.audit_step.phase,'report');
+    assert.match(error.audit_step.diagnostics,/0 passed/);assert.match(error.audit_step.diagnostics,/diagnostic/);
+    return true;
+  });
+});
+test('real child failure preserves its exit code and both output streams',async()=>{
+  await assert.rejects(audit.check({program:process.execPath,args:['-e','console.log("out-marker");console.error("err-marker");process.exit(7)'],kind:'rust'}),error=>{
+    assert.equal(error.audit_step.exit_code,7);assert.equal(error.audit_step.killed,false);
+    assert.match(error.audit_step.diagnostics,/out-marker/);assert.match(error.audit_step.diagnostics,/err-marker/);
+    return true;
+  });
+});
+test('long stdout cannot erase stderr from bounded failure diagnostics',async()=>{
+  await assert.rejects(audit.check({program:'cargo',args:['test'],kind:'rust'},async()=>{
+    throw Object.assign(new Error('x'.repeat(20000)),{code:1,stdout:'o'.repeat(20000),stderr:'important-stderr'});
+  }),error=>{
+    assert.ok(error.message.length<=2000);assert.ok(error.audit_step.diagnostics.length<=12100);
+    assert.match(error.audit_step.diagnostics,/important-stderr/);return true;
+  });
+});
+
 const json={kind:'json',program:'swift',args:['tests/unit/ui/browser_webkit.swift']};
 const browser=()=>({suite:'full-browser-adversarial',cases:2,expected_cases:2,total_cases:2,failed_cases:0,failures:0,runner_error:'',results:[{errors:[]},{errors:[]}]});
 test('audit accepts a complete successful browser report',()=>{
