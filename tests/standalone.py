@@ -60,6 +60,16 @@ ENV_KEYS = (
     "TEMP", "TMP", "TMPDIR", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",
     "LANG", "LC_ALL", "TZ", "NUMBER_OF_PROCESSORS",
 )
+# Preserve tool discovery and library paths, not CL/LINK/RUSTFLAGS options.
+# MSVC requires INCLUDE/LIB/LIBPATH; find-msvc-tools also uses the installation
+# and SDK variables below. Keep them Windows-only and match names as Windows does.
+WINDOWS_ENV_KEYS = (
+    "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData",
+    "ALLUSERSPROFILE", "INCLUDE", "LIB", "LIBPATH", "VCINSTALLDIR",
+    "VSINSTALLDIR", "VCToolsInstallDir", "VCToolsVersion", "WindowsSdkDir",
+    "WindowsSDKVersion", "WindowsSDKLibVersion", "UniversalCRTSdkDir", "UCRTVersion",
+    "VSCMD_ARG_HOST_ARCH", "VSCMD_ARG_TGT_ARCH",
+)
 GENERATED_FILES = {"Cargo.toml.orig", ".cargo_vcs_info.json"}
 OSS_PACKAGE_SPECS = (
     ("wcode", ".", ""),
@@ -149,7 +159,12 @@ def emit(stage: str, status: str, **details: object) -> None:
 
 def controlled_env(source: dict[str, str] | None = None) -> dict[str, str]:
     source = os.environ if source is None else source
-    env = {key: source[key] for key in ENV_KEYS if key in source}
+    if os.name == "nt":
+        folded = {key.upper(): value for key, value in source.items()}
+        env = {key: folded[key.upper()] for key in (*ENV_KEYS, *WINDOWS_ENV_KEYS)
+               if key.upper() in folded}
+    else:
+        env = {key: source[key] for key in ENV_KEYS if key in source}
     env.update({
         "CARGO_NET_OFFLINE": "true",
         "CARGO_TERM_COLOR": "never", "RUST_BACKTRACE": "0",
@@ -211,13 +226,14 @@ class RustFailureDiagnostics:
         # Never echo the message body: it may contain paths, source or credentials.
         # These are untrusted hints only; the subprocess exit code still decides failure.
         code = re.match(r"^error\[(E[0-9]{4})\]: ", line)
-        if code:
-            value = code.group(1)
+        linker_code = re.search(r"(?:^|[ \t])(?:fatal )?error (LNK[0-9]{4}): ", line)
+        if code or linker_code:
+            value = (code or linker_code).group(1)
             if len(self.error_codes) < MAX_FAILURE_TESTS or value in self.error_codes:
                 self.error_codes.add(value)
             else:
                 self.partial = True
-            self.categories.add("rust_compiler_error")
+            self.categories.add("rust_compiler_error" if code else "linker_error")
         lower = line.lower()
         categories = {
             "manifest_error": ("failed to parse manifest", "failed to load manifest"),

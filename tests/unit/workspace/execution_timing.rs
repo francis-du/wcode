@@ -3,6 +3,12 @@ use super::*;
 
 fn budget_fixture() -> (tempfile::TempDir, Workspace, String) {
     let (root, workspace, program) = verification_count_fixture();
+    // Use phpunit's existing no-argument verification shape. A fabricated
+    // --filter argument enters the broad-command sandbox instead and tests
+    // platform sandbox availability, not process queue timing.
+    std::fs::write(root.path().join("queue-budget-fixture.txt"), "queue-budget").unwrap();
+    assert!(workspace.workspace_program_available(&program));
+    assert!(workspace.verification_command_shape_allowed(&program, &[]));
     // Authorize only this isolated synthetic Workspace, not the user's host.
     workspace
         .authorization
@@ -51,7 +57,7 @@ async fn queued_runtime_budget(entry: &str) {
                 .unwrap(),
         );
     }
-    let args = vec!["--filter".to_owned(), "queue-budget".to_owned()];
+    let args: Vec<String> = Vec::new();
     let operation = async {
         match entry {
             "command" => workspace.run_command(&program, &args, ".", 2).await,
@@ -134,7 +140,7 @@ async fn cancelled_queued_command_never_starts_and_releases_its_waiter() {
                 .unwrap(),
         );
     }
-    let args = vec!["--filter".to_owned(), "queue-budget".to_owned()];
+    let args: Vec<String> = Vec::new();
     let mut operation = Box::pin(workspace.run_command(&program, &args, ".", 2));
     assert!(
         tokio::time::timeout(Duration::from_millis(40), operation.as_mut())

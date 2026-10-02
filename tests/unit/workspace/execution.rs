@@ -279,7 +279,7 @@ fn main() {
             io::stdout().flush().unwrap();
             std::thread::sleep(std::time::Duration::from_secs(30));
         }
-        Some("--filter") if std::env::args().nth(2).as_deref() == Some("queue-budget") => {
+        None if std::path::Path::new("queue-budget-fixture.txt").is_file() => {
             std::fs::write("queue-started.txt", "started").unwrap();
             std::thread::sleep(std::time::Duration::from_millis(800));
             std::fs::write("queue-finished.txt", "finished").unwrap();

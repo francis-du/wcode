@@ -250,7 +250,8 @@ function digest(directory=root) {
   const hash=crypto.createHash('sha256').update('wcode-release-inputs-v2\0');
   const chunk=Buffer.alloc(64*1024);
   let count=0,entries=0,totalBytes=0;
-  const same=(a,b)=>['dev','ino','size','mtimeNs','ctimeNs','mode','nlink'].every(key=>a[key]===b[key]);
+  const changedFields=(a,b)=>['dev','ino','size','mtimeNs','ctimeNs','mode','nlink'].filter(key=>a[key]!==b[key]);
+  const same=(a,b)=>changedFields(a,b).length===0;
   function ancestors(relative) {
     let parent=path.dirname(relative);
     while(parent!=='.') {
@@ -276,7 +277,8 @@ function digest(directory=root) {
     if(stat.isDirectory()) {
       hash.update('directory\0'+name+'\0');
       for(const child of fs.readdirSync(absolute).sort()) visit(path.join(relative,child));
-      assert.ok(same(stat,fs.lstatSync(absolute,{bigint:true})),'Audit input directory changed while scanning: '+relative);
+      const changed=changedFields(stat,fs.lstatSync(absolute,{bigint:true}));
+      assert.ok(changed.length===0,'Audit input directory changed while scanning: '+relative+' ('+changed.join(', ')+')');
       return;
     }
     assert.ok(stat.isFile()&&stat.nlink===1n,'Audit input must be a regular single-link file: '+relative);
@@ -391,6 +393,20 @@ async function check(step) {
   const cases=casesFromOutput(step,stdout);
   return {command:[path.basename(step.program),...step.args],exit_code:0,elapsed_ms:Date.now()-started,cases,output_sha256:crypto.createHash('sha256').update(stdout).update(stderr).digest('hex')};
 }
+// A failed final scan must still leave a failed report with completed round results.
+// Never reuse the initial snapshot or turn an unreadable Git state into success.
+function finalInputState(before,gitBefore,readDigest=digest,readGit=gitState) {
+  let after=null,git_after=null;
+  const failures=[];
+  try { after=readDigest(); }
+  catch(error) { failures.push({stage:'source_scan',message:String(error?.message||'Final source scan failed').slice(0,2000)}); }
+  try { git_after=readGit(); }
+  catch { failures.push({stage:'git_state',message:'Final Git state could not be read'}); }
+  const present=value=>typeof value==='string'&&value.length>0;
+  const stable=failures.length===0&&present(before?.sha256)&&present(gitBefore?.head)&&present(gitBefore?.status_sha256)
+    &&before.sha256===after?.sha256&&gitBefore.head===git_after?.head&&gitBefore.status_sha256===git_after?.status_sha256;
+  return {after,git_after,stable,failures};
+}
 async function main() {
   const argv=process.argv.slice(2), options=parseOptions(argv);
   if(options.help) {
@@ -421,17 +437,14 @@ async function main() {
     }
   }));
   results.sort((a,b)=>a.round-b.round);
-  const after=digest(), git_after=gitState();
-  const stable=before.sha256===after.sha256
-    && git_before.head===git_after.head
-    && git_before.status_sha256===git_after.status_sha256;
+  const {after,git_after,stable,failures:input_failures}=finalInputState(before,git_before);
   const start=selected[0].round, end=selected[selected.length-1].round;
   const complete=selected.length===allRounds.length;
   const report={
     suite:complete?'release-adversarial-300':'release-adversarial-shard',
     started_at,finished_at:new Date().toISOString(),
     git:{before:git_before,after:git_after,require_clean:requireClean},
-    input:before,stable_inputs:stable,plan_sha256,inventory_sha256,
+    input:before,input_after:after,input_failures,stable_inputs:stable,plan_sha256,inventory_sha256,
     rounds:results.length,total_rounds:allRounds.length,selected_rounds:{start,end},
     passed:results.every(r=>r.passed)&&stable,results
   };
@@ -444,5 +457,5 @@ async function main() {
   console.log(JSON.stringify(report,null,2));
   assert.ok(report.passed,'Adversarial audit failed, Git state changed, or source changed during the run');
 }
-module.exports={digest,casesFromOutput,selectedRounds,buildRounds,parseOptions};
+module.exports={digest,finalInputState,casesFromOutput,selectedRounds,buildRounds,parseOptions};
 if(require.main===module) main().catch(error=>{console.error(error);process.exitCode=1;});

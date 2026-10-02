@@ -62,6 +62,51 @@ test('audit input identity ignores generated Python cache bytes',()=>fixture((di
   assert.deepEqual(audit.digest(directory),before);
 }));
 
+test('directory changes remain blocking and report which metadata changed',()=>fixture((directory,write)=>{
+  write('tests/unit/ui/fixture.cjs');
+  const selected=path.join(directory,'tests/unit/ui');
+  const readdir=fs.readdirSync;
+  fs.readdirSync=function(filename,...args) {
+    const entries=readdir.call(this,filename,...args);
+    if(filename===selected) fs.utimesSync(selected,new Date(0),new Date(1000));
+    return entries;
+  };
+  try { assert.throws(()=>audit.digest(directory),/directory changed.*tests[/\\]unit[/\\]ui.*mtimeNs/); }
+  finally { fs.readdirSync=readdir; }
+}));
+
+const inputBefore={sha256:'unchanged-input'};
+const gitBefore={head:'unchanged-head',status_sha256:'unchanged-status'};
+test('final audit scan preserves a successful unchanged snapshot',()=>{
+  const result=audit.finalInputState(inputBefore,gitBefore,()=>({...inputBefore}),()=>({...gitBefore}));
+  assert.equal(result.stable,true);
+  assert.deepEqual(result.failures,[]);
+  assert.deepEqual(result.after,inputBefore);
+  assert.deepEqual(result.git_after,gitBefore);
+});
+test('a final scan failure is retained as failed data rather than losing all completed rounds',()=>{
+  let gitRead=false;
+  const result=audit.finalInputState(inputBefore,gitBefore,()=>{throw new Error('directory changed');},()=>{gitRead=true;return {...gitBefore};});
+  assert.equal(result.stable,false);
+  assert.equal(result.after,null);
+  assert.equal(gitRead,true);
+  assert.equal(result.failures[0].stage,'source_scan');
+  assert.match(result.failures[0].message,/directory changed/);
+});
+test('unreadable or changed final Git state never turns completed rounds green',()=>{
+  for(const readGit of [()=>{throw new Error('unavailable');},()=>({...gitBefore,head:'new-head'}),()=>({...gitBefore,status_sha256:'new-status'}),()=>null]) {
+    const result=audit.finalInputState(inputBefore,gitBefore,()=>({...inputBefore}),readGit);
+    assert.equal(result.stable,false);
+  }
+  const changed=audit.finalInputState(inputBefore,gitBefore,()=>({sha256:'different-input'}),()=>({...gitBefore}));
+  assert.equal(changed.stable,false);
+});
+test('audit failure diagnostics stay bounded',()=>{
+  const result=audit.finalInputState(inputBefore,gitBefore,()=>{throw new Error('x'.repeat(10000));},()=>({...gitBefore}));
+  assert.equal(result.stable,false);
+  assert.ok(result.failures[0].message.length<=2000);
+});
+
 const json={kind:'json',program:'swift',args:['tests/unit/ui/browser_webkit.swift']};
 const browser=()=>({suite:'full-browser-adversarial',cases:2,expected_cases:2,total_cases:2,failed_cases:0,failures:0,runner_error:'',results:[{errors:[]},{errors:[]}]});
 test('audit accepts a complete successful browser report',()=>{

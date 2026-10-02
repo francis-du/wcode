@@ -221,6 +221,34 @@ class SourcePackageSafety(unittest.TestCase):
         with self.assertRaises(standalone.StandaloneError):
             standalone.validate_package_sources(self.root, b"src/private.rs\n", ROOT)
 
+    def test_windows_environment_preserves_tool_discovery_but_not_options(self):
+        tools = {
+            "ProgramFiles(x86)": "C:/Program Files (x86)",
+            "ProgramFiles": "C:/Program Files", "ProgramData": "C:/ProgramData",
+            "VCINSTALLDIR": "C:/VS/VC", "VCToolsVersion": "14.51",
+            "WindowsSdkDir": "C:/Windows Kits/10", "WindowsSDKVersion": "10.0/",
+            "INCLUDE": "C:/SDK/include", "LIB": "C:/SDK/lib;C:/VC/lib",
+            "LIBPATH": "C:/VC/lib", "PATH": "C:/VC/bin", "SystemRoot": "C:/Windows",
+        }
+        rejected = {name: "PRIVATE" for name in (
+            "CL", "_CL_", "LINK", "_LINK_", "RUSTFLAGS", "RUSTC_WRAPPER",
+            "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTC_WRAPPER",
+            "CARGO_TARGET_DIR", "GITHUB_TOKEN", "CARGO_REGISTRY_TOKEN",
+        )}
+        for rename in (str.upper, str.lower):
+            source = {rename(key): value for key, value in {**tools, **rejected}.items()}
+            with patch.object(standalone.os, "name", "nt"):
+                env = standalone.controlled_env(source)
+            for key, value in tools.items():
+                self.assertEqual(env[key], value)
+            self.assertNotIn("PRIVATE", env.values())
+            self.assertEqual(env["CARGO_NET_OFFLINE"], "true")
+
+    def test_posix_environment_does_not_inherit_windows_toolchain_overrides(self):
+        with patch.object(standalone.os, "name", "posix"):
+            env = standalone.controlled_env({key: "UNEXPECTED" for key in standalone.WINDOWS_ENV_KEYS})
+        self.assertNotIn("UNEXPECTED", env.values())
+
     def test_cargo_cache_is_only_an_explicit_top_level_argument(self):
         target = self.root / "shared-target"
         env = standalone.controlled_env({"PATH": os.environ["PATH"],
@@ -265,6 +293,23 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertTrue(hints['failure_diagnostics_partial'])
         self.assertEqual(hints['failure_categories'], ['rust_compiler_error'])
         self.assertNotIn('hidden', json.dumps(hints))
+
+    def test_linker_diagnostics_keep_only_bounded_standard_codes(self):
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(b"  = note: LINK : fatal error LNK1104: cannot open file 'PRIVATE.lib'\n")
+        parser.feed(b"PRIVATE.obj : error LNK2019: unresolved PRIVATE\n")
+        parser.feed(b"LINK : fatal error LNK11040: malformed\n")
+        parser.feed(b"LINK : fatal error LNKABCD: malformed\n")
+        parser.feed(b"LINK : fatal error LNK1105 malformed delimiter\n")
+        hints = parser.finish()
+        self.assertEqual(hints["failure_error_codes"], ["LNK1104", "LNK2019"])
+        self.assertEqual(hints["failure_categories"], ["linker_error"])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+        for number in range(standalone.MAX_FAILURE_TESTS + 1):
+            parser.feed(f"LINK : fatal error LNK{number:04d}: private body\n".encode())
+        bounded = parser.finish()
+        self.assertEqual(len(bounded["failure_error_codes"]), standalone.MAX_FAILURE_TESTS)
+        self.assertTrue(bounded["failure_diagnostics_partial"])
 
     def test_rust_failure_diagnostics_accept_only_complete_standard_lines(self):
         parser = standalone.RustFailureDiagnostics()
