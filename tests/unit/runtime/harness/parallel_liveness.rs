@@ -231,11 +231,11 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                         let workspace = fixtures[index % 3].1.clone();
                         tasks.spawn_blocking(move || {
                             let _permit = permit;
+                            let operation = index % 4;
                             eprintln!(
-                                "liveness mixed wave={wave} request={index} operation={} started",
-                                index % 4
+                                "liveness mixed wave={wave} request={index} operation={operation} started"
                             );
-                            let result = match index % 4 {
+                            let result = match operation {
                                 0 => harness
                                     .agent_context(
                                         "fixture",
@@ -265,19 +265,27 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                                 "liveness mixed wave={wave} request={index} completed ok={}",
                                 result.is_ok()
                             );
-                            result.map_err(|error| error.to_string())
+                            (operation, result.map_err(|error| error.to_string()))
                         });
                     }
                     let mut completed = 0;
+                    let mut completed_by_operation = [0usize; 4];
                     let mut successful = 0;
                     while let Some(result) = tasks.join_next().await {
-                        match result.unwrap() {
+                        let (operation, result) = result.unwrap();
+                        completed_by_operation[operation] += 1;
+                        match result {
                             Ok(()) => successful += 1,
                             Err(error) => assert!(error.contains("validation busy"), "{error}"),
                         }
                         completed += 1;
                     }
                     assert_eq!(completed, 64);
+                    assert_eq!(
+                        completed_by_operation,
+                        [16, 16, 16, 16],
+                        "every request class, including project_context, must drain"
+                    );
                     assert!(
                         successful >= 32,
                         "independent reads and searches must remain usable"
