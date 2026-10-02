@@ -1,3 +1,3 @@
 schema_version: 1
 name: wcode
-description: Engineering Control Plane for AI-generated code; make code shippable with evidence.
+description: Repository tools for coding assistants to read files, edit code, run checks and review results.

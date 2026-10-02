@@ -1,7 +1,7 @@
 {
   "name": "wcode",
   "version": "0.9.0",
-  "description": "wcode engineering control-plane skill with current-directory MCP setup for ZCode.",
+  "description": "wcode repository tools and checks for ZCode, using the current directory as the default workspace.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "repository": "https://github.com/francis-du/wcode",
   "license": "Apache-2.0",

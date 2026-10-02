@@ -14,7 +14,7 @@ fn ui_copy_and_runtime_capabilities_stay_consistent() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("tests 5"),
-        "the five UI regressions must actually run"
+        String::from_utf8_lossy(&output.stdout).contains("tests 6"),
+        "the six UI regressions must actually run"
     );
 }

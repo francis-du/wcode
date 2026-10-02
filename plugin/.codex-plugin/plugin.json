@@ -1,18 +1,18 @@
 {
   "name": "wcode",
   "version": "0.9.0",
-  "description": "Workspace-scoped wcode engineering control-plane skill and MCP connection profiles.",
+  "description": "wcode repository tools and checks for the selected workspace, with local and remote MCP connections.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",
   "repository": "https://github.com/francis-du/wcode",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "engineering-control-plane", "software-intelligence", "verification", "agent-skills"],
+  "keywords": ["mcp", "repository-tools", "code-review", "verification", "agent-skills"],
   "skills": "./skills/",
   "mcpServers": {},
   "interface": {
     "displayName": "wcode",
-    "shortDescription": "Engineering control plane for coding agents",
-    "longDescription": "Use wcode to understand repository architecture, supervise Vibe Coding changes, apply guarded edits, authorize exact operations, and verify results with revision-bound evidence.",
+    "shortDescription": "Repository tools, code edits and checks",
+    "longDescription": "Use wcode to explore repository structure, inspect changes, edit files with conflict checks, approve specific operations and see which checks ran against the current code.",
     "developerName": "francis-du",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write", "MCP"],
@@ -20,7 +20,7 @@
     "defaultPrompt": [
       "Use wcode to inspect this repository before editing.",
       "Review the current changes and run the right verification.",
-      "Map this task to the relevant product scope."
+      "Find the files and tests related to this task."
     ],
     "brandColor": "#0b0812"
   }
