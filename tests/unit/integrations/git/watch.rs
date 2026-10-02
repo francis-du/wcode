@@ -454,8 +454,11 @@ async fn github_watch_foreground_rechecks_after_proof_change_and_denies_on_shutd
     let mut stop = Some(stop);
     let mut events = Vec::new();
     let mut observations = 0;
-    tokio::time::timeout(
-        Duration::from_secs(15),
+    // Two complete native Git rechecks, policy revocation and acknowledged
+    // shutdown need an integration budget, not one HTTP request's 15s limit.
+    // Keep a finite watchdog without treating Windows process startup as an SLO.
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(120),
         watch.run_with_delay(
             async {
                 stopped
@@ -481,9 +484,15 @@ async fn github_watch_foreground_rechecks_after_proof_change_and_denies_on_shutd
             Duration::from_millis(20),
         ),
     )
-    .await
-    .unwrap()
-    .unwrap();
+    .await;
+    outcome
+        .unwrap_or_else(|_| {
+            panic!(
+                "watch sequence timed out after {observations} observations; last event: {:?}",
+                events.last().map(|event| &event["event"])
+            )
+        })
+        .unwrap();
     assert_eq!(observations, 2);
     assert_eq!(events.last().unwrap()["event"], "candidate_watch_stopped");
     assert_eq!(events.last().unwrap()["owned_check_denied"], true);
