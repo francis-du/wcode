@@ -337,3 +337,30 @@ fn windows_installer_stages_and_smoke_tests_before_replacement() {
         "Windows installer must smoke-test before replacement"
     );
 }
+
+#[test]
+fn published_archive_arguments_and_security_boundaries_match_the_real_cli() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let output = std::process::Command::new(python)
+        .arg("tests/unit/architecture/published_release.py")
+        .env("WCODE_RELEASE_TEST_BINARY", env!("CARGO_BIN_EXE_wcode"))
+        .current_dir(root)
+        .output()
+        .expect("Python must run the actual archive verifier regressions");
+    assert!(
+        output.status.success(),
+        "published archive regressions failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        report.contains("Ran 8 tests"),
+        "archive coverage is missing"
+    );
+    assert!(
+        !report.contains("skipped"),
+        "archive checks must actually run"
+    );
+}

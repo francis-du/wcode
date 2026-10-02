@@ -1,0 +1,93 @@
+name: Verify Published Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing final release tag to verify without republishing
+        required: true
+        type: string
+      publication_run:
+        description: Original successful publication job's workflow run ID
+        required: true
+        type: string
+      publication_attempt:
+        description: Original publication workflow attempt
+        required: true
+        default: '1'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: published-archive-verification-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify published archive ${{ matrix.name }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            python: python3
+          - name: macOS
+            os: macos-latest
+            python: python3
+          - name: Windows
+            os: windows-latest
+            python: python
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PUBLICATION_RUN: ${{ inputs.publication_run }}
+      PUBLICATION_ATTEMPT: ${{ inputs.publication_attempt }}
+    steps:
+      - name: Checkout archive verifier
+        uses: actions/checkout@v7
+
+      - name: Resolve original tagged candidate
+        id: candidate
+        shell: bash
+        run: |
+          ${{ matrix.python }} - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.-]+)?', tag), 'Invalid release tag'
+          for key in ('PUBLICATION_RUN', 'PUBLICATION_ATTEMPT'):
+              assert re.fullmatch(r'[1-9][0-9]*', os.environ[key]), 'Invalid publication identity'
+          subprocess.run(['git', 'fetch', '--no-tags', 'origin', f'refs/tags/{tag}:refs/tags/{tag}'], check=True)
+          sha = subprocess.check_output(['git', 'rev-parse', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+          assert re.fullmatch(r'[0-9a-f]{40}', sha), 'Invalid tag commit'
+          cargo = subprocess.check_output(['git', 'show', f'{sha}:Cargo.toml'], text=True)
+          version = tomllib.loads(cargo)['package']['version']
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?', version), 'Invalid candidate version'
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'sha={sha}\nversion={version}\n')
+          PY
+
+      - name: Download and exercise official release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+          CANDIDATE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: ${{ matrix.python }} tests/published_release.py
+        shell: bash
+
+      - name: Upload native archive verification proof
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-download-${{ matrix.name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-download-*.json
+          if-no-files-found: error
+          retention-days: 14
