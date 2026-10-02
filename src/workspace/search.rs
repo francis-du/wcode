@@ -1,4 +1,5 @@
 use super::*;
+use crate::semantic_provider::{language_for_path, SemanticLanguage};
 use regex::RegexSetBuilder;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -386,6 +387,7 @@ impl Matches {
 
 pub(crate) struct SearchReport {
     matches: Matches,
+    language_matches: BTreeMap<SemanticLanguage, u32>,
     queries: Vec<String>,
     mode: SearchMode,
     requested_mode: SearchMode,
@@ -557,6 +559,39 @@ impl Workspace {
         )
     }
 
+    pub(crate) fn search_language_matches(
+        &self,
+        queries: &[String],
+        path: &str,
+    ) -> Result<Vec<(String, SemanticLanguage)>> {
+        let request = SearchRequest {
+            queries: queries.to_vec(),
+            path: path.to_owned(),
+            mode: SearchMode::Exact,
+            context_lines: 0,
+            include_comments: true,
+            max_results: 1,
+            offset: 0,
+            output_mode: "files_with_matches".into(),
+        };
+        let report = self.search_report_with_file_diversity(&request, false, true)?;
+        // Framework discovery needs existence per query and language, rather
+        // than a paginated prefix of source lines. The bitmaps retain at most
+        // MAX_SEARCH_QUERIES * SemanticLanguage::ALL.len() positive facts.
+        Ok(report
+            .language_matches
+            .into_iter()
+            .flat_map(|(language, mask)| {
+                report
+                    .queries
+                    .iter()
+                    .enumerate()
+                    .filter(move |(i, _)| mask & (1u32 << i) != 0)
+                    .map(move |(_, query)| (query.clone(), language))
+            })
+            .collect())
+    }
+
     pub(crate) fn search_with_options(
         &self,
         query: &str,
@@ -603,7 +638,7 @@ impl Workspace {
     }
 
     pub(crate) fn search_report(&self, request: &SearchRequest) -> Result<SearchReport> {
-        self.search_report_with_file_diversity(request, false)
+        self.search_report_with_file_diversity(request, false, false)
     }
 
     // Internal context retrieval is a bounded sample, not a paginated search.
@@ -612,13 +647,14 @@ impl Workspace {
         if request.output_mode != "content" || request.offset != 0 {
             bail!("context retrieval requires content output and zero offset");
         }
-        self.search_report_with_file_diversity(request, true)
+        self.search_report_with_file_diversity(request, true, false)
     }
 
     fn search_report_with_file_diversity(
         &self,
         request: &SearchRequest,
         file_diversity: bool,
+        language_evidence: bool,
     ) -> Result<SearchReport> {
         if request.queries.is_empty() || request.queries.len() > MAX_SEARCH_QUERIES {
             bail!("queries must contain between 1 and {MAX_SEARCH_QUERIES} strings");
@@ -662,6 +698,7 @@ impl Workspace {
         let start = self.existing_path(&request.path)?;
         let mut report = SearchReport {
             matches: Matches::default(),
+            language_matches: BTreeMap::new(),
             queries: queries.clone(),
             mode: request.mode,
             requested_mode: request.mode,
@@ -686,6 +723,9 @@ impl Workspace {
                 }
             };
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                continue;
+            }
+            if language_evidence && language_for_path(&entry.path().to_string_lossy()).is_none() {
                 continue;
             }
             report.files_considered += 1;
@@ -763,7 +803,7 @@ impl Workspace {
                     fallback: alternative,
                 })
             };
-            let outcomes = if files_only_exact {
+            let outcomes = if files_only_exact || language_evidence {
                 crate::resource::parallel_io(batch, |path| scan(path, false))?
             } else {
                 batch
@@ -776,6 +816,13 @@ impl Workspace {
                     Ok(scanned) => {
                         report.files_scanned += 1;
                         report.bytes_read += scanned.source.content.len() as u64;
+                        if language_evidence {
+                            if let Some(language) = language_for_path(path) {
+                                *report.language_matches.entry(language).or_default() |=
+                                    scanned.primary.seen;
+                            }
+                            continue;
+                        }
                         report.matches.merge(
                             &scanned.source,
                             scanned.primary,

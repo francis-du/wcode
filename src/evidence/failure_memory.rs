@@ -3,6 +3,7 @@
 //! JSON do not authenticate that provenance. Same-check recovery is an observed
 //! association, never proof of a bug's cause or of the whole change's acceptance.
 
+use super::workspace_access::WorkspaceStoreAccess;
 use super::{
     bounded_token, digest_bytes, now_ms, valid_repository_path, valid_revision_digest,
     EngineeringMilestone,
@@ -20,7 +21,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 const VERSION: u8 = 1;
 const MAX_RECORDS: usize = 512;
@@ -28,7 +28,7 @@ const MAX_BYTES: u64 = 32 * 1024;
 const MAX_PATHS: usize = 16;
 const MAX_RULES: usize = 32;
 const RULES_PATH: &str = ".wcode/failure-rules.yaml";
-static ACCESS: Mutex<()> = Mutex::new(());
+static ACCESS: WorkspaceStoreAccess = WorkspaceStoreAccess::new();
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -244,7 +244,8 @@ pub(crate) fn observe_tool_failure(
         check: None,
         recovery: None,
     };
-    let _access = ACCESS
+    let access = ACCESS.for_workspace(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("failure memory lock poisoned"))?;
     let mut history = load_records(workspace)?;
@@ -346,7 +347,8 @@ pub(crate) fn observe_native_verification(
             }
         }
     }
-    let _access = ACCESS
+    let access = ACCESS.for_workspace(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("failure memory lock poisoned"))?;
     let mut history = load_records(workspace)?;
@@ -478,7 +480,8 @@ pub(crate) fn recall(
             && known_checks.iter().all(|id| bounded_token(id, 160)),
         "failure memory check relevance exceeds its bounded native context"
     );
-    let _access = ACCESS
+    let access = ACCESS.for_workspace(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("failure memory lock poisoned"))?;
     let history = load_records(workspace)?;

@@ -249,7 +249,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
     .into_iter()
     .map(str::to_owned)
     .collect::<Vec<_>>();
-    let framework_hits = workspace.search_many(&framework_queries, ".", 1_000)?;
+    let framework_hits = workspace.search_language_matches(&framework_queries, ".")?;
 
     let cargo = optional_text(workspace, "Cargo.toml")?.unwrap_or_default();
     if contains_any(&cargo, &["proptest", "quickcheck"])
@@ -651,20 +651,12 @@ fn package_has_dependency(package: &serde_json::Value, name: &str) -> bool {
 }
 
 fn framework_used(
-    hits: &[serde_json::Value],
+    hits: &[(String, SemanticLanguage)],
     queries: &[&str],
     languages: &[SemanticLanguage],
 ) -> bool {
-    hits.iter().any(|hit| {
-        hit.get("query")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|query| queries.contains(&query))
-            && hit
-                .get("path")
-                .and_then(serde_json::Value::as_str)
-                .and_then(language_for_path)
-                .is_some_and(|language| languages.contains(&language))
-    })
+    hits.iter()
+        .any(|(query, language)| queries.contains(&query.as_str()) && languages.contains(language))
 }
 
 fn node_stage_program(workspace: &Workspace, name: &str) -> String {

@@ -1,6 +1,9 @@
 use super::*;
 use std::fs;
 
+#[path = "quality_roots.rs"]
+mod roots;
+
 #[test]
 fn registry_represents_every_indexed_language_without_a_fake_support_boolean() {
     let dir = tempfile::tempdir().unwrap();
@@ -143,7 +146,13 @@ fn polyglot_registry_scopes_nested_manifest_providers_to_their_islands() {
         ("dotnet_app".to_owned(), vec!["dotnet-csharp".to_owned()]),
         ("web".to_owned(), vec!["node".to_owned()]),
     ];
+    crate::stage_executor::REGISTRY_CALLS.with(|count| count.set(0));
     let registry = registry_for_project_roots(&workspace, None, &project_roots).unwrap();
+    assert_eq!(
+        crate::stage_executor::REGISTRY_CALLS.with(|count| count.get()),
+        project_roots.len(),
+        "each distinct root should discover advanced providers once"
+    );
     assert_eq!(registry.provider, "wcode-language-quality-islands");
     let dart = registry
         .languages

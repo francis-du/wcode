@@ -95,7 +95,9 @@ fn parallel_liveness_repo_map_contention_releases_worker_and_permit() {
 fn isolated_case(case: &str, test_name: &str, work: impl FnOnce()) {
     const CHILD: &str = "WCODE_PARALLEL_LIVENESS_CHILD";
     if std::env::var(CHILD).as_deref() == Ok(case) {
+        eprintln!("liveness case={case} child_started");
         work();
+        eprintln!("liveness case={case} child_completed");
         return;
     }
     let directory = tempfile::tempdir().unwrap();
@@ -121,6 +123,9 @@ fn isolated_case(case: &str, test_name: &str, work: impl FnOnce()) {
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+    // Reaping does not close the Windows Child's redirected handles.
+    // Release them before reading/removing the fixture directory.
+    drop(child);
     let diagnostic = fs::read_to_string(log).unwrap();
     assert!(
         status.is_some_and(|status| status.success()),
@@ -197,6 +202,50 @@ fn parallel_liveness_saturated_followers_release_all_64_slots() {
 }
 
 #[test]
+fn parallel_liveness_framework_discovery_avoids_saturated_global_pool() {
+    isolated_case(
+        "framework-discovery",
+        "harness::tests::parallel_liveness::parallel_liveness_framework_discovery_avoids_saturated_global_pool",
+        || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build_global()
+                .unwrap();
+            let (_root, workspace) = fixture();
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let mut releases = Vec::new();
+            for _ in 0..2 {
+                let (release_tx, release_rx) = mpsc::channel::<()>();
+                releases.push(release_tx);
+                let ready_tx = ready_tx.clone();
+                rayon::spawn(move || {
+                    ready_tx.send(()).unwrap();
+                    let _ = release_rx.recv();
+                });
+            }
+            for _ in 0..2 {
+                ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            let (result_tx, result_rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let result = crate::stage_executor::registry(&workspace)
+                    .map_err(|error| error.to_string());
+                let _ = result_tx.send(result);
+            });
+            let early = result_rx.recv_timeout(Duration::from_secs(5));
+            // Release every global worker even when the old scanner blocks.
+            drop(releases);
+            worker.join().unwrap();
+            assert!(
+                early.is_ok(),
+                "framework discovery waited for the saturated global Rayon pool"
+            );
+            early.unwrap().unwrap();
+        },
+    );
+}
+
+#[test]
 fn parallel_liveness_mixed_64_requests_drain_and_recover() {
     isolated_case(
         "mixed",
@@ -206,7 +255,9 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                 .num_threads(2)
                 .build_global()
                 .unwrap();
+            eprintln!("liveness mixed global_pool_ready");
             let fixtures = (0..3).map(|_| fixture()).collect::<Vec<_>>();
+            eprintln!("liveness mixed fixtures_ready");
             let harness = ToolHarness::new(64).unwrap();
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -215,7 +266,8 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                 .build()
                 .unwrap();
             runtime.block_on(async {
-                for _ in 0..3 {
+                for wave in 0..3 {
+                    eprintln!("liveness mixed wave={wave} started");
                     let mut tasks = tokio::task::JoinSet::new();
                     for index in 0..64 {
                         let permit = harness.acquire_tool(false).await.unwrap();
@@ -223,7 +275,11 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                         let workspace = fixtures[index % 3].1.clone();
                         tasks.spawn_blocking(move || {
                             let _permit = permit;
-                            let result = match index % 4 {
+                            let operation = index % 4;
+                            eprintln!(
+                                "liveness mixed wave={wave} request={index} operation={operation} started"
+                            );
+                            let result = match operation {
                                 0 => harness
                                     .agent_context(
                                         "fixture",
@@ -249,19 +305,31 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                                         assert!(!hits.is_empty());
                                     }),
                             };
-                            result.map_err(|error| error.to_string())
+                            eprintln!(
+                                "liveness mixed wave={wave} request={index} completed ok={}",
+                                result.is_ok()
+                            );
+                            (operation, result.map_err(|error| error.to_string()))
                         });
                     }
                     let mut completed = 0;
+                    let mut completed_by_operation = [0usize; 4];
                     let mut successful = 0;
                     while let Some(result) = tasks.join_next().await {
-                        match result.unwrap() {
+                        let (operation, result) = result.unwrap();
+                        completed_by_operation[operation] += 1;
+                        match result {
                             Ok(()) => successful += 1,
                             Err(error) => assert!(error.contains("validation busy"), "{error}"),
                         }
                         completed += 1;
                     }
                     assert_eq!(completed, 64);
+                    assert_eq!(
+                        completed_by_operation,
+                        [16, 16, 16, 16],
+                        "every request class, including project_context, must drain"
+                    );
                     assert!(
                         successful >= 32,
                         "independent reads and searches must remain usable"
@@ -269,6 +337,7 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                     let admission = harness.admission_snapshot();
                     assert_eq!(admission.slots_in_use, 0);
                     assert_eq!(admission.waiting_for_slot, 0);
+                    eprintln!("liveness mixed wave={wave} drained successful={successful}");
                 }
             });
             for (_, workspace) in &fixtures {

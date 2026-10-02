@@ -76,23 +76,35 @@ impl Drop for ValidationGuard<'_> {
 
 impl ValidationFlight {
     pub(super) fn acquire(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
-        if rayon::current_thread_index().is_none() {
-            return Ok(self
-                .gate
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner));
-        }
-        // Validation can call parallel iterators while owning this gate. Rayon
-        // may then steal another request for the same cache onto that owner's
-        // stack. Blocking here would wait for our own suspended caller, or pin
-        // every worker needed to finish it. Do not yield/spin for the same reason.
-        // A busy result leaves generation, freshness and cached proof unchanged.
-        match self.gate.try_lock() {
-            Ok(guard) => Ok(guard),
-            Err(std::sync::TryLockError::Poisoned(error)) => Ok(error.into_inner()),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                bail!("shared validation busy on parallel worker; retry after current validation completes")
+        self.acquire_with_wait(std::thread::sleep)
+    }
+
+    fn acquire_with_wait(
+        &self,
+        mut wait: impl FnMut(Duration),
+    ) -> Result<std::sync::MutexGuard<'_, ()>> {
+        // A native caller can also retain a tool permit while waiting for an
+        // owner that is suspended in another pool. Bound only the waiter: the
+        // owner's guard, generation and actual-work permit remain untouched.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let parallel_worker = rayon::current_thread_index().is_some();
+        loop {
+            match self.gate.try_lock() {
+                Ok(guard) => return Ok(guard),
+                Err(std::sync::TryLockError::Poisoned(error)) => return Ok(error.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => {}
             }
+            // Never yield or sleep on a Rayon stack: the owner may be the
+            // suspended caller below it, so even cooperative yielding can wait
+            // for itself. An explicit error does not validate a cached result.
+            if parallel_worker {
+                bail!("shared validation busy on parallel worker; retry after current validation completes");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                bail!("shared validation busy after 5s; retry after current validation completes");
+            }
+            wait(remaining.min(Duration::from_millis(5)));
         }
     }
 
@@ -212,3 +224,7 @@ impl ToolHarness {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/validation_deadline.rs"]
+mod deadline_tests;

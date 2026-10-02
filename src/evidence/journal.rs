@@ -7,11 +7,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "failure_memory.rs"]
 pub(crate) mod failure_memory;
+
+#[path = "workspace_access.rs"]
+mod workspace_access;
 
 const JOURNAL_VERSION: u8 = 1;
 const MAX_ENGINEERING_MILESTONES: usize = 512;
@@ -22,9 +25,15 @@ const MAX_CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
 // Recovery reads at most twice the retained capacity, then still keeps 512.
 // Beyond this bound the journal fails closed rather than scanning without limit.
 const MAX_RECOVERY_SCAN_ENTRIES: usize = 2 * MAX_ENGINEERING_MILESTONES;
-// Serialize complete mutations and snapshots within this process. This is not
-// a cross-process lock, OS isolation or authentication of local store contents.
-static JOURNAL_ACCESS: Mutex<()> = Mutex::new(());
+// Serialize complete mutations and snapshots of the same canonical Workspace.
+// Independent Workspace stores must not block each other's tool completion.
+// This is not a cross-process lock, OS isolation or store authentication.
+static JOURNAL_ACCESS: workspace_access::WorkspaceStoreAccess =
+    workspace_access::WorkspaceStoreAccess::new();
+
+pub(crate) fn journal_access(workspace: &Workspace) -> Result<Arc<Mutex<()>>> {
+    JOURNAL_ACCESS.for_workspace(workspace)
+}
 
 /// Bounded historical observations, never Evidence, permission or new policy.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -203,7 +212,8 @@ pub(crate) fn persist_with_error(
     transient_error: Option<&str>,
 ) -> Result<()> {
     milestone.validate()?;
-    let _access = JOURNAL_ACCESS
+    let access = journal_access(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;
@@ -255,7 +265,8 @@ pub(crate) fn load_recent(
     workspace: &Workspace,
     limit: usize,
 ) -> Result<EngineeringJournalHistory> {
-    let _access = JOURNAL_ACCESS
+    let access = journal_access(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;
@@ -330,7 +341,8 @@ fn read_milestone(path: &Path) -> Result<Option<EngineeringMilestone>> {
 }
 
 pub(crate) fn change_fingerprint(workspace: &Workspace) -> Result<String> {
-    let _access = JOURNAL_ACCESS
+    let access = journal_access(workspace)?;
+    let _access = access
         .lock()
         .map_err(|_| anyhow::anyhow!("engineering journal access lock is poisoned"))?;
     let directory = journal_directory(workspace)?;

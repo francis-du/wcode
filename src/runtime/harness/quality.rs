@@ -14,12 +14,14 @@ impl ToolHarness {
         workspace: &Workspace,
     ) -> Result<ProjectContext> {
         let (profile, cache_hit) = self.load_project_profile(workspace)?;
-        let (conventions, language_quality) = rayon::join(
-            || self.convention_status(workspace),
-            || self.language_quality_status_from_profile(workspace, profile.as_ref()),
-        );
-        let conventions = conventions?;
-        let language_quality = language_quality?;
+        // Project context requests already fan out at the tool/runtime layer.
+        // Re-entering the global Rayon pool here can strand one external
+        // caller when many blocking requests concurrently run nested scans on
+        // a small pool. Keep the per-request stages ordered so each caller can
+        // finish and release its admission permit under saturation.
+        let conventions = self.convention_status(workspace)?;
+        let language_quality =
+            self.language_quality_status_from_profile(workspace, profile.as_ref())?;
         Ok(ProjectContext {
             discovery: profile.discovery.clone(),
             workspace: workspace_id.into(),
