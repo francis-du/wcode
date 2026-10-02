@@ -42,6 +42,7 @@ mod resources;
 use resources::{ResourceArgs, SetupGuideOptions};
 #[path = "setup.rs"]
 mod setup;
+mod shutdown;
 #[path = "tunnel_lifecycle.rs"]
 mod tunnel_lifecycle;
 #[path = "update.rs"]
@@ -498,6 +499,9 @@ pub async fn run() -> Result<()> {
             ControlCommand::Update => {}
         }
     }
+    let shutdown = shutdown::signal()?;
+    tokio::pin!(shutdown);
+    let mut shutdown_requested = false;
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port))
         .await
         .with_context(|| format!("cannot bind {}:{}", args.host, args.port))?;
@@ -601,6 +605,7 @@ pub async fn run() -> Result<()> {
 
     if args.public_url.is_some() {
         tokio::select! {
+            result = &mut shutdown => { result?; shutdown_requested = true; }
             result = &mut server_task => {
                 result.context("local MCP server task failed")??;
                 bail!("local MCP server stopped during public endpoint startup");
@@ -657,8 +662,11 @@ pub async fn run() -> Result<()> {
     let renderer = monitor.spawn_renderer(monitor_config, args.monitor);
     if renderer.is_none() {
         let mut settled = tunnel_settled_rx.clone();
-        if !*settled.borrow() {
-            let _ = timeout(Duration::from_secs(120), settled.changed()).await;
+        if !shutdown_requested && !*settled.borrow() {
+            tokio::select! {
+                result = &mut shutdown => { result?; shutdown_requested = true; }
+                _ = timeout(Duration::from_secs(120), settled.changed()) => {}
+            }
         }
         let public_url_now = shared_public_url.read().unwrap().clone();
         print_setup_guide(
@@ -682,15 +690,14 @@ pub async fn run() -> Result<()> {
     let mut server_task_finished = false;
     let mut tunnel_maintenance = tokio::time::interval(Duration::from_millis(250));
     tunnel_maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
+    while !shutdown_requested {
         tokio::select! {
             result = &mut server_task => {
                 result.context("local MCP server task failed")??;
                 server_task_finished = true;
                 break;
             },
-            _ = tokio::signal::ctrl_c() => break,
-            _ = wait_for_terminate_signal() => break,
+            result = &mut shutdown => { result?; shutdown_requested = true; }
             _ = wait_for_monitor_interrupt(monitor_interrupt.clone()) => break,
             event = tunnel_event_rx.recv() => {
                 if let Some(event) = event {
@@ -829,21 +836,6 @@ fn applescript_string(value: &str) -> String {
 #[cfg(not(target_os = "macos"))]
 fn send_imessage(recipient: &str, _text: &str) -> anyhow::Result<()> {
     anyhow::bail!("--imessage-to is only supported on macOS (got {recipient})")
-}
-
-#[cfg(unix)]
-async fn wait_for_terminate_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
-    let Ok(mut stream) = signal(SignalKind::terminate()) else {
-        std::future::pending::<()>().await;
-        return;
-    };
-    stream.recv().await;
-}
-
-#[cfg(not(unix))]
-async fn wait_for_terminate_signal() {
-    std::future::pending::<()>().await;
 }
 
 async fn wait_for_monitor_interrupt(receiver: Option<watch::Receiver<bool>>) {

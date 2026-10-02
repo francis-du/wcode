@@ -2,7 +2,7 @@
 //! Shutdown stops new polls and lets the current publication/persistence finish.
 use crate::git_provider::github::GitHubGateReceipt;
 use crate::git_provider::GateVerdict;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::future::Future;
@@ -92,31 +92,7 @@ where
     }
 }
 
-/// Register Unix handlers before emitting startup so a supervisor can immediately
-/// request shutdown. No service is installed and no process is detached here.
-pub(in crate::app::github) fn shutdown_signal() -> Result<impl Future<Output = Result<()>>> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut interrupt = signal(SignalKind::interrupt())?;
-        let mut terminate = signal(SignalKind::terminate())?;
-        Ok(async move {
-            let event = tokio::select! {
-                value = interrupt.recv() => value,
-                value = terminate.recv() => value,
-            };
-            event.ok_or_else(|| anyhow!("publisher shutdown signal stream closed"))
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        Ok(async {
-            tokio::signal::ctrl_c()
-                .await
-                .map_err(|_| anyhow!("publisher shutdown signal unavailable"))
-        })
-    }
-}
+pub(in crate::app::github) use crate::app::shutdown::signal as shutdown_signal;
 
 #[cfg(test)]
 #[path = "../../tests/unit/app/github_worker.rs"]
