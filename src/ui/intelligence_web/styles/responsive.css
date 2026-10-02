@@ -135,3 +135,32 @@
   .workspace-tabs button{padding-inline:11px;font-size:12px;}
   .diagram-heading{padding-inline:13px;}
 }
+
+/* Preserve workspace identity and freshness at every supported viewport. */
+@media (max-width:1240px){
+  .workspace-hero{min-height:0;padding-top:0;}
+  .workspace-root{max-width:240px;}
+}
+@media (max-width:900px){
+  .observatory-main{padding-top:18px;gap:14px;}
+  .workspace-identity{align-items:flex-start;flex-wrap:wrap;gap:5px 12px;}
+  .workspace-location{flex:1 1 100%;flex-wrap:wrap;gap:4px 8px;}
+  .workspace-location strong{max-width:calc(100% - 88px);}
+  .workspace-root{flex:1 1 100%;max-width:100%;}
+  .snapshot-context{justify-content:flex-start;font-size:11px;}
+  .workspace-hero h1{font-size:32px;}
+  .workspace-tabs button{min-height:44px;}
+  .workspace-context{gap:6px;}
+  .context-source-line{flex-basis:100%;}
+  .context-runtime{width:100%;justify-content:space-between;}
+  .context-runtime .muted{display:block;text-align:left;font-size:11px;}
+}
+@media (max-width:520px){
+  .workspace-hero h1{font-size:28px;}
+  .workspace-subtitle{font-size:13px;}
+  .workspace-tabs button{font-size:13px;padding-inline:14px;}
+  .snapshot-context{flex-wrap:wrap;gap:4px 10px;}
+  .context-runtime{flex-wrap:wrap;}
+  .context-runtime .muted{max-width:100%;}
+}
+@media (pointer:coarse){.observation-disclosure>summary{min-height:44px;}}

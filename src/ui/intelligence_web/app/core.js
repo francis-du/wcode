@@ -9,6 +9,8 @@ function savePreference(key, value) {
 }
 const savedLanguage = readPreference("wcode.ui.language");
 const savedTheme = readPreference("wcode.ui.theme");
+const workspaceTabs = ["overview", "architecture", "activity", "proof", "changes", "requirements", "files"];
+const savedWorkspaceTab = readPreference("wcode.ui.page");
 const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
 // Localization dictionaries and locale helpers are loaded by i18n.js.
 
@@ -18,6 +20,10 @@ const els = {
   workspaceKicker: q("#workspaceKicker"),
   workspaceTitle: q("#workspaceTitle"),
   workspaceSubtitle: q("#workspaceSubtitle"),
+  workspaceName: q("#workspaceName"),
+  workspaceRoot: q("#workspaceRoot"),
+  workspaceRevision: q("#workspaceRevision"),
+  snapshotState: q("#snapshotState"),
   language: q("#language"),
   theme: q("#theme"),
   manage: q("#manage"),
@@ -172,7 +178,7 @@ const state = {
   syncError: false,
   syncFailure: null,
   lastChecked: 0,
-  workspaceTab: "overview",
+  workspaceTab: workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
   architectureView: "blueprint",
   systemMapScale: 1,
   systemMapFit: true,
@@ -476,6 +482,10 @@ function setSync(kind, label) {
   els.syncState.textContent = label;
   els.syncState.title = "";
   els.syncState.parentElement?.setAttribute("aria-label", label);
+  if (els.snapshotState) {
+    els.snapshotState.textContent = label;
+    els.snapshotState.dataset.state = kind;
+  }
   document.querySelector(".observatory-main")?.setAttribute("aria-busy", String(kind === "loading" && !state.project));
 }
 function setManualRefreshBusy(busy) {
@@ -522,6 +532,7 @@ function applyLanguage() {
   els.projectNavigator?.setAttribute("aria-label", t("Search systems, components, requirements…"));
   els.fileSearch?.setAttribute("aria-label", t("Filter file tree"));
   applyAutoRefreshControl();
+  renderWorkspaceHero(state.workspaceTab);
   if (typeof setCodeGraphFull === "function") setCodeGraphFull(state.codeGraphFull);
   els.workspacePath.placeholder = t("Absolute or relative project path");
   els.commandCandidate.placeholder = t("Executable name, e.g. hugo");

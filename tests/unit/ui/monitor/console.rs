@@ -146,6 +146,35 @@ fn compact_help_and_tiny_dashboard_keep_recovery_controls_visible() {
 }
 
 #[test]
+fn tiny_dashboard_reserves_recovery_keys_and_reports_the_actual_size_boundary() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    for language in [UiLanguage::En, UiLanguage::ZhCn] {
+        let ui = DashboardState {
+            language,
+            ..DashboardState::default()
+        };
+        for width in [31, 40, 60, 120] {
+            for height in [5, 6, 8, 10] {
+                let text = monitor_test_text(&monitor, &config, width, height, &ui);
+                for key in [" ? ", " ^C "] {
+                    assert!(
+                        text.contains(key),
+                        "missing {key} at {width} × {height}: {text}"
+                    );
+                }
+            }
+        }
+        let text = monitor_test_text(&monitor, &config, 60, 10, &ui);
+        assert!(text.contains("60 × 10"));
+        assert!(text.contains("40 × 18"));
+        assert!(text.contains(&config.pairing_code));
+        assert!(text.contains(language.tr("Resize to continue")));
+    }
+}
+
+#[test]
 fn modal_visibility_matches_the_minimum_renderable_terminal() {
     let input = DashboardState {
         workspace_input: Some(String::new()),

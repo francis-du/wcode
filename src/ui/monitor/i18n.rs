@@ -99,6 +99,9 @@ impl UiLanguage {
             (Self::ZhCn, "Pairing code") => "验证码",
             (Self::ZhCn, "valid for this run") => "本次运行期间始终有效",
             (Self::ZhCn, "Terminal needs a little more room") => "终端窗口太小",
+            (Self::ZhCn, "Current") => "当前",
+            (Self::ZhCn, "Minimum") => "至少",
+            (Self::ZhCn, "Resize to continue") => "调整窗口大小以继续",
             (Self::ZhCn, "resize the window to restore the live dashboard") => {
                 "调整窗口大小以恢复实时控制台"
             }

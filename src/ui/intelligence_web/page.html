@@ -10,9 +10,10 @@
 <script defer src="/intelligence/app.js"></script>
 </head>
 <body>
+<a id="skipWorkspace" class="skip-link" href="#overviewSection" data-i18n="Skip to current page">Skip to current page</a>
 <div class="app observatory-shell">
   <header class="global-bar">
-    <a class="brand-lockup" href="#architectureSection" aria-label="wcode Project Status" data-i18n-aria-label="wcode Project Status">
+    <a id="projectHome" class="brand-lockup" href="#overviewSection" aria-label="wcode Project Status" data-i18n-aria-label="wcode Project Status">
       <img class="brand-logo" src="/intelligence/logo.svg" alt="wcode">
       <span class="brand-copy">
         <strong data-i18n="Project Status">Project Status</strong>
@@ -94,16 +95,19 @@
   </section>
 
   <main class="observatory-main">
+    <div class="workspace-identity">
+      <div class="workspace-location">
+        <span class="workspace-location-label" data-i18n="Workspace">Workspace</span>
+        <strong id="workspaceName">—</strong>
+        <span id="workspaceRoot" class="workspace-root"></span>
+      </div>
+      <div class="snapshot-context"><span id="snapshotState"></span><code id="workspaceRevision"></code></div>
+    </div>
     <header class="workspace-hero">
       <div class="workspace-hero-copy">
         <span id="workspaceKicker" class="section-kicker" data-i18n="CHANGE REVIEW">CHANGE REVIEW</span>
         <h1 id="workspaceTitle" data-i18n="Current change acceptance">Current change acceptance</h1>
         <p id="workspaceSubtitle" class="workspace-subtitle" data-i18n="acceptance overview meta">Start with the acceptance decision, then inspect blocking checks, exact evidence and changed source.</p>
-      </div>
-      <div class="workspace-hero-motto" aria-hidden="true">
-        <span data-i18n="Source, tasks and checks">SOURCE&nbsp;&nbsp; TASKS&nbsp;&nbsp; CHECKS</span>
-        <i></i>
-        <small data-i18n="Review changes and results">REVIEW CHANGES AND RESULTS</small>
       </div>
     </header>
 
@@ -129,7 +133,10 @@
         </div>
       </div>
     </section>
-    <section id="observationCoverage" class="observation-coverage"></section>
+    <details class="observation-disclosure">
+      <summary data-i18n="Observation coverage and drilldowns">Observation coverage and drilldowns</summary>
+      <section id="observationCoverage" class="observation-coverage"></section>
+    </details>
     <section id="architectureSection" class="architecture-stage workspace-panel hidden" data-workspace-panel="architecture" role="tabpanel" aria-labelledby="tabArchitecture" tabindex="-1">
       <div class="architecture-workspace-switch" role="group" aria-label="Architecture workbench view" data-i18n-aria-label="Architecture workbench view">
         <button type="button" class="active" data-architecture-view="blueprint" aria-pressed="true" data-i18n="System map">System map</button>

@@ -1,6 +1,8 @@
 const translations = {
   "zh-CN": {
     "Project Status": "项目状态",
+    "Skip to current page": "跳转到当前页面",
+    "Observation coverage and drilldowns": "观测范围与深入检查",
     "Check history": "检查历史",
     "CHECK HISTORY": "检查历史",
     "fitness observatory meta": "记录的工具结果、版本历史与描述性趋势。缺失数据保持未知。",
