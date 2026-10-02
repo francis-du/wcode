@@ -249,7 +249,7 @@ fn discover_builtins(workspace: &Workspace) -> Result<Vec<StageExecutorSpec>> {
     .into_iter()
     .map(str::to_owned)
     .collect::<Vec<_>>();
-    let framework_hits = workspace.search_many(&framework_queries, ".", 1_000)?;
+    let framework_hits = workspace.search_many_bounded_io(&framework_queries, ".", 1_000)?;
 
     let cargo = optional_text(workspace, "Cargo.toml")?.unwrap_or_default();
     if contains_any(&cargo, &["proptest", "quickcheck"])
