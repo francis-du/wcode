@@ -447,7 +447,9 @@ fn oss_package_and_license_exclude_commercial_source() {
         );
     }
     let release = fs::read_to_string(checkout.join(".github/workflows/release.yml")).unwrap();
-    assert!(release.contains("set(found) == {expected_binary, \"README.md\", \"LICENSE\"}"));
+    assert!(release.contains("tests/published_release.py"));
+    let verifier = fs::read_to_string(checkout.join("tests/published_release.py")).unwrap();
+    assert!(verifier.contains("set(found) == {expected_binary, \"README.md\", \"LICENSE\"}"));
 }
 
 fn fixture(checkout: &Path, relative: &str, body: &str) {
