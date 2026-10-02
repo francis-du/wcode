@@ -199,7 +199,7 @@ other.
 
 ### Navigate the Project Status
 
-Select the specific project in the workspace selector before inspecting its state. The default **Engineering architecture** tab starts with the system map; component and dependency details are available from that view.
+Select the specific project in the workspace selector before inspecting its state. The first visit opens **Acceptance**; later visits restore the last supported page. Open **Engineering architecture** to inspect the system map, components and dependency details.
 
 | Tab | Question it answers |
 | --- | --- |

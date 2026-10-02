@@ -28,7 +28,7 @@ wcode is easiest to understand as five layers around the coding model:
 
 ## Find the right view
 
-Press **W** in the TUI to open the protected Project Status for the selected project. The default tab is **Engineering architecture**. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
+Press **W** in the TUI to open the protected Project Status for the selected project. The first visit opens **Acceptance**; later visits restore the last supported page. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
 
 | Surface | What to use it for |
 | --- | --- |
