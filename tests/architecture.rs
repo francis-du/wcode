@@ -429,7 +429,13 @@ fn oss_package_and_license_exclude_commercial_source() {
         String::from_utf8_lossy(&output.stderr)
     );
     let paths = String::from_utf8(output.stdout).unwrap();
-    assert!(paths.lines().any(|path| path == "src/lib.rs"));
+    // Cargo prints native path separators in --list output, including on Windows.
+    assert!(
+        paths
+            .lines()
+            .any(|path| path.replace('\\', "/") == "src/lib.rs"),
+        "actual OSS cargo package list must include src/lib.rs"
+    );
     for path in paths.lines() {
         check_package_source(&checkout, path).unwrap_or_else(|error| panic!("{path}: {error}"));
         assert!(
