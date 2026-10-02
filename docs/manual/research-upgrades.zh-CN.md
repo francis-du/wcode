@@ -258,6 +258,8 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 
 这是经过审计的目标设计和实施计划，不代表商业工作流已经交付。源码基线为 `ce698df`，另有保留的未提交源码检查、TUI JobView 和 Web Jobs 骨架。已通过的 `c7a3d3f` CI 与审计只证明此前那次提交。本计划不授权发版、打 tag、计费或托管部署。
 
+下文能力矩阵和首批阶段记录保留当时的历史基线。后续本地实现与剩余部署门禁见[2026-10-02 源码阶段记录](#source-checkpoint-2026-10-02)；历史“未实现”条目不代表后来的源码树仍缺少该能力。
+
 ### A. 当前能力地图
 
 成熟度定义：**完整**表示所述有界契约已经实现；**部分**表示已有可用实现，但仍有实质缺口；**底层缺入口**表示引擎已存在，但缺少所需产品入口；**未实现**表示审计中未找到实现；**不应该实现**表示不属于本产品的目标范围。下表所有成熟度都描述审计基线。
@@ -450,17 +452,21 @@ Workspace 路径隔离不是 OS 沙箱。当前宽权限命令沙箱不隔离普
 
 Apache-2.0 本地核心继续实用，不施加人为商业限制。团队价值来自协调、治理、共享证据与运行便利。这里不规划 Stripe、CRM、云 IDE、自建模型、任意远程 shell、移动 App 或大型企业控制台。
 
-保留未完成的源码检查／编辑器工作和 JobView／Web Jobs 骨架。它们是辅助 Inspect／Change 工作，不是商业流程已存在的证据。保留现有 Worklist 历史，追加商业 P0 依赖链，并延后不兼容的 IDE 扩展，不删除已有工作。发布任务仍因用户“不发版”的指令而阻塞。
+在此规划阶段，保留未完成的源码检查／编辑器工作和 JobView／Web Jobs 骨架。它们是辅助 Inspect／Change 工作，不是商业流程已存在的证据。保留现有 Worklist 历史，追加商业 P0 依赖链，并延后不兼容的 IDE 扩展，不删除已有工作。当时的发布任务因用户“不发版”的指令而阻塞；后续发布状态在下文单独说明。
 
 审计完成意味着能力与缺口已分类。P0 完成需要上述真实演示。文档、计数器、语法映射、Agent 报告或过去干净的 CI，都不是新版本的验收 Evidence。
 
 ### 首个实施阶段记录
+
+历史实施记录：以下范围与待办描述首个阶段，时间早于后续原生 Acceptance 和 Policy 实现。
 
 首个底座阶段强化现有 Verification、Evidence 与操作者边界：精确必需命令回执和最低验证级别、保守处理命名测试映射、缓存来源校验、完整版本／计划绑定的人工单次授权、仅作自报的 MCP 阶段报告、可到期／撤销的 OAuth 会话与受保护运行时状态。同时拒绝不完整／未绑定的版本身份、冲突 Evidence ID、损坏或超限的权威记录，以及会抹掉当前原生失败的危险回收。Verification 快照带单调持久化序号，代码／Design 版本仍单独绑定；迟到旧快照或最新同代冲突不能成为恢复后的决定。现有 TUI JobView 已接入真实持久化 MCP 命令任务，日志有界并脱敏，保留真实失败结果，取消操作绑定所有者和 Workspace。
 
 这些改动复用 OSS 核心，验证结果在 Worklist 中绑定当前代码与 Design 版本记录。尚未实现 Change Acceptance Record、已批准的项目 Acceptance Policy、Git SHA／base／tree 身份、精确逐测试事件适配器、可信 CI 回执、已验证团队 actor、例外流程、外部门禁、团队部署隔离或审计谱系。任务观测属于 Inspect／Verify 辅助工作；规范 Acceptance UX 与 Web Jobs 仍待实现。P0 必须完整实现并观测上述真实 PR 流程才算完成。
 
 ### Commit 感知输入与 Policy 草案
+
+历史实施记录：此阶段引入 Git 绑定输入与 Policy 草案。它的待办列表不代表下文后续源码阶段的状态。
 
 下一阶段为原生项目验证与语言质量 Evidence 增加有界执行 Git 身份：私有 repository／Workspace 范围摘要、完整 HEAD／tree 对象 ID、index 指纹和 dirty 状态。静态复用和执行中合并都纳入此身份，并校验实际来源回执；执行期间观测到 commit 或 index 变化会拒绝发布 Evidence。缺少 Git 绑定的旧 Evidence 保留 unknown。现有 Code／Design 内容守卫仍必需：dirty 不是内容摘要，前后探测也不是原子文件系统快照。
 
@@ -473,3 +479,21 @@ Apache-2.0 本地核心继续实用，不施加人为商业限制。团队价值
 Evidence 区分 native verification、native stage、local operator、self-reported 和 legacy unknown 来源。通用 Agent 提交不能满足原生阶段或人工要求；自报 review 不能覆盖原生失败。解析草案、记录 Git 元数据或检查来源标签，都不代表激活 Policy。
 
 本阶段定向与完整验证结果在 Worklist 中绑定当前代码与 Design 版本记录。已批准 Policy 激活、规范 Change Acceptance Record、Git 绑定的阶段／人工决定、可信外部 merge check、Team actor 和真实试点 PR 演示仍待完成。运行中的 MCP 进程需要明确升级／重启才能提供新编译行为；本地源码测试不能证明已部署。
+
+### 源码阶段记录（2026-10-02） {#source-checkpoint-2026-10-02}
+
+本记录描述源码树 `6a21097550cb5b0000594ceffdaabcc9595eec2d`，对应[运行时修复](https://github.com/francis-du/wcode/pull/4)和[界面更新](https://github.com/francis-du/wcode/pull/5)合并后。本节只在明确范围内更新此前的能力缺口；历史记录及其验证结果继续保留。
+
+| 入口 | 此源码树已有实现 | 仍需独立验收 |
+| --- | --- | --- |
+| 原生 Acceptance | `change_acceptance` 的 inspect、plan、verify、record 与 history；绑定版本／Git／已批准 Policy 的原因、检查事实及有界记录 | 真实外部门禁 PR 试点；本地记录不会安装远端 required check |
+| 本地 Policy | 原生 preview、status、精确操作者激活与撤销，受保护的代数历史与来源定义封印 | 可信部署及外部身份／隔离；仓库校验和不提供租户边界 |
+| 操作者视图 | TUI 与 WebUI 使用相同原生 Acceptance Record，显示缺少的证明及下一步；持久命令任务保留独立的所有者绑定观测与取消 | 真实后端／Provider／OAuth／隧道运行和终端模拟器输入验收，分别独立于渲染夹具 |
+| 界面连续性 | 七个工作台页面保留 Workspace／版本／快照上下文、支持的上次页面和键盘跳转；公共 Setup 的复制反馈绑定实际命令／地址；极小 TUI 保留恢复快捷键 | [界面检查](../workbench-ui-review/)明确标记生产渲染器夹具及其覆盖范围 |
+| GitHub 发布器 | 安装后的预检／发布命令和固定候选持续检查执行保守原生验证；[操作契约](../change-acceptance/)说明权限、续期及中断边界 | 真实 App 安装、受保护签名器／部署、required-check 强制执行及客户试点观测 |
+
+实现入口包括 `src/verification/acceptance.rs`、`src/runtime/harness/acceptance.rs`、`src/integrations/mcp/dispatch/acceptance.rs`、`src/runtime/harness/policy.rs`、`src/ui/monitor/acceptance.rs` 和 `src/ui/intelligence_web/app/overview.js`。实际命令与权威边界见[变更验收](../change-acceptance/)和[本地验收策略](../acceptance-policy/)。
+
+P0-I 仍未完成：需要保存真实 PR 从 blocked 到 ready 的过程、精确前后 SHA、下载的远端 Check／审计记录，并覆盖过期／并发／中断／重启情况。本地 HTTP／Git 夹具、界面图、产品 PR 合并和干净构建 CI 都不证明付费试点完成。Team 部署／身份、异机恢复及可选托管规模化也保留各自的验收门禁。
+
+包版本为 `0.9.0`；在此日期记录中，最新已发布版本为 `v0.8.5`。[0.9.0 说明](../releases/v0.9.0/)描述候选源码行为。正式发布、归档校验和／下载及安装归档的原生启动仍是独立任务；本文档改动不创建 tag 或发布版本。

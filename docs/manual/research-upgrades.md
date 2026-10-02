@@ -258,6 +258,8 @@ No universal latency, token-cost or solve-rate improvement is claimed. Measure c
 
 This is an audited target design and implementation plan, not a claim that the commercial workflow is shipped. Source baseline: `ce698df`, plus the preserved uncommitted source-inspection, TUI JobView and Web Jobs skeleton. The successful `c7a3d3f` CI/audit proves that earlier commit only. No release, tag, billing or hosted deployment is authorized by this plan.
 
+The capability map and first checkpoints below preserve that historical baseline. For the subsequent local implementation and remaining deployment gates, read [the 2026-10-02 source checkpoint](#source-checkpoint-2026-10-02); a historical "Missing" entry is not a statement about the later source tree.
+
 ### A. Current capability map
 
 Maturity: **Complete** means the stated bounded contract is implemented; **Partial** means a usable implementation has material gaps; **Foundation** means the engine exists without the required product entry; **Missing** means no implementation was found; **Exclude** means outside this product's intended scope. All maturity statements below describe the audit baseline.
@@ -450,17 +452,21 @@ For every implementation stage: `review_changes` → `verify_project quick` → 
 
 The Apache-2.0 local core remains useful and unrestricted by artificial commercial limits. Team value is coordination, governance, shared evidence and operational convenience. No Stripe, CRM, cloud IDE, own model, arbitrary remote shell, mobile app or large enterprise console is planned here.
 
-Preserve unfinished source-inspection/editor work and JobView/Web Jobs skeleton. They are auxiliary Inspect/Change work, not evidence that the commercial flow exists. Existing Worklist history remains; add the commercial P0 dependency chain and defer incompatible IDE expansion without deleting its work. Release tasks remain blocked by the user's no-release instruction.
+At this planning checkpoint, preserve unfinished source-inspection/editor work and JobView/Web Jobs skeleton. They are auxiliary Inspect/Change work, not evidence that the commercial flow exists. Existing Worklist history remains; add the commercial P0 dependency chain and defer incompatible IDE expansion without deleting its work. The user's no-release instruction blocked release tasks at that checkpoint; publication is assessed separately below.
 
 Audit completion means that capabilities and gaps have been classified. P0 completion requires the real demo above. Documentation, counters, syntax mapping, an Agent report and an older clean CI are not acceptance evidence for a new revision.
 
 ### First implementation checkpoint
+
+Historical implementation record: the following scope and pending list describe this first slice, before the later native Acceptance and Policy implementation.
 
 The first foundation slice hardens existing Verification, Evidence and operator boundaries: exact required-command receipts and minimum verification level, conservative named-test mappings, cache provenance, complete revision/plan-bound human grants, advisory MCP stage reports, expiring/revocable OAuth sessions and protected runtime state. It also rejects incomplete/unbound revision identities, conflicting evidence IDs, corrupt or oversized authoritative records and unsafe retention that would erase a current native failure. Verification snapshots carry a monotonic persistence generation, separate from their code/Design revision; a late older snapshot or conflicting newest generation cannot become the recovered decision. The existing TUI JobView is connected to real durable MCP command jobs, with bounded redacted logs, truthful failed outcomes and owner/workspace-bound cancellation.
 
 These changes reuse the OSS core. Their validation is tracked in the Worklist against the current code and Design revision. They do not implement a Change Acceptance Record, approved project Acceptance Policy, Git SHA/base/tree identity, exact per-test event adapter, trusted CI receipt, verified team actor, exception workflow, external merge gate, team deployment isolation or audit lineage. Job observation is supporting Inspect/Verify work; canonical Acceptance UX and Web Jobs remain pending. P0 remains incomplete until its full real PR flow is implemented and observed.
 
 ### Commit-aware inputs and policy drafts
+
+Historical implementation record: this slice introduced Git-bound inputs and Policy drafts. Its pending list does not describe the later source checkpoint below.
 
 The next slice adds bounded execution Git identity to native project and language-quality evidence: private repository/Workspace scope digest, full HEAD/tree object IDs, index fingerprint and dirty state. Static reuse and in-flight coalescing include this identity and validate the actual source receipt; an observed commit or index change during execution rejects publication. Old evidence with no Git binding stays unknown. The existing Code/Design content guards remain necessary: dirty is not a content digest, and before/after probes are not an atomic filesystem snapshot.
 
@@ -473,3 +479,21 @@ Repository discovery now reports bounded completeness, issue counts and reason t
 Evidence records distinguish native verification, native stage, local operator, self-reported and legacy unknown authority. Generic Agent submissions cannot satisfy native stage or human requirements; native failure cannot be replaced by advisory review. Parsing a draft, recording Git metadata or checking source labels never activates policy.
 
 Focused and full verification results for this slice are tracked against the current code and Design revision in the Worklist. Approved policy activation, the canonical Change Acceptance Record, Git-bound stage/human decisions, trusted external merge checks, Team actors and the real pilot PR demonstration remain pending. The running MCP process requires an explicit upgrade/restart to serve newly compiled behavior; local source tests alone do not prove deployment.
+
+### Source checkpoint (2026-10-02)
+
+This checkpoint describes source tree `6a21097550cb5b0000594ceffdaabcc9595eec2d`, after [the runtime fixes](https://github.com/francis-du/wcode/pull/4) and [the interface update](https://github.com/francis-du/wcode/pull/5) merged. It supersedes the earlier capability gaps only within the scope stated here; the historical records and their verification results remain intact.
+
+| Surface | Present in this source tree | Separate acceptance still required |
+| --- | --- | --- |
+| Native Acceptance | `change_acceptance` inspect, plan, verify, record and history; revision/Git/approved-Policy-bound reasons, check facts and bounded records | A real externally enforced PR pilot; local records do not install a remote required check |
+| Local Policy | Native preview, status, exact operator activation and revocation, protected generation history and source-definition seals | Trusted deployment and external identity/isolation; repository checksums do not provide a tenant boundary |
+| Operator views | TUI and WebUI consume the same native Acceptance Record, including missing proof and next actions; durable command jobs retain their separate owner-bound observation and cancellation | Live backend/provider/OAuth/tunnel operation and terminal-emulator input acceptance are separate from renderer fixtures |
+| Interface continuity | Seven workbench pages retain workspace/revision/snapshot context, remembered supported-page navigation and keyboard skip; public setup binds copy feedback to the actual command/endpoint; tiny TUI keeps recovery shortcuts visible | The published [interface review](../workbench-ui-review/) labels production-renderer fixtures and their coverage |
+| GitHub publisher | Installed preflight/publication commands and fixed-candidate reconciliation implement conservative native checks; the [operator contract](../change-acceptance/) documents permissions, renewal and outage boundaries | Real App installation, protected signer/deployment, required-check enforcement and customer pilot observations |
+
+Implementation entry points include `src/verification/acceptance.rs`, `src/runtime/harness/acceptance.rs`, `src/integrations/mcp/dispatch/acceptance.rs`, `src/runtime/harness/policy.rs`, `src/ui/monitor/acceptance.rs` and `src/ui/intelligence_web/app/overview.js`. Follow [Change Acceptance](../change-acceptance/) and [Local Acceptance Policy](../acceptance-policy/) for the actual commands and authority boundaries.
+
+P0-I remains open: retain the real blocked-to-ready PR, exact before/after SHAs and downloaded remote Check/audit records, including stale/concurrent/outage/restart cases. Local HTTP/Git fixtures, rendered images, merged product PRs and clean build CI do not establish that paid pilot. Team deployment/identity, off-host recovery and optional hosted scale also keep their own acceptance gates.
+
+The package version is `0.9.0`; at this dated checkpoint the latest published release is `v0.8.5`. The [0.9.0 notes](../releases/v0.9.0/) describe candidate source behavior. Publication, archive checksums/downloads and native installed-archive startup are still separate tasks; this documentation change neither creates a tag nor publishes a release.
