@@ -2,6 +2,9 @@ use super::*;
 #[path = "credential_redaction.rs"]
 mod credential_redaction;
 use credential_redaction::redact_credential_tokens;
+#[cfg(any(windows, test))]
+#[path = "windows_launch.rs"]
+mod windows_launch;
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock, Semaphore,
 };
@@ -12,6 +15,14 @@ mod tests;
 
 fn process_queue_wait(command_timeout: Duration) -> Duration {
     command_timeout.min(crate::resource::PROCESS_QUEUE_WAIT_CAP)
+}
+
+fn command_program(program: &str, _args: &[String]) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(launcher) = windows_launch::verification_launcher(program, _args) {
+        return launcher;
+    }
+    PathBuf::from(program)
 }
 
 const CARGO_CONTENTION_WAIT_CAP: Duration = Duration::from_secs(30);
@@ -457,7 +468,7 @@ impl Workspace {
             ensure_workspace_executable(&executable)?;
             executable
         } else {
-            PathBuf::from(program)
+            command_program(program, args)
         };
         let mut sandbox_guard = None;
         let mut command = if broad_execution {
@@ -696,7 +707,7 @@ impl Workspace {
             ensure_workspace_executable(&executable)?;
             executable
         } else {
-            PathBuf::from(program)
+            command_program(program, args)
         };
         validate_command_arguments(program, args)?;
         let cwd = self.existing_path(cwd)?;

@@ -1,7 +1,18 @@
 schema_version: 1
 id: AC-SEC-003
 title: Command policy blocks unbounded project execution by default
-statement: The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses without an explicit trust expansion. Command args must preserve every string including empty arguments; explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of falling back to defaults. Direct command execution must use a short bounded process-capacity wait, report that the command was not started when admission expires, and treat the requested timeout as a total deadline spanning queue admission plus execution.
+statement: >-
+  The safe command lane admits only bounded shapes and blocks project code, mutation and helper-based bypasses
+  without an explicit trust expansion. Command args must preserve every string including empty arguments;
+  explicit invalid args, cwd or timeout values are rejected before execution or authorization instead of
+  falling back to defaults. Process-capacity waits have a separate short deadline. A queue timeout must report
+  that the command did not start; an admitted command receives its full requested runtime budget from spawn.
+  On Windows, only existing fixed npm, pnpm and yarn verification commands may resolve an installed .cmd
+  launcher from an absolute PATH directory. Native .exe installations retain precedence; .cmd selection
+  preserves PATH order and excludes relative or empty entries, directories, extensionless scripts and other
+  script extensions. Unknown programs, path-shaped names, extra arguments and shell syntax never enable
+  this fallback. Direct commands, project verification and trusted runtime verification keep the same
+  argument, working-directory, authorization, output and exit-status rules when using these launchers.
 verification:
   - kind: test
     path: tests/unit/workspace/mod.rs
@@ -21,3 +32,11 @@ verification:
   - kind: test
     path: tests/unit/runtime/process_admission.rs
     symbol: bounded_child_wait_expires_without_leaking_capacity_or_waiters
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: queued_command_retains_its_full_runtime_budget}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_verification_launcher_resolves_only_fixed_package_manager_checks}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_verification_launcher_never_adds_a_shell_for_unreviewed_arguments}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_verification_launcher_preserves_native_executables_and_path_order}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_verification_launcher_does_not_use_extensionless_scripts_or_relative_paths}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_verification_launcher_skips_unusable_entries_and_other_script_extensions}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_npm_verification_runs_real_node_checks_without_extra_authorization}
+  - {kind: test, path: tests/unit/workspace/windows_launch.rs, symbol: windows_npm_verification_preserves_failure_output_and_exit_status}
