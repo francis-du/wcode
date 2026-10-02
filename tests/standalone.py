@@ -56,6 +56,7 @@ NATIVE_FAILURE_CODES = frozenset({
 NATIVE_FAILURE_FILES = (
     "tests/unit/integrations/git/native.rs", "tests/unit/runtime/harness/acceptance.rs",
     "tests/unit/workspace/execution.rs", "tests/unit/workspace/execution_timing.rs",
+    "tests/unit/evidence/failure_memory.rs", "tests/unit/integrations/git/watch.rs",
 )
 REQUIRED_FILES = (
     "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "README.md",

@@ -149,7 +149,9 @@ pub(super) async fn run_acceptance_cli(
     command: &AcceptanceCommand,
 ) -> Result<()> {
     ensure!(
-        workspaces.roots().len() == 1,
+        // Discovered packages belong to the explicitly selected repository;
+        // they are not independent CLI candidates.
+        workspaces.configured_roots().len() == 1,
         "Acceptance accepts one --workspace; inspect each selected project separately"
     );
     let (workspace_id, workspace) = workspaces.select(None)?;

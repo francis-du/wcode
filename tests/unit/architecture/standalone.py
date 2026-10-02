@@ -353,6 +353,16 @@ class SourcePackageSafety(unittest.TestCase):
         parser.feed(b"thread 'native::case' panicked at tests/unit/integrations/git/native.rs:1:1: PRIVATE\n")
         self.assertEqual(parser.finish()["failure_native_locations"], [])
 
+    def test_store_and_watch_liveness_failures_keep_only_known_source_locations(self):
+        parser = standalone.RustFailureDiagnostics()
+        for index, path in enumerate(("tests/unit/evidence/failure_memory.rs",
+                                      "tests/unit/integrations/git/watch.rs")):
+            parser.feed(f"thread 'native::case_{index}' panicked at src/../../{path}:31:5:\n"
+                        "PRIVATE assertion body containing arbitrary runtime data\n".encode())
+        hints = parser.finish()
+        self.assertEqual(len(hints["failure_native_locations"]), 2)
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+
     def test_native_locations_are_bounded_deduplicated_and_do_not_echo_messages(self):
         parser = standalone.RustFailureDiagnostics()
         for index in range(standalone.MAX_FAILURE_TESTS + 1):
