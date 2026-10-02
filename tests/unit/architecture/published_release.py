@@ -102,6 +102,22 @@ class PublishedArchiveTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 verifier.binary_bytes(archive(kind, [(binary, b'payload', False)]), name)
 
+    def test_publication_is_bound_to_the_original_workflow_and_tagged_candidate(self):
+        run = {'id': verifier.RELEASE_RUN, 'repository': {'full_name': verifier.REPO},
+               'run_attempt': verifier.RUN_ATTEMPT, 'path': '.github/workflows/release.yml',
+               'event': 'push', 'head_sha': verifier.TARGET, 'head_branch': verifier.TAG}
+        self.assertEqual(verifier.validate_publication(run), 'tag_push')
+        for change in [{'id': 99}, {'repository': {'full_name': 'foreign/repo'}}, {'run_attempt': 99},
+                       {'path': '.github/workflows/other.yml'}, {'event': 'pull_request'},
+                       {'head_sha': 'b' * 40}, {'head_branch': 'v0.8.5'},
+                       {'event': 'workflow_dispatch', 'head_branch': 'main', 'head_sha': 'b' * 40}]:
+            with self.subTest(change=change):
+                with self.assertRaises(RuntimeError):
+                    verifier.validate_publication({**run, **change})
+        dispatched = {**run, 'event': 'workflow_dispatch', 'head_branch': 'main', 'head_sha': 'b' * 40}
+        self.assertEqual(verifier.validate_publication(dispatched, allow_current_dispatch=True),
+                         'current_workflow_validated_candidate')
+
     def test_tag_identity_follows_a_bounded_annotated_tag_chain(self):
         responses = [{'object': {'type': 'tag', 'sha': 'b' * 40}},
                      {'object': {'type': 'commit', 'sha': 'a' * 40}}]

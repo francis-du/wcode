@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing final release tag to verify without republishing
+        description: Existing tag-push release to verify without republishing
         required: true
         type: string
       publication_run:

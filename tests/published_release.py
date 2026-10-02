@@ -170,6 +170,21 @@ def tag_commit():
     raise RuntimeError("Excessive annotated tag depth")
 
 
+def validate_publication(run, allow_current_dispatch=False):
+    require(run.get("id") == RELEASE_RUN and run.get("repository", {}).get("full_name") == REPO
+            and run.get("run_attempt") == RUN_ATTEMPT, "Publication run identity mismatch")
+    require(run.get("path") == ".github/workflows/release.yml", "Wrong publication workflow")
+    if run.get("event") == "push":
+        require(run.get("head_sha") == TARGET and run.get("head_branch") == TAG,
+                "Publication does not belong to this tagged candidate")
+        return "tag_push"
+    # Only this running release workflow has the validated quality-job candidate outputs.
+    # Historical dispatch runs cannot be reconstructed from their main-branch head.
+    require(run.get("event") == "workflow_dispatch" and allow_current_dispatch,
+            "Historical dispatch publication requires persisted candidate provenance")
+    return "current_workflow_validated_candidate"
+
+
 def main():
     system = platform.system()
     require(system in PACKAGES, "Unsupported verification platform")
@@ -180,8 +195,8 @@ def main():
     allowed_tags = {"v" + VERSION, "v" + VERSION.removesuffix(".0")}
     require(TAG in allowed_tags and tag_commit() == TARGET, "Release tag identity mismatch")
     run = get_api(f"actions/runs/{RELEASE_RUN}")
-    require(run.get("id") == RELEASE_RUN and run.get("repository", {}).get("full_name") == REPO
-            and run.get("run_attempt") == RUN_ATTEMPT, "Publication run identity mismatch")
+    current_publication = not os.environ.get("PUBLICATION_RUN") and RELEASE_RUN == int(os.environ["GITHUB_RUN_ID"])
+    provenance = validate_publication(run, allow_current_dispatch=current_publication)
     # Failed archive checks can be rerun without republishing a successful release.
     jobs = get_api(f"actions/runs/{RELEASE_RUN}/jobs?filter=all&per_page=100")
     require(jobs.get("total_count") == len(jobs.get("jobs", [])) <= 100, "Incomplete publication jobs")
@@ -230,7 +245,7 @@ def main():
               "release_run": RELEASE_RUN, "publication_attempt": RUN_ATTEMPT, "publish_job": publish["id"],
               "verification_run": int(os.environ["GITHUB_RUN_ID"]),
               "verification_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
-              "platform": system, "checksums_sha256": manifest_sha, "results": reports, "passed": True}
+              "platform": system, "candidate_provenance": provenance, "checksums_sha256": manifest_sha, "results": reports, "passed": True}
     Path(os.environ["RUNNER_TEMP"], f"release-download-{system}.json").write_text(
         json.dumps(output, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(output))

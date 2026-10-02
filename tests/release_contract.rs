@@ -356,7 +356,7 @@ fn published_archive_arguments_and_security_boundaries_match_the_real_cli() {
     );
     let report = String::from_utf8_lossy(&output.stderr);
     assert!(
-        report.contains("Ran 8 tests"),
+        report.contains("Ran 9 tests"),
         "archive coverage is missing"
     );
     assert!(
