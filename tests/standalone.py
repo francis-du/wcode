@@ -39,6 +39,24 @@ MAX_REPORT_BYTES = 64 * 1024
 MAX_REPORT_EVENTS = 64
 MAX_FAILURE_TESTS = 256
 MAX_FAILURE_LINE_BYTES = 1024
+# Only fixed native status codes and known test files may leave captured output.
+# These are diagnostic hints, never evidence that a verification passed.
+NATIVE_FAILURE_CODES = frozenset({
+    "revision_incomplete", "discovery_incomplete", "mapping_incomplete",
+    "git_capture_incomplete", "git_candidate_changed", "git_commit_binding_incomplete",
+    "policy_binding_missing", "policy_inactive", "policy_revoked", "policy_expired",
+    "policy_definition_changed", "policy_unavailable", "policy_workspace_mismatch",
+    "policy_generation_changed", "policy_native_matrix_missing", "plan_requirements_incomplete",
+    "required_check_unavailable", "required_check_unmapped", "required_check_timed_out",
+    "required_check_execution_unavailable", "required_check_execution_unknown",
+    "native_check_failed", "native_check_inconclusive", "required_check_skipped",
+    "check_evidence_stale", "required_check_not_executed", "native_aggregate_coverage_missing",
+    "native_stage_failed", "native_stage_inconclusive", "native_stage_binding_missing",
+})
+NATIVE_FAILURE_FILES = (
+    "tests/unit/integrations/git/native.rs", "tests/unit/runtime/harness/acceptance.rs",
+    "tests/unit/workspace/execution.rs", "tests/unit/workspace/execution_timing.rs",
+)
 REQUIRED_FILES = (
     "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "README.md",
     "crates/core-types/Cargo.toml", "crates/core-types/src/lib.rs",
@@ -217,6 +235,8 @@ class RustFailureDiagnostics:
         self.locations: set[tuple[str, int, int]] = set()
         self.error_codes: set[str] = set()
         self.categories: set[str] = set()
+        self.native_codes: set[str] = set()
+        self.native_locations: set[tuple[str, str, int, int]] = set()
 
     def _line(self, raw: bytes) -> None:
         try:
@@ -234,6 +254,24 @@ class RustFailureDiagnostics:
             else:
                 self.partial = True
             self.categories.add("rust_compiler_error" if code else "linker_error")
+        native = re.fullmatch(r'\s*"code": "([a-z_]{1,64})",?', line)
+        if native and native.group(1) in NATIVE_FAILURE_CODES:
+            self.native_codes.add(native.group(1))
+        native_location = re.fullmatch(
+            r"thread '((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)'"
+            r"(?: \([0-9]{1,9}\))? panicked at "
+            r"(?:src[/\\](?:(?:[A-Za-z0-9_-]+|\.\.)[/\\]){0,12})?"
+            r"(tests[/\\]unit[/\\][A-Za-z0-9_/\\.-]+\.rs):"
+            r"([1-9][0-9]{0,8}):([1-9][0-9]{0,8}):", line)
+        if native_location:
+            name, path, row, column = native_location.groups()
+            path = path.replace("\\", "/")
+            if path in NATIVE_FAILURE_FILES and len(name) <= 256:
+                entry = (name, path, int(row), int(column))
+                if len(self.native_locations) < MAX_FAILURE_TESTS or entry in self.native_locations:
+                    self.native_locations.add(entry)
+                else:
+                    self.partial = True
         lower = line.lower()
         categories = {
             "manifest_error": ("failed to parse manifest", "failed to load manifest"),
@@ -245,7 +283,10 @@ class RustFailureDiagnostics:
             "disk_space": ("no space left on device", "not enough space on the disk"),
             "permission_denied": ("permission denied", "access is denied"),
             "path_too_long": ("filename or extension is too long", "file name too long"),
-            "process_spawn": ("could not execute process", "failed to run custom build command"),
+            "process_spawn": ("could not execute process", "failed to run custom build command",
+                              "failed to start command", "failed to start workspace verification executable"),
+            "process_queue_timeout": ("process queue remained busy", "cargo contention gate remained busy"),
+            "sandbox_unavailable": ("sandbox_unavailable:",),
         }
         all_required = {"lockfile_update_required", "toolchain_unavailable",
                         "linker_unavailable", "linker_error"}
@@ -318,6 +359,10 @@ class RustFailureDiagnostics:
                 "failure_categories": sorted(self.categories),
                 "failure_locations": [{"test": name, "line": row, "column": column}
                                       for name, row, column in sorted(self.locations)],
+                "failure_native_codes": sorted(self.native_codes),
+                "failure_native_locations": [
+                    {"test": name, "file": path, "line": row, "column": column}
+                    for name, path, row, column in sorted(self.native_locations)],
                 "failure_diagnostics_partial": self.partial}
 
 

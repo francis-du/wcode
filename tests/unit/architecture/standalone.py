@@ -311,6 +311,69 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertEqual(len(bounded["failure_error_codes"]), standalone.MAX_FAILURE_TESTS)
         self.assertTrue(bounded["failure_diagnostics_partial"])
 
+    def test_native_failure_codes_accept_only_fixed_complete_json_fields(self):
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(b'  "code": "required_check_timed_')
+        parser.feed(b'out",\r\n  "code": "native_check_failed"\n')
+        parser.feed(b'"code": "PRIVATE"\n"code": "required_check_timed_out" PRIVATE\n')
+        parser.feed(b'"code": "native_check_failed_extra"\n')
+        parser.feed(b'\x1b[31m"code": "policy_unavailable"\n')
+        parser.feed(b'"subject": "PRIVATE/path"\n')
+        hints = parser.finish()
+        self.assertEqual(hints["failure_native_codes"],
+                         ["native_check_failed", "required_check_timed_out"])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+        self.assertNotIn("failure_tests", hints["failure_native_codes"])
+        self.assertTrue(set(hints["failure_native_codes"]) <= standalone.NATIVE_FAILURE_CODES)
+
+    def test_native_panic_locations_keep_known_files_and_mixed_platform_separators(self):
+        parser = standalone.RustFailureDiagnostics()
+        for index, prefix in enumerate(("", "src/integrations/git/../../../",
+                                        r"src\integrations\git/../../../")):
+            path = "tests/unit/integrations/git/native.rs"
+            if index == 2:
+                path = path.replace("/", "\\")
+            parser.feed(f"thread 'native::case_{index}' (17) panicked at "
+                        f"{prefix}{path}:251:5:\r\n".encode())
+        hints = parser.finish()
+        self.assertEqual(len(hints["failure_native_locations"]), 3)
+        for item in hints["failure_native_locations"]:
+            self.assertEqual(item["file"], "tests/unit/integrations/git/native.rs")
+            self.assertEqual((item["line"], item["column"]), (251, 5))
+
+    def test_native_locations_reject_private_unknown_or_malformed_paths(self):
+        parser = standalone.RustFailureDiagnostics()
+        for path in ("PRIVATE/tests/unit/integrations/git/native.rs",
+                     "/tests/unit/integrations/git/native.rs",
+                     "C:/PRIVATE/tests/unit/integrations/git/native.rs",
+                     "tests/unit/integrations/git/PRIVATE.rs",
+                     "tests/unit/integrations/git/../git/native.rs"):
+            parser.feed(f"thread 'native::case' panicked at {path}:1:1:\n".encode())
+        parser.feed(b"thread 'native::case' panicked at tests/unit/integrations/git/native.rs:0:1:\n")
+        parser.feed(b"thread 'native::case' panicked at tests/unit/integrations/git/native.rs:1:1: PRIVATE\n")
+        self.assertEqual(parser.finish()["failure_native_locations"], [])
+
+    def test_native_locations_are_bounded_deduplicated_and_do_not_echo_messages(self):
+        parser = standalone.RustFailureDiagnostics()
+        for index in range(standalone.MAX_FAILURE_TESTS + 1):
+            line = (f"thread 'native::case_{index}' panicked at "
+                    "tests/unit/integrations/git/native.rs:251:5:\n").encode()
+            parser.feed(line + line + b"PRIVATE panic body\n")
+        hints = parser.finish()
+        self.assertEqual(len(hints["failure_native_locations"]), standalone.MAX_FAILURE_TESTS)
+        self.assertTrue(hints["failure_diagnostics_partial"])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+
+    def test_runtime_diagnostics_do_not_expose_command_or_host_paths(self):
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(b'failed to start command PRIVATE_COMMAND in PRIVATE_PATH\n')
+        parser.feed(b'cargo contention gate remained busy for the bounded queue wait\n')
+        parser.feed(b'sandbox_unavailable: PRIVATE_DETAILS\n')
+        hints = parser.finish()
+        self.assertEqual(hints["failure_categories"],
+                         ["process_queue_timeout", "process_spawn", "sandbox_unavailable"])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+
     def test_rust_failure_diagnostics_accept_only_complete_standard_lines(self):
         parser = standalone.RustFailureDiagnostics()
         parser.feed(b"test suite::one ... FAI")
