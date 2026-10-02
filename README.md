@@ -53,6 +53,12 @@ wcode
 
 Press **W** for the Project Status and **O** for Setup Hub. Remote clients use the public `/mcp` endpoint shown by the runtime and complete OAuth.
 
+![wcode acceptance workbench with demonstration data](docs/assets/wcode-overview.png)
+
+![wcode terminal dashboard with demonstration data](docs/assets/wcode-tui.png)
+
+The current workspace, revision and snapshot state stay visible across all seven pages. This image uses labeled fixture data. See the [interface review and page gallery](docs/Workbench-UI-Review.md) for desktop, phone and terminal states.
+
 ## The engineering loop
 
 wcode keeps the model replaceable while repository state, policy, proof, and observability remain durable.

@@ -5,7 +5,8 @@ mod observatory;
 
 #[test]
 fn project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns() {
-    assert!(INTELLIGENCE_JS.contains("workspaceTab: \"overview\""));
+    assert!(INTELLIGENCE_JS
+        .contains("workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : \"overview\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("data-i18n=\"Acceptance\">Acceptance"));
     assert!(INTELLIGENCE_APP_PAGE.contains("class=\"acceptance-supporting\""));
     assert!(INTELLIGENCE_JS.contains("function acceptanceView"));
@@ -264,7 +265,14 @@ fn observatory_visual_contract_stays_compact_brand_aligned_with_acceptance_first
     assert!(
         INTELLIGENCE_APP_PAGE.contains("id=\"precisionProviders\" class=\"context-provider-list\"")
     );
-    assert!(INTELLIGENCE_APP_PAGE.contains("class=\"workspace-hero-motto\""));
+    for identity in [
+        "workspaceName",
+        "workspaceRoot",
+        "workspaceRevision",
+        "snapshotState",
+    ] {
+        assert!(INTELLIGENCE_APP_PAGE.contains(&format!("id=\"{identity}\"")));
+    }
     assert!(INTELLIGENCE_APP_PAGE
         .contains("id=\"engineeringFlow\" class=\"engineering-cycle-diagram\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"traceabilityMap\" class=\"traceability-map\""));

@@ -154,6 +154,15 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Upload production TUI render review
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tui-render-review-${{ runner.os }}
+          path: target/wcode-tui-review/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Validate real WebKit Observatory layout
         if: runner.os == 'macOS'
         run: |

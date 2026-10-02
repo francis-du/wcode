@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "render_artifacts.rs"]
+mod render_artifacts;
+
 #[test]
 fn narrow_footer_keeps_pairing_approval_help_and_exit_visible() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
@@ -170,7 +173,10 @@ fn tiny_dashboard_reserves_recovery_keys_and_reports_the_actual_size_boundary() 
         assert!(text.contains("60 × 10"));
         assert!(text.contains("40 × 18"));
         assert!(text.contains(&config.pairing_code));
-        assert!(text.contains(language.tr("Resize to continue")));
+        // TestBackend includes a blank continuation cell after wide glyphs.
+        assert!(text
+            .replace(' ', "")
+            .contains(&language.tr("Resize to continue").replace(' ', "")));
     }
 }
 

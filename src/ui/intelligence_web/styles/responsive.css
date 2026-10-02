@@ -147,13 +147,13 @@
   .workspace-location{flex:1 1 100%;flex-wrap:wrap;gap:4px 8px;}
   .workspace-location strong{max-width:calc(100% - 88px);}
   .workspace-root{flex:1 1 100%;max-width:100%;}
-  .snapshot-context{justify-content:flex-start;font-size:11px;}
+  .snapshot-context{justify-content:flex-start;font-size:12px;}
   .workspace-hero h1{font-size:32px;}
   .workspace-tabs button{min-height:44px;}
   .workspace-context{gap:6px;}
   .context-source-line{flex-basis:100%;}
   .context-runtime{width:100%;justify-content:space-between;}
-  .context-runtime .muted{display:block;text-align:left;font-size:11px;}
+  .context-runtime .muted{display:block;text-align:left;font-size:12px;}
 }
 @media (max-width:520px){
   .workspace-hero h1{font-size:28px;}

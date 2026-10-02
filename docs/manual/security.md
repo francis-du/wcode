@@ -50,6 +50,8 @@ A HumanApproval uses a separate exact local-operator grant with a two-minute exp
 
 ![wcode authorization and access controls](/assets/wcode-access-management.png)
 
+Demonstration of the current production interface with fixture requests; no access was granted.
+
 TUI flow:
 
 ```text

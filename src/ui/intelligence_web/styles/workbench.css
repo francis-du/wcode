@@ -1,8 +1,4 @@
 /* Shared workbench hierarchy. Page renderers retain their own data semantics. */
-:root {
-  --font-sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
-  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
-}
 .skip-link {
   position:fixed;
   top:12px;
@@ -22,7 +18,7 @@
 .live-toggle::after { display:none; }
 .global-status { border-color:transparent; background:transparent; }
 .brand-copy { border:0; padding-left:0; }
-.brand-kicker { font-size:11px; }
+.brand-kicker { font-size:12px; }
 .workspace-switcher span { flex:0 0 auto; white-space:nowrap; }
 .workspace-switcher select { flex:1 1 0; width:auto; }
 .observatory-main { gap:16px; padding-top:24px; }
@@ -56,7 +52,7 @@
   text-overflow:ellipsis;
   white-space:nowrap;
   color:var(--muted);
-  font:11px var(--font-mono);
+  font:12px var(--font-mono);
 }
 .snapshot-context {
   display:flex;
@@ -71,12 +67,12 @@
 #snapshotState[data-state="error"] { color:var(--bad); }
 #snapshotState[data-state="warn"] { color:var(--warn); }
 #snapshotState[data-state="loading"] { color:var(--accent); }
-#workspaceRevision { flex:0 0 auto; font-size:11px; }
+#workspaceRevision { flex:0 0 auto; font-size:12px; }
 #workspaceRevision:empty,.workspace-root:empty { display:none; }
 .workspace-hero { display:block; min-height:0; padding:0 0 4px; }
 .workspace-hero::after { display:none; }
 .workspace-hero-copy { gap:7px; }
-.section-kicker { font-size:11px; letter-spacing:.1em; }
+.section-kicker { font-size:12px; letter-spacing:.1em; }
 .workspace-hero h1 { font-size:36px; letter-spacing:-.035em; line-height:1.16; }
 .workspace-subtitle { max-width:88ch; line-height:1.6; }
 .workspace-switchboard { gap:12px; padding:0; }

@@ -1,0 +1,183 @@
+{
+  "renderer": "production draw_dashboard via Ratatui TestBackend",
+  "fixture": true,
+  "browser": "154.0.8037.93",
+  "states": [
+    {
+      "file": "wide-en.svg",
+      "fixture": true,
+      "height": 34,
+      "language": "en",
+      "surface": "wide",
+      "width": 120
+    },
+    {
+      "file": "compact-en.svg",
+      "fixture": true,
+      "height": 24,
+      "language": "en",
+      "surface": "compact",
+      "width": 80
+    },
+    {
+      "file": "tiny-en.svg",
+      "fixture": true,
+      "height": 8,
+      "language": "en",
+      "surface": "tiny",
+      "width": 40
+    },
+    {
+      "file": "help-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "help",
+      "width": 100
+    },
+    {
+      "file": "commands-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "commands",
+      "width": 100
+    },
+    {
+      "file": "project-details-en.svg",
+      "fixture": true,
+      "height": 34,
+      "language": "en",
+      "surface": "project-details",
+      "width": 120
+    },
+    {
+      "file": "full-access-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "full-access",
+      "width": 100
+    },
+    {
+      "file": "workspace-input-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "workspace-input",
+      "width": 100
+    },
+    {
+      "file": "command-authorization-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "command-authorization",
+      "width": 100
+    },
+    {
+      "file": "human-decision-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "human-decision",
+      "width": 100
+    },
+    {
+      "file": "operation-feedback-en.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "en",
+      "surface": "operation-feedback",
+      "width": 100
+    },
+    {
+      "file": "wide-zh-CN.svg",
+      "fixture": true,
+      "height": 34,
+      "language": "zh-CN",
+      "surface": "wide",
+      "width": 120
+    },
+    {
+      "file": "compact-zh-CN.svg",
+      "fixture": true,
+      "height": 24,
+      "language": "zh-CN",
+      "surface": "compact",
+      "width": 80
+    },
+    {
+      "file": "tiny-zh-CN.svg",
+      "fixture": true,
+      "height": 8,
+      "language": "zh-CN",
+      "surface": "tiny",
+      "width": 40
+    },
+    {
+      "file": "help-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "help",
+      "width": 100
+    },
+    {
+      "file": "commands-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "commands",
+      "width": 100
+    },
+    {
+      "file": "project-details-zh-CN.svg",
+      "fixture": true,
+      "height": 34,
+      "language": "zh-CN",
+      "surface": "project-details",
+      "width": 120
+    },
+    {
+      "file": "full-access-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "full-access",
+      "width": 100
+    },
+    {
+      "file": "workspace-input-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "workspace-input",
+      "width": 100
+    },
+    {
+      "file": "command-authorization-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "command-authorization",
+      "width": 100
+    },
+    {
+      "file": "human-decision-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "human-decision",
+      "width": 100
+    },
+    {
+      "file": "operation-feedback-zh-CN.svg",
+      "fixture": true,
+      "height": 26,
+      "language": "zh-CN",
+      "surface": "operation-feedback",
+      "width": 100
+    }
+  ]
+}
