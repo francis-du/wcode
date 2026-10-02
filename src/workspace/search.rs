@@ -557,6 +557,26 @@ impl Workspace {
         )
     }
 
+    pub(crate) fn search_many_bounded_io(
+        &self,
+        queries: &[String],
+        path: &str,
+        max_results: usize,
+    ) -> Result<Vec<Value>> {
+        let request = SearchRequest {
+            queries: queries.to_vec(),
+            path: path.to_owned(),
+            mode: SearchMode::Exact,
+            context_lines: 0,
+            include_comments: true,
+            max_results: max_results.clamp(1, 2000),
+            offset: 0,
+            output_mode: "content".into(),
+        };
+        self.search_report_with_file_diversity(&request, false, true)
+            .map(|report| report.legacy_matches(true, request.max_results))
+    }
+
     pub(crate) fn search_with_options(
         &self,
         query: &str,
@@ -603,7 +623,7 @@ impl Workspace {
     }
 
     pub(crate) fn search_report(&self, request: &SearchRequest) -> Result<SearchReport> {
-        self.search_report_with_file_diversity(request, false)
+        self.search_report_with_file_diversity(request, false, false)
     }
 
     // Internal context retrieval is a bounded sample, not a paginated search.
@@ -612,13 +632,14 @@ impl Workspace {
         if request.output_mode != "content" || request.offset != 0 {
             bail!("context retrieval requires content output and zero offset");
         }
-        self.search_report_with_file_diversity(request, true)
+        self.search_report_with_file_diversity(request, true, false)
     }
 
     fn search_report_with_file_diversity(
         &self,
         request: &SearchRequest,
         file_diversity: bool,
+        exact_on_bounded_io: bool,
     ) -> Result<SearchReport> {
         if request.queries.is_empty() || request.queries.len() > MAX_SEARCH_QUERIES {
             bail!("queries must contain between 1 and {MAX_SEARCH_QUERIES} strings");
@@ -719,6 +740,8 @@ impl Workspace {
         let files_only_exact = request.mode == SearchMode::Exact
             && request.output_mode == "files_with_matches"
             && fallback.is_none();
+        let exact_on_bounded_io =
+            exact_on_bounded_io && request.mode == SearchMode::Exact && fallback.is_none();
         // Bounded batches retain at most eight raw documents at once. Exact
         // files-only discovery is I/O-shaped: keep it on the bounded I/O pool
         // instead of charging one interactive CPU-governor acquisition per file.
@@ -763,7 +786,7 @@ impl Workspace {
                     fallback: alternative,
                 })
             };
-            let outcomes = if files_only_exact {
+            let outcomes = if files_only_exact || exact_on_bounded_io {
                 crate::resource::parallel_io(batch, |path| scan(path, false))?
             } else {
                 batch
