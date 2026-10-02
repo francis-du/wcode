@@ -56,6 +56,7 @@ pub(crate) async fn serve(
     let mut legacy_protocol = DEFAULT_LEGACY_PROTOCOL.to_owned();
     let mut legacy_elicitation = false;
 
+    let result: Result<()> = async {
     while let Some(line) = lines
         .next_line()
         .await
@@ -151,11 +152,17 @@ pub(crate) async fn serve(
             write_response(&mut stdout, &response).await?;
         }
     }
-    if let Some(task) = runtime_presence_heartbeat {
-        task.abort();
-    }
-    drop(runtime_presence);
     Ok(())
+    }.await;
+    if let Some(mut tasks) = runtime_presence_heartbeat {
+        tasks.shutdown().await;
+    }
+    let cleanup = runtime_presence
+        .as_ref()
+        .map_or(Ok(()), |publisher| publisher.remove());
+    drop(runtime_presence);
+    // Preserve the transport error while still completing presence cleanup.
+    result.and(cleanup)
 }
 
 fn legacy_client_supports_elicitation(message: &Value) -> bool {

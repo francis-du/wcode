@@ -93,6 +93,287 @@ fn runtime_presence_projects_http_and_stdio_from_the_same_bounded_store() {
 }
 
 #[test]
+fn runtime_presence_delayed_heartbeat_cannot_overwrite_a_newer_connection() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "ordered-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    let (captured_tx, captured_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (completed_tx, completed_rx) = mpsc::channel();
+    let (early_completion, heartbeat, connection) = std::thread::scope(|scope| {
+        let publisher = &publisher;
+        let monitor = &monitor;
+        let heartbeat = scope.spawn(move || {
+            publisher.publish_snapshot(|| {
+                let old = monitor.connection_status();
+                captured_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                old
+            })
+        });
+        captured_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        monitor.mark_mcp_connected();
+        let connection = scope.spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = publisher.publish(monitor);
+            completed_tx.send(()).unwrap();
+            result
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let early = completed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_ok();
+        // Release before assertions so even a broken writer is reaped cleanly.
+        release_tx.send(()).unwrap();
+        (early, heartbeat.join().unwrap(), connection.join().unwrap())
+    });
+    assert!(
+        !early_completion,
+        "newer publication bypassed an unfinished snapshot"
+    );
+    heartbeat.unwrap();
+    connection.unwrap();
+    let record = read_record(&publisher.inner.path).unwrap();
+    assert!(
+        record.mcp_connected,
+        "delayed heartbeat restored a stale disconnected state"
+    );
+}
+
+#[tokio::test]
+async fn runtime_presence_stopped_heartbeat_does_not_recreate_removed_record() {
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "stopped-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    publisher.publish(&monitor).unwrap();
+    let mut heartbeat = publisher.spawn_heartbeat(monitor);
+    tokio::task::yield_now().await;
+    heartbeat.shutdown().await;
+    publisher.remove().unwrap();
+    assert!(!publisher.inner.path.exists());
+    assert!(snapshot_at(root.path(), now_ms())
+        .unwrap()
+        .records
+        .is_empty());
+}
+
+#[test]
+fn runtime_presence_removed_publisher_cannot_reappear_from_a_late_update() {
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "removed-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    let late_writer = publisher.clone();
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    publisher.publish(&monitor).unwrap();
+    publisher.remove().unwrap();
+    late_writer.publish(&monitor).unwrap();
+    assert!(
+        !publisher.inner.path.exists(),
+        "a late update recreated a stopped runtime"
+    );
+    publisher.remove().unwrap();
+    assert!(snapshot_at(root.path(), now_ms())
+        .unwrap()
+        .records
+        .is_empty());
+}
+
+#[test]
+fn runtime_presence_removal_waits_for_an_inflight_publication() {
+    use std::sync::mpsc;
+
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "removing-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    let (captured_tx, captured_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (removed_tx, removed_rx) = mpsc::channel();
+    let early_removal = std::thread::scope(|scope| {
+        let publisher = &publisher;
+        let monitor = &monitor;
+        let writer = scope.spawn(move || {
+            publisher.publish_snapshot(|| {
+                captured_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                monitor.connection_status()
+            })
+        });
+        captured_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let remover = scope.spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = publisher.remove();
+            removed_tx.send(()).unwrap();
+            result
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let early = removed_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release_tx.send(()).unwrap();
+        writer.join().unwrap().unwrap();
+        remover.join().unwrap().unwrap();
+        early
+    });
+    assert!(!early_removal, "cleanup bypassed an in-flight publication");
+    publisher.publish(&monitor).unwrap();
+    assert!(
+        !publisher.inner.path.exists(),
+        "publication recreated a removed runtime"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_presence_reader_rejects_file_aliases_without_touching_the_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "file-alias-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    publisher
+        .publish(&TaskMonitor::new(["project-a".to_owned()]))
+        .unwrap();
+    let original = fs::read(&publisher.inner.path).unwrap();
+    let target = outside.path().join(record_filename("file-alias-runtime"));
+    fs::rename(&publisher.inner.path, &target).unwrap();
+
+    symlink(&target, &publisher.inner.path).unwrap();
+    assert!(read_record(&publisher.inner.path).is_err());
+    assert!(publisher.remove().is_err());
+    assert_eq!(fs::read(&target).unwrap(), original);
+    fs::remove_file(&publisher.inner.path).unwrap();
+
+    fs::hard_link(&target, &publisher.inner.path).unwrap();
+    assert!(read_record(&publisher.inner.path).is_err());
+    assert!(publisher.remove().is_err());
+    assert_eq!(fs::read(&target).unwrap(), original);
+    fs::remove_file(&publisher.inner.path).unwrap();
+
+    fs::create_dir(&publisher.inner.path).unwrap();
+    assert!(read_record(&publisher.inner.path).is_err());
+    fs::remove_dir(&publisher.inner.path).unwrap();
+    fs::write(
+        &publisher.inner.path,
+        vec![b' '; MAX_RECORD_BYTES as usize + 1],
+    )
+    .unwrap();
+    assert!(read_record(&publisher.inner.path).is_err());
+    assert_eq!(fs::read(&target).unwrap(), original);
+}
+
+#[tokio::test]
+async fn runtime_presence_dropped_heartbeat_releases_its_publisher() {
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "cancelled-runtime",
+        RuntimeTransport::Stdio,
+        now_ms(),
+    );
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    publisher.publish(&monitor).unwrap();
+    let path = publisher.inner.path.clone();
+    let heartbeat = publisher.spawn_heartbeat(monitor);
+    tokio::task::yield_now().await;
+    drop(heartbeat);
+    drop(publisher);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while path.exists() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("dropping a session left its presence heartbeat running");
+}
+
+#[test]
+fn runtime_presence_parallel_startup_accepts_a_shared_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let barrier = std::sync::Barrier::new(16);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|index| {
+                let root = root.path();
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    RuntimePresencePublisher::new_at_root(
+                        root,
+                        &format!("parallel-{index}"),
+                        RuntimeTransport::Stdio,
+                        ["project-a".to_owned()],
+                        None,
+                        now_ms(),
+                    )
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle
+                .join()
+                .unwrap()
+                .expect("parallel startup rejected an existing safe directory");
+        }
+    });
+}
+
+#[test]
+fn runtime_presence_readers_observe_complete_records_during_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let publisher = publisher(
+        root.path(),
+        "replace-runtime",
+        RuntimeTransport::Http,
+        now_ms(),
+    );
+    let monitor = TaskMonitor::new(["project-a".to_owned()]);
+    publisher.publish(&monitor).unwrap();
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        let writer = scope.spawn(|| {
+            barrier.wait();
+            for _ in 0..128 {
+                publisher.publish(&monitor).unwrap();
+            }
+        });
+        barrier.wait();
+        for _ in 0..256 {
+            let record =
+                read_record(&publisher.inner.path).expect("reader saw a missing or partial record");
+            assert_eq!(record.instance_id, "replace-runtime");
+        }
+        writer.join().unwrap();
+    });
+}
+
+#[test]
 fn runtime_presence_never_serializes_tokens_owner_args_paths_or_raw_errors() {
     let root = tempfile::tempdir().unwrap();
     let now = 2_000_000;

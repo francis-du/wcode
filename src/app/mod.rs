@@ -545,9 +545,6 @@ pub async fn run() -> Result<()> {
     let mut runtime_presence_heartbeat = runtime_presence
         .as_ref()
         .map(|publisher| publisher.spawn_heartbeat(monitor.clone()));
-    let _runtime_presence_abort = runtime_presence_heartbeat
-        .as_ref()
-        .map(|task| AbortTaskOnDrop(task.abort_handle()));
     let app = auth::router(auth.clone()).merge(mcp::router(app_state));
     let mut server_task = tokio::spawn(async move { axum::serve(listener, app).await });
     let _server_abort = AbortTaskOnDrop(server_task.abort_handle());
@@ -788,9 +785,8 @@ pub async fn run() -> Result<()> {
         server_task.abort();
         let _ = server_task.await;
     }
-    if let Some(task) = runtime_presence_heartbeat.as_mut() {
-        task.abort();
-        let _ = task.await;
+    if let Some(tasks) = runtime_presence_heartbeat.as_mut() {
+        tasks.shutdown().await;
     }
     if let Some(publisher) = runtime_presence.as_ref() {
         publisher.remove()?;

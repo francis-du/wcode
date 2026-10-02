@@ -112,6 +112,68 @@ fn real_stdio_runtime_is_visible_to_menu_bar_and_cleans_up_on_eof() {
 }
 
 #[test]
+fn real_stdio_cleans_up_after_early_eof_invalid_input_and_broken_output() {
+    let initialize = format!(
+        "{}\n",
+        serde_json::json!({
+            "jsonrpc":"2.0", "id":1, "method":"initialize",
+            "params":{"protocolVersion":"2025-11-25","capabilities":{}}
+        })
+    );
+    for (input, close_output, expected_success) in [
+        (&b""[..], false, true),
+        (&b"\xff\n"[..], false, false),
+        (initialize.as_bytes(), true, false),
+    ] {
+        let project = tempfile::tempdir().unwrap();
+        let state_root = tempfile::tempdir().unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_wcode"))
+            .args(["--no-menu-bar", "mcp-stdio"])
+            .current_dir(project.path())
+            .env("WCODE_STATE_DIR", state_root.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("stdio cleanup fixture must start");
+        if close_output {
+            drop(child.stdout.take());
+        }
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(input).unwrap();
+        drop(stdin);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let exit = loop {
+            if let Some(exit) = child.try_wait().unwrap() {
+                break exit;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("stdio cleanup did not finish after its transport closed");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(
+            exit.success(),
+            expected_success,
+            "unexpected stdio exit: {exit}"
+        );
+        let after = menu_bar_json(state_root.path());
+        assert_eq!(after["summary"]["runtime_count"], 0, "{after}");
+        assert_eq!(after["summary"]["state"], "offline", "{after}");
+        assert_eq!(after["presence"]["invalid_records"], 0, "{after}");
+        assert_eq!(after["presence"]["stale_records"], 0, "{after}");
+        let records = state_root.path().join("runtime-presence/v1");
+        assert_eq!(
+            std::fs::read_dir(records).unwrap().count(),
+            0,
+            "stdio exit left runtime records or staging files behind"
+        );
+    }
+}
+
+#[test]
 fn real_http_runtime_is_visible_to_menu_bar_without_tunnel_or_secret_state() {
     let project = tempfile::tempdir().unwrap();
     let state_root = tempfile::tempdir().unwrap();

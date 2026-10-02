@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -74,6 +74,7 @@ pub(crate) struct RuntimePresencePublisher {
 }
 
 struct PublisherInner {
+    publish_lock: std::sync::Mutex<bool>,
     directory: PathBuf,
     path: PathBuf,
     instance_id: String,
@@ -126,6 +127,7 @@ impl RuntimePresencePublisher {
         let path = directory.join(record_filename(instance_id));
         Ok(Self {
             inner: Arc::new(PublisherInner {
+                publish_lock: std::sync::Mutex::new(false),
                 directory,
                 path,
                 instance_id: instance_id.to_owned(),
@@ -139,7 +141,21 @@ impl RuntimePresencePublisher {
     }
 
     pub(crate) fn publish(&self, monitor: &TaskMonitor) -> Result<()> {
-        self.publish_status(&monitor.connection_status(), now_ms())
+        self.publish_snapshot(|| monitor.connection_status())
+    }
+
+    fn publish_snapshot(&self, snapshot: impl FnOnce() -> MonitorConnectionStatus) -> Result<()> {
+        // Capture and publish under the same lock. Locking only the rename would
+        // let a delayed heartbeat replace a newer connected state with old data.
+        let removed = self
+            .inner
+            .publish_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime presence writer lock is poisoned"))?;
+        if *removed {
+            return Ok(());
+        }
+        self.publish_status(&snapshot(), now_ms())
     }
 
     fn publish_status(&self, status: &MonitorConnectionStatus, updated_at_ms: u64) -> Result<()> {
@@ -174,19 +190,29 @@ impl RuntimePresencePublisher {
         publish_record(&self.inner.directory, &self.inner.path, &record)
     }
 
-    pub(crate) fn spawn_heartbeat(&self, monitor: TaskMonitor) -> tokio::task::JoinHandle<()> {
+    pub(crate) fn spawn_heartbeat(&self, monitor: TaskMonitor) -> tokio::task::JoinSet<()> {
         let publisher = self.clone();
-        tokio::spawn(async move {
+        // Dropping the session must abort, rather than detach, its heartbeat.
+        let mut tasks = tokio::task::JoinSet::new();
+        tasks.spawn(async move {
             let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
                 let _ = publisher.publish(&monitor);
             }
-        })
+        });
+        tasks
     }
 
     pub(crate) fn remove(&self) -> Result<()> {
+        let mut removed = self
+            .inner
+            .publish_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime presence writer lock is poisoned"))?;
+        // Serialize cleanup with snapshots and reject all later publications.
+        *removed = true;
         remove_owned_record(&self.inner.path, &self.inner.instance_id)
     }
 }
@@ -320,10 +346,8 @@ fn publish_record(directory: &Path, target: &Path, record: &RuntimePresenceRecor
         file.write_all(&bytes)
             .context("cannot write runtime presence record")?;
         drop(file);
-        #[cfg(windows)]
-        if target.exists() {
-            fs::remove_file(target).context("cannot replace runtime presence record")?;
-        }
+        // rename replaces an existing file on Windows too. Removing it first
+        // would expose a missing-record window to readers.
         fs::rename(&temp, target).context("cannot publish runtime presence record")?;
         Ok(())
     })();
@@ -334,12 +358,37 @@ fn publish_record(directory: &Path, target: &Path, record: &RuntimePresenceRecor
 }
 
 fn read_record(path: &Path) -> Result<RuntimePresenceRecord> {
-    let metadata = ensure_safe_regular_file(path, MAX_RECORD_BYTES)?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("cannot open runtime presence {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .context("cannot inspect open runtime presence record")?;
+    validate_regular_file(&metadata, MAX_RECORD_BYTES)?;
     if metadata.len() == 0 {
         bail!("empty runtime presence record");
     }
-    let bytes = fs::read(path)
-        .with_context(|| format!("cannot read runtime presence {}", path.display()))?;
+    // Read the same handle that was validated. A concurrent rename may unlink
+    // this inode, but its complete contents remain a valid snapshot.
+    let mut bytes = Vec::new();
+    file.take(MAX_RECORD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .context("cannot read runtime presence record")?;
+    if bytes.len() as u64 > MAX_RECORD_BYTES {
+        bail!("runtime presence record exceeds size bound");
+    }
     let record: RuntimePresenceRecord =
         serde_json::from_slice(&bytes).context("cannot decode runtime presence")?;
     validate_record(&record)?;
@@ -443,8 +492,16 @@ fn ensure_child_directory(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(_) => ensure_existing_directory(path)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir(path)
-                .with_context(|| format!("cannot create runtime presence {}", path.display()))?;
+            match fs::create_dir(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("cannot create runtime presence {}", path.display())
+                    })
+                }
+            }
+            // Another runtime may have created it; still reject links/files.
             ensure_existing_directory(path)?;
         }
         Err(error) => return Err(error).context("cannot inspect runtime presence directory"),
@@ -494,17 +551,22 @@ fn ensure_existing_directory(path: &Path) -> Result<()> {
 fn ensure_safe_regular_file(path: &Path, max_bytes: u64) -> Result<fs::Metadata> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("cannot inspect runtime presence {}", path.display()))?;
+    validate_regular_file(&metadata, max_bytes)?;
+    Ok(metadata)
+}
+
+fn validate_regular_file(metadata: &fs::Metadata, max_bytes: u64) -> Result<()> {
     if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > max_bytes {
         bail!("runtime presence record is not a bounded regular file");
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        if metadata.nlink() != 1 {
+        if metadata.nlink() > 1 {
             bail!("runtime presence record has multiple hard links");
         }
     }
-    Ok(metadata)
+    Ok(())
 }
 
 fn remove_owned_record(path: &Path, instance_id: &str) -> Result<()> {

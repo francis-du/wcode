@@ -1,7 +1,7 @@
 schema_version: 1
 id: REQ-RUNTIME-PRESENCE-001
 title: Observe local WCode runtimes from the system menu bar
-intent: Local operators should be able to see bounded runtime, MCP transport, task, verification activity and durable command-job queue state from the macOS menu bar without opening an IDE or creating a second authority plane. HTTP/MCP and MCP stdio runtimes publish the same protected local presence contract; stale, damaged, legacy or incomplete observations remain explicit and cannot establish Acceptance, verification success or authorization.
+intent: Local operators should be able to see bounded runtime, MCP transport, task, verification activity and durable command-job queue state from the macOS menu bar without opening an IDE or changing permissions. HTTP/MCP and MCP stdio runtimes publish the same protected local presence contract; stale, damaged, legacy or incomplete observations remain explicit and cannot establish Acceptance, verification success or authorization. A stopped or cancelled runtime must disappear promptly and cannot be restored by a delayed heartbeat.
 priority: high
 implemented_by:
   - component:runtime-presence

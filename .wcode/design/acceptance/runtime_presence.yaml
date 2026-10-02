@@ -1,9 +1,19 @@
 schema_version: 1
 id: AC-RUNTIME-PRESENCE-001
-title: Menu bar status shares native runtime truth without becoming authority
+title: Menu bar reports local runtime status without changing permissions
 statement: >-
   The local HTTP/MCP runtime and MCP stdio publish bounded heartbeat records under the protected WCode authority state root. Records are identity-bound regular files, reject symlink/hard-link aliases, accept only loopback root URLs, retain bounded Workspace IDs and status counters, and contain no UI/OAuth token, owner, command arguments, source path or raw diagnostic. Observation scans are bounded; stale, excessive, malformed or corrupt records never count as active and make coverage partial or unknown when appropriate. wcode menu-bar --json exposes the same portable read-only projection. On macOS, wcode menu-bar runs as an accessory process, creates its TrayIcon only after the main-thread event loop is active, and displays HTTP/stdio runtime counts, version, Workspace IDs, recent MCP activity, active/queued tasks, current verify_project activity, and durable run_command job activity from that projection. New sub-activity counters are optional in the schema so a legacy runtime is shown as unknown rather than as zero; partial observation likewise suppresses those counters. Verification activity is execution state only and never means PASS. The menu bar does not execute arbitrary commands, cancel jobs, approve authorization, claim verification PASS or establish Acceptance. Runtime publisher failure does not replace or weaken the existing MCP/TUI authority path.
+  Closing stdio, invalid UTF-8 input, a broken output pipe, or cancellation stops the heartbeat and removes the runtime record. Snapshot capture, publication and removal share one lock; a delayed update cannot restore a removed record or overwrite a newer connection state. Concurrent runtimes may create the shared directory, but every directory is still checked for unsafe links. Readers validate and read the same bounded file handle, and atomic replacement does not expose a missing or partial record.
 verification:
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_removal_waits_for_an_inflight_publication}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_reader_rejects_file_aliases_without_touching_the_target}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_delayed_heartbeat_cannot_overwrite_a_newer_connection}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_stopped_heartbeat_does_not_recreate_removed_record}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_removed_publisher_cannot_reappear_from_a_late_update}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_dropped_heartbeat_releases_its_publisher}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_parallel_startup_accepts_a_shared_directory}
+  - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_readers_observe_complete_records_during_replacement}
+  - {kind: test, path: tests/menu_bar.rs, symbol: real_stdio_cleans_up_after_early_eof_invalid_input_and_broken_output}
   - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_projects_http_and_stdio_from_the_same_bounded_store}
   - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_never_serializes_tokens_owner_args_paths_or_raw_errors}
   - {kind: test, path: tests/unit/runtime/presence.rs, symbol: runtime_presence_stale_corrupt_and_future_records_are_not_active_success}
