@@ -10,15 +10,36 @@ fn budget_fixture() -> (tempfile::TempDir, Workspace, String) {
     (root, workspace, program)
 }
 
-fn budget_test_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+async fn run_isolated(test: &str) -> bool {
+    const MARKER: &str = "WCODE_TEST_QUEUE_PROCESS";
+    if std::env::var(MARKER).as_deref() == Ok(test) {
+        return false;
+    }
+    // Occupying every global process slot in the main test process can delay
+    // unrelated tests. An exact-filtered child has its own production governor;
+    // the two-second queue/runtime bounds below remain unchanged.
+    let module = module_path!().split_once("::").unwrap().1;
+    let name = format!("{module}::{test}");
+    let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([&name, "--exact", "--nocapture", "--test-threads=1"])
+        .env(MARKER, test)
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(60), command.output())
+        .await
+        .expect("isolated queue test exceeded its deadline")
+        .expect("isolated queue test could not start");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{name}: {stdout}\n{stderr}");
+    assert!(
+        stdout.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
+        "the isolated process must execute exactly one real test: {stdout}"
+    );
+    true
 }
 
 async fn queued_runtime_budget(entry: &str) {
-    // These tests deliberately occupy the shared host queue. Serialize only
-    // the fixtures so parallel test runners cannot deadlock one another.
-    let _serial = budget_test_lock().lock().await;
     let (root, workspace, program) = budget_fixture();
     let governor = crate::resource::global();
     let mut held = Vec::new();
@@ -74,22 +95,33 @@ async fn queued_runtime_budget(entry: &str) {
 
 #[tokio::test]
 async fn queued_command_retains_its_full_runtime_budget() {
+    if run_isolated("queued_command_retains_its_full_runtime_budget").await {
+        return;
+    }
     queued_runtime_budget("command").await;
 }
 
 #[tokio::test]
 async fn queued_verification_retains_its_full_runtime_budget() {
+    if run_isolated("queued_verification_retains_its_full_runtime_budget").await {
+        return;
+    }
     queued_runtime_budget("verification").await;
 }
 
 #[tokio::test]
 async fn queued_runtime_executor_retains_its_full_runtime_budget() {
+    if run_isolated("queued_runtime_executor_retains_its_full_runtime_budget").await {
+        return;
+    }
     queued_runtime_budget("runtime").await;
 }
 
 #[tokio::test]
 async fn cancelled_queued_command_never_starts_and_releases_its_waiter() {
-    let _serial = budget_test_lock().lock().await;
+    if run_isolated("cancelled_queued_command_never_starts_and_releases_its_waiter").await {
+        return;
+    }
     let (root, workspace, program) = budget_fixture();
     let governor = crate::resource::global();
     let capacity = crate::resource::limits().child_processes;

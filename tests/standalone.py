@@ -200,12 +200,44 @@ class RustFailureDiagnostics:
         self.tests: set[str] = set()
         self.summaries: list[dict[str, int]] = []
         self.locations: set[tuple[str, int, int]] = set()
+        self.error_codes: set[str] = set()
+        self.categories: set[str] = set()
 
     def _line(self, raw: bytes) -> None:
         try:
             line = raw.rstrip(b"\r").decode("ascii")
         except UnicodeDecodeError:
             return
+        # Never echo the message body: it may contain paths, source or credentials.
+        # These are untrusted hints only; the subprocess exit code still decides failure.
+        code = re.match(r"^error\[(E[0-9]{4})\]: ", line)
+        if code:
+            value = code.group(1)
+            if len(self.error_codes) < MAX_FAILURE_TESTS or value in self.error_codes:
+                self.error_codes.add(value)
+            else:
+                self.partial = True
+            self.categories.add("rust_compiler_error")
+        lower = line.lower()
+        categories = {
+            "manifest_error": ("failed to parse manifest", "failed to load manifest"),
+            "lockfile_update_required": ("lock file", "needs to be updated", "--locked"),
+            "dependency_not_cached": ("no matching package named", "failed to download"),
+            "toolchain_unavailable": ("toolchain", "is not installed"),
+            "linker_unavailable": ("linker", "not found"),
+            "linker_error": ("linking with", "failed"),
+            "disk_space": ("no space left on device", "not enough space on the disk"),
+            "permission_denied": ("permission denied", "access is denied"),
+            "path_too_long": ("filename or extension is too long", "file name too long"),
+            "process_spawn": ("could not execute process", "failed to run custom build command"),
+        }
+        all_required = {"lockfile_update_required", "toolchain_unavailable",
+                        "linker_unavailable", "linker_error"}
+        if not any(ord(character) < 32 and character != "\t" for character in line):
+            for category, markers in categories.items():
+                matches = [marker in lower for marker in markers]
+                if (all(matches) if category in all_required else any(matches)):
+                    self.categories.add(category)
         match = re.fullmatch(
             r"test ((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*) \.\.\. FAILED",
             line)
@@ -266,6 +298,8 @@ class RustFailureDiagnostics:
             self._line(bytes(self.pending))
         self.pending.clear()
         return {"failure_tests": sorted(self.tests), "failure_summaries": self.summaries,
+                "failure_error_codes": sorted(self.error_codes),
+                "failure_categories": sorted(self.categories),
                 "failure_locations": [{"test": name, "line": row, "column": column}
                                       for name, row, column in sorted(self.locations)],
                 "failure_diagnostics_partial": self.partial}

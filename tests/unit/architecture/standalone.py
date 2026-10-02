@@ -237,6 +237,35 @@ class SourcePackageSafety(unittest.TestCase):
                 self.root, env, 5, capture_output=True)
         self.assertEqual(payload.strip(), b"False")
 
+    def test_build_diagnostics_report_categories_without_echoing_child_output(self):
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(b'error: failed to parse manifest at `PRIVATE/project/Cargo.toml`\n')
+        parser.feed(b'  lock file PRIVATE/Cargo.lock needs to be updated but --locked was passed\n')
+        parser.feed(b'error: linker `link.exe` not found\n')
+        parser.feed(b'error[E0308]: PRIVATE type mismatch\n')
+        parser.feed(b'error: no matching package named `PRIVATE` found\n')
+        hints = parser.finish()
+        self.assertEqual(hints['failure_error_codes'], ['E0308'])
+        self.assertEqual(hints['failure_categories'], [
+            'dependency_not_cached', 'linker_unavailable', 'lockfile_update_required',
+            'manifest_error', 'rust_compiler_error',
+        ])
+        self.assertNotIn('PRIVATE', json.dumps(hints))
+        self.assertNotIn('link.exe', json.dumps(hints))
+
+    def test_build_diagnostics_are_bounded_and_reject_injected_ids(self):
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(b'error[E12345]: too long\nerror[EABCD]: nonnumeric\n')
+        parser.feed(b'error[E0001] injected malformed delimiter\n')
+        parser.feed(b'\x1b[31merror[E0002]: colored\n')
+        for number in range(standalone.MAX_FAILURE_TESTS + 1):
+            parser.feed(f'error[E{number:04d}]: hidden body\n'.encode())
+        hints = parser.finish()
+        self.assertEqual(len(hints['failure_error_codes']), standalone.MAX_FAILURE_TESTS)
+        self.assertTrue(hints['failure_diagnostics_partial'])
+        self.assertEqual(hints['failure_categories'], ['rust_compiler_error'])
+        self.assertNotIn('hidden', json.dumps(hints))
+
     def test_rust_failure_diagnostics_accept_only_complete_standard_lines(self):
         parser = standalone.RustFailureDiagnostics()
         parser.feed(b"test suite::one ... FAI")
