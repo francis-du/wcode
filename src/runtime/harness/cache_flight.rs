@@ -76,6 +76,13 @@ impl Drop for ValidationGuard<'_> {
 
 impl ValidationFlight {
     pub(super) fn acquire(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
+        self.acquire_with_wait(std::thread::sleep)
+    }
+
+    fn acquire_with_wait(
+        &self,
+        mut wait: impl FnMut(Duration),
+    ) -> Result<std::sync::MutexGuard<'_, ()>> {
         // A native caller can also retain a tool permit while waiting for an
         // owner that is suspended in another pool. Bound only the waiter: the
         // owner's guard, generation and actual-work permit remain untouched.
@@ -97,7 +104,7 @@ impl ValidationFlight {
             if remaining.is_zero() {
                 bail!("shared validation busy after 5s; retry after current validation completes");
             }
-            std::thread::sleep(remaining.min(Duration::from_millis(5)));
+            wait(remaining.min(Duration::from_millis(5)));
         }
     }
 
