@@ -1,6 +1,6 @@
 # wcode Research Paper
 
-**wcode: An Evidence-Driven Engineering Control Plane and Model-Free Fitness Evaluation for Coding Agents**
+**wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents**
 
 [English manuscript — revision 2](paper.en.md) · [中文原稿](paper.zh-CN.md)
 

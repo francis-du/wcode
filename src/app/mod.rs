@@ -55,7 +55,7 @@ const HELP_FOOTER: &str = r#"
 │    \  /\  /     | |____  | |__| | | |__| | | |____        │
 │     \/  \/       \_____|  \____/  |_____/  |______|       │
 ├───────────────────────────────────────────────────────────┤
-│ Software intelligence + safe coding tools for AI agents   │
+│ Repository tools, task tracking and checks               │
 │ Repository  https://github.com/francis-du/wcode           │
 │ Docs        https://wcode.francis.run/                    │
 │ Author      @francis-du                                   │
@@ -96,7 +96,7 @@ impl Drop for AbortTaskOnDrop {
     name = "wcode",
     author,
     version,
-    about = "Software intelligence and governed coding tools for AI agents",
+    about = "Repository tools, task tracking and checks",
     long_about = "Run WCode in the current project, connect coding agents over MCP, discover language-server semantics, inspect project intelligence and verification, or update the installed binary. The current directory is the default Workspace, so most users do not need extra path arguments.",
     disable_help_subcommand = true,
     after_help = HELP_FOOTER
@@ -219,6 +219,10 @@ struct Args {
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
+    /// Do not start the macOS menu bar companion. CI and SSH sessions skip it automatically.
+    #[arg(long, global = true, help_heading = "Experience")]
+    no_menu_bar: bool,
+
     /// Hide the live terminal activity view.
     #[arg(long = "no-monitor", global = true, action = ArgAction::SetFalse, default_value_t = true, help_heading = "Experience")]
     monitor: bool,
@@ -340,8 +344,14 @@ pub async fn run() -> Result<()> {
             .with_target(false)
             .init();
     }
-    let keep_awake =
+    let runtime_command =
         args.command.is_none() || matches!(args.command.as_ref(), Some(ControlCommand::McpStdio));
+    if runtime_command {
+        if let Err(error) = crate::menu_bar::launch_companion(!args.no_menu_bar) {
+            eprintln!("  ! menu-bar     unavailable: {error}");
+        }
+    }
+    let keep_awake = runtime_command;
     let _awake_guard = if args.allow_sleep || !keep_awake {
         None
     } else {

@@ -509,7 +509,7 @@ function applyAutoRefreshControl() {
 }
 function applyLanguage() {
   document.documentElement.lang = state.language;
-  document.title = t("wcode · Engineering Observatory");
+  document.title = t("wcode · Project Status");
   applyStaticTranslations(document, state.language);
   els.workspace.setAttribute("aria-label", t("Workspace"));
   els.language.setAttribute("aria-label", t("Language"));

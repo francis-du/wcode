@@ -479,9 +479,9 @@ pub(super) fn merge(pack: &mut Value, mut records: Vec<Value>) {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/runtime/harness/context_anchors.rs"]
+#[path = "../../../../tests/unit/runtime/harness/context_anchors.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "../../../tests/unit/runtime/harness/diagnostic_formats.rs"]
+#[path = "../../../../tests/unit/runtime/harness/diagnostic_formats.rs"]
 mod diagnostic_formats;

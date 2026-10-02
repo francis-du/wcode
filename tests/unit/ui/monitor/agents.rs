@@ -65,7 +65,7 @@ fn absent_agent_snapshot_is_unknown_and_worker_reports_are_not_proof() {
         ..Default::default()
     };
     let text = render(&stats, 0, 0);
-    assert!(text.contains("not Verification evidence"));
+    assert!(text.contains("not Check results"));
     assert!(text.contains("Reported result complete"));
     assert!(text.contains("Implemented the selected view"));
     assert!(!text.contains("verification ready"));

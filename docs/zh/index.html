@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#0b0812">
   <link rel="icon" href="../assets/wcode-icon.svg" type="image/svg+xml">
   <meta name="description" content="给 AI 编程 Agent 一份真正的软件模型：架构、22 语言 Syntax/Quality 能力、真实初始化后的 LSP 语义关系、变更影响、受控编辑、验证与持久证据，本地通过 MCP 提供。">
-  <meta property="og:title" content="wcode — Coding Agent 工程控制平面">
+  <meta property="og:title" content="wcode — Coding Agent 项目工具">
   <meta property="og:description" content="Agent 负责写代码；wcode 让它先理解系统、控制影响范围，并证明改动真的成立。">
   <meta property="og:type" content="website">
-  <title>wcode — Coding Agent 工程控制平面</title>
+  <title>wcode — Coding Agent 项目工具</title>
   <link rel="alternate" hreflang="en" href="../">
   <link rel="alternate" hreflang="zh-CN" href="./">
   <link rel="stylesheet" href="../assets/site.css?v=20260915-1">
@@ -45,7 +45,7 @@
   <main id="main">
     <section class="hero section-shell">
       <div class="hero-copy reveal">
-        <div class="eyebrow"><span class="pulse"></span> Coding Agent 工程控制平面</div>
+        <div class="eyebrow"><span class="pulse"></span> Coding Agent 项目工具</div>
         <h1>Agent 会写代码。<br><span class="gradient-text">wcode 让整个工程过程可理解、可控制、可证明。</span></h1>
         <p class="hero-lede">不用打开 IDE，也能看懂项目架构、监督 Vibe Coding 改了什么、判断 Design 与 Actual 是否偏离、控制影响范围并验证结果。你继续用喜欢的 Agent，wcode 负责工程上下文、边界、证据与可观测。</p>
         <div class="hero-actions"><a class="button button-primary" href="#quickstart">给 Agent 接上 wcode <span>→</span></a><a class="button button-ghost" href="#intelligence">看看工程状态</a></div>
@@ -99,8 +99,8 @@
       <div class="section-heading reveal"><div class="kicker">活系统模型</div><h2>四张图把产品真实工作方式讲清楚。</h2><p>这些不是一次性宣传图，而是产品文档的一部分。仓库模型、验证网格、执行边界或操作流程发生变化时，对应 SVG 也必须随产品迭代同步更新。</p></div>
       <div class="system-model-grid">
         <article class="system-model-card reveal">
-          <a href="../assets/zh/engineering-loop.svg" target="_blank" rel="noopener"><img src="../assets/zh/engineering-loop.svg" alt="wcode 工程控制平面闭环" width="1600" height="900" loading="lazy" decoding="async"></a>
-          <div><span>01 · 工程闭环</span><h3>理解 → 修改 → 验证 → 学习 → 收敛</h3><p>这是 wcode 的顶层运行模型：模型可以替换，但仓库状态、受控修改、版本证据、可信学习和持续收敛都保留在工程控制平面中。</p><p class="model-sync">需要同步更新：Agent 工作流、授权/编辑面、Evidence 生命周期或 Reconciliation 模型发生变化时。</p></div>
+          <a href="../assets/zh/engineering-loop.svg" target="_blank" rel="noopener"><img src="../assets/zh/engineering-loop.svg" alt="wcode 项目工作流程" width="1600" height="900" loading="lazy" decoding="async"></a>
+          <div><span>01 · 工程闭环</span><h3>理解 → 修改 → 验证 → 学习 → 收敛</h3><p>这是 wcode 的顶层运行模型：模型可以替换，但仓库状态、受控修改、版本证据、可信学习和持续收敛都保留在项目工具中。</p><p class="model-sync">需要同步更新：Agent 工作流、授权/编辑面、Evidence 生命周期或 Reconciliation 模型发生变化时。</p></div>
         </article>
         <article class="system-model-card reveal">
           <a href="../assets/zh/intelligence-stack.svg" target="_blank" rel="noopener"><img src="../assets/zh/intelligence-stack.svg" alt="wcode 仓库智能栈" width="1600" height="960" loading="lazy" decoding="async"></a>
@@ -118,14 +118,14 @@
     </section>
 
     <section class="section section-shell product-tour" id="product-tour">
-      <div class="section-heading reveal"><div class="kicker">界面导览</div><h2>从连接状态看到架构、变更和证据。</h2><p>终端面板展示运行状态，工程观测台按任务组织项目视图。按 <kbd>W</kbd> 打开观测台，按 <kbd>O</kbd> 打开设置中心。<a href="../zh/docs/getting-started/">查看操作说明 →</a></p></div>
+      <div class="section-heading reveal"><div class="kicker">界面导览</div><h2>从连接状态看到架构、变更和证据。</h2><p>终端面板展示运行状态，项目状态按任务组织项目视图。按 <kbd>W</kbd> 打开观测台，按 <kbd>O</kbd> 打开设置中心。<a href="../zh/docs/getting-started/">查看操作说明 →</a></p></div>
       <div class="screenshot-grid">
         <figure class="screenshot-card reveal">
           <a href="../assets/wcode-tui.png" target="_blank" rel="noopener"><img src="../assets/wcode-tui.png" alt="终端运行面板" width="3420" height="2146" loading="lazy" decoding="async"></a>
           <figcaption><strong>终端运行面板</strong><span>查看连接、当前项目、任务和待授权请求。</span></figcaption>
         </figure>
         <figure class="screenshot-card reveal">
-          <a href="../assets/wcode-overview.png" target="_blank" rel="noopener"><img src="../assets/wcode-overview.png" alt="工程观测台总览" width="1710" height="4906" loading="lazy" decoding="async"></a>
+          <a href="../assets/wcode-overview.png" target="_blank" rel="noopener"><img src="../assets/wcode-overview.png" alt="项目状态总览" width="1710" height="4906" loading="lazy" decoding="async"></a>
           <figcaption><strong>总览</strong><span>集中查看仓库健康度、活动信号、验证状态和当前工程全貌。</span></figcaption>
         </figure>
         <figure class="screenshot-card reveal">
@@ -183,7 +183,7 @@
     </section>
 
     <section class="section section-shell" id="intelligence">
-      <div class="section-heading reveal"><div class="kicker">04 · 仓库理解</div><h2>不只回答“代码在哪”，还要回答“这次修改意味着什么”。</h2><p>Repository Intelligence 只是 Engineering Control Plane 的理解层。它把目标架构、当前实现、真实 LSP 语义关系、Git 变更影响、风险、验证和证据组织成可复用的软件模型，让 Agent 和人都能在修改前后看懂项目。</p></div>
+      <div class="section-heading reveal"><div class="kicker">04 · 仓库理解</div><h2>不只回答“代码在哪”，还要回答“这次修改意味着什么”。</h2><p>Repository Intelligence 只是 Project tools 的理解层。它把目标架构、当前实现、真实 LSP 语义关系、Git 变更影响、风险、验证和证据组织成可复用的软件模型，让 Agent 和人都能在修改前后看懂项目。</p></div>
       <div class="performance-grid">
         <article class="performance-card reveal"><span>01</span><h3>给 Agent 一张地图，而不是一堆文件</h3><p><code>agent_context</code> 按当前任务挑出真正相关的代码、设计、测试、编辑目标、活动任务和语义缺口。小改动保持小改动；跨模块任务才展开并行 Lane 和复杂度预算。</p></article>
         <article class="performance-card reveal"><span>02</span><h3>直接问跨文件语义关系</h3><p>文本搜索不够时，Warm LSP Session 提供 Reference、Caller、Implementation、Hover 和 Impact。wcode 会明确告诉 Agent 当前是 Syntax 还是 Semantic Precision；LSP 缺失、待授权或初始化失败都会给出下一步，而不是悄悄把文本搜索当成完整语义。</p></article>
@@ -205,11 +205,11 @@
     </section>
 
     <section class="section section-shell" id="design">
-      <div class="section-heading reveal"><div class="kicker">06 · 设计</div><h2>它是 Engineering Control Plane，不是模型宿主。</h2><p>wcode 让模型保持可替换，同时自己拥有协议、授权、Design State、仓库理解、受控修改、工具调度、验证证据、可观测和文件系统策略；这样能力可以演进，但不会绑定单一模型厂商或扩大本地信任边界。</p></div>
+      <div class="section-heading reveal"><div class="kicker">06 · 设计</div><h2>它是 Project tools，不是模型宿主。</h2><p>wcode 让模型保持可替换，同时自己拥有协议、授权、Design State、仓库理解、受控修改、工具调度、验证证据、可观测和文件系统策略；这样能力可以演进，但不会绑定单一模型厂商或扩大本地信任边界。</p></div>
       <div class="architecture reveal" role="img" aria-label="wcode 架构图">
         <div class="arch-column arch-clients"><div class="arch-label">MCP 客户端</div><div class="arch-node"><span>✦</span><div><b>网页客户端</b><small>Grok · Claude · Vibe</small></div></div><div class="arch-node"><span>⌘</span><div><b>编程客户端</b><small>Qoder · Cursor · Cline</small></div></div><div class="arch-node"><span>◫</span><div><b>自托管</b><small>Open WebUI · LibreChat</small></div></div></div>
         <div class="arch-arrow"><span>HTTPS</span><i>→</i></div>
-        <div class="arch-core"><div class="arch-label">wcode</div><div class="core-stack"><div><b>OAuth 2.1 + PKCE</b><small>资源元数据 · DCR · 资源绑定</small></div><div><b>MCP 协议核心</b><small>HTTP + OAuth · 本地 stdio · 工具 · 提示词 · 资源 · 2026 任务</small></div><div><b>Engineering Control Plane</b><small>Design State · 仓库理解 · 受控修改 · 验证 · 证据 · 可观测</small></div><div><b>代码质量系统</b><small>项目上下文 · 变更审查 · 分阶段验证</small></div><div><b>Syntax + Semantic Runtime</b><small>Tree-sitter 定位 · Warm LSP 关系 · 明确 Precision</small></div><div><b>工作区策略</b><small>规范路径 · 原子写入 · 命令护栏</small></div></div></div>
+        <div class="arch-core"><div class="arch-label">wcode</div><div class="core-stack"><div><b>OAuth 2.1 + PKCE</b><small>资源元数据 · DCR · 资源绑定</small></div><div><b>MCP 协议核心</b><small>HTTP + OAuth · 本地 stdio · 工具 · 提示词 · 资源 · 2026 任务</small></div><div><b>Project tools</b><small>Design State · 仓库理解 · 受控修改 · 验证 · 证据 · 可观测</small></div><div><b>代码质量系统</b><small>项目上下文 · 变更审查 · 分阶段验证</small></div><div><b>Syntax + Semantic Runtime</b><small>Tree-sitter 定位 · Warm LSP 关系 · 明确 Precision</small></div><div><b>工作区策略</b><small>规范路径 · 原子写入 · 命令护栏</small></div></div></div>
         <div class="arch-arrow"><span>受限 I/O</span><i>→</i></div>
         <div class="arch-column arch-workspaces"><div class="arch-label">你的电脑</div><div class="folder-node"><span>▰</span><div><b>backend</b><small>/Users/me/Code/backend</small></div></div><div class="folder-node"><span>▰</span><div><b>frontend</b><small>/Users/me/Code/frontend</small></div></div><div class="folder-node"><span>▰</span><div><b>shared</b><small>/Users/me/Code/shared</small></div></div></div>
       </div>

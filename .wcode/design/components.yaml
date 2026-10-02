@@ -44,7 +44,7 @@
     - kind: file
       path: src/runtime/resource/queue.rs
     - kind: symbol
-      path: src/runtime/harness/mod.rs
+      path: src/runtime/harness/admission.rs
       symbol: ToolHarness::execution_limit
 
 - schema_version: 1
@@ -840,12 +840,12 @@
       path: src/runtime/harness/agent_readiness.rs
       symbol: covered_repo_map_precision
     - kind: symbol
-      path: src/runtime/harness/context_budget.rs
+      path: src/runtime/harness/context/budget.rs
       symbol: trim_agent_context
     - kind: file
-      path: src/runtime/harness/context_anchors.rs
+      path: src/runtime/harness/context/anchors.rs
     - kind: file
-      path: src/runtime/harness/context_operations.rs
+      path: src/runtime/harness/context/operations.rs
     - kind: file
       path: src/runtime/harness/retrieval.rs
     - kind: symbol

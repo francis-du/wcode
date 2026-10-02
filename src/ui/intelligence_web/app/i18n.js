@@ -1,13 +1,13 @@
 const translations = {
   "zh-CN": {
-    "Engineering Observatory": "工程观测台",
-    "Engineering Fitness": "工程适应度",
-    "FITNESS": "适应度",
+    "Project Status": "项目状态",
+    "Check history": "检查历史",
+    "CHECK HISTORY": "检查历史",
     "fitness observatory meta": "记录的工具结果、版本历史与描述性趋势。缺失数据保持未知。",
-    "Project digital twin": "项目数字孪生",
+    "Project structure": "项目结构",
     "Overview": "总览",
     "Acceptance": "变更验收",
-    "AI CHANGE ACCEPTANCE": "AI 变更验收",
+    "CHANGE REVIEW": "变更检查",
     "Current change acceptance": "当前变更验收",
     "acceptance overview meta": "先看验收结论，再逐层检查阻塞检查、精确证据与变更源码。",
     "Supporting observations": "辅助观测",
@@ -356,10 +356,10 @@ Object.assign(translations["zh-CN"], {
 
 Object.assign(translations["zh-CN"], {
   "observatory subtitle": "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
-  "Task activity": "任务活动", "Verification evidence": "验证证据",
+  "Task activity": "任务活动", "Check results": "验证证据",
   "Command jobs": "命令任务",
   "command jobs observation": "检查真实保留的命令任务与有界脱敏输出。此处仅可取消当前 UI 所属的运行中任务；MCP 所属任务仅供观测。此页面不启动命令。",
-  "DURABLE EXECUTION": "持久化执行", "Durable execution": "持久化执行",
+  "TASK PROGRESS": "持久化执行", "Task progress": "持久化执行",
   "execution observatory meta": "只读展示目标、进度、计划与证明状态；不保存也不显示聊天记录。",
   "Engineering closed loop": "工程闭环流程",
   "engineering cycle meta": "理解 → 规划 → 实施 → 证明 → 学习 → 观测，并通过版本绑定证据形成持续反馈。",
@@ -401,9 +401,9 @@ translations.en = {
 Object.assign(translations["zh-CN"], {
   "Architecture workbench view": "架构工作台视图",
   "Code graph": "代码图谱",
-  "ENGINEERING DIGITAL TWIN": "工程数字孪生",
-  "Code graph observatory": "代码图谱观测台",
-  "code graph observatory meta": "追踪调用者、被调用者、依赖路径、设计归属与证明上下文，无需打开编辑器。",
+  "CODE RELATIONSHIPS": "代码关系",
+  "Code relationships": "代码关系",
+  "code relationships meta": "查看调用关系、依赖路径、设计归属和相关检查结果，无需打开编辑器。",
   "Function, class, module or file…": "函数、类、模块或文件…",
   "Search code graph": "搜索代码图谱",
   "Code graph view": "代码图谱视图",
@@ -436,10 +436,10 @@ Object.assign(translations["zh-CN"], {
 });
 
 Object.assign(translations["zh-CN"], {
-  "wcode Engineering Observatory": "wcode 工程观测台",
-  "wcode · Engineering Observatory": "wcode · 工程观测台",
-  "Engineering Control Plane": "工程控制平面",
-  "Observatory controls": "观测台控制",
+  "wcode Project Status": "wcode 项目状态",
+  "wcode · Project Status": "wcode · 项目状态",
+  "Project tools": "工程状态",
+  "Project controls": "项目状态操作",
   "Refresh semantic providers": "刷新语义 Provider",
   "Manage workspace and command access": "管理工作区与命令访问",
   "Absolute or relative project path": "绝对或相对项目路径",
@@ -448,12 +448,12 @@ Object.assign(translations["zh-CN"], {
   "JSON arguments, e.g. [\"test\",\"--locked\"]": "JSON 参数，例如 [\"test\",\"--locked\"]",
   "cwd": "工作目录",
   "SYSTEM ARCHITECTURE": "系统架构",
-  "Observe understand improve": "观测　理解　改进",
-  "From code to confidence": "从代码到信心",
-  "Observatory workspace navigation": "观测台工作区导航",
-  "Observatory workspaces": "观测台工作区",
+  "Source, tasks and checks": "源码　任务　检查",
+  "Review changes and results": "查看变更和结果",
+  "Project navigation": "项目导航",
+  "Project pages": "项目页面",
   "Current project context": "当前项目上下文",
-  "Current project pulse": "当前项目脉冲",
+  "Current project status": "当前项目状态",
   "Project summary": "项目摘要",
   "Current project metrics": "当前项目指标",
   "Actionable signals": "可操作信号",
@@ -466,8 +466,8 @@ Object.assign(translations["zh-CN"], {
   "QUALITY": "质量"
 });
 Object.assign(translations.en, {
-  "Observe understand improve": "OBSERVE  UNDERSTAND  IMPROVE",
-  "From code to confidence": "FROM CODE TO CONFIDENCE",
+  "Source, tasks and checks": "OBSERVE  UNDERSTAND  IMPROVE",
+  "Review changes and results": "REVIEW CHANGES AND RESULTS",
   "From change to confidence": "FROM CHANGE TO CONFIDENCE",
   "verification learning signals meta": "Signals from adaptive verification and verified repository learning.",
   "Requirement to evidence chain": "REQUIREMENT → COMPONENT → CODE → VERIFICATION → EVIDENCE",

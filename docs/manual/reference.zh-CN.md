@@ -212,7 +212,7 @@ Operator/Development Catalog 包含 `gh`、`just`、`task`、`uv`、`ruff`、`bi
 | 按键 | 动作 |
 | --- | --- |
 | `I` | 打开当前项目的仓库理解视图。 |
-| `W` | 为当前 Workspace 打开受保护 Engineering Observatory。 |
+| `W` | 为当前 Workspace 打开受保护 Project Status。 |
 | `O` | 重新打开 Setup Hub。 |
 | `L` | 切换 TUI 语言。 |
 | `+` | 添加 Workspace。 |
@@ -343,7 +343,7 @@ evidence_status
 
 ## Precision 规则
 
-Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Engineering Observatory 会直接显示当前 Provider / Precision，不把仅 Tree-sitter 的结果冒充成编译器级语义。
+Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=semantic`。Filesystem / Design / Runtime Provider 继续保留各自 Precision。Project Status 会直接显示当前 Provider / Precision，不把仅 Tree-sitter 的结果冒充成编译器级语义。
 
 有界 syntax graph 里“没看到关系”并不等于关系不存在。弱精度下的 negative inference 只能是 advisory，不能直接变成 blocker。详见 [仓库理解与工程状态](../software-intelligence/) 与 [语言质量](../language-quality/)。
 

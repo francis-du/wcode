@@ -89,7 +89,7 @@ fn wide_dashboard_puts_activity_and_engineering_control_rail_side_by_side() {
         .find(|line| line.contains("WORKSPACE ACTIVITY"))
         .expect("wide dashboard must render the activity title");
     assert!(
-        row.contains("ENGINEERING PULSE"),
+        row.contains("PROJECT STATUS"),
         "engineering pulse should live in the right control rail, not above activity: {row}"
     );
     assert!(text.contains("read_file"));
@@ -106,7 +106,7 @@ fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones()
     task.start();
 
     let roomy = monitor_test_text(&monitor, &config, 120, 34, &DashboardState::default());
-    assert!(roomy.contains("ENGINEERING PULSE"));
+    assert!(roomy.contains("PROJECT STATUS"));
     assert!(roomy.contains('╭'));
     assert!(roomy.contains('╰'));
     assert!(roomy.contains("ARCH"));
@@ -117,11 +117,11 @@ fn engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones()
     assert!(roomy.contains("read_file"));
 
     let medium = monitor_test_text(&monitor, &config, 100, 32, &DashboardState::default());
-    assert!(!medium.contains("ENGINEERING PULSE"));
+    assert!(!medium.contains("PROJECT STATUS"));
     assert!(medium.contains("read_file"));
 
     let compact = monitor_test_text(&monitor, &config, 80, 20, &DashboardState::default());
-    assert!(!compact.contains("ENGINEERING PULSE"));
+    assert!(!compact.contains("PROJECT STATUS"));
     assert!(compact.contains("read_file"));
 }
 
@@ -432,7 +432,7 @@ fn observations_console_preserves_architecture_and_proof_drilldowns() {
     };
 
     let text = monitor_test_text(&monitor, &config, 120, 30, &ui);
-    assert!(text.contains("ENGINEERING CONSOLE"));
+    assert!(text.contains("PROJECT DETAILS"));
     assert!(text.contains('╭'));
     assert!(text.contains('╰'));
     assert!(text.contains("ARCHITECTURE"));

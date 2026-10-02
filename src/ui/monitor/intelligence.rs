@@ -364,7 +364,7 @@ pub(super) fn render_intelligence_overlay(
         .padding(Padding::uniform(1))
         .title(Line::from(vec![
             Span::styled(
-                format!(" {} ", language.tr("ENGINEERING CONSOLE")),
+                format!(" {} ", language.tr("PROJECT DETAILS")),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {workspace_id} "), Style::default().fg(TEXT)),

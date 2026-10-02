@@ -1,6 +1,6 @@
 # English Revision 2 — Validation Record
 
-Date: September 18, 2026. This record concerns document delivery and retained-data consistency, not a new Engineering Fitness experiment.
+Date: September 18, 2026. This record concerns document delivery and retained-data consistency, not a new Check history experiment.
 
 ## Repository checks
 

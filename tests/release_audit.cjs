@@ -411,7 +411,12 @@ async function main() {
     for(const round of selected.filter(r=>r.lane===lane)) {
       const result={round:round.round,name:round.name,passed:false,steps:[]};
       try {for(const step of round.steps) result.steps.push(await check(step));result.passed=true;}
-      catch(error) {result.error=String(error.message);result.diagnostics=String(error.stderr||error.stdout||'').slice(-6000);}
+      catch(error) {
+        result.error=String(error.message);
+        const stderr=String(error.stderr||'');
+        const stdout=String(error.stdout||'');
+        result.diagnostics=(stderr+'\n--- stdout ---\n'+stdout).slice(-12000);
+      }
       results.push(result);
     }
   }));

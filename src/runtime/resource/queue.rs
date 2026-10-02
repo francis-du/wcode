@@ -100,7 +100,7 @@ impl Drop for QueueWait<'_> {
         let _ =
             self.queue
                 .total_wait_us
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
                     Some(total.saturating_add(micros))
                 });
         self.queue.max_wait_us.fetch_max(micros, Ordering::Relaxed);

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
-  <title id="title">wcode Engineering Control Plane loop</title>
+  <title id="title">wcode Project tools loop</title>
   <desc id="desc">A five-stage loop showing how wcode helps coding agents understand, change, prove, learn, and observe a repository.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0812"/><stop offset="1" stop-color="#171021"/></linearGradient>
@@ -72,7 +72,7 @@
     <rect x="206" y="576" width="8" height="206" rx="4" fill="#8ed6c6"/>
     <text x="238" y="616" class="eyebrow" fill="#aee9dc">05 · OBSERVE &amp; RECONCILE</text>
     <text x="238" y="653" class="stage">See the project as engineering state</text>
-    <text x="238" y="685" class="copy">Engineering Observatory · impact · drift · risk</text>
+    <text x="238" y="685" class="copy">Project Status · impact · drift · risk</text>
     <text x="238" y="712" class="copy">Reconciliation turns gaps into dependency-aware work</text>
     <rect x="238" y="735" width="154" height="24" rx="12" fill="#18322f"/><text x="253" y="752" class="chip" fill="#c9f2e8">digital twin</text>
     <rect x="402" y="735" width="220" height="24" rx="12" fill="#18322f"/><text x="417" y="752" class="chip" fill="#c9f2e8">convergence loop</text>

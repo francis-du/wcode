@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: 只读代码变更审查
-description: 在工程观测台内直接查看真实、有界的源码差异。
+description: 在项目状态内直接查看真实、有界的源码差异。
 lang: zh-CN
 alternate: /docs/change-inspection/
 permalink: /zh/docs/change-inspection/

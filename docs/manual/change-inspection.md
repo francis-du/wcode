@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: Read-only code change inspection
-description: Inspect bounded real source differences inside the Engineering Observatory.
+description: Inspect bounded real source differences inside the Project Status.
 lang: en
 alternate: /zh/docs/change-inspection/
 permalink: /docs/change-inspection/

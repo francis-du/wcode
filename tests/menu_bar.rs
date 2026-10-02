@@ -29,7 +29,7 @@ fn real_stdio_runtime_is_visible_to_menu_bar_and_cleans_up_on_eof() {
     .unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_wcode"))
-        .arg("mcp-stdio")
+        .args(["--no-menu-bar", "mcp-stdio"])
         .current_dir(project.path())
         .env("WCODE_STATE_DIR", state_root.path())
         .stdin(Stdio::piped())
@@ -125,6 +125,7 @@ fn real_http_runtime_is_visible_to_menu_bar_without_tunnel_or_secret_state() {
         .args([
             "--no-tunnel",
             "--no-monitor",
+            "--no-menu-bar",
             "--no-install",
             "--allow-sleep",
             "--port",

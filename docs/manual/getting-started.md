@@ -183,7 +183,7 @@ throughput appears only when recent traffic and available space justify it.
 The useful keys are:
 
 - `I` — Repository Intelligence overlay.
-- `W` — open the protected Engineering Observatory for the focused Workspace.
+- `W` — open the protected Project Status for the focused Workspace.
 - `O` — reopen Setup Hub.
 - `L` — switch TUI language manually.
 - `+` — add a Workspace.
@@ -197,7 +197,7 @@ The protected WebUI exposes the same requests. It labels executable access and
 exact repository operations separately; approving one does not imply the
 other.
 
-### Navigate the Engineering Observatory
+### Navigate the Project Status
 
 Select the specific project in the workspace selector before inspecting its state. The default **Engineering architecture** tab starts with the system map; component and dependency details are available from that view.
 

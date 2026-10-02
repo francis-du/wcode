@@ -1,13 +1,13 @@
 ---
 layout: docs
-title: Agentic Engineering Model
+title: Coding workflows Model
 description: wcode model-neutral agent execution and evidence architecture
 lang: en
 alternate: /zh/docs/agentic-engineering/
 permalink: /docs/agentic-engineering/
 ---
 
-# Agentic Engineering Model
+# Coding workflows Model
 
 wcode treats modern agentic coding as an execution-architecture problem, not as permission to remove engineering constraints. The model is deliberately vendor-neutral: hosts may differ in rules, Skills, subagents, worktrees, hooks, plugins, or MCP support, while wcode keeps repository state, authorization, verification, and Evidence semantics stable.
 
@@ -29,7 +29,7 @@ Revision-exact Evidence
 Convergence
 ```
 
-![wcode Engineering Control Plane loop](/assets/wcode-engineering-loop.svg)
+![wcode Project tools loop](/assets/wcode-engineering-loop.svg)
 
 ### 1. Context Policy: give the agent a map
 

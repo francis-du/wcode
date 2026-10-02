@@ -139,6 +139,7 @@ impl super::Args {
             (self.allow_write, "--read-only"),
             (self.allow_exec, "--no-exec"),
             (self.allow_semantic, "--no-semantic"),
+            (!self.no_menu_bar, "--no-menu-bar"),
         ] {
             if !enabled {
                 args.push(flag.to_owned());
@@ -198,6 +199,7 @@ impl super::Args {
                 "destructive_writes_enabled": self.allow_destructive_writes || self.full_access,
             },
             "monitor_requested": self.monitor,
+            "menu_bar_requested": !self.no_menu_bar,
             "notes": [
                 "Preview only; this is not the configuration of an already running process.",
                 "Workspace paths and endpoint reachability are validated on startup.",

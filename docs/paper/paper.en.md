@@ -1,12 +1,12 @@
-# wcode: An Evidence-Driven Engineering Control Plane and Model-Free Fitness Evaluation for Coding Agents
+# wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents
 
 *Technical paper draft · English revision 2 · September 18, 2026*
 
 ## Abstract
 
-The engineering performance of coding agents depends not only on the language model but also on whether their tools deliver accurate, complete, revision-consistent, and actionable repository evidence. End-to-end task success, however, does not isolate failures in retrieval, context packing, edit preconditions, or verification infrastructure. Symbol-level recall alone can also overstate the availability of usable edit inputs. We present wcode, a runtime that organizes repository understanding, guarded modification, revision-bound verification, and engineering evidence into a unified workflow. We investigate how the deterministic properties of this runtime can be evaluated without invoking a model API. Our Engineering Fitness protocol separately measures path-qualified identity recall, complete source delivery, current file hashes, all-required edit inputs, budget compliance, and selected safety controls, rather than combining them into a model-capability score. A diagnostic experiment covers 60 synthetic development scenarios in Rust, Go, TypeScript, and Python across three budgets and two cache phases, yielding 360 measured queries with one observation per experimental cell. At the 2K and 4K budgets, required identity recall, complete source recall, and all-required edit-input coverage for eligible tasks are each 100%. At 1K, they are 86.73%, 68.37%, and 48.28%, respectively. In the natural-language subset, identity recall reaches 100% while complete source recall remains 50%, demonstrating that successful localization does not imply successful evidence delivery. The experiment does not measure autonomous bug discovery, generated-patch correctness, or generalization to real repositories. The results show how separately evaluating evidence identity, content completeness, and operational preconditions exposes engineering gaps obscured by a single retrieval metric. [S1–S7]
+The engineering performance of coding agents depends not only on the language model but also on whether their tools deliver accurate, complete, revision-consistent, and actionable repository evidence. End-to-end task success, however, does not isolate failures in retrieval, context packing, edit preconditions, or verification infrastructure. Symbol-level recall alone can also overstate the availability of usable edit inputs. We present wcode, a runtime that organizes repository understanding, guarded modification, revision-bound verification, and engineering evidence into a unified workflow. We investigate how the deterministic properties of this runtime can be evaluated without invoking a model API. Our Check history protocol separately measures path-qualified identity recall, complete source delivery, current file hashes, all-required edit inputs, budget compliance, and selected safety controls, rather than combining them into a model-capability score. A diagnostic experiment covers 60 synthetic development scenarios in Rust, Go, TypeScript, and Python across three budgets and two cache phases, yielding 360 measured queries with one observation per experimental cell. At the 2K and 4K budgets, required identity recall, complete source recall, and all-required edit-input coverage for eligible tasks are each 100%. At 1K, they are 86.73%, 68.37%, and 48.28%, respectively. In the natural-language subset, identity recall reaches 100% while complete source recall remains 50%, demonstrating that successful localization does not imply successful evidence delivery. The experiment does not measure autonomous bug discovery, generated-patch correctness, or generalization to real repositories. The results show how separately evaluating evidence identity, content completeness, and operational preconditions exposes engineering gaps obscured by a single retrieval metric. [S1–S7]
 
-**Keywords:** coding agents; repository context; evidence-driven runtime; guarded editing; deterministic evaluation; Engineering Fitness
+**Keywords:** coding agents; repository context; evidence-driven runtime; guarded editing; deterministic evaluation; Check history
 
 ## 1 Introduction
 
@@ -16,7 +16,7 @@ This paper asks a narrower question that can be examined independently of patch 
 
 wcode treats the model as a replaceable caller while retaining repository state, operational boundaries, verification evidence, and observability in a separate runtime. [S1] We do not introduce a new code language model or propose replacing end-to-end benchmarks. Instead, we describe an implemented system and its tool-level evaluation protocol through three research questions. **RQ1:** Under a fixed budget, do symbol localization, complete source delivery, and edit-input completeness coincide? **RQ2:** How do budget and cache phase affect these quality dimensions and observable cost? **RQ3:** Do the evaluator and selected operational boundaries withstand targeted counterexample tests?
 
-Our contributions are a systematic description of an evidence-driven engineering control plane; a model-free measurement protocol that distinguishes identity, source content, and edit preconditions; and a diagnostic experiment with corpus, evaluator, executable, and runtime-observed source fingerprints. These contributions concern an implemented system and a development-time measurement method. We make neither a priority claim that this is the first such system nor a superiority claim over other coding products.
+Our contributions are a systematic description of an evidence-driven project tools; a model-free measurement protocol that distinguishes identity, source content, and edit preconditions; and a diagnostic experiment with corpus, evaluator, executable, and runtime-observed source fingerprints. These contributions concern an implemented system and a development-time measurement method. We make neither a priority claim that this is the first such system nor a superiority claim over other coding products.
 
 ## 2 Background and Research Positioning
 
@@ -84,7 +84,7 @@ The verification executor records the revision and observable change set to be c
 
 A historical-experience module uses verified co-change paths and context trajectories as weak hints for later retrieval, rather than training a new language model. The implementation includes bounds on stored records, age-sensitive behavior, and activation gates. [S8] We describe it as a system component but do not independently ablate it or measure its cross-task benefit in this experiment.
 
-## 5 The Engineering Fitness Protocol
+## 5 The Check history Protocol
 
 ### 5.1 Corpus, Gold evidence, and experimental units
 
@@ -234,7 +234,7 @@ To make that next study falsifiable, a lexical baseline should use the same task
 
 ## 9 Conclusion
 
-We presented wcode as an evidence-driven engineering control plane and used Engineering Fitness to separate tool quality into identity, source delivery, edit preconditions, and selected safety constraints. A diagnostic study over 60 synthetic development scenarios reveals a substantial descriptive gap between localization and actionable evidence. At 1K, required identity recall is 86.73%, complete source recall is 68.37%, and the all-required edit-input rate is 48.28%. The natural-language subset delivers only 50% of required source despite perfect identity recall. [S7]
+We presented wcode as an evidence-driven project tools and used Check history to separate tool quality into identity, source delivery, edit preconditions, and selected safety constraints. A diagnostic study over 60 synthetic development scenarios reveals a substantial descriptive gap between localization and actionable evidence. At 1K, required identity recall is 86.73%, complete source recall is 68.37%, and the all-required edit-input rate is 48.28%. The natural-language subset delivers only 50% of required source despite perfect identity recall. [S7]
 
 Coding-tool evaluation should therefore ask not only whether the right code was found, but whether the evidence delivered is authentic, complete, revision-consistent, and sufficient for the specified next operation. This principle provides a model-free entry point for engineering diagnosis. Claims about autonomous programming ability and real-task benefit still require independent end-to-end evaluation.
 

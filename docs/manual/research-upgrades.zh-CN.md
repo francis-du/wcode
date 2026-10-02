@@ -158,7 +158,7 @@ v0.7.2 继续保持控制面 Model-neutral，但会主动优化当前 Coding Mod
 
 使用 `cargo test --locked --lib diagnostic_context_ -- --nocapture` 复现确定性回归：包括标点与路径边界、小预算元数据、脱敏、LF/CRLF/混合换行/EOF，以及把返回的诊断片段直接用于 SHA 保护编辑后拒绝旧 SHA。这是本地正确性测试，不是模型对跑或端到端延迟测量。
 
-在现有 `agent_context` 查询中包含明确位置，例如 `error[E0308] at src/runtime/harness/context_budget.rs:33:9`。支持 `file:line`、`file:line:column`、`file#Lline`，以及支持的源码、配置、文档文件名。接受反斜杠分隔的相对路径和无空白的引用标记；这不是覆盖所有语言堆栈语法的完整解析器。
+在现有 `agent_context` 查询中包含明确位置，例如 `error[E0308] at src/runtime/harness/context/budget.rs:33:9`。支持 `file:line`、`file:line:column`、`file#Lline`，以及支持的源码、配置、文档文件名。接受反斜杠分隔的相对路径和无空白的引用标记；这不是覆盖所有语言堆栈语法的完整解析器。
 
 最多处理四个不同定位点。带行号的位置在文件和语法大纲 SHA 一致时，优先选择包含该行的最小语法定义。无法解析语法的文件和纯文件定位保留确定性的文件目标，不虚构符号。片段从给出的行开始，最多读取十三行，初始上限为 1,600 个字符，现有 Token 预算可以继续裁剪。文件 SHA 与片段 SHA 必须一致，语法事实不会被标成编译器语义。
 
@@ -264,7 +264,7 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 
 | 能力 | 当前实现 | 成熟度 | 可复用组件 | 缺口 | 商业重要性 |
 | --- | --- | --- | --- | --- | --- |
-| 工程控制平面定位 | README、Product State、仓库智能手册 | 部分 | README / ProjectDesign / Product Scopes | 以 AI 变更验收为主线，同时保持 Agent 中立 | 核心 |
+| 项目工具定位 | README、Product State、仓库智能手册 | 部分 | README / ProjectDesign / Product Scopes | 以 AI 变更验收为主线，同时保持 Agent 中立 | 核心 |
 | 理解 → 修改 → 检查 | MCP 工作流 prompts、agent_context、受保护写入、变更审查 | 完整 | ToolHarness / Workspace | 仅完成这些操作，还不会产生 Change Acceptance Record | 核心 |
 | 产品责任归属 | 12 个 Product Scopes、源码／测试归属及门禁 | 完整 | scopes / convention_status | 复用现有 Scopes，不另建一套验收归属分类 | 核心 |
 | Design State | 需求、组件、约束、ADR、AcceptanceCriterion | 完整 | DesignState / AcceptanceCriterion | 验收条件的 verification 引用只是映射，不是已执行证明 | 核心 |
@@ -299,7 +299,7 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 | 远程 MCP／隧道 | OAuth、端点来源、本地探测与 Provider 恢复 | 部分 | AppState / AuthState / tunnel health | 当前详细匿名健康信息会披露根目录／启动配置 | 关键 |
 | LSP 执行 | 能力探测、有界子进程、清理后的环境 | 完整 | semantic providers / command execution | 已安装 LSP 进程仍保有宿主用户访问权 | 高 |
 | Evidence 存储隔离 | 用户状态、权限、有界记录 | 部分 | workspace_state_directory / Evidence | 同用户脚本可修改本地权限状态，不防篡改 | 关键 |
-| 工程观测台 | Attention、变更／源码桥、Evidence 检查器、图谱 | 部分 | ProjectObservatory / ProjectAttentionView | 默认架构页，没有统一的当前变更决定与操作 | 核心 |
+| 项目状态 | Attention、变更／源码桥、Evidence 检查器、图谱 | 部分 | ProjectObservatory / ProjectAttentionView | 默认架构页，没有统一的当前变更决定与操作 | 核心 |
 | Acceptance → 文件 → 符号 | 类型化 AC path／symbol／provider 引用与源码桥 | 底层缺入口 | FeatureAcceptanceView / source bridge | AC 行不可操作；全程保留所选变更／版本 | 核心 |
 | TUI | Attention／Proof／Agents／Provider 视图与 Web 跳转 | 部分 | TaskMonitor / console | 没有统一验收摘要；JobView 适配器尚未接入 | 高 |
 | Web Jobs | 空容器与 State／CSS 骨架 | 未实现 | TaskRuntime / TaskRecord | 没有后端／API／模块，不是已交付任务台 | 延后 |
@@ -308,7 +308,7 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 | Agent 集成 | Provider 中立 MCP、插件／配置、implement／review／verify prompts | 部分 | MCP / agent_plugin / agent_install | 配置测试不代表各宿主版本 OAuth E2E；缺少验收入口 | 核心 |
 | 多 Agent 工作 | Worklist CAS、有范围的领取、私有租约 Token、有界结果 | 完整 | Worklist / writer lease / task claim | Agent 由 Host 创建；工作报告不会成为验证 Evidence | 高 |
 | 上下文效率 | 有界上下文、渐进式 Schema、紧凑确认响应 | 完整 | Agent Context / tool manifest | 字节／4 估算不能证明实际计费 Token 节省或模型成功率 | 高 |
-| 试点指标／导出 | Engineering Fitness 与里程碑基础能力 | 底层缺入口 | Engineering Fitness / journal | 验收计数、缺失／过期发现和实测耗时 | 高 |
+| 试点指标／导出 | Check history 与里程碑基础能力 | 底层缺入口 | Check history / journal | 验收计数、缺失／过期发现和实测耗时 | 高 |
 | 产品方遥测 | 本地工程观测 | 未实现 | Local runtime observation | 可选的显式 Schema 与 opt-in 接收端，不默认上传源码 | 后续 |
 | 发布流水线／测试 | 三平台 CI、原生浏览器、对抗性验证产物 | 完整 | GitHub Actions / release contracts | 每项结果只适用于其精确 SHA；当前未要求发布 | 核心 |
 | 自建 Agent／IDE／聊天／计费／远程 shell | 验收不需要这些能力 | 不应该实现 | No component needed | 保留有用的 OSS 检查／编辑，停止扩张无关产品界面 | 无 |

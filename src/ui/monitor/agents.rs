@@ -205,7 +205,7 @@ pub(super) fn render_agent_console(
                 Style::default().fg(TEXT_DIM),
             )),
             Line::from(Span::styled(
-                "Worker report · not Verification evidence",
+                "Worker report · not Check results",
                 Style::default().fg(WARNING),
             )),
         ]),

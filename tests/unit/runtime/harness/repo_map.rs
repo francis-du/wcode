@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 fn repo_map_common_scope_keeps_localized_targets_bounded() {
     let local = vec![
         "src/runtime/harness/repo_map.rs".to_owned(),
-        "src/runtime/harness/context_budget.rs".to_owned(),
+        "src/runtime/harness/context/budget.rs".to_owned(),
     ];
     assert_eq!(repo_map_common_scope(&local), "src/runtime/harness");
 

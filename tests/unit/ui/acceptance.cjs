@@ -319,7 +319,7 @@ async function main() {
     const html = s.node('#proofSummary').innerHTML;
     assert.match(html, /Canonical evidence metadata/); assert.match(html, /native_verification/);
     assert.match(html, /native-executor/); assert.match(html, /no receipt outcome/);
-    assert.match(html, new RegExp(revision.code)); assert.doesNotMatch(html, /Verification evidence<|>Pass</);
+    assert.match(html, new RegExp(revision.code)); assert.doesNotMatch(html, /Check results<|>Pass</);
     assert.equal(s.requests.length, 0);
   });
   await test('ambiguous or foreign CAR metadata never substitutes an exact evidence reference', () => {

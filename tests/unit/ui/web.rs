@@ -10,7 +10,7 @@ fn project_observatory_page_starts_with_acceptance_and_preserves_architecture_dr
     assert!(INTELLIGENCE_APP_PAGE.contains("class=\"acceptance-supporting\""));
     assert!(INTELLIGENCE_JS.contains("function acceptanceView"));
     assert!(INTELLIGENCE_JS.contains("function acceptanceCheckRows"));
-    assert!(INTELLIGENCE_APP_PAGE.contains("Engineering Observatory"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("Project Status"));
     assert!(INTELLIGENCE_APP_PAGE.contains("/intelligence/logo.svg"));
     assert!(INTELLIGENCE_APP_PAGE.contains("class=\"brand-logo\""));
     assert!(INTELLIGENCE_LOGO_SVG.contains("#665cff"));
@@ -78,7 +78,7 @@ fn project_observatory_page_starts_with_acceptance_and_preserves_architecture_dr
     assert!(INTELLIGENCE_JS.contains("data-inspector-proof"));
     assert!(INTELLIGENCE_JS.contains("architectureEdgeTone"));
     assert!(INTELLIGENCE_JS.contains("Strong observed drift"));
-    assert!(INTELLIGENCE_JS.contains("工程观测台"));
+    assert!(INTELLIGENCE_JS.contains("项目状态"));
     assert!(INTELLIGENCE_JS.contains("工程架构"));
     assert!(INTELLIGENCE_JS.contains("架构蓝图"));
     assert!(INTELLIGENCE_JS.contains("实时工程流"));
@@ -387,11 +387,11 @@ fn observatory_visual_contract_stays_compact_brand_aligned_with_acceptance_first
     assert!(!INTELLIGENCE_CSS.contains(".global-status{position:absolute!important"));
     assert!(!INTELLIGENCE_CSS.contains("clip-path:inset(50%)"));
     assert!(INTELLIGENCE_JS.contains("parentElement?.setAttribute(\"aria-label\", label)"));
-    assert!(INTELLIGENCE_JS.contains("Agent context efficiency"));
-    assert!(INTELLIGENCE_JS.contains("RepoMap delivered / candidates"));
-    assert!(INTELLIGENCE_JS.contains("Context budget utilization"));
+    assert!(INTELLIGENCE_JS.contains("Context loading"));
+    assert!(INTELLIGENCE_JS.contains("Items loaded / considered"));
+    assert!(INTELLIGENCE_JS.contains("Context budget used"));
     assert!(INTELLIGENCE_JS.contains("budget_tokens"));
-    assert!(INTELLIGENCE_JS.contains("not a quality score"));
+    assert!(INTELLIGENCE_JS.contains("Loading statistics, not check results"));
     assert!(INTELLIGENCE_APP_PAGE.contains("role=\"combobox\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-autocomplete=\"list\""));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-labelledby=\"tabArchitecture\""));
@@ -487,7 +487,7 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
 #[test]
 fn observatory_exposes_execution_state_without_chat_history() {
     assert!(INTELLIGENCE_APP_PAGE.contains("id=\"executionStatus\""));
-    assert!(INTELLIGENCE_APP_PAGE.contains("DURABLE EXECUTION"));
+    assert!(INTELLIGENCE_APP_PAGE.contains("TASK PROGRESS"));
     assert!(INTELLIGENCE_APP_PAGE
         .contains("Read-only projection of objective, progress, plan and proof state."));
     assert!(INTELLIGENCE_JS.contains("function renderExecutionStatus()"));
@@ -507,9 +507,9 @@ fn observatory_exposes_execution_steering_without_transcript_state() {
     assert!(INTELLIGENCE_JS.contains("execution.replan_required"));
     assert!(INTELLIGENCE_JS.contains("execution.verification_floor"));
     assert!(INTELLIGENCE_JS.contains("execution.lineage"));
-    assert!(INTELLIGENCE_JS.contains("Steering / handoff"));
+    assert!(INTELLIGENCE_JS.contains("Plan changes / handoff"));
     assert!(INTELLIGENCE_JS.contains("Verification floor"));
-    assert!(INTELLIGENCE_JS.contains("Handoff lineage"));
+    assert!(INTELLIGENCE_JS.contains("Previous execution"));
     assert!(INTELLIGENCE_CSS.contains(".execution-steering-card"));
     assert!(INTELLIGENCE_CSS.contains(".execution-steering-facts"));
     assert!(!INTELLIGENCE_JS.contains("execution.messages"));

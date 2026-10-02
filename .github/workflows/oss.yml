@@ -52,4 +52,4 @@ jobs:
         run: python tests/unit/architecture/standalone.py
 
       - name: Verify real OSS source package without commercial
-        run: python tests/standalone.py
+        run: python tests/standalone.py --diagnostics

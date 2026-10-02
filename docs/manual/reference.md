@@ -236,7 +236,7 @@ trust controls are documented in [Security](../security/).
 | Key | Action |
 | --- | --- |
 | `I` | Open repository intelligence for the focused project. |
-| `W` | Open the protected Engineering Observatory for the focused Workspace. |
+| `W` | Open the protected Project Status for the focused Workspace. |
 | `O` | Reopen Setup Hub. |
 | `L` | Switch TUI language. |
 | `+` | Add a Workspace. |
@@ -367,7 +367,7 @@ evidence_status
 
 ## Precision rules
 
-Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Engineering Observatory exposes the active provider/precision instead of presenting Tree-sitter-only results as compiler truth.
+Tree-sitter facts are `precision=syntax`. Real LSP facts are `precision=semantic`; deterministic filesystem/design facts and runtime/provider facts retain their own precision. The Project Status exposes the active provider/precision instead of presenting Tree-sitter-only results as compiler truth.
 
 A missing relationship in a bounded syntax graph is not proof that the relationship does not exist. Negative inference stays advisory unless stronger evidence supports it. See [Repository Intelligence & Engineering State](../software-intelligence/) and [Language Quality](../language-quality/).
 

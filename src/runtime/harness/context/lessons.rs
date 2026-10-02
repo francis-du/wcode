@@ -215,5 +215,5 @@ fn action(code: EngineeringFailureCode) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/runtime/harness/context_lessons.rs"]
+#[path = "../../../../tests/unit/runtime/harness/context_lessons.rs"]
 mod tests;

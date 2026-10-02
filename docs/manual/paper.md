@@ -11,7 +11,7 @@ permalink: /docs/paper/
 
 ## Manuscripts
 
-**wcode: An Evidence-Driven Engineering Control Plane and Model-Free Fitness Evaluation for Coding Agents**
+**wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents**
 
 Read the [English manuscript](/paper/paper.en.md) or the [Chinese original](/paper/paper.zh-CN.md). English revision 2 adds explicit metric definitions, a concrete delivery-failure example, and a more precise baseline and ablation plan. It preserves the original measured results; it is not a new evaluation.
 

@@ -24,11 +24,11 @@ wcode keeps product responsibility explicit rather than growing one generic runt
 - `src/design/` — structured Desired Software State loading, stable-ID/reference validation, sparse initialization, and implementation/verification mappings.
 - `src/graph/` — lazy Tree-sitter code index plus provider-neutral Software Graph contracts and persisted provider/composite revisions.
 - `src/semantics/` — persistent candidate/confirmed/retired Semantic Registry and first-party LSP provider runtime.
-- `src/intelligence/` — repository-intelligence contracts: traceability, scoped/task context, drift/impact/risk, and Engineering Observatory projections. `src/intelligence/observatory/architecture.rs` owns the System → Subsystem → Component blueprint plus Design-vs-Actual architecture projection.
+- `src/intelligence/` — repository-intelligence contracts: traceability, scoped/task context, drift/impact/risk, and Project Status projections. `src/intelligence/observatory/architecture.rs` owns the System → Subsystem → Component blueprint plus Design-vs-Actual architecture projection.
 - `src/verification/` — Verification Plans, blind reviewer/readiness state, Language Quality providers, and Property/Mutation/Fuzz/Runtime executors.
 - `src/evidence/` — provenance-bearing Evidence contracts and bounded persistent storage.
 - `src/reconciliation/` — durable desired-to-actual plans plus dependency-aware execution/retry state.
-- `src/ui/` — operator experience. `src/ui/monitor/` owns Ratatui runtime, state, metrics, commands, detail panels, overlays, shell actions, i18n, and theme; `src/ui/intelligence_web.rs` plus `src/ui/intelligence_web/` assets serve the protected Engineering Observatory and its project-digital-twin views.
+- `src/ui/` — operator experience. `src/ui/monitor/` owns Ratatui runtime, state, metrics, commands, detail panels, overlays, shell actions, i18n, and theme; `src/ui/intelligence_web.rs` plus `src/ui/intelligence_web/` assets serve the protected Project Status and its project-digital-twin views.
 
 When moving a responsibility, update Product Scope roots and Design State implementation references in the same change. A physical refactor is incomplete when the architecture contract still points at the old owner.
 
@@ -97,11 +97,11 @@ The Agent installer never executes a Host CLI. Detection is filesystem/PATH evid
 
 Media remains metadata-first. `include_content=true` is the explicit per-call opt-in for standard MCP `image` / `audio` Tool Result content blocks; no private client extension is required. Video remains metadata-only because MCP has no standard video Tool Result content block.
 
-## Engineering Control Plane and repository-intelligence invariants
+## Project tools and repository-intelligence invariants
 
-Repository intelligence is one subsystem of the wider Engineering Control Plane. Stable `wcode intelligence` / `wcode verification` CLI and `/intelligence/*` HTTP names remain compatibility surfaces; user-facing terminology is Engineering Observatory / Repository Intelligence rather than treating “Software Intelligence” as the whole product.
+Repository intelligence is one subsystem of the wider Project tools. Stable `wcode intelligence` / `wcode verification` CLI and `/intelligence/*` HTTP names remain compatibility surfaces; user-facing terminology is Project Status / Repository Intelligence rather than treating “Software Intelligence” as the whole product.
 
-Engineering Observatory is **hierarchy-first and architecture-first**. It first shows a System → Subsystem → Component → Code blueprint derived from Design State and implementation ownership, then live engineering flow, Vibe Coding change impact, declared Design dependencies, current code-derived Actual relationships, observed drift, Evidence Coverage, and Implementation Coverage. Component Inspector and Requirement drill-down follow. The raw dependency graph is secondary. Requirement detail preserves:
+Project Status is **hierarchy-first and architecture-first**. It first shows a System → Subsystem → Component → Code blueprint derived from Design State and implementation ownership, then live engineering flow, Vibe Coding change impact, declared Design dependencies, current code-derived Actual relationships, observed drift, Evidence Coverage, and Implementation Coverage. Component Inspector and Requirement drill-down follow. The raw dependency graph is secondary. Requirement detail preserves:
 
 ```text
 Desired State → Actual State → Change → Proof → Convergence
@@ -174,7 +174,7 @@ cargo build --release --locked
 
 Documentation changes must preserve reciprocal `alternate` routes, same top-level bilingual section structure, the same critical technical facts, local links, installer commands, and the single hosted `/docs/` + `/zh/docs/` manual model. Host-specific integration commands have one canonical technical guide in [Code Agent Integrations](../code-agent-integrations/) rather than being duplicated into README and website copy.
 
-When a command/tooling optimization changes the recommended agent workflow, update Getting Started, the docs index, Agentic Engineering, Reference/Security where relevant, and the automated bilingual contract in the same change. Avoid the failure mode where both languages remain synchronized but both keep an obsolete workflow.
+When a command/tooling optimization changes the recommended agent workflow, update Getting Started, the docs index, Coding workflows, Reference/Security where relevant, and the automated bilingual contract in the same change. Avoid the failure mode where both languages remain synchronized but both keep an obsolete workflow.
 
 ## Release artifacts
 

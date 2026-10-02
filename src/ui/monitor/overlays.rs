@@ -418,7 +418,7 @@ pub(super) fn render_help_overlay(
                 help_hint_line("I", language.tr("show repository intelligence")),
                 help_hint_line("C", language.tr("show supported commands")),
                 help_hint_line("O", language.tr("open Connector setup")),
-                help_hint_line("W", language.tr("open Engineering Observatory")),
+                help_hint_line("W", language.tr("open Project Status")),
                 help_hint_line(
                     "L / + / P",
                     language.tr("language / add workspace / full access"),
@@ -469,7 +469,7 @@ pub(super) fn render_help_overlay(
             help_hint_line("← / →", language.tr("move workspace focus")),
             help_hint_line("Shift + ← / →", language.tr("move one workspace page")),
             help_hint_line("O", language.tr("open Connector setup")),
-            help_hint_line("W", language.tr("open Engineering Observatory")),
+            help_hint_line("W", language.tr("open Project Status")),
             help_hint_line("I", language.tr("show repository intelligence")),
             help_hint_line("C", language.tr("show supported commands")),
             help_hint_line("L", language.tr("toggle language")),

@@ -121,3 +121,95 @@ fn menu_bar_summary_keeps_offline_partial_and_unknown_distinct() {
     });
     assert_eq!(partial.state, "partial");
 }
+
+#[test]
+fn menu_bar_summary_large_counts_do_not_overflow_or_appear_idle() {
+    let summary = MenuBarSummary::from_snapshot(&RuntimePresenceSnapshot {
+        schema_version: 1,
+        records: vec![
+            record(RuntimeTransport::Http, false, u64::MAX, u64::MAX),
+            record(RuntimeTransport::Stdio, false, 1, 1),
+        ],
+        ..Default::default()
+    });
+    assert_eq!(summary.active_tasks, u64::MAX);
+    assert_eq!(summary.queued_tasks, u64::MAX);
+    assert_eq!(summary.state, "working");
+}
+
+#[test]
+fn menu_bar_summary_reports_verification_and_jobs_as_work() {
+    for index in 0..4 {
+        let mut runtime = record(RuntimeTransport::Http, true, 0, 0);
+        match index {
+            0 => runtime.active_verifications = Some(1),
+            1 => runtime.queued_verifications = Some(1),
+            2 => runtime.active_jobs = Some(1),
+            _ => runtime.queued_jobs = Some(1),
+        }
+        let mut snapshot = RuntimePresenceSnapshot {
+            schema_version: 1,
+            records: vec![runtime],
+            ..Default::default()
+        };
+        assert_eq!(MenuBarSummary::from_snapshot(&snapshot).state, "working");
+        snapshot.partial = true;
+        assert_eq!(MenuBarSummary::from_snapshot(&snapshot).state, "partial");
+    }
+}
+
+#[test]
+fn menu_bar_companion_respects_launch_context() {
+    assert!(companion_allowed(true, true, false, false));
+    for flags in [
+        (false, true, false, false),
+        (true, false, false, false),
+        (true, true, true, false),
+        (true, true, false, true),
+    ] {
+        assert!(!companion_allowed(flags.0, flags.1, flags.2, flags.3));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn menu_bar_lock_is_single_instance_and_released_on_drop() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("state");
+    let first = macos::InstanceLock::acquire_at(&root).unwrap().unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).unwrap().is_none());
+    drop(first);
+    assert!(macos::InstanceLock::acquire_at(&root).unwrap().is_some());
+    assert_eq!(
+        std::fs::metadata(root.join("menu-bar.lock")).unwrap().len(),
+        0
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn menu_bar_lock_rejects_links_nonempty_files_and_permissive_directories() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("state");
+    std::fs::create_dir(&root).unwrap();
+    let other = directory.path().join("keep");
+    std::fs::write(&other, "do not change").unwrap();
+    let lock = root.join("menu-bar.lock");
+    symlink(&other, &lock).unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).is_err());
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::hard_link(&other, &lock).unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).is_err());
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::write(&lock, "not a lock").unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).is_err());
+    assert_eq!(std::fs::read_to_string(&lock).unwrap(), "not a lock");
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), "do not change");
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(macos::InstanceLock::acquire_at(&root).is_err());
+    assert_eq!(
+        std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+        0o777
+    );
+}

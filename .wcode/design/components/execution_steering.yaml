@@ -24,7 +24,7 @@ implementation:
   - {kind: file, path: src/integrations/mcp/tools.rs}
   - {kind: file, path: src/integrations/mcp/dispatch/intelligence.rs}
   - {kind: file, path: src/runtime/harness/agent_context.rs}
-  - {kind: file, path: src/runtime/harness/context_budget.rs}
+  - {kind: file, path: src/runtime/harness/context/budget.rs}
   - {kind: file, path: src/runtime/harness/capability.rs}
   - {kind: file, path: src/scopes/mod.rs}
   - {kind: file, path: src/ui/intelligence_web/app/runtime.js}

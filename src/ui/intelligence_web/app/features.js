@@ -549,8 +549,8 @@ function renderAdaptiveVerification() {
     pill(localized(`${adaptive.base_quick_checks || 0} → ${adaptive.planned_quick_checks || 0} quick checks`, `quick 检查 ${adaptive.base_quick_checks || 0} → ${adaptive.planned_quick_checks || 0}`))
   }${adaptive.full_coverage_unchanged ? pill(localized("full coverage unchanged", "full 覆盖不变"), "good") : ""}</div>`;
   const previewNote = `<div class="panel-meta card-gap">${esc(localized(
-    "Planning preview only — Engineering Observatory does not execute these checks.",
-    "这里只做计划预览——工程观测台不会执行这些检查。",
+    "Planning preview only — this page does not execute these checks.",
+    "这里只做计划预览——此页面不会执行这些检查。",
   ))}</div>`;
   const focused = adaptive.focused_test
     ? `<div class="info-card"><b>${esc(localized("Focused test", "聚焦测试"))}</b><div><code>${esc(adaptive.focused_test.command)}</code></div><div class="panel-meta">${esc(adaptive.focused_test.island || "workspace")} · phase ${esc(adaptive.focused_test.phase)} · ${esc(adaptive.focused_test.provider || "—")} / ${esc(adaptive.focused_test.precision || "—")}</div><div class="panel-meta">${esc(adaptive.focused_test.reason || "—")}</div></div>`

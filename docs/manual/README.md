@@ -8,11 +8,11 @@ alternate: /zh/docs/
 permalink: /docs/
 ---
 
-# Make AI-generated code shippable with evidence
+# Repository tools, task tracking and checks
 
-**wcode gives coding agents the task-ready context, real code relationships, guarded actions, and revision-bound proof they are usually missing.** Use the agent you already like; wcode helps it understand first, change less, and prove the result instead of rebuilding a partial picture from grep, file dumps, and chat history.
+**wcode helps coding assistants read repositories, change code and run checks.** It supplies relevant source, code relationships and task history through MCP. File changes require the expected file hash, and check results identify the code revision they tested.
 
-wcode is an **Engineering Control Plane for AI-generated code**, serving the loop **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. Its first commercial scenario, **AI Change Acceptance**, is being developed from the existing core; the unified Acceptance Record, project policy and external merge gate are not a completed pilot workflow. See the [commercial capability audit, architecture and P0/P1/P2 plan](research-upgrades/#ai-change-acceptance-commercial-architecture-2026-09-30).
+The workflow is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. The team edition, **wteam**, adds shared policies, review records and GitHub merge checks. The complete team workflow still needs a real pilot. See the [capability audit and implementation plan](research-upgrades/#ai-change-acceptance-commercial-architecture-2026-09-30).
 
 ## Five-minute mental model
 
@@ -22,13 +22,13 @@ wcode is easiest to understand as five layers around the coding model:
 2. **Change** — Workspace policy keeps edits bounded, SHA-guarded, root-scoped, and explicit about authority.
 3. **Prove** — focused quick checks give fast feedback; deterministic full verification remains the final broad gate.
 4. **Learn** — stable verified changes improve the Experience Graph; bounded native failures feed [model-independent corrective advice](failure-memory/) without becoming evidence of success.
-5. **Observe** — Engineering Observatory acts as a project digital twin: architecture blueprint, live engineering flow, Vibe Coding change story, drift, provenance, risk, and current-revision proof without requiring an IDE.
+5. **Observe** — Project Status shows the project structure, running tasks, code changes, failed checks and test results for the current revision without requiring an IDE.
 
-![wcode Engineering Control Plane loop](/assets/wcode-engineering-loop.svg)
+![wcode workflow](/assets/wcode-engineering-loop.svg)
 
 ## Find the right view
 
-Press **W** in the TUI to open the protected Engineering Observatory for the selected project. The default tab is **Engineering architecture**. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
+Press **W** in the TUI to open the protected Project Status for the selected project. The default tab is **Engineering architecture**. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
 
 | Surface | What to use it for |
 | --- | --- |
@@ -67,13 +67,13 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 - [OSS / Commercial boundaries](oss-boundary/) — public source-control ownership, one-way contracts, independent builds and license boundaries.
 - [Architecture and module boundaries](architecture-boundaries/) — enforceable file/module/directory/crate/repository split signals surfaced by `convention_status`.
 - [Product Scopes](product-scopes/) — product capabilities and source-ownership boundaries.
-- [Agentic Engineering](agentic-engineering/) — short instructions, on-demand context, parallel execution, and deterministic verification.
+- [Coding workflows](agentic-engineering/) — short instructions, on-demand context, parallel execution, and deterministic verification.
 - [Language Quality](language-quality/) — one capability matrix for all 22 indexed languages: syntax, validated semantics, format, lint, types, static analysis, tests, security, and advanced verification, with explicit gaps instead of a Rust-centric support bit.
 - [Maintainability Review](maintainability-review/) — structural growth signals, independent review, and Evidence rules.
 
 ## Reference, operations and development
 
-- [Engineering Fitness](engineering-fitness/) — model-free retrieval, context, edit-readiness and safety evaluation; separate correctness gates from descriptive performance trials.
+- [Check history](engineering-fitness/) — model-free retrieval, context, edit-readiness and safety evaluation; separate correctness gates from descriptive performance trials.
 - [Research paper](paper/) — English manuscript, Chinese original, metric definitions, diagnostic results, and reproducibility limits.
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
@@ -87,13 +87,13 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 - [v0.8.2 release notes](releases/v0.8.2/) — durable execution observability, structured steering, fairer Code Graph exploration, isolated resource admission, and 100-round release verification.
 - [v0.8.1 release notes](releases/v0.8.1/) — Jev Decision Plane hardening, narrower typed judgments, strict increase-only authority, unified naming, and safer WebUI state binding.
 - [v0.8.0 release notes](releases/v0.8.0/) — Engineering Digital Twin, bounded code graph/time travel, faster Observatory refresh, ignore-aware scanning, calibrated Decision Plane and task-first TUI.
-- [v0.7.6 release notes](releases/v0.7.6/) — model-free Engineering Fitness, edit-ready 1K context, multi-target retrieval and adversarial release verification.
+- [v0.7.6 release notes](releases/v0.7.6/) — model-free Check history, edit-ready 1K context, multi-target retrieval and adversarial release verification.
 - [v0.7.5 release notes](releases/v0.7.5/) — concurrent verified endpoints, generation-bound trust, conflict-free TUI keys and responsive Observatory content.
 - [v0.7.4 release notes](releases/v0.7.4/) — Workspace-session command authorization, standard MCP image/audio content, and refreshed current-product docs/UI.
 - [v0.7.3 release notes](releases/v0.7.3/) — autonomous bounded development commands, broader Deno/Flutter quality coverage, stronger repository-intelligence caches, and WebUI/verification reliability.
 - [v0.7.2 release notes](releases/v0.7.2/) — clearer Observatory/TUI/Setup state, model-efficient tool discovery, Agent Context retrieval telemetry, and more precise Verification Mesh targets.
 - [v0.7.1 release notes](releases/v0.7.1/) — resilient stable tunnels, real-time project switching, hardened semantic auto-discovery, less authorization friction, and stronger parallel execution.
-- [v0.7.0 release notes](releases/v0.7.0/) — a rebuilt Engineering Observatory, faster project-state loading, stronger architecture/proof workflows, and hardened release contracts.
+- [v0.7.0 release notes](releases/v0.7.0/) — a rebuilt Project Status, faster project-state loading, stronger architecture/proof workflows, and hardened release contracts.
 - [v0.6.2 release notes](releases/v0.6.2/) — resource-aware parallelism, simpler setup, a clearer Observatory, and effective revision-bound evidence.
 - [v0.6.1 release notes](releases/v0.6.1/) — completion-driven parallel scheduling, fewer redundant context calls, and a task-first TUI.
 - [Releases](releases/) — latest version plus the complete archive grouped by series. Historical versions stay out of the global sidebar so documentation navigation remains bounded.

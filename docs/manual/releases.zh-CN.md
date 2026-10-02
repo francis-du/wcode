@@ -25,7 +25,7 @@ permalink: /zh/docs/releases/
 - [v0.8.0](v0.8.0/) — Engineering Digital Twin、有界代码图谱与时间旅行、更快 Observatory、Ignore 感知扫描、可校准 Decision Plane 与任务优先 TUI。
 
 ## 0.7.x
-- [v0.7.6](v0.7.6/) — 不依赖模型的 Engineering Fitness、1K 编辑就绪上下文、多目标检索与更强对抗验证。
+- [v0.7.6](v0.7.6/) — 不依赖模型的 Check history、1K 编辑就绪上下文、多目标检索与更强对抗验证。
 - [v0.7.5](v0.7.5/) — 实例校验入口并发可用、按代次保护信任、TUI 快捷键隔离与真实 WebKit 响应式布局修复。
 - [v0.7.4](v0.7.4/) — Workspace 会话级命令全授权、标准 MCP Image/Audio Tool Result，以及按当前产品重做的文档/UI。
 

@@ -156,3 +156,25 @@ fn configuration_rejects_invalid_overrides_and_contradictory_modes() {
         Args::try_parse_from(["wcode", "--public-url", "not a URL", "--show-config"]).unwrap();
     assert!(invalid_url.configuration_preview().is_err());
 }
+
+#[test]
+fn menu_bar_opt_out_survives_setup_without_granting_permissions() {
+    let source = Args::try_parse_from(["wcode", "setup", "--no-menu-bar", "--read-only"]).unwrap();
+    let launch = source.setup_launch_args().unwrap();
+    assert!(launch.iter().any(|arg| arg == "--no-menu-bar"));
+    let parsed = Args::try_parse_from(std::iter::once("wcode".to_owned()).chain(launch)).unwrap();
+    assert!(parsed.no_menu_bar);
+    assert!(!parsed.allow_write);
+    assert!(!parsed.full_access);
+    assert_eq!(
+        source.configuration_preview().unwrap()["menu_bar_requested"],
+        false
+    );
+    assert_eq!(
+        Args::try_parse_from(["wcode"])
+            .unwrap()
+            .configuration_preview()
+            .unwrap()["menu_bar_requested"],
+        true
+    );
+}

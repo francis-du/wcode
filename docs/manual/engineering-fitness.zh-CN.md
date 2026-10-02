@@ -1,15 +1,15 @@
 ---
 layout: docs
-title: 工程适应度评估
+title: 检查历史评估
 description: 不依赖模型的确定性仓库检索、上下文、编辑就绪、安全与成本评估。
 lang: zh-CN
 alternate: /docs/engineering-fitness/
 permalink: /zh/docs/engineering-fitness/
 ---
 
-# WCode Engineering Fitness
+# WCode Check history
 
-WCode Engineering Fitness（工程适应度）是 wcode 不依赖模型的测量层，评估由 wcode 直接负责的确定性仓库工程属性。它不是编码模型排行榜，也不声称模型一定能解决某个任务。
+WCode Check history（检查历史）是 wcode 不依赖模型的测量层，评估由 wcode 直接负责的确定性仓库工程属性。它不是编码模型排行榜，也不声称模型一定能解决某个任务。
 
 ## Fitness 观测面板（下一版工作树实现）
 
@@ -23,9 +23,9 @@ WCode Engineering Fitness（工程适应度）是 wcode 不依赖模型的测量
 
 中英文面板沿用当前主题，表格可通过键盘滚动，历史数量有界。切换工作区、恢复客户端缓存、刷新失败和服务器旧快照，都不会将旧数据标成刚确认的当前结果；缺数据和零分开。尚未从这些记录推断不稳定率、重试/恢复率、真实 LSP 准确率、应用就绪率或模型补丁正确率。工具返回成功可能只表示请求被接收或证据已存储。
 
-## 为什么叫“Engineering Fitness”
+## 为什么叫“Check history”
 
-“Benchmark”容易被理解成端到端模型排名，“Capability Suite”则容易暗示单一、不透明的能力分数。工程适应度把每个版本视为可重复检查的工程系统：检索质量、语义精度、上下文效率、编辑就绪程度、缺陷相关证据、稳健性与成本分别衡量。
+“Benchmark”容易被理解成端到端模型排名，“Capability Suite”则容易暗示单一、不透明的能力分数。检查历史把每个版本视为可重复检查的工程系统：检索质量、语义精度、上下文效率、编辑就绪程度、缺陷相关证据、稳健性与成本分别衡量。
 
 ## 测量契约
 
@@ -49,9 +49,9 @@ WCode Engineering Fitness（工程适应度）是 wcode 不依赖模型的测量
 
 **Fitness checks（适应度检查）**是适合正常 CI 的确定性检查。正确性断言属于硬性门禁；有噪声的墙钟测量默认仅作描述，除非受控性能任务建立了具有统计依据的阈值。
 
-**Fitness trials（适应度测量）**是显式执行的 release 配置测量。已有 `fast_context_benchmark`、`repo_rank_release_cost_comparison` 和 `competitive_io_benchmark` 仍属于阶段级测量，保留各自限制说明。它们是工程适应度的输入，不是模型正确率结论。
+**Fitness trials（适应度测量）**是显式执行的 release 配置测量。已有 `fast_context_benchmark`、`repo_rank_release_cost_comparison` 和 `competitive_io_benchmark` 仍属于阶段级测量，保留各自限制说明。它们是检查历史的输入，不是模型正确率结论。
 
-**Agent evaluation（智能体评估）**是独立的未来层。当具备模型预算时，可在同一冻结任务上对比固定模型搭配基线工具与 wcode 的结果。不得仅凭工程适应度推断智能体任务成功率。
+**Agent evaluation（智能体评估）**是独立的未来层。当具备模型预算时，可在同一冻结任务上对比固定模型搭配基线工具与 wcode 的结果。不得仅凭检查历史推断智能体任务成功率。
 
 ## 运行检查和测量
 

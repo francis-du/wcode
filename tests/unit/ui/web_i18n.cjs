@@ -42,11 +42,11 @@ function run(){
     const s=sandbox();
     assert.equal(s.run('translateKey("zh-CN","Code graph")'),'代码图谱');
     assert.equal(s.run('translateKey("zh-CN","Search code graph")'),'搜索代码图谱');
-    assert.equal(s.run('translateKey("zh-CN","Code graph observatory")'),'代码图谱观测台');
+    assert.equal(s.run('translateKey("zh-CN","Code relationships")'),'代码关系');
   });
   test('document title has a Simplified Chinese translation',()=>{
     const s=sandbox();
-    assert.equal(s.run('translateKey("zh-CN","wcode · Engineering Observatory")'),'wcode · 工程观测台');
+    assert.equal(s.run('translateKey("zh-CN","wcode · Project Status")'),'wcode · 项目状态');
   });
   test('static accessibility and input copy cannot bypass the i18n marker contract',()=>{
     const page=fs.readFileSync(path.join(root,'src/ui/intelligence_web/page.html'),'utf8');

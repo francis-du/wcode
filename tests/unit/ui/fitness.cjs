@@ -44,7 +44,7 @@ test('missing and unavailable snapshots never infer success', () => {
 test('empty observations retain unknown rates and explicit measurement boundaries', () => {
   const h = harness(), data = fixture(); data.fitness.current = [];
   const html = h.render(data); assert.match(html, /No usable observations/);
-  assert.match(html, /not a performance score/); assert.match(html, /explicit Engineering Fitness reports/);
+  assert.match(html, /not a performance score/); assert.match(html, /explicit Check history reports/);
   assert.doesNotMatch(html, /100%/); assert.equal(h.run('fitnessRate(0, 0)'), 'Not measured');
   assert.equal(h.run('fitnessNumber(null)'), '—'); assert.equal(h.run('fitnessNumber(NaN)'), '—');
 });

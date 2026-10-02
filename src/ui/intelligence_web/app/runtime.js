@@ -97,7 +97,7 @@ function worklistOwnershipHtml(worklist) {
     const evidenceCount = Array.isArray(result?.evidence) ? result.evidence.length : null;
     return `<article class="execution-worker"><div class="execution-worker-head"><strong>${text(item.title, item.id || localized("Untitled task", "未命名任务"))}</strong>${pill(ownership, historical || (claim && (!validClaim || expired)) ? "warn" : "info")}</div>
       <div class="execution-worker-facts"><span>${esc(localized("Actor", "执行者"))}<b>${claim ? text(claim.actor, "—", 128) : "—"}</b></span><span>${esc(localized("Lease expires", "租约到期"))}<b>${esc(lease)}</b></span><span>${esc(localized("Write scopes", "写入范围"))}<b>${scope}${paths.length > 4 ? ` · +${num(paths.length - 4)}` : ""}</b></span></div>
-      ${result ? `<div class="execution-worker-result">${pill(outcome, "warn")}<span>${text(result.summary, localized("No bounded worker summary", "没有有界 Worker 摘要"), 500)}</span><small>${esc(localized("Reported by", "报告者"))} ${text(result.actor, "—", 128)} · ${evidenceCount == null ? esc(localized("Evidence references unknown", "Evidence 引用未知")) : `${num(evidenceCount)} ${esc(localized("Evidence references", "Evidence 引用"))}`}</small></div>` : ""}</article>`;
+      ${result ? `<div class="execution-worker-result">${pill(outcome, "warn")}<span>${text(result.summary, localized("No task summary", "没有任务摘要"), 500)}</span><small>${esc(localized("Reported by", "报告者"))} ${text(result.actor, "—", 128)} · ${evidenceCount == null ? esc(localized("Evidence references unknown", "Evidence 引用未知")) : `${num(evidenceCount)} ${esc(localized("Evidence references", "Evidence 引用"))}`}</small></div>` : ""}</article>`;
   }).join("");
   const bounded = worklist.truncated === true || items.length > 8;
   return `<section class="execution-workers execution-blockers"><div class="execution-worker-head"><span class="execution-label">${heading}</span><span class="panel-meta">${historical ? esc(localized("Last observed", "最后观测")) + " " : ""}Worklist #${num(worklist.revision || 0)}</span></div>
@@ -136,9 +136,9 @@ function renderExecutionStatus() {
     steeringTone = execution.replan_required === true ? "bad" : directive ? "warn" : "info",
     steeringLabel = execution.replan_required === true
       ? localized("Replan required", "需要重新规划")
-      : directive ? localized("Pending steering", "待应用 steering") : localized("Execution guard", "执行约束");
+      : directive ? localized("Pending plan change", "待应用计划调整") : localized("Execution guard", "执行约束");
   const steeringHtml = directive || lineage || execution.verification_floor
-    ? `<section class="execution-steering-card"><div class="execution-steering-head"><span class="execution-label">${esc(localized("Steering / handoff", "Steering / 交接"))}</span>${pill(steeringLabel, steeringTone)}</div>${directive ? `<strong class="execution-steering-summary">${esc(directive.summary || localized("Pending structured directive", "待应用结构化指令"))}</strong>` : ""}<div class="execution-steering-facts"><span><i>${esc(localized("Directive", "指令"))}</i><b>${esc(directive ? String(directive.kind || "steering").replace(/_/g, " ") : "—")}</b></span><span><i>${esc(localized("Verification floor", "验证下限"))}</i><b>${esc(verificationFloor)}</b></span><span><i>${esc(localized("Bound plan", "绑定计划"))}</i><b>${esc(directive?.reconciliation_plan_id || "—")}</b></span><span><i>${esc(localized("Handoff lineage", "交接血缘"))}</i><b>${esc(lineage ? `${lineage.parent_execution_id || "—"} · #${num(lineage.handoff_count || 0)}` : "—")}</b></span></div></section>`
+    ? `<section class="execution-steering-card"><div class="execution-steering-head"><span class="execution-label">${esc(localized("Plan changes / handoff", "计划调整 / 交接"))}</span>${pill(steeringLabel, steeringTone)}</div>${directive ? `<strong class="execution-steering-summary">${esc(directive.summary || localized("Pending structured directive", "待应用结构化指令"))}</strong>` : ""}<div class="execution-steering-facts"><span><i>${esc(localized("Directive", "指令"))}</i><b>${esc(directive ? String(directive.kind || "steering").replace(/_/g, " ") : "—")}</b></span><span><i>${esc(localized("Verification floor", "验证下限"))}</i><b>${esc(verificationFloor)}</b></span><span><i>${esc(localized("Bound plan", "绑定计划"))}</i><b>${esc(directive?.reconciliation_plan_id || "—")}</b></span><span><i>${esc(localized("Previous execution", "上次执行"))}</i><b>${esc(lineage ? `${lineage.parent_execution_id || "—"} · #${num(lineage.handoff_count || 0)}` : "—")}</b></span></div></section>`
     : "";
   const html = `<div class="execution-shell ${tone}">
     <div class="execution-primary"><div class="execution-heading"><div><span class="execution-id">${esc(execution.execution_id || "Execution")}</span><h3>${esc(execution.objective || localized("Untitled execution", "未命名执行"))}</h3></div>${pill(phaseLabel, tone)}</div><div class="execution-revision">${esc(localized("Execution revision", "Execution 版本"))} ${num(execution.revision || 0)} · ${esc(localized("Worklist revision", "Worklist 版本"))} ${num(checkpoint.worklist_revision || 0)}</div></div>
@@ -166,10 +166,10 @@ const workspaceTabForSection = {
 };
 function renderWorkspaceHero(tab) {
   const copy = {
-    overview: [localized("AI CHANGE ACCEPTANCE", "AI 变更验收"), localized("Current change acceptance", "当前变更验收"), localized("Start with the acceptance decision, then inspect blocking checks, exact evidence and changed source.", "先看验收结论，再逐层检查阻塞检查、精确证据与变更源码。")],
+    overview: [localized("CHANGE REVIEW", "AI 变更验收"), localized("Current change acceptance", "当前变更验收"), localized("Start with the acceptance decision, then inspect blocking checks, exact evidence and changed source.", "先看验收结论，再逐层检查阻塞检查、精确证据与变更源码。")],
     architecture: [localized("SYSTEM ARCHITECTURE", "系统架构"), localized("Engineering architecture", "工程架构"), localized("Read the system from semantic architecture down to the bounded code graph, callers, dependencies and proof context.", "从语义架构深入到有界代码图谱、调用关系、依赖与证明上下文。")],
     activity: [localized("LIVE WORK", "实时工作"), localized("Task activity", "任务活动"), localized("Running work, queue pressure and execution time without mixing waiting time into runtime.", "区分排队与执行时间，查看实时工作与资源压力。")],
-    proof: [localized("REVISION-BOUND PROOF", "版本绑定证据"), localized("Verification evidence", "验证证据"), localized("Current-revision evidence, verification readiness and adaptive checks kept separate from historical passes.", "当前版本证据、验证就绪度与自适应检查，与历史通过记录分开呈现。")],
+    proof: [localized("REVISION-BOUND PROOF", "版本绑定证据"), localized("Check results", "验证证据"), localized("Current-revision evidence, verification readiness and adaptive checks kept separate from historical passes.", "当前版本证据、验证就绪度与自适应检查，与历史通过记录分开呈现。")],
     requirements: [localized("DESIRED STATE", "目标状态"), localized("Requirements", "需求"), localized("Trace intent through implementation, acceptance evidence and convergence.", "把需求意图追踪到实现、验收证据与收敛状态。")],
     changes: [localized("WORKING TREE", "工作树"), localized("Current changes", "当前变更"), localized("Map current edits back to components, requirements and verification impact.", "把当前修改映射回组件、需求与验证影响。")],
     files: [localized("REPOSITORY", "仓库"), localized("Project files", "项目文件"), localized("Browse the bounded repository structure and the files that dominate maintenance cost.", "浏览有界仓库结构以及维护成本最高的文件。")],
@@ -643,7 +643,7 @@ async function activityTick() {
 const commandActions = () => [
   ["overview", localized("Open acceptance", "打开变更验收"), localized("Current decision, blockers and required checks", "当前结论、阻塞原因与必需检查"), "shield"],
   ["architecture", localized("Open architecture", "打开架构"), localized("System map and dependency evidence", "系统图谱与依赖证据"), "layers"],
-  ["activity", localized("Open task activity", "打开任务活动"), localized("Durable execution and runtime work", "持久化执行与实时工作"), "monitor"],
+  ["activity", localized("Open task activity", "打开任务活动"), localized("Task progress and runtime work", "持久化执行与实时工作"), "monitor"],
   ["proof", localized("Open verification evidence", "打开验证证据"), localized("Revision-bound checks and proof ledger", "版本绑定检查与证据账本"), "shield"],
   ["changes", localized("Open changes", "打开变更"), localized("Inspect source diffs and verification impact", "检查源码差异与验证影响"), "code"],
   ["files", localized("Browse source files", "浏览源码文件"), localized("Repository tree and protected source preview", "仓库树与受保护源码预览"), "document"],

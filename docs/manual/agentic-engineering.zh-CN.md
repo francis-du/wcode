@@ -1,13 +1,13 @@
 ---
 layout: docs
-title: Agentic Engineering 模型
+title: Coding workflows 模型
 description: wcode 的模型中立 Agent 执行与证据架构
 lang: zh-CN
 alternate: /docs/agentic-engineering/
 permalink: /zh/docs/agentic-engineering/
 ---
 
-# Agentic Engineering 模型
+# Coding workflows 模型
 
 wcode 把现代 Agent 编程当作执行架构问题，而不是“给模型更多权限”。这套模型刻意保持厂商中立：不同 Host 可以拥有不同的 Rules、Skills、Subagent、Worktree、Hook、Plugin 或 MCP 能力，而 wcode 保持仓库状态、授权、Verification 与 Evidence 语义稳定。
 
@@ -29,7 +29,7 @@ Revision-exact Evidence
 Convergence
 ```
 
-![wcode Engineering Control Plane 闭环](/assets/zh/engineering-loop.svg)
+![wcode Project tools 闭环](/assets/zh/engineering-loop.svg)
 
 ### 1. Context Policy：先给地图
 

@@ -47,16 +47,12 @@ impl MenuBarSummary {
             .iter()
             .filter(|record| record.mcp_connected)
             .count();
-        let active_tasks = snapshot
-            .records
-            .iter()
-            .map(|record| record.active_tasks)
-            .sum();
-        let queued_tasks = snapshot
-            .records
-            .iter()
-            .map(|record| record.queued_tasks)
-            .sum();
+        let active_tasks = snapshot.records.iter().fold(0_u64, |total, record| {
+            total.saturating_add(record.active_tasks)
+        });
+        let queued_tasks = snapshot.records.iter().fold(0_u64, |total, record| {
+            total.saturating_add(record.queued_tasks)
+        });
         let active_verifications = Self::known_sum(snapshot, |record| record.active_verifications);
         let queued_verifications = Self::known_sum(snapshot, |record| record.queued_verifications);
         let active_jobs = Self::known_sum(snapshot, |record| record.active_jobs);
@@ -69,7 +65,18 @@ impl MenuBarSummary {
             }
         } else if snapshot.partial {
             "partial"
-        } else if active_tasks > 0 || queued_tasks > 0 {
+        } else if active_tasks > 0
+            || queued_tasks > 0
+            || [
+                active_verifications,
+                queued_verifications,
+                active_jobs,
+                queued_jobs,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|count| count > 0)
+        {
             "working"
         } else if mcp_connected > 0 {
             "connected"
@@ -91,6 +98,44 @@ impl MenuBarSummary {
             state,
         }
     }
+}
+
+fn companion_allowed(enabled: bool, macos: bool, ci: bool, remote_session: bool) -> bool {
+    enabled && macos && !ci && !remote_session
+}
+
+pub(crate) fn launch_companion(enabled: bool) -> Result<()> {
+    let ci = std::env::var("CI").is_ok_and(|value| !matches!(value.as_str(), "" | "0" | "false"));
+    let remote_session = ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some());
+    if !companion_allowed(enabled, cfg!(target_os = "macos"), ci, remote_session) {
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::{Command, Stdio};
+        let executable = std::env::current_exe()?;
+        // A dedicated reaper never blocks the async runtime's shutdown. The child
+        // is started inside this thread, so thread-creation failure leaves no child.
+        std::thread::Builder::new()
+            .name("wcode-menu-bar".into())
+            .spawn(move || {
+                let result = Command::new(executable)
+                    .arg("menu-bar")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .and_then(|mut child| child.wait());
+                match result {
+                    Ok(status) if status.success() => {}
+                    Ok(status) => eprintln!("WCode menu bar exited: {status}"),
+                    Err(error) => eprintln!("WCode menu bar unavailable: {error}"),
+                }
+            })?;
+    }
+    Ok(())
 }
 
 pub(crate) fn run(json: bool) -> Result<()> {
@@ -122,6 +167,10 @@ pub(crate) fn run(json: bool) -> Result<()> {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
+    use std::fs::TryLockError;
+    use std::fs::{self, File, OpenOptions};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+    use std::path::Path;
     use std::time::{Duration, Instant};
     use tray_icon::{
         menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
@@ -136,6 +185,76 @@ mod macos {
     };
 
     const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
+    pub(super) struct InstanceLock {
+        _file: File,
+    }
+
+    impl InstanceLock {
+        fn acquire() -> Result<Option<Self>> {
+            Self::acquire_at(&crate::auth::authority_state_root()?)
+        }
+
+        pub(super) fn acquire_at(authority: &Path) -> Result<Option<Self>> {
+            if !authority.is_absolute() {
+                anyhow::bail!("menu bar state directory must be absolute");
+            }
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(authority)?;
+            let directory = fs::symlink_metadata(authority)?;
+            // Never chmod an existing path supplied through WCODE_STATE_DIR.
+            let uid = unsafe { libc::geteuid() };
+            if !directory.is_dir()
+                || directory.file_type().is_symlink()
+                || directory.uid() != uid
+                || directory.mode() & 0o022 != 0
+            {
+                anyhow::bail!(
+                    "menu bar state directory must be owned by you and not writable by others"
+                );
+            }
+            let path = authority.join("menu-bar.lock");
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&path)?;
+            let validate = || -> Result<()> {
+                let held = file.metadata()?;
+                let named = fs::symlink_metadata(&path)?;
+                let current_directory = fs::symlink_metadata(authority)?;
+                if !held.is_file()
+                    || held.len() != 0
+                    || held.nlink() != 1
+                    || held.uid() != uid
+                    || held.mode() & 0o077 != 0
+                    || named.file_type().is_symlink()
+                    || held.ino() != named.ino()
+                    || held.dev() != named.dev()
+                    || directory.ino() != current_directory.ino()
+                    || directory.dev() != current_directory.dev()
+                    || current_directory.mode() & 0o022 != 0
+                {
+                    anyhow::bail!("menu bar lock is unsafe or changed during startup");
+                }
+                Ok(())
+            };
+            validate()?;
+            match file.try_lock() {
+                Ok(()) => {
+                    validate()?;
+                    Ok(Some(Self { _file: file }))
+                }
+                Err(TryLockError::WouldBlock) => Ok(None),
+                Err(TryLockError::Error(error)) => Err(error.into()),
+            }
+        }
+    }
 
     struct MenuState {
         tray: TrayIcon,
@@ -364,6 +483,9 @@ mod macos {
     }
 
     pub(super) fn run() -> Result<()> {
+        let Some(_instance_lock) = InstanceLock::acquire()? else {
+            return Ok(());
+        };
         let mut builder = EventLoop::builder();
         builder
             .with_activation_policy(ActivationPolicy::Accessory)

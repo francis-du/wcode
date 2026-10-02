@@ -18,7 +18,7 @@ depends_on:
 implementation:
   - {kind: file, path: src/runtime/worklist.rs}
   - {kind: file, path: src/runtime/worklist_delegation.rs}
-  - {kind: file, path: src/runtime/harness/context_handoff.rs}
+  - {kind: file, path: src/runtime/harness/context/handoff.rs}
   - {kind: file, path: src/runtime/harness/capabilities.rs}
   - {kind: file, path: src/runtime/harness/capability.rs}
   - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence.rs, symbol: call}

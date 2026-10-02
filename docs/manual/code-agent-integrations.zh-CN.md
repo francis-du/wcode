@@ -27,7 +27,7 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 Presence 记录只包含 transport、版本、有界 Workspace ID、活动时间和聚合状态；**不会**保存 UI Token、OAuth 凭据、MCP owner、命令参数、源码路径或原始诊断。过期或损坏记录只会显示为 partial/unknown，不能冒充已连接。Menu Bar 不能批准授权、取消任务、执行任意命令，也不能建立 Verification/Acceptance。其他平台可用 `wcode menu-bar --json` 读取同一份可移植只读状态投影。
 
 这不是三套工具实现。它们共用 JSON-RPC dispatch、Harness、Workspace
-选择、命令策略、授权、Tool、Prompt、Resource，以及仓库理解 / Engineering Control Plane
+选择、命令策略、授权、Tool、Prompt、Resource，以及仓库理解 / Project tools
 状态。SSE 只为仍使用 2024 传输方式的客户端保留；新配置直接使用
 `/mcp`。
 

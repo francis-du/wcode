@@ -24,11 +24,11 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
 - `src/graph/`：Lazy Tree-sitter Code Index、Provider-neutral Software Graph，以及 Provider / Composite Revision Persistence。
 - `src/semantics/`：Persistent Candidate/Confirmed/Retired Semantic Registry 与第一方 LSP Provider Runtime。
-- `src/intelligence/`：仓库理解契约，包括 Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Engineering Observatory Projection；`src/intelligence/observatory/architecture.rs` 负责 System → Subsystem → Component 分层蓝图与 Design-vs-Actual Architecture Projection。
+- `src/intelligence/`：仓库理解契约，包括 Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Status Projection；`src/intelligence/observatory/architecture.rs` 负责 System → Subsystem → Component 分层蓝图与 Design-vs-Actual Architecture Projection。
 - `src/verification/`：Verification Plan、Blind Reviewer/Readiness、Language Quality Provider，以及 Property/Mutation/Fuzz/Runtime Executor。
 - `src/evidence/`：带 Provenance 的 Evidence Contract 与 Bounded Persistence。
 - `src/reconciliation/`：Durable Desired-to-Actual Plan 与 Dependency-aware Execution / Retry State。
-- `src/ui/`：Operator Experience。`src/ui/monitor/` 负责 Ratatui Runtime、State、Metrics、Commands、Detail Panel、Overlay、Shell Action、i18n 与 Theme；`src/ui/intelligence_web.rs` 和 `src/ui/intelligence_web/` 资产共同服务受保护 Engineering Observatory 与项目数字孪生视图。
+- `src/ui/`：Operator Experience。`src/ui/monitor/` 负责 Ratatui Runtime、State、Metrics、Commands、Detail Panel、Overlay、Shell Action、i18n 与 Theme；`src/ui/intelligence_web.rs` 和 `src/ui/intelligence_web/` 资产共同服务受保护 Project Status 与项目结构视图。
 
 职责移动时，同一个 Change 里要同步更新 Product Scope Source Root 与 Design State Implementation Reference。源码物理移动了、Architecture Contract 还指着旧 Owner，不算完成 Refactor。
 
@@ -95,11 +95,11 @@ Agent Installer 不执行任何 Host CLI。Detection 只看 Filesystem/PATH Evid
 
 Media 继续 Metadata-first。`include_content=true` 本身就是单次调用的显式 Opt-in，wcode 直接返回标准 MCP `image` / `audio` Tool Result Content Block，不再要求私有 Client Extension。MCP 没有标准 Video Tool Result Content Block，因此 Video 继续 Metadata-only。
 
-## Engineering Control Plane 与仓库理解不变量
+## Project tools 与仓库理解不变量
 
-Repository Intelligence（仓库理解）只是更大的 Engineering Control Plane 的一个子系统。稳定的 `wcode intelligence` / `wcode verification` CLI 与 `/intelligence/*` HTTP 名称继续作为兼容接口；面向用户的产品语言使用 Engineering Observatory / 仓库理解，不再把“Software Intelligence”当成整个 wcode。
+Repository Intelligence（仓库理解）只是更大的 Project tools 的一个子系统。稳定的 `wcode intelligence` / `wcode verification` CLI 与 `/intelligence/*` HTTP 名称继续作为兼容接口；面向用户的产品语言使用 Project Status / 仓库理解，不再把“Software Intelligence”当成整个 wcode。
 
-Engineering Observatory 必须 **Hierarchy-first + Architecture-first**。页面先展示由 Design State 与实现归属共同生成的 System → Subsystem → Component → Code 蓝图，再展示实时工程流、Vibe Coding 变更影响、Declared Design Dependency、当前 Code-derived Actual Relationship、Observed Drift、Evidence Coverage、Implementation Coverage，然后进入 Component Inspector 与 Requirement Drill-down；Raw Dependency Graph 只能是二级视图。Requirement Detail 保持：
+Project Status 必须 **Hierarchy-first + Architecture-first**。页面先展示由 Design State 与实现归属共同生成的 System → Subsystem → Component → Code 蓝图，再展示实时工程流、Vibe Coding 变更影响、Declared Design Dependency、当前 Code-derived Actual Relationship、Observed Drift、Evidence Coverage、Implementation Coverage，然后进入 Component Inspector 与 Requirement Drill-down；Raw Dependency Graph 只能是二级视图。Requirement Detail 保持：
 
 ```text
 Desired State → Actual State → Change → Proof → Convergence
@@ -171,7 +171,7 @@ cargo build --release --locked
 
 Documentation Change 必须保持 Reciprocal `alternate` Route、每对页面相同的 Top-level Section Structure、相同 Critical Technical Fact、Local Link、Installer Command，以及统一 `/docs/` + `/zh/docs/` Manual 模型。Host-specific Integration Command 只在 [Agent 与 MCP 集成](../code-agent-integrations/) 维护一份 Canonical Technical Guide，不要复制到 README / Website 形成第二个版本。
 
-当 Command / Tooling Optimization 改变推荐 Agent Workflow 时，要在同一 Change 更新 Getting Started、Docs Index、Agentic Engineering，以及相关 Reference/Security 与 Automated Bilingual Contract。要避免“中英文完全同步，但两边一起保留旧流程”的失败模式。
+当 Command / Tooling Optimization 改变推荐 Agent Workflow 时，要在同一 Change 更新 Getting Started、Docs Index、Coding workflows，以及相关 Reference/Security 与 Automated Bilingual Contract。要避免“中英文完全同步，但两边一起保留旧流程”的失败模式。
 
 ## Release Artifact
 

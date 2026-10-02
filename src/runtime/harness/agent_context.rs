@@ -4,21 +4,21 @@ use super::*;
 mod agent_readiness;
 #[path = "capability.rs"]
 mod capability;
-#[path = "context_anchors.rs"]
+#[path = "context/anchors.rs"]
 mod context_anchors;
-#[path = "context_budget.rs"]
+#[path = "context/budget.rs"]
 mod context_budget;
-#[path = "context_dedup.rs"]
+#[path = "context/dedup.rs"]
 mod context_dedup;
-#[path = "context_guidance.rs"]
+#[path = "context/guidance.rs"]
 mod context_guidance;
-#[path = "context_handoff.rs"]
+#[path = "context/handoff.rs"]
 mod context_handoff;
-#[path = "context_lessons.rs"]
+#[path = "context/lessons.rs"]
 mod context_lessons;
-#[path = "context_operations.rs"]
+#[path = "context/operations.rs"]
 mod context_operations;
-#[path = "context_project.rs"]
+#[path = "context/project.rs"]
 mod context_project;
 #[cfg(test)]
 use agent_readiness::covered_repo_map_precision;

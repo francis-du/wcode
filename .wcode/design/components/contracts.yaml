@@ -46,7 +46,7 @@ implementation:
     path: src/runtime/harness/profile.rs
     symbol: build_project_profile
   - kind: symbol
-    path: src/runtime/harness/context_project.rs
+    path: src/runtime/harness/context/project.rs
     symbol: compact_contracts
   - kind: symbol
     path: src/runtime/harness/quality.rs

@@ -158,7 +158,7 @@ Even under tight budgets, a retained snippet keeps its path, symbol ID when pres
 
 Reproduce the deterministic regressions with `cargo test --locked --lib diagnostic_context_ -- --nocapture`. The fixtures cover punctuation and path boundaries, tight-budget metadata, redaction, LF/CRLF/mixed/EOF windows, and using a returned diagnostic excerpt directly in a guarded edit followed by rejection of the old SHA. This is a local correctness suite, not a model benchmark or an end-to-end latency measurement.
 
-Use the existing `agent_context` query with an explicit location, for example `error[E0308] at src/runtime/harness/context_budget.rs:33:9`. Supported forms include `file:line`, `file:line:column`, `file#Lline`, and plain supported source/config/document filenames. Backslash-separated relative paths are accepted. Quoted whitespace-free tokens are supported; this is not a complete parser for every language's traceback syntax.
+Use the existing `agent_context` query with an explicit location, for example `error[E0308] at src/runtime/harness/context/budget.rs:33:9`. Supported forms include `file:line`, `file:line:column`, `file#Lline`, and plain supported source/config/document filenames. Backslash-separated relative paths are accepted. Quoted whitespace-free tokens are supported; this is not a complete parser for every language's traceback syntax.
 
 At most four distinct location anchors are considered. A line-bearing anchor selects the smallest syntax definition containing that line when the outline and file SHA agree. Unsupported syntax formats and plain-file anchors retain a deterministic file target rather than inventing a symbol. The excerpt starts at the supplied line and includes up to thirteen lines, with an initial 1,600-character cap; the existing token budget can reduce it further. File SHA and excerpt SHA must agree, and syntax facts are never relabeled as compiler semantics.
 
@@ -264,7 +264,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 
 | Capability | Current implementation | Maturity | Reusable components | Gap | Commercial importance |
 | --- | --- | --- | --- | --- | --- |
-| Engineering Control Plane positioning | README, Product State, software-intelligence manual | Partial | README / ProjectDesign / Product Scopes | Lead with acceptance of an AI change; preserve agent neutrality | Core |
+| Project tools positioning | README, Product State, software-intelligence manual | Partial | README / ProjectDesign / Product Scopes | Lead with acceptance of an AI change; preserve agent neutrality | Core |
 | Understand → Change → Inspect | MCP workflow prompts, agent_context, guarded writes, change review | Complete | ToolHarness / Workspace | These operations alone do not produce a Change Acceptance Record | Core |
 | Product ownership | 12 Product Scopes, source/test ownership and gate | Complete | scopes / convention_status | Reuse scopes; no parallel acceptance ownership taxonomy | Core |
 | Design State | Requirements, components, constraints, ADRs, AcceptanceCriterion | Complete | DesignState / AcceptanceCriterion | Criterion verification refs are mappings, not executed proof | Core |
@@ -299,7 +299,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Remote MCP / tunnel | OAuth, endpoint provenance, local probe and provider recovery | Partial | AppState / AuthState / tunnel health | Detailed anonymous health currently discloses roots/launch profiles | Critical |
 | LSP execution | Capability probes, bounded children, scrubbed environment | Complete | semantic providers / command execution | Installed LSP process retains host-user access | High |
 | Evidence storage isolation | User-state, permissions, bounded records | Partial | workspace_state_directory / Evidence | Same-user scripts can modify local authority state; not tamper-proof | Critical |
-| Engineering Observatory | Attention, change/source bridge, evidence inspector, graph | Partial | ProjectObservatory / ProjectAttentionView | Default architecture page; no unified current-change decision or actions | Core |
+| Project Status | Attention, change/source bridge, evidence inspector, graph | Partial | ProjectObservatory / ProjectAttentionView | Default architecture page; no unified current-change decision or actions | Core |
 | Acceptance → file → symbol | Typed AC path/symbol/provider refs and source bridge | Foundation | FeatureAcceptanceView / source bridge | AC rows are not actionable; retain selected change/revision throughout | Core |
 | TUI | Attention/proof/agents/provider views and Web handoff | Partial | TaskMonitor / console | No unified acceptance summary; JobView adapter not connected | High |
 | Web Jobs | Empty hosts and state/CSS skeleton | Missing | TaskRuntime / TaskRecord | No backend/API/module; not a delivered task console | Deferred |
@@ -308,7 +308,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Agent integrations | Provider-neutral MCP, plugins/configs, implement/review/verify prompts | Partial | MCP / agent_plugin / agent_install | Host-version OAuth E2E is not implied by config tests; acceptance entry missing | Core |
 | Multi-agent work | Worklist CAS, scoped claims, private lease tokens, bounded results | Complete | Worklist / writer lease / task claim | Host spawns agents; reports do not become verification evidence | High |
 | Context efficiency | Bounded context, progressive schemas, compact acknowledgements | Complete | Agent Context / tool manifest | Byte/4 estimates do not establish billed token savings or model success | High |
-| Pilot metrics / export | Engineering Fitness and milestone foundations | Foundation | Engineering Fitness / journal | Acceptance counts, missing/stale findings and measured durations | High |
+| Pilot metrics / export | Check history and milestone foundations | Foundation | Check history / journal | Acceptance counts, missing/stale findings and measured durations | High |
 | Vendor telemetry | Local engineering observations | Missing | Local runtime observation | Optional explicit schema and opt-in sink; no default source upload | Later |
 | Release pipeline / tests | Three-platform CI, native browser, adversarial artifacts | Complete | GitHub Actions / release contracts | Each result applies to its precise SHA; no current release requested | Core |
 | Own agent/IDE/chat/billing/remote shell | Not required for acceptance | Exclude | No component needed | Preserve useful OSS inspection/editing; stop expanding unrelated product surface | None |

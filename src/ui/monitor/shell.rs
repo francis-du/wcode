@@ -240,7 +240,7 @@ fn render_engineering_pulse(
         .padding(Padding::horizontal(1))
         .title(Line::from(vec![
             Span::styled(
-                format!(" {} ", language.tr("ENGINEERING PULSE")),
+                format!(" {} ", language.tr("PROJECT STATUS")),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {workspace_id} "), Style::default().fg(TEXT)),
@@ -248,7 +248,7 @@ fn render_engineering_pulse(
     if area.width >= 52 {
         block = block.title(
             Line::from(Span::styled(
-                format!(" {} ", language.tr("engineering console")),
+                format!(" {} ", language.tr("project details")),
                 Style::default().fg(TEXT_DIM),
             ))
             .right_aligned(),
@@ -260,7 +260,7 @@ fn render_engineering_pulse(
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(Span::styled(
-                    language.tr("Loading project engineering model…"),
+                    language.tr("Loading project details…"),
                     Style::default().fg(TEXT_MUTED),
                 )),
                 Line::from(Span::styled(
@@ -384,7 +384,10 @@ fn render_too_small(
                 " wcode ",
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" engineering control plane ", Style::default().fg(ACCENT)),
+            Span::styled(
+                format!(" {} ", language.tr("project status")),
+                Style::default().fg(ACCENT),
+            ),
         ]))
         .title(
             Line::from(Span::styled(

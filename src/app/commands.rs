@@ -47,13 +47,13 @@ pub(super) enum ControlCommand {
     },
     /// Update WCode to the latest verified release.
     Update,
-    /// Export a portable Agent Plugins 1.0 package or use the legacy installer surface.
+    /// Export a coding-assistant plugin. For installation, use wcode setup.
     #[command(hide = true)]
     AgentPlugin {
         /// Repository-relative output directory. Existing files are never overwritten.
         #[arg(long, default_value = "wcode")]
         output: String,
-        /// Export connection profile. The canonical skill-only profile never guesses a Workspace.
+        /// Export connection profile. The skill-only profile does not select a project automatically.
         #[arg(long, value_enum, default_value = "skill-only")]
         profile: agent_plugin::AgentPluginProfile,
         /// Streamable HTTP endpoint used by the remote-http or auto profile. Secrets are never embedded.
@@ -71,9 +71,9 @@ pub(super) enum ControlCommand {
     },
     /// Connect a coding agent over MCP using its current project directory.
     McpStdio,
-    /// Observe local WCode runtimes from the system menu bar.
+    /// Show local WCode processes in the system menu bar.
     MenuBar {
-        /// Print the portable bounded status projection and exit without opening native UI.
+        /// Print status as JSON without opening the menu bar.
         #[arg(long)]
         json: bool,
     },
@@ -89,7 +89,7 @@ pub(super) enum ControlCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Inspect and govern exact-candidate native Change Acceptance.
+    /// Review and approve checks for a specific change.
     Acceptance {
         #[command(subcommand)]
         action: super::acceptance::AcceptanceCommand,

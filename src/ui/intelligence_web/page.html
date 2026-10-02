@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#0b0812">
-<title>wcode · Engineering Observatory</title>
+<title>wcode · Project Status</title>
 <link rel="stylesheet" href="/intelligence/app.css">
 <script defer src="/intelligence/app.js"></script>
 </head>
 <body>
 <div class="app observatory-shell">
   <header class="global-bar">
-    <a class="brand-lockup" href="#architectureSection" aria-label="wcode Engineering Observatory" data-i18n-aria-label="wcode Engineering Observatory">
+    <a class="brand-lockup" href="#architectureSection" aria-label="wcode Project Status" data-i18n-aria-label="wcode Project Status">
       <img class="brand-logo" src="/intelligence/logo.svg" alt="wcode">
       <span class="brand-copy">
-        <strong data-i18n="Engineering Observatory">Engineering Observatory</strong>
-        <span class="brand-kicker" data-i18n="Engineering Control Plane">Engineering Control Plane</span>
+        <strong data-i18n="Project Status">Project Status</strong>
+        <span class="brand-kicker" data-i18n="Project tools">Project tools</span>
       </span>
     </a>
 
@@ -29,7 +29,7 @@
       <div id="navigatorResults" class="navigator-results hidden" role="listbox"></div>
     </section>
 
-    <div class="global-controls" aria-label="Observatory controls" data-i18n-aria-label="Observatory controls">
+    <div class="global-controls" aria-label="Project controls" data-i18n-aria-label="Project controls">
       <section class="global-status" role="status" aria-live="polite" aria-atomic="true" aria-label="Connecting" data-i18n-aria-label="Connecting">
         <span id="syncDot" class="sync-dot"></span>
         <strong id="syncState" data-i18n="Connecting">Connecting</strong>
@@ -96,23 +96,23 @@
   <main class="observatory-main">
     <header class="workspace-hero">
       <div class="workspace-hero-copy">
-        <span id="workspaceKicker" class="section-kicker" data-i18n="AI CHANGE ACCEPTANCE">AI CHANGE ACCEPTANCE</span>
+        <span id="workspaceKicker" class="section-kicker" data-i18n="CHANGE REVIEW">CHANGE REVIEW</span>
         <h1 id="workspaceTitle" data-i18n="Current change acceptance">Current change acceptance</h1>
         <p id="workspaceSubtitle" class="workspace-subtitle" data-i18n="acceptance overview meta">Start with the acceptance decision, then inspect blocking checks, exact evidence and changed source.</p>
       </div>
       <div class="workspace-hero-motto" aria-hidden="true">
-        <span data-i18n="Observe understand improve">OBSERVE&nbsp;&nbsp; UNDERSTAND&nbsp;&nbsp; IMPROVE</span>
+        <span data-i18n="Source, tasks and checks">SOURCE&nbsp;&nbsp; TASKS&nbsp;&nbsp; CHECKS</span>
         <i></i>
-        <small data-i18n="From code to confidence">FROM CODE TO CONFIDENCE</small>
+        <small data-i18n="Review changes and results">REVIEW CHANGES AND RESULTS</small>
       </div>
     </header>
 
-    <section class="workspace-switchboard" aria-label="Observatory workspace navigation" data-i18n-aria-label="Observatory workspace navigation">
-      <nav class="workspace-tabs" role="tablist" aria-label="Observatory workspaces" data-i18n-aria-label="Observatory workspaces">
+    <section class="workspace-switchboard" aria-label="Project navigation" data-i18n-aria-label="Project navigation">
+      <nav class="workspace-tabs" role="tablist" aria-label="Project pages" data-i18n-aria-label="Project pages">
         <button id="tabOverview" type="button" role="tab" data-workspace-tab="overview" data-jump="overviewSection" aria-selected="true" aria-controls="overviewSection" data-i18n="Acceptance">Acceptance</button>
         <button id="tabArchitecture" type="button" role="tab" data-workspace-tab="architecture" data-jump="architectureSection" aria-selected="false" aria-controls="architectureSection" data-i18n="Engineering architecture">Engineering architecture</button>
         <button id="tabActivity" type="button" role="tab" data-workspace-tab="activity" data-jump="activitySection" aria-selected="false" aria-controls="activitySection" data-i18n="Task activity">Task activity</button>
-        <button id="tabProof" type="button" role="tab" data-workspace-tab="proof" data-jump="proofSection" aria-selected="false" aria-controls="proofSection" data-i18n="Verification evidence">Verification evidence</button>
+        <button id="tabProof" type="button" role="tab" data-workspace-tab="proof" data-jump="proofSection" aria-selected="false" aria-controls="proofSection" data-i18n="Check results">Check results</button>
         <button id="tabChanges" type="button" role="tab" data-workspace-tab="changes" data-jump="changesSection" aria-selected="false" aria-controls="changesSection" data-i18n="Current changes">Current changes</button>
         <button id="tabRequirements" type="button" role="tab" data-workspace-tab="requirements" data-jump="requirementsSection" aria-selected="false" aria-controls="requirementsSection" data-i18n="Requirements">Requirements</button>
         <button id="tabFiles" type="button" role="tab" data-workspace-tab="files" data-jump="filesSection" aria-selected="false" aria-controls="filesSection" data-i18n="Project files">Project files</button>
@@ -182,12 +182,12 @@
         <aside id="componentInspector" class="component-inspector architecture-inspector" aria-label="Architecture inspector" data-i18n-aria-label="Architecture inspector"></aside>
       </div>
 
-      <section id="codeGraphSection" class="code-graph-stage hidden" aria-label="Code graph observatory" data-i18n-aria-label="Code graph observatory">
+      <section id="codeGraphSection" class="code-graph-stage hidden" aria-label="Code relationships" data-i18n-aria-label="Code relationships">
       <header class="code-graph-toolbar">
         <div class="code-graph-heading">
-          <span class="section-kicker" data-i18n="ENGINEERING DIGITAL TWIN">ENGINEERING DIGITAL TWIN</span>
-          <strong data-i18n="Code graph observatory">Code graph observatory</strong>
-          <span data-i18n="code graph observatory meta">Trace callers, callees, dependency paths, design ownership and proof context without opening an editor.</span>
+          <span class="section-kicker" data-i18n="CODE RELATIONSHIPS">CODE RELATIONSHIPS</span>
+          <strong data-i18n="Code relationships">Code relationships</strong>
+          <span data-i18n="code relationships meta">Trace callers, callees, dependency paths, design ownership and proof context without opening an editor.</span>
         </div>
         <div class="code-graph-controls">
           <div class="code-graph-view" role="group" aria-label="Code graph view" data-i18n-aria-label="Code graph view">
@@ -266,7 +266,7 @@
       <section id="activitySection" class="activity-workspace workspace-panel hidden" data-workspace-panel="activity" role="tabpanel" aria-labelledby="tabActivity" tabindex="-1">
         <div class="workspace-body">
           <section class="execution-observatory-panel" aria-labelledby="executionObservatoryTitle">
-            <header class="execution-observatory-head"><div><span class="section-kicker" data-i18n="DURABLE EXECUTION">DURABLE EXECUTION</span><h2 id="executionObservatoryTitle" data-i18n="Durable execution">Durable execution</h2><p data-i18n="execution observatory meta">Read-only projection of objective, progress, plan and proof state. No chat transcript is stored or displayed.</p></div></header>
+            <header class="execution-observatory-head"><div><span class="section-kicker" data-i18n="TASK PROGRESS">TASK PROGRESS</span><h2 id="executionObservatoryTitle" data-i18n="Task progress">Task progress</h2><p data-i18n="execution observatory meta">Read-only projection of objective, progress, plan and proof state. No chat transcript is stored or displayed.</p></div></header>
             <div id="executionStatus" class="execution-status" aria-live="polite"></div>
           </section>
           <section class="runtime-jobs-panel" aria-labelledby="runtimeJobsTitle">
@@ -327,7 +327,7 @@
       </section>
 
       <section id="fitnessSection" class="secondary-workspace-section workspace-panel hidden" data-workspace-panel="overview" role="region" aria-labelledby="fitnessTitle" tabindex="-1">
-        <header class="secondary-section-head"><div><span class="section-kicker" data-i18n="FITNESS">FITNESS</span><h2 id="fitnessTitle" data-i18n="Engineering Fitness">Engineering Fitness</h2><p data-i18n="fitness observatory meta">Recorded outcomes, revision history and descriptive trends. Missing data stays unknown.</p></div></header>
+        <header class="secondary-section-head"><div><span class="section-kicker" data-i18n="CHECK HISTORY">CHECK HISTORY</span><h2 id="fitnessTitle" data-i18n="Check history">Check history</h2><p data-i18n="fitness observatory meta">Recorded outcomes, revision history and descriptive trends. Missing data stays unknown.</p></div></header>
         <div id="fitnessBenchmark"></div>
         <div id="fitnessObservatory"></div>
       </section>

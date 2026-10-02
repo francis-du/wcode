@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: Repository Intelligence & Engineering State
-description: How the wcode Engineering Control Plane understands repository design, implementation, impact, drift and proof
+description: How wcode connects project design, code, change impact and verification results
 lang: en
 alternate: /zh/docs/software-intelligence/
 permalink: /docs/software-intelligence/
@@ -16,7 +16,7 @@ A coding agent can write code quickly and still be wrong about the system around
 3. **What will this change touch?** — Git-aware impact, product scopes, drift, public API/security signals, and maintainability risk.
 4. **What proves the change is safe?** — deterministic checks, language-native verification, independent review, and revision-bound Evidence.
 
-This repository-understanding layer is one subsystem of the broader **wcode Engineering Control Plane**. It is available through MCP, stable `intelligence` CLI/API compatibility surfaces, the TUI, and the protected Engineering Observatory, and it persists beyond a single model or conversation.
+Repository understanding is one part of **wcode**. The same saved project state is available through MCP, the `intelligence` CLI/API, the TUI and protected Project Status. It is not limited to one model or conversation.
 
 ## The 60-second repository-intelligence model
 
@@ -31,12 +31,12 @@ impact / drift / risk
       ↓ guarded edits
 verification / reviewers / evidence
       ↓
-Engineering Observatory + durable workspace state
+Project Status + durable workspace state
 ```
 
 ![wcode Repository Intelligence stack](/assets/wcode-intelligence-stack.svg)
 
-The Engineering Observatory turns that model into a human-readable project digital twin: layered architecture blueprint, Design vs Actual, live engineering activity, Vibe Coding change story, Desired State → Actual State → Change → Proof → Convergence, and explicit drift. The generic Software Graph remains a provenance-bearing substrate and secondary drill-down, not a visualization users must decipher.
+Project Status shows project structure, differences between the design and code, running tasks, changes and verification results. Open the relationship graph when you need to inspect a specific dependency or the source of that relationship.
 
 Verification mapping and proof are deliberately separate. `Mapped` means every declared verification reference for an Acceptance Criterion resolves; it does not claim execution. `Executed` means qualifying verification Evidence exists, `Passed` requires all effective verification scopes in the latest observed revision to pass; timestamp ties retain failures rather than choosing a favorable record ID. `Fresh` means that unambiguous revision matches the current code-plus-Design-State revision. These counts remain separate in `ProjectObservatory.proof.acceptance`, so 100% traceability mapping cannot be mistaken for a current passing run.
 
@@ -110,7 +110,7 @@ wcode --allow-risky-exec verification --plan-id VP-... --execute-stages
 ```
 
 Press `I` to load Intelligence for the selected project, `C` for the complete
-command catalog, and `W` for the protected Engineering Observatory. The pairing
+command catalog, and `W` for the protected Project Status. The pairing
 code remains visible after a client connects. The TUI and WebUI show the same
 pending requests and distinguish executable access from an exact repository
 operation.
@@ -381,7 +381,7 @@ Current provider families include native/check-mode Rust, Go, pure Dart/Flutter,
 
 ### Graph history and diff
 
-`software_graph` persists deduplicated meaningful graph snapshots. `graph_history` lists them, `graph_query` reads one revision or neighborhood, and `graph_diff` compares two revisions (or the latest two by default). Diff aligns nodes by stable node ID and edges by `from + to + kind + provider + precision`; a provenance-revision/attribute change is reported as `changed` rather than noisy delete/add churn. Repeated stable edge identities are compared as revision multisets, so future richer SCIP/runtime providers do not lose duplicate relationships. The Engineering Observatory uses this history for its architecture-revision timeline and latest Node/Edge `+ / - / ~` delta, while its feature architecture is regenerated from the current repository on refresh.
+`software_graph` persists deduplicated meaningful graph snapshots. `graph_history` lists them, `graph_query` reads one revision or neighborhood, and `graph_diff` compares two revisions (or the latest two by default). Diff aligns nodes by stable node ID and edges by `from + to + kind + provider + precision`; a provenance-revision/attribute change is reported as `changed` rather than noisy delete/add churn. Repeated stable edge identities are compared as revision multisets, so future richer SCIP/runtime providers do not lose duplicate relationships. The Project Status uses this history for its architecture-revision timeline and latest Node/Edge `+ / - / ~` delta, while its feature architecture is regenerated from the current repository on refresh.
 
 ### Change intelligence
 
@@ -610,7 +610,7 @@ Implemented now:
 - MCP `2026-07-28` task augmentation for `semantic_provider_refresh` and `verification_execute_stages`, with durable-before-handle storage, OAuth-client scoping, polling, bounded cancellation, and synchronous fallback for clients that do not opt into the extension;
 - persistent Reconciliation Plans plus dependency-aware claim/submit/retry execution state and reconciliation Evidence;
 - local `wcode intelligence --refresh-semantic` / `wcode verification --execute-stages` CLI flows in addition to read-only status views;
-- live TUI repository-intelligence overlay (`I`), complete command catalog (`C`), persistent pairing code, and protected Engineering Observatory (`W`) with a System → Subsystem → Component blueprint, live Understand → Change → Prove → Learn → Observe activity, Files → Components → Requirements → Verification → Drift change story, secondary Design-vs-Actual dependency graph, Component Inspector, Requirement drill-down, verification, ADR/constraint context, bounded project tree, code statistics, mapped Git changes, risk, and architecture revision history;
+- live TUI repository-intelligence overlay (`I`), complete command catalog (`C`), persistent pairing code, and protected Project Status (`W`) with a System → Subsystem → Component blueprint, live Understand → Change → Prove → Learn → Observe activity, Files → Components → Requirements → Verification → Drift change story, secondary Design-vs-Actual dependency graph, Component Inspector, Requirement drill-down, verification, ADR/constraint context, bounded project tree, code statistics, mapped Git changes, risk, and architecture revision history;
 - MCP exposure of the complete higher-level runtime.
 
 Precision and integration boundaries are explicit rather than hidden:
@@ -629,4 +629,4 @@ The wcode repository already contains `.wcode/project.yaml` and `.wcode/design/*
 
 > Use `agent_context` for the requested wcode change. Follow its readiness/next actions, edit through guarded Workspace tools, run `review_changes` and `verify_project`, then use drift/risk/reconciliation/evidence tools only if the task still needs deeper convergence analysis.
 
-That exercises the implemented repository-intelligence and Engineering Control Plane path end to end without requiring a separate demo project.
+That exercises the implemented repository-intelligence and Project tools path end to end without requiring a separate demo project.

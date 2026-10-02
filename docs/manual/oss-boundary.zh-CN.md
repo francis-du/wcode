@@ -11,7 +11,7 @@ permalink: /zh/docs/oss-boundary/
 
 wcode 是公开的 Apache-2.0 产品。规范工程事实——Design、Verification、Evidence、Policy 语义、Acceptance、Workspace 安全、MCP/CLI/TUI/WebUI 以及可复用 Provider 合同——继续留在这个公开仓库。
 
-Team 与 Enterprise 实现已经迁到独立源码仓库。本地开发可以把它放在兄弟目录 `../wcode-commercial`，但公开 wcode 的构建、测试、打包、启动和验证都不能要求该目录存在。
+Team 与 Enterprise 实现已经迁到独立源码仓库。企业版名称为 wteam（we team）。本地开发可以把它放在兄弟目录 `../wteam`，但公开 wcode 的构建、测试、打包、启动和验证都不能要求该目录存在。
 
 ## 物理仓库边界
 
@@ -22,7 +22,7 @@ Code/Rust/
 │   ├── src/
 │   ├── tests/
 │   └── docs/
-└── wcode-commercial/      # 独立、面向私有商业开发
+└── wteam/                 # 独立的私有企业版仓库
     ├── team/
     ├── enterprise/
     ├── docs/

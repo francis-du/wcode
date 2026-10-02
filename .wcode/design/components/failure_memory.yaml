@@ -16,4 +16,4 @@ implementation:
   - {kind: file, path: src/evidence/journal.rs}
   - {kind: file, path: src/evidence/failure_memory.rs}
   - {kind: file, path: src/integrations/mcp/dispatch/journal.rs}
-  - {kind: file, path: src/runtime/harness/context_lessons.rs}
+  - {kind: file, path: src/runtime/harness/context/lessons.rs}

@@ -1,15 +1,15 @@
 ---
 layout: docs
-title: Engineering Fitness
+title: Check history
 description: Model-free, deterministic evaluation of repository retrieval, context, edit readiness, safety and cost.
 lang: en
 alternate: /zh/docs/engineering-fitness/
 permalink: /docs/engineering-fitness/
 ---
 
-# WCode Engineering Fitness
+# WCode Check history
 
-WCode Engineering Fitness is the model-free measurement layer for wcode. It measures deterministic repository-engineering properties that wcode owns directly; it is not a coding-model leaderboard and does not claim that a model will solve a task.
+WCode Check history is the model-free measurement layer for wcode. It measures deterministic repository-engineering properties that wcode owns directly; it is not a coding-model leaderboard and does not claim that a model will solve a task.
 
 ## Fitness Observatory (next-release working tree)
 
@@ -23,9 +23,9 @@ Milestones now have unique event IDs and optional post-operation code/Design obs
 
 The EN/ZH panel uses the current Observatory theme, keyboard-scrollable tables and bounded history. Workspace switches, restored client caches, refresh failures and stale server snapshots cannot present old numbers as newly confirmed results. Missing data is distinct from zero. Flakiness, retries, recovery rates, live LSP accuracy, application readiness and model patch correctness are not inferred from these records. A successful tool return can mean only that an operation was accepted or evidence was stored.
 
-## Why “Engineering Fitness”
+## Why “Check history”
 
-“Benchmark” is too easy to read as an end-to-end model ranking, while “Capability Suite” suggests a single opaque capability score. Engineering Fitness instead treats each release like an engineering system under repeatable fitness checks: retrieval quality, semantic accuracy, context efficiency, edit readiness, bug-relevant evidence, robustness and cost remain separate dimensions.
+“Benchmark” is too easy to read as an end-to-end model ranking, while “Capability Suite” suggests a single opaque capability score. Check history instead treats each release like an engineering system under repeatable fitness checks: retrieval quality, semantic accuracy, context efficiency, edit readiness, bug-relevant evidence, robustness and cost remain separate dimensions.
 
 ## Measurement contract
 
@@ -49,9 +49,9 @@ Do not collapse these dimensions into one release score. A faster result with lo
 
 **Fitness checks** are deterministic and suitable for normal CI. Correctness assertions are hard gates; noisy wall-clock measurements are descriptive unless a controlled performance job establishes a statistically justified threshold.
 
-**Fitness trials** are explicit release-profile measurements. Existing `fast_context_benchmark`, `repo_rank_release_cost_comparison` and `competitive_io_benchmark` remain stage-level trials and keep their existing caveats. They are inputs to Engineering Fitness, not model-accuracy claims.
+**Fitness trials** are explicit release-profile measurements. Existing `fast_context_benchmark`, `repo_rank_release_cost_comparison` and `competitive_io_benchmark` remain stage-level trials and keep their existing caveats. They are inputs to Check history, not model-accuracy claims.
 
-**Agent evaluation** is a separate future layer. When model budget exists, the same frozen tasks can compare a fixed model with baseline tools versus wcode. Agent task success must never be inferred from Engineering Fitness alone.
+**Agent evaluation** is a separate future layer. When model budget exists, the same frozen tasks can compare a fixed model with baseline tools versus wcode. Agent task success must never be inferred from Check history alone.
 
 ## Executable checks and trials
 

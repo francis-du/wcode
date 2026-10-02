@@ -277,13 +277,13 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     let intelligence_zh =
         fs::read_to_string(docs_root.join("software-intelligence.zh-CN.md")).unwrap();
     for phrase in [
-        "Make AI-generated code shippable with evidence.",
-        "Engineering Control Plane for AI-generated code",
+        "Repository tools, task tracking and checks",
+        "MCP",
         "Understand → Change → Inspect → Verify → Evidence → Accept / Block",
-        "AI Change Acceptance",
-        "not yet a completed pilot workflow",
-        "Engineering Observatory",
-        "Understand first. Change less. Prove it works. Learn only from proof.",
+        "wteam",
+        "complete team workflow still needs a real pilot",
+        "Project Status",
+        "A past passing result does not approve a later change.",
         "wcode-engineering-loop.svg",
         "wcode-intelligence-stack.svg",
         "wcode-verification-mesh.svg",
@@ -304,12 +304,12 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
         "README must not carry version-specific documentation navigation"
     );
     for phrase in [
-        "Engineering Control Plane",
+        "Project tools",
         "REPOSITORY INTELLIGENCE",
-        "Repository understanding is still the bottleneck",
-        "Stop paying the context tax",
+        "Tree-sitter",
+        "Project Status",
         "verification and evidence",
-        "LIVING SYSTEM MODEL",
+        "OAuth 2.1 + PKCE",
         "wcode-engineering-loop.svg",
         "wcode-intelligence-stack.svg",
         "wcode-verification-mesh.svg",
@@ -317,17 +317,17 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     ] {
         assert!(
             homepage_en.contains(phrase),
-            "English homepage must explain the engineering-control-plane value story: {phrase}"
+            "English homepage must explain the available repository and verification tools: {phrase}"
         );
     }
     for phrase in [
-        "Engineering Control Plane",
+        "项目工具",
         "仓库理解",
         "目标架构",
         "真实 LSP 语义关系",
         "验证证据",
         "可观测",
-        "活系统模型",
+        "OAuth 2.1 + PKCE",
         "assets/zh/engineering-loop.svg",
         "assets/zh/intelligence-stack.svg",
         "assets/zh/verification-mesh.svg",
@@ -335,16 +335,35 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
     ] {
         assert!(
             homepage_zh.contains(phrase),
-            "Chinese homepage must keep the complete engineering-control-plane value story: {phrase}"
+            "Chinese homepage must explain the same repository and verification tools: {phrase}"
         );
     }
     assert!(intelligence_en.contains("Repository Intelligence & Engineering State"));
     assert!(intelligence_en.contains("The 60-second repository-intelligence model"));
-    assert!(intelligence_en.contains("Engineering Observatory"));
+    assert!(intelligence_en.contains("Project Status"));
     assert!(intelligence_en.contains("What will this change touch?"));
     assert!(intelligence_zh.contains("仓库理解与工程状态"));
     assert!(intelligence_zh.contains("60 秒理解仓库与工程状态"));
-    assert!(intelligence_zh.contains("Engineering Observatory"));
+    assert!(intelligence_zh.contains("Project Status"));
+    for document in [
+        &readme,
+        &english_index,
+        &chinese_index,
+        &homepage_en,
+        &homepage_zh,
+    ] {
+        for obsolete in [
+            "engineering control plane",
+            "工程数字孪生",
+            "an project tools",
+            "an **project tools",
+        ] {
+            assert!(
+                !document.to_lowercase().contains(obsolete),
+                "entry pages must use functional names rather than obsolete labels: {obsolete}"
+            );
+        }
+    }
     assert!(intelligence_zh.contains("这次修改会碰到什么？"));
     let releases_en = fs::read_to_string(docs_root.join("releases.md")).unwrap();
     let releases_zh = fs::read_to_string(docs_root.join("releases.zh-CN.md")).unwrap();
@@ -549,7 +568,7 @@ fn documentation_is_unified_bilingual_and_hosted_as_html() {
             &[
                 "agent_context",
                 "Repository Intelligence",
-                "Engineering Observatory",
+                "Project Status",
                 "Design State",
                 "semantic_provider_refresh",
                 "verification_execute_stages",

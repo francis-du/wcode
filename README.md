@@ -9,13 +9,13 @@
   <a href="https://wcode.francis.run/"><img src="https://img.shields.io/badge/website-wcode.francis.run-f05aa6" alt="wcode website"></a>
 </p>
 
-# Make AI-generated code shippable with evidence.
+# Repository tools, task tracking and checks
 
-**wcode is an Engineering Control Plane for AI-generated code.** Keep the coding agent you already use. wcode provides repository understanding, guarded changes, inspection, real verification, revision-bound evidence and operator visibility through MCP.
+**wcode helps coding assistants read repositories, change code and run checks.** It works through MCP with the assistant you already use. You can inspect changes, manage tasks, approve access and see which checks ran against the current code.
 
-The product loop is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. The first commercial scenario, **AI Change Acceptance**, is being developed from the existing core. Its unified Acceptance Record, project policy and external merge gate are not yet a completed pilot workflow. See the [source-audited capability map, architecture and P0 plan](docs/manual/research-upgrades.md#ai-change-acceptance-commercial-architecture-2026-09-30).
+The workflow is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. The team edition, **wteam**, adds shared policies, review records and GitHub merge checks. Its complete team workflow still needs a real pilot; individual implemented features do not establish that the whole workflow is ready. See the [capability audit and implementation plan](docs/manual/research-upgrades.md#ai-change-acceptance-commercial-architecture-2026-09-30).
 
-> **Understand first. Change less. Prove it works. Learn only from proof.**
+> Checks are tied to the code they ran against. A past passing result does not approve a later change.
 
 [Website](https://wcode.francis.run/) · [Documentation](https://wcode.francis.run/docs/) · [Getting started](https://wcode.francis.run/docs/getting-started/)
 
@@ -45,13 +45,13 @@ wcode setup
 
 Choose **Global (recommended)** or **Current project**, reconnect the coding agent, and let the host launch `wcode mcp-stdio`. The host working directory becomes the default Workspace.
 
-Run the operator runtime when you also want the TUI, Engineering Observatory, Setup Hub, or remote MCP access:
+Run the operator runtime when you also want the TUI, Project Status, Setup Hub, or remote MCP access:
 
 ```bash
 wcode
 ```
 
-Press **W** for the Engineering Observatory and **O** for Setup Hub. Remote clients use the public `/mcp` endpoint shown by the runtime and complete OAuth.
+Press **W** for the Project Status and **O** for Setup Hub. Remote clients use the public `/mcp` endpoint shown by the runtime and complete OAuth.
 
 ## The engineering loop
 
@@ -122,7 +122,7 @@ Every transport reaches the same Harness, Workspace policy, authorization system
 
 ## Operator surfaces
 
-The TUI shows runtime health, MCP state, Workspace activity, slots, throughput, verification signals, and pending authorization. The Engineering Observatory exposes the current product views: **Overview, Engineering architecture, Task activity, Verification evidence, Current changes, Requirements, and Project files**, plus Access management and Setup Hub.
+The TUI shows runtime health, MCP state, Workspace activity, slots, throughput, verification signals, and pending authorization. The Project Status exposes the current product views: **Overview, Engineering architecture, Task activity, Verification evidence, Current changes, Requirements, and Project files**, plus Access management and Setup Hub.
 
 Current screenshots and UI walkthroughs live on the [website product tour](https://wcode.francis.run/#product-tour) so the README does not duplicate stale interface documentation.
 

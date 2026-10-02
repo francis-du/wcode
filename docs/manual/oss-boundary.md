@@ -11,7 +11,7 @@ permalink: /docs/oss-boundary/
 
 wcode is the public Apache-2.0 product. Canonical engineering truth—Design, Verification, Evidence, Policy semantics, Acceptance, workspace safety, MCP/CLI/TUI/WebUI and reusable provider contracts—stays in this repository.
 
-Team and Enterprise implementation lives in a separate source-control repository. A local developer may keep it as the sibling `../wcode-commercial`, but public wcode never requires that checkout to build, test, package, start or verify itself.
+Team and Enterprise implementation lives in a separate source-control repository. The enterprise product is named wteam (we team). A local developer may keep it as the sibling `../wteam`, but public wcode never requires that checkout to build, test, package, start or verify itself.
 
 ## Physical repository boundary
 
@@ -22,7 +22,7 @@ Code/Rust/
 │   ├── src/
 │   ├── tests/
 │   └── docs/
-└── wcode-commercial/      # separate private-oriented repository
+└── wteam/                 # separate private enterprise repository
     ├── team/
     ├── enterprise/
     ├── docs/
