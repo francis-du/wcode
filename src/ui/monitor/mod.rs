@@ -94,6 +94,10 @@ use monitor_runtime_presence::*;
 mod monitor_shell;
 use monitor_shell::*;
 
+#[path = "compact.rs"]
+mod monitor_compact;
+use monitor_compact::*;
+
 #[path = "metrics.rs"]
 mod monitor_metrics;
 use monitor_metrics::*;

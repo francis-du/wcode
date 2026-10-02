@@ -6,7 +6,23 @@ function renderWorkspaceOptions() {
 }
 function renderSharedChrome() {
   renderWorkspaceOptions();
+  renderWorkspaceIdentity();
   renderLive(); renderStats(); renderAttention(); renderProjectNavigator();
+}
+function renderWorkspaceIdentity() {
+  const project = state.project;
+  const name = typeof project?.project === "string" && project.project.trim()
+    ? project.project : state.current || localized("Choose a workspace", "选择工作区");
+  const root = typeof project?.root === "string" ? project.root : "";
+  const revision = typeof project?.proof?.revision_code === "string" ? project.proof.revision_code : "";
+  if (els.workspaceName) { els.workspaceName.textContent = name; els.workspaceName.title = name; }
+  if (els.workspaceRoot) { els.workspaceRoot.textContent = root; els.workspaceRoot.title = root; }
+  if (els.workspaceRevision) {
+    els.workspaceRevision.textContent = revision ? revision.slice(0, 19) : "";
+    els.workspaceRevision.title = revision ? localized(`Observed source revision: ${revision}`, `观测源码版本：${revision}`) : "";
+  }
+  const page = els.workspaceTitle?.textContent || t("Project Status");
+  document.title = `${page} · ${name} · wcode`;
 }
 function renderTabPanels(tab) {
   switch (tab) {
@@ -179,10 +195,11 @@ function renderWorkspaceHero(tab) {
   if (els.workspaceSubtitle) els.workspaceSubtitle.textContent = copy[2] || "";
 }
 function activateWorkspaceTab(tab, { scroll = false } = {}) {
-  const valid = ["overview", "architecture", "activity", "proof", "changes", "requirements", "files"];
-  const next = valid.includes(tab) ? tab : "overview";
+  const next = workspaceTabs.includes(tab) ? tab : "overview";
   state.workspaceTab = next;
+  savePreference("wcode.ui.page", next);
   renderWorkspaceHero(next);
+  renderWorkspaceIdentity();
   let activeTabButton = null;
   document.querySelectorAll("[data-workspace-tab]").forEach(button => {
     const active = button.dataset.workspaceTab === next;
@@ -336,6 +353,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.syncError = false; state.syncFailure = null;
   state.fitnessSnapshotFromCache = false;
   state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true;
+  renderWorkspaceIdentity();
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;
   state.codeGraphSourceController?.abort(); state.codeGraphSourceController = null;
@@ -712,6 +730,16 @@ els.workspace.addEventListener("change", async () => {
   void activityTick();
   await refresh; scheduleProject();
   if (accessPanelOpen()) await loadAccess();
+});
+document.getElementById("projectHome")?.addEventListener("click", event => {
+  event.preventDefault();
+  activateWorkspaceTab("overview", { scroll: true });
+});
+document.getElementById("skipWorkspace")?.addEventListener("click", event => {
+  event.preventDefault();
+  const panel = document.querySelector(`[data-workspace-panel="${state.workspaceTab}"]`);
+  panel?.scrollIntoView({ block: "start" });
+  panel?.focus({ preventScroll: true });
 });
 els.language.addEventListener("click", () => {
   state.language = state.language === "zh-CN" ? "en" : "zh-CN";

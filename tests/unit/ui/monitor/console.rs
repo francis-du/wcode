@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "render_artifacts.rs"]
+mod render_artifacts;
+
 #[test]
 fn narrow_footer_keeps_pairing_approval_help_and_exit_visible() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
@@ -143,6 +146,38 @@ fn compact_help_and_tiny_dashboard_keep_recovery_controls_visible() {
     assert!(tiny.contains(&config.pairing_code));
     assert!(tiny.contains(" ? "));
     assert!(tiny.contains(" ^C "));
+}
+
+#[test]
+fn tiny_dashboard_reserves_recovery_keys_and_reports_the_actual_size_boundary() {
+    let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
+    let config = monitor_test_config(workspaces);
+    let monitor = TaskMonitor::new(["backend".to_owned()]);
+    for language in [UiLanguage::En, UiLanguage::ZhCn] {
+        let ui = DashboardState {
+            language,
+            ..DashboardState::default()
+        };
+        for width in [31, 40, 60, 120] {
+            for height in [5, 6, 8, 10] {
+                let text = monitor_test_text(&monitor, &config, width, height, &ui);
+                for key in [" ? ", " ^C "] {
+                    assert!(
+                        text.contains(key),
+                        "missing {key} at {width} × {height}: {text}"
+                    );
+                }
+            }
+        }
+        let text = monitor_test_text(&monitor, &config, 60, 10, &ui);
+        assert!(text.contains("60 × 10"));
+        assert!(text.contains("40 × 18"));
+        assert!(text.contains(&config.pairing_code));
+        // TestBackend includes a blank continuation cell after wide glyphs.
+        assert!(text
+            .replace(' ', "")
+            .contains(&language.tr("Resize to continue").replace(' ', "")));
+    }
 }
 
 #[test]

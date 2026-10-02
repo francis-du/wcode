@@ -68,7 +68,8 @@ fn setup_interactions_handle_copy_language_visibility_and_failed_refresh() {
     let harness = r#"
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 class Element{
-  constructor(){this.textContent='';this.value='';this.disabled=false;this.dataset={};this.events={};this.children=[];}
+  constructor(){this.textContent='';this.value='';this.disabled=false;this.dataset={};this.events={};this.children=[];this.attrs={};}
+  setAttribute(key,value){this.attrs[key]=value;}
   addEventListener(event,handler){this.events[event]=handler;}
   replaceChildren(){this.children=[];} appendChild(child){this.children.push(child);} focus(){this.focused=true;}
 }
@@ -100,8 +101,10 @@ function poll(){const entry=[...timers].find(([,item])=>item.delay===6000);asser
   poll();await respond({ok:true,public_url_healthy:true,mcp_url:'https://example.test/mcp',mcp_initialized:true,mcp_last_seen_seconds_ago:7,tunnels:[]});
   assert.equal(nodes['copy-endpoint'].disabled,false);assert.ok(nodes['remote-status'].textContent.includes('7s ago'));
   await nodes['copy-endpoint'].events.click();assert.equal(copied.at(-1),'https://example.test/mcp');
+  assert.equal(nodes['copy-endpoint'].textContent,'Copied.');assert.equal(nodes['copy-endpoint'].attrs['aria-busy'],'false');
   nodes.language.events.click();assert.equal(document.documentElement.lang,'zh-CN');
   nodes.mode.value='remote';nodes.performance.value='fast';nodes.performance.events.change();
+  assert.equal(setupCopy.textContent,'复制');
   assert.equal(nodes['launch-command'].textContent,'wcode --performance fast');
   assert.equal(nodes['preview-command'].textContent,'wcode --performance fast --show-config');
   assert.equal(nodes['setup-command'].textContent,'wcode setup --performance fast');
@@ -113,7 +116,31 @@ function poll(){const entry=[...timers].find(([,item])=>item.delay===6000);asser
   nodes.mode.value='local-http';nodes.mode.events.change();
   assert.equal(nodes['launch-command'].textContent,'wcode --no-tunnel --performance fast --read-only --no-exec --no-semantic');
   nodes.access.value='standard';nodes.access.events.change();
+  let finishCopy,copyRequests=0;
+  navigator.clipboard={writeText:()=>new Promise(resolve=>{copyRequests++;finishCopy=resolve;})};
+  const pendingCopy=setupCopy.events.click();
+  await setupCopy.events.click();assert.equal(copyRequests,1);assert.equal(setupCopy.attrs['aria-busy'],'true');
+  nodes.performance.value='balanced';nodes.performance.events.change();
+  finishCopy();await pendingCopy;
+  assert.equal(setupCopy.textContent,'复制');assert.equal(nodes['copy-status'].textContent,'');assert.equal(setupCopy.attrs['aria-busy'],'false');
+  navigator.clipboard={writeText:()=>new Promise(resolve=>{finishCopy=resolve;})};
+  const pendingEndpoint=nodes['copy-endpoint'].events.click();
+  poll();await respond({ok:true,public_url_healthy:true,mcp_url:'https://replacement.test/mcp',tunnels:[]});
+  finishCopy();await pendingEndpoint;
+  assert.equal(nodes['copy-endpoint'].textContent,'复制');assert.equal(nodes['copy-status'].textContent,'');
+  navigator.clipboard={writeText:async text=>copied.push(text)};
+  await nodes['copy-endpoint'].events.click();assert.equal(copied.at(-1),'https://replacement.test/mcp');assert.equal(nodes['copy-endpoint'].textContent,'已复制。');
+  navigator.clipboard={writeText:()=>new Promise(resolve=>{finishCopy=resolve;})};
+  const hiddenCopy=setupCopy.events.click();document.hidden=true;events.visibilitychange();
+  finishCopy();await hiddenCopy;
+  assert.equal(setupCopy.textContent,'复制');assert.equal(nodes['copy-status'].textContent,'');assert.equal(setupCopy.attrs['aria-busy'],'false');
+  document.hidden=false;events.visibilitychange();await respond({ok:true,public_url_healthy:true,mcp_url:'https://replacement.test/mcp',tunnels:[]});
+  let rejectCopy;selected=false;
+  navigator.clipboard={writeText:()=>new Promise((_,reject)=>{rejectCopy=reject;})};
+  const staleFailure=setupCopy.events.click();nodes.performance.value='light';nodes.performance.events.change();
+  rejectCopy(new Error('clipboard unavailable'));await staleFailure;assert.equal(selected,false);assert.equal(nodes['copy-status'].textContent,'');
   navigator.clipboard=null;await setupCopy.events.click();assert.ok(selected);assert.ok(nodes['copy-status'].textContent.includes('手动复制'));
+  assert.equal(setupCopy.textContent,'复制');assert.equal(setupCopy.attrs['aria-busy'],'false');
   poll();requests.at(-1).reject(new Error('offline'));await flush();
   assert.equal(nodes['copy-endpoint'].disabled,true);assert.ok(!nodes['remote-endpoint'].textContent.includes('example.test'));
   poll();const count=requests.length;document.hidden=true;events.visibilitychange();await flush();

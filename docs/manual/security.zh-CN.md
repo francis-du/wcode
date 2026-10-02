@@ -49,6 +49,8 @@ HumanApproval 使用独立的本地操作者精确授权，两分钟到期且只
 
 ![wcode 授权与访问控制](/assets/wcode-access-management.png)
 
+当前生产界面与示例请求的演示图；生成图片时没有授予访问权限。
+
 TUI 操作：
 
 ```text

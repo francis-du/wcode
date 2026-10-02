@@ -82,6 +82,31 @@ function navigatorFixture(s){
 async function run(){
   const results=[];
   async function test(name,fn){try{await fn();results.push({name,passed:true});}catch(error){results.push({name,passed:false,error:error.stack});}}
+  await test('workspace page preferences restore only the seven supported pages',async()=>{
+    for(const tab of ['overview','architecture','activity','proof','changes','requirements','files']){
+      const s=sandbox(false,true,{storage:{'wcode.ui.page':tab}});
+      assert.equal(s.run('state.workspaceTab'),tab);
+      s.run('activateWorkspaceTab("files");');
+      assert.equal(s.run('readPreference("wcode.ui.page")'),'files');
+    }
+    assert.equal(sandbox(false,true,{storage:{'wcode.ui.page':'<script>unknown</script>'}}).run('state.workspaceTab'),'overview');
+    const denied=sandbox(true);denied.run('activateWorkspaceTab("changes");');assert.equal(denied.run('state.workspaceTab'),'changes');
+  });
+  await test('workspace identity and browser title follow selection without retaining another root or revision',async()=>{
+    const s=sandbox();s.context.fixture={...project(),project:'<script>Project</script>',root:'/private/project',proof:{revision_code:'sha256:current-source'}};
+    s.run('state.project=fixture;activateWorkspaceTab("files");');
+    assert.equal(s.node('#workspaceName').textContent,'<script>Project</script>');
+    assert.equal(s.node('#workspaceRoot').textContent,'/private/project');
+    assert.match(s.context.document.title,/Project files.*<script>Project<\/script>/);
+    s.run('state.current="B";clearWorkspaceView();');
+    assert.equal(s.node('#workspaceName').textContent,'B');
+    assert.equal(s.node('#workspaceRoot').textContent,'');assert.equal(s.node('#workspaceRevision').textContent,'');
+  });
+  await test('sync failures remain visible in workspace context and language changes refresh the page heading',async()=>{
+    const s=sandbox();s.run('activateWorkspaceTab("proof");setSync("error","Snapshot unavailable");');
+    assert.equal(s.node('#snapshotState').textContent,'Snapshot unavailable');assert.equal(s.node('#snapshotState').dataset.state,'error');
+    s.run('state.language="zh-CN";applyLanguage();');assert.equal(s.node('#workspaceTitle').textContent,'验证证据');
+  });
   await test('model ownership is unknown for older snapshots and remains visible without Execution',async()=>{
     const s=sandbox();s.context.fixture={...project(),execution:{available:true,exists:false}};s.run('state.project=fixture;renderExecutionStatus();');
     assert.match(s.node('#executionStatus').innerHTML,/Ownership state is unknown/);assert.doesNotMatch(s.node('#executionStatus').innerHTML,/Unclaimed|No items in the observed Worklist/);

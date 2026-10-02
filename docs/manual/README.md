@@ -28,7 +28,7 @@ wcode is easiest to understand as five layers around the coding model:
 
 ## Find the right view
 
-Press **W** in the TUI to open the protected Project Status for the selected project. The default tab is **Engineering architecture**. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
+Press **W** in the TUI to open the protected Project Status for the selected project. The first visit opens **Acceptance**; later visits restore the last supported page. Use the workspace selector to change projects, and the language and theme controls to adjust presentation.
 
 | Surface | What to use it for |
 | --- | --- |
@@ -51,6 +51,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 | --- | --- |
 | Install wcode and connect the first repository | [Getting started](getting-started/) |
 | Understand repository intelligence and engineering state | [Repository Intelligence & Engineering State](software-intelligence/) |
+| Inspect the current browser and terminal interface | [Interface review and image gallery](workbench-ui-review/) |
 | Connect a local coding agent or cloud connector | [Code Agent integrations](code-agent-integrations/) |
 | Understand workspace, command, OAuth, and media boundaries | [Security](security/) |
 

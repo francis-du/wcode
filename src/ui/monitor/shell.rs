@@ -101,7 +101,7 @@ fn render_dashboard_body(
     let fixed_height = header_height + setup_height + minimum_activity_height + 2;
 
     if area.width < 40 || area.height < fixed_height {
-        render_too_small(frame, area, config, ui.language);
+        render_too_small(frame, area, config, fixed_height, ui.language);
         return;
     }
 
@@ -364,78 +364,6 @@ fn render_engineering_pulse(
             signal_line(language.tr("MODEL"), &model, model_tone),
         ]),
         inner,
-    );
-}
-
-fn render_too_small(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    config: &MonitorConfig,
-    language: UiLanguage,
-) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(OUTLINE))
-        .style(Style::default().bg(SURFACE))
-        .padding(Padding::uniform(1))
-        .title(Line::from(vec![
-            Span::styled(
-                " wcode ",
-                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" {} ", language.tr("project status")),
-                Style::default().fg(ACCENT),
-            ),
-        ]))
-        .title(
-            Line::from(Span::styled(
-                format!(" INSTANCE {} ", truncate_end(&config.instance_id, 8)),
-                Style::default().fg(TEXT_DIM),
-            ))
-            .right_aligned(),
-        );
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                language.tr("Terminal needs a little more room"),
-                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(
-                format!("current size  {} × {}", area.width, area.height),
-                Style::default().fg(TEXT_MUTED),
-            )),
-            Line::from(Span::styled(
-                language.tr("resize the window to restore the live dashboard"),
-                Style::default().fg(TEXT_DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    format!("{}  ", language.tr("Pairing code")),
-                    Style::default().fg(TEXT_DIM),
-                ),
-                Span::styled(
-                    config.pairing_code.clone(),
-                    Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                keycap("?"),
-                Span::styled(
-                    format!(" {}   ", language.tr("help")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                keycap("^C"),
-                Span::styled(
-                    format!(" {}", language.tr("stop")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-            ]),
-        ])
-        .alignment(ratatui::layout::Alignment::Center)
-        .block(block),
-        area,
     );
 }
 
