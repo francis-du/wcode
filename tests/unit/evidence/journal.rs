@@ -1,4 +1,16 @@
 use crate::engineering_journal::{change_fingerprint, load_recent, persist, EngineeringMilestone};
+
+#[test]
+fn engineering_journal_access_is_shared_by_canonical_workspace_aliases() {
+    let root = tempfile::tempdir().unwrap();
+    let first = Workspace::new(root.path(), true, false).unwrap();
+    let second = Workspace::new(root.path().join("."), true, false).unwrap();
+    let first_gate = super::journal_access(&first).unwrap();
+    let second_gate = super::journal_access(&second).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&first_gate, &second_gate));
+    let _guard = first_gate.lock().unwrap();
+    assert!(second_gate.try_lock().is_err());
+}
 use crate::workspace::Workspace;
 use std::fs;
 
