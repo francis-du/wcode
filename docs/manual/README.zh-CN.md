@@ -51,6 +51,7 @@ wcode 提供五类功能：
 | --- | --- |
 | 安装、启动并连接第一个仓库 | [快速开始](getting-started/) |
 | 理解仓库、架构与工程状态 | [仓库理解与工程状态](software-intelligence/) |
+| 查看当前浏览器与终端界面 | [界面检查与图片集](workbench-ui-review/) |
 | 接入本地编程智能体或云端连接器 | [智能体与 MCP 集成](code-agent-integrations/) |
 | 理解工作区、命令和 OAuth 安全边界 | [安全模型](security/) |
 

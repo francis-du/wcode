@@ -57,7 +57,7 @@ Press **W** for the Project Status and **O** for Setup Hub. Remote clients use t
 
 ![wcode terminal dashboard with demonstration data](docs/assets/wcode-tui.png)
 
-The current workspace, revision and snapshot state stay visible across all seven pages. This image uses labeled fixture data. See the [interface review and page gallery](docs/Workbench-UI-Review.md) for desktop, phone and terminal states.
+The current workspace, revision and snapshot state stay visible across all seven pages. This image uses labeled fixture data. See the [interface review and page gallery](docs/manual/workbench-ui-review.md) for desktop, phone and terminal states.
 
 ## The engineering loop
 

@@ -51,6 +51,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 | --- | --- |
 | Install wcode and connect the first repository | [Getting started](getting-started/) |
 | Understand repository intelligence and engineering state | [Repository Intelligence & Engineering State](software-intelligence/) |
+| Inspect the current browser and terminal interface | [Interface review and image gallery](workbench-ui-review/) |
 | Connect a local coding agent or cloud connector | [Code Agent integrations](code-agent-integrations/) |
 | Understand workspace, command, OAuth, and media boundaries | [Security](security/) |
 
