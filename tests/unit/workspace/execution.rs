@@ -415,8 +415,17 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
         "already-applied"
     );
     use tokio::io::AsyncWriteExt;
+    // Windows ChildStdin buffers writes on Tokio's blocking pool. write_all()
+    // can accept bytes before the OS reports the closed pipe; flush must join
+    // that write before this assertion can prove the child is no longer alive.
+    let delivery = timeout(Duration::from_secs(10), async {
+        release.write_all(b"release\n").await?;
+        release.flush().await
+    })
+    .await
+    .expect("delivery to the terminated child must finish, not remain pending");
     assert!(
-        release.write_all(b"release\n").await.is_err(),
+        delivery.is_err(),
         "the timed out child must be gone, not merely waiting for its next action"
     );
     assert!(!root.path().join("late-effect.txt").exists());
@@ -444,6 +453,7 @@ async fn timeout_fixture_reaches_its_side_effect_when_not_terminated() {
         .unwrap();
     let mut release = child.stdin.take().unwrap();
     release.write_all(b"release\n").await.unwrap();
+    release.flush().await.unwrap();
     drop(release);
     let output = timeout(Duration::from_secs(10), child.wait_with_output())
         .await
