@@ -95,7 +95,9 @@ fn parallel_liveness_repo_map_contention_releases_worker_and_permit() {
 fn isolated_case(case: &str, test_name: &str, work: impl FnOnce()) {
     const CHILD: &str = "WCODE_PARALLEL_LIVENESS_CHILD";
     if std::env::var(CHILD).as_deref() == Ok(case) {
+        eprintln!("liveness case={case} child_started");
         work();
+        eprintln!("liveness case={case} child_completed");
         return;
     }
     let directory = tempfile::tempdir().unwrap();
@@ -121,6 +123,9 @@ fn isolated_case(case: &str, test_name: &str, work: impl FnOnce()) {
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+    // Reaping does not close the Windows Child's redirected handles.
+    // Release them before reading/removing the fixture directory.
+    drop(child);
     let diagnostic = fs::read_to_string(log).unwrap();
     assert!(
         status.is_some_and(|status| status.success()),
@@ -206,7 +211,9 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                 .num_threads(2)
                 .build_global()
                 .unwrap();
+            eprintln!("liveness mixed global_pool_ready");
             let fixtures = (0..3).map(|_| fixture()).collect::<Vec<_>>();
+            eprintln!("liveness mixed fixtures_ready");
             let harness = ToolHarness::new(64).unwrap();
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -215,7 +222,8 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                 .build()
                 .unwrap();
             runtime.block_on(async {
-                for _ in 0..3 {
+                for wave in 0..3 {
+                    eprintln!("liveness mixed wave={wave} started");
                     let mut tasks = tokio::task::JoinSet::new();
                     for index in 0..64 {
                         let permit = harness.acquire_tool(false).await.unwrap();
@@ -223,6 +231,10 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                         let workspace = fixtures[index % 3].1.clone();
                         tasks.spawn_blocking(move || {
                             let _permit = permit;
+                            eprintln!(
+                                "liveness mixed wave={wave} request={index} operation={} started",
+                                index % 4
+                            );
                             let result = match index % 4 {
                                 0 => harness
                                     .agent_context(
@@ -249,6 +261,10 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                                         assert!(!hits.is_empty());
                                     }),
                             };
+                            eprintln!(
+                                "liveness mixed wave={wave} request={index} completed ok={}",
+                                result.is_ok()
+                            );
                             result.map_err(|error| error.to_string())
                         });
                     }
@@ -269,6 +285,7 @@ fn parallel_liveness_mixed_64_requests_drain_and_recover() {
                     let admission = harness.admission_snapshot();
                     assert_eq!(admission.slots_in_use, 0);
                     assert_eq!(admission.waiting_for_slot, 0);
+                    eprintln!("liveness mixed wave={wave} drained successful={successful}");
                 }
             });
             for (_, workspace) in &fixtures {
