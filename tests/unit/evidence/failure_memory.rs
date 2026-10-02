@@ -1,4 +1,34 @@
 use super::*;
+
+#[test]
+fn failure_memory_access_does_not_block_an_independent_workspace_journal() {
+    let first_root = tempfile::tempdir().unwrap();
+    let first = Workspace::new(first_root.path(), true, false).unwrap();
+    let second_root = tempfile::tempdir().unwrap();
+    let second = Workspace::new(second_root.path(), true, false).unwrap();
+    let access = ACCESS.for_workspace(&first).unwrap();
+    let guard = access.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let event =
+            EngineeringMilestone::new("read_file", "understand", "failed", 1, Vec::new()).unwrap();
+        let written = crate::engineering_journal::persist(&second, &event);
+        let recalled = super::recall(&second, "missing", &[], &HashSet::new(), 4);
+        let _ = tx.send((written, recalled));
+    });
+    let early = rx.recv_timeout(std::time::Duration::from_secs(2));
+    drop(guard); // Unblock and reap the old global-lock implementation.
+    let returned_early = early.is_ok();
+    let (written, recalled) =
+        early.unwrap_or_else(|_| rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+    worker.join().unwrap();
+    written.unwrap();
+    recalled.unwrap();
+    assert!(
+        returned_early,
+        "another Workspace's advisory store delayed journal completion"
+    );
+}
 use crate::evidence::{VerificationCheckReceipt, VerificationExecutionReceipt};
 use crate::monitor::TaskMonitor;
 use std::fs;
@@ -518,7 +548,8 @@ fn failure_memory_input_identity_conflict_and_future_time_do_not_teach_a_fix() {
 #[test]
 fn failure_memory_retained_history_is_bounded_and_omissions_are_explicit() {
     let (_root, workspace) = fixture();
-    let _access = ACCESS.lock().unwrap();
+    let access = ACCESS.for_workspace(&workspace).unwrap();
+    let _access = access.lock().unwrap();
     let mut history = Vec::new();
     let time = now_ms().saturating_sub(1000);
     for index in 0..MAX_RECORDS + 1 {
