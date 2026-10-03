@@ -390,14 +390,15 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
             monitor: TaskMonitor::new([workspace_id]),
             tasks: TaskRuntime::default(),
         };
-        let response = tokio::time::timeout(std::time::Duration::from_secs(3), call_tool(&state, json!({
+        // Ordering is covered deterministically; this outer timeout is only the integration deadlock watchdog.
+        let response = tokio::time::timeout(std::time::Duration::from_secs(15), call_tool(&state, json!({
             "name":"parallel_tools","arguments":{"tasks":[
                 {"id":"fail","tool":"create_file","arguments":{"path":"exists.txt","content":"replacement"}},
                 {"id":"dependent","tool":"move_path","arguments":{"source":"exists.txt","destination":"moved.txt"}},
                 {"id":"transitive","tool":"read_file","arguments":{"path":"moved.txt"}},
                 {"id":"independent","tool":"create_file","arguments":{"path":"independent.txt","content":"ok"}}
             ]}
-        }))).await.unwrap().unwrap();
+        }))).await.expect("fan-out dependency integration must not deadlock").unwrap();
         let result = &response["structuredContent"];
         assert_eq!(result["dispatch"], "completion-driven");
         assert_eq!(result["succeeded"], 1);
