@@ -390,9 +390,7 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
             monitor: TaskMonitor::new([workspace_id]),
             tasks: TaskRuntime::default(),
         };
-        // The scheduler unit tests assert completion ordering deterministically. This
-        // outer timeout is only a deadlock watchdog for the full MCP/monitor/file-I/O
-        // integration path, whose wall-clock cost varies substantially on Windows CI.
+        // Ordering is covered deterministically; this outer timeout is only the integration deadlock watchdog.
         let response = tokio::time::timeout(std::time::Duration::from_secs(15), call_tool(&state, json!({
             "name":"parallel_tools","arguments":{"tasks":[
                 {"id":"fail","tool":"create_file","arguments":{"path":"exists.txt","content":"replacement"}},
@@ -400,10 +398,7 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
                 {"id":"transitive","tool":"read_file","arguments":{"path":"moved.txt"}},
                 {"id":"independent","tool":"create_file","arguments":{"path":"independent.txt","content":"ok"}}
             ]}
-        })))
-        .await
-        .expect("fan-out dependency integration must not deadlock")
-        .unwrap();
+        }))).await.expect("fan-out dependency integration must not deadlock").unwrap();
         let result = &response["structuredContent"];
         assert_eq!(result["dispatch"], "completion-driven");
         assert_eq!(result["succeeded"], 1);
