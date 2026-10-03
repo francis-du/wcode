@@ -450,7 +450,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '' || github.ref == 'refs/heads/republish/v0.9.0'
-    needs: build
+    needs: [build, quality]
     runs-on: ubuntu-latest
     permissions:
       contents: write
