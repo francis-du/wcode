@@ -799,7 +799,7 @@ async fn positive_harness_tools_flow_through_mcp() {
     let telemetry = &agent["_meta"]["dev.wcode/agentContextTelemetry"];
     assert!(telemetry["model_estimated_tokens"]
         .as_u64()
-        .is_some_and(|tokens| tokens <= [REDACTED]
+        .is_some_and(|tokens| tokens <= 1_000));
     assert!(telemetry["context_bytes_avoided"].as_u64().unwrap() > 0);
     assert_eq!(telemetry["budget_tokens"], 1000);
     assert!(telemetry["budget_utilization_percent"]
