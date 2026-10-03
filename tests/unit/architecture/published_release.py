@@ -117,6 +117,19 @@ class PublishedArchiveTests(unittest.TestCase):
         dispatched = {**run, 'event': 'workflow_dispatch', 'head_branch': 'main', 'head_sha': 'b' * 40}
         self.assertEqual(verifier.validate_publication(dispatched, allow_current_dispatch=True),
                          'current_workflow_validated_candidate')
+        republish = {**run, 'event': 'push', 'head_branch': 'republish/v0.9.0',
+                     'head_sha': verifier.TARGET}
+        with self.assertRaises(RuntimeError):
+            verifier.validate_publication(republish)
+        self.assertEqual(
+            verifier.validate_publication(republish, allow_current_republish=True),
+            'current_republish_validated_candidate',
+        )
+        with self.assertRaises(RuntimeError):
+            verifier.validate_publication(
+                {**republish, 'head_sha': 'b' * 40},
+                allow_current_republish=True,
+            )
 
     def test_tag_identity_follows_a_bounded_annotated_tag_chain(self):
         responses = [{'object': {'type': 'tag', 'sha': 'b' * 40}},
