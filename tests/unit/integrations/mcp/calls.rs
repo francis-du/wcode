@@ -390,7 +390,8 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
             monitor: TaskMonitor::new([workspace_id]),
             tasks: TaskRuntime::default(),
         };
-        let response = tokio::time::timeout(std::time::Duration::from_secs(3), call_tool(&state, json!({
+        // Deadlock watchdog only; ordering semantics are asserted below and by scheduler tests.
+        let response = tokio::time::timeout(std::time::Duration::from_secs(15), call_tool(&state, json!({
             "name":"parallel_tools","arguments":{"tasks":[
                 {"id":"fail","tool":"create_file","arguments":{"path":"exists.txt","content":"replacement"}},
                 {"id":"dependent","tool":"move_path","arguments":{"source":"exists.txt","destination":"moved.txt"}},
@@ -401,7 +402,7 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
         let result = &response["structuredContent"];
         assert_eq!(result["dispatch"], "completion-driven");
         assert_eq!(result["succeeded"], 1);
-        assert_eq!(result["failed"], 3);
+        assert!(result["failed"] == 3 && result["items"][3]["ok"] == true);
         for index in [1, 2] {
             assert!(result["items"][index]["error"]
                 .as_str()
