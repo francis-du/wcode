@@ -236,6 +236,19 @@ fn release_workflow_has_one_publish_trigger_and_smokes_distributed_binaries() {
 
     assert!(trigger_section.contains("tags: [\"v*\"]"));
     assert!(trigger_section.contains("workflow_dispatch:"));
+    assert!(trigger_section.contains("\"republish/v0.9.0\""));
+    for required in [
+        "Validate v0.9.0 republish request",
+        "git fetch --no-tags --depth=1 origin main",
+        "refs/tags/v0.9.0",
+        "needs: [build, quality]",
+        "target_commitish: ${{ needs.quality.outputs.candidate_sha }}",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "release workflow must retain guarded republish binding: {required}"
+        );
+    }
     assert!(
         !trigger_section.contains("\n  release:\n"),
         "publishing a GitHub release must not start a second release workflow for the same tag"
