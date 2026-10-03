@@ -170,14 +170,18 @@ def tag_commit():
     raise RuntimeError("Excessive annotated tag depth")
 
 
-def validate_publication(run, allow_current_dispatch=False):
+def validate_publication(run, allow_current_dispatch=False, allow_current_republish=False):
     require(run.get("id") == RELEASE_RUN and run.get("repository", {}).get("full_name") == REPO
             and run.get("run_attempt") == RUN_ATTEMPT, "Publication run identity mismatch")
     require(run.get("path") == ".github/workflows/release.yml", "Wrong publication workflow")
     if run.get("event") == "push":
-        require(run.get("head_sha") == TARGET and run.get("head_branch") == TAG,
-                "Publication does not belong to this tagged candidate")
-        return "tag_push"
+        require(run.get("head_sha") == TARGET, "Publication does not belong to this candidate")
+        if run.get("head_branch") == TAG:
+            return "tag_push"
+        require(allow_current_republish and TAG == "v0.9.0"
+                and run.get("head_branch") == "republish/v0.9.0",
+                "Historical or foreign republish publication is not trusted")
+        return "current_republish_validated_candidate"
     # Only this running release workflow has the validated quality-job candidate outputs.
     # Historical dispatch runs cannot be reconstructed from their main-branch head.
     require(run.get("event") == "workflow_dispatch" and allow_current_dispatch,
@@ -196,7 +200,11 @@ def main():
     require(TAG in allowed_tags and tag_commit() == TARGET, "Release tag identity mismatch")
     run = get_api(f"actions/runs/{RELEASE_RUN}")
     current_publication = not os.environ.get("PUBLICATION_RUN") and RELEASE_RUN == int(os.environ["GITHUB_RUN_ID"])
-    provenance = validate_publication(run, allow_current_dispatch=current_publication)
+    provenance = validate_publication(
+        run,
+        allow_current_dispatch=current_publication,
+        allow_current_republish=current_publication,
+    )
     # Failed archive checks can be rerun without republishing a successful release.
     jobs = get_api(f"actions/runs/{RELEASE_RUN}/jobs?filter=all&per_page=100")
     require(jobs.get("total_count") == len(jobs.get("jobs", [])) <= 100, "Incomplete publication jobs")
