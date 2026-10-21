@@ -32,7 +32,20 @@ pub(super) fn discover_nested_project_islands(
             .max_by_key(|island| island.absolute_root.components().count())
             .map(|island| island.descriptor.project_types.as_slice())
             .unwrap_or(root_project_types);
-        if !inherited.is_empty()
+        // A nested Cargo workspace table (block or inline) owns a different
+        // lockfile/target domain. Same-language inheritance covers ordinary
+        // members, not an explicit root; collapsing it silently omits checks.
+        let separate_cargo_root = project_types.iter().any(|kind| kind == "rust")
+            && read_small_text(&directory.join("Cargo.toml"))
+                .and_then(|text| text.parse::<DocumentMut>().ok())
+                .is_some_and(|manifest| {
+                    manifest
+                        .get("workspace")
+                        .and_then(Item::as_table_like)
+                        .is_some()
+                });
+        if !separate_cargo_root
+            && !inherited.is_empty()
             && project_types
                 .iter()
                 .all(|project_type| inherited.contains(project_type))
