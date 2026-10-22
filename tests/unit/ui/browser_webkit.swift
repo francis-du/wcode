@@ -108,6 +108,22 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(!(ownership?.innerHTML||'').includes('CLAIM_PRIVATE_SECRET'),'private claim token exposed',ownership);
         check(ownership?.querySelector('.execution-worker-result .pill')?.classList.contains('warn'),'worker completion certified as verification',ownership);
       }
+      if(state.workspaceTab==='activity'){
+        clearRuntimeJobs();
+        const retained=(digit,status,origin)=>({task_id:'TASK-'+digit.repeat(20)+'-'+'a'.repeat(32),workspace:state.current,tool:'run_command',status,origin,can_cancel:false,created_at_ms:1,updated_at_ms:2,completion_is_not_success:true});
+        state.runtimeJobs=[retained('1','working','mcp'),retained('2','failed','ui')];state.runtimeJobsLoaded=true;state.runtimeJobsTruncated=true;renderRuntimeJobs();
+        const stateSelect=document.querySelector('[data-jobs-state]');
+        check(stateSelect?.tagName==='SELECT','native task-state filter');
+        stateSelect.value='failed';stateSelect.dispatchEvent(new Event('change',{bubbles:true}));
+        const originSelect=document.querySelector('[data-jobs-origin]');originSelect.value='ui';originSelect.dispatchEvent(new Event('change',{bubbles:true}));
+        check(document.querySelectorAll('#runtimeJobList [data-job-id]').length===1,'task filters compose over retained rows');
+        check(document.activeElement===document.querySelector('[data-jobs-origin]'),'filter rerender restores focus');
+        check((document.getElementById('runtimeJobList').textContent||'').includes(state.language==='zh-CN'?'2 条保留记录中的 1 条':'1 of 2'),'filtered retained denominator');
+        check((document.getElementById('runtimeJobMessage').textContent||'').includes(state.language==='zh-CN'?'截断':'truncated'),'filtered partial coverage remains explicit');
+        check(!document.querySelector('#runtimeJobDetail [data-job-cancel]'),'filter creates no cancellation authority');
+        const old=document.querySelector('[data-jobs-origin]');clearRuntimeJobs();renderRuntimeJobs();old.value='mcp';old.dispatchEvent(new Event('change',{bubbles:true}));
+        check(state.runtimeJobsOriginFilter==='all','obsolete filter control rejected');
+      }
       if(state.workspaceTab==='overview'){
         const acceptance=document.getElementById('statusSummary'),table=acceptance?.querySelector('.acceptance-check-table');
         check((acceptance?.textContent||'').includes(state.language==='zh-CN'?'验收阻塞':'Acceptance blocked'),'canonical acceptance failure missing',acceptance);
