@@ -14,6 +14,7 @@ depends_on:
   - component:intelligence-ui
   - component:agent-integration
 implementation:
+  - {kind: file, path: tests/platform_dependencies.rs}
   - {kind: file, path: src/runtime/presence.rs}
   - {kind: file, path: src/ui/menu_bar.rs}
   - {kind: file, path: src/ui/monitor/runtime_presence.rs}
