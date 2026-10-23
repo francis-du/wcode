@@ -39,7 +39,7 @@ async function main() {
   await test('rendering has no command launch and never sends automatic requests', async () => {
     const s = prepared(); assert.equal(s.requests.length, 0);
     assert.match(s.node('#runtimeJobForm').innerHTML, /data-jobs-refresh/);
-    assert.doesNotMatch(s.node('#runtimeJobForm').innerHTML, /input|program|data-job-launch/);
+    assert.doesNotMatch(s.node('#runtimeJobForm').innerHTML, /<input\b|\bname="program"|data-job-launch/);
     assert.match(s.node('#runtimeJobMessage').innerHTML, /not a complete process list/);
   });
   await test('missing token cannot discover jobs or verification tasks', async () => {
@@ -152,6 +152,45 @@ async function main() {
     s.context.host = host; s.run('bindVerificationRecovery(host,verificationEntry());'); button.events.click(); await flush();
     assert.equal(s.requests.at(-1).url, '/intelligence/verification/' + id); assert.equal(s.requests.at(-1).options.method, 'GET');
     status(s.requests.at(-1), 404); await flush(); assert.equal(s.requests.filter(request => request.options.method === 'POST').length, 0);
+  });
+  await test('status and origin filters operate on retained rows without fetching or running commands', async () => {
+    const s=prepared(), second='TASK-'+'2'.repeat(20)+'-'+'b'.repeat(32);
+    await discover(s,list({truncated:true,items:[row(),row({task_id:second,status:'failed',origin:'ui'})]}));
+    const before=s.requests.length;
+    assert.equal(s.run('setRuntimeJobFilters("failed","ui")'),true);
+    assert.deepEqual(Array.from(s.run('runtimeJobsView().map(row=>row.task_id)')),[second]);
+    assert.match(s.node('#runtimeJobList').innerHTML,new RegExp(second));
+    assert.doesNotMatch(s.node('#runtimeJobList').innerHTML,new RegExp(id));
+    assert.match(s.node('#runtimeJobList').innerHTML,/1 of 2/);assert.match(s.node('#runtimeJobMessage').innerHTML,/truncated/);
+    assert.equal(s.requests.length,before);
+  });
+  await test('an empty filtered view is not an empty history or a successful task outcome', async () => {
+    const s=prepared();await discover(s);s.run('setRuntimeJobFilters("completed","all")');
+    assert.match(s.node('#runtimeJobList').innerHTML,/filters/);
+    assert.match(s.node('#runtimeJobList').innerHTML,/0 of 1/);
+    assert.equal(s.run('acceptanceView().status'),'blocked');
+    assert.equal(s.run('state.runtimeJobs.length'),1);
+  });
+  await test('filtering never erases the selected task log or manufactures cancellation rights', async () => {
+    const s=prepared();await discover(s);await observe(s);
+    s.run('setRuntimeJobFilters("failed","ui")');
+    assert.equal(s.run('state.runtimeJobSelected'),id);assert.match(s.node('#runtimeJobDetail').innerHTML,/&lt;script&gt;/);
+    assert.doesNotMatch(s.node('#runtimeJobDetail').innerHTML,/data-job-cancel/);
+    assert.equal(s.requests.filter(r=>r.options.method==='POST').length,0);
+  });
+  await test('filters reset with workspace or owner and old controls cannot change the new scope', async () => {
+    const s=prepared();await discover(s);s.run('globalThis.oldScope=runtimeJobsScope();setRuntimeJobFilters("failed","ui");state.current="B";clearRuntimeJobs();');
+    assert.equal(s.run('state.runtimeJobsStatusFilter'),'all');assert.equal(s.run('state.runtimeJobsOriginFilter'),'all');
+    assert.equal(s.run('setRuntimeJobFilters("working","mcp",oldScope)'),false);
+    assert.equal(s.run('state.runtimeJobsStatusFilter'),'all');
+    s.run('state.runtimeJobsScope.owner="other-owner";renderRuntimeJobs();');assert.equal(s.run('state.runtimeJobsOriginFilter'),'all');
+  });
+  await test('unknown filter values cannot inject labels or alter the retained data', async () => {
+    const s=prepared();await discover(s);
+    assert.equal(s.run('setRuntimeJobFilters("passed","all")'),false);
+    assert.equal(s.run('setRuntimeJobFilters("all","<script>")'),false);
+    assert.equal(s.run('runtimeJobsView().length'),1);
+    assert.doesNotMatch(s.node('#runtimeJobForm').innerHTML,/<script>/);
   });
   console.log(JSON.stringify({ suite: 'native-jobs-ui', results }, null, 2));
   assert.ok(results.every(row => row.passed), results.filter(row => !row.passed).map(row => row.name).join('\n'));

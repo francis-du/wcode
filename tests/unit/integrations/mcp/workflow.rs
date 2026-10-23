@@ -371,6 +371,8 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
     ];
 
     for fixture in fixtures {
+        // Cold Windows toolchains may need longer; every diagnostic and repair assertion still runs.
+        let timeout_seconds = if cfg!(windows) { 180 } else { 60 };
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(fixture.manifest_path), fixture.manifest).unwrap();
         fs::write(root.path().join(fixture.source_path), fixture.source).unwrap();
@@ -405,7 +407,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
 
         let failed = call_tool(
             &state,
-            json!({"name":"verify_project","arguments":{"level":"full","timeout_seconds":60}}),
+            json!({"name":"verify_project","arguments":{"level":"full","timeout_seconds":timeout_seconds}}),
         )
         .await
         .unwrap();
@@ -530,7 +532,7 @@ async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {
 
         let verified = call_tool(
             &state,
-            json!({"name":"verify_project","arguments":{"level":"full","timeout_seconds":60}}),
+            json!({"name":"verify_project","arguments":{"level":"full","timeout_seconds":timeout_seconds}}),
         )
         .await
         .unwrap();

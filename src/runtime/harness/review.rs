@@ -81,6 +81,31 @@ fn complete_git_output(result: CommandResult) -> Result<String> {
     Ok(output)
 }
 
+// Accept only Git's two complete native non-repository diagnostics. The caller
+// still checks exit/output integrity and the absence of ancestor .git metadata.
+fn known_non_repository_diagnostic(stderr: &str) -> bool {
+    let mut lines = stderr.lines();
+    let Some(first) = lines.next() else {
+        return false;
+    };
+    if first == "fatal: not a git repository (or any of the parent directories): .git" {
+        return lines.next().is_none();
+    }
+    let Some(mount) = first
+        .strip_prefix("fatal: not a git repository (or any parent up to mount point ")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        return false;
+    };
+    !mount.is_empty()
+        && mount.len() <= 4096
+        && (mount.starts_with('/') || std::path::Path::new(mount).is_absolute())
+        && !mount.chars().any(char::is_control)
+        && lines.next()
+            == Some("Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).")
+        && lines.next().is_none()
+}
+
 async fn git_repository_root(workspace: &Workspace) -> Result<Option<PathBuf>> {
     if !workspace.exec_enabled() {
         bail!("Git inspection requires Workspace execution access");
@@ -96,9 +121,7 @@ async fn git_repository_root(workspace: &Workspace) -> Result<Option<PathBuf>> {
             && !result.redacted
             && !result.output_incomplete
             && result.stdout.is_empty()
-            && result.stderr.starts_with(
-                "fatal: not a git repository (or any of the parent directories): .git",
-            );
+            && known_non_repository_diagnostic(&result.stderr);
         if known_non_git {
             for ancestor in workspace.root().ancestors() {
                 match std::fs::symlink_metadata(ancestor.join(".git")) {
