@@ -1,0 +1,32 @@
+name: Diagnose native non-repository Git discovery
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/diagnose-release-git-discovery.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 3
+    steps:
+      - name: Observe empty temporary directory with the native Git executable
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess,tempfile
+          with tempfile.TemporaryDirectory(prefix='wcode-git-discovery-probe-') as directory:
+              root=pathlib.Path(directory).resolve()
+              command=subprocess.run(['git','rev-parse','--show-toplevel'],cwd=root,stdin=subprocess.DEVNULL,capture_output=True,timeout=10)
+              output=command.stdout.decode('utf-8',errors='replace')
+              error=command.stderr.decode('utf-8',errors='replace')
+              # The probe contains no repository, runtime credentials or user files.
+              # Keep only this command's bounded diagnostic and .git presence flags.
+              print(json.dumps({'exit_code':command.returncode,'stdout_empty':not output,'stderr':error[:4096],
+                  'temp_mount_boundary':root.parent.is_mount(),
+                  'git_metadata_in_ancestors':any((parent/'.git').exists() or (parent/'.git').is_symlink() for parent in [root,*root.parents])}))
+          PY
