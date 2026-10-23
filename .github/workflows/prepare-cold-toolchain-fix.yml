@@ -1,0 +1,61 @@
+name: Prepare bounded cold toolchain test fix
+on:
+  push:
+    branches: [maintenance/091-cold-toolchain-fix-20261023]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Construct one-file candidate; never move a ref or publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, difflib, hashlib, json, os, urllib.request
+          repo = 'francis-du/wcode'
+          parent = 'b66f934e4d61d027e40c20b39aff8af9ec7572f4'
+          path = 'tests/unit/integrations/mcp/workflow.rs'
+          old_blob = '3b8d4179336e80219630e7e3522602be8d1b86a8'
+          def api(endpoint, body=None):
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + endpoint,
+                  data=None if body is None else json.dumps(body).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json',
+                           'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          pr = api('pulls/14')
+          assert pr['head']['sha'] == parent and pr['state'] == 'open', 'Release candidate changed'
+          original = api('contents/' + path + '?ref=' + parent)
+          assert original['sha'] == old_blob and original['encoding'] == 'base64'
+          raw = base64.b64decode(original['content'], validate=False)
+          def blob_sha(value):
+              return hashlib.sha1(('blob ' + str(len(value)) + '\0').encode() + value).hexdigest()
+          assert blob_sha(raw) == old_blob
+          source = raw.decode('utf-8')
+          start = source.index('async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node() {')
+          end = source.index('\n#[tokio::test]\nasync fn verification_failure_context_', start)
+          body = source[start:end]
+          assert body.count('"timeout_seconds":60') == 2
+          anchor = '    for fixture in fixtures {\n'
+          assert body.count(anchor) == 1
+          added = ('        // Cold Windows toolchains may need longer; every diagnostic and repair assertion still runs.\n'
+                   '        let timeout_seconds = if cfg!(windows) { 180 } else { 60 };\n')
+          updated = body.replace(anchor, anchor + added).replace('"timeout_seconds":60', '"timeout_seconds":timeout_seconds')
+          assert updated.replace(added, '').replace('"timeout_seconds":timeout_seconds', '"timeout_seconds":60') == body
+          candidate = (source[:start] + updated + source[end:]).encode('utf-8')
+          assert len(candidate.splitlines()) <= 1000
+          print(''.join(difflib.unified_diff(source.splitlines(True), candidate.decode().splitlines(True), fromfile='a/' + path, tofile='b/' + path)))
+          stored = api('git/blobs', {'content': base64.b64encode(candidate).decode(), 'encoding': 'base64'})
+          assert stored['sha'] == blob_sha(candidate), 'Stored blob differs from inspected patch'
+          base = api('git/commits/' + parent)
+          tree = api('git/trees', {'base_tree': base['tree']['sha'], 'tree': [{'path': path, 'mode': '100644', 'type': 'blob', 'sha': stored['sha']}]})
+          commit = api('git/commits', {'message': 'test: bound Windows cold toolchain integration waits\n\nGive the polyglot fixture a finite 180-second Windows command allowance. Preserve all failing-source diagnostics, source edits and successful repair assertions. Production timeouts, checks and permissions are unchanged.', 'tree': tree['sha'], 'parents': [parent]})
+          print(json.dumps({'parent': parent, 'commit': commit['sha'], 'tree': tree['sha'], 'path': path, 'old_blob': old_blob,
+                            'new_blob': stored['sha'], 'sha256': hashlib.sha256(candidate).hexdigest(), 'lines': len(candidate.splitlines()),
+                            'ref_updated': False, 'release_created': False}, sort_keys=True))
+          PY
