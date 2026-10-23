@@ -1,0 +1,54 @@
+name: Prepare 0.9.1 documentation index objects
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/prepare-release-doc-index.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Add version links to existing documentation indexes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,os,urllib.request
+          root='https://api.github.com/repos/francis-du/wcode'
+          ref='cdaa8269be0c348316c6c099447ed5a5580f8e28'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): raise RuntimeError('redirect refused')
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(path,payload=None):
+              req=urllib.request.Request(root+path,data=None if payload is None else json.dumps(payload).encode(),headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+                'Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(req,timeout=30) as response:
+                  data=response.read(256*1024+1)
+                  if len(data)>256*1024: raise RuntimeError('response too large')
+                  return json.loads(data)
+          output={}
+          for name in ['README','releases']:
+              for suffix in ['','.zh-CN']:
+                  path='docs/manual/'+name+suffix+'.md'
+                  item=api('/contents/'+path+'?ref='+ref)
+                  if item.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+                  original=base64.b64decode(item['content']).decode('utf-8')
+                  if 'v0.9.1/' in original: raise RuntimeError('unexpected existing release entry')
+                  prefix='releases/' if name=='README' else ''
+                  label='v0.9.1 — 任务控件与验证发现修复' if suffix else 'v0.9.1 — Job controls and verification discovery'
+                  lines=original.splitlines(keepends=True)
+                  heading=next(i for i,line in enumerate(lines) if line.startswith('# '))
+                  lines.insert(heading+1,'\n- ['+label+']('+prefix+'v0.9.1/)\n')
+                  text=''.join(lines)
+                  data=text.encode('utf-8')
+                  expected=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+                  result=api('/git/blobs',{'content':text,'encoding':'utf-8'})
+                  if result.get('sha')!=expected: raise RuntimeError('stored object mismatch')
+                  output[path]=expected
+          print(json.dumps(output,indent=2,sort_keys=True))
+          print('Index objects only; no branch, tag, commit or release publication.')
+          PY
