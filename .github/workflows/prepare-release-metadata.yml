@@ -1,0 +1,62 @@
+name: Prepare 0.9.1 metadata objects
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/prepare-release-metadata.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'francis-du/wcode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare metadata without changing refs or publishing a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          root='https://api.github.com/repos/francis-du/wcode'
+          base='cdaa8269be0c348316c6c099447ed5a5580f8e28'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): raise RuntimeError('redirect refused')
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(path,payload=None):
+              req=urllib.request.Request(root+path,data=None if payload is None else json.dumps(payload).encode(),
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+                           'Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(req,timeout=30) as response:
+                  data=response.read(1024*1024+1)
+                  if len(data)>1024*1024: raise RuntimeError('oversized response')
+                  return json.loads(data)
+          def decode(value):
+              if value.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+              return base64.b64decode(value['content'])
+          def blob_sha(data):
+              return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          def blob(identity):
+              data=decode(api('/git/blobs/'+identity))
+              if blob_sha(data)!=identity: raise RuntimeError('source blob mismatch')
+              return data.decode('utf-8')
+          def replace(text,before,after):
+              if text.count(before)!=1: raise RuntimeError('version context not unique')
+              return text.replace(before,after,1)
+          files={
+              'Cargo.toml':replace(blob('6ba525d4ac66c85ddadd04fc87aebdfc6312a1e4'),'version = "0.9.0"','version = "0.9.1"'),
+              'Cargo.lock':replace(blob('d1193fddfc8e62b183fcd0c544125a2ae04edfb7'),'name = "wcode"\nversion = "0.9.0"','name = "wcode"\nversion = "0.9.1"'),
+          }
+          for path in ['marketplace.json','plugin/marketplace.json','plugin/plugin.json','plugin/.claude-plugin/plugin.json','plugin/.codex-plugin/plugin.json','plugin/.zcode-plugin/plugin.json']:
+              content=decode(api('/contents/'+path+'?ref='+base)).decode('utf-8')
+              files[path]=replace(content,'"version": "0.9.0"','"version": "0.9.1"')
+              json.loads(files[path])
+          result={}
+          for path,content in files.items():
+              data=content.encode('utf-8');expected=blob_sha(data)
+              observed=api('/git/blobs',{'content':content,'encoding':'utf-8'}).get('sha')
+              if observed!=expected: raise RuntimeError('stored metadata hash mismatch')
+              result[path]={'blob':observed,'sha256':hashlib.sha256(data).hexdigest()}
+          print(json.dumps(result,indent=2,sort_keys=True))
+          print('Version objects only. No commit, ref, tag or release created.')
+          PY
