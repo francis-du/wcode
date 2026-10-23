@@ -1,0 +1,176 @@
+name: Recover verified sandbox fixture objects
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/recover-verified-fixtures.yml]
+permissions:
+  contents: write
+jobs:
+  recover:
+    if: github.repository == 'francis-du/wcode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reconstruct and verify the six reviewed objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          root = 'https://api.github.com/repos/francis-du/wcode'
+          base = '08223970668042568ce33f77abc0ad4dcdf46832'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  raise RuntimeError('redirect refused')
+          opener = urllib.request.build_opener(NoRedirect())
+          def api(path, payload=None):
+              request = urllib.request.Request(root + path,
+                  data=None if payload is None else json.dumps(payload).encode(),
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json',
+                           'Content-Type':'application/json', 'X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(request, timeout=30) as response:
+                  body=response.read(1024*1024+1)
+                  if len(body)>1024*1024: raise RuntimeError('response too large')
+                  return json.loads(body)
+          def read(path):
+              value=api('/contents/'+path+'?ref='+base)
+              if value.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+              return base64.b64decode(value['content']).decode('utf-8')
+          def replace(text, before, after):
+              if text.count(before)!=1: raise RuntimeError('patch context not unique')
+              return text.replace(before,after,1)
+          def sha(text):
+              data=text.encode('utf-8')
+              return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          files={}
+          p='tests/unit/workspace/execution.rs'
+          source=read(p)
+          start=source.index('#[cfg(unix)]\n#[tokio::test]\nasync fn workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed()')
+          end=source.index('#[tokio::test]\nasync fn normal_command_output_and_exit_status_remain_compatible()',start)
+          block=source[start:end]
+          files[p]=replace(source[:start]+source[end:], 'use std::sync::OnceLock;\n\n',
+              'use std::sync::OnceLock;\n\n#[cfg(unix)]\n#[path = "execution_sandbox.rs"]\nmod sandbox_lifecycle;\n\n')
+          guards={
+              'workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed':
+              '    if run_in_private_fixture("workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed")\n        .await\n    {\n        return;\n    }\n',
+              'full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass':
+              '    if run_in_private_fixture(\n        "full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass",\n    )\n    .await\n    {\n        return;\n    }\n',
+              'revoking_workspace_all_command_grant_restores_normal_policy':
+              '    if run_in_private_fixture("revoking_workspace_all_command_grant_restores_normal_policy").await {\n        return;\n    }\n',
+          }
+          for name,guard in guards.items():
+              declaration='async fn '+name+'() {\n'
+              block=replace(block,declaration,declaration+guard)
+          helper=r'''//! Broad-command tests use a private child process, never the developer's stores.
+          use super::*;
+
+          const FIXTURE_ROOT: &str = "WCODE_SANDBOX_TEST_ROOT";
+
+          async fn run_in_private_fixture(name: &str) -> bool {
+              if let Some(root) = std::env::var_os(FIXTURE_ROOT) {
+                  let root = std::path::PathBuf::from(root);
+                  assert!(root.is_absolute() && root.is_dir());
+                  let authority = crate::core_types::authority_state_root().unwrap();
+                  let intelligence = crate::core_types::intelligence_state_root().unwrap();
+                  assert_eq!(authority, root.join("authority"));
+                  assert!(intelligence.starts_with(root.join("tmp")));
+                  // Materialize only the child-private resolver roots, before any sandbox
+                  // preflight; never rely on another parallel test having created stores.
+                  std::fs::create_dir_all(&authority).unwrap();
+                  std::fs::create_dir_all(&intelligence).unwrap();
+                  return false;
+              }
+              let original_state = std::env::var_os("WCODE_STATE_DIR");
+              let original_temp = std::env::temp_dir();
+              let root = tempfile::Builder::new()
+                  .prefix("wcode-sandbox-fixture-")
+                  .tempdir()
+                  .unwrap();
+              let root_path = root.path().canonicalize().unwrap();
+              let temporary = root_path.join("tmp");
+              std::fs::create_dir(&temporary).unwrap();
+              let module = module_path!().split_once("::").unwrap().1;
+              let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+              command
+                  .args([
+                      format!("{module}::{name}"),
+                      "--exact".into(),
+                      "--nocapture".into(),
+                  ])
+                  .env(FIXTURE_ROOT, &root_path)
+                  .env("WCODE_STATE_DIR", root_path.join("authority"))
+                  .env("TMPDIR", &temporary)
+                  .env("TMP", &temporary)
+                  .env("TEMP", &temporary)
+                  .kill_on_drop(true);
+              let output = tokio::time::timeout(Duration::from_secs(60), command.output())
+                  .await
+                  .expect("private sandbox test must terminate")
+                  .unwrap();
+              assert_eq!(std::env::var_os("WCODE_STATE_DIR"), original_state);
+              assert_eq!(std::env::temp_dir(), original_temp);
+              assert!(
+                  output.status.success(),
+                  "isolated sandbox test failed: {}\n{}",
+                  String::from_utf8_lossy(&output.stdout),
+                  String::from_utf8_lossy(&output.stderr)
+              );
+              let stdout = String::from_utf8_lossy(&output.stdout);
+              assert!(
+                  stdout.contains("running 1 test") && stdout.contains("1 passed; 0 failed"),
+                  "the exact child test must execute, not an empty filter: {stdout}"
+              );
+              true
+          }
+
+          #[tokio::test]
+          async fn sandbox_fixture_initializes_exact_private_roots() {
+              if run_in_private_fixture("sandbox_fixture_initializes_exact_private_roots").await {
+                  return;
+              }
+              for root in [
+                  crate::core_types::authority_state_root().unwrap(),
+                  crate::core_types::intelligence_state_root().unwrap(),
+              ] {
+                  assert!(
+                      root.is_dir(),
+                      "sandbox fixture must initialize every resolver root before launch"
+                  );
+              }
+          }
+
+          '''
+          files['tests/unit/workspace/execution_sandbox.rs']=helper+block.rstrip('\n')+'\n'
+          p='.wcode/design/acceptance.yaml'
+          files[p]=replace(read(p),'path: tests/unit/workspace/execution.rs\n      symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass',
+              'path: tests/unit/workspace/execution_sandbox.rs\n      symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass')
+          p='.wcode/design/acceptance/workspace.yaml'
+          files[p]=replace(read(p),'path: tests/unit/workspace/execution.rs\n    symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed',
+              'path: tests/unit/workspace/execution_sandbox.rs\n    symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed')
+          p='tests/standalone.py'
+          before='    "tests/unit/workspace/execution.rs", "tests/unit/workspace/execution_timing.rs",\n'
+          files[p]=replace(read(p),before,before+'    "tests/unit/workspace/execution_sandbox.rs",\n')
+          p='.wcode/design/acceptance/execution_sandbox.yaml'
+          text=replace(read(p),'  the sandbox.\n',
+              '  the sandbox. Broad-command lifecycle tests run in fresh child processes with private authority and\n  intelligence roots initialized before launch; no test depends on parallel store creation or modifies the\n  parent environment. Backend presence is not a waiver for missing protected roots, whose negative tests\n  retain fail-closed behavior. Exact child-test execution and successful completion must be observed.\n')
+          text=text.replace('path: tests/unit/workspace/execution.rs,','path: tests/unit/workspace/execution_sandbox.rs,')
+          marker='  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed}\n'
+          text=replace(text,marker,'  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: sandbox_fixture_initializes_exact_private_roots}\n'+marker)
+          files[p]=text+'  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: revoking_workspace_all_command_grant_restores_normal_policy}\n'
+          expected={
+              'tests/unit/workspace/execution.rs':'3e6f3b93e135597c8fee30c65ac30842840bec11',
+              'tests/unit/workspace/execution_sandbox.rs':'3686e2a1a39d1c42ddb8e6da7bf143b11323a32d',
+              '.wcode/design/acceptance.yaml':'d0d6bf32bc9f52751d20d304225304f8c0e09e7d',
+              '.wcode/design/acceptance/workspace.yaml':'b6d98a2c2f3dd84cbf83a8538d64e2e1ba09c6c5',
+              'tests/standalone.py':'d5dd4d2787be61dddd53159348b3c2cbfcbc5a19',
+              '.wcode/design/acceptance/execution_sandbox.yaml':'f82f7fdb312a1487dfecc9419e7dd20f45e46205',
+          }
+          observed={path:sha(text) for path,text in files.items()}
+          print(json.dumps(observed,indent=2,sort_keys=True))
+          if observed!=expected: raise RuntimeError('Objects differ from tested local commit; nothing published')
+          for path,text in files.items():
+              if api('/git/blobs',{'content':text,'encoding':'utf-8'}).get('sha')!=expected[path]:
+                  raise RuntimeError('Upload identity mismatch')
+          print('Six tested objects stored. No commit, branch, tag, release, permissions or release gates changed.')
+          PY
