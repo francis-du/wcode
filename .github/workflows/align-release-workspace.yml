@@ -1,0 +1,50 @@
+name: Align release workspace version objects
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/align-release-workspace.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Patch exact core package version without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,os,urllib.request
+          root='https://api.github.com/repos/francis-du/wcode/git/blobs'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): raise RuntimeError('redirect refused')
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(url,payload=None):
+              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+                'Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(req,timeout=30) as response:
+                  data=response.read(256*1024+1)
+                  if len(data)>256*1024: raise RuntimeError('response too large')
+                  return json.loads(data)
+          def sha(data): return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          sources={'Cargo.lock':'3322d422febaebf22c04af338b19b6d4adb7d3ea','crates/core-types/Cargo.toml':'fe778fa8b4737254df5526e33476ffdc85eb00a2'}
+          output={}
+          before='name = "wcode-core-types"\nversion = "0.9.0"'
+          after='name = "wcode-core-types"\nversion = "0.9.1"'
+          for path,identity in sources.items():
+              value=api(root+'/'+identity)
+              if value.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+              data=base64.b64decode(value['content'])
+              if sha(data)!=identity: raise RuntimeError('source mismatch')
+              text=data.decode('utf-8')
+              if text.count(before)!=1: raise RuntimeError('nonunique package version')
+              text=text.replace(before,after,1)
+              if path=='Cargo.lock' and 'name = "wcode"\nversion = "0.9.1"' not in text: raise RuntimeError('root package mismatch')
+              identity=sha(text.encode('utf-8'))
+              if api(root,{'content':text,'encoding':'utf-8'}).get('sha')!=identity: raise RuntimeError('upload mismatch')
+              output[path]=identity
+          print(json.dumps(output,indent=2,sort_keys=True))
+          PY
