@@ -1,3 +1,4 @@
+# One-shot metadata update; this workflow is not merged into main or a release tag.
 name: Complete v0.9.1 release documentation
 on:
   push:
