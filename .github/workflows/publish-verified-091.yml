@@ -1,0 +1,83 @@
+name: Publish verified Wcode 0.9.1
+on:
+  push:
+    branches: [release/v0.9.1-publish-control-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: publish-verified-wcode-091
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Recheck exact gates, create a new immutable tag, dispatch canonical release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, tomllib, urllib.error, urllib.request
+          repo = 'francis-du/wcode'
+          candidate = '512342287de4b55a989693b574d50f0c6804ce34'
+          merged = '68c8e55d53af2f5c29cbef27650e2d094a79495c'
+          tree = '4fd365a1d833290970f86a549515d2f84e9bb7b8'
+          tag = 'v0.9.1'
+          def api(path, body=None, allow_missing=False):
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
+                  data=None if body is None else json.dumps(body).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                           'Content-Type': 'application/json'})
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      raw = response.read(2 * 1024 * 1024 + 1)
+                      assert len(raw) <= 2 * 1024 * 1024, 'Unexpected API response size'
+                      return json.loads(raw) if raw else {'http_status': response.status}
+              except urllib.error.HTTPError as error:
+                  if allow_missing and error.code == 404:
+                      return None
+                  raise RuntimeError('GitHub operation failed with HTTP ' + str(error.code)) from None
+          expected = {
+              39958936150: {'Quality gates', 'Test Linux x86_64', 'Test macOS', 'Test Windows x86_64'},
+              39958936072: {'OSS standalone ubuntu-latest', 'OSS standalone macos-latest', 'OSS standalone windows-latest'},
+              39958936129: {'Native WebKit geometry', '300 distinct adversarial rounds'},
+          }
+          for run_id, names in expected.items():
+              run = api('actions/runs/' + str(run_id))
+              assert run['head_sha'] == candidate and run['event'] == 'pull_request'
+              assert run['status'] == 'completed' and run['conclusion'] == 'success'
+              jobs = api('actions/runs/' + str(run_id) + '/jobs?filter=latest&per_page=100')
+              assert jobs['total_count'] == len(jobs['jobs'])
+              by_name = {job['name']: job for job in jobs['jobs']}
+              assert len(by_name) == len(jobs['jobs'])
+              for name in names:
+                  assert by_name[name]['status'] == 'completed' and by_name[name]['conclusion'] == 'success', name
+              print('Verified completed gate', run_id)
+          pr = api('pulls/14')
+          assert pr['merged'] is True and pr['head']['sha'] == candidate and pr['merge_commit_sha'] == merged
+          main = api('git/ref/heads/main')
+          assert main['object']['sha'] == merged, 'Main moved; review before release'
+          assert api('git/commits/' + candidate)['tree']['sha'] == tree
+          assert api('git/commits/' + merged)['tree']['sha'] == tree, 'Merge introduced untested bytes'
+          manifest = api('contents/Cargo.toml?ref=' + candidate)
+          assert tomllib.loads(base64.b64decode(manifest['content']).decode())['package']['version'] == '0.9.1'
+          workflow = api('contents/.github/workflows/release.yml?ref=' + merged)
+          assert workflow['sha'] == '91680749e63e3db4883eb96b3958139fd842e0eb', 'Release workflow changed'
+          assert api('git/ref/tags/' + tag, allow_missing=True) is None, 'Never overwrite an existing tag'
+          assert api('releases/tags/' + tag, allow_missing=True) is None, 'Never overwrite a published release'
+          created = api('git/refs', {'ref': 'refs/tags/' + tag, 'sha': candidate})
+          assert created['object']['sha'] == candidate
+          assert api('git/ref/tags/' + tag)['object']['sha'] == candidate
+          print(json.dumps({'tag_created': tag, 'candidate': candidate, 'tree': tree, 'merged': merged}))
+          # A GITHUB_TOKEN-created tag does not recursively trigger push workflows.
+          # Explicit dispatch invokes the unchanged release pipeline, which rechecks
+          # the tagged candidate before building, publishing and native downloads.
+          dispatched = api('actions/workflows/release.yml/dispatches', {'ref': 'main', 'inputs': {'release_tag': tag}})
+          assert dispatched.get('http_status') == 204
+          print(json.dumps({'canonical_release_dispatched': True, 'tag': tag, 'candidate': candidate,
+                            'publication_confirmed': False, 'native_archive_verification_complete': False}))
+          PY
