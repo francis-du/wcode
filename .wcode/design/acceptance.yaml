@@ -314,7 +314,7 @@
       path: tests/unit/workspace/access.rs
       symbol: full_access_preparation_failures_leave_policy_unchanged
     - kind: test
-      path: tests/unit/workspace/execution.rs
+      path: tests/unit/workspace/execution_sandbox.rs
       symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass
     - kind: test
       path: tests/unit/workspace/access.rs

@@ -15,6 +15,84 @@ fn write_manifest(root: &Path, path: &str, content: &str) {
 }
 
 #[test]
+fn profile_discovery_retains_explicit_cargo_workspace_boundaries() {
+    for child_manifest in [
+        "[package]\nname='console'\nversion='0.1.0'\n[workspace]\nmembers=['crates/internal']\n",
+        "workspace = { members = ['crates/internal'] }\n[package]\nname='console'\nversion='0.1.0'\n",
+    ] {
+    let root = tempfile::tempdir().unwrap();
+    for (path, content) in [
+        ("Cargo.toml", "[workspace]\nmembers = ['crates/member']\nexclude = ['apps/console']\n"),
+        ("crates/member/Cargo.toml", "[package]\nname='member'\nversion='0.1.0'\n"),
+        ("apps/console/Cargo.toml", child_manifest),
+        ("apps/console/crates/internal/Cargo.toml", "[package]\nname='internal'\nversion='0.1.0'\n"),
+    ] {
+        write_manifest(root.path(), path, content);
+    }
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let (profile, _) = harness.load_project_profile(&workspace).unwrap();
+    assert!(profile.discovery.complete);
+    let roots: Vec<_> = profile
+        .islands
+        .iter()
+        .map(|island| island.root.as_str())
+        .collect();
+    assert_eq!(
+        roots,
+        [".", "apps/console"],
+        "ordinary members stay covered by their own root, not duplicated"
+    );
+    for id in [
+        "rust-check",
+        "apps/console:rust-check",
+        "apps/console:rust-test",
+    ] {
+        assert!(
+            profile
+                .recommended_checks
+                .iter()
+                .any(|check| check.id == id),
+            "missing independent gate: {id}"
+        );
+    }
+    }
+}
+
+#[test]
+fn profile_discovery_refreshes_when_a_member_becomes_an_independent_cargo_root() {
+    let root = tempfile::tempdir().unwrap();
+    write_manifest(root.path(), "Cargo.toml", "[workspace]\nmembers=['pkg']\n");
+    let package = "[package]\nname='child'\nversion='0.1.0'\n";
+    write_manifest(root.path(), "pkg/Cargo.toml", package);
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    assert_eq!(
+        harness
+            .load_project_profile(&workspace)
+            .unwrap()
+            .0
+            .islands
+            .len(),
+        1
+    );
+    assert!(harness.load_project_profile(&workspace).unwrap().1);
+    write_manifest(root.path(), "Cargo.toml", "[workspace]\nexclude=['pkg']\n");
+    write_manifest(
+        root.path(),
+        "pkg/Cargo.toml",
+        &format!("workspace = {{}}\n{package}"),
+    );
+    let (fresh, hit) = harness.load_project_profile(&workspace).unwrap();
+    assert!(!hit);
+    assert_eq!(fresh.islands.len(), 2);
+    assert!(fresh
+        .recommended_checks
+        .iter()
+        .any(|check| check.id == "pkg:rust-check"));
+}
+
+#[test]
 fn profile_discovery_entry_budget_requires_actual_omission() {
     let root = tempfile::tempdir().unwrap();
     write_manifest(root.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");

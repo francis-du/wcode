@@ -120,7 +120,7 @@ verification:
     path: tests/unit/workspace/execution.rs
     symbol: normal_command_output_and_exit_status_remain_compatible
   - kind: test
-    path: tests/unit/workspace/execution.rs
+    path: tests/unit/workspace/execution_sandbox.rs
     symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed
   - kind: test
     path: tests/unit/workspace/execution.rs
