@@ -1,0 +1,84 @@
+name: Recover verified lockfile object
+
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/recover-verified-lockfile.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: github.repository == 'francis-du/wcode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restore exact tested bytes without committing or moving any ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import urllib.request
+
+          base = 'https://api.github.com/repos/francis-du/wcode/git/blobs'
+          input_sha = '6d679ac6876cf87704b61895036bb837fd337999'
+          expected_sha = 'd1193fddfc8e62b183fcd0c544125a2ae04edfb7'
+          expected_sha256 = 'd9498d8bdc6ca0f492a1b520f00c114c3d72732ac06ebe7273ba57938a9fb045'
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise RuntimeError('GitHub API redirect refused')
+
+          opener = urllib.request.build_opener(NoRedirect())
+          def api(url, payload=None):
+              headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                         'Accept': 'application/vnd.github+json',
+                         'Content-Type': 'application/json',
+                         'X-GitHub-Api-Version': '2022-11-28'}
+              data = None if payload is None else json.dumps(payload).encode()
+              request = urllib.request.Request(url, data=data, headers=headers)
+              with opener.open(request, timeout=30) as response:
+                  result = response.read(256 * 1024 + 1)
+                  if len(result) > 256 * 1024:
+                      raise RuntimeError('API response exceeds bound')
+                  return json.loads(result)
+
+          def blob_sha(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+
+          stored = api(base + '/' + input_sha)
+          if stored.get('encoding') != 'base64':
+              raise RuntimeError('Unexpected blob representation')
+          original = base64.b64decode(stored['content'])
+          if blob_sha(original) != input_sha:
+              raise RuntimeError('Input object identity mismatch')
+          repaired = original.decode('utf-8')
+          # Repair two transcription errors in the unreferenced transfer object.
+          # No input is executable and no altered checksum is trusted without the
+          # complete independently recorded source SHA-256 and Git blob identity.
+          replacements = {
+              '252afb9ae5eaa683babdc6a068b3f5726ebf19e05070c731f9b2a23a7c3e8ed34':
+              '252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34',
+              'c96395c8a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b':
+              'c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b',
+          }
+          for before, after in replacements.items():
+              if repaired.count(before) != 1:
+                  raise RuntimeError('Transfer repair context mismatch')
+              repaired = repaired.replace(before, after, 1)
+          data = repaired.encode('utf-8')
+          observed = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'blob': blob_sha(data)}
+          print(json.dumps(observed, sort_keys=True))
+          if observed['bytes'] != 94161 or observed['sha256'] != expected_sha256 or observed['blob'] != expected_sha:
+              raise RuntimeError('Recovered bytes differ from the tested candidate; no object published')
+          result = api(base, {'content': repaired, 'encoding': 'utf-8'})
+          if result.get('sha') != expected_sha:
+              raise RuntimeError('Published object identity mismatch')
+          print('Verified lockfile object stored; no commit, ref, tag, release or workflow gate changed.')
+          PY
