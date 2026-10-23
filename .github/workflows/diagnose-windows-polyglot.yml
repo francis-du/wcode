@@ -1,0 +1,44 @@
+name: Diagnose Windows polyglot candidate
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/diagnose-windows-polyglot.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: b66f934e4d61d027e40c20b39aff8af9ec7572f4
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Execute the exact failing test and retain its complete diagnostic
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target | Out-Null
+          cargo test --locked --lib mcp::workflow_tests::developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node -- --exact --nocapture 2>&1 | Tee-Object -FilePath target/windows-polyglot.log
+          $result = $LASTEXITCODE
+          git rev-parse HEAD | Out-File -FilePath target/windows-polyglot-revision.txt -Encoding utf8
+          if ($result -ne 0) { exit $result }
+          if (-not (Select-String -Path target/windows-polyglot.log -SimpleMatch '1 passed; 0 failed')) { throw 'The exact test did not execute completely.' }
+      - name: Retain diagnostic, not release approval
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-polyglot-diagnostic-${{ github.run_id }}
+          path: |
+            target/windows-polyglot.log
+            target/windows-polyglot-revision.txt
+          if-no-files-found: error
+          retention-days: 14
