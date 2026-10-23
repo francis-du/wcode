@@ -1,0 +1,149 @@
+name: Prepare Git filesystem-boundary discovery fix
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/prepare-git-boundary-fix.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test the diagnostic classifier and prepare exact candidate objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,os,pathlib,subprocess,tempfile,urllib.request
+          root='https://api.github.com/repos/francis-du/wcode/git/blobs'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): raise RuntimeError('redirect refused')
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(url,payload=None):
+              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+                'Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(req,timeout=30) as response:
+                  data=response.read(256*1024+1)
+                  if len(data)>256*1024: raise RuntimeError('response too large')
+                  return json.loads(data)
+          def sha(data): return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          def read(identity):
+              value=api(root+'/'+identity)
+              if value.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+              data=base64.b64decode(value['content'])
+              if sha(data)!=identity: raise RuntimeError('source object mismatch')
+              return data.decode('utf-8')
+          def replace(text,before,after):
+              if text.count(before)!=1: raise RuntimeError('patch context is not unique')
+              return text.replace(before,after,1)
+          helper=r'''// Accept only Git's two complete native non-repository diagnostics. The caller
+          // still checks exit/output integrity and the absence of ancestor .git metadata.
+          fn known_non_repository_diagnostic(stderr: &str) -> bool {
+              let mut lines = stderr.lines();
+              let Some(first) = lines.next() else {
+                  return false;
+              };
+              if first == "fatal: not a git repository (or any of the parent directories): .git" {
+                  return lines.next().is_none();
+              }
+              let Some(mount) = first
+                  .strip_prefix("fatal: not a git repository (or any parent up to mount point ")
+                  .and_then(|value| value.strip_suffix(')'))
+              else {
+                  return false;
+              };
+              !mount.is_empty()
+                  && mount.len() <= 4096
+                  && (mount.starts_with('/') || std::path::Path::new(mount).is_absolute())
+                  && !mount.chars().any(char::is_control)
+                  && lines.next()
+                      == Some(
+                          "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).",
+                      )
+                  && lines.next().is_none()
+          }
+
+          '''
+          tests=r'''
+          #[test]
+          fn git_non_repository_diagnostic_accepts_complete_native_forms() {
+              let legacy = "fatal: not a git repository (or any of the parent directories): .git";
+              let boundary = "fatal: not a git repository (or any parent up to mount point /)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).";
+              for message in [legacy.to_owned(), boundary.to_owned(), boundary.replace("point /)", "point /mnt/work tree)")] {
+                  for ending in ["", "\n", "\r\n"] {
+                      assert!(known_non_repository_diagnostic(&format!("{message}{ending}")), "{message:?}");
+                      assert!(known_non_repository_diagnostic(&format!("{}{ending}", message.replace('\n', "\r\n"))));
+                  }
+              }
+          }
+
+          #[test]
+          fn git_non_repository_diagnostic_rejects_unknown_partial_or_mixed_errors() {
+              let legacy = "fatal: not a git repository (or any of the parent directories): .git";
+              let first = "fatal: not a git repository (or any parent up to mount point /)";
+              let stop = "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).";
+              for message in [
+                  String::new(),
+                  "fatal: detected dubious ownership in repository".into(),
+                  "fatal: cannot access current directory: Permission denied".into(),
+                  "fatal: not a git repository: unavailable-repository".into(),
+                  format!("{legacy}\nfatal: permission denied"),
+                  format!("{legacy} extra"),
+                  format!("{legacy}\n\n"),
+                  first.into(),
+                  stop.into(),
+                  format!("{first}\n{stop}\nwarning: incomplete scan"),
+                  format!("{first}\nnot the expected boundary diagnostic"),
+                  format!("{}\n{stop}", first.replace("point /)", "point relative)")),
+                  format!("{}\n{stop}", first.replace("point /)", "point )")),
+                  format!("{}\n{stop}", first.replace("point /)", "point /bad\0path)")),
+                  format!("{}\n{stop}", first.replace("point /)", &format!("point /{})", "x".repeat(4096)))),
+              ] {
+                  assert!(!known_non_repository_diagnostic(&message), "{message:?}");
+              }
+          }
+          '''
+          # Exercise the same corpus with the old actual predicate, then the new
+          # helper. Compilation errors or an empty runner are not a red test.
+          with tempfile.TemporaryDirectory(prefix='git-diagnostic-regression-') as directory:
+              directory=pathlib.Path(directory)
+              old='fn known_non_repository_diagnostic(stderr: &str) -> bool { stderr.starts_with("fatal: not a git repository (or any of the parent directories): .git") }\n'
+              for label,code,expected in [('before',old,101),('after',helper,0)]:
+                  source=directory/(label+'.rs');binary=directory/label
+                  source.write_text(code+tests)
+                  subprocess.run(['rustc','--edition=2021','--test',str(source),'-o',str(binary)],check=True,timeout=30)
+                  result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=20)
+                  print(label,result.returncode,result.stdout,result.stderr)
+                  if result.returncode!=expected or 'running 2 tests' not in result.stdout:
+                      raise RuntimeError('diagnostic regression did not execute as expected')
+                  if label=='after' and '2 passed; 0 failed' not in result.stdout:
+                      raise RuntimeError('incomplete successful regression')
+          path='src/runtime/harness/review.rs'
+          source=read('fcea3279d99435d18f8e9656ea9b41a8ca9f5ec7')
+          before='result.stderr.starts_with(\n                "fatal: not a git repository (or any of the parent directories): .git",\n            )'
+          source=replace(source,before,'known_non_repository_diagnostic(&result.stderr)')
+          source=replace(source,'async fn git_repository_root(workspace: &Workspace) -> Result<Option<PathBuf>> {',helper+'async fn git_repository_root(workspace: &Workspace) -> Result<Option<PathBuf>> {')
+          test_source=read('6817782922240dca8384aa2e72253dda14593ac7').rstrip('\n')+'\n'+tests
+          design=read('2cbab057a6f91b2af1f93e7c235aa2569f8f38b9')
+          design=replace(design,'verification:\n','  A complete native non-repository diagnostic at a filesystem boundary remains a non-Git workspace, not an unavailable repository. Exit/output integrity and absence of ancestor Git metadata are still required; incomplete, mixed, denied, unborn or broken-repository observations cannot silently disable Git binding.\nverification:\n')
+          design=design.rstrip('\n')+'\n  - {kind: test, path: tests/unit/runtime/harness/git_change.rs, symbol: git_non_repository_diagnostic_accepts_complete_native_forms}\n  - {kind: test, path: tests/unit/runtime/harness/git_change.rs, symbol: git_non_repository_diagnostic_rejects_unknown_partial_or_mixed_errors}\n  - {kind: test, path: tests/unit/runtime/harness/git_change.rs, symbol: git_execution_binding_distinguishes_non_git_denied_unborn_and_broken_git}\n'
+          files={path:source,'tests/unit/runtime/harness/git_change.rs':test_source,'.wcode/design/acceptance/polyglot.yaml':design}
+          # Format only these two Rust files in an isolated directory. Do not
+          # traverse their repository modules or modify any other source.
+          with tempfile.TemporaryDirectory(prefix='git-diagnostic-format-') as directory:
+              for path,text in list(files.items()):
+                  if path.endswith('.rs'):
+                      local=pathlib.Path(directory)/pathlib.Path(path).name;local.write_text(text)
+                      subprocess.run(['rustfmt','--edition','2021','--config','skip_children=true',str(local)],check=True,timeout=20)
+                      files[path]=local.read_text()
+          output={}
+          for path,text in files.items():
+              identity=sha(text.encode('utf-8'))
+              if api(root,{'content':text,'encoding':'utf-8'}).get('sha')!=identity: raise RuntimeError('upload mismatch')
+              output[path]=identity
+          print(json.dumps(output,indent=2,sort_keys=True))
+          print('Prepared source, unchanged-boundary regression and Design objects only; no commit/ref/tag was changed.')
+          PY
