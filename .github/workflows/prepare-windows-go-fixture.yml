@@ -1,0 +1,75 @@
+name: Prepare bounded Windows Go fixture deadline
+on:
+  push:
+    branches: [maintenance/recover-lockfile-20261023]
+    paths: [.github/workflows/prepare-windows-go-fixture.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Update only the measured failing fixture and its declared boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,os,pathlib,subprocess,tempfile,urllib.request
+          root='https://api.github.com/repos/francis-du/wcode/git/blobs'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): raise RuntimeError('redirect refused')
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(url,payload=None):
+              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+                'Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'})
+              with opener.open(req,timeout=30) as response:
+                  data=response.read(256*1024+1)
+                  if len(data)>256*1024: raise RuntimeError('response too large')
+                  return json.loads(data)
+          def sha(data): return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          def read(identity):
+              value=api(root+'/'+identity)
+              if value.get('encoding')!='base64': raise RuntimeError('unexpected encoding')
+              data=base64.b64decode(value['content'])
+              if sha(data)!=identity: raise RuntimeError('source mismatch')
+              return data.decode('utf-8')
+          original=read('3b8d4179336e80219630e7e3522602be8d1b86a8')
+          start=original.index('async fn developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node()')
+          end=original.index('\n#[tokio::test]',start)
+          body=original[start:end]
+          before='    for fixture in fixtures {\n'
+          after='''    for fixture in fixtures {
+                  // The Windows cold Go toolchain exceeded the old explicit 60 s
+                  // fixture budget before its regression test could execute. Keep
+                  // the complete fail -> source edit -> pass oracle, with a bounded
+                  // integration-only deadline; production defaults stay unchanged.
+                  let timeout_seconds = if cfg!(windows) && fixture.required_program == "go" {
+                      180
+                  } else {
+                      60
+                  };
+          '''
+          if body.count(before)!=1 or body.count('"timeout_seconds":60')!=2: raise RuntimeError('fixture scope mismatch')
+          body=body.replace(before,after,1).replace('"timeout_seconds":60','"timeout_seconds":timeout_seconds')
+          # No assertion, unavailable-tool branch or test selection is removed.
+          if body.count('assert')!=original[start:end].count('assert'): raise RuntimeError('assertion inventory changed')
+          result=original[:start]+body+original[end:]
+          with tempfile.TemporaryDirectory(prefix='bounded-go-fixture-') as directory:
+              path=pathlib.Path(directory)/'workflow.rs';path.write_text(result)
+              subprocess.run(['rustfmt','--edition','2021','--config','skip_children=true',str(path)],check=True,timeout=20)
+              result=path.read_text()
+          design=read('0fa7feca844edef12784553385e4ce21e51f0b20')
+          if design.count('verification:\n')!=1: raise RuntimeError('Design context mismatch')
+          design=design.replace('verification:\n','  The real multi-language failure/edit/reverification fixture uses an explicit bounded 180-second deadline only for Go on Windows, where a cold vet process exceeded 60 seconds before the test phase. Other fixtures retain 60 seconds. Production command deadlines, fail-closed timeout classification and all diagnostic/edit/success assertions remain unchanged; a timeout or skipped required check is not passing verification.\nverification:\n',1)
+          files={'tests/unit/integrations/mcp/workflow.rs':result,'.wcode/design/acceptance/polyglot.yaml':design}
+          output={}
+          for path,text in files.items():
+              identity=sha(text.encode('utf-8'))
+              if api(root,{'content':text,'encoding':'utf-8'}).get('sha')!=identity: raise RuntimeError('stored object mismatch')
+              output[path]=identity
+          print(json.dumps(output,indent=2,sort_keys=True))
+          print('Prepared test-only deadline and Design objects. No production timeout, assertion, ref or release changed.')
+          PY
