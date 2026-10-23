@@ -1,0 +1,84 @@
+name: Complete v0.9.1 release documentation
+on:
+  push:
+    branches: [docs/v0.9.1-release-body-20261023]
+    paths: [.github/workflows/complete-v091-notes.yml]
+permissions:
+  contents: write
+concurrency:
+  group: v091-release-documentation
+  cancel-in-progress: false
+jobs:
+  notes:
+    if: github.repository == 'francis-du/wcode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Update only the existing release body and verify immutable identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import base64, hashlib, json, os, urllib.request
+          REPO = 'francis-du/wcode'
+          DOCS = '1fb2e80b19aeafdba4fd01d760931c53903ce9c4'
+          TAG_SHA = '512342287de4b55a989693b574d50f0c6804ce34'
+          RELEASE = 421942468
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise RuntimeError('GitHub API redirect refused')
+          client = urllib.request.build_opener(NoRedirect())
+          def api(path, data=None):
+              request = urllib.request.Request('https://api.github.com/repos/' + REPO + '/' + path,
+                  data=None if data is None else json.dumps(data).encode(),
+                  method='GET' if data is None else 'PATCH',
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                      'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'wcode-release-documentation', 'Content-Type': 'application/json'})
+              with client.open(request, timeout=30) as response:
+                  raw = response.read(512 * 1024 + 1)
+              if len(raw) > 512 * 1024: raise RuntimeError('Response too large')
+              return json.loads(raw)
+          def tag():
+              value = api('git/ref/tags/v0.9.1')['object']
+              assert value['type'] == 'commit' and value['sha'] == TAG_SHA
+          def identity(value):
+              assert value['id'] == RELEASE and value['tag_name'] == 'v0.9.1'
+              assert value['draft'] is False and value['prerelease'] is False
+              return (value['tag_name'], value['target_commitish'], value['name'],
+                  value['draft'], value['prerelease'], value['published_at'],
+                  sorted((a['id'], a['name'], a['size'], a['digest'], a['state']) for a in value['assets']))
+          notes = []
+          for language, suffix, digest, site in [
+              ('中文升级与操作指南', '.zh-CN', '7dbe949e252b9a8fc9915e628a7b681060fa432e95e1e26815add78e3ae90acc', 'https://wcode.francis.run/zh/docs/'),
+              ('English upgrade and operating guide', '', 'db73e097330f27c44ca03e2e4caa789595c1b4e55e7d9a57f2918040681c50e6', 'https://wcode.francis.run/docs/')]:
+              path = 'docs/manual/releases/v0.9.1' + suffix + '.md'
+              doc = api('contents/' + path + '?ref=' + DOCS)
+              assert doc['encoding'] == 'base64'
+              raw = base64.b64decode(doc['content'])
+              assert hashlib.sha256(raw).hexdigest() == digest, 'Documentation bytes differ from tested files'
+              source = raw.decode('utf-8')
+              assert source.startswith('---\n')
+              text = source.split('---\n', 2)[2].strip()
+              text = text.replace('](../../getting-started/)', '](' + site + 'getting-started/)')
+              text = text.replace('](../../reference/)', '](' + site + 'reference/)')
+              text = text.replace('# wcode v0.9.1\n', '# ' + language + '\n', 1)
+              notes.append(text)
+          body = '<!-- wcode-v0.9.1-docs:' + DOCS + ' -->\n\n' + '\n\n---\n\n'.join(notes) + '\n'
+          tag()
+          before = api('releases/' + str(RELEASE))
+          original = identity(before)
+          assert len(before['assets']) == 6
+          expected = "## What's Changed\n* fix(harness): preserve nested Cargo workspace verification by @francis-du in https://github.com/francis-du/wcode/pull/12\n* feat(ui): filter retained jobs with scope-safe controls by @francis-du in https://github.com/francis-du/wcode/pull/13\n\n\n**Full Changelog**: https://github.com/francis-du/wcode/compare/v0.9.0...v0.9.1"
+          assert before['body'] in (expected, body), 'Release text changed independently; stop without overwrite'
+          changed = before['body'] != body
+          if changed: api('releases/' + str(RELEASE), {'body': body})
+          after = api('releases/' + str(RELEASE))
+          assert identity(after) == original and after['body'] == body
+          tag()
+          report = {'release_id': RELEASE, 'docs_commit': DOCS, 'tag_commit': TAG_SHA,
+              'body_updated': changed, 'tag_and_six_assets_unchanged': True,
+              'body_sha256': hashlib.sha256(body.encode()).hexdigest(), 'new_release_created': False}
+          print(json.dumps(report))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+              f.write('## Release documentation only\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
