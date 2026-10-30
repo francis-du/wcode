@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.resolve(__dirname, '../../../src/ui/intelligence_web/app/jobs.js'), 'utf8');
+const source = ['job_output.js', 'jobs.js'].map(file => fs.readFileSync(path.resolve(__dirname, '../../../src/ui/intelligence_web/app', file), 'utf8')).join('\n');
 const A = 'TASK-' + '1'.repeat(20) + '-' + 'a'.repeat(32);
 const B = 'TASK-' + '2'.repeat(20) + '-' + 'b'.repeat(32);
 const flush = () => new Promise(resolve => setImmediate(resolve));

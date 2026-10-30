@@ -80,9 +80,6 @@ function renderLargestFiles(structure) {
   }).join("");
 }
 
-function bindRepositorySourceActions(node) {
-  node.querySelectorAll("[data-source-path]").forEach(button => button.addEventListener("click", () => openRepositoryFile(button.dataset.sourcePath)));
-}
 function repositorySourceRevision() {
   const p = state.project;
   return { code: p?.proof?.revision_code || p?.attention?.revision?.code, design: p?.proof?.revision_design ?? p?.attention?.revision?.design };
@@ -92,9 +89,8 @@ function repositorySourceRevisionMatches(revision) {
   return current.code === revision?.code && (current.design ?? null) === (revision?.design ?? null);
 }
 async function openRepositoryFile(path) {
-  const observed = [...(state.project?.structure?.entries || []), ...(state.project?.structure?.largest_files || []), ...(state.project?.attention?.items || [])];
-  if (!path || !observed.some(item => item.path === path)) return false;
-  const stamp = observationStamp(), nodeId = `file:${path}`;
+  if (!token || !repositorySourcePaths().has(path)) return false;
+  const stamp = observationStamp(), owner = token, nodeId = `file:${path}`;
   const revision = repositorySourceRevision();
   if (!validCodeGraphRepositoryRevision(revision)) {
     revealSection("filesSection");
@@ -108,13 +104,18 @@ async function openRepositoryFile(path) {
   state.selectedCodeNode = ""; state.codeGraphView = "focus";
   if (els.codeGraphSearch) els.codeGraphSearch.value = path;
   revealSection("codeGraphSection");
-  const loaded = await loadCodeGraph({ nodeId, query: path, repositoryRevision: revision });
-  if (!loaded || !observationCurrent(stamp) || !repositorySourceRevisionMatches(revision) || state.workspaceTab !== "architecture" || state.architectureView !== "codegraph") return false;
+  const observation = () => token === owner && observationCurrent(stamp) && repositorySourceRevisionMatches(revision)
+    && state.workspaceTab === "architecture" && state.architectureView === "codegraph";
+  const loaded = await loadCodeGraph({ nodeId, query: path, repositoryRevision: revision, observation });
+  if (!loaded || !observation()) return false;
   const node = state.codeGraph?.nodes?.find(item => item.node?.id === nodeId && codeGraphPath(item.node) === path)?.node;
-  if (!node || state.codeGraph?.query !== nodeId) return false;
+  if (!node || state.codeGraph?.query !== nodeId) {
+    state.codeGraphError = localized("This mapped file is not available in the current bounded graph. Refresh the project or inspect its mapping; absence here does not prove the file is missing.", "当前有界图谱未提供此映射文件。请刷新项目或检查映射；此处未观测到不代表文件不存在。");
+    renderCodeGraph(); return false;
+  }
   selectCodeGraphNode(nodeId);
   setCodeGraphInspector(true);
-  return loadCodeGraphSource(node, { repositoryRevision: revision });
+  return loadCodeGraphSource(node, { repositoryRevision: revision, observation });
 }
 function renderProjectStructure() {
   const structure = state.project?.structure || {};
@@ -170,7 +171,7 @@ function renderProjectStructure() {
     structure.truncated ? pill(t("Snapshot truncated"), "warn") : "",
   ].join("");
   setHtml("structureSummary", els.structureSummary, summary);
-  setHtml(
+  setSourceActionHtml(
     "fileTree",
     els.fileTree,
     visibleEntries.length
@@ -178,7 +179,7 @@ function renderProjectStructure() {
       : `<div class="empty">${
         esc(t(query ? "No matching files." : "No source files in this snapshot."))
       }</div>`,
-    () => bindRepositorySourceActions(els.fileTree),
+    { tab: "files" },
   );
-  setHtml("largeFiles", els.largeFiles, renderLargestFiles(structure), () => bindRepositorySourceActions(els.largeFiles));
+  setSourceActionHtml("largeFiles", els.largeFiles, renderLargestFiles(structure), { tab: "files" });
 }

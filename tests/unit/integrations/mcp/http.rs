@@ -101,7 +101,9 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
     }
     let running = state
         .monitor
-        .queue(&workspace, "read_file", "PRIVATE-ARGUMENT", 1);
+        .queue(&workspace, "run_command", "PRIVATE-ARGUMENT", 1);
+    let job_id = format!("TASK-{}-{}", "1".repeat(20), "a".repeat(32));
+    running.bind_command_job(&job_id);
     running.start();
     let queued = state
         .monitor
@@ -109,6 +111,8 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
     let foreign = state
         .monitor
         .queue("unrelated-project", "FOREIGN-TOOL", "PRIVATE-ARGUMENT", 1);
+    let foreign_job_id = format!("TASK-{}-{}", "2".repeat(20), "b".repeat(32));
+    foreign.bind_command_job(&foreign_job_id);
     foreign.start();
     let before = state.monitor.connection_status();
     let response =
@@ -123,9 +127,12 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
     assert_eq!(body["activity"]["recent"].as_array().unwrap().len(), 12);
     assert_eq!(body["activity"]["recent_truncated"], true);
     assert_eq!(body["activity"]["recent"][0]["status"], "running");
+    assert_eq!(body["activity"]["recent"][0]["command_job_id"], job_id);
     assert_eq!(body["activity"]["recent"][1]["status"], "queued");
+    assert!(body["activity"]["recent"][1]["command_job_id"].is_null());
     assert!(!body.to_string().contains("PRIVATE-ARGUMENT"));
     assert!(!body.to_string().contains("FOREIGN-TOOL"));
+    assert!(!body.to_string().contains(&foreign_job_id));
     assert!(!body.to_string().contains(state.auth.ui_token()));
     assert_eq!(
         before.active_tasks,
