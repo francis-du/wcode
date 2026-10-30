@@ -485,7 +485,7 @@ fn observatory_assets_support_incremental_refresh_precision_and_light_mode() {
     assert!(!INTELLIGENCE_APP_PAGE.contains("style=\""));
     assert!(!INTELLIGENCE_APP_PAGE.contains("<script>"));
     assert!(!INTELLIGENCE_JS.contains("style=\""));
-    assert!(INTELLIGENCE_JS.contains("setHtml(\"detail\""));
+    assert!(INTELLIGENCE_JS.contains("setSourceActionHtml(\"detail\""));
     assert!(INTELLIGENCE_JS.contains("setTimeout(refreshTick, 8000)"));
     assert!(INTELLIGENCE_JS.contains("document.hidden"));
     assert!(!INTELLIGENCE_JS.contains("setInterval("));
