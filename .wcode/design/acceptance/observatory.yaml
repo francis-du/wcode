@@ -1,0 +1,49 @@
+schema_version: 1
+id: AC-OBSERVABILITY-001
+title: Engineering Observatory explains the project without an IDE
+statement: >-
+  The WebUI first exposes one continuous rounded System → Subsystem → Component → Code topology canvas derived from Design State and current implementation ownership. Subsystems expose purpose, membership, source/requirement scale, dependency direction, current changes, strong drift and evidence gaps directly in that architecture-first hierarchy; component indexes and dependency evidence remain secondary drill-down surfaces rather than card walls. Engineering Architecture contains an internal Code Graph mode—not an eighth top-level tab—that searches bounded code roots and shows callers/callees, dependency/reference paths, impact radius, test/requirement/proof context and why-related evidence while preserving provider and precision on every edge. Existing bounded activity telemetry drives a realtime Understand → Change → Prove → Learn → Observe flow, exposes descriptive Agent Context candidate→delivery, cache, saved-context and build-latency facts without treating selection ratio as a quality score, keeps cancelled callers whose started blocking workers still retain real capacity visible as active until release, and the working-tree story maps Files → Components → Requirements → Verification → confirmed Drift. The TUI automatically loads the focused project engineering model; wide terminals put Workspace Activity and a compact Engineering/connection control rail side-by-side, medium/narrow terminals omit the permanent Engineering Pulse so real task rows remain dominant, and Architecture plus Proof/Runtime stays available in a rounded Engineering Console. WebUI, TUI, Setup and OAuth share the canonical wcode Logo/homepage palette and corresponding fluid hierarchy: rounded primary workbenches, frosted/liquid-glass Web depth, small refined controls and subordinate semantic colors. Overview, Architecture/Digital Twin, Task Activity, Verification Evidence, Current Changes, Requirements and Runtime reuse one glanceable visual grammar with project pulse, semantic status beacons, metric/relationship strips, timelines and inspectors; supporting metadata is at least 12px, and stale, unknown, inconclusive, failed or unverified state is visibly distinct from current passing proof. Component/Requirement drill-down keeps responsibilities, implementation, dependencies, Desired vs Actual, Change, revision-exact Proof and Convergence explicit; verification mapping remains distinct from Executed, Passed and Fresh evidence. Missing bounded-syntax relationships remain advisory and runtime activity remains the single control-state source. A shared attention projection keeps independent evidence-policy failures and disagreement visible, never promotes ModelReview to deterministic precision, preserves current revision and partial coverage, ranks risk and structural violations, and uses newest-first current verification history. Native TUI tabs expose Summary, Attention, Tasks and Providers with keyboard selection and scrolling. Web attention and the observation strip lead to existing drilldowns; source tree and largest-file controls read bounded 240-line SHA-bound pages with clipped focus, explicit total ranges and stale-source rejection.
+  Requirement implementation and acceptance-test references, component targets and observed changed paths open the existing guarded source inspector. Resolved file/symbol mappings can supply exact observed paths even outside the separately bounded file tree; check IDs and unresolved/unobserved guesses cannot. Extensionless filesystem references retain their exact file identity. Source controls bind rendered selection, Workspace, owner, epoch and code/Design revision; detached controls and late graph/source responses cannot publish into a replacement context. Reading a mapped test neither executes it nor creates evidence.
+verification:
+  - {kind: test, path: tests/observatory_tools.rs, symbol: design_source_navigation_preserves_observed_paths_and_revision}
+  - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_builds_requirement_architecture_from_current_code}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: project_observatory_page_starts_with_acceptance_and_preserves_architecture_drilldowns}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_assets_support_incremental_refresh_precision_and_light_mode}
+  - {kind: test, path: tests/unit/runtime/harness/observatory.rs, symbol: project_observatory_exposes_bounded_file_structure_and_oversized_files}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_file_structure_and_largest_files}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_audit_covers_refresh_access_and_truthful_telemetry}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: release_062_webui_keeps_semantic_and_authorization_responses_scoped}
+  - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: engineering_pulse_is_default_on_roomy_terminals_without_crowding_small_ones}
+  - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: wide_dashboard_puts_activity_and_engineering_control_rail_side_by_side}
+  - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_code_graph_is_protected_bounded_and_preserves_provenance}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_engineering_digital_twin_code_graph}
+  - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_visual_grammar_keeps_state_proof_change_and_runtime_scannable}
+  - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: source_scans_honor_ignore_files_and_allow_explicit_ignored_paths}
+  - {kind: test, path: tests/unit/workspace/ignore.rs, symbol: subspace_discovery_honors_gitignore_for_custom_generated_projects}
+  - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: observations_console_preserves_architecture_and_proof_drilldowns}
+  - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_retry_replaces_only_its_exact_scope}
+  - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_ties_keep_failure_and_revisions_stay_isolated}
+  - {kind: test, path: tests/unit/evidence/mod.rs, symbol: effective_evidence_full_can_supersede_quick_but_never_in_reverse}
+  - {kind: test, path: tests/unit/evidence/store.rs, symbol: evidence_signal_detects_late_records_and_removal_without_loading_json}
+  - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: observatory_effective_details_are_bounded_redacted_and_keep_history}
+  - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: acceptance_summary_does_not_choose_a_favorable_uuid_or_cross_scope_pass}
+  - {kind: test, path: tests/unit/runtime/harness/proof.rs, symbol: current_observatory_plans_require_both_code_and_design_revision}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_preserves_revision_and_ranks_current_failure_before_unknowns}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_bounds_rows_without_hiding_raw_severity_counts}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_preserves_evidence_policy_scope_and_model_precision}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_keeps_unlisted_oversized_paths_visible_and_diagnostic_ids_stable}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_latest_plan_does_not_reintroduce_older_blockers}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_redacts_diagnostics_before_emitting_ids_or_messages}
+  - {kind: test, path: tests/unit/integrations/mcp/code_navigation.rs, symbol: file_source_pages_are_bounded_complete_and_sha_guarded}
+  - {kind: test, path: tests/unit/integrations/mcp/code_navigation.rs, symbol: empty_file_source_has_explicit_empty_range}
+  - {kind: test, path: tests/unit/integrations/mcp/code_navigation.rs, symbol: symbol_source_page_without_intersection_has_no_focus}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: task_detail_uses_canonical_redaction_before_terminal_render}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_selection_identity_survives_unrelated_evidence_insertion}
+  - {kind: test, path: tests/unit/intelligence/attention.rs, symbol: attention_includes_high_risk_without_drift_and_routes_provider_gaps}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: console_tabs_keep_global_stop_and_authorization_separate}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: shared_attention_retains_revision_provenance_and_incomplete_observation}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: attention_reports_unknown_project_state_without_claiming_clear}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: attention_routes_failed_calls_to_retained_task_details}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: selected_task_identity_survives_runtime_reordering_and_details_scroll}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: providers_show_unknown_jev_and_semantic_freshness_then_scroll_to_tunnels}
+  - {kind: test, path: tests/unit/ui/monitor/observatory.rs, symbol: attention_enter_opens_selected_authorization_without_approving_it}
