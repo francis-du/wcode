@@ -10,7 +10,7 @@ statement: >-
 verification:
   - {kind: test, path: tests/engineering_observability.rs, symbol: activity_job_navigation_preserves_exact_observation_identity}
   - {kind: test, path: tests/engineering_observability.rs, symbol: retained_job_output_search_preserves_scope_focus_and_scroll}
-  - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
+  - {kind: test, path: tests/unit/integrations/mcp/activity.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
   - {kind: test, path: tests/job_controls.rs, symbol: retained_job_controls_bind_scope_selection_and_poll_generation}
   - {kind: test, path: tests/unit/workspace/credential_redaction.rs, symbol: credential_redaction_native_opaque_credentials_require_exact_hex_shape}
   - {kind: test, path: tests/unit/ui/monitor/inspect.rs, symbol: source_inspection_reads_real_file_and_exact_symbol_without_execution}

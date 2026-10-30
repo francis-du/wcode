@@ -5,6 +5,7 @@ fn retained_job_controls_bind_scope_selection_and_poll_generation() {
     let output = Command::new("node")
         .args([
             "--test",
+            "--test-isolation=none",
             "--test-reporter=tap",
             "--test-timeout=10000",
             "tests/unit/ui/job_controls.cjs",

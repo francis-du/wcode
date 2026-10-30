@@ -756,7 +756,7 @@
     - {kind: test, path: tests/unit/ui/monitor/keys.rs, symbol: repeated_keys_never_repeat_grants_toggles_or_external_links}
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_layout_regressions_cover_long_content_and_nested_grids}
     - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
-    - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
+    - {kind: test, path: tests/unit/integrations/mcp/activity.rs, symbol: observatory_activity_is_protected_scoped_bounded_and_has_no_arguments}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_distinguishes_unavailable_review_from_clean}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_serves_cached_snapshot_before_heavy_refresh}
     - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_revision_exposes_proof_freshness_without_starting_commands}
