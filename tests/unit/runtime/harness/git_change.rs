@@ -474,3 +474,54 @@ async fn git_metadata_redaction_truncation_and_path_cap_never_mean_complete() {
     assert!(!truncated.complete);
     assert_eq!(truncated.regular_file_changes, None);
 }
+
+#[test]
+fn git_non_repository_diagnostic_accepts_complete_native_forms() {
+    let legacy = "fatal: not a git repository (or any of the parent directories): .git";
+    let boundary = "fatal: not a git repository (or any parent up to mount point /)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).";
+    for message in [
+        legacy.to_owned(),
+        boundary.to_owned(),
+        boundary.replace("point /)", "point /mnt/work tree)"),
+    ] {
+        for ending in ["", "\n", "\r\n"] {
+            assert!(
+                known_non_repository_diagnostic(&format!("{message}{ending}")),
+                "{message:?}"
+            );
+            assert!(known_non_repository_diagnostic(&format!(
+                "{}{ending}",
+                message.replace('\n', "\r\n")
+            )));
+        }
+    }
+}
+
+#[test]
+fn git_non_repository_diagnostic_rejects_unknown_partial_or_mixed_errors() {
+    let legacy = "fatal: not a git repository (or any of the parent directories): .git";
+    let first = "fatal: not a git repository (or any parent up to mount point /)";
+    let stop = "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).";
+    for message in [
+        String::new(),
+        "fatal: detected dubious ownership in repository".into(),
+        "fatal: cannot access current directory: Permission denied".into(),
+        "fatal: not a git repository: unavailable-repository".into(),
+        format!("{legacy}\nfatal: permission denied"),
+        format!("{legacy} extra"),
+        format!("{legacy}\n\n"),
+        first.into(),
+        stop.into(),
+        format!("{first}\n{stop}\nwarning: incomplete scan"),
+        format!("{first}\nnot the expected boundary diagnostic"),
+        format!("{}\n{stop}", first.replace("point /)", "point relative)")),
+        format!("{}\n{stop}", first.replace("point /)", "point )")),
+        format!("{}\n{stop}", first.replace("point /)", "point /bad\0path)")),
+        format!(
+            "{}\n{stop}",
+            first.replace("point /)", &format!("point /{})", "x".repeat(4096)))
+        ),
+    ] {
+        assert!(!known_non_repository_diagnostic(&message), "{message:?}");
+    }
+}

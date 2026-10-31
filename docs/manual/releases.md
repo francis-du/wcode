@@ -9,6 +9,8 @@ permalink: /docs/releases/
 
 # Releases
 
+- [v0.9.1 — Job controls and verification discovery](v0.9.1/)
+
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
 
 ## 0.9.x

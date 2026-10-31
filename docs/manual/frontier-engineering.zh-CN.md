@@ -9,6 +9,15 @@ permalink: /zh/docs/frontier-engineering/
 
 # 前沿工程与能力路线图
 
+## 2026-11-01：集成阶段的 RSI 取舍
+
+以下是决策，不是实现或通过证明。
+
+- **采用：**[SpecForge](https://arxiv.org/abs/2610.15708)（2026-10-11）启发失败驱动的契约候选与依赖回归；不自动弱化验收。其评估依赖参考实现，仅覆盖 20 个 Python 模块，不能直接推广到通用自主 RSI。
+- **保留并测量：**[Harness 研究](https://www.anthropic.com/research/harness-design-long-running-apps)（2026-03-24）支持独立评审。Jobs 每次仅消融一个 guard，保留同一行为断言；额外编排有对照证据才移除。
+- **验收现有能力：**[MCP Tasks 草案](https://tasks.extensions.modelcontextprotocol.io/)（2026-07-28）重连沿用原 taskId；取消请求的确认不等于实际停止，任务完成仍须检查结果。
+- **延后扩展：**依[评估指南](https://www.anthropic.com/research/demystifying-evals-for-ai-agents)（2026-01-09）的能力评估与回归区分，先做同模型、预算、环境的冻结跨仓库留出评估，再决定新增检索或记忆；本节未执行模型评估。
+
 ## 状态
 
 本轮核查日期为 2026-09-12，研究内容与[此前的改进](../research-upgrades/)分开记录，不把旧论文重新包装成新发现。下文已实现改动已纳入 [v0.6.2 发布准备](../releases/v0.6.2/)，后面的路线图内容仍未实现。源码测试通过，不会自动更新正在运行的 MCP 进程或其工具声明。

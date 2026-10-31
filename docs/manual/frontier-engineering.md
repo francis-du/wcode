@@ -9,6 +9,15 @@ permalink: /docs/frontier-engineering/
 
 # Frontier engineering and capability roadmap
 
+## 2026-11-01: RSI decisions for integration
+
+These decisions guide the existing roadmap; they do not attest implementation or passing checks.
+
+- **Adopt:** [SpecForge](https://arxiv.org/abs/2610.15708) (2026-10-11) motivates failure-backed specification candidates and dependency-aware regression checks. Preserve acceptance contracts; never automatically weaken them to fit generated code. Its reference-implementation requirement and 20-module Python evaluation limit generalization.
+- **Retain and measure:** [Anthropic's harness study](https://www.anthropic.com/research/harness-design-long-running-apps) (2026-03-24) supports independent evaluation and component-by-component ablation. For Jobs integration, remove one guard per experimental variant and retain the same behavioral assertion. Remove additional orchestration only when controlled results support doing so.
+- **Verify existing behavior:** The [MCP Tasks draft](https://tasks.extensions.modelcontextprotocol.io/) (2026-07-28 specification) preserves a durable task handle. Reconnect by that ID; cancellation acknowledgement is not confirmed termination, and task completion still requires inspecting its result.
+- **Defer expansion:** Following the capability/regression distinction in [Anthropic's eval guidance](https://www.anthropic.com/research/demystifying-evals-for-ai-agents) (2026-01-09), the next model-quality experiment remains a frozen, cross-repository holdout with equal model, budget and environment. New retrieval or memory machinery waits for that evidence; no model trial is claimed here.
+
 ## Status
 
 Reviewed on 2026-09-12. This is a new research pass after [the earlier upgrades](../research-upgrades/), not a claim that those papers were all newly discovered. The implemented changes below are included in the [v0.6.2 release preparation](../releases/v0.6.2/); later roadmap items remain unimplemented. A successful source test does not update a running MCP process or its exposed schema.

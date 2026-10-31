@@ -10,7 +10,7 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
-- [v0.9.1 — Upgrade, Jobs operations and verification fixes](releases/v0.9.1/)
+- [v0.9.1 — Job controls and verification discovery](releases/v0.9.1/)
 
 **wcode helps coding assistants read repositories, change code and run checks.** It supplies relevant source, code relationships and task history through MCP. File changes require the expected file hash, and check results identify the code revision they tested.
 

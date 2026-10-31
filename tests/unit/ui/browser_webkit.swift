@@ -205,7 +205,6 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         state.runtimeJobSelected=state.runtimeJobs[1].task_id;state.runtimeJob={...state.runtimeJob,task_id:state.runtimeJobSelected};renderRuntimeJobs();
         obsoleteOutput.value='old-query';obsoleteOutput.dispatchEvent(new Event('input',{bubbles:true}));
         check(runtimeJobOutputScope().query==='','obsolete output controls cannot change another task');
-
         const old=document.querySelector('[data-jobs-origin]');clearRuntimeJobs();renderRuntimeJobs();old.value='mcp';old.dispatchEvent(new Event('change',{bubbles:true}));
         check(state.runtimeJobsOriginFilter==='all','obsolete filter control rejected');
       }
