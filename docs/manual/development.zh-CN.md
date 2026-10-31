@@ -125,22 +125,20 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 - Derived Subspace 只能位于已配置 Parent 内，相对路径从当前 Workspace 解析，并拒绝 Symlink Component；手工重叠 Configured Root 继续阻断；
 - 拒绝 Absolute Path、Parent Traversal、Protected Path、Symlink Component 与不安全 Hard-link Write；
 - SHA-256 Edit Precondition、Per-file Lock、Post-lock Path Re-resolution、Bounded Atomic Write 与 Create-without-overwrite；
-- `delete_path` 是唯一 Model-facing Delete Primitive，只能在 Exact One-shot Human Approval 后删除一个 Regular File 或 Empty Directory；Recursive/Root/Protected/Symlink/Hard-link Delete 永久阻断；
-- No-shell Execution：Model 提供 Bare Executable + Argument Array，不解释 Shell Syntax，也不接受带路径 Interpreter；
-- Known Development CLI 使用 Command-specific Policy，而不是“批准 Program 就批准全部 Subcommand”；
-- Repository Script/Build、Bounded Remote Write、Docker/Kubernetes External-data Read 等跨普通 Read/Check Boundary 的操作使用 Exact `RiskyExecution` Fingerprint；
-- Force/Delete/Mirror Git Push、`git reset` / `restore` Mutation、`gh auth` / `api` / Secret / Variable / Extension Bypass、Kubernetes Cluster Mutation、Terraform Apply/Destroy/Import/State-secret Surface、Shell Interpreter、Workspace 外 Config/Filesystem Redirect 永久阻断；
-- Git Mutation 只允许 Explicit-path `git add`、Message-only `git commit`、Explicit Remote+Ref Non-force `git push` 进入授权。远端同步必须获得精确 `RiskyExecution`，且只接受 `git ls-remote <已配置名称> <明确 heads/tags ref>` 或 `git fetch <已配置名称> <单一明确分支>`；任意 URL、选项、通配／强制 Refspec、Prune 与 Pull 继续不可用，Fetch 按 Workspace Write 管理。批准后的 SSH Push 只允许通过 wcode 固定 Non-interactive SSH Command 使用当前 `SSH_AUTH_SOCK`；Token-like Env、Credential Helper、AskPass、任意 Git Config、Proxy Helper、HTTP Extra Header、Hook、External Diff 仍被移除/禁用；
-- `gh` Remote Mutation 必须 Non-interactive 且通过 Option Allowlist；未来新增未知 Write Flag 默认 Fail Closed，不能自动继承已有 Trust；
+- `delete_path` 是 Model-facing 文件工具删除入口，只能在 Exact One-shot Human Approval 后删除一个 Regular File 或 Empty Directory；Recursive/Root/Protected/Symlink/Hard-link Delete 永久阻断；
+- 命令通过可执行程序加 argv 调用，不隐式解析 Shell 字符串；普通命令准入、显式撤权及会话覆盖遵循当前[安全模型](../security/)与[参考手册](../reference/)；
+- 经过检查的有界开发 Profile 使用 Hardened Direct Lane；超出这些 Profile 的其他合法命令形态，包括显式 Shell 脚本执行，必须进入可实施的 OS 沙箱，不能回退为无沙箱进程；
+- 普通命令策略保留 Git、GitHub 与基础设施工具的命令级后果检查；允许执行不等于提供凭据，也不授权发布、部署、HumanApproval 决策或合并验收；
+- 仓库声明的 Verification Executor 保留独立的 Hardened No-shell Profile；普通命令权限不会扩大该 Profile，也不会把命令执行升级为原生验收权威；
 - URL Argument 不能内嵌 Credential，Credential/Environment File 不进入 Model-facing Filesystem / Index Surface；
 - 每一种 Indexed Language 必须恰好保留一个经过 Contract Test 的 Canonical LSP Launch Profile；Provider-specific Executable Alias / Argument（包括 JDT LS `-data` 这种 Workspace/Runtime 唯一 State）属于 LSP Adapter 的正式职责，只有被证明可用的 Alternate 才能进入 Fallback Order；Compatibility Test 不冒充外部 Server 已安装，真实 Initialize Failure 必须可观测，而且只能切到单独获得 Trust 的已安装 Alternate；
-- 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + LSP Server Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有 Profile 的 LSP 与 Advanced Verification Executor 仍需显式 Trust，除非 Process-wide `--allow-risky-exec` 已明确预授权；
+- 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + LSP Server Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有内置安全 Profile 的 LSP 仍需适用的独立执行信任；有界的仓库声明 Verification Executor 使用单独的 Hardened Autonomous Local Lane；
 - Output Bounded、Timeout Termination、Sensitive Environment Scrub、Interactive Prompt Disabled；
 - Public URL 只允许 HTTPS / Loopback HTTP，OAuth PKCE/Resource Binding、Bounded DCR Metadata、Redirect、Origin、Refresh-token Rotation 保持显式。
 
-`--allow-risky-exec`、`--allow-destructive-writes`、Overlapping/Broad Workspace 等 Flag 都是 Trust-boundary Expansion，只能视为 Operator 的显式决定，不能变成“为了方便”的默认值。能精确描述 Operation 时优先使用 Session Authorization。它们都不是 OS Sandbox。
+`--allow-risky-exec`、`--allow-destructive-writes`、Overlapping/Broad Workspace 等 Flag 都是 Trust-boundary Expansion，只能视为 Operator 的显式决定，不能变成“为了方便”的默认值。能精确描述 Operation 时优先使用 Session Authorization。信任 Flag 和 Hardened Direct Profile 本身不提供 OS 隔离；宽命令另行要求平台沙箱。
 
-扩展 Development CLI Policy 时，应新增**经过检查的 Command Family**，而不是退回 Generic Execution。Strict Local Read/Check 可以 Direct；Repository Code Execution、Remote Mutation、External Daemon/Cluster Read 需要 Exact Authorization；Destructive Infrastructure / Credential-bypass Operation 继续 Block。每个新 Family 都要有代表性的 Allowed Shape 与 Escape/Mutation Blocked Regression。
+新增有界 Development CLI Profile 前，必须检查该命令家族对 Workspace、参数、环境和进程的实际影响。每个新家族都应保留代表性的允许形态与逃逸／危险修改拒绝测试。超出有界 Profile 的命令遵循独立的宽命令沙箱策略，不能为运行它们而扩大直接执行范围或增加无沙箱回退。普通命令准入、显式会话覆盖和独立 Verification Executor 信任仍按[安全模型](../security/)分别处理。
 
 ## 跨平台依赖处理
 

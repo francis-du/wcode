@@ -55,7 +55,7 @@ Worker 不应绕过 wcode 的路径资源 Scheduler 与 SHA 前置条件并发�
 
 - Workspace Root / Path 保护；
 - 精确的 Destructive / Risky Operation 授权；
-- No-shell Command Policy；
+- 不隐式解析 Shell 字符串的命令校验，以及宽命令所需的 OS 沙箱；
 - SHA 编辑前置条件；
 - Product Scope 与 Convention 检查；
 - `review_changes` 可维护性信号；

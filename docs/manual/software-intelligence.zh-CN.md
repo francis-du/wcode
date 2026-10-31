@@ -502,7 +502,7 @@ Handle 只在任务持久创建后返回。每次读取和取消都检查 Transp
 
 两种调用形式都暴露同一份已脱敏、每路 32 KiB 的**独立有界 Progress Stream 尾窗**。未换行内容最多 64 KiB，Progress Channel 最多 32 个 Chunk；8 KiB 是读取 Buffer 的 Chunk 大小，不是日志尾窗上限。最终结果的每路 256 KiB 前缀 Capture 饱和后，Pipe Reader 仍继续排空输出。Worker 先按完整行脱敏再取尾窗；超长未换行内容被抑制，避免先丢掉敏感 Key 再暴露 Value。Capture 截断与尾窗丢弃前缀的来源分别保留，最终结果仍遵守有界前缀合同。
 
-Create 继续经过正常 Writer、可执行文件/命令策略、授权、无 Shell 的 argv、CWD、环境、Sandbox 和资源检查。取消会 Abort 所属 Worker，进而请求终止受监管进程树；取消和最终结果写入串行化，迟到的完成不能覆盖已经保存的取消状态。这不会回滚已发生的副作用。每个 Workspace 最多保留 256 个任务，每个任务最多 32 个 Snapshot；Task Deadline 为 24 小时，默认轮询间隔 1 秒。容量不足时回收 Terminal Task，不逐出 Active Task；命令默认 600 秒或显式最多 1800 秒的执行超时与 Task Deadline 独立。
+Create 继续经过正常 Writer、可执行文件/命令策略、授权、不隐式解析 Shell 字符串的 argv 调用、CWD、环境、Sandbox 和资源检查。取消会 Abort 所属 Worker，进而请求终止受监管进程树；取消和最终结果写入串行化，迟到的完成不能覆盖已经保存的取消状态。这不会回滚已发生的副作用。每个 Workspace 最多保留 256 个任务，每个任务最多 32 个 Snapshot；Task Deadline 为 24 小时，默认轮询间隔 1 秒。容量不足时回收 Terminal Task，不逐出 Active Task；命令默认 600 秒或显式最多 1800 秒的执行超时与 Task Deadline 独立。
 
 ### Independent Reviewer Job
 
