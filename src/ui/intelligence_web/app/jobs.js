@@ -79,7 +79,7 @@ async function refreshRuntimeJobs() {
       state.runtimeJobsMessage = localized("Job discovery is unavailable. This is not an empty or complete task history; no command was started.", "任务发现不可用，不代表没有任务或历史完整；未启动任何命令。");
     }
     return false;
-  } finally { if (request.current()) { state.runtimeJobsBusy = false; renderRuntimeJobs(); } }
+  } finally { if (request.current()) { state.runtimeJobsBusy = false; renderRuntimeJobs(); scheduleRuntimeJobObservation(); } }
 }
 async function observeRuntimeJob(id = state.runtimeJobSelected, manual = true, activitySelection = null) {
   runtimeJobsScope();

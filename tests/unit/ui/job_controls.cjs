@@ -151,3 +151,64 @@ test('ablation of only poll sequence binding admits an already superseded observ
   }
   await oracle(source);await assert.rejects(oracle(mutant),error=>error.code==='ERR_ASSERTION'&&/SUPERSEDED_POLL_MUST_NOT_RUN/.test(error.message));
 });
+
+async function refreshObservationOracle(code) {
+  const f=fixture(code);
+  await f.run('observeRuntimeJob();');
+  assert.equal(f.timers.size,1,'selected working task must initially have a poll');
+  const oldPoll=[...f.timers.values()][0], before=f.state.runtimeJobsPolls;
+  await f.run('refreshRuntimeJobs();');
+  assert.equal(f.state.runtimeJob.task_id,A);
+  assert.equal(f.state.runtimeJob.status,'working');
+  assert.equal(f.state.runtimeJobsMessage,'');
+  assert.equal(f.state.runtimeJobsPolls,before,'discovery must not reset the bounded observation budget');
+  assert.equal(f.timers.size,1,'LIST_REFRESH_MUST_REARM_EXACT_JOB_OBSERVATION');
+  const requestCount=f.requests.length;oldPoll();await flush();
+  assert.equal(f.requests.length,requestCount,'superseded queued poll must remain inert');
+  const poll=[...f.timers.values()][0];poll();await flush();
+  assert.equal(f.requests.length,requestCount+1);
+  assert.equal(f.requests.at(-1).url,'/intelligence/jobs/'+A);
+  assert.equal(f.state.runtimeJobsPolls,before+1);
+  assert.ok(f.requests.every(request=>request.method==='GET'));
+}
+test('refreshing retained history continues exact-job observation without resetting its budget',async()=>refreshObservationOracle(source));
+test('successful discovery does not resume observation past visibility, scope, outcome or budget guards',async()=>{
+  for(const change of [
+    f=>{f.context.document.hidden=true;},
+    f=>{f.state.workspaceTab='overview';},
+    f=>{f.state.runtimeJobsPolls=120;},
+    f=>{f.state.runtimeJobsUncertain=true;},
+    f=>{f.state.runtimeJob=job(A,'A',{status:'completed',can_cancel:false,success:true,exit_code:0});},
+    f=>{f.state.runtimeJob=null;f.state.runtimeJobSelected='';},
+  ]) {
+    const f=fixture();await f.run('observeRuntimeJob();');change(f);
+    await f.run('refreshRuntimeJobs();');
+    assert.equal(f.timers.size,0);
+    assert.ok(f.requests.every(request=>request.method==='GET'));
+  }
+});
+test('failed or invalid discovery leaves output unknown and does not resume polling',async()=>{
+  for(const fail of [async()=>{throw Error('unavailable');},async()=>({})]){
+    const f=fixture();await f.run('observeRuntimeJob();');
+    f.context.uiJson=fail;
+    assert.equal(await f.run('refreshRuntimeJobs();'),false);
+    assert.equal(f.timers.size,0);assert.equal(f.state.runtimeJob,null);
+    assert.match(f.state.runtimeJobsMessage,/unavailable/);
+  }
+});
+test('late discovery for a replaced workspace cannot schedule a retained job poll',async()=>{
+  const f=fixture();await f.run('observeRuntimeJob();');
+  let reply;f.context.uiJson=()=>new Promise(resolve=>{reply=resolve;});
+  const pending=f.run('refreshRuntimeJobs();');await flush();
+  f.replaceScope();f.select();
+  reply({schema_version:1,kind:'command_job_list',workspace:'A',items:[],truncated:false,coverage:'retained_bounded',discovery_is_not_execution:true});
+  assert.equal(await pending,false);assert.equal(f.timers.size,0);
+});
+test('ablation of discovery completion scheduling reproduces the frozen working-job log',async()=>{
+  const mutant=source.replace(
+    'renderRuntimeJobs(); scheduleRuntimeJobObservation(); } }\n}\nasync function observeRuntimeJob',
+    'renderRuntimeJobs(); } }\n}\nasync function observeRuntimeJob');
+  assert.notEqual(mutant,source);
+  await refreshObservationOracle(source);
+  await assert.rejects(refreshObservationOracle(mutant),error=>error.code==='ERR_ASSERTION'&&/LIST_REFRESH_MUST_REARM_EXACT_JOB_OBSERVATION/.test(error.message));
+});

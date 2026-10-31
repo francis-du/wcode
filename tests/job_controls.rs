@@ -18,8 +18,8 @@ fn retained_job_controls_bind_scope_selection_and_poll_generation() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}\n{stderr}");
     for summary in [
-        "# tests 17",
-        "# pass 17",
+        "# tests 22",
+        "# pass 22",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",
