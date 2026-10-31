@@ -113,7 +113,7 @@ pub(in crate::workspace) fn scrub_sensitive_environment(
     command: &mut Command,
     program: &str,
     args: &[String],
-    allow_git_push_credentials: bool,
+    allow_git_ssh_credentials: bool,
 ) {
     for (key, _) in std::env::vars() {
         let upper = key.to_ascii_uppercase();
@@ -123,8 +123,8 @@ pub(in crate::workspace) fn scrub_sensitive_environment(
                 "GH_TOKEN" | "GITHUB_TOKEN" | "GH_ENTERPRISE_TOKEN"
             );
         let git_ssh_agent = program == "git"
-            && allow_git_push_credentials
-            && is_git_push_command(args)
+            && allow_git_ssh_credentials
+            && is_git_ssh_command(args)
             && upper == "SSH_AUTH_SOCK";
         let generic_secret = (program == "git" && upper.starts_with("GIT_"))
             || upper.contains("TOKEN")

@@ -541,7 +541,7 @@ impl Workspace {
             args,
             !broad_execution
                 && (effective_security.allow_risky_exec
-                    || (program == "git" && is_git_push_command(args))),
+                    || (program == "git" && is_git_ssh_command(args))),
         );
         apply_command_environment(&mut command, &environment);
         if program == "git" {

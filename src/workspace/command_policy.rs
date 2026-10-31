@@ -796,11 +796,6 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     };
 
     let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let is_push = args[subcommand_index] == "push"
-        || (args[subcommand_index] == "lfs"
-            && args
-                .get(subcommand_index + 1)
-                .is_some_and(|arg| arg == "push"));
     let mut overrides = vec![
         "core.fsmonitor=false".to_owned(),
         "core.untrackedCache=false".to_owned(),
@@ -819,7 +814,7 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
         "maintenance.auto=false".to_owned(),
         "gc.auto=0".to_owned(),
     ];
-    overrides.push(if is_push {
+    overrides.push(if is_git_ssh_command(args) {
         "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new".to_owned()
     } else {
         "core.sshCommand=false".to_owned()
@@ -841,6 +836,16 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     }
     hardened.extend_from_slice(&args[subcommand_index + 1..]);
     hardened
+}
+
+pub(super) fn is_git_ssh_command(args: &[String]) -> bool {
+    if is_git_push_command(args) {
+        return true;
+    }
+    let Some(index) = args.iter().position(|arg| !arg.starts_with('-')) else {
+        return false;
+    };
+    args[index] == "fetch" && bounded_full_access_command("git", args)
 }
 
 pub(super) fn is_git_push_command(args: &[String]) -> bool {

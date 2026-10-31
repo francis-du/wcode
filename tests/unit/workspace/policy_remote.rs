@@ -1,5 +1,67 @@
 use super::*;
 
+#[test]
+fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
+    const SSH: &str = "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new";
+    for command in [
+        vec!["fetch", "origin", "main"],
+        vec!["fetch", "upstream", "refs/heads/release-0.10"],
+        vec!["--no-pager", "fetch", "origin", "feature/topic"],
+    ] {
+        let command = args(&command);
+        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_ok());
+        assert!(!command_requires_broad_sandbox("git", &command));
+        let hardened = hardened_command_args("git", &command);
+        assert_eq!(
+            hardened.iter().filter(|arg| arg.as_str() == SSH).count(),
+            1,
+            "bounded fetch must use the controlled SSH transport: {command:?}"
+        );
+        assert!(!hardened.iter().any(|arg| arg == "core.sshCommand=false"));
+        assert!(hardened.ends_with(&command));
+    }
+
+    for command in [
+        vec!["fetch", "origin"],
+        vec!["fetch", "https://example.com/repo.git", "main"],
+        vec!["fetch", "git@example.com:repo.git", "main"],
+        vec!["fetch", "../repo", "main"],
+        vec!["fetch", "origin", "--all"],
+        vec!["fetch", "origin", "+main:main"],
+        vec!["fetch", "origin", "main:other"],
+        vec!["fetch", "origin", "../main"],
+        vec!["fetch", "origin", "main", "other"],
+        vec!["fetch", "origin", "main", "--upload-pack=helper"],
+        vec!["fetch", "--upload-pack=helper", "main"],
+        vec!["-c", "core.sshCommand=helper", "fetch", "origin", "main"],
+        vec![
+            "--config-env=core.sshCommand=INJECT",
+            "fetch",
+            "origin",
+            "main",
+        ],
+    ] {
+        let command = args(&command);
+        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_err());
+        let hardened = hardened_command_args("git", &command);
+        assert!(hardened.iter().any(|arg| arg == "core.sshCommand=false"));
+        assert!(!hardened.iter().any(|arg| arg == SSH));
+    }
+
+    // Remote names are positional repository identifiers, never Git options.
+    for remote in ["-q", "--all", "--stdin"] {
+        let command = args(&["fetch", remote, "main"]);
+        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_err());
+        let hardened = hardened_command_args("git", &command);
+        assert!(hardened.iter().any(|arg| arg == "core.sshCommand=false"));
+        assert!(!hardened.iter().any(|arg| arg == SSH));
+    }
+    assert!(command_requires_broad_sandbox(
+        "sh",
+        &args(&["-c", "git fetch origin main"])
+    ));
+}
+
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }

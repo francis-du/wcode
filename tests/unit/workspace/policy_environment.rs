@@ -1,6 +1,107 @@
 use super::*;
 
 #[test]
+fn bounded_ssh_fetch_preserves_only_authorized_agent_environment() {
+    const TEST: &str = "bounded_ssh_fetch_preserves_only_authorized_agent_environment";
+    const STAGE: &str = "WCODE_SSH_FETCH_TEST_STAGE";
+    const EXPECT_AGENT: &str = "WCODE_SSH_FETCH_EXPECT_AGENT";
+    const EXPECT_PROGRAM: &str = "WCODE_SSH_FETCH_EXPECT_PROGRAM";
+    const SOCKET: &str = "ISOLATED-TEST-AGENT-SOCKET";
+    const INJECTED: [&str; 3] = ["GIT_SSH", "GIT_SSH_COMMAND", "GIT_CONFIG_COUNT"];
+    match std::env::var(STAGE).as_deref() {
+        Ok("observe") => {
+            let expected = (std::env::var(EXPECT_AGENT).unwrap() == "yes")
+                .then(|| std::ffi::OsString::from(SOCKET));
+            assert_eq!(std::env::var_os("SSH_AUTH_SOCK"), expected);
+            assert!(std::env::var_os("WCODE_TEST_CREDENTIAL").is_none());
+            if std::env::var(EXPECT_PROGRAM).unwrap() == "git" {
+                for key in INJECTED {
+                    assert!(
+                        std::env::var_os(key).is_none(),
+                        "inherited injection: {key}"
+                    );
+                }
+            }
+            assert_eq!(std::env::var("WCODE_TEST_ORDINARY").unwrap(), "ordinary");
+        }
+        Ok("scrub") => {
+            for (program, values, allowed, retained) in [
+                ("git", vec!["fetch", "origin", "main"], true, true),
+                (
+                    "git",
+                    vec!["fetch", "origin", "refs/heads/main"],
+                    true,
+                    true,
+                ),
+                ("git", vec!["fetch", "origin", "main"], false, false),
+                ("git", vec!["fetch", "origin"], true, false),
+                ("git", vec!["fetch", "--all", "main"], true, false),
+                (
+                    "git",
+                    vec!["fetch", "https://example.com/r", "main"],
+                    true,
+                    false,
+                ),
+                ("git", vec!["fetch", "origin", "+main:main"], true, false),
+                (
+                    "git",
+                    vec!["fetch", "origin", "main", "--upload-pack=helper"],
+                    true,
+                    false,
+                ),
+                (
+                    "git",
+                    vec!["-c", "core.sshCommand=helper", "fetch", "origin", "main"],
+                    true,
+                    false,
+                ),
+                ("git", vec!["push", "origin", "main"], true, true),
+                ("git", vec!["lfs", "push", "origin", "main"], true, true),
+                ("sh", vec!["-c", "git fetch origin main"], true, false),
+            ] {
+                let arguments = values
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect::<Vec<_>>();
+                let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([TEST, "--nocapture", "--test-threads=1"])
+                    .env(STAGE, "observe")
+                    .env(EXPECT_AGENT, if retained { "yes" } else { "no" })
+                    .env(EXPECT_PROGRAM, program);
+                scrub_sensitive_environment(&mut command, program, &arguments, allowed);
+                let output = command.as_std_mut().output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "unexpected SSH agent or injection environment for {program} {values:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+        _ => {
+            // Only test-owned subprocesses receive these synthetic values.
+            // No process-global environment, real socket, Git or network is used.
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([TEST, "--nocapture", "--test-threads=1"])
+                .env(STAGE, "scrub")
+                .env("SSH_AUTH_SOCK", SOCKET)
+                .env("WCODE_TEST_CREDENTIAL", "ISOLATED-TEST-NOT-LIVE")
+                .env("WCODE_TEST_ORDINARY", "ordinary");
+            for key in INJECTED {
+                command.env(key, "ISOLATED-TEST-NOT-LIVE");
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "isolated SSH environment regression failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[test]
 fn team_secret_environment_does_not_reach_child_processes() {
     const MARKER: &str = "WCODE_TEST_INHERITANCE_STAGE";
     const TEST: &str = "team_secret_environment_does_not_reach_child_processes";
