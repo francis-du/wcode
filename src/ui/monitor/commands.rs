@@ -42,7 +42,7 @@ pub(super) fn render_commands_overlay(
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" {} ", language.tr("SUPPORTED COMMANDS")),
+                format!(" {} ", language.tr("COMMAND CONTROLS")),
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" {workspace_id} "), Style::default().fg(ACCENT)),
@@ -57,7 +57,7 @@ pub(super) fn render_commands_overlay(
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
-    let (root, entries) = match command_entries(workspaces, workspace_id) {
+    let (access, entries) = match command_entries(workspaces, workspace_id) {
         Ok(result) => result,
         Err(error) => {
             frame.render_widget(
@@ -71,9 +71,14 @@ pub(super) fn render_commands_overlay(
         }
     };
     let enabled = entries.iter().filter(|entry| entry.allowed).count();
-    let all_commands = workspaces
-        .all_commands_authorized(Some(workspace_id))
-        .unwrap_or(false);
+    let revoked = entries.len().saturating_sub(enabled);
+    let root = access["root"].as_str().unwrap_or(".");
+    let (execution_label, execution_color) = match access["command_exec_policy"].as_str() {
+        Some("session_override") => ("SESSION OVERRIDE", SUCCESS),
+        Some("permissive_sandboxed") => ("DEFAULT + SANDBOX", WARNING),
+        Some("disabled") => ("EXECUTION DISABLED", WARNING),
+        _ => ("Unknown", TEXT_DIM),
+    };
     let columns = command_columns(inner.width);
     let rows = command_rows(inner.height);
     let capacity = rows.saturating_mul(columns);
@@ -87,7 +92,7 @@ pub(super) fn render_commands_overlay(
             Style::default().fg(TEXT_DIM),
         ),
         Span::styled(
-            truncate_middle(&root, inner.width.saturating_sub(12) as usize),
+            truncate_middle(root, inner.width.saturating_sub(12) as usize),
             Style::default().fg(TEXT_MUTED),
         ),
     ]));
@@ -97,8 +102,8 @@ pub(super) fn render_commands_overlay(
             Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  ·  {enabled} {}", language.tr("enabled")),
-            Style::default().fg(SUCCESS),
+            format!("  ·  {revoked} {}", language.tr("explicitly revoked")),
+            Style::default().fg(if revoked == 0 { SUCCESS } else { WARNING }),
         ),
     ]));
     lines.push(Line::from(vec![
@@ -107,13 +112,9 @@ pub(super) fn render_commands_overlay(
             Style::default().fg(TEXT_DIM),
         ),
         Span::styled(
-            language.tr(if all_commands {
-                "AUTHORIZED"
-            } else {
-                "PER-REQUEST"
-            }),
+            language.tr(execution_label),
             Style::default()
-                .fg(if all_commands { SUCCESS } else { WARNING })
+                .fg(execution_color)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -161,16 +162,16 @@ pub(super) fn render_commands_overlay(
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("● ", Style::default().fg(SUCCESS)),
-        Span::styled(language.tr("enabled"), Style::default().fg(TEXT_MUTED)),
+        Span::styled(language.tr("default"), Style::default().fg(TEXT_MUTED)),
         Span::styled("    ○ ", Style::default().fg(WARNING)),
         Span::styled(
-            language.tr("approval required"),
+            language.tr("explicitly revoked"),
             Style::default().fg(TEXT_MUTED),
         ),
     ]));
     lines.push(Line::from(vec![
         Span::styled(
-            language.tr("Executable access"),
+            language.tr("Catalog control"),
             Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ≠ ", Style::default().fg(TEXT_DIM)),
@@ -179,7 +180,7 @@ pub(super) fn render_commands_overlay(
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!(" · {}", language.tr("risky arguments need exact approval")),
+            format!(" · {}", language.tr("broad commands use strong sandbox")),
             Style::default().fg(TEXT_MUTED),
         ),
     ]));
@@ -210,7 +211,7 @@ pub(super) fn command_count(workspaces: &Workspaces, workspace_id: &str) -> usiz
 fn command_entries(
     workspaces: &Workspaces,
     workspace_id: &str,
-) -> anyhow::Result<(String, Vec<CommandEntry>)> {
+) -> anyhow::Result<(Value, Vec<CommandEntry>)> {
     let access = workspaces.workspace_access(Some(workspace_id))?;
     let allowed = string_set(&access["allowed_commands"]);
     let mut supported = allowed.iter().cloned().collect::<BTreeSet<_>>();
@@ -222,8 +223,7 @@ fn command_entries(
             program,
         })
         .collect();
-    let root = access["root"].as_str().unwrap_or(".").to_owned();
-    Ok((root, entries))
+    Ok((access, entries))
 }
 
 fn string_set(value: &Value) -> HashSet<String> {
@@ -258,3 +258,7 @@ fn command_columns(width: u16) -> usize {
 fn command_rows(height: u16) -> usize {
     usize::from(height.saturating_sub(8).max(1))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/ui/monitor/command_policy.rs"]
+mod tests;

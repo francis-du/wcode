@@ -147,7 +147,7 @@
 - schema_version: 1
   id: AC-INDEX-001
   title: Software graph exposes syntax precision and revision provenance
-  statement: Tree-sitter graph nodes and edges retain syntax precision and revision provenance. Graph budgets select emitted nodes but must not erase known homonyms or reattribute calls from omitted inner functions to retained enclosing definitions; unambiguous explicit paths and genuinely unique calls remain available. Symbol bodies, ranges, signatures and relations must share a SHA or fail explicitly. Cached syntax facts must be invalidated by source-content changes even when file size and mtime are replayed; Unix uses change identity in the source stamp while other platforms retain a content-SHA fallback. Concurrent same-file cache misses share a bounded build flight across search and outline entry points; other files remain independent, invalidation rejects late publication, and failed builds do not permanently block later queries.
+  statement: Tree-sitter graph nodes and edges retain syntax precision and revision provenance. Graph budgets select emitted nodes but must not erase known homonyms or reattribute calls from omitted inner functions to retained enclosing definitions; unambiguous explicit paths and genuinely unique calls remain available. Symbol bodies, ranges, signatures and relations must share a SHA or fail explicitly. Cached syntax facts must be invalidated by source-content changes even when file size and mtime are replayed; Unix uses change identity in the source stamp while other platforms retain a content-SHA fallback. Concurrent same-file cache misses share a bounded build flight across search and outline entry points; other files remain independent, invalidation rejects late publication, and failed builds do not permanently block later queries. Observatory graph assembly resolves Design implementation Symbol references in per-file batches and prioritizes their exact source IDs ahead of unrelated module declarations within the unchanged 5000 source-symbol budget. Existing requested callers retain priority, then eligible directly resolved one-hop callees may consume remaining capacity before ordinary round-robin filling. More Design references never expand the budget; unresolved symbols, omitted homonyms and unknown receiver types cannot manufacture source nodes, guessed call edges or stronger precision. A qualified cross-file callee must not lose its reserved slot to an unrelated local homonym.
   verification:
     - {kind: test, path: tests/unit/graph/calls.rs, symbol: software_graph_reuses_indexed_symbols_and_marks_syntax_precision}
     - {kind: test, path: tests/unit/graph/calls.rs, symbol: graph_budget_ambiguity_cross_file_is_not_erased_by_truncation}
@@ -162,6 +162,12 @@
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: parse_flights_are_bounded_reclaimed_and_workspace_scoped}
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: failed_or_panicking_build_does_not_poison_future_file_queries}
     - {kind: test, path: tests/unit/graph/flights.rs, symbol: invalidation_and_memory_trim_reject_late_parse_publication}
+    - {kind: test, path: tests/unit/runtime/harness/observatory_graph.rs, symbol: observatory_graph_budget_keeps_design_entries_ahead_of_module_declarations}
+    - {kind: test, path: tests/unit/runtime/harness/observatory_graph.rs, symbol: observatory_graph_budget_keeps_direct_call_endpoint_after_exact_design_entry}
+    - {kind: test, path: tests/unit/runtime/harness/observatory_graph.rs, symbol: observatory_graph_budget_does_not_expand_for_more_design_entries_or_invent_calls}
+    - {kind: test, path: tests/unit/runtime/harness/observatory_graph.rs, symbol: observatory_graph_budget_does_not_pin_unknown_receiver_targets}
+    - {kind: test, path: tests/unit/graph/budget.rs, symbol: graph_budget_prioritizes_qualified_callee_without_erasing_omitted_homonym}
+    - {kind: test, path: tests/unit/runtime/harness/observatory_graph.rs, symbol: observatory_graph_budget_keeps_missing_design_file_unresolved}
 
 - schema_version: 1
   id: AC-SCOPE-001
@@ -480,9 +486,14 @@
     - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: session_routes_enforce_host_operator_and_strict_revoke_payload}
 - schema_version: 1
   id: AC-GRAPH-001
-  title: Composite graph history distinguishes structure from provenance churn
-  statement: Persisted Software Graph revisions retain explicit precision and diff real structural changes separately from provider revision churn.
+  title: Composite graph history preserves query scope and distinguishes structural changes
+  statement: >-
+    Persisted Software Graph revisions retain explicit precision and diff real structural changes separately from provider revision churn.
+    Without related_to, node filters that match no nodes return no nodes or edges; matching filters retain incident edges and edge_kind filtering without changing relationship-query semantics.
   verification:
+    - kind: test
+      path: tests/unit/graph/store.rs
+      symbol: graph_query_node_filter_misses_do_not_return_unrelated_edges
     - kind: test
       path: tests/unit/graph/store.rs
       symbol: graph_diff_separates_structural_changes_from_revision_churn

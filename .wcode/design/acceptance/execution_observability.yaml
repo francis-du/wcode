@@ -9,7 +9,14 @@ statement: >-
   blockers. Rendering does not create or mutate Execution state and contains no transcript or raw model/provider
   content. Public Worklist claims show actor, write scope, lease and bounded worker result even without an
   Execution. Private claim tokens never enter status or observation; worker reports do not prove verification.
+  The local engineering queue prioritizes unfinished work, filters by task state and public text, and pages all
+  observed items without requesting or mutating work. Dependencies resolve against the full observed list before
+  filtering; missing or partial dependencies and unknown states stay explicit. Dependency satisfaction does not
+  imply runnable authority. Historical, stale or incomplete observations cannot advertise current runnable lanes.
+  Filters survive same-Workspace refresh but reset across Workspace or owner changes; obsolete controls are inert.
 verification:
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: engineering_work_queue_ablation_requires_context_and_freshness}
+  - {kind: test, path: tests/unit/ui/observatory.rs, symbol: engineering_work_queue_prioritizes_open_tasks_without_changing_authority}
   - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_behavior_keeps_refresh_state_and_operator_summary_truthful}
   - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_project_exposes_bounded_execution_projection}
   - {kind: test, path: tests/unit/ui/web.rs, symbol: observatory_exposes_execution_state_without_chat_history}

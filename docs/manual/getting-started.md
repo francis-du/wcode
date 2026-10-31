@@ -190,8 +190,9 @@ The useful keys are:
 - `↑/↓` — select a pending authorization request.
 - `Y/N` — approve or deny the selected request.
 - `P` — review the explicit Full Access confirmation for current-user Home
-  access and all otherwise-authorizable runtime capabilities; hard protected
-  paths, symlink/hard-link, no-shell, and filesystem-root boundaries remain.
+  access and runtime session overrides. Broad commands still require the OS
+  sandbox; file-tool protected-path, symlink/hard-link, and filesystem-root
+  boundaries remain.
 
 The protected WebUI exposes the same requests. It labels executable access and
 exact repository operations separately; approving one does not imply the

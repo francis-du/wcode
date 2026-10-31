@@ -75,61 +75,14 @@ function renderProject(force = false) {
   }
   renderTabPanels(state.workspaceTab);
 }
-function worklistOwnershipHtml(worklist) {
-  const historical = worklist?.available === false && worklist.last_known?.available === true;
-  if (historical) worklist = worklist.last_known;
-  const heading = esc(localized("Model task ownership", "模型任务所有权"));
-  const unknown = `<section class="execution-workers execution-empty warn"><strong>${heading}</strong><span>${esc(localized("Ownership state is unknown; refresh the observed Worklist.", "任务所有权未知；请刷新观测到的 Worklist。"))}</span></section>`;
-  if (!worklist || worklist.available === false || typeof worklist.exists !== "boolean"
-    || (worklist.exists && !Array.isArray(worklist.items))) return unknown;
-  if (historical && !worklist.exists) return unknown;
-  if (!worklist.exists) return `<section class="execution-workers execution-empty"><strong>${heading}</strong><span>${esc(localized("No durable Worklist has been created.", "尚未创建持久化 Worklist。"))}</span></section>`;
-  const items = worklist.items.filter(item => item && typeof item === "object" && !Array.isArray(item));
-  if (items.length !== worklist.items.length) return unknown;
-  const text = (value, fallback, limit = 300) => esc(typeof value === "string" ? value.slice(0, limit) : fallback);
-  const ordered = items.slice().sort((a, b) => {
-    const rank = item => item.claim && item.claim.expired === false ? 0 : item.claim ? 1 : item.result ? 2 : 3;
-    return rank(a) - rank(b);
-  });
-  const rows = ordered.slice(0, 8).map(item => {
-    const claim = item.claim && typeof item.claim === "object" ? item.claim : null;
-    const result = item.result && typeof item.result === "object" ? item.result : null;
-    const paths = Array.isArray(item.write_paths) ? item.write_paths.filter(path => typeof path === "string") : [];
-    const validClaim = claim && typeof claim.actor === "string" && typeof claim.expired === "boolean"
-      && Number.isFinite(claim.expires_at_ms) && claim.expires_at_ms > 0 && claim.expires_at_ms <= 8640000000000000;
-    const expired = validClaim && (claim.expired || claim.expires_at_ms <= Date.now());
-    const ownership = historical ? localized("Historical ownership", "历史所有权")
-      : !claim ? localized("Unclaimed", "未领取")
-      : !validClaim ? localized("Ownership unknown", "所有权未知")
-      : expired ? localized("Lease expired", "租约已过期") : localized("Claimed", "已领取");
-    const lease = validClaim ? time(claim.expires_at_ms) : "—";
-    const scope = paths.length ? paths.slice(0, 4).map(path => text(path, "", 300)).join(" · ")
-      : esc(localized("Read-only lane", "只读通道"));
-    const outcome = {
-      complete: localized("Worker reports complete", "Worker 报告已完成"),
-      blocked: localized("Worker reports blocked", "Worker 报告阻塞"),
-      incomplete: localized("Worker reports incomplete", "Worker 报告未完成"),
-    }[result?.outcome] || localized("Worker result unknown", "Worker 结果未知");
-    const evidenceCount = Array.isArray(result?.evidence) ? result.evidence.length : null;
-    return `<article class="execution-worker"><div class="execution-worker-head"><strong>${text(item.title, item.id || localized("Untitled task", "未命名任务"))}</strong>${pill(ownership, historical || (claim && (!validClaim || expired)) ? "warn" : "info")}</div>
-      <div class="execution-worker-facts"><span>${esc(localized("Actor", "执行者"))}<b>${claim ? text(claim.actor, "—", 128) : "—"}</b></span><span>${esc(localized("Lease expires", "租约到期"))}<b>${esc(lease)}</b></span><span>${esc(localized("Write scopes", "写入范围"))}<b>${scope}${paths.length > 4 ? ` · +${num(paths.length - 4)}` : ""}</b></span></div>
-      ${result ? `<div class="execution-worker-result">${pill(outcome, "warn")}<span>${text(result.summary, localized("No task summary", "没有任务摘要"), 500)}</span><small>${esc(localized("Reported by", "报告者"))} ${text(result.actor, "—", 128)} · ${evidenceCount == null ? esc(localized("Evidence references unknown", "Evidence 引用未知")) : `${num(evidenceCount)} ${esc(localized("Evidence references", "Evidence 引用"))}`}</small></div>` : ""}</article>`;
-  }).join("");
-  const bounded = worklist.truncated === true || items.length > 8;
-  return `<section class="execution-workers execution-blockers"><div class="execution-worker-head"><span class="execution-label">${heading}</span><span class="panel-meta">${historical ? esc(localized("Last observed", "最后观测")) + " " : ""}Worklist #${num(worklist.revision || 0)}</span></div>
-    <p class="panel-meta">${esc(localized("Worker reports require independent verification; they do not certify proof.", "Worker 报告需要独立验证；不会认证证明。"))}</p>
-    ${historical ? `<p class="warning-inline">${esc(localized("Ownership state is unknown. These are historical observations; refresh before acting on claims.", "当前任务所有权未知。以下为历史观测；请刷新后再依赖领取信息。"))}</p>` : ""}
-    ${state.snapshotStale && !historical ? `<p class="warning-inline">${esc(localized("Snapshot stale; refresh task ownership.", "快照已过期；请刷新任务所有权。"))}</p>` : ""}
-    <div class="execution-worker-list">${rows || `<span class="panel-meta">${esc(localized("No items in the observed Worklist.", "观测到的 Worklist 没有任务。"))}</span>`}</div>
-    ${bounded ? `<p class="panel-meta">${esc(localized("Bounded ownership view", "有界任务所有权视图"))} · ${num(Math.min(items.length, 8))} / ${num(items.length)} ${esc(localized("observed items", "已观测任务"))}</p>` : ""}</section>`;
-}
 function renderExecutionStatus() {
+  if (worklistRenderDeferred()) return;
   const execution = state.project?.execution, ownershipHtml = worklistOwnershipHtml(state.project?.execution?.worklist);
   if (!execution || execution.available === false) {
-    return setHtml("executionStatus", els.executionStatus, `<div class="execution-empty warn"><strong>${esc(localized("Execution state unavailable", "执行状态不可用"))}</strong><span>${esc(localized("The Observatory could not read the durable checkpoint; this is not an idle signal.", "观测台无法读取持久化检查点；这不代表当前没有任务。"))}</span></div>${ownershipHtml}`);
+    return setExecutionStatusHtml(`<div class="execution-empty warn"><strong>${esc(localized("Execution state unavailable", "执行状态不可用"))}</strong><span>${esc(localized("The Observatory could not read the durable checkpoint; this is not an idle signal.", "观测台无法读取持久化检查点；这不代表当前没有任务。"))}</span></div>${ownershipHtml}`);
   }
   if (!execution.exists) {
-    return setHtml("executionStatus", els.executionStatus, `<div class="execution-empty"><strong>${esc(localized("No durable Execution yet", "暂无持久化 Execution"))}</strong><span>${esc(localized("No Execution checkpoint has been created for this Workspace.", "当前工作区尚未创建 Execution 检查点。"))}</span></div>${ownershipHtml}`);
+    return setExecutionStatusHtml(`<div class="execution-empty"><strong>${esc(localized("No durable Execution yet", "暂无持久化 Execution"))}</strong><span>${esc(localized("No Execution checkpoint has been created for this Workspace.", "当前工作区尚未创建 Execution 检查点。"))}</span></div>${ownershipHtml}`);
   }
   const checkpoint = execution.checkpoint || {}, phase = String(execution.phase || "executing"),
     tone = phase === "completed" ? "good" : phase === "blocked" ? "bad" : phase === "verifying" ? "warn" : "info",
@@ -164,7 +117,7 @@ function renderExecutionStatus() {
     ${ownershipHtml}
     <section class="execution-blockers"><span class="execution-label">${esc(localized("Blockers", "阻塞项"))}</span><div>${blockerHtml}</div></section>
   </div>`;
-  setHtml("executionStatus", els.executionStatus, html);
+  setExecutionStatusHtml(html);
 }
 const workspaceTabForSection = {
   architectureSection: "architecture",
@@ -323,7 +276,7 @@ function showRefreshFailure(error, phase = "request") {
   els.syncState.title = detail;
   els.syncState.parentElement?.setAttribute("aria-label", `${title}. ${detail}`);
   // Error reporting must not invoke the same failing renderer unguarded.
-  for (const render of [renderAttention, renderLive, renderFitnessObservatory]) {
+  for (const render of [renderAttention, renderLive, renderFitnessObservatory, renderExecutionStatus]) {
     try { render(); } catch (renderError) { console.warn("wcode: refresh error view failed", renderError); }
   }
   if (!state.project || phase === "render") renderProjectPlaceholder(true);
@@ -524,6 +477,7 @@ async function pollRevision() {
       await refreshProject({ reason: "auto", revision, preferCached: true });
     } else {
       state.lastChecked = Date.now(); renderLive();
+      if (state.workspaceTab === "overview" || state.workspaceTab === "activity") renderExecutionStatus();
       setSync("ok", localized("Snapshot up to date", "快照已更新"));
     }
   } catch (error) {

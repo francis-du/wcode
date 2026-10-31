@@ -123,6 +123,85 @@ async fn queued_runtime_executor_retains_its_full_runtime_budget() {
     queued_runtime_budget("runtime").await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
+    if crate::workspace::tests::process_fixture::run_in_private_fixture(
+        module_path!(),
+        "permissive_shell_execution_is_sandboxed_or_fails_closed",
+    )
+    .await
+    {
+        return;
+    }
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    let workspace = Workspace::new(&root, true, true).unwrap();
+    let outside = fixture.path().join("wcode-shell-escape.txt");
+    let result = workspace
+        .run_command(
+            "sh",
+            &[
+                "-c".into(),
+                "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf ok > shell-ok.txt; if printf escape > ../wcode-shell-escape.txt 2>/dev/null; then exit 42; fi".into(),
+            ],
+            ".",
+            10,
+        )
+        .await;
+    if crate::workspace::execution_sandbox_status().available {
+        let result = result.expect("permissive shell must use the strong sandbox");
+        assert!(result.success, "{}", result.stderr);
+        assert_eq!(
+            std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
+            "ok"
+        );
+        assert!(!outside.exists());
+    } else {
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("sandbox_unavailable"));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn read_only_workspace_blocks_sandboxed_shell_writes() {
+    if crate::workspace::tests::process_fixture::run_in_private_fixture(
+        module_path!(),
+        "read_only_workspace_blocks_sandboxed_shell_writes",
+    )
+    .await
+    {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let result = workspace
+        .run_command(
+            "sh",
+            &[
+                "-c".into(),
+                "test \"$WCODE_SANDBOX\" = 1 || exit 41; if printf blocked > forbidden.txt 2>/dev/null; then exit 42; fi".into(),
+            ],
+            ".",
+            10,
+        )
+        .await;
+    if crate::workspace::execution_sandbox_status().available {
+        let result = result.expect("read-only shell must still launch inside the sandbox");
+        assert!(result.success, "{}", result.stderr);
+        assert!(!root.path().join("forbidden.txt").exists());
+    } else {
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("sandbox_unavailable"));
+    }
+}
+
 #[tokio::test]
 async fn cancelled_queued_command_never_starts_and_releases_its_waiter() {
     if run_isolated("cancelled_queued_command_never_starts_and_releases_its_waiter").await {

@@ -2,11 +2,12 @@ schema_version: 1
 id: component:execution-sandbox
 name: Broad Execution OS Sandbox
 responsibilities:
-  - classify commands admitted only through Workspace all-command or Full Access as broad execution
-  - transform broad commands into platform-native sandbox launches before process spawn while leaving bounded command profiles on the existing direct path
-  - allow the selected Workspace read/write plus required system/tool reads, deny external network access, preserve cwd/time/resource bounds and sensitive-environment scrubbing
-  - use macOS Seatbelt and Linux bubblewrap; reject broad execution when the platform/provider cannot enforce the required boundary
-  - keep sandbox isolation independent from command authorization so human approval never disables containment
+  - classify command shapes outside bounded profiles as broad execution under ordinary permissive execution and explicit Workspace all-command or Full Access overrides
+  - transform broad commands into platform-native sandbox launches before process spawn while leaving bounded profiles, including supported syntax-only shell checks, on the hardened direct path
+  - make the selected Workspace read-only unless writes are enabled or an explicit all-command override supplies write access; retain required system/tool reads and private scratch while protecting credential, repository-control and configured authority-state paths
+  - deny external network access and preserve cwd/time/resource bounds and sensitive/injection-capable environment scrubbing
+  - use macOS Seatbelt and Linux bubblewrap; reject broad execution on Windows or when any platform/provider cannot enforce the required boundary
+  - keep sandbox isolation independent from command authorization so ordinary admission, exact grants and session overrides never disable containment or authorize separate HumanApproval decisions
 constraints:
   - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
   - CONSTRAINT-EXPLICIT-EXECUTION-TRUST

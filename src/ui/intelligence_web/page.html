@@ -73,18 +73,18 @@
         <div id="workspaceMessage" class="access-message" aria-live="polite" data-i18n="project safety note">Project roots are canonicalized and remain isolated.</div>
       </div>
       <div class="access-card">
-        <h4 data-i18n="Executable access">Executable access</h4>
+        <h4 data-i18n="Command controls">Command controls</h4>
         <div id="commandList" class="command-list"></div>
-        <div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" data-i18n-placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Authorize executable">Authorize executable</button></div>
-        <div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Executable access is scoped to this project; it does not authorize every argument.</div>
-        <div class="all-command-trust-row"><span id="allCommandsStatus" class="panel-meta" data-i18n="All commands require per-request approval">All commands require per-request approval</span><button id="allCommandsToggle" type="button" data-i18n="Authorize all commands">Authorize all commands</button></div>
+        <div class="access-row"><input id="commandCandidate" type="text" placeholder="Executable name, e.g. hugo" data-i18n-placeholder="Executable name, e.g. hugo" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><button id="addCommand" type="button" data-i18n="Restore command">Restore command</button></div>
+        <div id="commandMessage" class="access-message" aria-live="polite" data-i18n="command safety note">Commands run by default when execution is enabled. Catalog controls explicitly revoke or restore a command; broad shapes use the strong sandbox.</div>
+        <div class="all-command-trust-row"><span id="allCommandsStatus" class="panel-meta" data-i18n="Commands run by default; explicit revocations still apply">Commands run by default; explicit revocations still apply</span><button id="allCommandsToggle" type="button" data-i18n="Enable session command override">Enable session command override</button></div>
       </div>
       <div class="access-card access-card-wide operation-access-card">
         <h4 data-i18n="Exact repository operation">Exact repository operation</h4>
         <div class="access-row"><input id="operationProgram" type="text" placeholder="Executable name, e.g. make" data-i18n-placeholder="Executable name, e.g. make" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
         <div class="operation-fields access-row-spaced"><input id="operationArgs" type="text" placeholder="JSON arguments, e.g. [&quot;test&quot;,&quot;--locked&quot;]" data-i18n-placeholder="JSON arguments, e.g. [&quot;test&quot;,&quot;--locked&quot;]" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"><input id="operationCwd" type="text" value="." aria-label="cwd" data-i18n-aria-label="cwd" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
         <div class="access-row access-row-spaced access-action-row"><button id="authorizeOperation" type="button" data-i18n="Authorize operation">Authorize operation</button></div>
-        <div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">The executable must already be allowed; this grants only these exact arguments and cwd.</div>
+        <div id="operationMessage" class="access-message" aria-live="polite" data-i18n="operation safety note">Exact operation grants are for explicitly restricted sessions; normal command execution does not need one.</div>
       </div>
       <div class="access-card access-card-wide authorizations-card">
         <h4 data-i18n="Pending authorizations">Pending authorizations</h4>

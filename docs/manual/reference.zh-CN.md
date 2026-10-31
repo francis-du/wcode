@@ -137,10 +137,10 @@ Binary 中。
 | 参数 | 用途 |
 | --- | --- |
 | `-w, --workspace <PATH>` | 覆盖默认的当前目录 Workspace；只有任务确实跨仓时才重复指定。 |
-| `--read-only` | 移除模型侧文件修改能力。 |
-| `--no-exec` | 禁止命令执行。 |
+| `--read-only` | 移除模型侧文件修改能力、拒绝已分类的命令写入，并让宽命令对 Workspace 只有只读权限；显式全部命令覆盖除外。 |
+| `--no-exec` | 关闭普通命令执行；显式的本次运行全部命令覆盖可以优先于此设置。 |
 | `--no-semantic` | 关闭第一方 LSP 执行；Tree-sitter 语法能力仍保留。 |
-| `--full-access` | 显式加入当前用户 Home，并放开其他可授权 Runtime 能力；Protected Path、Symlink/Hard-link、No-shell、Filesystem Root 等硬边界继续保留。 |
+| `--full-access` | 显式加入当前用户 Home，并开启包括全部命令信任的 Runtime 能力；宽命令仍须经过 OS 沙箱，文件工具、Protected Path、Symlink/Hard-link 和 Filesystem Root 等边界继续保留。 |
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
 | `--open` | 启动后在浏览器打开 Setup Hub。 |
@@ -185,8 +185,7 @@ JSON 安装报告中的 `launch` 分别展示 `command` 与 `args`；
 全局安装仍需交互确认，并执行刚预览的那份计划；文件在确认期间改变会触发
 SHA 校验失败，不会覆盖新内容。Setup 不持久化宽泛权限授予。已有进程需要重新连接。
 
-文件只读不代表所有命令都没有副作用；仅查看模式应组合使用
-`--read-only --no-exec --no-semantic`。
+没有显式命令覆盖时，只读策略限制文件工具、拒绝已分类的命令写入，并在宽命令沙箱中禁止 Workspace 写入。有界直接执行的仓库代码仍不受 OS 隔离；仅查看会话应组合使用 `--read-only --no-exec --no-semantic`。
 
 浏览器 Setup Hub 区分本地智能体与远程连接器，提供复制按钮和手动中英文切换，
 把可选的命令生成与运行信息折叠起来。页面性能选项只生成命令，不保存配置，
@@ -267,7 +266,7 @@ evidence_status
 
 | Tool | 用途 |
 | --- | --- |
-| `workspace_info` | Workspace、权限、安全策略、调度能力、Product Scope Registry，以及有界只读启动 Profile。每个 Profile 都带 `program_available`：它只对裸 Runner 可执行文件做有界 PATH 存在性预检；`false` 表示不要执行、也不要静默换成别的 Runner，`true` 也不代表对应插件或子命令一定存在。启动发现保守识别 Cargo / Go / 包管理器 / Deno / uv / Dart，以及直接声明的 Just / Make / Task Runner 入口；另外只有在唯一且有界的 Compose 清单满足“字面量镜像、无宿主变量插值、无顶层自定义 project name、无 build / host mount / privileged / host namespace / API socket / lifecycle hook / external resource、发布端口仅绑定 loopback”等条件时，才暴露附着式 Docker Compose Profile。生成的 Compose 命令固定带 `--no-build --pull never`，因此启动发现不会隐式下载镜像；Compose 启动仍必须经过精确 RiskyExecution 授权，保持在受监督进程组内，不会自动执行；长驻任务建议使用 `task_mode=true`。可选的 `status_probe` 同样是有界的，只输出 service、容器 state、Docker 报告的 health 与 exit code。普通 `docker compose ps`、JSON 或任意模板渲染不会被当作安全的模型侧探针，因为其中可能包含容器 command；Health 为空时必须保持“未知”，不能冒充 healthy。显式且已知的 `packageManager` 优先于 lockfile 推断，冲突 lockfile 或歧义清单会 fail closed，发现过程不会把脚本正文复制进命令参数。 |
+| `workspace_info` | Workspace、权限、安全策略、调度能力、Product Scope Registry，以及有界只读启动 Profile。每个 Profile 都带 `program_available`：它只对裸 Runner 可执行文件做有界 PATH 存在性预检；`false` 表示不要执行、也不要静默换成别的 Runner，`true` 也不代表对应插件或子命令一定存在。启动发现保守识别 Cargo / Go / 包管理器 / Deno / uv / Dart，以及直接声明的 Just / Make / Task Runner 入口；另外只有在唯一且有界的 Compose 清单满足“字面量镜像、无宿主变量插值、无顶层自定义 project name、无 build / host mount / privileged / host namespace / API socket / lifecycle hook / external resource、发布端口仅绑定 loopback”等条件时，才暴露附着式 Docker Compose Profile。生成的 Compose 命令固定带 `--no-build --pull never`，因此启动发现不会隐式下载镜像；Compose 启动仍经过当前执行策略、只读写入分类和适用的沙箱检查，保持在受监督进程组内，不会自动执行；长驻任务建议使用 `task_mode=true`。可选的 `status_probe` 同样是有界的，只输出 service、容器 state、Docker 报告的 health 与 exit code。普通 `docker compose ps`、JSON 或任意模板渲染不会被当作安全的模型侧探针，因为其中可能包含容器 command；Health 为空时必须保持“未知”，不能冒充 healthy。显式且已知的 `packageManager` 优先于 lockfile 推断，冲突 lockfile 或歧义清单会 fail closed，发现过程不会把脚本正文复制进命令参数。 |
 | `project_context` | 项目类型、仓库指导、推断检查、Convention Report。 |
 | `scope_status` | Product Scope 映射与有界未映射源码。 |
 | `convention_status` | 命名、Architecture Domain、过大模块和仓库结构 Finding。 |
@@ -303,7 +302,7 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
-| `run_command` | 无 Shell、策略校验执行；非默认 / 高风险操作仍需授权。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
+| `run_command` | 通过可执行程序加 argv 直接启动，不会隐式解析 Shell 字符串。普通 exec 开启时，通过校验的命令不再额外要求 CommandAccess / RiskyExecution；显式撤销过的可执行程序仍需重新授权，`--no-exec` 关闭普通执行。有界 Profile 走 Hardened Direct Lane；超出 Profile 的命令形态，包括显式 Shell 脚本执行，必须进入强 OS 沙箱，不可用时 fail closed；有界语法检查可保持直接执行。普通的操作后果检查和受保护 CWD 仍生效。显式会话覆盖优先于 no-exec、撤权、命令策略过滤和只读命令写入分类，但保留宽命令隔离、环境清理及独立的文件工具控制。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
 | `command_task` | 普通 `create` / `status` / `result` / `cancel` 调用复用同一份持久 `run_command` 状态；使用返回的 Task ID 与 Workspace，遵守轮询间隔，不得为了轮询重跑命令。检查精确 Transport Owner 与所选 Workspace，拒绝 Owner/Actor 参数。Terminal 不等于成功，应检查内层命令结果；日志不生成 Verification Evidence，不承诺 exactly-once 或旧 stdio Owner 恢复。 |
 
 ### Graph、Semantic 与 Language Quality
@@ -351,13 +350,14 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 
 模型可以请求权限，但不能自批。待授权请求只能在本地 TUI 或 Token 保护的 WebUI 决策。
 
-- **可执行程序访问（`CommandAccess`）**：为一个 Workspace 授权裸程序名。
-- **Fingerprint-scoped Trust（`RiskyExecution`）**：只授权该 Workspace / Session 中当前请求对应的 Trust Fingerprint。命令与仓库 Mutation 绑定精确 Operation + Arguments；未进入 Automatic Profile 的 Warm LSP Server 则绑定 Workspace + Server + 当前 Binary Identity，让 Refresh/Navigation 可以复用这一份 Server，但不会放开替换后的 Binary 或其他 Server。
+- **可执行程序访问（`CommandAccess`）**：执行显式的可执行程序撤权。exec 开启时，通过校验的普通命令无需额外授权。本次运行全部命令覆盖优先于撤权和 `--no-exec`；撤销覆盖后恢复基础策略与原有显式撤权。
+- **Fingerprint-scoped Trust（`RiskyExecution`）**：用于自动 Profile 之外的非普通命令执行，例如没有 Automatic Profile 的 LSP Server 或高级 Stage Executor。普通命令准入不会自行授予这些信任；显式 Runtime Risk/全部命令授权可满足支持路径的信任检查。非自动 Warm LSP 的精确授权绑定 Workspace + Server + 当前 Binary Identity，不会授权替换后的 Binary 或其他 Server。
 - **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
+- **HumanApproval**：需要精确的本地操作者决定；命令授权、Full Access 和命令成功不能代替这一决定或发布/部署验收。
 
-Git Mutation 仍然很窄：只有显式 pathspec 的 `git add`、message-only `git commit -m ...`、非 Force / 非 Delete 的 `git push <remote> <refspec>` 可以进入精确授权。已批准 Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass、任意 Git Config 以及 Force/Delete 形态继续阻断。
+普通执行下，支持的有界 Git 生命周期形态无需第二层命令授权：显式 Pathspec 或 `-A` 暂存、仅通过消息参数创建提交、非强制的 Upstream/显式 Branch Push、显式 Branch Fetch、`pull --ff-only`、有界 Branch/Switch/Tag 操作，以及针对显式路径的 `restore --staged`。形态检查和 Git Hardening 仍拒绝 Force/Delete/Mirror Push、Reset/Clean、工作树内容 Restore 与 Config/Helper 注入。只有有界 Git Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass 与任意 Git Config 仍会清除。命令准入与用户的发布意图、HumanApproval 及外部合并/部署门禁相互独立。
 
-22 个已索引语言的已知开发 CLI 都采用命令级策略，而不是授权一个程序名后整套子命令都放开。受限的本地测试、检查、构建、格式化/Lint、Workspace 脚本、代码生成、依赖维护和仓库声明的 Verification Executor 通过 Hardened Workspace Execution 自动运行；Inline Interpreter Eval、Compiler/Plugin/Agent 注入、Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改、凭据重定向和命令/文件加载绕过面继续授权或阻断。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
+普通命令策略下，所有已索引语言的已知开发 CLI 继续采用命令级后果检查。有界的本地测试、检查、构建、格式化/Lint、Workspace 脚本、代码生成和依赖维护在 Hardened Direct Lane 自动执行。显式 Shell 调用通过宽命令沙箱支持；工具专属策略仍拒绝不安全的 Compiler/Plugin/Agent 注入、Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改和凭据/配置重定向。仓库声明的 Verification Executor 使用独立的 Hardened Autonomous Profile；普通命令准入不会扩大其可执行程序、参数或信任边界。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
 
 ## 诊断
 

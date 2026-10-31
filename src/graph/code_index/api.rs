@@ -291,6 +291,25 @@ impl CodeIndex {
         max_files: usize,
         max_symbols: usize,
     ) -> Result<SoftwareGraphSnapshot> {
+        self.software_graph_with_priorities(
+            workspace_id,
+            workspace,
+            path,
+            max_files,
+            max_symbols,
+            &HashSet::new(),
+        )
+    }
+
+    pub(crate) fn software_graph_with_priorities(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        path: &str,
+        max_files: usize,
+        max_symbols: usize,
+        priority_symbol_ids: &HashSet<String>,
+    ) -> Result<SoftwareGraphSnapshot> {
         let max_files = max_files.clamp(1, MAX_GRAPH_FILES);
         let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
         let mut snapshot = self.software_graph_from_paths(
@@ -298,7 +317,7 @@ impl CodeIndex {
             paths,
             scan_truncated,
             max_symbols,
-            &HashSet::new(),
+            priority_symbol_ids,
             &HashSet::new(),
         )?;
         snapshot.workspace = workspace_id.into();

@@ -196,6 +196,7 @@ impl super::Args {
                 "semantic_enabled": (self.allow_semantic || self.full_access) && (self.allow_exec || self.full_access),
                 "full_access": self.full_access,
                 "risky_exec_enabled": self.allow_risky_exec || self.full_access,
+                "command_exec_policy": if self.allow_exec || self.full_access { "permissive_sandboxed" } else { "disabled" },
                 "destructive_writes_enabled": self.allow_destructive_writes || self.full_access,
             },
             "monitor_requested": self.monitor,

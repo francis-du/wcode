@@ -117,12 +117,17 @@ Remote reachability, model requests, command trust, and filesystem authority are
 Key boundaries:
 
 - Configured Workspaces and discovered subspaces define the filesystem scope.
-- Protected paths, traversal, symlink escapes, unsafe hard links, and shell injection remain blocked.
+- Model-facing file operations block protected paths, traversal, symlink escapes and unsafe hard links.
 - Existing-file edits use SHA-256 preconditions and atomic commits.
-- Command execution uses argument arrays without a shell.
-- Authorization can stay exact per executable/operation, or the operator can explicitly authorize all otherwise-allowable commands for the selected Workspace for the current runtime session.
-- TUI, protected WebUI, and stdio elicitation expose the same authorization state; the session-wide command grant can be enabled or revoked without changing Workspace boundaries.
+- Commands use an executable plus an argument array, with no implicit shell parsing. Explicit shell script execution and other shapes outside bounded profiles require the strong OS sandbox; an unavailable backend fails closed.
+- Ordinary enabled command execution needs no second command grant. Explicit executable revocations still require reauthorization, and `--no-exec` disables ordinary execution.
+- Without an explicit command override, read-only policy rejects classified command writes and denies Workspace writes in the broad-command sandbox.
+- An explicit current-runtime all-command grant can override no-exec, revocations, command-policy filtering and read-only command-write classification. Broad commands still require the sandbox with Workspace writes enabled inside it; environment scrubbing, process limits and file-tool protections remain active.
+- TUI, protected WebUI and stdio elicitation expose the same authorization state. Revoking a session grant restores the base policy and prior explicit revocations.
+- Non-command providers and verification executors keep their own profiles and trust checks. Command grants and Full Access cannot authorize a separate HumanApproval decision or replace merge/deployment acceptance.
 - OAuth protects network transports; a tunnel provides reachability, not authorization.
+
+See the [Security Model](docs/manual/security.md) for the bounded direct lane, syntax-only shell checks, platform sandbox support and independent authorization boundaries.
 
 ## MCP transports
 

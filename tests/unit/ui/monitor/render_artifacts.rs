@@ -92,7 +92,7 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
                 }
                 "commands" => {
                     ui.commands_open = true;
-                    language.tr("SUPPORTED COMMANDS")
+                    language.tr("COMMAND CONTROLS")
                 }
                 "project-details" => {
                     ui.intelligence_open = true;
@@ -142,6 +142,18 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
                 text.contains(expected),
                 "missing {expected} in {name}/{language:?}: {text}"
             );
+            if name == "commands" {
+                for label in [
+                    "Catalog control",
+                    "Exact repository operation",
+                    "DEFAULT + SANDBOX",
+                ] {
+                    assert!(
+                        text.contains(language.tr(label)),
+                        "missing {label}/{language:?}: {text}"
+                    );
+                }
+            }
             let locale = if language == UiLanguage::En {
                 "en"
             } else {

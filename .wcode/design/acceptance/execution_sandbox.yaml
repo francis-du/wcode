@@ -1,18 +1,23 @@
 schema_version: 1
 id: AC-EXECUTION-SANDBOX-001
-title: Future broad shell execution keeps sandbox and approval independent
+title: Broad shell execution keeps sandbox and authorization independent
 statement: >-
-  A command admitted only because Workspace all-command / Full Access bypasses the bounded command profile is marked
-  broad and must receive a platform sandbox launch plan before process spawn. The sandbox exposes the selected
-  Workspace read/write, keeps the host filesystem read-only outside sandbox scratch/Workspace, masks or denies
-  protected credential/repository-control paths at any depth within the selected Workspace, denies external network
-  access, preserves cwd and process resource limits, and never receives unsanitized credential environment variables.
+  A command shape outside bounded development or verification profiles is marked broad under both ordinary
+  permissive execution and explicit Workspace all-command / Full Access overrides, and must receive a platform
+  sandbox launch plan before spawn. The sandbox keeps the selected Workspace read-only when writes are disabled
+  and no all-command override exists; ordinary writes or an explicit override enable Workspace writes only within
+  that sandbox boundary. It keeps the host filesystem read-only outside sandbox scratch/Workspace, masks or denies
+  protected credential/repository-control paths at any depth within the selected Workspace and actual configured
+  authority-state roots, denies external network access, preserves cwd/process/resource limits, and applies
+  sensitive/injection-capable environment scrubbing with explicit provider credential allowances.
   Repository-control metadata such as .git/.hg/.svn is inaccessible to broad shell/policy-bypass commands; bounded
-  policy-approved Git operations remain on the existing direct execution lane and therefore keep their intentional
-  repository-control access. Commands already valid under the bounded command profile do not pay this sandbox cost. macOS selects Seatbelt; Linux selects bubblewrap
-  when available; unsupported or unavailable providers reject broad execution with sandbox_unavailable and never
-  fall back to a raw child process. Human command authorization remains a separate prerequisite and cannot disable
-  the sandbox. Broad-command lifecycle tests run in fresh child processes with private authority and
+  policy-approved Git operations retain the hardened direct lane and intentional repository-control access.
+  Commands valid under bounded profiles, including supported syntax-only shell checks, do not pay the sandbox cost.
+  macOS selects Seatbelt; Linux selects bubblewrap when available; Windows and unsupported/unavailable providers
+  reject broad execution with sandbox_unavailable and never fall back to a raw child process. Ordinary enabled
+  commands need no second command approval, but explicit revocation still requires reauthorization. A session
+  override may supersede command revocation, no-exec and read-only command classification; no command grant
+  disables the sandbox or authorizes a separate HumanApproval decision. Broad-command lifecycle tests run in fresh child processes with private authority and
   intelligence roots initialized before launch; no test depends on parallel store creation or modifies the
   parent environment. Backend presence is not a waiver for missing protected roots, whose negative tests
   retain fail-closed behavior. Exact child-test execution and successful completion must be observed.

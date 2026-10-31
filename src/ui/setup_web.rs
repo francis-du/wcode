@@ -165,9 +165,9 @@ var zh={
  'Localhost is not a cloud endpoint. Temporary tunnel addresses can change after reconnecting.':'本机地址不能用于云端连接器。临时隧道地址可能在重连后变化。',
  'Manual connection & performance':'手动接入与性能设置','Optional. Build a command for the next process; this does not change the running instance or save settings.':'可选：生成下次启动使用的命令。此操作不会更改当前实例，也不会保存配置。',
  'Local dashboard · no public tunnel':'本地面板 · 不开公网隧道','Access':'访问权限','Standard · ask when needed':'标准 · 必要时请求批准','Read-only · commands available':'文件只读 · 仍可运行命令','Inspect only · no commands':'仅查看 · 不运行命令',
- 'File tools cannot write. Commands may still have side effects and retain their approval checks.':'文件工具不能写入；命令仍可能产生副作用，并保留批准检查。',
+ 'File tools and sandboxed broad commands cannot write the Workspace; bounded commands still follow read-only policy.':'文件工具和进入强 Sandbox 的宽命令都不能写入 Workspace；有界命令继续遵守只读策略。',
  'File tools are read-only; commands and language-server execution are disabled.':'文件工具只读，命令及语言服务器执行均已禁用。',
- 'Normal coding capabilities; sensitive operations still require approval.':'保留正常编程能力；敏感操作仍需用户批准。',
+ 'Normal coding capabilities; broad commands are sandboxed and consequence-specific restrictions remain.':'保留正常编程能力；宽命令会进入强 Sandbox，并继续保留按后果定义的限制。',
  'The setup command above follows these performance and access choices. Run it to save the launch options, then reconnect your agent.':'上方安装命令会同步性能与权限选项。执行后会保存启动参数，重新连接智能体后生效。',
  'Manual client fields':'手动填写客户端配置','Local stdio server entry only. Merge it into your client\'s MCP settings; do not replace the entire configuration file.':'这里只是本地 stdio 服务条目，请合并到客户端 MCP 设置中，不要替换整个配置文件。',
  'Connection':'接入方式','Performance':'性能','Local agent (stdio)':'本地智能体（stdio）','Remote service':'远程服务','Balanced · recommended':'均衡 · 推荐','Fast · larger resource budget':'快速 · 较大资源预算','Light · smaller resource budget':'轻量 · 较小资源预算',
@@ -215,7 +215,7 @@ function updateCommand(){
   var setup=buildSetup(preset,access);document.getElementById('setup-command').textContent=setup;
   document.getElementById('setup-preview-command').textContent=setup+' --dry-run';
   document.getElementById('client-config').textContent=JSON.stringify(clientConfig(preset,access),null,2);
-  var accessNote=access==='inspect'?'File tools are read-only; commands and language-server execution are disabled.':access==='read-only'?'File tools cannot write. Commands may still have side effects and retain their approval checks.':'Normal coding capabilities; sensitive operations still require approval.';
+  var accessNote=access==='inspect'?'File tools are read-only; commands and language-server execution are disabled.':access==='read-only'?'File tools and sandboxed broad commands cannot write the Workspace; bounded commands still follow read-only policy.':'Normal coding capabilities; broad commands are sandboxed and consequence-specific restrictions remain.';
   document.getElementById('access-note').textContent=t(accessNote);
   document.getElementById('preview-command').textContent=command+' --show-config';
   var note=preset==='fast'?'64 tool slots · 1024 MiB soft memory budget.':preset==='light'?'16 tool slots · 256 MiB soft memory budget.':'32 tool slots · 512 MiB soft memory budget.';

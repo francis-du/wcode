@@ -85,7 +85,7 @@ pub(crate) fn status() -> ExecutionSandboxStatus {
         fail_closed: true,
         available: backend.is_some(),
         backend: backend.map_or("unavailable", SandboxBackend::name),
-        filesystem: "host_read_only_workspace_write_protected_paths_denied",
+        filesystem: "host_read_only_workspace_policy_write_protected_paths_denied",
         network: "denied",
     }
 }
@@ -95,6 +95,7 @@ pub(super) fn prepare(
     cwd: &Path,
     executable: &Path,
     args: &[String],
+    allow_workspace_write: bool,
 ) -> Result<(Command, SandboxGuard)> {
     let backend = detect_backend().ok_or_else(|| {
         anyhow::anyhow!(
@@ -103,9 +104,13 @@ pub(super) fn prepare(
     })?;
     match backend {
         #[cfg(target_os = "macos")]
-        SandboxBackend::MacOsSandboxExec => prepare_macos(workspace_root, cwd, executable, args),
+        SandboxBackend::MacOsSandboxExec => {
+            prepare_macos(workspace_root, cwd, executable, args, allow_workspace_write)
+        }
         #[cfg(target_os = "linux")]
-        SandboxBackend::LinuxBubblewrap => prepare_linux(workspace_root, cwd, executable, args),
+        SandboxBackend::LinuxBubblewrap => {
+            prepare_linux(workspace_root, cwd, executable, args, allow_workspace_write)
+        }
     }
 }
 
@@ -195,12 +200,13 @@ fn prepare_macos(
     cwd: &Path,
     executable: &Path,
     args: &[String],
+    allow_workspace_write: bool,
 ) -> Result<(Command, SandboxGuard)> {
     let scratch = create_scratch()?;
     let guard = SandboxGuard {
         scratch: Some(scratch.clone()),
     };
-    let profile = macos_profile(workspace_root, &scratch)?;
+    let profile = macos_profile_with_access(workspace_root, &scratch, allow_workspace_write)?;
     let home = scratch.join("home");
     let temp = scratch.join("tmp");
     fs::create_dir_all(&home)?;
@@ -224,23 +230,48 @@ fn prepare_macos(
     Ok((command, guard))
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 fn macos_profile(workspace_root: &Path, scratch: &Path) -> Result<String> {
-    macos_profile_from_paths(
-        workspace_root,
-        scratch,
-        &sandbox_protected_paths(workspace_root)?,
-    )
+    macos_profile_with_access(workspace_root, scratch, true)
 }
 
 #[cfg(any(target_os = "macos", test))]
+fn macos_profile_with_access(
+    workspace_root: &Path,
+    scratch: &Path,
+    allow_workspace_write: bool,
+) -> Result<String> {
+    macos_profile_from_paths_with_access(
+        workspace_root,
+        scratch,
+        &sandbox_protected_paths(workspace_root)?,
+        allow_workspace_write,
+    )
+}
+
+#[cfg(test)]
 fn macos_profile_from_paths(
     workspace_root: &Path,
     scratch: &Path,
     protected: &[PathBuf],
 ) -> Result<String> {
+    macos_profile_from_paths_with_access(workspace_root, scratch, protected, true)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_profile_from_paths_with_access(
+    workspace_root: &Path,
+    scratch: &Path,
+    protected: &[PathBuf],
+    allow_workspace_write: bool,
+) -> Result<String> {
     let workspace = sandbox_string(workspace_root)?;
     let scratch = sandbox_string(scratch)?;
+    let workspace_write = if allow_workspace_write {
+        format!("    (subpath \"{workspace}\")\n")
+    } else {
+        String::new()
+    };
     let mut profile = format!(
         r#"(version 1)
 (deny default)
@@ -250,8 +281,7 @@ fn macos_profile_from_paths(
 (allow ipc-posix-shm)
 (allow file-read*)
 (allow file-write*
-    (subpath "{workspace}")
-    (subpath "{scratch}")
+{workspace_write}    (subpath "{scratch}")
     (literal "/dev/null"))
 "#
     );
@@ -292,6 +322,7 @@ fn prepare_linux(
     cwd: &Path,
     executable: &Path,
     args: &[String],
+    allow_workspace_write: bool,
 ) -> Result<(Command, SandboxGuard)> {
     #[cfg(target_os = "linux")]
     {
@@ -312,7 +343,12 @@ fn prepare_linux(
         fs::create_dir_all(&empty)?;
         let mut command = Command::new(launcher);
         command
-            .args(linux_bwrap_prefix(workspace_root, cwd, &scratch)?)
+            .args(linux_bwrap_prefix_with_access(
+                workspace_root,
+                cwd,
+                &scratch,
+                allow_workspace_write,
+            )?)
             .arg("--")
             .arg(executable)
             .args(args)
@@ -333,22 +369,44 @@ fn prepare_linux(
 }
 
 #[cfg(target_os = "linux")]
-fn linux_bwrap_prefix(workspace_root: &Path, cwd: &Path, scratch: &Path) -> Result<Vec<OsString>> {
-    linux_bwrap_prefix_from_paths(
+fn linux_bwrap_prefix_with_access(
+    workspace_root: &Path,
+    cwd: &Path,
+    scratch: &Path,
+    allow_workspace_write: bool,
+) -> Result<Vec<OsString>> {
+    linux_bwrap_prefix_from_paths_with_access(
         workspace_root,
         cwd,
         scratch,
         &sandbox_protected_paths(workspace_root)?,
+        allow_workspace_write,
     )
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(test)]
 fn linux_bwrap_prefix_from_paths(
     workspace_root: &Path,
     cwd: &Path,
     scratch: &Path,
     protected: &[PathBuf],
 ) -> Result<Vec<OsString>> {
+    linux_bwrap_prefix_from_paths_with_access(workspace_root, cwd, scratch, protected, true)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn linux_bwrap_prefix_from_paths_with_access(
+    workspace_root: &Path,
+    cwd: &Path,
+    scratch: &Path,
+    protected: &[PathBuf],
+    allow_workspace_write: bool,
+) -> Result<Vec<OsString>> {
+    let workspace_bind = if allow_workspace_write {
+        "--bind"
+    } else {
+        "--ro-bind"
+    };
     let mut args = vec![
         "--die-with-parent".into(),
         "--new-session".into(),
@@ -356,7 +414,7 @@ fn linux_bwrap_prefix_from_paths(
         "--ro-bind".into(),
         "/".into(),
         "/".into(),
-        "--bind".into(),
+        workspace_bind.into(),
         workspace_root.as_os_str().to_owned(),
         workspace_root.as_os_str().to_owned(),
         "--bind".into(),

@@ -83,6 +83,12 @@ fn configuration_preview_reports_effective_limits_and_origins_without_activation
     assert_eq!(preview["resources"]["sources"]["parallel_tools"], "preset");
     assert_eq!(preview["workspace_paths"][0], "project with spaces");
     assert_eq!(preview["permissions"]["write_enabled"], false);
+    assert_eq!(preview["permissions"]["exec_enabled"], true);
+    assert_eq!(preview["permissions"]["risky_exec_enabled"], false);
+    assert_eq!(
+        preview["permissions"]["command_exec_policy"],
+        "permissive_sandboxed"
+    );
     assert_eq!(preview["connection"]["mode"], "stdio");
 }
 

@@ -1,10 +1,11 @@
 use super::*;
 use std::sync::OnceLock;
 
+#[path = "cargo_contention.rs"]
+mod cargo_regressions;
 #[cfg(unix)]
 #[path = "execution_sandbox.rs"]
 mod sandbox_lifecycle;
-
 #[path = "execution_timing.rs"]
 mod timing;
 

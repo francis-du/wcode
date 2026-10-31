@@ -5,6 +5,7 @@ mod dynamic_registry;
 mod files;
 mod ignore;
 mod launch_profiles;
+pub(super) mod process_fixture;
 mod search;
 #[test]
 fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {
@@ -839,7 +840,12 @@ async fn hardened_runtime_executor_runs_without_repetitive_authorization() {
 }
 
 #[tokio::test]
-async fn revoked_catalog_command_becomes_selectively_authorizable() {
+async fn explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools() {
+    let test =
+        "explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools";
+    if process_fixture::run_in_private_fixture(module_path!(), test).await {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let workspaces = Workspaces::new([dir.path()], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
@@ -879,24 +885,15 @@ async fn revoked_catalog_command_becomes_selectively_authorizable() {
         .any(|command| command == "git"));
 
     let arbitrary = workspace
-        .run_command("hugo", &["--version".to_owned()], ".", 10)
-        .await
-        .unwrap_err();
-    assert!(arbitrary.to_string().contains("authorization required"));
-    let request = workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::CommandAccess);
-    assert_eq!(request.program.as_deref(), Some("hugo"));
-    assert!(workspaces.approve_authorization_session(&request.id));
-    assert!(workspace
-        .allowed_commands()
-        .iter()
-        .any(|command| command == "hugo"));
-
-    let hard_denied = workspace
-        .run_command("bash", &["-lc".to_owned(), "echo no".to_owned()], ".", 10)
-        .await
-        .unwrap_err();
-    assert!(hard_denied.to_string().contains("no-shell"));
+        .run_command("wcode-definitely-not-installed", &[], ".", 10)
+        .await;
+    if execution_sandbox_status().available {
+        let arbitrary = arbitrary.unwrap();
+        assert!(!arbitrary.success && !arbitrary.stderr.contains("authorization required"));
+    } else {
+        assert_eq!(arbitrary.unwrap_err().to_string(),
+            "sandbox_unavailable: strong OS sandbox is unavailable; broad unrestricted command execution is denied");
+    }
     assert!(workspaces.latest_pending_authorization().is_none());
 }
 
@@ -941,7 +938,11 @@ fn workspace_command_allowlist_supports_defaults_and_operator_authorized_program
         .any(|command| command == "hugo"));
     assert!(workspaces
         .allow_command(Some(&workspace_id), "bash")
-        .is_err());
+        .is_ok());
+    assert!(selected_before
+        .allowed_commands()
+        .iter()
+        .any(|command| command == "bash"));
 }
 
 #[cfg(unix)]

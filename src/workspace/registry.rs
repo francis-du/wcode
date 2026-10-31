@@ -356,14 +356,24 @@ impl Workspaces {
 
     pub fn workspace_access(&self, id: Option<&str>) -> Result<serde_json::Value> {
         let (id, workspace) = self.select(id)?;
+        let all_commands_authorized = workspace.security.allow_unrestricted_commands
+            || self.authorization.workspace_commands_granted(&id);
+        let command_exec_policy = if all_commands_authorized {
+            "session_override"
+        } else if workspace.exec_enabled() {
+            "permissive_sandboxed"
+        } else {
+            "disabled"
+        };
         Ok(serde_json::json!({
             "id": id,
             "root": workspace.root(),
             "write_enabled": workspace.write_enabled(),
             "exec_enabled": workspace.exec_enabled(),
-            "all_commands_authorized": workspace.security.allow_unrestricted_commands
-                || self.authorization.workspace_commands_granted(&id),
+            "command_exec_policy": command_exec_policy,
+            "all_commands_authorized": all_commands_authorized,
             "allowed_commands": workspace.allowed_commands(),
+            "revoked_commands": workspace.explicitly_revoked_commands(),
             "available_commands": workspace.available_commands(),
         }))
     }
@@ -442,7 +452,7 @@ impl Workspaces {
                 .clone()
                 .ok_or_else(|| anyhow!("command authorization request {id} is missing program"))?;
             let (_, workspace) = self.select(Some(&request.workspace))?;
-            validate_authorizable_program(&program)?;
+            validate_bare_program(&program)?;
             Some((workspace, program))
         } else {
             None

@@ -7,6 +7,9 @@
 .runtime-output-filters:empty,#runtimeJobOutput:empty{display:none}
 .runtime-output-filters label{display:grid;gap:6px;min-width:0}
 .runtime-output-filters input,.runtime-output-filters select{width:100%;min-width:0;font-size:13px}
+.runtime-output-filters .runtime-output-case{display:flex;align-items:center;gap:8px}
+.runtime-output-case input[type=checkbox]{width:16px;height:16px;min-width:16px}
+.runtime-output-filters>.panel-meta{grid-column:1/-1;margin:0}
 .runtime-output-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
 #runtimeJobOutput{display:grid;gap:12px;min-width:0}
 #runtimeJobOutput details{min-width:0}

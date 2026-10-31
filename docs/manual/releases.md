@@ -15,6 +15,8 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## 0.9.x
 
+- [v0.9.1](v0.9.1/) — upgrade and reconnection guide, scoped job controls, independent Cargo checks, TLS patches, and troubleshooting.
+
 - [v0.9.0](v0.9.0/) — shared attention, terminal observation, guarded source paging, scoped model-worker coordination, and compact context.
 
 ## 0.8.x

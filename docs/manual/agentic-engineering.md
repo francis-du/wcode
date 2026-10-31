@@ -55,7 +55,7 @@ Mandatory controls live in deterministic mechanisms:
 
 - Workspace root/path protection;
 - exact destructive and risky-operation authorization;
-- no-shell command-policy validation;
+- command validation without implicit shell parsing, with an OS sandbox required for broad commands;
 - SHA edit preconditions;
 - Product Scope and Convention checks;
 - `review_changes` maintainability signals;

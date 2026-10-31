@@ -49,6 +49,18 @@ The current Observatory already exposes architecture and Code Graph inspection, 
 
 These are different kinds of observations. Architecture declarations are intent; syntax relationships are syntax; live provider results may supply semantics; check output is execution data; revision-bound Evidence supplies proof under its own rules. Showing them together must preserve those distinctions.
 
+### Architecture evidence and bounded observation
+
+A resolved implementation mapping establishes where a Design reference points in source. An observed dependency establishes a retained relationship between source endpoints. Executed verification has its own revision and result. These are independent observations: a mapped implementation is not a passing test, and an unobserved declared dependency does not mean the capability is unimplemented.
+
+The Observatory keeps its existing 5,000 source-symbol budget. Design implementation Symbol references are resolved in per-file batches so exact entry definitions receive priority over unrelated declarations. Existing requested callers retain priority; directly reachable one-hop call endpoints can use remaining capacity only under the existing resolver rules. Other definitions fill the remaining budget across files. More Design references do not increase the cap. Unresolved references, ambiguous homonyms and receivers with unknown types never justify invented call edges or stronger precision.
+
+Component ownership comes from exact Symbol references, explicit File references and their resolved trace mappings. A Symbol reference matches qualified names before short names and does not claim unrelated sibling definitions. A direct match remains uncertain when names are ambiguous, the graph/scan is truncated, or the canonical trace lookup is explicitly unresolved. A single component ID backed only by that uncertain match is not a confirmed owner. An explicit File reference can cover the file's nodes; a resolved file trace binds only its File node, while a uniquely resolved symbol trace independently confirms its exact definition. Only endpoints with one unambiguous component owner each, belonging to different components, can contribute an actual dependency, and only at syntax, semantic, deterministic or runtime precision. Syntax remains syntax; the existing stronger-precision rule for blocking drift remains separate. Ambiguous ownership, one-sided ownership and declared/heuristic/mixed relationships remain candidates. They do not count as actual, aligned or blocking, and owner combinations are never expanded into invented component pairs. Edges with no Design owner at either endpoint are outside this candidate projection.
+
+The source inspector preserves original endpoint node IDs, paths and symbols, relation kind, provider, precision and revision. Owner explanations distinguish `symbol_reference`, `ambiguous_symbol_reference`, `file_reference`, `trace_symbol` and `trace_file`, with explicit unique/ambiguous/unowned state. Each confirmed component pair retains at most 8 raw edge records, alongside `evidence_total` and `evidence_truncated`. The architecture view retains at most 128 `dependency_candidates`, with `dependency_candidates_total` and `dependency_candidates_truncated`; each endpoint retains at most 16 owner samples and its full owner count. These totals describe the bounded observed input, not every dependency in the repository.
+
+Inspect the raw source and ownership explanation before treating a candidate as an architectural fact. Missing or truncated evidence stays explicit. Older snapshots without the new evidence fields remain readable, but missing fields cannot supply original-edge evidence or establish complete observation. Neither graph inspection nor a resolved test mapping records an executed check or supplies acceptance.
+
 ## This implementation slice
 
 The following changes are implemented in this working-tree slice. Verification is underway; this document does not attest that full checks, runtime acceptance, or publication have completed.
@@ -65,6 +77,51 @@ The operator path is: choose a workspace → select an attention item → inspec
 
 The Menu Bar helper is a separate accessory UI process rather than a second wcode daemon or a normal Dock application. Its native status item is created only after the macOS main-thread event loop is active. HTTP/MCP and stdio processes publish short-lived heartbeats under the protected local authority state root; records older than the active window are not treated as live. The menu shows transport counts, the latest runtime version and Workspace IDs, recent MCP activity, task/queue counts, and explicit coverage state. Corrupt, aliased, excessive, or incomplete observations remain partial or unknown. On non-macOS systems, the native tray is not implemented yet, but `wcode menu-bar --json` keeps the status contract portable for a future Windows/Linux tray.
 
+## Capability audit and ablation decisions (2026-10-31)
+
+This source audit separates implemented behavior, proposed additions and external acceptance. Live web search was unavailable during this iteration, so the older primary-source review above was not reverified as current research. Source mappings establish where code or tests exist; they do not establish executed checks or customer readiness.
+
+| Capability | Source-level finding | Decision |
+| --- | --- | --- |
+| Engineering work queue | The canonical Worklist already owns task state, dependencies and leases. The former eight-row ownership view could hide unfinished work behind completed reports. | Extend the existing read-only projection with open-task priority, status/text filters, paging, notes and dependency context. Do not create another task store. |
+| Team evidence inspection | wteam already receives project, revision, runner, source digest, observed time and received time. Its earlier table hid the runner, source digest and received time. | Expose project/revision groups and source details in the existing console. Different digests are different contexts, not an automatic failure or approval. |
+| Command job inspection | `app/jobs.js` and `web_jobs.rs` already provide retained task discovery, status/origin filters, exact-task output and UI-owned cancellation. | Keep this implementation; this iteration adds local output search and retained-line location. Further producer/timing metadata remains driven by concrete debugging needs. |
+| Verified experience | `evidence/experience.rs` already contains normalized co-change retrieval and a temporal comparison against raw-count history. | Evaluate the existing mechanism before adding vector storage, full transcripts or another summarization model. |
+| Multi-agent coordination | `worklist_delegation.rs` already implements scoped leases, dependencies and reported results; the Host creates model sessions. | Keep coordination and independent verification. Do not add a second scheduler or an always-on model swarm without a demonstrated gap. |
+| Optional decision assistance | `intelligence/jev.rs` and `jev_policy.rs` already implement optional advisory assistance and deterministic fallback. | Keep it optional. No additional default planner/model calls; wider use requires controlled task-quality and real-cost measurements. |
+| GitHub acceptance integration | The native publisher, candidate watcher, enrollment and inbox exist under `integrations/git/`. | Preserve the integration. Real App installation, isolated deployment and customer PR acceptance stay external prerequisites. A generic CI log explorer is a separate proposal. |
+| Application telemetry ingestion | Process logging and runtime health do not establish application OpenTelemetry/OTLP ingestion. | Defer until a real resource, collection and retention contract is available; first connect existing execution/task/evidence identities. |
+| General debugger and interactive terminal | No complete DAP breakpoint/stack workflow or interactive PTY contract is established by this product slice. | Defer. Engineering management does not require rebuilding a general IDE in this iteration. |
+
+The work queue resolves dependencies against the full observed list before applying filters and eight-row paging. Missing, malformed and partial dependencies remain explicit. Dependency satisfaction does not grant runnable authority. Current runnable labels require the backend's reported IDs and a fresh, complete observation. Worker completion remains a report, not verification. Workspace/owner changes reset local filters, expired leases are recomputed on lightweight revision polls, and background updates preserve search focus and Chinese input composition.
+
+The isolated diagnostic `node tests/unit/ui/worklist_ablation.cjs .` loads the production bundle into separate VMs and changes one feature path at a time without editing production files:
+
+| Removed feature | Baseline | Isolated ablation | Restored |
+| --- | --- | --- | --- |
+| Unfinished-work priority | 2/2 open tasks visible behind eight completed records | 0/2 visible | 2/2 visible |
+| Full-observation dependency index | Hidden completed prerequisite resolves | Prerequisite incorrectly appears missing | Resolves |
+| Workspace/owner/epoch reset | 3/3 identity boundaries reset the filter | 0/3 reset | 3/3 reset |
+| Stale/partial/historical suppression | 3/3 uncertain observations suppress current runnable labels | 0/3 suppress them | 3/3 suppress them |
+
+These are reproducible synthetic behavior comparisons, not a model benchmark or a claim about time, token cost or overall engineering productivity. Browser interactions and project checks remain separate verification obligations. The new console projections add no model calls, dependencies, execution permissions or automatic task transitions.
+
+### Retained output location (second iteration)
+
+The existing Jobs inspector now searches retained output locally: at most 256 query characters, case-sensitive literal matching, a stdout/stderr selector and at most 25 matching retained lines per page. Line numbers belong to each retained fragment; the streams do not form a timeline. Truncation and redaction remain explicit, including when no retained text matches. Clearing the search restores the original output blocks; search neither fetches additional output nor replays a command.
+
+Search state binds the exact task, Workspace, session owner and epoch. Selecting another task withdraws old output before the response arrives; failed or invalid detail clears old matches. Same-task updates preserve the query, valid pagination, focus and Chinese composition. `tests/unit/ui/job_output.cjs` verifies these behaviors and separately ablates literal matching, identity boundaries and coverage explanations inside isolated VMs: matching lines 2/5→incorrect 5/5→restored 2/5, task/owner boundaries 2/2→0/2→2/2, coverage statements 4/4→0/4→4/4. These are functional comparisons, with no measured latency or model-cost claim.
+
+### Primary-source research refresh (2026-10-30 UTC)
+
+Search became available after the initial source audit. The following primary sources were rechecked; this is a bounded review, not an exhaustive claim about the newest research.
+
+- [AgentRewind (2026-08-14)](https://arxiv.org/html/2608.14380v1) evaluates aligned context/workspace recovery and component ablations. Its recovery excludes external service effects and has filesystem/history limits. The engineering implication here is to retain exact task, input and failure context; a shared dirty workspace is not a basis for adding unrestricted rollback.
+- [SWE-Marathon (2026-06-05)](https://arxiv.org/html/2606.07682v1) studies long-horizon software work with independent verification layers. Its failure analysis and stated evaluation cost support real behavior checks and exact run provenance. Its diagnostic subset is not a universal failure-rate estimate, and the full benchmark is not a per-edit development gate.
+- [OpenAI's coding-evaluation audit (2026-07-08)](https://openai.com/index/separating-signal-from-noise-coding-evaluations/) identifies both overly narrow and incomplete tests in SWE-Bench Pro. Test repairs should preserve the product contract: the static-asset check now compares the complete compiled script, and isolated runtime fixtures provide the renderer dependencies used by production.
+
+These sources inform prioritization; they do not measure an improvement in wcode or wteam. Continue with bounded projections over existing facts, actual CI evaluation identity and independent checks. Additional planners, autonomous retry loops, general rollback and new telemetry stores remain deferred until a concrete requirement and a reproducible comparison justify them.
+
 ## Inspect design, implementation and command output
 
 The current source connects two existing observation paths:
@@ -78,7 +135,7 @@ The current source connects two existing observation paths:
 
 Resolved design mappings can provide a file path even when it is outside the separately bounded file-tree response. Extensionless files such as `Dockerfile` and `Makefile` keep their exact identity. An unavailable source action means this observation cannot supply the path, not that the file is absent. Source replies from an obsolete workspace, selection or revision cannot replace the active inspection. Opening an acceptance-test file does not execute the test or establish evidence.
 
-The Jobs list and each output stream scroll independently. Search is a case-insensitive literal match, including punctuation and non-English text; select **stdout**, **stderr**, or both. Matching line numbers are relative to the retained window. Each stream shows at most 200 matching lines with an explicit remaining-match count. The existing 32 KiB per-stream retention bound and redaction still apply, and truncation/redaction notices remain visible when a stream is filtered out. No match in retained output says nothing about omitted logs.
+The Jobs list and each output stream scroll independently. Search uses literal matching, including punctuation and non-English text; the **Match case** option can be turned off for case-insensitive matching; select **stdout**, **stderr**, or both. Matching line numbers are relative to the retained window. Matching results are paged across both streams, at most 25 lines per page. The existing 32 KiB per-stream retention bound and redaction still apply, and truncation/redaction notices remain visible when a stream is filtered out. No match in retained output says nothing about omitted logs.
 
 Refreshing the same task preserves the reading position, expanded/collapsed streams and keyboard focus. **Jump to end** is explicit; polling does not pull the reader away from older output. Search controls retain focus while typing. Selecting another task or switching workspace/session clears the prior task's output and query immediately. Unavailable or stale activity correlations have no output-navigation action; they do not fall back to a different task. A completed task remains distinct from a successful command, verification or Acceptance.
 

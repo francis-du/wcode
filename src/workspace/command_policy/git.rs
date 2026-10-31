@@ -144,6 +144,7 @@ fn validate_git_pull(args: &[String]) -> Result<()> {
 
 fn bounded_remote_name(value: &str) -> bool {
     !value.is_empty()
+        && !value.starts_with('-')
         && value.len() <= 128
         && value != "."
         && value != ".."

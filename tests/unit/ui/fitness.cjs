@@ -166,7 +166,7 @@ test('the production refresh failure handler invalidates already painted Fitness
   assert.match(h.els.fitnessBenchmark.innerHTML, />Current source observation</);
   const from = runtime.indexOf('function showRefreshFailure('), to = runtime.indexOf('function renderProjectPlaceholder(', from);
   assert.ok(from >= 0 && to > from);
-  Object.assign(h.context, { console, setSync() {}, renderAttention() {}, renderLive() {},
+  Object.assign(h.context, { console, setSync() {}, renderAttention() {}, renderLive() {}, renderExecutionStatus() {},
     refreshFailureCopy: () => ({ title: 'Connection failed', detail: 'Unavailable' }),
     renderProjectPlaceholder: () => { throw new Error('A request error with an existing snapshot must not erase its historical data'); } });
   h.els.syncState = { title: '', parentElement: { setAttribute() {} } };

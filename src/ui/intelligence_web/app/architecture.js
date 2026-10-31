@@ -3,6 +3,9 @@ function architectureData() {
     subsystems: [],
     components: [],
     dependencies: [],
+    dependency_candidates: [],
+    dependency_candidates_total: 0,
+    dependency_candidates_truncated: false,
     desired_edges: 0,
     observed_edges: 0,
     aligned_edges: 0,
@@ -15,6 +18,78 @@ function architectureData() {
     implementation_coverage_percent: 0,
   };
   return { ...defaults, ...(state.project?.architecture || {}) };
+}
+function architectureDependencyCandidates(componentId = "") {
+  return (architectureData().dependency_candidates || []).filter(evidence =>
+    !componentId || [...(evidence.from_owners || []), ...(evidence.to_owners || [])]
+      .some(owner => owner.component === componentId)
+  );
+}
+function architectureOwnerSamplesIncomplete() {
+  return (architectureData().dependency_candidates || []).some(evidence =>
+    ["from", "to"].some(side => {
+      const owners = evidence[side + "_owners"] || [];
+      return Number(evidence[side + "_owners_total"] ?? owners.length) > owners.length;
+    })
+  );
+}
+function architectureObservationIncomplete() {
+  const a = architectureData(), edges = a.dependencies || [];
+  return Boolean(state.project?.structure?.truncated || a.dependency_candidates_truncated || architectureOwnerSamplesIncomplete() ||
+    a.dependency_candidates_total || edges.some(edge => edge.status !== "aligned") ||
+    !edges.some(edge => edge.actual));
+}
+function architectureObservationNote() {
+  const a = architectureData(), partial = state.project?.structure?.truncated;
+  const pending = (a.dependencies || []).filter(edge => edge.desired && !edge.actual).length;
+  return `<div class="inspector-proof-note dependency-observation-note"><strong>${esc(localized("Dependency observation", "依赖观测"))}</strong><span>${esc(localized("Code relationships are not feature completion or executed verification. Unobserved declarations remain unknown.", "代码关系不代表功能完成或验证通过；未观测的设计依赖仍待核实。"))}</span>${pending ? `<span>${esc(localized(`${num(pending)} declared dependencies have not been observed.`, `${num(pending)} 条设计依赖尚未观测到。`))}</span>` : ""}${partial ? `<span>${esc(localized("This snapshot is partial; missing edges do not prove missing implementation.", "本次快照不完整；缺少依赖边不能证明缺少实现。"))}</span>` : ""}</div>`;
+}
+function architectureEvidenceItem(evidence) {
+  const names = new Map((architectureData().components || []).map(item => [item.id, item.name || item.id]));
+  const sources = {
+    symbol_reference: localized("symbol mapping", "符号映射"),
+    ambiguous_symbol_reference: localized("symbol target not proven unique", "符号目标尚未确认唯一"),
+    file_reference: localized("whole-file mapping", "整文件映射"),
+    trace_symbol: localized("symbol trace", "符号追踪"),
+    trace_file: localized("file trace", "文件追踪"),
+  };
+  const endpoint = side => {
+    const owners = evidence[`${side}_owners`] || [], total = Number(evidence[`${side}_owners_total`] ?? owners.length);
+    const ownership = owners.length ? owners.map(owner =>
+      `${names.get(owner.component) || owner.component} (${(owner.sources || []).map(source => sources[source] || source).join(", ")})`
+    ).join("; ") : localized("Unassigned", "未归属");
+    const omitted = total > owners.length ? localized(` · ${owners.length}/${total} owners shown`, ` · 显示 ${owners.length}/${total} 个归属`) : "";
+    return `<div class="dependency-evidence-endpoint"><code>${esc(evidence[`${side}_symbol`] || evidence[`${side}_node`] || localized("Unknown symbol", "未知符号"))}</code><small>${esc(evidence[`${side}_path`] || localized("Source path unavailable", "源码路径不可用"))}</small><small>${esc(ownership + omitted)}</small></div>`;
+  };
+  const ownership = {
+    unique: localized("Single owner at each endpoint", "两端均有单一归属"),
+    ambiguous: localized("Ownership or symbol target is unresolved; component dependency unconfirmed", "归属或符号目标尚未确认；组件依赖未确认"),
+    unowned: localized("Endpoint ownership incomplete", "端点归属不完整"),
+  }[evidence.ownership] || localized("Ownership unknown", "归属未知");
+  return `<div class="inspector-item dependency-evidence-item">${endpoint("from")}<span class="panel-meta">${esc(evidence.kind || localized("relation", "关系"))} →</span>${endpoint("to")}<div class="panel-meta">${esc(evidence.provider || localized("Unknown provider", "未知提供者"))} · ${esc(statusLabel(evidence.precision || "unknown"))} · ${esc(ownership)}</div></div>`;
+}
+function architectureEdgeEvidence(edge) {
+  const evidence = edge.evidence || [], total = Number(edge.evidence_total ?? evidence.length);
+  if (!evidence.length) return edge.actual
+    ? `<div class="panel-meta">${esc(localized("This snapshot has no source evidence details for this observation.", "此快照未提供该观测的源码证据明细。"))}</div>`
+    : `<div class="panel-meta">${esc(localized("Not observed; no missing implementation is inferred.", "尚未观测；不能据此认定缺少实现。"))}</div>`;
+  const label = localized(`Source evidence ${num(evidence.length)} / ${num(total)}`, `源码证据 ${num(evidence.length)} / ${num(total)}`);
+  return `<details class="dependency-evidence"><summary>${esc(label)}</summary><div class="inspector-list">${evidence.map(architectureEvidenceItem).join("")}</div>${edge.evidence_truncated || total > evidence.length ? `<div class="panel-meta">${esc(localized("Evidence is a bounded sample; additional source relations are omitted.", "证据为有界样本，部分源码关系未展示。"))}</div>` : ""}</details>`;
+}
+function architectureCandidateEvidence(componentId = "") {
+  const a = architectureData(), candidates = architectureDependencyCandidates(componentId);
+  const total = Number(a.dependency_candidates_total ?? (a.dependency_candidates || []).length);
+  const ownersIncomplete = architectureOwnerSamplesIncomplete();
+  if (!candidates.length && !a.dependency_candidates_truncated && !ownersIncomplete) return "";
+  const label = componentId
+    ? localized(`Unresolved source relations: ${num(candidates.length)} shown for this component`, `待核实的源码关系：该组件显示 ${num(candidates.length)} 条`)
+    : localized(`Unresolved source relations: ${num(candidates.length)} / ${num(total)}`, `待核实的源码关系：${num(candidates.length)} / ${num(total)}`);
+  const ownerNote = !ownersIncomplete ? "" : `<p class="panel-meta">${esc(
+    componentId && !candidates.length
+      ? localized("Owner samples are incomplete; membership is unknown.", "归属样本不完整；是否涉及当前组件尚不明确。")
+      : localized("Owner samples are incomplete; additional affected components may be omitted.", "归属样本不完整；可能还有未显示的受影响组件。")
+  )}</p>`;
+  return `<details class="dependency-evidence dependency-candidates" open><summary>${esc(label)}</summary><p class="panel-meta">${esc(localized("Shared or missing ownership and weak provenance remain candidates. They do not count as confirmed component dependencies, alignment, or blocking drift.", "共享或缺失归属、证据不足的关系保留为候选，不计入已确认组件依赖、对齐或阻塞偏离。"))}</p>${ownerNote}<div class="inspector-list">${candidates.map(architectureEvidenceItem).join("")}</div>${a.dependency_candidates_truncated || total > (a.dependency_candidates || []).length ? `<p class="panel-meta">${esc(localized("Candidate details are truncated; absence from this sample is not proof of absence.", "候选明细已截断，样本中未出现不代表不存在。"))}</p>` : ""}</details>`;
 }
 function architectureEdgeTone(edge) {
   if (edge.blocking) return "drift";
@@ -35,6 +110,7 @@ function architectureNodeTone(component, dependencies) {
   );
   if (incident.some((edge) => edge.blocking)) return "drift";
   if (component.changed) return "changed";
+  if (architectureDependencyCandidates(component.id).length || architectureOwnerSamplesIncomplete() || architectureData().dependency_candidates_truncated || state.project?.structure?.truncated) return "uncertain";
   if (!incident.some(edge => edge.actual) || incident.some(edge => edge.status !== "aligned")) return "uncertain";
   return "aligned";
 }
@@ -57,6 +133,7 @@ function renderComponentInspector() {
     actualOnly = outgoing.filter(edge => edge.actual && !edge.desired),
     blockingEdges = deps.filter(edge => edge.blocking),
     uncertain = deps.filter(edge => !edge.blocking && edge.status !== "aligned"),
+    uncertainOwnership = architectureDependencyCandidates(component.id).length || architectureOwnerSamplesIncomplete() || a.dependency_candidates_truncated || state.project?.structure?.truncated,
     subsystem = (a.subsystems || []).find(item => item.id === component.subsystem),
     linkedRequirements = (state.project?.requirements || []).filter(requirement =>
       (requirement.components || []).some(item => item.id === component.id)
@@ -73,10 +150,10 @@ function renderComponentInspector() {
     blocking = blockingEdges.length,
     status = blocking
       ? t("Architecture drift")
-      : uncertain.length
+      : uncertain.length || uncertainOwnership
       ? t("Needs stronger evidence")
       : deps.some(edge => edge.actual) ? t("Architecture aligned") : t("Needs stronger evidence"),
-    tone = blocking ? "bad" : uncertain.length || !deps.some(edge => edge.actual) ? "info" : "good";
+    tone = blocking ? "bad" : uncertain.length || uncertainOwnership || !deps.some(edge => edge.actual) ? "info" : "good";
   const depNames = (edges, actual = false) => edges.length
     ? `<div class="inspector-list">${edges.map(edge => `<div class="inspector-item"><strong>${esc(edge.to_name)}</strong><small>${esc(actual ? `${statusLabel(edge.precision)} · ${statusLabel(edge.status)}` : statusLabel(edge.status))}</small></div>`).join("")}</div>`
     : `<div class="empty">${esc(localized("None", "无"))}</div>`;
@@ -90,7 +167,7 @@ function renderComponentInspector() {
     ? deps.map(edge => {
       const isOutgoing = edge.from === component.id,
         other = isOutgoing ? edge.to_name : edge.from_name;
-      return `<div class="inspector-item inspector-dep"><div><b>${esc(isOutgoing ? t("outgoing") : t("incoming"))}</b> · ${esc(other)}<div class="panel-meta">${esc(statusLabel(edge.status))} · ${esc(statusLabel(edge.precision))}</div></div>${pill(edge.desired && edge.actual ? localized("design + actual", "设计 + 实际") : edge.desired ? t("design edge") : t("actual edge"), architectureEdgeTone(edge))}</div>`;
+      return `<div class="inspector-item inspector-dep"><div><b>${esc(isOutgoing ? t("outgoing") : t("incoming"))}</b> · ${esc(other)}<div class="panel-meta">${esc(statusLabel(edge.status))} · ${esc(statusLabel(edge.precision))}</div></div>${pill(edge.desired && edge.actual ? localized("design + observed", "设计 + 已观测") : edge.desired ? t("design edge") : t("actual edge"), architectureEdgeTone(edge))}<div class="dependency-inspector-evidence">${architectureEdgeEvidence(edge)}</div></div>`;
     }).join("")
     : `<div class="empty">${esc(t("No dependency edges."))}</div>`;
   const changedPaths = new Set(component.changed_paths || []), sourcePaths = repositorySourcePaths();
@@ -121,7 +198,7 @@ function renderComponentInspector() {
   const health = `<div class="inspector-health"><div><strong>${num(blocking)}</strong><span>${esc(localized("confirmed drift", "已确认偏离"))}</span></div><div><strong>${num(stableRequirements)} / ${num(linkedRequirements.length)}</strong><span>${esc(localized("stable requirements", "稳定需求"))}</span></div><div><strong>${num(resolvedVerificationRefs)} / ${num(verificationRefs.length)}</strong><span>${esc(localized("verification refs mapped", "验证引用已映射"))}</span></div><div><strong>${num(changedPaths.size)}</strong><span>${esc(localized("changed paths", "变更路径"))}</span></div></div>`;
   const verification = `<div class="inspector-proof-note"><strong>${esc(localized("Verification mapping, not execution proof", "验证映射，不代表已执行证明"))}</strong><span>${esc(localized(`${acceptance.length} acceptance criteria · ${resolvedVerificationRefs}/${verificationRefs.length} verification references resolve. Current execution evidence is revision-bound and shown in Check results.`, `${acceptance.length} 个验收条件 · ${resolvedVerificationRefs}/${verificationRefs.length} 个验证引用已解析。当前执行证据绑定版本，统一在“验证证据”中查看。`))}</span><button type="button" class="inspector-link" data-inspector-proof>${esc(localized("Open verification evidence", "打开验证证据"))}</button></div>`;
   const inspectorSection = (title, body, open = false) => `<details class="inspector-section inspector-disclosure"${open ? " open" : ""}><summary><span>${esc(title)}</span><span class="disclosure-mark" aria-hidden="true"></span></summary><div class="inspector-section-body">${body}</div></details>`;
-  const html = `<button type="button" class="inspector-close" data-inspector-close aria-label="${esc(localized("Close inspector", "关闭检查器"))}">${uiIcon("close")}</button><div class="req-top inspector-title"><div><h3>${esc(component.name)}</h3><div class="component-id">${esc(component.id)}</div><div class="component-subsystem">${esc(localized("Subsystem", "子系统"))}: ${esc(subsystem?.title || component.subsystem || localized("Unscoped", "未归类"))}</div></div>${pill(status, tone)}</div><div class="pills">${pill(unit(component.implementation_files, "file", "files", "个文件"))}${pill(unit(component.implementation_lines, "line", "lines", "行"))}${component.changed ? pill(statusLabel("changed"), "warn") : pill(statusLabel("stable"), "good")}${convergenceNeeds ? pill(localized(`${convergenceNeeds} need convergence`, `${convergenceNeeds} 项需收敛`), "warn") : ""}</div>${health}${inspectorSection(localized("Design vs actual", "设计 vs 实际"), comparison, true)}${inspectorSection(t("Responsibilities"), responsibilities)}${inspectorSection(t("Implementation mapping"), implementations)}${inspectorSection(localized("Upstream / downstream dependencies", "上下游依赖"), dependencyHtml)}${inspectorSection(t("Related requirements"), requirements)}${inspectorSection(localized("Verification & proof", "验证与证明"), verification)}${inspectorSection(localized("Convergence & drift", "收敛与偏离"), convergence)}${inspectorSection(t("Changed paths"), changes)}${inspectorSection(t("Product scopes"), scopes)}`;
+  const html = `<button type="button" class="inspector-close" data-inspector-close aria-label="${esc(localized("Close inspector", "关闭检查器"))}">${uiIcon("close")}</button><div class="req-top inspector-title"><div><h3>${esc(component.name)}</h3><div class="component-id">${esc(component.id)}</div><div class="component-subsystem">${esc(localized("Subsystem", "子系统"))}: ${esc(subsystem?.title || component.subsystem || localized("Unscoped", "未归类"))}</div></div>${pill(status, tone)}</div><div class="pills">${pill(unit(component.implementation_files, "file", "files", "个文件"))}${pill(unit(component.implementation_lines, "line", "lines", "行"))}${component.changed ? pill(statusLabel("changed"), "warn") : pill(statusLabel("stable"), "good")}${convergenceNeeds ? pill(localized(`${convergenceNeeds} need convergence`, `${convergenceNeeds} 项需收敛`), "warn") : ""}</div>${health}${architectureObservationNote()}${inspectorSection(localized("Design vs actual", "设计 vs 实际"), comparison, true)}${architectureCandidateEvidence(component.id)}${inspectorSection(t("Responsibilities"), responsibilities)}${inspectorSection(t("Implementation mapping"), implementations)}${inspectorSection(localized("Upstream / downstream dependencies", "上下游依赖"), dependencyHtml)}${inspectorSection(t("Related requirements"), requirements)}${inspectorSection(localized("Verification & proof", "验证与证明"), verification)}${inspectorSection(localized("Convergence & drift", "收敛与偏离"), convergence)}${inspectorSection(t("Changed paths"), changes)}${inspectorSection(t("Product scopes"), scopes)}`;
   setSourceActionHtml("componentInspector", els.componentInspector, html, { tab: "architecture", selection: "component", id: component.id, view: state.architectureView }, () => {
     els.componentInspector.querySelector("[data-inspector-close]")?.addEventListener("click", () => {
       state.selectedComponent = "";

@@ -25,8 +25,10 @@ use autonomy::{
     validate_php_quality_command, validate_python_command,
 };
 use dev_tools::{validate_fd_command, validate_jq_command};
+#[cfg(test)]
+pub(super) use environment::command_environment_injection_key;
 pub(super) use environment::{
-    apply_command_environment, command_environment_injection_key, validate_command_environment,
+    apply_command_environment, scrub_sensitive_environment, validate_command_environment,
 };
 use git::validate_git_command;
 use github::validate_gh_command;
@@ -41,6 +43,14 @@ use project_tools::{
 };
 
 pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
+    validate_bare_program(program)?;
+    if is_shell_program(program) {
+        bail!("shell interpreters require the permissive execution policy");
+    }
+    Ok(())
+}
+
+pub(super) fn validate_bare_program(program: &str) -> Result<()> {
     if program.is_empty() || program.len() > 256 || program.trim() != program {
         bail!("command program name is invalid");
     }
@@ -48,11 +58,16 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
         || program.chars().any(char::is_whitespace)
         || Path::new(program).is_absolute()
     {
-        bail!("command program must be a bare executable name without path traversal or control characters");
+        bail!(
+            "command program must be a bare executable name without path traversal or control characters"
+        );
     }
-    let normalized = program.to_ascii_lowercase();
-    if matches!(
-        normalized.as_str(),
+    Ok(())
+}
+
+pub(super) fn is_shell_program(program: &str) -> bool {
+    matches!(
+        program.to_ascii_lowercase().as_str(),
         "sh" | "bash"
             | "zsh"
             | "fish"
@@ -66,14 +81,7 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
             | "cmd"
             | "cmd.exe"
             | "command.com"
-            | "wscript"
-            | "wscript.exe"
-            | "cscript"
-            | "cscript.exe"
-    ) {
-        bail!("shell interpreters are permanently blocked by the no-shell execution boundary");
-    }
-    Ok(())
+    )
 }
 
 pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> bool {
@@ -119,7 +127,9 @@ pub(super) fn validate_command_policy(
     if security.allow_unrestricted_commands {
         return Ok(());
     }
-    validate_authorizable_program(program)?;
+    if !(security.allow_risky_exec && is_shell_program(program)) {
+        validate_authorizable_program(program)?;
+    }
     validate_command_arguments(program, args)?;
     if matches!(args, [flag] if matches!(flag.as_str(), "--version" | "-V" | "version")) {
         return Ok(());
@@ -171,6 +181,10 @@ pub(super) fn validate_command_policy(
         }
         "python3" => validate_python_command(args, security.allow_risky_exec),
         "node" => validate_node_command(args, security.allow_risky_exec),
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "csh" | "tcsh" | "pwsh"
+        | "powershell" | "powershell.exe" | "cmd" | "cmd.exe" | "command.com" => {
+            require_risky_exec("shell interpreter execution", security.allow_risky_exec)
+        }
         "curl" => validate_local_http_probe(args, security.allow_risky_exec),
         "make" => validate_make_command(args, security.allow_risky_exec),
         "rustc" => Ok(()),
@@ -320,7 +334,9 @@ fn validate_rg_command(args: &[String]) -> Result<()> {
             || (arg.starts_with("-f") && arg.len() > 2)
             || (arg.starts_with("-g") && arg.len() > 2)
         {
-            bail!("ripgrep option is blocked because it can read helper files or bypass protected paths: {arg}");
+            bail!(
+                "ripgrep option is blocked because it can read helper files or bypass protected paths: {arg}"
+            );
         }
     }
     Ok(())
@@ -534,7 +550,9 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             || arg.starts_with("--manifest-path=")
             || arg.starts_with("--target-dir=")
         {
-            bail!("cargo option is blocked because it can redirect configuration or filesystem access: {arg}");
+            bail!(
+                "cargo option is blocked because it can redirect configuration or filesystem access: {arg}"
+            );
         }
     }
     if is_default_safe_cargo_command(args) {
@@ -569,7 +587,9 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             )
         }
         "owner" | "publish" | "yank" => {
-            bail!("cargo {subcommand} is blocked because registry publication/ownership must remain operator-owned")
+            bail!(
+                "cargo {subcommand} is blocked because registry publication/ownership must remain operator-owned"
+            )
         }
         "install" | "uninstall" => require_risky_exec(
             &format!("cargo host tool operation: {subcommand}"),
@@ -594,7 +614,9 @@ fn validate_go_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
             || arg.starts_with("-overlay=")
             || arg.starts_with("-modfile=")
         {
-            bail!("go option is blocked because it can redirect execution or filesystem access: {arg}");
+            bail!(
+                "go option is blocked because it can redirect execution or filesystem access: {arg}"
+            );
         }
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
@@ -615,10 +637,14 @@ fn validate_go_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
             require_risky_exec("go env host configuration mutation", _allow_risky_exec)
         }
         "install" | "telemetry" => {
-            bail!("go {subcommand} is blocked because host-wide tool/telemetry changes must remain operator-owned")
+            bail!(
+                "go {subcommand} is blocked because host-wide tool/telemetry changes must remain operator-owned"
+            )
         }
         "env" if args.len() == 1 => {
-            bail!("go env without an explicit key is blocked because it exposes broad host configuration")
+            bail!(
+                "go env without an explicit key is blocked because it exposes broad host configuration"
+            )
         }
         "list" | "test" | "vet" | "build" | "run" | "get" | "generate" | "clean" | "doc"
         | "env" | "tool" | "version" | "work" => Ok(()),
@@ -652,7 +678,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
             || arg.starts_with("--config=")
             || arg.starts_with("--global-dir=")
         {
-            bail!("{program} option is blocked because it can redirect configuration or filesystem access: {arg}");
+            bail!(
+                "{program} option is blocked because it can redirect configuration or filesystem access: {arg}"
+            );
         }
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
@@ -665,7 +693,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
         );
     }
     if matches!(subcommand, "publish" | "unpublish" | "owner") {
-        bail!("{program} {subcommand} is blocked because registry publication/ownership must remain operator-owned");
+        bail!(
+            "{program} {subcommand} is blocked because registry publication/ownership must remain operator-owned"
+        );
     }
     if matches!(subcommand, "config" | "cache") {
         return require_risky_exec(
@@ -766,11 +796,6 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     };
 
     let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let is_push = args[subcommand_index] == "push"
-        || (args[subcommand_index] == "lfs"
-            && args
-                .get(subcommand_index + 1)
-                .is_some_and(|arg| arg == "push"));
     let mut overrides = vec![
         "core.fsmonitor=false".to_owned(),
         "core.untrackedCache=false".to_owned(),
@@ -789,7 +814,7 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
         "maintenance.auto=false".to_owned(),
         "gc.auto=0".to_owned(),
     ];
-    overrides.push(if is_push {
+    overrides.push(if is_git_ssh_command(args) {
         "core.sshCommand=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new".to_owned()
     } else {
         "core.sshCommand=false".to_owned()
@@ -813,120 +838,14 @@ pub(super) fn hardened_command_args(program: &str, args: &[String]) -> Vec<Strin
     hardened
 }
 
-fn python_cache_isolation_prefix() -> &'static PathBuf {
-    static PREFIX: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    PREFIX.get_or_init(|| {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default();
-        std::env::temp_dir().join(format!("wcode-python-cache-{}-{nonce}", std::process::id()))
-    })
-}
-
-pub(super) fn scrub_sensitive_environment(
-    command: &mut Command,
-    program: &str,
-    args: &[String],
-    allow_git_push_credentials: bool,
-) {
-    for (key, _) in std::env::vars() {
-        let upper = key.to_ascii_uppercase();
-        let gh_auth = program == "gh"
-            && matches!(
-                upper.as_str(),
-                "GH_TOKEN" | "GITHUB_TOKEN" | "GH_ENTERPRISE_TOKEN"
-            );
-        let git_ssh_agent = program == "git"
-            && allow_git_push_credentials
-            && is_git_push_command(args)
-            && upper == "SSH_AUTH_SOCK";
-        let generic_secret = (program == "git" && upper.starts_with("GIT_"))
-            || upper.contains("TOKEN")
-            || upper.contains("SECRET")
-            || upper.contains("PASSWORD")
-            || upper.contains("CREDENTIAL")
-            || upper.contains("PRIVATE_KEY")
-            || upper == "WCODE_GITHUB_APP_KEY_FILE"
-            || upper.ends_with("_KEY")
-            || upper.starts_with("AWS_")
-            || upper.starts_with("AZURE_")
-            || upper.starts_with("GOOGLE_")
-            || upper.starts_with("GITHUB_")
-            || upper.starts_with("GITLAB_")
-            || matches!(
-                upper.as_str(),
-                "SSH_AUTH_SOCK" | "KUBECONFIG" | "DOCKER_CONFIG" | "NETRC" | "GIT_ASKPASS"
-            );
-        let tool_redirect = (program == "gh"
-            && matches!(
-                upper.as_str(),
-                "GH_REPO" | "GH_HOST" | "GH_CONFIG_DIR" | "GH_EDITOR" | "GH_BROWSER"
-            ))
-            || (program == "docker"
-                && (upper.starts_with("COMPOSE_")
-                    || matches!(
-                        upper.as_str(),
-                        "DOCKER_HOST" | "DOCKER_CONTEXT" | "DOCKER_CERT_PATH" | "DOCKER_TLS_VERIFY"
-                    )))
-            || (program == "kubectl" && upper == "KUBECTL_EXTERNAL_DIFF")
-            || (program == "terraform"
-                && (upper.starts_with("TF_CLI_ARGS")
-                    || upper.starts_with("TF_VAR_")
-                    || matches!(
-                        upper.as_str(),
-                        "TF_CLI_CONFIG_FILE" | "TF_DATA_DIR" | "TF_WORKSPACE"
-                    )))
-            || (program == "uv"
-                && matches!(
-                    upper.as_str(),
-                    "UV_PROJECT"
-                        | "UV_WORKING_DIR"
-                        | "UV_CONFIG_FILE"
-                        | "UV_DEFAULT_INDEX"
-                        | "UV_INDEX"
-                        | "UV_INSECURE_HOST"
-                        | "UV_KEYRING_PROVIDER"
-                        | "UV_CACHE_DIR"
-                ));
-        if (!gh_auth && !git_ssh_agent && generic_secret)
-            || tool_redirect
-            || command_environment_injection_key(&upper)
-        {
-            command.env_remove(key);
-        }
+pub(super) fn is_git_ssh_command(args: &[String]) -> bool {
+    if is_git_push_command(args) {
+        return true;
     }
-    command.env("NO_COLOR", "1");
-    if matches!(program, "python" | "python3" | "pytest") {
-        command
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .env("PYTHONPYCACHEPREFIX", python_cache_isolation_prefix());
-    }
-    if program == "gh" {
-        command
-            .env("GH_PROMPT_DISABLED", "1")
-            .env("GH_PAGER", "cat")
-            .env("PAGER", "cat");
-    }
-    if program == "terraform" {
-        command.env("TF_IN_AUTOMATION", "1");
-    }
-    if program == "git" {
-        let null_config = if cfg!(windows) { "NUL" } else { "/dev/null" };
-        command
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_SYSTEM", null_config)
-            .env("GIT_CONFIG_GLOBAL", null_config)
-            .env("GIT_ATTR_NOSYSTEM", "1")
-            .env("GIT_PROTOCOL_FROM_USER", "0")
-            .env("GIT_PAGER", "cat")
-            .env("PAGER", "cat")
-            .env("GIT_EDITOR", "false")
-            .env("GIT_SEQUENCE_EDITOR", "false")
-            .env("GIT_EXTERNAL_DIFF", "");
-    }
+    let Some(index) = args.iter().position(|arg| !arg.starts_with('-')) else {
+        return false;
+    };
+    args[index] == "fetch" && bounded_full_access_command("git", args)
 }
 
 pub(super) fn is_git_push_command(args: &[String]) -> bool {

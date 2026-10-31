@@ -65,6 +65,46 @@ fixture.acceptance.checks=[
   {...fixture.acceptance.checks[0],id:'unavailable-'+long,signature:null,execution:'unavailable',outcome:'unknown',freshness:'missing',evidence_ids:[]},
   {...fixture.acceptance.checks[0],id:'stale-'+long,outcome:'pass',freshness:'stale',evidence_ids:['e1']}
 ];
+// Synthetic dependency evidence exercises provenance, ambiguity and bounded samples in WebKit.
+const dependencyEvidence={
+  from_node:'symbol:context',to_node:'symbol:graph',from_symbol:'compile_'+long,to_symbol:'query_'+long,
+  from_path:'src/context/'+long+'.rs',to_path:'src/graph/'+long+'.rs',
+  kind:'calls',provider:'tree-sitter',precision:'syntax',revision:'browser-source',
+  ownership:'unique',from_owners:[{component:'component:context',sources:['symbol_reference']}],
+  to_owners:[{component:'component:graph',sources:['file_reference']}],from_owners_total:1,to_owners_total:1
+};
+fixture.architecture={
+  ...fixture.architecture,
+  components:[
+    {id:'component:context',name:'Context '+long,subsystem:'engine',responsibilities:['Build context'],
+      depends_on:['component:graph'],requirements:[],implementation_files:1,implementation_lines:500,
+      implementation_targets:['src/context.rs::compile_context'],changed_paths:[],product_scopes:['runtime']},
+    {id:'component:graph',name:'Graph '+long,subsystem:'engine',responsibilities:['Query source relationships'],
+      depends_on:[],requirements:[],implementation_files:1,implementation_lines:500,
+      implementation_targets:['src/graph.rs::query_graph'],changed_paths:[],product_scopes:['runtime']},
+    {id:'component:shared',name:'Shared '+long,subsystem:'engine',responsibilities:['Integrate shared source'],
+      depends_on:['component:graph'],requirements:[],implementation_files:1,implementation_lines:500,
+      implementation_targets:['src/context.rs::compile_context'],changed_paths:[],product_scopes:['runtime']}
+  ],
+  subsystems:[{id:'engine',title:'Engine',purpose:'Source and dependency evidence',layer:2,components:3,
+    component_ids:['component:context','component:graph','component:shared'],depends_on:[],
+    requirements:0,implementation_files:2,changed_components:0,blocking_drift_edges:0,advisory_edges:1}],
+  dependencies:[
+    {from:'component:context',to:'component:graph',from_name:'Context '+long,to_name:'Graph '+long,
+      desired:true,actual:true,precision:'syntax',status:'aligned',blocking:false,
+      evidence:[dependencyEvidence],evidence_total:12,evidence_truncated:true},
+    {from:'component:shared',to:'component:graph',from_name:'Shared '+long,to_name:'Graph '+long,
+      desired:true,actual:false,precision:'declared',status:'unverified_actual',blocking:false,
+      evidence:[],evidence_total:0,evidence_truncated:false}
+  ],
+  desired_edges:2,observed_edges:1,aligned_edges:1,unverified_edges:1,advisory_edges:1,
+  dependency_candidates:[{...dependencyEvidence,ownership:'ambiguous',from_symbol:'<script>NOT_EXECUTED</script> '+long,
+    from_owners:[...dependencyEvidence.from_owners,{component:'component:shared',sources:['trace_symbol']}],
+    from_owners_total:2},
+    {...dependencyEvidence,from_node:'symbol:unresolved',from_symbol:'run',ownership:'ambiguous',
+      from_owners:[{component:'component:context',sources:['ambiguous_symbol_reference']}]}],
+  dependency_candidates_total:140,dependency_candidates_truncated:true
+};
 const data=JSON.stringify(fixture).replace(/</g,'\\u003c');
 const longGraphLabel='extremely_long_code_graph_symbol_name_for_adversarial_layout_';
 const codeGraphNodes=[

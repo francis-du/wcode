@@ -341,6 +341,29 @@ class SourcePackageSafety(unittest.TestCase):
             self.assertEqual(item["file"], "tests/unit/integrations/git/native.rs")
             self.assertEqual((item["line"], item["column"]), (251, 5))
 
+    def test_verification_turn_locations_are_fixed_and_never_echo_panic_bodies(self):
+        parser = standalone.RustFailureDiagnostics()
+        fixed = "tests/unit/runtime/harness/verification_turn_native.rs"
+        for index, path in enumerate((fixed, "src/runtime/harness/../../../" +
+                                      fixed.replace("/", "\\"))):
+            parser.feed(f"thread 'phase_fixture::case_{index}' (17) panicked at "
+                        f"{path}:142:5:\r\n".encode())
+            parser.feed(b"PRIVATE_PANIC_BODY: fixture report and credentials\n")
+        for path in ("/" + fixed, "C:/PRIVATE/" + fixed, "PRIVATE/" + fixed,
+                     fixed.replace("verification_turn_native.rs", "PRIVATE.rs"),
+                     fixed.replace("verification_turn_native.rs",
+                                   "../harness/verification_turn_native.rs")):
+            parser.feed(f"thread 'phase_fixture::hidden' panicked at {path}:1:1:\n".encode())
+        parser.feed(f"thread 'phase_fixture::hidden' panicked at {fixed}:1:1: PRIVATE\n".encode())
+        hints = parser.finish()
+        self.assertEqual(hints["failure_native_locations"], [
+            {"test": f"phase_fixture::case_{index}", "file": fixed, "line": 142, "column": 5}
+            for index in range(2)
+        ])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+        self.assertEqual(hints["failure_tests"], [])
+        self.assertEqual(hints["failure_native_codes"], [])
+
     def test_native_locations_reject_private_unknown_or_malformed_paths(self):
         parser = standalone.RustFailureDiagnostics()
         for path in ("PRIVATE/tests/unit/integrations/git/native.rs",

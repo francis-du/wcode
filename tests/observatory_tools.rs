@@ -44,7 +44,7 @@ fn design_source_navigation_preserves_observed_paths_and_revision() {
 #[test]
 fn retained_job_output_search_preserves_scope_focus_and_scroll() {
     let output = Command::new("node")
-        .args(["tests/unit/ui/job_output.cjs", "."])
+        .args(["tests/unit/ui/job_output_reading.cjs", "."])
         .env_remove("NODE_TEST_CONTEXT")
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
@@ -55,7 +55,7 @@ fn retained_job_output_search_preserves_scope_focus_and_scroll() {
             && report.as_ref().ok().is_some_and(|report| {
                 report["suite"] == "retained-job-output"
                     && report["results"].as_array().is_some_and(|results| {
-                        results.len() == 22 && results.iter().all(|row| row["passed"] == true)
+                        results.len() == 24 && results.iter().all(|row| row["passed"] == true)
                     })
             }),
         "{}\n{}",

@@ -50,6 +50,7 @@ impl Workspace {
         let commands = Arc::new(RwLock::new(
             COMMAND_CATALOG.iter().copied().map(str::to_owned).collect(),
         ));
+        let revoked_commands = Arc::new(RwLock::new(HashSet::new()));
         Ok(Self {
             root,
             root_identity,
@@ -59,6 +60,7 @@ impl Workspace {
             authorization,
             authorization_workspace: Arc::new(RwLock::new(authorization_workspace)),
             commands,
+            revoked_commands,
             write_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -136,6 +138,7 @@ impl Workspace {
             authorization: self.authorization.clone(),
             authorization_workspace: self.authorization_workspace.clone(),
             commands: self.commands.clone(),
+            revoked_commands: self.revoked_commands.clone(),
             write_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -197,24 +200,55 @@ impl Workspace {
             .collect()
     }
 
+    pub(crate) fn explicitly_revoked_commands(&self) -> Vec<String> {
+        let mut commands = self
+            .revoked_commands
+            .read()
+            .expect("workspace revoked command lock poisoned")
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        commands.sort();
+        commands
+    }
+
+    pub(crate) fn command_explicitly_revoked(&self, program: &str) -> bool {
+        self.revoked_commands
+            .read()
+            .expect("workspace revoked command lock poisoned")
+            .contains(program)
+    }
+
     pub(crate) fn allow_command(&self, program: &str) -> Result<bool> {
         let program = program.trim();
-        validate_authorizable_program(program)?;
-        Ok(self
+        validate_bare_program(program)?;
+        let unrevoked = self
+            .revoked_commands
+            .write()
+            .expect("workspace revoked command lock poisoned")
+            .remove(program);
+        let inserted = self
             .commands
             .write()
             .expect("workspace command allowlist lock poisoned")
-            .insert(program.to_owned()))
+            .insert(program.to_owned());
+        Ok(unrevoked || inserted)
     }
 
     pub(crate) fn revoke_command(&self, program: &str) -> Result<bool> {
         let program = program.trim();
-        validate_authorizable_program(program)?;
-        Ok(self
+        validate_bare_program(program)?;
+        let removed = self
             .commands
             .write()
             .expect("workspace command allowlist lock poisoned")
-            .remove(program))
+            .remove(program);
+        let revoked = self
+            .revoked_commands
+            .write()
+            .expect("workspace revoked command lock poisoned")
+            .insert(program.to_owned());
+        Ok(removed || revoked)
     }
 
     pub(crate) fn risky_operation_authorized(&self, operation: &str) -> bool {
@@ -570,7 +604,7 @@ impl Workspace {
                         && allow_missing_leaf
                         && index + 1 == components.len() =>
                 {
-                    return Ok(())
+                    return Ok(());
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -630,7 +664,9 @@ impl Workspace {
             locks.retain(|_, lock| lock.strong_count() > 0);
         }
         if locks.len() >= MAX_WRITE_LOCKS {
-            bail!("too many concurrently active workspace file locks; retry after current writes finish");
+            bail!(
+                "too many concurrently active workspace file locks; retry after current writes finish"
+            );
         }
         let lock = Arc::new(Mutex::new(()));
         locks.insert(path.to_path_buf(), Arc::downgrade(&lock));

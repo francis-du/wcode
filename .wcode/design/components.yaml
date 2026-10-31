@@ -112,6 +112,7 @@
   responsibilities:
     - project indexed source into a provider-neutral software graph
     - keep precision and provenance explicit
+    - resolve Design implementation Symbol references per file and reserve existing bounded symbol capacity for exact entries and eligible one-hop call targets before unrelated definitions, preserving the original resolver ambiguity and unknown-receiver safeguards
     - expose bounded directional graph-chain queries for calls, impact and all-evidence exploration with symbol-root search, upstream/downstream distance and hard node/depth limits
     - preserve Design ownership, test/proof, semantic-provider and runtime-provider edges so Engineering Digital Twin views can explain why nodes are related without inventing certainty
     - invalidate cached syntax facts when source content changes even if size and mtime are replayed
@@ -121,6 +122,15 @@
     - kind: symbol
       path: src/graph/code_index/api.rs
       symbol: CodeIndex::software_graph
+    - kind: symbol
+      path: src/runtime/harness/graph.rs
+      symbol: ToolHarness::software_graph_from_design
+    - kind: symbol
+      path: src/graph/code_index/api.rs
+      symbol: CodeIndex::software_graph_with_priorities
+    - kind: symbol
+      path: src/graph/code_index/graph.rs
+      symbol: select_graph_definitions
     - kind: symbol
       path: src/graph/code_index/indexing.rs
       symbol: CodeIndex::cached_record_if_fresh
@@ -174,6 +184,9 @@
     - kind: symbol
       path: src/graph/graph_store.rs
       symbol: persist
+    - kind: symbol
+      path: src/graph/graph_store.rs
+      symbol: query
     - kind: symbol
       path: src/graph/graph_store.rs
       symbol: diff

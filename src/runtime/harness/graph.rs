@@ -80,12 +80,43 @@ impl ToolHarness {
         max_symbols: usize,
         load: &design::DesignLoad,
     ) -> Result<SoftwareGraphSnapshot> {
-        let mut snapshot = self.code_index.software_graph(
+        // Design selects source definitions within the existing graph budget;
+        // it never manufactures nodes or upgrades a declared relationship.
+        let mut symbols_by_path = BTreeMap::<&str, Vec<String>>::new();
+        if load.initialized {
+            for component in load.state.components.values() {
+                for reference in &component.implementation {
+                    if let CodeRef::Symbol { path, symbol } = reference {
+                        symbols_by_path
+                            .entry(path)
+                            .or_default()
+                            .push(symbol.clone());
+                    }
+                }
+            }
+        }
+        let mut priority_symbol_ids = HashSet::new();
+        for (path, symbols) in symbols_by_path {
+            let resolved = match self.code_index.resolve_symbols(workspace, path, &symbols) {
+                Ok(resolved) => resolved,
+                // Unimplemented Design entries are selection hints, not source nodes.
+                Err(error) if missing_design_reference(&error) => continue,
+                Err(error) => return Err(error),
+            };
+            priority_symbol_ids.extend(
+                resolved
+                    .into_values()
+                    .flatten()
+                    .map(|resolution| resolution.id),
+            );
+        }
+        let mut snapshot = self.code_index.software_graph_with_priorities(
             workspace_id,
             workspace,
             path,
             max_files,
             max_symbols,
+            &priority_symbol_ids,
         )?;
         let mut composite = false;
         if load.initialized {
@@ -290,9 +321,15 @@ pub(super) fn overlay_design_graph(
         for reference in &component.implementation {
             let target = match reference {
                 CodeRef::File { path } => Some(format!("file:{path}")),
-                CodeRef::Symbol { path, symbol } => code_index
-                    .resolve_symbol(workspace, path, symbol)?
-                    .map(|resolution| format!("symbol:{}", resolution.id)),
+                CodeRef::Symbol { path, symbol } => {
+                    match code_index.resolve_symbol(workspace, path, symbol) {
+                        Ok(resolution) => {
+                            resolution.map(|resolution| format!("symbol:{}", resolution.id))
+                        }
+                        Err(error) if missing_design_reference(&error) => None,
+                        Err(error) => return Err(error),
+                    }
+                }
             };
             if let Some(target) = target {
                 add_graph_edge_if_possible(
@@ -470,6 +507,12 @@ fn design_document_ids(content: &str) -> Vec<String> {
     ids.sort();
     ids.dedup();
     ids
+}
+
+fn missing_design_reference(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
 }
 
 fn design_state_revision(state: &design::DesignState) -> Result<String> {

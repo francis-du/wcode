@@ -2,7 +2,8 @@ name: OSS standalone
 
 on:
   push:
-    branches: [main, master]
+    # Keep candidate checks running when merge conflicts block pull_request events.
+    branches: [main, master, "rsi/**"]
   pull_request:
   workflow_dispatch:
 

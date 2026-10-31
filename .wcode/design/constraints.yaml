@@ -21,15 +21,15 @@
 
 - schema_version: 1
   id: CONSTRAINT-NO-SHELL
-  title: Command policy is bypassed only by explicit all-command trust
-  statement: Normal model-facing command execution must launch policy-checked programs directly with argument arrays and must not evaluate shell syntax. An explicit Workspace all-command grant or Full Access intentionally bypasses command-policy, executable, argument, shell, hardening and environment-scrubbing restrictions while retaining resource admission, process ownership, timeout, cancellation, bounded output and Workspace cwd selection.
+  title: Direct argv execution keeps explicit shell and sandbox boundaries
+  statement: Model-facing command execution launches an executable with an argument array and never implicitly interprets a command string as shell syntax. Ordinary enabled execution admits otherwise-valid commands without a second CommandAccess or command-scoped RiskyExecution grant; explicit command revocation still requires reauthorization. Explicit shell invocation and other command shapes outside bounded profiles require a strong OS sandbox, except bounded syntax-only checks. A current-runtime Workspace all-command grant or Full Access may override startup no-exec, command-policy restrictions and read-only command-write classification, but never disables broad-command sandboxing, sensitive-environment scrubbing, resource admission, process ownership, timeout, cancellation, bounded output, guarded Workspace cwd or file-tool protections.
   applies_to:
     - component:command-execution
 
 - schema_version: 1
   id: CONSTRAINT-BOUNDED-DEV-TOOLS
-  title: Common development CLIs remain command-bounded
-  statement: Without explicit all-command trust, known developer CLIs for every indexed language must default bounded local test/check/lint/build/format/codegen/dependency and workspace-script workflows to the hardened autonomous development lane, while tool-specific policy blocks shell evaluation, inline/interactive interpreter escape where unsafe, compiler/plugin/agent injection, credential or filesystem redirection, destructive infrastructure operations and secret-bearing state output; exact Git push may mediate only the current SSH Agent through a fixed non-interactive SSH command. Explicit all-command trust bypasses these command-policy restrictions by operator choice.
+  title: Common development CLIs retain consequence-based command profiles
+  statement: Under normal command policy, known developer CLIs for every indexed language use bounded local test/check/lint/build/format/codegen/dependency and workspace-script workflows on the hardened autonomous development lane. Tool-specific policy retains denials for unsafe compiler/plugin/agent injection, credential or filesystem redirection, destructive infrastructure operations and secret-bearing state output. Bounded Git lifecycle mutations may run without a second approval, while shape/consequence checks and Git hardening remain active; bounded Git push may mediate the current SSH Agent through a fixed non-interactive SSH command. Explicit all-command trust may bypass command-policy restrictions, but commands outside bounded profiles still require the OS sandbox and environment scrubbing.
   applies_to:
     - component:command-execution
 
@@ -74,8 +74,8 @@
 
 - schema_version: 1
   id: CONSTRAINT-EXPLICIT-EXECUTION-TRUST
-  title: Repository-aware execution uses explicit or hardened bounded trust
-  statement: Repository-aware execution remains fail closed unless it uses a built-in hardened execution profile with bounded stdio, timeouts, sensitive and injection-capable environment scrubbing, a provider executable resolved outside the Workspace, and provider-specific repository-code execution disabled where supported. Hardened semantic providers may run automatically and must provide an explicit opt-out; persistent sessions must remain capacity-bounded, tied to Workspace plus provider-binary identity, discard dead or stale unleased slots, and never widen the Workspace boundary. Explicit trust for a non-automatic semantic provider must also bind the current provider-binary identity so replacing the executable invalidates the old grant. Other language servers and non-deterministic project verification executors require explicit trust expansion before execution.
+  title: Repository-aware providers keep independent execution trust
+  statement: Non-command semantic providers and verification executors use their own hardened profiles and trust checks; permissive ordinary run_command admission does not itself authorize them. Built-in hardened profiles constrain stdio, timeouts and sensitive/injection-capable environment variables, resolve semantic provider executables outside the Workspace, and disable provider-specific repository-code execution where supported. Hardened semantic providers may run automatically and must provide an explicit opt-out; persistent sessions remain capacity-bounded, tied to Workspace plus provider-binary identity, discard dead or stale unleased slots, and never widen the Workspace boundary. Exact trust for a non-automatic semantic provider binds the current provider-binary identity so replacement invalidates that exact grant. Repository-declared verification executors may use the separate hardened autonomous local lane; execution outside an automatic profile needs the applicable explicit runtime trust. HumanApproval remains a separate exact local-operator decision that command grants and Full Access cannot authorize.
   applies_to:
     - component:semantic-providers
     - component:verification-mesh
@@ -277,8 +277,8 @@
 
 - schema_version: 1
   id: CONSTRAINT-EXECUTION-SANDBOX-LAYERING
-  title: Sandbox isolation and human approval are separate layers
-  statement: If broad agent-owned shell execution is introduced, OS sandboxing constrains filesystem and network effects independently from approval; approval decides whether the request may be attempted. Neither layer may substitute for the other or weaken existing Workspace, environment-scrubbing, executable-identity or destructive-operation controls.
+  title: Sandbox isolation and authorization are separate layers
+  statement: Ordinary permissive execution and explicit all-command overrides both route command shapes outside bounded profiles through an enforceable OS sandbox before process spawn. The sandbox denies external network access, protects credential/repository-control and configured authority-state roots, and preserves cwd, environment-scrubbing and resource bounds. Ordinary read-only Workspaces receive no Workspace write access; an explicit all-command override supplies Workspace write access only within the same sandbox boundary. macOS uses Seatbelt and Linux uses bubblewrap; Windows and any unavailable provider fail broad execution closed. Authorization and sandbox isolation are independent, so a grant never waives containment or the separate HumanApproval boundary.
   applies_to:
     - component:execution-policy
     - component:workspace-operations

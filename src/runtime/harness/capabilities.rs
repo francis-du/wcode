@@ -90,10 +90,11 @@ impl ToolHarness {
         let stage_executors = json!({
             "builtin_discovery": true,
             "config": ".wcode/executors.yaml",
-            "no_shell": true,
+            "command_shell_supported": true,
+            "broad_commands_sandboxed": true,
             "languages": 22,
             "stages": ["property", "mutation", "fuzz", "runtime_canary"],
-            "execution_policy": "bounded-no-shell-repository-executors-autonomous",
+            "execution_policy": "bounded-direct-plus-sandboxed-broad-commands",
             "requires_risky_exec": false
         });
         let capability_routing = json!({

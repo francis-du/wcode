@@ -31,7 +31,7 @@ async fn macos_sandbox_runs_installed_cargo_with_isolated_home() {
     let root = tempfile::tempdir().unwrap();
     let args = vec!["--version".to_owned()];
     let (mut command, _guard) =
-        prepare_macos(root.path(), root.path(), Path::new("cargo"), &args).unwrap();
+        prepare_macos(root.path(), root.path(), Path::new("cargo"), &args, true).unwrap();
     let output = command.output().await.unwrap();
     assert!(
         output.status.success(),
@@ -123,9 +123,12 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     assert!(profile.contains("(deny default)"));
     assert!(profile.contains("(allow file-read*)"));
     assert!(profile.contains("(allow file-write*"));
+    let readonly_profile = macos_profile_with_access(&workspace, &scratch, false).unwrap();
     let sandbox_path = |path: &std::path::Path| path.to_string_lossy().replace('\\', "\\\\");
     assert!(profile.contains(&sandbox_path(&workspace)));
     assert!(profile.contains(&sandbox_path(&scratch)));
+    assert!(!readonly_profile.contains(&format!("(subpath \"{}\")", sandbox_path(&workspace))));
+    assert!(readonly_profile.contains(&sandbox_path(&scratch)));
     assert!(profile.contains(&sandbox_path(&canonical_workspace.join(".ssh"))));
     assert!(profile.contains(&sandbox_path(&canonical_workspace.join(".env"))));
     assert!(!profile.contains(&format!(
@@ -155,6 +158,17 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
         .any(|items| items == ["--ro-bind", "/", "/"]));
     assert!(args.windows(3).any(|items| {
         items[0] == "--bind"
+            && items[1] == workspace.to_string_lossy()
+            && items[2] == workspace.to_string_lossy()
+    }));
+    let readonly_args =
+        linux_bwrap_prefix_from_paths_with_access(&workspace, &cwd, &scratch, &protected, false)
+            .unwrap()
+            .into_iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+    assert!(readonly_args.windows(3).any(|items| {
+        items[0] == "--ro-bind"
             && items[1] == workspace.to_string_lossy()
             && items[2] == workspace.to_string_lossy()
     }));
@@ -203,7 +217,7 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     assert_eq!(status.network, "denied");
     assert_eq!(
         status.filesystem,
-        "host_read_only_workspace_write_protected_paths_denied"
+        "host_read_only_workspace_policy_write_protected_paths_denied"
     );
     assert_eq!(status.available, status.backend != "unavailable");
 }

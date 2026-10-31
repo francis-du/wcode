@@ -6,6 +6,7 @@ responsibilities:
   - Start and observe bounded native verification only after an explicit authenticated operator action, preserving workspace, revision, Git binding and original check outcomes.
   - Keep completed transport tasks distinct from passing verification and refresh canonical Acceptance after result delivery.
   - Discover bounded retained native job IDs within the authenticated selected Workspace; expose redacted command tails and permit cancellation only for the current UI owner.
+  - Search retained command fragments locally with literal matching, bounded pages, explicit stream coverage and exact task/session scope.
   - Correlate fresh protected Activity rows with exact retained command jobs and provide local stream/search controls with stable reading position and keyboard focus.
   - Recover lost verification launch replies only by reading real server-owned records; never guess IDs or automatically duplicate a run.
 constraints:

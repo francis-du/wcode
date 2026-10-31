@@ -403,22 +403,55 @@ pub(crate) struct SearchReport {
 
 impl SearchReport {
     fn legacy_matches(self, include_query: bool, limit: usize) -> Vec<Value> {
-        let mut result = Vec::new();
-        for (mask, row) in self.matches.rows {
-            for (i, query) in self.queries.iter().enumerate() {
-                if mask & (1u32 << i) == 0 {
+        // Expansion creates one legacy result per (line, query). Reserve a
+        // representative of each query before filling the bounded remainder;
+        // sorting and truncating all expanded rows would starve late patterns.
+        let mut selected = Vec::new();
+        let mut representatives = [None; MAX_SEARCH_QUERIES];
+        if include_query {
+            'coverage: for (row_index, (mask, _)) in self.matches.rows.iter().enumerate() {
+                for (i, representative) in representatives
+                    .iter_mut()
+                    .enumerate()
+                    .take(self.queries.len())
+                {
+                    if selected.len() == limit {
+                        break 'coverage;
+                    }
+                    if mask & (1u32 << i) != 0 && representative.is_none() {
+                        *representative = Some(row_index);
+                        selected.push((row_index, i));
+                    }
+                }
+            }
+        }
+        'remainder: for (row_index, (mask, _)) in self.matches.rows.iter().enumerate() {
+            for (i, representative) in representatives.iter().enumerate().take(self.queries.len()) {
+                if selected.len() == limit {
+                    break 'remainder;
+                }
+                if mask & (1u32 << i) == 0 || (include_query && *representative == Some(row_index))
+                {
                     continue;
                 }
-                let mut value = row.clone();
-                if include_query {
-                    value["query"] = json!(query);
-                }
-                result.push(value);
+                selected.push((row_index, i));
                 if !include_query {
                     break;
                 }
             }
         }
+        // Clone only selected rows; preserve legacy path/line/query ordering,
+        // source SHA, context and redaction without changing rich pagination.
+        let mut result = selected
+            .into_iter()
+            .map(|(row_index, i)| {
+                let mut value = self.matches.rows[row_index].1.clone();
+                if include_query {
+                    value["query"] = json!(self.queries[i]);
+                }
+                value
+            })
+            .collect::<Vec<_>>();
         result.sort_by(|a, b| {
             a["path"]
                 .as_str()
@@ -426,7 +459,6 @@ impl SearchReport {
                 .then_with(|| a["line"].as_u64().cmp(&b["line"].as_u64()))
                 .then_with(|| a["query"].as_str().cmp(&b["query"].as_str()))
         });
-        result.truncate(limit);
         result
     }
 

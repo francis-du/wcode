@@ -58,6 +58,29 @@ fn make_relaxes_bounded_development_flags_without_opening_external_targets() {
 }
 
 #[test]
+fn permissive_execution_allows_shells_without_removing_the_explicit_safe_profile() {
+    let safe = WorkspaceSecurity::default();
+    let trusted = WorkspaceSecurity {
+        allow_risky_exec: true,
+        ..safe
+    };
+    for program in [
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "dash",
+        "pwsh",
+        "powershell",
+        "cmd",
+    ] {
+        assert!(is_shell_program(program));
+        assert!(validate_command_policy(program, &args(&["-c", "echo ok"]), safe).is_err());
+        assert!(validate_command_policy(program, &args(&["-c", "echo ok"]), trusted).is_ok());
+    }
+}
+
+#[test]
 fn loopback_curl_is_autonomous_but_network_or_mutating_shapes_stay_gated() {
     let safe = WorkspaceSecurity::default();
     for values in [

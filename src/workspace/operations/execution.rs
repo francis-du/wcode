@@ -34,39 +34,54 @@ fn cargo_contention_wait(command_timeout: Duration) -> Duration {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CargoContentionLane {
+pub(crate) enum CargoContentionLane {
     Registry,
+    RegistryAndWorkspace,
     WorkspaceExclusive,
     WorkspaceTest,
 }
 
-fn cargo_contention_lane(program: &str, args: &[String]) -> Option<CargoContentionLane> {
+pub(crate) fn cargo_contention_lane(program: &str, args: &[String]) -> Option<CargoContentionLane> {
     if program != "cargo" {
         return None;
     }
-    for (index, arg) in args.iter().enumerate() {
-        if matches!(arg.as_str(), "info" | "search" | "fetch" | "update") {
-            return Some(CargoContentionLane::Registry);
-        }
-        if arg == "test"
-            || (arg == "nextest" && args.get(index + 1).is_some_and(|next| next == "run"))
+    // Only a leading subcommand (after rustup's optional toolchain selector)
+    // identifies a lane. Scanning every argument mistakes option values and
+    // custom-command arguments for registry/test commands. Unknown forms keep
+    // exclusive access; this changes scheduling, never command authorization.
+    let command_args = if args.first().is_some_and(|arg| arg.starts_with('+')) {
+        &args[1..]
+    } else {
+        args
+    };
+    let command = command_args.first()?.as_str();
+    match command {
+        "help" | "--help" | "-h" | "--version" | "-V" | "--list" => None,
+        "info" | "search" => Some(CargoContentionLane::Registry),
+        "fetch" | "update" => Some(CargoContentionLane::RegistryAndWorkspace),
+        "test" | "nextest"
+            if command == "test" || command_args.get(1).is_some_and(|arg| arg == "run") =>
         {
-            return Some(
+            Some(
                 if validate_verification_command_shape(program, args).is_ok() {
                     CargoContentionLane::WorkspaceTest
                 } else {
                     CargoContentionLane::WorkspaceExclusive
                 },
-            );
+            )
         }
-        if matches!(
-            arg.as_str(),
-            "build" | "check" | "clippy" | "bench" | "doc" | "fix" | "run" | "rustc" | "rustdoc"
-        ) {
-            return Some(CargoContentionLane::WorkspaceExclusive);
+        "fmt"
+            if command_args.iter().any(|arg| arg == "--check")
+                && command_args[1..]
+                    .iter()
+                    .all(|arg| matches!(arg.as_str(), "--all" | "--" | "--check")) =>
+        {
+            None
         }
+        // Includes clean, formatting writes, manifest/lockfile maintenance and
+        // aliases/external commands whose effects cannot be inferred here.
+        _ => Some(CargoContentionLane::WorkspaceExclusive),
     }
-    None
 }
 
 fn cargo_registry_gate() -> &'static Arc<Semaphore> {
@@ -102,6 +117,7 @@ enum CargoContentionPermit {
     WorkspaceExclusive {
         _gate: Arc<CargoWorkspaceGate>,
         _access: OwnedRwLockWriteGuard<()>,
+        _registry: Option<OwnedSemaphorePermit>,
     },
 }
 
@@ -171,7 +187,7 @@ async fn acquire_cargo_contention_gate(
                 _access: access,
             }))
         }
-        CargoContentionLane::WorkspaceExclusive => {
+        CargoContentionLane::WorkspaceExclusive | CargoContentionLane::RegistryAndWorkspace => {
             let gate = cargo_workspace_gate(workspace_root);
             let access = tokio::time::timeout(
                 deadline.saturating_duration_since(tokio::time::Instant::now()),
@@ -179,9 +195,26 @@ async fn acquire_cargo_contention_gate(
             )
             .await
             .map_err(|_| cargo_gate_timeout_error())?;
+            // Fetch may create Cargo.lock; update may replace it. Reserve local
+            // writer access first, so waiting for local readers cannot monopolize
+            // the global registry. Both waits share the same absolute deadline.
+            let registry = if lane == CargoContentionLane::RegistryAndWorkspace {
+                Some(
+                    tokio::time::timeout_at(
+                        deadline,
+                        Arc::clone(cargo_registry_gate()).acquire_owned(),
+                    )
+                    .await
+                    .map_err(|_| cargo_gate_timeout_error())?
+                    .map_err(|_| anyhow!("cargo contention gate is shutting down"))?,
+                )
+            } else {
+                None
+            };
             Ok(Some(CargoContentionPermit::WorkspaceExclusive {
                 _gate: gate,
                 _access: access,
+                _registry: registry,
             }))
         }
     }
@@ -333,8 +366,12 @@ impl Workspace {
         if !self.allow_exec && !unrestricted_commands {
             bail!("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace");
         }
+        let permissive_commands = self.allow_exec || self.security.allow_risky_exec;
+        let permissive_shell = permissive_commands && is_shell_program(program);
         if !unrestricted_commands {
-            validate_authorizable_program(program)?;
+            if !permissive_shell {
+                validate_authorizable_program(program)?;
+            }
             // Reject malformed/unavailable operations before creating an approval
             // request, so the operator never approves something that cannot run.
             let mut admissible = self.security;
@@ -345,21 +382,23 @@ impl Workspace {
         let bounded_workspace_verifier = self.workspace_program_available(program)
             && validate_verification_command_shape(program, args).is_ok();
         let broad_execution = !bounded_workspace_verifier
-            && sandbox::command_requires_sandbox(
-                unrestricted_commands,
-                self.allow_exec,
-                self.allow_write,
-                program,
-                args,
-            );
+            && ((permissive_commands && command_requires_broad_sandbox(program, args))
+                || sandbox::command_requires_sandbox(
+                    unrestricted_commands,
+                    self.allow_exec,
+                    self.allow_write,
+                    program,
+                    args,
+                ));
         let mut safe_development = self.security;
         safe_development.allow_unrestricted_commands = false;
         // Repository development tools are intentionally autonomous. Give
         // their existing bounded policy the elevated lane up front so normal
         // build/test/lint/codegen/package-manager workflows do not create a
         // repetitive RiskyExecution approval request. Permanent policy
-        // rejections (shell interpreters, protected/escaping paths, credential
-        // flows, and explicitly blocked host operations) still fail closed.
+        // rejections (protected/escaping paths, credential flows, and explicitly
+        // blocked host operations) still fail closed. Shell interpreters use the
+        // permissive lane only when they are forced through the strong sandbox.
         safe_development.allow_risky_exec = development_program;
         let autonomous_development =
             validate_command_policy(program, args, safe_development).is_ok();
@@ -375,11 +414,13 @@ impl Workspace {
             bail!("command modifies repository state and is blocked in a read-only workspace");
         }
         if !unrestricted_commands
-            && !self
-                .commands
-                .read()
-                .expect("workspace command allowlist lock poisoned")
-                .contains(program)
+            && (self.command_explicitly_revoked(program)
+                || (!permissive_commands
+                    && !self
+                        .commands
+                        .read()
+                        .expect("workspace command allowlist lock poisoned")
+                        .contains(program)))
         {
             let fingerprint = self.command_access_fingerprint(program);
             let request = self.authorization.request_command(
@@ -390,7 +431,10 @@ impl Workspace {
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
-        if unrestricted_commands || (autonomous_development && development_program) {
+        if unrestricted_commands
+            || permissive_commands
+            || (autonomous_development && development_program)
+        {
             effective_security.allow_risky_exec = true;
         }
         if !unrestricted_commands
@@ -472,8 +516,13 @@ impl Workspace {
         };
         let mut sandbox_guard = None;
         let mut command = if broad_execution {
-            let (command, guard) =
-                sandbox::prepare(&self.root, &cwd, &executable, &effective_args)?;
+            let (command, guard) = sandbox::prepare(
+                &self.root,
+                &cwd,
+                &executable,
+                &effective_args,
+                self.allow_write || unrestricted_commands,
+            )?;
             sandbox_guard = Some(guard);
             command
         } else {
@@ -492,7 +541,7 @@ impl Workspace {
             args,
             !broad_execution
                 && (effective_security.allow_risky_exec
-                    || (program == "git" && is_git_push_command(args))),
+                    || (program == "git" && is_git_ssh_command(args))),
         );
         apply_command_environment(&mut command, &environment);
         if program == "git" {

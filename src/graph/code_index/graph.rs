@@ -58,6 +58,83 @@ pub(super) fn select_graph_definitions<'a>(
         }
     }
 
+    // Exact entries keep their directly observed call endpoints ahead of
+    // unrelated definitions. Only one hop is reserved, after all exact entries
+    // and requested callers; the same hard budget and call resolution apply.
+    if remaining > 0 && !priority_symbol_ids.is_empty() {
+        let mut targets_by_name = HashMap::<&str, Vec<(&FileRecord, &CodeSymbol)>>::new();
+        let mut file_indices = HashMap::new();
+        for (index, record) in records.iter().enumerate() {
+            file_indices.insert(record.path.as_str(), index);
+            for symbol in record.symbols.iter().filter(|symbol| symbol.is_definition) {
+                targets_by_name
+                    .entry(&symbol.name)
+                    .or_default()
+                    .push((record, symbol));
+            }
+        }
+        'files: for (file_index, record) in records.iter().enumerate() {
+            let definitions = record
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.is_definition)
+                .collect::<Vec<_>>();
+            for call in record
+                .symbols
+                .iter()
+                .filter(|symbol| !symbol.is_definition && symbol.kind == "call")
+            {
+                if has_untyped_receiver(call) {
+                    continue;
+                }
+                let Some(caller) = definitions
+                    .iter()
+                    .copied()
+                    .filter(|symbol| {
+                        symbol.start_byte <= call.start_byte && symbol.end_byte >= call.end_byte
+                    })
+                    .min_by_key(|symbol| symbol.end_byte.saturating_sub(symbol.start_byte))
+                else {
+                    continue;
+                };
+                if !priority_symbol_ids.contains(&caller.id)
+                    || !selected[file_index].contains(caller.id.as_str())
+                {
+                    continue;
+                }
+                let Some(targets) = targets_by_name.get(call.name.as_str()) else {
+                    continue;
+                };
+                // A qualified/import-resolved cross-file call wins over an
+                // unrelated local homonym when only one endpoint slot remains.
+                let target = resolve_cross_file_call_target(record, call, targets)
+                    .filter(|(target_record, _, _)| target_record.path != record.path)
+                    .map(|(target_record, target, _)| (target_record, target))
+                    .or_else(|| {
+                        let mut local = targets
+                            .iter()
+                            .copied()
+                            .filter(|(target_record, _)| target_record.path == record.path);
+                        let first = local.next();
+                        if local.next().is_none() {
+                            first
+                        } else {
+                            None
+                        }
+                    });
+                if let Some((target_record, target)) = target {
+                    let target_index = file_indices[target_record.path.as_str()];
+                    if selected[target_index].insert(target.id.as_str()) {
+                        remaining -= 1;
+                        if remaining == 0 {
+                            break 'files;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Fill the non-priority budget fairly across files. A sequential fill lets
     // one large early file consume the entire remaining budget, leaving later
     // modules with only their file node in the Code Graph. Round-robin keeps
@@ -266,68 +343,9 @@ pub(super) fn append_cross_file_call_edges(
             let Some(targets) = targets_by_name.get(call.name.as_str()) else {
                 continue;
             };
-            let mut provider = "tree-sitter/global-name-resolution";
-            let target = if targets.len() == 1 {
-                Some(targets[0])
-            } else if record.language == LanguageId::Rust {
-                let mut qualified = targets.iter().copied().filter(|(target_record, _)| {
-                    let path = Path::new(&target_record.path);
-                    let module = if path.file_stem().and_then(|value| value.to_str()) == Some("mod")
-                    {
-                        path.parent()
-                            .and_then(Path::file_name)
-                            .and_then(|value| value.to_str())
-                    } else {
-                        path.file_stem().and_then(|value| value.to_str())
-                    };
-                    module.is_some_and(|module| {
-                        call.signature.contains(&format!("{module}::{}", call.name))
-                    })
-                });
-                let first = qualified.next();
-                if first.is_some() && qualified.next().is_none() {
-                    provider = "tree-sitter/rust-path-resolution";
-                    first
-                } else {
-                    let imports = record
-                        .symbols
-                        .iter()
-                        .filter(|symbol| {
-                            !symbol.is_definition
-                                && symbol.kind == "import"
-                                && symbol.name == call.name
-                        })
-                        .collect::<Vec<_>>();
-                    let mut imported = targets.iter().copied().filter(|(target_record, _)| {
-                        let path = Path::new(&target_record.path);
-                        let module =
-                            if path.file_stem().and_then(|value| value.to_str()) == Some("mod") {
-                                path.parent()
-                                    .and_then(Path::file_name)
-                                    .and_then(|value| value.to_str())
-                            } else {
-                                path.file_stem().and_then(|value| value.to_str())
-                            };
-                        module.is_some_and(|module| {
-                            imports.iter().any(|import| {
-                                import
-                                    .signature
-                                    .contains(&format!("{module}::{}", call.name))
-                            })
-                        })
-                    });
-                    let first = imported.next();
-                    if first.is_some() && imported.next().is_none() {
-                        provider = "tree-sitter/rust-import-resolution";
-                        first
-                    } else {
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            let Some((target_record, target)) = target else {
+            let Some((target_record, target, provider)) =
+                resolve_cross_file_call_target(record, call, targets)
+            else {
                 continue;
             };
             if record.path == target_record.path {
@@ -359,6 +377,70 @@ pub(super) fn append_cross_file_call_edges(
         }
     }
     Ok(())
+}
+
+fn resolve_cross_file_call_target<'a>(
+    record: &FileRecord,
+    call: &CodeSymbol,
+    targets: &[(&'a FileRecord, &'a CodeSymbol)],
+) -> Option<(&'a FileRecord, &'a CodeSymbol, &'static str)> {
+    let mut provider = "tree-sitter/global-name-resolution";
+    let target = if targets.len() == 1 {
+        Some(targets[0])
+    } else if record.language == LanguageId::Rust {
+        let mut qualified = targets.iter().copied().filter(|(target_record, _)| {
+            let path = Path::new(&target_record.path);
+            let module = if path.file_stem().and_then(|value| value.to_str()) == Some("mod") {
+                path.parent()
+                    .and_then(Path::file_name)
+                    .and_then(|value| value.to_str())
+            } else {
+                path.file_stem().and_then(|value| value.to_str())
+            };
+            module
+                .is_some_and(|module| call.signature.contains(&format!("{module}::{}", call.name)))
+        });
+        let first = qualified.next();
+        if first.is_some() && qualified.next().is_none() {
+            provider = "tree-sitter/rust-path-resolution";
+            first
+        } else {
+            let imports = record
+                .symbols
+                .iter()
+                .filter(|symbol| {
+                    !symbol.is_definition && symbol.kind == "import" && symbol.name == call.name
+                })
+                .collect::<Vec<_>>();
+            let mut imported = targets.iter().copied().filter(|(target_record, _)| {
+                let path = Path::new(&target_record.path);
+                let module = if path.file_stem().and_then(|value| value.to_str()) == Some("mod") {
+                    path.parent()
+                        .and_then(Path::file_name)
+                        .and_then(|value| value.to_str())
+                } else {
+                    path.file_stem().and_then(|value| value.to_str())
+                };
+                module.is_some_and(|module| {
+                    imports.iter().any(|import| {
+                        import
+                            .signature
+                            .contains(&format!("{module}::{}", call.name))
+                    })
+                })
+            });
+            let first = imported.next();
+            if first.is_some() && imported.next().is_none() {
+                provider = "tree-sitter/rust-import-resolution";
+                first
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+    target.map(|(record, symbol)| (record, symbol, provider))
 }
 
 fn has_untyped_receiver(call: &CodeSymbol) -> bool {

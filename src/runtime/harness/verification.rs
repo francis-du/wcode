@@ -66,6 +66,25 @@ impl ToolHarness {
     }
 }
 
+// Coordinate known siblings before tool admission and the external Cargo wait
+// cap begin. This run-local ordering grants no authority: the real workspace,
+// registry, resource, revision and process guards still run for every check.
+pub(super) async fn run_verification_turn<T>(
+    lane: Option<crate::workspace::CargoContentionLane>,
+    turn: &Arc<tokio::sync::RwLock<()>>,
+    operation: impl std::future::Future<Output = T>,
+) -> T {
+    use crate::workspace::CargoContentionLane;
+    let (_writer, _reader) = match lane {
+        Some(
+            CargoContentionLane::WorkspaceExclusive | CargoContentionLane::RegistryAndWorkspace,
+        ) => (Some(turn.write().await), None),
+        Some(CargoContentionLane::WorkspaceTest) => (None, Some(turn.read().await)),
+        _ => (None, None),
+    };
+    operation.await
+}
+
 pub(super) async fn run_verification_check<T: TaskTelemetry>(
     harness: ToolHarness,
     monitor: T,
@@ -221,3 +240,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/discovery_gate.rs"]
 mod discovery_gate;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/runtime/harness/verification_turn.rs"]
+mod phase_turn_tests;
