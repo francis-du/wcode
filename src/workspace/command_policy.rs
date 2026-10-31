@@ -41,6 +41,14 @@ use project_tools::{
 };
 
 pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
+    validate_bare_program(program)?;
+    if is_shell_program(program) {
+        bail!("shell interpreters require the permissive execution policy");
+    }
+    Ok(())
+}
+
+pub(super) fn validate_bare_program(program: &str) -> Result<()> {
     if program.is_empty() || program.len() > 256 || program.trim() != program {
         bail!("command program name is invalid");
     }
@@ -48,11 +56,16 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
         || program.chars().any(char::is_whitespace)
         || Path::new(program).is_absolute()
     {
-        bail!("command program must be a bare executable name without path traversal or control characters");
+        bail!(
+            "command program must be a bare executable name without path traversal or control characters"
+        );
     }
-    let normalized = program.to_ascii_lowercase();
-    if matches!(
-        normalized.as_str(),
+    Ok(())
+}
+
+pub(super) fn is_shell_program(program: &str) -> bool {
+    matches!(
+        program.to_ascii_lowercase().as_str(),
         "sh" | "bash"
             | "zsh"
             | "fish"
@@ -66,14 +79,7 @@ pub(super) fn validate_authorizable_program(program: &str) -> Result<()> {
             | "cmd"
             | "cmd.exe"
             | "command.com"
-            | "wscript"
-            | "wscript.exe"
-            | "cscript"
-            | "cscript.exe"
-    ) {
-        bail!("shell interpreters are permanently blocked by the no-shell execution boundary");
-    }
-    Ok(())
+    )
 }
 
 pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> bool {
@@ -119,7 +125,9 @@ pub(super) fn validate_command_policy(
     if security.allow_unrestricted_commands {
         return Ok(());
     }
-    validate_authorizable_program(program)?;
+    if !(security.allow_risky_exec && is_shell_program(program)) {
+        validate_authorizable_program(program)?;
+    }
     validate_command_arguments(program, args)?;
     if matches!(args, [flag] if matches!(flag.as_str(), "--version" | "-V" | "version")) {
         return Ok(());
@@ -171,6 +179,10 @@ pub(super) fn validate_command_policy(
         }
         "python3" => validate_python_command(args, security.allow_risky_exec),
         "node" => validate_node_command(args, security.allow_risky_exec),
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "csh" | "tcsh" | "pwsh"
+        | "powershell" | "powershell.exe" | "cmd" | "cmd.exe" | "command.com" => {
+            require_risky_exec("shell interpreter execution", security.allow_risky_exec)
+        }
         "curl" => validate_local_http_probe(args, security.allow_risky_exec),
         "make" => validate_make_command(args, security.allow_risky_exec),
         "rustc" => Ok(()),
@@ -320,7 +332,9 @@ fn validate_rg_command(args: &[String]) -> Result<()> {
             || (arg.starts_with("-f") && arg.len() > 2)
             || (arg.starts_with("-g") && arg.len() > 2)
         {
-            bail!("ripgrep option is blocked because it can read helper files or bypass protected paths: {arg}");
+            bail!(
+                "ripgrep option is blocked because it can read helper files or bypass protected paths: {arg}"
+            );
         }
     }
     Ok(())
@@ -534,7 +548,9 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             || arg.starts_with("--manifest-path=")
             || arg.starts_with("--target-dir=")
         {
-            bail!("cargo option is blocked because it can redirect configuration or filesystem access: {arg}");
+            bail!(
+                "cargo option is blocked because it can redirect configuration or filesystem access: {arg}"
+            );
         }
     }
     if is_default_safe_cargo_command(args) {
@@ -569,7 +585,9 @@ fn validate_cargo_command(args: &[String], allow_risky_exec: bool) -> Result<()>
             )
         }
         "owner" | "publish" | "yank" => {
-            bail!("cargo {subcommand} is blocked because registry publication/ownership must remain operator-owned")
+            bail!(
+                "cargo {subcommand} is blocked because registry publication/ownership must remain operator-owned"
+            )
         }
         "install" | "uninstall" => require_risky_exec(
             &format!("cargo host tool operation: {subcommand}"),
@@ -594,7 +612,9 @@ fn validate_go_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
             || arg.starts_with("-overlay=")
             || arg.starts_with("-modfile=")
         {
-            bail!("go option is blocked because it can redirect execution or filesystem access: {arg}");
+            bail!(
+                "go option is blocked because it can redirect execution or filesystem access: {arg}"
+            );
         }
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
@@ -615,10 +635,14 @@ fn validate_go_command(args: &[String], _allow_risky_exec: bool) -> Result<()> {
             require_risky_exec("go env host configuration mutation", _allow_risky_exec)
         }
         "install" | "telemetry" => {
-            bail!("go {subcommand} is blocked because host-wide tool/telemetry changes must remain operator-owned")
+            bail!(
+                "go {subcommand} is blocked because host-wide tool/telemetry changes must remain operator-owned"
+            )
         }
         "env" if args.len() == 1 => {
-            bail!("go env without an explicit key is blocked because it exposes broad host configuration")
+            bail!(
+                "go env without an explicit key is blocked because it exposes broad host configuration"
+            )
         }
         "list" | "test" | "vet" | "build" | "run" | "get" | "generate" | "clean" | "doc"
         | "env" | "tool" | "version" | "work" => Ok(()),
@@ -652,7 +676,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
             || arg.starts_with("--config=")
             || arg.starts_with("--global-dir=")
         {
-            bail!("{program} option is blocked because it can redirect configuration or filesystem access: {arg}");
+            bail!(
+                "{program} option is blocked because it can redirect configuration or filesystem access: {arg}"
+            );
         }
     }
     let subcommand = args.first().map(String::as_str).unwrap_or_default();
@@ -665,7 +691,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
         );
     }
     if matches!(subcommand, "publish" | "unpublish" | "owner") {
-        bail!("{program} {subcommand} is blocked because registry publication/ownership must remain operator-owned");
+        bail!(
+            "{program} {subcommand} is blocked because registry publication/ownership must remain operator-owned"
+        );
     }
     if matches!(subcommand, "config" | "cache") {
         return require_risky_exec(

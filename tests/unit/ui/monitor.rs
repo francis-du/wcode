@@ -900,10 +900,10 @@ fn command_overlay_shows_the_complete_catalog_and_two_authorization_layers() {
     for program in crate::workspace::COMMAND_CATALOG {
         assert!(text.contains(program), "missing command {program}");
     }
-    assert!(text.contains("SUPPORTED COMMANDS"));
-    assert!(text.contains("Executable access"));
+    assert!(text.contains("COMMAND CONTROLS"));
+    assert!(text.contains("Catalog control"));
     assert!(text.contains("Exact repository operation"));
-    assert!(text.contains("approval required"));
+    assert!(text.contains("explicitly revoked") && text.contains("○ cargo"));
 }
 
 #[test]

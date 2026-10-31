@@ -29,8 +29,8 @@
 
 - schema_version: 1
   id: REQ-SEC-003
-  title: Normal command execution is policy-bounded with explicit unrestricted trust
-  intent: Normal model-facing command execution must not interpret shell syntax or invoke a shell as an execution primitive. Explicit Workspace all-command authorization or Full Access intentionally permits shells and arbitrary executable/argument shapes while resource admission, process ownership, timeout, cancellation, bounded output and Workspace cwd selection remain enforced.
+  title: Ordinary commands retain bounded profiles and mandatory broad-command isolation
+  intent: Model-facing command execution launches an executable plus an argument array without implicit shell parsing. Ordinary enabled execution admits otherwise-valid commands without a second CommandAccess or command-scoped RiskyExecution grant; explicit executable revocations still require reauthorization and startup no-exec disables ordinary execution. Bounded profiles retain the hardened direct lane and tool-specific consequence checks. Explicit shell script execution and other shapes outside bounded profiles require a strong OS sandbox before spawn and fail closed when unavailable. Without an explicit override, read-only policy rejects classified writing commands and denies Workspace writes in the broad-command sandbox. A current-runtime Workspace all-command grant or Full Access may override no-exec, explicit revocation, command-policy filtering and read-only command-write classification, enabling Workspace writes inside the same broad-command sandbox while retaining environment scrubbing, guarded cwd, process/resource bounds, timeout, cancellation, bounded output and independent file-tool protections. Ordinary command admission does not itself broaden non-command provider or verification-executor trust, and command grants cannot authorize a separate HumanApproval decision.
   priority: critical
   implemented_by:
     - component:command-execution

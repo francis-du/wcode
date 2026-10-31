@@ -27,6 +27,15 @@ fn v080_capabilities_are_runtime_declared_and_bounded() {
         .iter()
         .any(|mode| mode == "impact"));
 
+    let stage = &capabilities["software_intelligence"]["stage_executors"];
+    assert_eq!(stage["command_shell_supported"], true);
+    assert_eq!(stage["broad_commands_sandboxed"], true);
+    assert_eq!(
+        stage["execution_policy"],
+        "bounded-direct-plus-sandboxed-broad-commands"
+    );
+    assert_eq!(stage["requires_risky_exec"], false);
+
     let decision = &capabilities["software_intelligence"]["decision_plane"];
     assert_eq!(decision["authority"], "advisory_only");
     assert_eq!(decision["shadow_ab"], true);

@@ -5,6 +5,10 @@ function validCommandAccess(data) {
     data.allowed_commands.every(command => typeof command === "string") &&
     (data.available_commands === undefined ||
       (Array.isArray(data.available_commands) && data.available_commands.every(command => typeof command === "string"))) &&
+    (data.revoked_commands === undefined ||
+      (Array.isArray(data.revoked_commands) && data.revoked_commands.every(command => typeof command === "string"))) &&
+    (data.command_exec_policy === undefined ||
+      ["permissive_sandboxed", "session_override", "disabled"].includes(data.command_exec_policy)) &&
     (data.all_commands_authorized === undefined || typeof data.all_commands_authorized === "boolean")
   );
 }
@@ -46,17 +50,23 @@ function validAuthorizationAccess(data) {
 }
 function renderAccess(force = false) {
   const allowed = state.access?.allowed_commands || [];
+  const revoked = state.access?.revoked_commands || [];
   const workspaceOptions = state.workspaceAccess?.workspace_options || [];
   const unknown = localized("Access state unavailable; refresh before deciding.", "授权状态尚未取得，请刷新后再操作。");
   if (force) invalidate("workspaceAccess", "commandAccess", "authorizationAccess");
   setHtml("workspaceAccess", els.workspaceList, workspaceOptions.length
     ? workspaceOptions.map(item => `<span class="workspace-chip" title="${esc(item.root || item.id)}"><code class="workspace-chip-id">${esc(item.id)}</code><span class="workspace-chip-root">${esc(item.root || "")}</span></span>`).join("")
     : `<span class="panel-meta">${esc(state.workspaceAccess ? t("No authorized projects") : unknown)}</span>`);
-  setHtml("commandAccess", els.commandList, allowed.length
-    ? allowed.map(program => `<span class="command-chip"><code>${esc(program)}</code><button type="button" data-revoke-command="${esc(program)}" aria-label="${esc(`${t("Revoke")} ${program}`)}">${uiIcon("close")}</button></span>`).join("")
-    : `<span class="panel-meta">${esc(state.access ? t("No commands authorized") : unknown)}</span>`, () => {
+  const commandControls = [...new Set([...allowed, ...revoked])].sort();
+  setHtml("commandAccess", els.commandList, commandControls.length
+    ? commandControls.map(program => revoked.includes(program)
+      ? `<span class="command-chip command-revoked"><code>${esc(program)}</code><button type="button" data-restore-command="${esc(program)}" aria-label="${esc(`${t("Restore")} ${program}`)}">${esc(t("Restore"))}</button></span>`
+      : `<span class="command-chip"><code>${esc(program)}</code><button type="button" data-revoke-command="${esc(program)}" aria-label="${esc(`${t("Revoke")} ${program}`)}">${uiIcon("close")}</button></span>`).join("")
+    : `<span class="panel-meta">${esc(state.access ? t("No explicit command overrides") : unknown)}</span>`, () => {
       els.commandList.querySelectorAll("[data-revoke-command]").forEach(button =>
         button.addEventListener("click", () => revokeCommandFromUi(button.dataset.revokeCommand)));
+      els.commandList.querySelectorAll("[data-restore-command]").forEach(button =>
+        button.addEventListener("click", () => addCommandFromUi(button.dataset.restoreCommand)));
     });
   setHtml("authorizationAccess", els.authorizationList, !state.accessLoaded
     ? `<span class="panel-meta">${esc(unknown)}</span>`
@@ -69,9 +79,16 @@ function renderAccess(force = false) {
         button.addEventListener("click", () => decideAuthorization(button.dataset.denyAuthorization, false)));
     });
   const allCommands = state.access?.all_commands_authorized === true;
-  if (els.allCommandsStatus) els.allCommandsStatus.textContent = t(allCommands ? "All commands authorized for this session" : "All commands require per-request approval");
+  const commandPolicy = state.access?.command_exec_policy || (allCommands ? "session_override" : "disabled");
+  if (els.allCommandsStatus) els.allCommandsStatus.textContent = t(
+    commandPolicy === "session_override"
+      ? "Session command override enabled"
+      : commandPolicy === "permissive_sandboxed"
+        ? "Commands run by default; explicit revocations still apply"
+        : "Command execution is disabled"
+  );
   if (els.allCommandsToggle) {
-    els.allCommandsToggle.textContent = t(allCommands ? "Disable all command authorization" : "Authorize all commands");
+    els.allCommandsToggle.textContent = t(allCommands ? "Disable session command override" : "Enable session command override");
     els.allCommandsToggle.classList.toggle("danger-toggle", allCommands);
     els.allCommandsToggle.setAttribute("aria-pressed", allCommands ? "true" : "false");
   }
@@ -181,16 +198,16 @@ async function addWorkspaceFromUi() {
     await loadAccess();
   }
 }
-async function addCommandFromUi() {
-  const program = els.commandCandidate.value.trim();
+async function addCommandFromUi(programOverride) {
+  const program = typeof programOverride === "string" ? programOverride : els.commandCandidate.value.trim();
   if (!program || state.accessBusy) return;
   await mutateAccess(els.commandMessage, async op => {
     const data = await uiJson("/intelligence/commands", "POST", { program }, { workspace: op.stamp.workspace });
     if (!accessOperationCurrent(op)) return;
     if (!validCommandAccess(data)) throw new Error("Invalid command access response");
     state.access = data;
-    els.commandCandidate.value = "";
-    accessMessage(els.commandMessage, `${t("Command authorized")}: ${program}`);
+    if (typeof programOverride !== "string") els.commandCandidate.value = "";
+    accessMessage(els.commandMessage, `${t("Command restored")}: ${program}`);
     renderAccess();
   });
 }

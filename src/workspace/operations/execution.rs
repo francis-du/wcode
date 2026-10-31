@@ -366,8 +366,12 @@ impl Workspace {
         if !self.allow_exec && !unrestricted_commands {
             bail!("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace");
         }
+        let permissive_commands = self.allow_exec || self.security.allow_risky_exec;
+        let permissive_shell = permissive_commands && is_shell_program(program);
         if !unrestricted_commands {
-            validate_authorizable_program(program)?;
+            if !permissive_shell {
+                validate_authorizable_program(program)?;
+            }
             // Reject malformed/unavailable operations before creating an approval
             // request, so the operator never approves something that cannot run.
             let mut admissible = self.security;
@@ -378,21 +382,23 @@ impl Workspace {
         let bounded_workspace_verifier = self.workspace_program_available(program)
             && validate_verification_command_shape(program, args).is_ok();
         let broad_execution = !bounded_workspace_verifier
-            && sandbox::command_requires_sandbox(
-                unrestricted_commands,
-                self.allow_exec,
-                self.allow_write,
-                program,
-                args,
-            );
+            && ((permissive_commands && command_requires_broad_sandbox(program, args))
+                || sandbox::command_requires_sandbox(
+                    unrestricted_commands,
+                    self.allow_exec,
+                    self.allow_write,
+                    program,
+                    args,
+                ));
         let mut safe_development = self.security;
         safe_development.allow_unrestricted_commands = false;
         // Repository development tools are intentionally autonomous. Give
         // their existing bounded policy the elevated lane up front so normal
         // build/test/lint/codegen/package-manager workflows do not create a
         // repetitive RiskyExecution approval request. Permanent policy
-        // rejections (shell interpreters, protected/escaping paths, credential
-        // flows, and explicitly blocked host operations) still fail closed.
+        // rejections (protected/escaping paths, credential flows, and explicitly
+        // blocked host operations) still fail closed. Shell interpreters use the
+        // permissive lane only when they are forced through the strong sandbox.
         safe_development.allow_risky_exec = development_program;
         let autonomous_development =
             validate_command_policy(program, args, safe_development).is_ok();
@@ -408,11 +414,13 @@ impl Workspace {
             bail!("command modifies repository state and is blocked in a read-only workspace");
         }
         if !unrestricted_commands
-            && !self
-                .commands
-                .read()
-                .expect("workspace command allowlist lock poisoned")
-                .contains(program)
+            && (self.command_explicitly_revoked(program)
+                || (!permissive_commands
+                    && !self
+                        .commands
+                        .read()
+                        .expect("workspace command allowlist lock poisoned")
+                        .contains(program)))
         {
             let fingerprint = self.command_access_fingerprint(program);
             let request = self.authorization.request_command(
@@ -423,7 +431,10 @@ impl Workspace {
             return Err(AuthorizationRequired::new(request).into());
         }
         let mut effective_security = self.security;
-        if unrestricted_commands || (autonomous_development && development_program) {
+        if unrestricted_commands
+            || permissive_commands
+            || (autonomous_development && development_program)
+        {
             effective_security.allow_risky_exec = true;
         }
         if !unrestricted_commands
@@ -505,8 +516,13 @@ impl Workspace {
         };
         let mut sandbox_guard = None;
         let mut command = if broad_execution {
-            let (command, guard) =
-                sandbox::prepare(&self.root, &cwd, &executable, &effective_args)?;
+            let (command, guard) = sandbox::prepare(
+                &self.root,
+                &cwd,
+                &executable,
+                &effective_args,
+                self.allow_write || unrestricted_commands,
+            )?;
             sandbox_guard = Some(guard);
             command
         } else {

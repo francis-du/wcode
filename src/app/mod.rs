@@ -193,7 +193,7 @@ struct Args {
     #[arg(long, global = true, conflicts_with_all = ["allow_write", "allow_exec", "allow_semantic"], help_heading = "Safety")]
     full_access: bool,
 
-    /// Allow arbitrary model-facing repository-aware commands beyond the Harness verification allowlist.
+    /// Pre-authorize non-command RiskyExecution lanes such as unprofiled LSP or advanced stage executors. Normal run_command execution does not require this flag.
     #[arg(long, help_heading = "Safety", hide = true)]
     allow_risky_exec: bool,
 

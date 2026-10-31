@@ -2,6 +2,120 @@ use super::*;
 use std::fs;
 
 #[test]
+fn shell_command_revocation_and_restoration_accept_only_bare_names() {
+    let root = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([root.path()], false, false).unwrap();
+    for program in [
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "dash",
+        "ksh",
+        "csh",
+        "tcsh",
+        "pwsh",
+        "powershell",
+        "powershell.exe",
+        "cmd",
+        "cmd.exe",
+        "command.com",
+    ] {
+        let revoked = workspaces.revoke_command(None, program).unwrap();
+        assert!(revoked["revoked_commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == program));
+        let allowed = workspaces.allow_command(None, program).unwrap();
+        assert!(!allowed["revoked_commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == program));
+        assert_eq!(allowed["command_exec_policy"], "disabled");
+        assert!(!workspaces.all_commands_authorized(None).unwrap());
+    }
+    for invalid in ["/bin/sh", "sh -c", "ba\nsh", "sh\0", r"C:\cmd.exe"] {
+        assert!(workspaces.allow_command(None, invalid).is_err());
+        assert!(workspaces.revoke_command(None, invalid).is_err());
+    }
+    assert!(validate_authorizable_program("sh").is_err());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn shell_command_revocation_blocks_spawn_and_exact_approval_restores_access() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("probe.sh"), "printf ok\n").unwrap();
+    let workspaces = Workspaces::new([root.path()], true, true).unwrap();
+    let (_, workspace) = workspaces.select(None).unwrap();
+    workspaces.revoke_command(None, "sh").unwrap();
+    let error = workspace
+        .run_command(
+            "sh",
+            &["-c".into(), "printf started > spawned.txt".into()],
+            ".",
+            10,
+        )
+        .await
+        .unwrap_err();
+    assert!(error.is::<AuthorizationRequired>(), "{error:#}");
+    assert!(!root.path().join("spawned.txt").exists());
+    let request = workspaces.latest_pending_authorization().unwrap();
+    assert_eq!(request.kind, AuthorizationKind::CommandAccess);
+    assert_eq!(request.program.as_deref(), Some("sh"));
+    workspaces
+        .approve_authorization_session_result(&request.id)
+        .unwrap();
+    assert!(!workspace.command_explicitly_revoked("sh"));
+    assert!(!workspaces.all_commands_authorized(None).unwrap());
+    let checked = workspace
+        .run_command("sh", &["-n".into(), "probe.sh".into()], ".", 10)
+        .await
+        .unwrap();
+    assert!(checked.success, "{checked:?}");
+    assert!(!root.path().join("spawned.txt").exists());
+    let disabled = Workspaces::new([root.path()], true, false).unwrap();
+    disabled.revoke_command(None, "sh").unwrap();
+    disabled.allow_command(None, "sh").unwrap();
+    let error = disabled
+        .select(None)
+        .unwrap()
+        .1
+        .run_command("sh", &["-n".into(), "probe.sh".into()], ".", 10)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("execution is disabled"));
+}
+
+#[test]
+fn workspace_access_reports_permissive_policy_and_explicit_revocations() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([dir.path()], true, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let initial = workspaces.workspace_access(Some(&workspace_id)).unwrap();
+    assert_eq!(initial["command_exec_policy"], "permissive_sandboxed");
+    assert_eq!(initial["revoked_commands"], serde_json::json!([]));
+
+    workspaces
+        .revoke_command(Some(&workspace_id), "git")
+        .unwrap();
+    let revoked = workspaces.workspace_access(Some(&workspace_id)).unwrap();
+    assert!(revoked["revoked_commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|program| program == "git"));
+
+    workspaces
+        .set_all_commands_authorized(Some(&workspace_id), true)
+        .unwrap();
+    let override_access = workspaces.workspace_access(Some(&workspace_id)).unwrap();
+    assert_eq!(override_access["command_exec_policy"], "session_override");
+}
+
+#[test]
 fn full_access_capacity_failure_preserves_registry() {
     let root = tempfile::tempdir().unwrap();
     let mut paths = Vec::new();

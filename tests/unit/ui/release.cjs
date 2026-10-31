@@ -79,19 +79,19 @@ async function main() {
   });
   await test('workspace-wide command authorization is single-flight and keeps delete separate', async () => {
     const s = sandbox();
-    s.run('state.access={all_commands_authorized:false,allowed_commands:[]};state.accessLoaded=true;state.authorizations=[{id:"AUTH-c",kind:"command_access",workspace:"A"},{id:"AUTH-r",kind:"risky_execution",workspace:"A"},{id:"AUTH-d",kind:"destructive_delete",workspace:"A"}];renderAccess();');
+    s.run('state.access={all_commands_authorized:false,command_exec_policy:"permissive_sandboxed",allowed_commands:[],revoked_commands:[]};state.accessLoaded=true;state.authorizations=[{id:"AUTH-c",kind:"command_access",workspace:"A"},{id:"AUTH-r",kind:"risky_execution",workspace:"A"},{id:"AUTH-d",kind:"destructive_delete",workspace:"A"}];renderAccess();');
     const first = s.run('toggleAllCommandsFromUi()');
     const second = s.run('toggleAllCommandsFromUi()');
     await flush();
     assert.equal(s.requests.length, 1);
     assert.equal(s.requests[0].url, '/intelligence/command-trust');
     assert.equal(s.requests[0].options.method, 'POST');
-    respond(s.requests[0], {all_commands_authorized:true,allowed_commands:[],available_commands:[]});
+    respond(s.requests[0], {all_commands_authorized:true,command_exec_policy:"session_override",allowed_commands:[],revoked_commands:[],available_commands:[]});
     await Promise.all([first, second]);
     assert.equal(s.run('state.access.all_commands_authorized'), true);
     assert.equal(s.run('state.authorizations.length'), 1);
     assert.equal(s.run('state.authorizations[0].kind'), 'destructive_delete');
-    assert.ok(s.node('#allCommandsStatus').textContent.includes('All commands authorized'));
+    assert.ok(s.node('#allCommandsStatus').textContent.includes('Session command override enabled'));
   });
   await test('empty workspace mutation response is rejected before switching projects', async () => {
     const s = sandbox();

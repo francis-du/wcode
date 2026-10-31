@@ -341,6 +341,7 @@ pub struct Workspace {
     authorization: AuthorizationManager,
     authorization_workspace: Arc<RwLock<String>>,
     commands: Arc<RwLock<HashSet<String>>>,
+    revoked_commands: Arc<RwLock<HashSet<String>>>,
     write_locks: Arc<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>>,
 }
 

@@ -3,12 +3,17 @@ id: AC-WORKSPACE-001
 title: Workspace coding primitives remain transactional and guarded
 statement: >-
   Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces
-  idempotently without relaxing manual overlap rules. Exact executable and repository-operation grants remain
-  workspace-bound, argument-bound, and deny-safe by default. An explicit current-runtime Workspace all-command grant
-  switches direct run_command execution to an unrestricted lane: executable allowlists, command-shape/argument
-  filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup
-  no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain
-  independent. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
+  idempotently without relaxing manual overlap rules. Ordinary enabled run_command execution needs no additional
+  CommandAccess or command-scoped RiskyExecution grant, including otherwise-valid unknown tools and explicit shell
+  invocation. Explicitly revoked command access still requires reauthorization; startup no-exec disables ordinary
+  execution. Bounded command profiles retain direct argv execution, consequence checks and Git hardening. Shapes
+  outside those profiles require a strong OS sandbox and fail closed when it is unavailable. Without an explicit
+  override, read-only command-write classification rejects source-writing shapes and the broad-command sandbox
+  denies Workspace writes. A current-runtime Workspace all-command grant or Full Access overrides command-policy
+  restrictions, explicit command revocation, read-only command-write classification and startup no-exec until
+  revoked; it enables Workspace writes inside the broad-command sandbox without disabling isolation, environment
+  scrubbing, cwd/process/resource bounds or guarded file-tool/delete semantics. Non-command semantic providers,
+  verification executors and exact local HumanApproval retain their separate profiles and trust boundaries. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
   pre-spawn contention gate before scarce child-process admission. Registry commands serialize globally. Fetch/update
   also own the Workspace writer because they may create or modify Cargo.lock. They acquire the local writer before
   the global registry permit, share one absolute queue deadline, and release local access on registry timeout or
@@ -42,8 +47,8 @@ statement: >-
   accept explicit integer timeouts from 1 through 1800, and have no separate sync 60-second ceiling. Ordinary commands
   remain synchronous unless task_mode=true. Modern task-capable clients receive standard Task handles; legacy or
   non-Task clients receive ordinary durable command receipts. command_task create/status/result/cancel uses the same
-  TaskRuntime and TaskStore, never a second registry. Start still passes through writer, executable/argv/no-shell,
-  command authorization, sandbox, cwd, timeout and resource guards. Status/result/cancel require the transport-derived
+  TaskRuntime and TaskStore, never a second registry. Start still passes through writer, executable/direct-argv policy,
+  applicable command authorization, sandbox, cwd, timeout and resource guards. Status/result/cancel require the transport-derived
   owner and exact selected Workspace, task ID and run_command identity; caller-supplied owner/actor fields are rejected.
   verify_project action=start returns an ordinary durable verification receipt on both modern and legacy transports,
   without requiring the Tasks extension. Omitted action or run preserves existing sync/native-Tasks behavior.
@@ -68,7 +73,7 @@ statement: >-
   executes them, never exposes package/Python/task-runner script bodies as command arguments, never infers network trust,
   rejects oversized/symlink manifests, and fails closed on ambiguous native entrypoints or competing task-runner manifests.
   Common Just/Make/Task launch names and a unique Dart bin entry may be surfaced only from bounded declarations. A Docker
-  Compose launch hint is exposed only for one bounded manifest with no host interpolation, custom top-level project name, build/host-mount/privilege/API-socket/lifecycle-hook/external-resource surface, loopback-only published ports, and an attached `up --no-build --pull never` command requiring exact RiskyExecution authorization. The Compose profile includes a non-automatic bounded status probe that returns only service/state/reported-health/exit-code fields; generic `compose ps` rendering remains blocked so container command text cannot leak through inspection. Reported Health may be empty and must then remain unknown rather than being promoted to healthy. Every discovered profile also reports a bounded bare-program PATH presence preflight without executing it; `false` is a stop rather than permission to guess/substitute a runner, while `true` does not claim plugin/subcommand readiness. Exact launch-only Agent Context requests may route directly to workspace_info then run_command without source indexing; any chosen launch still goes through the existing command policy and supervised task-mode boundary.
+  Compose launch hint is exposed only for one bounded manifest with no host interpolation, custom top-level project name, build/host-mount/privilege/API-socket/lifecycle-hook/external-resource surface, loopback-only published ports, and an attached `up --no-build --pull never` command subject to the current execution policy, read-only classification and applicable sandbox guards. The Compose profile includes a non-automatic bounded status probe that returns only service/state/reported-health/exit-code fields; generic `compose ps` rendering remains blocked so container command text cannot leak through inspection. Reported Health may be empty and must then remain unknown rather than being promoted to healthy. Every discovered profile also reports a bounded bare-program PATH presence preflight without executing it; `false` is a stop rather than permission to guess/substitute a runner, while `true` does not claim plugin/subcommand readiness. Exact launch-only Agent Context requests may route directly to workspace_info then run_command without source indexing; any chosen launch still goes through the existing command policy and supervised task-mode boundary.
 verification:
   - {kind: test, path: tests/unit/runtime/harness/verification_turn_native.rs, symbol: verification_phase_cold_sibling_survives_external_cargo_wait_cap}
   - {kind: test, path: tests/unit/runtime/harness/verification_turn_native.rs, symbol: verification_phase_real_cargo_siblings_wait_outside_tool_capacity}
@@ -134,7 +139,13 @@ verification:
     symbol: host_process_cap_bounds_aggregate_subspace_activity
   - kind: test
     path: tests/unit/workspace/mod.rs
-    symbol: revoked_catalog_command_becomes_selectively_authorizable
+    symbol: explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools
+  - kind: test
+    path: tests/unit/workspace/access.rs
+    symbol: shell_command_revocation_and_restoration_accept_only_bare_names
+  - kind: test
+    path: tests/unit/workspace/access.rs
+    symbol: shell_command_revocation_blocks_spawn_and_exact_approval_restores_access
   - kind: test
     path: tests/unit/workspace/policy.rs
     symbol: bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries
