@@ -907,7 +907,7 @@ pub(crate) fn command_writes_workspace(program: &str, args: &[String]) -> bool {
 #[path = "operations/execution.rs"]
 mod execution;
 use execution::redact_sensitive_line;
-pub(crate) use execution::redact_sensitive_text;
+pub(crate) use execution::{cargo_contention_lane, redact_sensitive_text, CargoContentionLane};
 
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/mod.rs"]

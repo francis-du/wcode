@@ -480,6 +480,110 @@ fn search_duplicate_patterns_do_not_consume_result_budget() {
 }
 
 #[test]
+fn legacy_search_many_preserves_rare_patterns_under_path_order_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.go"), "common\n".repeat(100)).unwrap();
+    fs::write(dir.path().join("z.go"), "rare\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let hits = workspace
+        .search_many_with_options(
+            &["common".into(), "rare".into()],
+            ".",
+            2,
+            SearchMode::Exact,
+            0,
+        )
+        .unwrap();
+    let queries = hits
+        .iter()
+        .filter_map(|hit| hit["query"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        queries,
+        ["common", "rare"].into(),
+        "legacy batch search must not let path ordering starve a rare pattern: {hits:?}"
+    );
+}
+
+#[test]
+fn legacy_search_many_keeps_query_coverage_after_expanding_shared_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.go"), "common paired\ncommon\ncommon\n").unwrap();
+    fs::write(dir.path().join("z.go"), "rare\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let queries = [
+        "common".into(),
+        "paired".into(),
+        "common".into(),
+        "rare".into(),
+    ];
+    for mode in [
+        SearchMode::Exact,
+        SearchMode::Regex,
+        SearchMode::TokensAll,
+        SearchMode::TokensAny,
+    ] {
+        for limit in 1..=6 {
+            let hits = workspace
+                .search_many_with_options(&queries, ".", limit, mode, 1)
+                .unwrap();
+            assert!(hits.len() <= limit);
+            let identities = hits
+                .iter()
+                .map(|hit| {
+                    (
+                        hit["path"].as_str().unwrap(),
+                        hit["line"].as_u64().unwrap(),
+                        hit["query"].as_str().unwrap(),
+                    )
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                identities.len(),
+                hits.len(),
+                "duplicate expansion must not consume quota"
+            );
+            if limit >= 3 {
+                let covered = hits
+                    .iter()
+                    .map(|hit| hit["query"].as_str().unwrap())
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(
+                    covered,
+                    ["common", "paired", "rare"].into(),
+                    "{mode:?}, limit {limit}"
+                );
+            }
+            for hit in &hits {
+                assert_eq!(
+                    hit["sha256"],
+                    workspace
+                        .read_file(hit["path"].as_str().unwrap(), 1, Some(1))
+                        .unwrap()
+                        .sha256
+                );
+                assert!(hit["context"].is_object());
+            }
+        }
+    }
+}
+
+#[test]
+fn legacy_single_query_keeps_path_line_order_and_no_query_field() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("z.go"), "needle\n").unwrap();
+    fs::write(dir.path().join("a.go"), "needle\nneedle\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let hits = workspace.search("needle", ".", 2).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0]["path"], "a.go");
+    assert_eq!(hits[0]["line"], 1);
+    assert_eq!(hits[1]["path"], "a.go");
+    assert_eq!(hits[1]["line"], 2);
+    assert!(hits.iter().all(|hit| hit.get("query").is_none()));
+}
+
+#[test]
 fn advanced_search_supports_auto_token_fallback_regex_and_context() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(

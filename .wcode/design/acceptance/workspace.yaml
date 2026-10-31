@@ -9,16 +9,32 @@ statement: >-
   filtering, Git command hardening, command environment scrubbing, read-only command-write classification and startup
   no-exec are bypassed until revoked, while process/resource bounds and guarded file-tool/delete semantics remain
   independent. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
-  pre-spawn contention gate before scarce child-process admission. Registry commands serialize globally. In one
-  Workspace, build/check/clippy/bench/doc/fix/run/rustc/rustdoc take an exclusive writer permit, while cargo test and
+  pre-spawn contention gate before scarce child-process admission. Registry commands serialize globally. Fetch/update
+  also own the Workspace writer because they may create or modify Cargo.lock. They acquire the local writer before
+  the global registry permit, share one absolute queue deadline, and release local access on registry timeout or
+  cancellation. Waiting for local readers must not reserve the registry. In one
+  Workspace, build/check/clippy/bench/doc/fix/run/rustc/rustdoc, clean, formatting writes,
+  add/remove/generate-lockfile and unrecognized command forms take an exclusive writer permit. Only the leading subcommand after an
+  optional toolchain selector identifies a lane; option values and external-command arguments never masquerade as
+  registry/test commands. Explicit help/version/list and bounded fmt --check shapes remain non-mutating bypasses,
+  without changing authorization. Meanwhile cargo test and
   cargo nextest run take a shared reader permit plus a resource-derived test slot; independent tests may overlap up to
   that slot bound, an exclusive writer cannot start until existing test readers finish, and new readers cannot bypass
   a queued writer. Different Workspaces remain independent. Heavy command admission then acquires a per-Workspace
   child-process quota before the host-wide physical child-process queue; a busy subspace cannot consume another
   subspace's local permits, while aggregate process count remains bounded by the host cap and local waiters cannot
   bypass resource-pressure admission. Git-worktree writer ownership remains a separate mutation-domain constraint.
+  Within one verification phase, known sibling Cargo checks reuse the canonical contention classification and
+  coordinate through a run-local reader/writer turn before tool admission or external queue deadlines begin.
+  Conflicting writers wait without consuming tool slots; bounded test readers remain shared and cannot bypass a
+  queued writer. Read-only, registry-only and non-Cargo checks remain independent. Cancellation releases only
+  this ordering turn; actual workspace/registry/process guards still apply, and external queue caps are unchanged.
   Cargo and process-capacity queue waits do not consume the subsequent command execution timeout.
   Direct commands, workspace verification executables and trusted runtime executors start that timeout only at spawn.
+  Legacy multi-query search reserves retained representatives before expanding/filling its result quota, so frequent
+  early paths cannot starve a later query when the quota can represent every matching query. Duplicate queries do not
+  consume quota, a shared source row may expand to distinct query results, and selected rows retain legacy path/line/query
+  ordering, SHA, context and redaction. Rich search pagination and single-query ordering remain unchanged.
   Queue waits remain separately bounded; cancellation while queued launches nothing and releases its reservations. Tool arguments must be objects and an explicitly supplied Workspace must be a non-empty string;
   malformed routing never silently selects the default Workspace. Runtime timeout controls remain visible in the model
   schemas for run_command, command_task and verify_project; search budgets remain adaptive and hidden.
@@ -54,6 +70,24 @@ statement: >-
   Common Just/Make/Task launch names and a unique Dart bin entry may be surfaced only from bounded declarations. A Docker
   Compose launch hint is exposed only for one bounded manifest with no host interpolation, custom top-level project name, build/host-mount/privilege/API-socket/lifecycle-hook/external-resource surface, loopback-only published ports, and an attached `up --no-build --pull never` command requiring exact RiskyExecution authorization. The Compose profile includes a non-automatic bounded status probe that returns only service/state/reported-health/exit-code fields; generic `compose ps` rendering remains blocked so container command text cannot leak through inspection. Reported Health may be empty and must then remain unknown rather than being promoted to healthy. Every discovered profile also reports a bounded bare-program PATH presence preflight without executing it; `false` is a stop rather than permission to guess/substitute a runner, while `true` does not claim plugin/subcommand readiness. Exact launch-only Agent Context requests may route directly to workspace_info then run_command without source indexing; any chosen launch still goes through the existing command policy and supervised task-mode boundary.
 verification:
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn_native.rs, symbol: verification_phase_cold_sibling_survives_external_cargo_wait_cap}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn_native.rs, symbol: verification_phase_real_cargo_siblings_wait_outside_tool_capacity}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_writer_waits_before_tool_admission_or_command_deadline}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_tests_remain_shared_but_a_queued_writer_keeps_priority}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_cancelling_a_waiter_releases_readers_without_replaying_work}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_read_only_and_non_cargo_checks_do_not_wait_for_writers}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_uses_canonical_maintenance_classification_and_is_run_local}
+  - {kind: test, path: tests/unit/runtime/harness/verification_turn.rs, symbol: verification_phase_panicking_or_cancelled_owner_does_not_strand_its_turn}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: legacy_search_many_preserves_rare_patterns_under_path_order_budget}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: legacy_search_many_keeps_query_coverage_after_expanding_shared_rows}
+  - {kind: test, path: tests/unit/workspace/search.rs, symbol: legacy_single_query_keeps_path_line_order_and_no_query_field}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: lockfile_writers_wait_for_readers_without_reserving_the_global_registry}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: cancelled_registry_wait_releases_its_lockfile_writer}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: registry_timeout_releases_its_lockfile_writer_without_launching_work}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: maintenance_and_unknown_cargo_commands_take_exclusive_workspace_access}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: clean_waits_for_running_tests_and_cancelled_clean_releases_its_waiter}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: maintenance_does_not_block_an_unrelated_workspace}
+  - {kind: test, path: tests/unit/workspace/cargo_contention.rs, symbol: explicit_read_only_commands_keep_their_existing_lanes}
   - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_start_returns_before_execution_and_poll_does_not_repeat_native_checks}
   - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_invalid_routing_never_runs_checks_or_creates_tasks}
   - {kind: test, path: tests/unit/integrations/mcp/verification_task.rs, symbol: ordinary_verification_poll_cannot_read_or_cancel_a_command_task}
@@ -120,7 +154,7 @@ verification:
     path: tests/unit/workspace/execution.rs
     symbol: normal_command_output_and_exit_status_remain_compatible
   - kind: test
-    path: tests/unit/workspace/execution.rs
+    path: tests/unit/workspace/execution_sandbox.rs
     symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed
   - kind: test
     path: tests/unit/workspace/execution.rs

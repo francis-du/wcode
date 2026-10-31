@@ -331,6 +331,7 @@ impl ToolHarness {
                 .map(|offset| start + offset)
                 .unwrap_or(plan.len());
             let mut tasks = JoinSet::new();
+            let cargo_turn = Arc::new(tokio::sync::RwLock::new(()));
             let mut executed_phase = false;
             for check in plan[start..end].iter().cloned() {
                 if let Some(reused) =
@@ -345,8 +346,10 @@ impl ToolHarness {
                 let workspace = workspace.clone();
                 let workspace_id = workspace_id.clone();
                 let revision_key = command_revision_key.clone();
+                let cargo_turn = Arc::clone(&cargo_turn);
+                let lane = crate::workspace::cargo_contention_lane(&check.program, &check.args);
                 tasks.spawn(async move {
-                    run_verification_check(
+                    harness_verification::run_verification_turn(lane, &cargo_turn, run_verification_check(
                         harness,
                         monitor,
                         workspace_id,
@@ -354,7 +357,7 @@ impl ToolHarness {
                         check,
                         revision_key,
                         timeout_seconds,
-                    )
+                    ))
                     .await
                 });
             }
