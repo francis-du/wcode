@@ -10,6 +10,8 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.1 — Upgrade, Jobs operations and verification fixes](releases/v0.9.1/)
+
 **wcode helps coding assistants read repositories, change code and run checks.** It supplies relevant source, code relationships and task history through MCP. File changes require the expected file hash, and check results identify the code revision they tested.
 
 The workflow is **Understand → Change → Inspect → Verify → Evidence → Accept / Block**. The team edition, **wteam**, adds shared policies, review records and GitHub merge checks. The complete team workflow still needs a real pilot. See the [capability audit and implementation plan](research-upgrades/#ai-change-acceptance-commercial-architecture-2026-09-30).

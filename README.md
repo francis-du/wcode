@@ -59,6 +59,14 @@ Press **W** for the Project Status and **O** for Setup Hub. Remote clients use t
 
 The current workspace, revision and snapshot state stay visible across all seven pages. This image uses labeled fixture data. See the [interface review and page gallery](docs/manual/workbench-ui-review.md) for desktop, phone and terminal states.
 
+## Update and reconnect
+
+For an existing installation, run `wcode --version`, then `wcode update`, and check the version again after the updater finishes. The updater fetches the latest stable release; use the fixed GitHub release downloads and their `SHA256SUMS` when you need a specific version.
+
+Reconnect your MCP Host to start a new stdio process. Replacing the binary does not upgrade an already running session or restart a standalone service. On Windows, replacement begins after the update process exits; the helper's preparation message is not completion.
+
+The [documentation source index](docs/manual/README.md) is also readable directly in this repository. When the documentation website is unavailable, browse the [release-note source directory](docs/manual/releases/) for the bilingual upgrade steps, Jobs operating guide, troubleshooting and verification records.
+
 ## The engineering loop
 
 wcode keeps the model replaceable while repository state, policy, proof, and observability remain durable.
