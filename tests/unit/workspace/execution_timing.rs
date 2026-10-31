@@ -126,10 +126,19 @@ async fn queued_runtime_executor_retains_its_full_runtime_budget() {
 #[cfg(unix)]
 #[tokio::test]
 async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
-    let root = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(root.path(), true, true).unwrap();
-    let outside = root.path().parent().unwrap().join("wcode-shell-escape.txt");
-    let _ = std::fs::remove_file(&outside);
+    if crate::workspace::tests::process_fixture::run_in_private_fixture(
+        module_path!(),
+        "permissive_shell_execution_is_sandboxed_or_fails_closed",
+    )
+    .await
+    {
+        return;
+    }
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    let workspace = Workspace::new(&root, true, true).unwrap();
+    let outside = fixture.path().join("wcode-shell-escape.txt");
     let result = workspace
         .run_command(
             "sh",
@@ -145,7 +154,7 @@ async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
         let result = result.expect("permissive shell must use the strong sandbox");
         assert!(result.success, "{}", result.stderr);
         assert_eq!(
-            std::fs::read_to_string(root.path().join("shell-ok.txt")).unwrap(),
+            std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
             "ok"
         );
         assert!(!outside.exists());
@@ -160,6 +169,14 @@ async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
 #[cfg(unix)]
 #[tokio::test]
 async fn read_only_workspace_blocks_sandboxed_shell_writes() {
+    if crate::workspace::tests::process_fixture::run_in_private_fixture(
+        module_path!(),
+        "read_only_workspace_blocks_sandboxed_shell_writes",
+    )
+    .await
+    {
+        return;
+    }
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), false, true).unwrap();
     let result = workspace

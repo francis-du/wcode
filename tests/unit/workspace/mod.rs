@@ -5,6 +5,7 @@ mod dynamic_registry;
 mod files;
 mod ignore;
 mod launch_profiles;
+pub(super) mod process_fixture;
 mod search;
 #[test]
 fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {
@@ -840,6 +841,11 @@ async fn hardened_runtime_executor_runs_without_repetitive_authorization() {
 
 #[tokio::test]
 async fn explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools() {
+    let test =
+        "explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools";
+    if process_fixture::run_in_private_fixture(module_path!(), test).await {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let workspaces = Workspaces::new([dir.path()], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
@@ -880,10 +886,14 @@ async fn explicit_command_revocation_requires_reauthorization_without_blocking_u
 
     let arbitrary = workspace
         .run_command("wcode-definitely-not-installed", &[], ".", 10)
-        .await
-        .unwrap();
-    assert!(!arbitrary.success);
-    assert!(!arbitrary.stderr.contains("authorization required"));
+        .await;
+    if execution_sandbox_status().available {
+        let arbitrary = arbitrary.unwrap();
+        assert!(!arbitrary.success && !arbitrary.stderr.contains("authorization required"));
+    } else {
+        assert_eq!(arbitrary.unwrap_err().to_string(),
+            "sandbox_unavailable: strong OS sandbox is unavailable; broad unrestricted command execution is denied");
+    }
     assert!(workspaces.latest_pending_authorization().is_none());
 }
 
