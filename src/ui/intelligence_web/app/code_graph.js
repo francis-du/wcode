@@ -306,7 +306,8 @@ function codeGraphSourcePanel(graph, node) {
   if (state.codeGraphSource && state.codeGraphSourceKey === key) return codeGraphSourcePreview(state.codeGraphSource) + codeSourceEditorPanel(state.codeGraphSource);
   return `<section class="code-graph-source"><button type="button" class="code-graph-source-open" data-code-source>${esc(localized("Read source at this snapshot", "读取该快照源码"))}</button><p>${esc(localized("Uses the selected graph node and snapshot; no arbitrary path or revision is accepted.", "只使用所选图谱节点和快照，不接受任意路径或版本表达式。"))}</p></section>`;
 }
-async function loadCodeGraphSource(node, { startLine, repositoryRevision } = {}) {
+async function loadCodeGraphSource(node, { startLine, repositoryRevision, observation } = {}) {
+  if (observation && !observation()) return false;
   const graph = state.codeGraph, path = codeGraphPath(node);
   if (!graph?.snapshot_id || !node?.id || !path) return false;
   const expected = { workspace: state.current, snapshot: graph.snapshot_id, nodeId: node.id, path };
@@ -331,7 +332,7 @@ async function loadCodeGraphSource(node, { startLine, repositoryRevision } = {})
     const data = await uiJson(`/intelligence/code-source?${params}`, "GET", undefined, {
       workspace: expected.workspace, signal: controller.signal, timeout: 25000,
     });
-    if (controller.signal.aborted
+    if ((observation && !observation()) || controller.signal.aborted
         || state.codeGraphSourceController !== controller
         || state.current !== expected.workspace
         || state.codeGraph?.snapshot_id !== expected.snapshot
@@ -343,7 +344,7 @@ async function loadCodeGraphSource(node, { startLine, repositoryRevision } = {})
     renderCodeGraphInspector();
     return true;
   } catch (error) {
-    if (controller.signal.aborted || state.codeGraphSourceController !== controller) return false;
+    if ((observation && !observation()) || controller.signal.aborted || state.codeGraphSourceController !== controller) return false;
     state.codeGraphSource = null;
     state.codeGraphSourceLoading = false;
     state.codeGraphSourceError = requestFailureMessage(error);
@@ -623,7 +624,8 @@ function clearCodeGraphSearchState() {
   if (state.codeGraphOverview && state.codeGraphWorkspace === state.current) renderCodeGraph();
   else void loadCodeGraphOverview();
 }
-async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision } = {}) {
+async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision, observation } = {}) {
+  if (observation && !observation()) return false;
   const query = String(requestedQuery ?? els.codeGraphSearch?.value ?? "").trim();
   if (!nodeId) {
     if (query.length < 2) {
@@ -667,7 +669,7 @@ async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision
       signal: controller.signal,
       timeout: 30000,
     });
-    if (controller.signal.aborted || data.workspace !== state.current) return false;
+    if ((observation && !observation()) || controller.signal.aborted || data.workspace !== state.current) return false;
     if (!validCodeGraphResponse(data) || !codeGraphResponseMatchesRequest(data.graph, expected)) {
       throw new Error(localized("Invalid focused code graph response", "聚焦代码图谱响应无效"));
     }
@@ -688,7 +690,7 @@ async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision
     renderCodeGraph();
     return true;
   } catch (error) {
-    if (!controller.signal.aborted) {
+    if ((!observation || observation()) && !controller.signal.aborted) {
       state.codeGraphError = requestFailureMessage(error);
       renderCodeGraph();
     }

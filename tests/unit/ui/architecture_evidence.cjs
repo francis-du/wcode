@@ -5,7 +5,7 @@ function runArchitectureEvidenceRegressions() {
   const path = require("node:path");
   const vm = require("node:vm");
   const root = process.argv[2] || path.resolve(__dirname, "../../..");
-  const source = ["architecture", "engineering"].map(name =>
+  const source = ["structure", "design_sources", "architecture", "engineering"].map(name =>
     fs.readFileSync(path.join(root, `src/ui/intelligence_web/app/${name}.js`), "utf8")
   ).join("\n");
   const encode = value => String(value ?? "").replace(/[&<>"']/g, char =>
@@ -25,6 +25,7 @@ function runArchitectureEvidenceRegressions() {
       depends_on: [], responsibilities: [], implementation_targets: [],
     }));
     const context = {
+      token: "",
       state: { language, architectureMode: "overlay", selectedComponent: "agent", project: {
         project: "Fixture", structure: { truncated: false }, requirements: [],
         architecture: { components, dependencies: [], dependency_candidates: [], dependency_candidates_total: 0 },

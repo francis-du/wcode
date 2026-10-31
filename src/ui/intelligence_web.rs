@@ -10,6 +10,7 @@ pub(crate) const INTELLIGENCE_CSS: &str = concat!(
     include_str!("intelligence_web/styles/engineering.css"),
     include_str!("intelligence_web/styles/structure.css"),
     include_str!("intelligence_web/styles/observability.css"),
+    include_str!("intelligence_web/styles/job_output.css"),
     include_str!("intelligence_web/styles/workbench.css"),
     // Keep responsive overrides last so component-local desktop rules cannot
     // accidentally win on narrow touch screens.
@@ -21,8 +22,11 @@ pub(crate) const INTELLIGENCE_JS: &str = concat!(
     include_str!("intelligence_web/app/access.js"),
     include_str!("intelligence_web/app/overview.js"),
     include_str!("intelligence_web/app/verification.js"),
+    include_str!("intelligence_web/app/job_output.js"),
     include_str!("intelligence_web/app/jobs.js"),
+    include_str!("intelligence_web/app/activity_jobs.js"),
     include_str!("intelligence_web/app/verification_recovery.js"),
+    include_str!("intelligence_web/app/design_sources.js"),
     include_str!("intelligence_web/app/architecture.js"),
     include_str!("intelligence_web/app/code_graph_explorer.js"),
     include_str!("intelligence_web/app/code_graph.js"),

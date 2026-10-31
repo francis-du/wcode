@@ -55,7 +55,7 @@ function unchangedRequests(s, count) {
 }
 async function runAblations() {
   const root = process.argv[2] || path.resolve(__dirname, '../../..');
-  const sourcePath = path.join(root, 'src/ui/intelligence_web/app/jobs.js');
+  const sourcePath = path.join(root, 'src/ui/intelligence_web/app/job_output.js');
   const source = fs.readFileSync(sourcePath, 'utf8').replace(/\r\n?/g, '\n');
   const digest = text => crypto.createHash('sha256').update(text).digest('hex');
   function replaceOnce(text, before, after) {
@@ -66,8 +66,6 @@ async function runAblations() {
     const s = prepared();
     if (mutation) {
       let changed = mutation(source);
-      changed = replaceOnce(changed, 'const runtimeJobStatuses = ["all", "working", "input_required", "completed", "failed", "cancelled", "unknown"];\n', '');
-      changed = replaceOnce(changed, 'const runtimeJobOrigins = ["all", "ui", "mcp"];\n', '');
       vm.runInContext(changed, s.context, { filename: 'job-output-isolated-ablation.js' });
     }
     await discover(s, ids); assert.equal(await observe(s, value), true); return s;
@@ -109,7 +107,7 @@ async function runAblations() {
       id: 'retained-output-coverage-explanation',
       mutation: text => {
         const start = text.indexOf('function runtimeJobOutputCoverage(view) {');
-        const end = text.indexOf('function runtimeJobOutputHtml(view) {', start);
+        const end = text.indexOf('function runtimeJobOutputHtml(view, job) {', start);
         assert.ok(start >= 0 && end > start, 'coverage function boundaries must exist');
         return text.slice(0, start) + 'function runtimeJobOutputCoverage(view) { return ""; }\n' + text.slice(end);
       },
@@ -118,7 +116,7 @@ async function runAblations() {
           stdout: stream('visible', { truncated: true, total_bytes: 999 }),
           stderr: stream('[REDACTED]', { redacted: true }),
         }));
-        search(s, 'not-retained'); const html = s.node('#runtimeJobDetail').innerHTML, current = view(s);
+        search(s, 'not-retained'); const html = [s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join(''), current = view(s);
         const explained = [/omitted text is not searched/, /hidden text is not searched/,
           /relative to each retained fragment/, /streams have no shared time order/].filter(pattern => pattern.test(html)).length;
         return { invariant: current.total_matches === 0 && current.limited && explained === 4,
@@ -150,7 +148,7 @@ async function main() {
   await test('empty query preserves the original retained streams and adds only local search controls', async () => {
     const s = await ready(), count = s.requests.length, current = view(s);
     assert.equal(current.available, true); assert.equal(current.query, ''); assert.deepEqual(current.rows, []);
-    const html = s.node('#runtimeJobDetail').innerHTML;
+    const html = [s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join('');
     assert.match(html, /ordinary output/); assert.match(html, /needle stdout/); assert.match(html, /needle stderr/);
     assert.match(html, /data-job-output-query/); assert.match(html, /data-job-output-stream/);
     assert.doesNotMatch(html, /data-job-launch|name="program"/); unchangedRequests(s, count);
@@ -234,17 +232,17 @@ async function main() {
     const s = await ready(detail('<script>alert("unsafe")</script>\na&b', '<img src=x onerror=alert(1)>'));
     search(s, '<script>');
     assert.equal(view(s).total_matches, 1);
-    const html = s.node('#runtimeJobDetail').innerHTML;
+    const html = [s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join('');
     assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>|<img src=x/);
     search(s, 'a&b'); assert.equal(view(s).total_matches, 1);
-    assert.match(s.node('#runtimeJobDetail').innerHTML, /a&amp;b/);
+    assert.match([s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join(''), /a&amp;b/);
   });
   await test('zero matches retain truncation redaction and limited-coverage explanations', async () => {
     const s = await ready(detail('visible', '[REDACTED]', {
       stdout: stream('visible', { truncated: true, total_bytes: 999 }),
       stderr: stream('[REDACTED]', { redacted: true }),
     }));
-    search(s, 'not-retained'); const current = view(s), html = s.node('#runtimeJobDetail').innerHTML;
+    search(s, 'not-retained'); const current = view(s), html = [s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join('');
     assert.equal(current.total_matches, 0); assert.deepEqual(current.rows, []);
     assert.equal(current.limited, true); assert.equal(current.truncated, true); assert.equal(current.redacted, true);
     assert.match(html, /retained/i); assert.match(html, /truncated/i); assert.match(html, /redacted/i);
@@ -294,7 +292,7 @@ async function main() {
     const pending = s.run('observeRuntimeJob()'); await flush();
     s.requests.at(-1).reject(new Error('PRIVATE ERROR')); assert.equal(await pending, false);
     assert.equal(view(s).available, false); assert.deepEqual(view(s).rows, []); assert.equal(view(s).query, '');
-    oldViewRejected(s); assert.doesNotMatch(s.node('#runtimeJobDetail').innerHTML, /needle stdout|PRIVATE ERROR/);
+    oldViewRejected(s); assert.doesNotMatch([s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join(''), /needle stdout|PRIVATE ERROR/);
   });
   await test('invalid detail cannot leave prior matching output visible', async () => {
     const s = await ready(); search(s, 'needle'); remember(s);
@@ -315,7 +313,7 @@ async function main() {
     assert.equal(s.run('setRuntimeJobFilters("failed","ui")'), true);
     assert.equal(view(s).query, 'needle'); assert.equal(view(s).stream, 'stderr');
     assert.deepEqual(rows(s), [{ stream: 'stderr', line: 1, text: 'needle stderr' }]);
-    assert.doesNotMatch(s.node('#runtimeJobDetail').innerHTML, /data-job-cancel/); unchangedRequests(s, count);
+    assert.doesNotMatch([s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join(''), /data-job-cancel/); unchangedRequests(s, count);
   });
   const ablations = await runAblations();
   const report = { suite: 'native-job-output-search', passed: results.filter(row => row.passed).length, total: results.length, results, ablations };

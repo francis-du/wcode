@@ -170,11 +170,11 @@ function renderComponentInspector() {
       return `<div class="inspector-item inspector-dep"><div><b>${esc(isOutgoing ? t("outgoing") : t("incoming"))}</b> · ${esc(other)}<div class="panel-meta">${esc(statusLabel(edge.status))} · ${esc(statusLabel(edge.precision))}</div></div>${pill(edge.desired && edge.actual ? localized("design + observed", "设计 + 已观测") : edge.desired ? t("design edge") : t("actual edge"), architectureEdgeTone(edge))}<div class="dependency-inspector-evidence">${architectureEdgeEvidence(edge)}</div></div>`;
     }).join("")
     : `<div class="empty">${esc(t("No dependency edges."))}</div>`;
-  const changedPaths = new Set(component.changed_paths || []);
+  const changedPaths = new Set(component.changed_paths || []), sourcePaths = repositorySourcePaths();
   const implementations = (component.implementation_targets || []).length
     ? `<div class="inspector-list">${component.implementation_targets.map(target => {
       const path = target.split("::")[0], changed = changedPaths.has(path);
-      return `<div class="inspector-item inspector-implementation"><code>${esc(target)}</code>${changed ? pill(statusLabel("changed"), "warn") : ""}</div>`;
+      return `<div class="inspector-item inspector-implementation"><code>${esc(target)}</code>${changed ? pill(statusLabel("changed"), "warn") : ""}${designSourceAction(target, sourcePaths)}</div>`;
     }).join("")}</div>`
     : `<div class="empty">${esc(t("No implementation mapping."))}</div>`;
   const requirements = linkedRequirements.length
@@ -184,7 +184,7 @@ function renderComponentInspector() {
     }).join("")}</div>`
     : `<div class="empty">${esc(t("No related requirements."))}</div>`;
   const changes = changedPaths.size
-    ? `<div class="inspector-list">${[...changedPaths].map(path => `<div class="inspector-item"><code>${esc(path)}</code></div>`).join("")}</div>`
+    ? `<div class="inspector-list">${[...changedPaths].map(path => `<div class="inspector-item"><code>${esc(path)}</code>${designSourceAction(path, sourcePaths)}</div>`).join("")}</div>`
     : `<div class="empty">${esc(t("No current component changes."))}</div>`;
   const scopes = (component.product_scopes || []).length
     ? `<div class="pills">${component.product_scopes.map(scope => pill(scope, "accent")).join("")}</div>`
@@ -199,7 +199,7 @@ function renderComponentInspector() {
   const verification = `<div class="inspector-proof-note"><strong>${esc(localized("Verification mapping, not execution proof", "验证映射，不代表已执行证明"))}</strong><span>${esc(localized(`${acceptance.length} acceptance criteria · ${resolvedVerificationRefs}/${verificationRefs.length} verification references resolve. Current execution evidence is revision-bound and shown in Check results.`, `${acceptance.length} 个验收条件 · ${resolvedVerificationRefs}/${verificationRefs.length} 个验证引用已解析。当前执行证据绑定版本，统一在“验证证据”中查看。`))}</span><button type="button" class="inspector-link" data-inspector-proof>${esc(localized("Open verification evidence", "打开验证证据"))}</button></div>`;
   const inspectorSection = (title, body, open = false) => `<details class="inspector-section inspector-disclosure"${open ? " open" : ""}><summary><span>${esc(title)}</span><span class="disclosure-mark" aria-hidden="true"></span></summary><div class="inspector-section-body">${body}</div></details>`;
   const html = `<button type="button" class="inspector-close" data-inspector-close aria-label="${esc(localized("Close inspector", "关闭检查器"))}">${uiIcon("close")}</button><div class="req-top inspector-title"><div><h3>${esc(component.name)}</h3><div class="component-id">${esc(component.id)}</div><div class="component-subsystem">${esc(localized("Subsystem", "子系统"))}: ${esc(subsystem?.title || component.subsystem || localized("Unscoped", "未归类"))}</div></div>${pill(status, tone)}</div><div class="pills">${pill(unit(component.implementation_files, "file", "files", "个文件"))}${pill(unit(component.implementation_lines, "line", "lines", "行"))}${component.changed ? pill(statusLabel("changed"), "warn") : pill(statusLabel("stable"), "good")}${convergenceNeeds ? pill(localized(`${convergenceNeeds} need convergence`, `${convergenceNeeds} 项需收敛`), "warn") : ""}</div>${health}${architectureObservationNote()}${inspectorSection(localized("Design vs actual", "设计 vs 实际"), comparison, true)}${architectureCandidateEvidence(component.id)}${inspectorSection(t("Responsibilities"), responsibilities)}${inspectorSection(t("Implementation mapping"), implementations)}${inspectorSection(localized("Upstream / downstream dependencies", "上下游依赖"), dependencyHtml)}${inspectorSection(t("Related requirements"), requirements)}${inspectorSection(localized("Verification & proof", "验证与证明"), verification)}${inspectorSection(localized("Convergence & drift", "收敛与偏离"), convergence)}${inspectorSection(t("Changed paths"), changes)}${inspectorSection(t("Product scopes"), scopes)}`;
-  setHtml("componentInspector", els.componentInspector, html, () => {
+  setSourceActionHtml("componentInspector", els.componentInspector, html, { tab: "architecture", selection: "component", id: component.id, view: state.architectureView }, () => {
     els.componentInspector.querySelector("[data-inspector-close]")?.addEventListener("click", () => {
       state.selectedComponent = "";
       els.componentInspector.classList.remove("open");

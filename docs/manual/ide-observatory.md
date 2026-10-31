@@ -108,7 +108,7 @@ These are reproducible synthetic behavior comparisons, not a model benchmark or 
 
 ### Retained output location (second iteration)
 
-The existing Jobs inspector now searches retained output locally: at most 256 query characters, case-sensitive literal matching, a stdout/stderr selector and at most 25 matching retained lines per page. Line numbers belong to each retained fragment; the streams do not form a timeline. Truncation and redaction remain explicit, including when no retained text matches. Both original output blocks remain inspectable; search neither fetches additional output nor replays a command.
+The existing Jobs inspector now searches retained output locally: at most 256 query characters, case-sensitive literal matching, a stdout/stderr selector and at most 25 matching retained lines per page. Line numbers belong to each retained fragment; the streams do not form a timeline. Truncation and redaction remain explicit, including when no retained text matches. Clearing the search restores the original output blocks; search neither fetches additional output nor replays a command.
 
 Search state binds the exact task, Workspace, session owner and epoch. Selecting another task withdraws old output before the response arrives; failed or invalid detail clears old matches. Same-task updates preserve the query, valid pagination, focus and Chinese composition. `tests/unit/ui/job_output.cjs` verifies these behaviors and separately ablates literal matching, identity boundaries and coverage explanations inside isolated VMs: matching lines 2/5→incorrect 5/5→restored 2/5, task/owner boundaries 2/2→0/2→2/2, coverage statements 4/4→0/4→4/4. These are functional comparisons, with no measured latency or model-cost claim.
 
@@ -122,10 +122,27 @@ Search became available after the initial source audit. The following primary so
 
 These sources inform prioritization; they do not measure an improvement in wcode or wteam. Continue with bounded projections over existing facts, actual CI evaluation identity and independent checks. Additional planners, autonomous retry loops, general rollback and new telemetry stores remain deferred until a concrete requirement and a reproducible comparison justify them.
 
+## Inspect design, implementation and command output
+
+The current source connects two existing observation paths:
+
+| Starting point | Action | What opens |
+| --- | --- | --- |
+| Requirements → implementation or acceptance-test reference | **Inspect mapped file** | The mapped file in the protected Code Graph source inspector, bound to the observed code and Design revision. |
+| Architecture → component implementation or observed changed file | **Inspect mapped file** | The exact observed file through the same snapshot/SHA checks. |
+| Activity → a `run_command` row with a current durable job binding | **Inspect output** | That exact retained task, including origin, lifecycle, reported outcome and bounded stdout/stderr. |
+| Activity → Command jobs | Select a retained task, then search or choose an output stream | Local inspection of the already returned output; no command is launched or rerun. |
+
+Resolved design mappings can provide a file path even when it is outside the separately bounded file-tree response. Extensionless files such as `Dockerfile` and `Makefile` keep their exact identity. An unavailable source action means this observation cannot supply the path, not that the file is absent. Source replies from an obsolete workspace, selection or revision cannot replace the active inspection. Opening an acceptance-test file does not execute the test or establish evidence.
+
+The Jobs list and each output stream scroll independently. Search uses literal matching, including punctuation and non-English text; the **Match case** option can be turned off for case-insensitive matching; select **stdout**, **stderr**, or both. Matching line numbers are relative to the retained window. Matching results are paged across both streams, at most 25 lines per page. The existing 32 KiB per-stream retention bound and redaction still apply, and truncation/redaction notices remain visible when a stream is filtered out. No match in retained output says nothing about omitted logs.
+
+Refreshing the same task preserves the reading position, expanded/collapsed streams and keyboard focus. **Jump to end** is explicit; polling does not pull the reader away from older output. Search controls retain focus while typing. Selecting another task or switching workspace/session clears the prior task's output and query immediately. Unavailable or stale activity correlations have no output-navigation action; they do not fall back to a different task. A completed task remains distinct from a successful command, verification or Acceptance.
+
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.
-2. **Extend the existing result viewer only where needed.** Retained task status and bounded output inspection already exist. Local output search is implemented; evaluate additional producer/timing metadata against a concrete debugging case. Test adapters can later attach exact test identity, failure location and coverage. Reading output remains separate from command replay.
+2. **Extend result and output inspection.** Retained command output now has local search, stream filters, stable scrolling and an exact activity-to-task link. Follow-up work should add native check/test identities, failure locations, producer metadata and real coverage data. Full command program/arguments/cwd are not exported by the current observation contract. Arbitrary command replay remains separate from reading output.
 3. **Add commit-bound external checks.** CI/PR observation should distinguish local changes, commit SHA, check suite/job/step, attempt, platform, and conclusion. Authentication and polling limits are integration concerns; a last successful run cannot prove the current worktree.
 4. **Add runtime signal correlation.** Align existing execution/task/evidence identifiers first. Application traces, logs, metrics, and profiles require explicit collection, retention, redaction, resource identity, and clock handling. wcode runtime health is not application observability.
 5. **Add debugger and interactive terminal protocols when justified.** Breakpoints, stepping, stack frames, watch values, and locals require a debugger session and supported adapters. A terminal session requires process/PTY lifecycle, input ownership, cancellation, and platform testing. These cannot be inferred from ordinary command execution.

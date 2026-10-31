@@ -2,6 +2,7 @@ schema_version: 1
 id: component:intelligence-ui
 name: Engineering Observatory
 responsibilities:
+  - connect observed requirement implementation and acceptance test mappings plus component targets to protected revision-bound file inspection; missing bounded observations and mapped tests remain distinct from missing files and executed proof
   - expose live design traceability risk evidence graph and reconciliation state in the TUI
   - share a bounded revision-bound actionable attention projection across TUI and WebUI, preserving evidence scope and precision, raw counts, partial coverage and current-plan ordering
   - provide native selectable TUI attention tasks and providers plus protected paged source inspection and explicit snapshot SHA guarded line-window editing from the Web file tree with bounded drafts and stale-response isolation
@@ -36,6 +37,8 @@ depends_on:
   - component:experience-graph
   - component:reconciliation-engine
 implementation:
+  - kind: file
+    path: src/ui/intelligence_web/app/design_sources.js
   - kind: symbol
     path: src/ui/monitor/intelligence.rs
     symbol: render_intelligence_overlay

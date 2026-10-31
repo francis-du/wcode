@@ -162,6 +162,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check((document.getElementById('runtimeJobList').textContent||'').includes(state.language==='zh-CN'?'2 条保留记录中的 1 条':'1 of 2'),'filtered retained denominator');
         check((document.getElementById('runtimeJobMessage').textContent||'').includes(state.language==='zh-CN'?'截断':'truncated'),'filtered partial coverage remains explicit');
         check(!document.querySelector('#runtimeJobDetail [data-job-cancel]'),'filter creates no cancellation authority');
+        {
         const fragment=(text,truncated=false,redacted=false)=>({text,total_bytes:new TextEncoder().encode(text).length,truncated,redacted});
         state.runtimeJobSelected=state.runtimeJobs[0].task_id;
         state.runtimeJob={schema_version:1,kind:'command_job',task_id:state.runtimeJobSelected,workspace:state.current,tool:'run_command',
@@ -172,7 +173,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         let outputQuery=document.querySelector('[data-job-output-query]');outputQuery.focus();outputQuery.value='needle';outputQuery.dispatchEvent(new Event('input',{bubbles:true}));
         check(document.querySelectorAll('[data-job-output-match]').length===25,'output search page bounded');
         check(runtimeJobOutputView().total_matches===57,'output search counts matching retained lines');
-        check(!document.querySelector('#runtimeJobDetail script'),'output search escapes markup');
+        check(!document.querySelector('#runtimeJobOutput script'),'output search escapes markup');
         document.querySelector('[data-job-output-page="1"]').focus();document.querySelector('[data-job-output-page="1"]').click();
         check(runtimeJobOutputView().page===1&&document.querySelectorAll('[data-job-output-match]').length===25,'second output page reachable');
         check(document.activeElement===document.querySelector('[data-job-output-page="2"]'),'keyboard output pagination keeps focus on next page');
@@ -198,15 +199,72 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(document.querySelector('[data-job-output-query]')===outputQuery&&outputQuery.value==='定位','output refresh preserves Chinese composition');
         outputQuery.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'定位'}));
         check(runtimeJobOutputView().query==='定位'&&runtimeJobOutputView().total_matches===1,'output composition commits literal search');
-        for(const selector of ['.runtime-job-output','.runtime-job-output-controls','.runtime-job-output-matches']){
-          document.querySelectorAll(selector).forEach(el=>check(el.scrollWidth<=el.clientWidth+1,selector+' native overflow',el));
+        for(const selector of ['#runtimeJobOutputFilters','#runtimeJobOutput','#runtimeJobOutput [data-job-output-stream-name]']){
+          const elements=[...document.querySelectorAll(selector)];
+          check(elements.length>0,selector+' output geometry targets exist');
+          elements.forEach(el=>check(el.scrollWidth<=el.clientWidth+1,selector+' native overflow',el));
         }
         const obsoleteOutput=document.querySelector('[data-job-output-query]');
         state.runtimeJobSelected=state.runtimeJobs[1].task_id;state.runtimeJob={...state.runtimeJob,task_id:state.runtimeJobSelected};renderRuntimeJobs();
         obsoleteOutput.value='old-query';obsoleteOutput.dispatchEvent(new Event('input',{bubbles:true}));
         check(runtimeJobOutputScope().query==='','obsolete output controls cannot change another task');
+        }
+        const selected=state.runtimeJobs[1],stream=(text,extra={})=>({text,total_bytes:new TextEncoder().encode(text).length,truncated:false,redacted:false,...extra});
+        const log=Array.from({length:160},(_,i)=>`line ${i}: ${i%50===0?'ERROR [x] 海':'normal output'}`).join('\n')+'\n<script>LOG_MUST_NOT_EXECUTE</script>\n'+'long_unbroken_output_'.repeat(120);
+        state.runtimeJobSelected=selected.task_id;
+        state.runtimeJob={schema_version:1,kind:'command_job',workspace:state.current,task_id:selected.task_id,tool:'run_command',origin:'ui',status:'failed',can_cancel:false,success:false,exit_code:1,error:null,completion_is_not_success:true,acceptance_ready:false,stdout:stream(log),stderr:stream('[REDACTED]',{truncated:true,redacted:true,total_bytes:90000})};
+        renderRuntimeJobs();
+        const outputHost=document.getElementById('runtimeJobOutput'),outputFilters=document.getElementById('runtimeJobOutputFilters');
+        const outputQuery=()=>document.querySelector('[data-job-output-query]'),outputStream=()=>document.querySelector('[data-job-output-stream]');
+        const outputDetails=name=>outputHost.querySelector(`[data-job-output-stream-name="${name}"]`),outputText=name=>outputDetails(name)?.querySelector('[data-job-output-text]');
+        check(document.querySelector('#runtimeJobList [aria-pressed="true"]')?.classList.contains('selected'),'selected job has visible and accessible state');
+        check(outputQuery()?.type==='search'&&outputStream()?.tagName==='SELECT','native output search and stream filters');
+        check(!outputHost.querySelector('script'),'retained job output markup executed');
+        const firstLog=outputText('stdout'),consoleNode=document.querySelector('.runtime-job-console');
+        check(firstLog&&visible(firstLog),'retained stdout visible',firstLog);
+        if(firstLog){
+          check(firstLog.getAttribute('tabindex')==='0'&&firstLog.getAttribute('role')==='region','retained output keyboard scrolling',firstLog);
+          check(firstLog.clientHeight>0&&firstLog.clientHeight<=381&&firstLog.scrollHeight>firstLog.clientHeight,'bounded scrollable stdout',firstLog);
+          const a=r(firstLog),b=r(consoleNode);check(a.left>=b.left-1&&a.right<=b.right+1,'log viewport escapes console',firstLog,consoleNode);
+          firstLog.focus({preventScroll:true});firstLog.scrollTop=120;outputDetails('stderr').open=false;
+          state.runtimeJobsBusy=true;renderRuntimeJobs();state.runtimeJobsBusy=false;renderRuntimeJobs();
+          check(outputText('stdout')===firstLog&&outputText('stdout').scrollTop===120,'unchanged poll preserves log DOM and scroll');
+          state.runtimeJob={...state.runtimeJob,stdout:stream(log+'\nnew data')};renderRuntimeJobs();
+          check(outputText('stdout').scrollTop===120&&outputDetails('stderr').open===false,'updated log preserves scroll and disclosure');
+          check(document.activeElement===outputText('stdout'),'updated log preserves keyboard focus');
+        }
+        const fetchBefore=window.fetch;let outputRequests=0;
+        window.fetch=()=>{outputRequests++;return Promise.resolve({ok:false,status:503,json:async()=>({})});};
+        const matchCase=outputFilters.querySelector('[data-job-output-case]');
+        check(matchCase?.type==='checkbox'&&matchCase.checked,'output search defaults to case sensitive');
+        matchCase.checked=false;matchCase.dispatchEvent(new Event('change',{bubbles:true}));
+        const search=outputQuery();search.focus();search.value='error [x]';search.setSelectionRange(4,4);search.dispatchEvent(new Event('input',{bubbles:true}));
+        check(outputQuery()===search&&document.activeElement===search&&search.selectionStart===4,'typing retains search focus and caret');
+        check((outputHost.textContent||'').includes(state.language==='zh-CN'?'4 行匹配':'4 matching lines'),'literal case-insensitive output search');
+        check((outputText('stdout')?.textContent||'').includes('1: line 0: ERROR [x] 海'),'search retains relative line positions');
+        state.runtimeJobsBusy=true;renderRuntimeJobs();state.runtimeJobsBusy=false;renderRuntimeJobs();
+        check(outputQuery()===search&&document.activeElement===search,'poll preserves focused output search');
+        outputStream().value='stdout';outputStream().dispatchEvent(new Event('change',{bubbles:true}));
+        check(!outputDetails('stderr'),'stream selection hides other stream');
+        check((outputHost.textContent||'').includes(state.language==='zh-CN'?'输出已截断':'Output was truncated'),'hidden stream truncation remains explicit');
+        check((outputHost.textContent||'').includes(state.language==='zh-CN'?'已经脱敏':'redacted before display and search'),'hidden stream redaction remains explicit');
+        outputFilters.querySelector('[data-job-output-clear]').click();
+        check(outputQuery().value===''&&document.activeElement===outputQuery(),'clear output search restores focus');
+        outputFilters.querySelector('[data-job-output-end]').click();
+        check(outputText('stdout').scrollTop>0,'explicit jump to retained output end');
+        const staleSearch=outputQuery();
+        state.runtimeJobSelected=state.runtimeJobs[0].task_id;state.runtimeJob={...state.runtimeJob,task_id:state.runtimeJobSelected,origin:'mcp'};renderRuntimeJobs();
+        check(outputQuery().value===''&&outputStream().value==='all'&&outputText('stdout').scrollTop===0&&outputDetails('stderr').open,'new job resets output view');
+        staleSearch.value='obsolete';staleSearch.dispatchEvent(new Event('input',{bubbles:true}));
+        check(outputQuery().value==='','detached output search cannot retarget a new job');
+        check(outputRequests===0,'output inspection creates no requests');window.fetch=fetchBefore;
+        for(const el of [consoleNode,outputFilters,...outputFilters.querySelectorAll('label'),outputHost,...outputHost.querySelectorAll('details')]){
+          if(visible(el))check(el.scrollWidth<=el.clientWidth+1,'output inspector content overflow',el,el.parentElement);
+        }
+        check(document.documentElement.scrollWidth<=innerWidth+1,'populated jobs cause page overflow',document.documentElement);
         const old=document.querySelector('[data-jobs-origin]');clearRuntimeJobs();renderRuntimeJobs();old.value='mcp';old.dispatchEvent(new Event('change',{bubbles:true}));
         check(state.runtimeJobsOriginFilter==='all','obsolete filter control rejected');
+        check(outputHost.textContent===''&&outputFilters.textContent==='','clearing jobs removes retained logs immediately');
       }
       if(state.workspaceTab==='overview'){
         const acceptance=document.getElementById('statusSummary'),table=acceptance?.querySelector('.acceptance-check-table');
