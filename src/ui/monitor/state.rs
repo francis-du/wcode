@@ -147,6 +147,7 @@ impl TaskMonitor {
             let end = task.finished_at.unwrap_or(now);
             serde_json::json!({
                 "id": task.id,
+                "command_job_id": task.command_job_id,
                 "tool": task.tool.chars().take(80).collect::<String>(),
                 "status": match task.status {
                     TaskStatus::Queued => "queued", TaskStatus::Running => "running",

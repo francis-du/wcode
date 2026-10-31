@@ -61,7 +61,7 @@ async function main() {
   await test('real discovered ID selects a bounded escaped unknown-outcome log without changing Acceptance', async () => {
     const s = prepared(); await discover(s); assert.equal(await observe(s), true);
     assert.equal(s.requests[1].url, '/intelligence/jobs/' + id);
-    const html = s.node('#runtimeJobDetail').innerHTML; assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>|data-job-cancel/);
+    const html = s.node('#runtimeJobDetail').innerHTML + s.node('#runtimeJobOutput').innerHTML; assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>|data-job-cancel/);
     assert.match(html, /Unknown/); assert.match(html, /truncated/); assert.match(html, /redacted/); assert.equal(s.run('acceptanceView().status'), 'blocked');
     assert.equal(await s.run('observeRuntimeJob("TASK-"+"2".repeat(20)+"-"+"b".repeat(32))'), false);
   });
@@ -174,7 +174,7 @@ async function main() {
   await test('filtering never erases the selected task log or manufactures cancellation rights', async () => {
     const s=prepared();await discover(s);await observe(s);
     s.run('setRuntimeJobFilters("failed","ui")');
-    assert.equal(s.run('state.runtimeJobSelected'),id);assert.match(s.node('#runtimeJobDetail').innerHTML,/&lt;script&gt;/);
+    assert.equal(s.run('state.runtimeJobSelected'),id);assert.match(s.node('#runtimeJobOutput').innerHTML,/&lt;script&gt;/);
     assert.doesNotMatch(s.node('#runtimeJobDetail').innerHTML,/data-job-cancel/);
     assert.equal(s.requests.filter(r=>r.options.method==='POST').length,0);
   });

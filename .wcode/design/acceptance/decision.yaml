@@ -19,4 +19,4 @@ verification:
   - {kind: test, path: tests/unit/intelligence/jev.rs, symbol: external_guidance_cannot_reduce_deterministic_work}
   - {kind: test, path: tests/unit/intelligence/jev.rs, symbol: shell_profile_parser_reads_literals_and_rejects_expansions}
   - {kind: test, path: tests/unit/ui/monitor/console.rs, symbol: agent_context_metrics_preserve_latest_jev_runtime_telemetry}
-  - {kind: test, path: tests/unit/integrations/mcp/http.rs, symbol: observatory_activity_exposes_latest_jev_decision_without_secrets}
+  - {kind: test, path: tests/unit/integrations/mcp/activity.rs, symbol: observatory_activity_exposes_latest_jev_decision_without_secrets}

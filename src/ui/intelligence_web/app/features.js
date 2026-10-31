@@ -88,7 +88,7 @@ function renderRequirements() {
     },
   );
 }
-function implementationRows(items) {
+function implementationRows(items, sourcePaths = repositorySourcePaths()) {
   if (!items.length) {
     return `<div class="empty">${
       esc(t("No implementation reference declared."))
@@ -104,7 +104,7 @@ function implementationRows(items) {
         esc(statusLabel(item.resolved ? "resolved" : "unresolved"))
       } · ${esc(item.provider)} / ${esc(statusLabel(item.precision))}${
         item.changed ? ` · ${esc(localized("changed now", "当前已变更"))}` : ""
-      }</div></div>`
+      }</div>${designSourceAction(item, sourcePaths)}</div>`
     ).join("")
   }</div>`;
 }
@@ -145,7 +145,7 @@ function acceptanceNodes(r) {
   ).join("") ||
     `<div class="empty">${esc(t("No acceptance criterion declared."))}</div>`;
 }
-function actualComponents(r) {
+function actualComponents(r, sourcePaths) {
   return r.components.map((component) =>
     `<div class="component-card ${
       component.changed ? "changed" : ""
@@ -159,7 +159,7 @@ function actualComponents(r) {
       component.changed
         ? pill(statusLabel("changed"), "warn")
         : pill(statusLabel("current"), "good")
-    }</div></div>${implementationRows(component.implementation)}</div>`
+    }</div></div>${implementationRows(component.implementation, sourcePaths)}</div>`
   ).join("") ||
     `<div class="empty">${esc(t("No current implementation mapping."))}</div>`;
 }
@@ -202,7 +202,7 @@ function dependencyRows(r) {
     }).join("")
   }</div>`;
 }
-function verificationBlock(r) {
+function verificationBlock(r, sourcePaths) {
   if (!r.acceptance.length) {
     return `<div class="empty">${esc(t("No acceptance criteria."))}</div>`;
   }
@@ -212,7 +212,7 @@ function verificationBlock(r) {
         esc(a.title)
       }</b><code>${esc(a.id)}</code></div><div class="statement">${
         esc(a.statement)
-      }</div>${implementationRows(a.verification)}</div>`
+      }</div>${implementationRows(a.verification, sourcePaths)}</div>`
     ).join("")
   }</div>`;
 }
@@ -299,7 +299,7 @@ function renderDetail() {
     );
     return;
   }
-  const deps = r.dependency_alignment || [],
+  const sourcePaths = repositorySourcePaths(), deps = r.dependency_alignment || [],
     blockingDeps = deps.filter((dep) => dep.blocking),
     advisories = deps.filter((dep) =>
       !dep.blocking && dep.status !== "aligned"
@@ -392,12 +392,12 @@ function renderDetail() {
   }</div></div></div><div class="architecture-lane"><div class="lane-label">${
     esc(t("Actual code architecture · generated from current implementation"))
   }</div><div class="actual-grid">${
-    actualComponents(r)
+    actualComponents(r, sourcePaths)
   }</div><div class="lane-spacer"></div>${
     dependencyRows(r)
   }</div></section><section class="section"><div class="two"><div><h3>${
     esc(t("Acceptance & verification"))
-  }</h3>${verificationBlock(r)}</div><div><h3>${
+  }</h3>${verificationBlock(r, sourcePaths)}</div><div><h3>${
     esc(t("Constraints, decisions & drift"))
   }</h3>${
     r.constraints.length
@@ -447,7 +447,7 @@ function renderDetail() {
         esc(t("No current working-tree file is mapped to this requirement."))
       }</div>`
   }</section>`;
-  setHtml("detail", els.detail, html);
+  setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id });
 }
 
 function changeTable(items, compact = false) {

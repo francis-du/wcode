@@ -65,10 +65,27 @@ The operator path is: choose a workspace → select an attention item → inspec
 
 The Menu Bar helper is a separate accessory UI process rather than a second wcode daemon or a normal Dock application. Its native status item is created only after the macOS main-thread event loop is active. HTTP/MCP and stdio processes publish short-lived heartbeats under the protected local authority state root; records older than the active window are not treated as live. The menu shows transport counts, the latest runtime version and Workspace IDs, recent MCP activity, task/queue counts, and explicit coverage state. Corrupt, aliased, excessive, or incomplete observations remain partial or unknown. On non-macOS systems, the native tray is not implemented yet, but `wcode menu-bar --json` keeps the status contract portable for a future Windows/Linux tray.
 
+## Inspect design, implementation and command output
+
+The current source connects two existing observation paths:
+
+| Starting point | Action | What opens |
+| --- | --- | --- |
+| Requirements → implementation or acceptance-test reference | **Inspect mapped file** | The mapped file in the protected Code Graph source inspector, bound to the observed code and Design revision. |
+| Architecture → component implementation or observed changed file | **Inspect mapped file** | The exact observed file through the same snapshot/SHA checks. |
+| Activity → a `run_command` row with a current durable job binding | **Inspect output** | That exact retained task, including origin, lifecycle, reported outcome and bounded stdout/stderr. |
+| Activity → Command jobs | Select a retained task, then search or choose an output stream | Local inspection of the already returned output; no command is launched or rerun. |
+
+Resolved design mappings can provide a file path even when it is outside the separately bounded file-tree response. Extensionless files such as `Dockerfile` and `Makefile` keep their exact identity. An unavailable source action means this observation cannot supply the path, not that the file is absent. Source replies from an obsolete workspace, selection or revision cannot replace the active inspection. Opening an acceptance-test file does not execute the test or establish evidence.
+
+The Jobs list and each output stream scroll independently. Search is a case-insensitive literal match, including punctuation and non-English text; select **stdout**, **stderr**, or both. Matching line numbers are relative to the retained window. Each stream shows at most 200 matching lines with an explicit remaining-match count. The existing 32 KiB per-stream retention bound and redaction still apply, and truncation/redaction notices remain visible when a stream is filtered out. No match in retained output says nothing about omitted logs.
+
+Refreshing the same task preserves the reading position, expanded/collapsed streams and keyboard focus. **Jump to end** is explicit; polling does not pull the reader away from older output. Search controls retain focus while typing. Selecting another task or switching workspace/session clears the prior task's output and query immediately. Unavailable or stale activity correlations have no output-navigation action; they do not fall back to a different task. A completed task remains distinct from a successful command, verification or Acceptance.
+
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.
-2. **Add result and output inspection.** A read-only command/check viewer should search the retained output and show stream, producer, command identity, lifecycle state, timing, and omitted-output flags. Test adapters can then attach test identity, failure location, and real coverage data. Arbitrary command replay must remain separate from reading output.
+2. **Extend result and output inspection.** Retained command output now has local search, stream filters, stable scrolling and an exact activity-to-task link. Follow-up work should add native check/test identities, failure locations, producer metadata and real coverage data. Full command program/arguments/cwd are not exported by the current observation contract. Arbitrary command replay remains separate from reading output.
 3. **Add commit-bound external checks.** CI/PR observation should distinguish local changes, commit SHA, check suite/job/step, attempt, platform, and conclusion. Authentication and polling limits are integration concerns; a last successful run cannot prove the current worktree.
 4. **Add runtime signal correlation.** Align existing execution/task/evidence identifiers first. Application traces, logs, metrics, and profiles require explicit collection, retention, redaction, resource identity, and clock handling. wcode runtime health is not application observability.
 5. **Add debugger and interactive terminal protocols when justified.** Breakpoints, stepping, stack frames, watch values, and locals require a debugger session and supported adapters. A terminal session requires process/PTY lifecycle, input ownership, cancellation, and platform testing. These cannot be inferred from ordinary command execution.

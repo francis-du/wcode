@@ -1,0 +1,19 @@
+/* Keep the retained task list and each output stream independently scrollable. */
+.runtime-job-list{align-content:start}
+.runtime-job-row code,.runtime-job-console code{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.runtime-job-row:focus-visible,.runtime-job-console pre:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.runtime-job-console{align-content:start}
+.runtime-output-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(100px,.4fr);gap:10px;min-width:0}
+.runtime-output-filters:empty,#runtimeJobOutput:empty{display:none}
+.runtime-output-filters label{display:grid;gap:6px;min-width:0}
+.runtime-output-filters input,.runtime-output-filters select{width:100%;min-width:0;font-size:13px}
+.runtime-output-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+#runtimeJobOutput{display:grid;gap:12px;min-width:0}
+#runtimeJobOutput details{min-width:0}
+#runtimeJobOutput summary{cursor:pointer;font-size:12px;overflow-wrap:anywhere}
+#runtimeJobDetail{min-width:0;overflow-wrap:anywhere}
+#runtimeJobDetail>.quiet-action{margin:0 8px 6px 0}
+.activity-job-link{display:inline-flex;margin-top:6px;font-size:12px}
+.design-source-action{margin-top:6px;font-size:12px}
+.design-source-unavailable,.design-source-note{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+@media(max-width:600px){.runtime-output-filters{grid-template-columns:minmax(0,1fr)}}
