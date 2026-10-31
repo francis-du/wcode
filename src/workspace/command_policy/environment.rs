@@ -97,3 +97,119 @@ pub(in crate::workspace) fn command_environment_injection_key(upper: &str) -> bo
                 | "CARGO_ENCODED_RUSTFLAGS"
         )
 }
+
+fn python_cache_isolation_prefix() -> &'static PathBuf {
+    static PREFIX: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PREFIX.get_or_init(|| {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!("wcode-python-cache-{}-{nonce}", std::process::id()))
+    })
+}
+
+pub(in crate::workspace) fn scrub_sensitive_environment(
+    command: &mut Command,
+    program: &str,
+    args: &[String],
+    allow_git_push_credentials: bool,
+) {
+    for (key, _) in std::env::vars() {
+        let upper = key.to_ascii_uppercase();
+        let gh_auth = program == "gh"
+            && matches!(
+                upper.as_str(),
+                "GH_TOKEN" | "GITHUB_TOKEN" | "GH_ENTERPRISE_TOKEN"
+            );
+        let git_ssh_agent = program == "git"
+            && allow_git_push_credentials
+            && is_git_push_command(args)
+            && upper == "SSH_AUTH_SOCK";
+        let generic_secret = (program == "git" && upper.starts_with("GIT_"))
+            || upper.contains("TOKEN")
+            || upper.contains("SECRET")
+            || upper.contains("PASSWORD")
+            || upper.contains("CREDENTIAL")
+            || upper.contains("PRIVATE_KEY")
+            || upper == "WCODE_GITHUB_APP_KEY_FILE"
+            || upper.ends_with("_KEY")
+            || upper.starts_with("AWS_")
+            || upper.starts_with("AZURE_")
+            || upper.starts_with("GOOGLE_")
+            || upper.starts_with("GITHUB_")
+            || upper.starts_with("GITLAB_")
+            || matches!(
+                upper.as_str(),
+                "SSH_AUTH_SOCK" | "KUBECONFIG" | "DOCKER_CONFIG" | "NETRC" | "GIT_ASKPASS"
+            );
+        let tool_redirect = (program == "gh"
+            && matches!(
+                upper.as_str(),
+                "GH_REPO" | "GH_HOST" | "GH_CONFIG_DIR" | "GH_EDITOR" | "GH_BROWSER"
+            ))
+            || (program == "docker"
+                && (upper.starts_with("COMPOSE_")
+                    || matches!(
+                        upper.as_str(),
+                        "DOCKER_HOST" | "DOCKER_CONTEXT" | "DOCKER_CERT_PATH" | "DOCKER_TLS_VERIFY"
+                    )))
+            || (program == "kubectl" && upper == "KUBECTL_EXTERNAL_DIFF")
+            || (program == "terraform"
+                && (upper.starts_with("TF_CLI_ARGS")
+                    || upper.starts_with("TF_VAR_")
+                    || matches!(
+                        upper.as_str(),
+                        "TF_CLI_CONFIG_FILE" | "TF_DATA_DIR" | "TF_WORKSPACE"
+                    )))
+            || (program == "uv"
+                && matches!(
+                    upper.as_str(),
+                    "UV_PROJECT"
+                        | "UV_WORKING_DIR"
+                        | "UV_CONFIG_FILE"
+                        | "UV_DEFAULT_INDEX"
+                        | "UV_INDEX"
+                        | "UV_INSECURE_HOST"
+                        | "UV_KEYRING_PROVIDER"
+                        | "UV_CACHE_DIR"
+                ));
+        if (!gh_auth && !git_ssh_agent && generic_secret)
+            || tool_redirect
+            || command_environment_injection_key(&upper)
+        {
+            command.env_remove(key);
+        }
+    }
+    command.env("NO_COLOR", "1");
+    if matches!(program, "python" | "python3" | "pytest") {
+        command
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("PYTHONPYCACHEPREFIX", python_cache_isolation_prefix());
+    }
+    if program == "gh" {
+        command
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("GH_PAGER", "cat")
+            .env("PAGER", "cat");
+    }
+    if program == "terraform" {
+        command.env("TF_IN_AUTOMATION", "1");
+    }
+    if program == "git" {
+        let null_config = if cfg!(windows) { "NUL" } else { "/dev/null" };
+        command
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_SYSTEM", null_config)
+            .env("GIT_CONFIG_GLOBAL", null_config)
+            .env("GIT_ATTR_NOSYSTEM", "1")
+            .env("GIT_PROTOCOL_FROM_USER", "0")
+            .env("GIT_PAGER", "cat")
+            .env("PAGER", "cat")
+            .env("GIT_EDITOR", "false")
+            .env("GIT_SEQUENCE_EDITOR", "false")
+            .env("GIT_EXTERNAL_DIFF", "");
+    }
+}

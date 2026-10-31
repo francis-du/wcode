@@ -928,7 +928,11 @@ fn workspace_command_allowlist_supports_defaults_and_operator_authorized_program
         .any(|command| command == "hugo"));
     assert!(workspaces
         .allow_command(Some(&workspace_id), "bash")
-        .is_err());
+        .is_ok());
+    assert!(selected_before
+        .allowed_commands()
+        .iter()
+        .any(|command| command == "bash"));
 }
 
 #[cfg(unix)]
