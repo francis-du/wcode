@@ -486,9 +486,14 @@
     - {kind: test, path: tests/unit/integrations/auth/session.rs, symbol: session_routes_enforce_host_operator_and_strict_revoke_payload}
 - schema_version: 1
   id: AC-GRAPH-001
-  title: Composite graph history distinguishes structure from provenance churn
-  statement: Persisted Software Graph revisions retain explicit precision and diff real structural changes separately from provider revision churn.
+  title: Composite graph history preserves query scope and distinguishes structural changes
+  statement: >-
+    Persisted Software Graph revisions retain explicit precision and diff real structural changes separately from provider revision churn.
+    Without related_to, node filters that match no nodes return no nodes or edges; matching filters retain incident edges and edge_kind filtering without changing relationship-query semantics.
   verification:
+    - kind: test
+      path: tests/unit/graph/store.rs
+      symbol: graph_query_node_filter_misses_do_not_return_unrelated_edges
     - kind: test
       path: tests/unit/graph/store.rs
       symbol: graph_diff_separates_structural_changes_from_revision_churn

@@ -56,6 +56,154 @@ fn graph_history_round_trips_and_queries_nodes() {
 }
 
 #[test]
+fn graph_query_node_filter_misses_do_not_return_unrelated_edges() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let syntax = crate::graph::GraphProvenance {
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        revision: "syntax:query".into(),
+    };
+    let mut graph = SoftwareGraph::default();
+    for (id, label) in [("function:a", "Alpha"), ("function:b", "Beta")] {
+        graph
+            .add_node(GraphNode {
+                id: id.into(),
+                kind: NodeKind::Function,
+                label: label.into(),
+                attributes: BTreeMap::new(),
+                provenance: syntax.clone(),
+            })
+            .unwrap();
+    }
+    graph
+        .add_edge(GraphEdge {
+            from: "function:a".into(),
+            to: "function:b".into(),
+            kind: EdgeKind::Calls,
+            provenance: syntax,
+        })
+        .unwrap();
+    let snapshot = SoftwareGraphSnapshot {
+        workspace: "demo".into(),
+        path: ".".into(),
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        files_considered: 1,
+        files_indexed: 1,
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: graph.nodes.len(),
+        edge_count: graph.edges.len(),
+        failures: vec![],
+        graph,
+    };
+    let stored = persist(&workspace, &snapshot).unwrap();
+    let base = GraphQueryInput {
+        snapshot_id: Some(stored.id),
+        node_id: None,
+        kind: None,
+        label_contains: None,
+        related_to: None,
+        edge_kind: None,
+        direction: None,
+        limit: 10,
+    };
+
+    for (node_id, kind, label_contains) in [
+        (Some("function:missing"), None, None),
+        (None, Some(NodeKind::Component), None),
+        (None, None, Some("missing")),
+        (Some("function:a"), None, Some("Beta")),
+    ] {
+        for limit in [1, 10] {
+            let input = GraphQueryInput {
+                node_id: node_id.map(str::to_owned),
+                kind,
+                label_contains: label_contains.map(str::to_owned),
+                limit,
+                ..base.clone()
+            };
+            let result = query(&workspace, &input).unwrap();
+            assert!(result.nodes.is_empty(), "unexpected nodes for {input:?}");
+            assert!(result.edges.is_empty(), "unrelated edges for {input:?}");
+            assert!(
+                !result.truncated,
+                "empty result is not truncated: {input:?}"
+            );
+        }
+    }
+
+    for (input, expected_nodes, expected_edges) in [
+        (base.clone(), 2, 1),
+        (
+            GraphQueryInput {
+                label_contains: Some("   ".into()),
+                ..base.clone()
+            },
+            2,
+            1,
+        ),
+        (
+            GraphQueryInput {
+                node_id: Some("function:b".into()),
+                ..base.clone()
+            },
+            1,
+            1,
+        ),
+        (
+            GraphQueryInput {
+                kind: Some(NodeKind::Function),
+                ..base.clone()
+            },
+            2,
+            1,
+        ),
+        (
+            GraphQueryInput {
+                node_id: Some("function:a".into()),
+                kind: Some(NodeKind::Function),
+                label_contains: Some(" ALPHA ".into()),
+                edge_kind: Some(EdgeKind::Calls),
+                ..base.clone()
+            },
+            1,
+            1,
+        ),
+        (
+            GraphQueryInput {
+                edge_kind: Some(EdgeKind::Defines),
+                ..base.clone()
+            },
+            2,
+            0,
+        ),
+        (
+            GraphQueryInput {
+                related_to: Some("function:a".into()),
+                direction: Some(GraphDirection::Outgoing),
+                ..base.clone()
+            },
+            2,
+            1,
+        ),
+    ] {
+        let result = query(&workspace, &input).unwrap();
+        assert_eq!(result.nodes.len(), expected_nodes, "query: {input:?}");
+        assert_eq!(result.edges.len(), expected_edges, "query: {input:?}");
+        assert!(!result.truncated, "complete fixture query: {input:?}");
+        if let Some(edge) = result.edges.first() {
+            assert_eq!(edge.from, "function:a");
+            assert_eq!(edge.to, "function:b");
+            assert_eq!(edge.kind, EdgeKind::Calls);
+            assert_eq!(edge.provenance.revision, "syntax:query");
+        }
+    }
+}
+
+#[test]
 fn graph_chain_traces_calls_and_keeps_precision_provenance() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("src")).unwrap();

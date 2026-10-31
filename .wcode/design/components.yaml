@@ -186,6 +186,9 @@
       symbol: persist
     - kind: symbol
       path: src/graph/graph_store.rs
+      symbol: query
+    - kind: symbol
+      path: src/graph/graph_store.rs
       symbol: diff
     - kind: symbol
       path: src/graph/provider_store.rs

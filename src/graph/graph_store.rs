@@ -341,9 +341,7 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<Gr
     } else {
         for edge in &stored.snapshot.graph.edges {
             if input.edge_kind.is_some_and(|kind| kind != edge.kind)
-                || (!selected.is_empty()
-                    && !selected.contains(&edge.from)
-                    && !selected.contains(&edge.to))
+                || (!selected.contains(&edge.from) && !selected.contains(&edge.to))
             {
                 continue;
             }
