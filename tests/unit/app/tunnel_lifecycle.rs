@@ -1,6 +1,23 @@
 use super::policy::ENDPOINT_LEASE_TTL;
 use super::*;
 
+// These are the only fixtures that launch real public-health probes in this
+// test process. Isolate fixtures from each other without changing the production
+// four-slot limiter; each fixture's endpoints must still run concurrently.
+static HEALTH_FIXTURE_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
+
+async fn health_fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    tokio::time::timeout(
+        ENDPOINT_LEASE_TTL,
+        HEALTH_FIXTURE_LOCK
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock(),
+    )
+    .await
+    .expect("previous health fixture did not release its bounded probe lease")
+}
+
 fn registered_fixture(auth: &AuthState, provider: TunnelProvider, url: String) -> ActiveTunnel {
     let epoch = auth
         .public_url_epoch(&url)
@@ -302,6 +319,7 @@ async fn retired_alias_cleanup_does_not_recycle_its_live_replacement_provider() 
 
 #[tokio::test]
 async fn retained_aliases_receive_instance_matched_probes_without_a_provider_child() {
+    let _fixture = health_fixture_guard().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let router = axum::Router::new().route(
@@ -613,20 +631,56 @@ fn reconnect_rate_limit_preserves_multiline_diagnostics_and_cooldown() {
 
 #[tokio::test]
 async fn concurrent_endpoints_probe_independently_and_slow_health_can_recover() {
+    parallel_endpoint_fixture(false).await;
+}
+
+#[tokio::test]
+async fn concurrent_endpoints_do_not_confuse_request_readiness_with_completion() {
+    parallel_endpoint_fixture(true).await;
+}
+
+async fn parallel_endpoint_fixture(hold_ready: bool) {
+    let _fixture = health_fixture_guard().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (arrived, mut arrivals) = mpsc::channel(2);
+    let fast_release = Arc::new(tokio::sync::Notify::new());
+    let slow_release = Arc::new(tokio::sync::Notify::new());
     let router = axum::Router::new()
         .route(
             "/fast/healthz/probe",
-            axum::routing::get(|| async {
-                axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+            axum::routing::get({
+                let arrived = arrived.clone();
+                let release = Arc::clone(&fast_release);
+                move || {
+                    let arrived = arrived.clone();
+                    let release = Arc::clone(&release);
+                    async move {
+                        let _ = arrived.send(("fast", Instant::now())).await;
+                        release.notified().await;
+                        axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+                    }
+                }
             }),
         )
         .route(
             "/slow/healthz/probe",
-            axum::routing::get(|| async {
-                tokio::time::sleep(Duration::from_secs(4)).await;
-                axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+            axum::routing::get({
+                let release = Arc::clone(&slow_release);
+                move || {
+                    let arrived = arrived.clone();
+                    let release = Arc::clone(&release);
+                    async move {
+                        let started = Instant::now();
+                        let _ = arrived.send(("slow", started)).await;
+                        release.notified().await;
+                        tokio::time::sleep(
+                            Duration::from_secs(4).saturating_sub(started.elapsed()),
+                        )
+                        .await;
+                        axum::Json(serde_json::json!({"ok":true,"instance_id":"parallel"}))
+                    }
+                }
             }),
         );
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -655,21 +709,99 @@ async fn concurrent_endpoints_probe_independently_and_slow_health_can_recover() 
         "parallel",
         &tx,
     );
-    let fast = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+    let result: std::result::Result<(), String> = async {
+        // Admission/child startup is separate from response completion. The
+        // existing lease includes the production queue's bounded probe waves.
+        // The fixture guard prevents another test from holding a probe slot
+        // while one of these handlers waits for its peer's readiness.
+        let ready = tokio::time::timeout(ENDPOINT_LEASE_TTL, async {
+            let mut ready = Vec::new();
+            while ready.len() < 2 {
+                tokio::select! {
+                    request = arrivals.recv() => {
+                        ready.push(request.ok_or("health fixture stopped before readiness")?);
+                    }
+                    event = rx.recv() => {
+                        return Err(format!(
+                            "probe completed before both requests were ready: {event:?}"
+                        ));
+                    }
+                }
+            }
+            Ok::<_, String>(ready)
+        })
         .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(fast.public_url, urls[1]);
-    assert!(fast.result.is_ok(), "{:?}", fast.result);
-    let slow = tokio::time::timeout(Duration::from_secs(8), rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(slow.public_url, urls[0]);
-    assert!(
-        slow.result.is_ok(),
-        "a healthy endpoint slower than 3s must pass: {:?}",
-        slow.result
-    );
+        .map_err(|_| "health requests never reached the fixture within their lease".to_owned())??;
+        if !ready.iter().any(|(name, _)| *name == "fast")
+            || !ready.iter().any(|(name, _)| *name == "slow")
+        {
+            return Err("both independent HTTP requests must reach the fixture".to_owned());
+        }
+        let slow_started = ready
+            .iter()
+            .find_map(|(name, started)| (*name == "slow").then_some(*started))
+            .unwrap();
+        if hold_ready
+            && tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .is_ok()
+        {
+            return Err("a gated response escaped the controlled readiness window".to_owned());
+        }
+        // Both real requests are now admitted. A serial probe loop cannot reach
+        // this point because the slow response is still explicitly withheld.
+        fast_release.notify_one();
+        let fast = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .map_err(|_| {
+                "ready fast response did not complete within its result budget".to_owned()
+            })?
+            .ok_or("fast probe event was not delivered")?;
+        if fast.public_url != urls[1]
+            || fast.lease_epoch != state.endpoint_leases[&urls[1]].epoch()
+            || fast.result.is_err()
+        {
+            return Err(format!(
+                "fast probe identity or health result was invalid: {fast:?}"
+            ));
+        }
+        if rx.try_recv().is_ok() {
+            return Err("slow probe completed before its response was released".to_owned());
+        }
+        slow_release.notify_one();
+        let slow = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+            .await
+            .map_err(|_| {
+                "ready slow response did not complete within its result budget".to_owned()
+            })?
+            .ok_or("slow probe event was not delivered")?;
+        if slow.public_url != urls[0]
+            || slow.lease_epoch != state.endpoint_leases[&urls[0]].epoch()
+            || slow.result.is_err()
+            || slow_started.elapsed() < Duration::from_secs(4)
+        {
+            return Err(format!(
+                "an instance-matched endpoint slower than 3s must pass: {slow:?}"
+            ));
+        }
+        Ok(())
+    }
+    .await;
+    // Closing the receiver cancels all outstanding production probes. Release
+    // either handler even on failure, then wait for probe senders before closing
+    // the HTTP service or allowing another real-health fixture to run.
+    fast_release.notify_one();
+    slow_release.notify_one();
+    drop(rx);
+    let drained = tokio::time::timeout(Duration::from_secs(8), async {
+        while tx.strong_count() > 1 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    drop(tx);
     server.abort();
+    let _ = server.await;
+    assert!(drained.is_ok(), "cancelled endpoint probes did not drain");
+    assert!(result.is_ok(), "{result:?}");
 }

@@ -205,10 +205,13 @@ test('late discovery for a replaced workspace cannot schedule a retained job pol
   assert.equal(await pending,false);assert.equal(f.timers.size,0);
 });
 test('ablation of discovery completion scheduling reproduces the frozen working-job log',async()=>{
-  const mutant=source.replace(
-    'renderRuntimeJobs(); scheduleRuntimeJobObservation(); } }\n}\nasync function observeRuntimeJob',
-    'renderRuntimeJobs(); } }\n}\nasync function observeRuntimeJob');
-  assert.notEqual(mutant,source);
-  await refreshObservationOracle(source);
-  await assert.rejects(refreshObservationOracle(mutant),error=>error.code==='ERR_ASSERTION'&&/LIST_REFRESH_MUST_REARM_EXACT_JOB_OBSERVATION/.test(error.message));
+  for(const newline of ['\n','\r\n']){
+    const platformSource=source.replace(/\r?\n/g,newline);
+    const mutant=platformSource.replace(
+      /(renderRuntimeJobs\(\);) scheduleRuntimeJobObservation\(\);( \} \}\r?\n\}\r?\nasync function observeRuntimeJob)/,
+      '$1$2');
+    assert.notEqual(mutant,platformSource);
+    await refreshObservationOracle(platformSource);
+    await assert.rejects(refreshObservationOracle(mutant),error=>error.code==='ERR_ASSERTION'&&/LIST_REFRESH_MUST_REARM_EXACT_JOB_OBSERVATION/.test(error.message));
+  }
 });

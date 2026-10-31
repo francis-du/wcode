@@ -1,6 +1,9 @@
 use super::*;
 use std::fs;
 use std::process::Command;
+use std::sync::{Condvar, Mutex};
+
+use crate::runtime_telemetry::{TaskTelemetry, TaskTelemetryTicket};
 
 // Real Cargo checks in two manifest islands share one Wcode Workspace. The
 // first build script holds a bounded barrier; the sibling must not reserve a
@@ -19,7 +22,19 @@ async fn verification_phase_cold_sibling_survives_external_cargo_wait_cap() {
     real_cargo_phase(Duration::from_secs(32)).await;
 }
 
+// A real completed static check keeps its own admission permit until this test
+// explicitly releases its telemetry completion. The legacy sampler therefore
+// observes lawful non-Cargo work for its entire one-second polling window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn verification_phase_waits_for_independent_static_checks_before_counting_cargo() {
+    real_cargo_phase_with_static_gate(Duration::ZERO, true).await;
+}
+
 async fn real_cargo_phase(hold: Duration) {
+    real_cargo_phase_with_static_gate(hold, false).await;
+}
+
+async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
     // Cold Windows toolchains need bounded startup/cleanup headroom. These
     // fixture-only deadlines leave the real hold and production wait cap intact.
     let startup_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 10 });
@@ -90,16 +105,33 @@ async fn real_cargo_phase(hold: Duration) {
     }
     let workspace = Workspace::new(root.path(), true, true).unwrap();
     let harness = ToolHarness::new(8).unwrap();
+    let static_checks: Vec<String> = harness
+        .load_project_profile(&workspace)
+        .unwrap()
+        .0
+        .recommended_checks
+        .iter()
+        .filter(|check| check.level == "quick" && !check.id.ends_with("rust-check"))
+        .map(|check| format!("verify:{}", check.id))
+        .collect();
+    assert!(!static_checks.is_empty());
+    let monitor = crate::monitor::TaskMonitor::new(["phase-fixture".into()]);
+    let static_gate = Arc::new(StaticCompletionGate::default());
+    let _release_static = ReleaseStaticGate(Arc::clone(&static_gate));
+    let runner_monitor = PhaseFixtureMonitor {
+        inner: monitor.clone(),
+        gate: pause_static.then(|| Arc::clone(&static_gate)),
+        deadline: Duration::from_secs(check_timeout),
+    };
     let runner = harness.clone();
     let mut running = tokio::spawn(async move {
-        let monitor = crate::monitor::TaskMonitor::new(["phase-fixture".into()]);
         runner
             .verify_project_mode(
                 "phase-fixture",
                 &workspace,
                 ("quick", false),
                 check_timeout,
-                &monitor,
+                &runner_monitor,
             )
             .await
     });
@@ -119,21 +151,52 @@ async fn real_cargo_phase(hold: Duration) {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    // Other independent static checks may still be finishing. Observe only this
-    // Harness, and release the child barriers before asserting any result.
+    // The hold starts at the real Cargo barrier, including time spent waiting
+    // for independent static checks. Their completion must be observed before
+    // attributing this Harness's entire admission count to Cargo writers.
+    // Reuse the existing startup bound; max(startup_timeout, hold) stays below
+    // the build script's unchanged ninety-second barrier lifetime.
+    let held_from = Instant::now();
+    let settle_deadline = held_from + startup_timeout;
+    let mut legacy_occupied = None;
+    if started && pause_static {
+        while !static_gate.entered() && Instant::now() < settle_deadline {
+            if running.is_finished() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if static_gate.entered() {
+            // Run the old sampling rule while the real static permit is held.
+            // Its release is a handshake after sampling, not a timing guess.
+            for _ in 0..100 {
+                let occupied = harness.admission_snapshot().execution_in_use;
+                legacy_occupied = Some(occupied);
+                if occupied == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+    }
+    static_gate.release();
     let mut occupied = harness.admission_snapshot().execution_in_use;
+    let mut static_finished = false;
     if started {
-        for _ in 0..100 {
+        loop {
+            static_finished = static_checks_finished(&monitor, &static_checks);
             occupied = harness.admission_snapshot().execution_in_use;
-            if occupied == 1 {
+            if (static_finished && occupied == 1)
+                || running.is_finished()
+                || Instant::now() >= settle_deadline
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
-    let held_from = Instant::now();
-    if started && !hold.is_zero() {
-        tokio::time::sleep(hold).await;
+    if started {
+        tokio::time::sleep(hold.saturating_sub(held_from.elapsed())).await;
     }
     let occupied_after_hold = harness.admission_snapshot().execution_in_use;
     for path in &islands {
@@ -153,6 +216,17 @@ async fn real_cargo_phase(hold: Duration) {
     );
     let report = result.unwrap();
     assert!(report.passed, "{report:?}");
+    assert!(
+        static_finished,
+        "independent static checks did not finish: {}",
+        monitor.observatory_activity("phase-fixture")
+    );
+    if pause_static {
+        assert!(
+            legacy_occupied.is_some_and(|occupied| occupied > 1),
+            "the controlled static check must falsify the old Cargo-only sampler"
+        );
+    }
     if !hold.is_zero() {
         assert!(held_from.elapsed() >= hold);
         assert_eq!(
@@ -181,4 +255,108 @@ async fn real_cargo_phase(hold: Duration) {
         .iter()
         .all(|path| path.join("target/phase-started").exists()));
     assert_eq!(harness.admission_snapshot().execution_in_use, 0);
+}
+
+fn static_checks_finished(monitor: &crate::monitor::TaskMonitor, expected: &[String]) -> bool {
+    let observed = monitor.observatory_activity("phase-fixture");
+    !observed["recent_truncated"].as_bool().unwrap_or(true)
+        && observed["recent"].as_array().is_some_and(|tasks| {
+            expected.iter().all(|tool| {
+                tasks.iter().any(|task| {
+                    task["tool"].as_str() == Some(tool.as_str())
+                        && matches!(task["status"].as_str(), Some("completed" | "failed"))
+                })
+            })
+        })
+}
+
+#[derive(Default)]
+struct StaticCompletionGate {
+    state: Mutex<(bool, bool)>,
+    changed: Condvar,
+}
+
+impl StaticCompletionGate {
+    fn entered(&self) -> bool {
+        self.state.lock().unwrap().0
+    }
+
+    fn wait(&self, deadline: Duration) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = true;
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, deadline, |state| !state.1)
+            .unwrap();
+        let released = state.1;
+        drop(state);
+        assert!(released, "controlled static completion was not released");
+    }
+
+    fn release(&self) {
+        self.state.lock().unwrap().1 = true;
+        self.changed.notify_all();
+    }
+}
+
+struct ReleaseStaticGate(Arc<StaticCompletionGate>);
+
+impl Drop for ReleaseStaticGate {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+#[derive(Clone)]
+struct PhaseFixtureMonitor {
+    inner: crate::monitor::TaskMonitor,
+    gate: Option<Arc<StaticCompletionGate>>,
+    deadline: Duration,
+}
+
+struct PhaseFixtureTicket {
+    inner: crate::monitor::TaskTicket,
+    gate: Option<Arc<StaticCompletionGate>>,
+    deadline: Duration,
+}
+
+impl TaskTelemetry for PhaseFixtureMonitor {
+    type Ticket = PhaseFixtureTicket;
+
+    fn queue(
+        &self,
+        workspace: impl Into<String>,
+        tool: impl Into<String>,
+        detail: impl Into<String>,
+        request_bytes: u64,
+    ) -> Self::Ticket {
+        let tool = tool.into();
+        PhaseFixtureTicket {
+            gate: if tool == "verify:git-diff-check" {
+                self.gate.clone()
+            } else {
+                None
+            },
+            inner: self.inner.queue(workspace, tool, detail, request_bytes),
+            deadline: self.deadline,
+        }
+    }
+
+    fn record_intelligence_result(&self, workspace: &str, tool: &str, value: &serde_json::Value) {
+        self.inner
+            .record_intelligence_result(workspace, tool, value);
+    }
+}
+
+impl TaskTelemetryTicket for PhaseFixtureTicket {
+    fn start(&self) {
+        self.inner.start();
+    }
+
+    fn finish(self, success: bool, response_bytes: u64) {
+        if let Some(gate) = self.gate {
+            gate.wait(self.deadline);
+        }
+        self.inner.finish(success, response_bytes);
+    }
 }
