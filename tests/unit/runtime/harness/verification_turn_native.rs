@@ -25,7 +25,9 @@ async fn verification_phase_cold_sibling_survives_external_cargo_wait_cap() {
 // A real completed static check keeps its own admission permit until this test
 // explicitly releases its telemetry completion. The legacy sampler therefore
 // observes lawful non-Cargo work for its entire one-second polling window.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// One worker makes yielding the executor core necessary: Cargo I/O and Tokio
+// timers must keep progressing while the synchronous completion is held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn verification_phase_waits_for_independent_static_checks_before_counting_cargo() {
     real_cargo_phase_with_static_gate(Duration::ZERO, true).await;
 }
@@ -355,7 +357,9 @@ impl TaskTelemetryTicket for PhaseFixtureTicket {
 
     fn finish(self, success: bool, response_bytes: u64) {
         if let Some(gate) = self.gate {
-            gate.wait(self.deadline);
+            // Each check is an independent JoinSet task. Hand the worker core
+            // back while this synchronous callback keeps the real tool permit.
+            tokio::task::block_in_place(|| gate.wait(self.deadline));
         }
         self.inner.finish(success, response_bytes);
     }
