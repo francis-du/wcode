@@ -229,3 +229,58 @@ fn graph_budget_preserves_unprioritized_order_and_hard_limit() {
         assert!(graph.truncated);
     }
 }
+
+#[test]
+fn graph_budget_prioritizes_qualified_callee_without_erasing_omitted_homonym() {
+    let root = tempfile::tempdir().unwrap();
+    let noise = (0..16)
+        .map(|n| format!("mod noise_{n};\n"))
+        .collect::<String>();
+    fs::write(
+        root.path().join("main.rs"),
+        format!("{noise}pub fn entry() {{ alpha::helper(); }}\nfn helper() {{}}\n"),
+    )
+    .unwrap();
+    for file in ["alpha.rs", "beta.rs"] {
+        fs::write(root.path().join(file), "pub fn helper() {}\n").unwrap();
+    }
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let ids = exact_ids(&index, &workspace, &[("main.rs", "entry")]);
+    let graph = index
+        .software_graph_from_paths(
+            &workspace,
+            vec!["main.rs".into(), "beta.rs".into(), "alpha.rs".into()],
+            false,
+            2,
+            &ids,
+            &HashSet::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        graph
+            .graph
+            .nodes
+            .values()
+            .filter(|node| node.kind != NodeKind::File)
+            .count(),
+        2
+    );
+    let calls = graph
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::Calls)
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(graph.graph.nodes[&calls[0].from].label, "entry");
+    assert_eq!(
+        graph.graph.nodes[&calls[0].to].attributes["path"],
+        "alpha.rs"
+    );
+    assert_eq!(
+        calls[0].provenance.provider,
+        "tree-sitter/rust-path-resolution"
+    );
+    assert!(graph.truncated);
+}

@@ -1,4 +1,27 @@
 #[test]
+fn architecture_dependency_evidence_preserves_uncertainty_and_source_provenance() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/architecture_evidence.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for architecture dependency evidence regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 9
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn jobs_output_search_is_literal_scoped_bounded_and_preserves_coverage() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")

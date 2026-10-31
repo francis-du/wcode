@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "observatory_graph.rs"]
+mod graph_budget;
+
 #[test]
 fn project_fitness_keeps_journal_benchmark_and_verification_independent() {
     let root = tempfile::tempdir().unwrap();

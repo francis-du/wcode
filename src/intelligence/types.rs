@@ -352,6 +352,31 @@ pub struct FeatureDecisionView {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct FeatureDependencyOwner {
+    pub component: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FeatureDependencyEvidence {
+    pub from_node: String,
+    pub to_node: String,
+    pub from_path: Option<String>,
+    pub to_path: Option<String>,
+    pub from_symbol: Option<String>,
+    pub to_symbol: Option<String>,
+    pub kind: EdgeKind,
+    pub provider: String,
+    pub precision: String,
+    pub revision: String,
+    pub ownership: String,
+    pub from_owners: Vec<FeatureDependencyOwner>,
+    pub to_owners: Vec<FeatureDependencyOwner>,
+    pub from_owners_total: usize,
+    pub to_owners_total: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct FeatureDependencyAlignment {
     pub from: String,
     pub from_name: String,
@@ -362,6 +387,9 @@ pub struct FeatureDependencyAlignment {
     pub status: String,
     pub precision: String,
     pub blocking: bool,
+    pub evidence: Vec<FeatureDependencyEvidence>,
+    pub evidence_total: usize,
+    pub evidence_truncated: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -558,6 +586,9 @@ pub struct ProjectArchitectureView {
     pub subsystems: Vec<ProjectArchitectureSubsystemView>,
     pub components: Vec<ProjectArchitectureComponentView>,
     pub dependencies: Vec<FeatureDependencyAlignment>,
+    pub dependency_candidates: Vec<FeatureDependencyEvidence>,
+    pub dependency_candidates_total: usize,
+    pub dependency_candidates_truncated: bool,
     pub desired_edges: usize,
     pub observed_edges: usize,
     pub aligned_edges: usize,

@@ -79,7 +79,12 @@ function renderProjectNavigator({ open = false } = {}) {
 }
 function subsystemBlueprintTone(subsystem) {
   const drift = Number(subsystem.blocking_drift_edges || 0), changed = Number(subsystem.changed_components || 0), advisory = Number(subsystem.advisory_edges || 0);
-  return drift ? "drift" : changed ? "changed" : advisory ? "uncertain" : "aligned";
+  const a = architectureData(), ids = new Set(subsystem.component_ids || []);
+  const candidates = (a.dependency_candidates || []).some(evidence =>
+    [...(evidence.from_owners || []), ...(evidence.to_owners || [])].some(owner => ids.has(owner.component)));
+  const observed = (a.dependencies || []).some(edge => edge.actual && (ids.has(edge.from) || ids.has(edge.to)));
+  const incomplete = advisory || candidates || architectureOwnerSamplesIncomplete() || a.dependency_candidates_truncated || state.project?.structure?.truncated || !observed;
+  return drift ? "drift" : changed ? "changed" : incomplete ? "uncertain" : "aligned";
 }
 function engineeringStage(tool) {
   const name = String(tool || "").toLowerCase();
@@ -181,7 +186,7 @@ function subsystemIconName(subsystem, tierIndex = 0) {
 function subsystemToneLabel(subsystem) {
   const tone = subsystemBlueprintTone(subsystem);
   return {
-    aligned: [localized("Aligned", "已对齐"), "good"],
+    aligned: [localized("Dependencies observed", "依赖已观测"), "good"],
     changed: [localized("Changed", "有变更"), "warn"],
     uncertain: [localized("Advisory", "提示"), "info"],
     drift: [localized("Drift", "偏离"), "bad"],
@@ -317,7 +322,7 @@ function renderArchitectureBlueprint() {
   const driftSubsystems = subsystems.filter(item => Number(item.blocking_drift_edges || 0) > 0);
   const evidenceCount = Number(project.proof?.effective?.total || project.proof?.current_evidence || 0);
   const tiers = systemMapTiers(subsystems);
-  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span>${runtimeDrift.length ? `<span>${uiIcon("chart")} ${num(runtimeDeviation)}% ${esc(localized("runtime drift", "运行时偏离"))}</span>` : ""}</div></div>${pill(hasDrift ? localized("Needs attention", "需要处理") : localized("Healthy", "健康"), hasDrift ? (structuralDrift ? "bad" : "warn") : "good")}</div>`;
+  const root = `<div class="system-map-root"><div class="system-root-mark">${uiIcon("cube")}</div><div class="system-root-main"><div class="system-root-title"><strong>${esc(systemName)}</strong><span class="root-kind">${esc(localized("System root", "系统根节点"))}</span></div><div class="system-root-stats"><span>${uiIcon("cube")} ${num(a.components?.length || 0)} ${esc(localized("components", "组件"))}</span><span>${uiIcon("document")} ${num(project.code?.source_files || project.structure?.entries?.length || 0)} ${esc(localized("files", "文件"))}</span><span>${uiIcon("check")} ${num((project.requirements || []).length)} ${esc(localized("requirements", "需求"))}</span>${runtimeDrift.length ? `<span>${uiIcon("chart")} ${num(runtimeDeviation)}% ${esc(localized("runtime drift", "运行时偏离"))}</span>` : ""}</div></div>${pill(hasDrift ? localized("Needs attention", "需要处理") : architectureObservationIncomplete() ? localized("Needs stronger evidence", "待补证据") : localized("Dependencies observed", "依赖已观测"), hasDrift ? (structuralDrift ? "bad" : "warn") : architectureObservationIncomplete() ? "info" : "good")}</div>`;
   const overview = `<div class="system-map-kpis"><div><span>${esc(localized("Subsystems", "子系统"))}</span><strong>${num(subsystems.length)}</strong></div><div><span>${esc(localized("Dependency paths", "依赖路径"))}</span><strong>${num(relationEdges.length)}</strong></div><div class="${changedSubsystems.length ? "warn" : ""}"><span>${esc(localized("Changed subsystems", "变更子系统"))}</span><strong>${num(changedSubsystems.length)}</strong></div><div class="${driftSubsystems.length ? "bad" : ""}"><span>${esc(localized("Blocking drift", "阻塞偏离"))}</span><strong>${num(driftSubsystems.length)}</strong></div><div><span>${esc(localized("Check results", "验证证据"))}</span><strong>${num(evidenceCount)}</strong></div></div>`;
   const priorityRelations = [...relationEdges].sort((left, right) => Number(right.source.blocking_drift_edges || 0) - Number(left.source.blocking_drift_edges || 0) || Number(right.source.changed_components || 0) - Number(left.source.changed_components || 0) || left.source.title.localeCompare(right.source.title)).slice(0, 12);
   const relationOverview = priorityRelations.length ? `<section class="system-map-relations"><header><div><strong>${esc(localized("Architecture flow", "架构流向"))}</strong><span>${esc(localized("Highest-signal subsystem dependencies; select a path to inspect its source subsystem.", "优先展示高信号子系统依赖；点击路径可检查来源子系统。"))}</span></div><small>${num(relationEdges.length)} ${esc(localized("relations", "条关系"))}</small></header><div class="system-map-relation-grid">${priorityRelations.map(({ source, target }) => `<button type="button" class="system-map-relation ${subsystemBlueprintTone(source)}" data-subsystem-card="${esc(source.id)}"><strong>${esc(source.title)}</strong><span aria-hidden="true">→</span><b>${esc(target.title)}</b><small>L${num(source.layer || 0)} → L${num(target.layer || 0)}</small></button>`).join("")}</div></section>` : "";
@@ -352,15 +357,17 @@ function renderArchitectureBlueprint() {
 }
 function renderArchitectureGraph() {
   const a = architectureData(), components = a.components || [], allEdges = (a.dependencies || []).filter(architectureEdgeVisible);
-  if (!allEdges.length) return setHtml("architectureGraph", els.architectureGraph, `<div class="empty">${esc(localized("No dependency evidence for this view.", "当前视图没有依赖证据。"))}</div>`);
+  const candidates = ["overlay", "unverified"].includes(state.architectureMode) ? architectureCandidateEvidence() : "";
   const componentNames = new Map(components.map(component => [component.id, component.name]));
   const rows = [...allEdges].sort((left, right) => Number(Boolean(right.blocking)) - Number(Boolean(left.blocking)) || String(left.from_name || left.from).localeCompare(String(right.from_name || right.from))).map(edge => {
     const tone = architectureEdgeTone(edge), source = edge.from_name || componentNames.get(edge.from) || edge.from, target = edge.to_name || componentNames.get(edge.to) || edge.to;
-    const evidence = edge.desired && edge.actual ? localized("Design + actual", "设计 + 实际") : edge.desired ? localized("Design only", "仅设计") : localized("Actual only", "仅实际");
-    return `<button type="button" class="dependency-row ${tone}" data-dependency-component="${esc(edge.from)}" role="row"><span role="cell"><strong>${esc(source)}</strong><small>${esc(edge.from)}</small></span><span class="dependency-direction" role="cell">${esc(localized("depends on", "依赖"))}</span><span role="cell"><strong>${esc(target)}</strong><small>${esc(edge.to)}</small></span><span role="cell">${pill(evidence, tone === "drift" ? "bad" : tone === "unverified" ? "warn" : "info")}</span><span role="cell"><strong>${esc(statusLabel(edge.status))}</strong><small>${esc(statusLabel(edge.precision))}</small></span></button>`;
+    const evidence = edge.desired && edge.actual ? localized("Design + observed", "设计 + 已观测") : edge.desired ? localized("Declared, unobserved", "设计已声明、未观测") : localized("Observed, undeclared", "已观测、设计未声明");
+    return `<div class="dependency-record"><button type="button" class="dependency-row ${tone}" data-dependency-component="${esc(edge.from)}" role="row"><span role="cell"><strong>${esc(source)}</strong><small>${esc(edge.from)}</small></span><span class="dependency-direction" role="cell">${esc(localized("depends on", "依赖"))}</span><span role="cell"><strong>${esc(target)}</strong><small>${esc(edge.to)}</small></span><span role="cell">${pill(evidence, tone === "drift" ? "bad" : tone === "unverified" ? "warn" : "info")}</span><span role="cell"><strong>${esc(statusLabel(edge.status))}</strong><small>${esc(statusLabel(edge.precision))}</small></span></button>${architectureEdgeEvidence(edge)}</div>`;
   }).join("");
-  const html = `<div class="dependency-ledger-head" role="row"><span>${esc(localized("Source", "来源"))}</span><span>${esc(localized("Relation", "关系"))}</span><span>${esc(localized("Target", "目标"))}</span><span>${esc(localized("Evidence", "证据"))}</span><span>${esc(localized("State", "状态"))}</span></div><div class="dependency-rows">${rows}</div>`;
-  setHtml("architectureGraph", els.architectureGraph, html, () => {
+  const ledger = rows
+    ? `<div class="dependency-ledger-head" role="row"><span>${esc(localized("Source", "来源"))}</span><span>${esc(localized("Relation", "关系"))}</span><span>${esc(localized("Target", "目标"))}</span><span>${esc(localized("Evidence", "证据"))}</span><span>${esc(localized("State", "状态"))}</span></div><div class="dependency-rows">${rows}</div>`
+    : `<div class="empty">${esc(localized("No confirmed component dependency in this view.", "当前视图没有已确认的组件依赖。"))}</div>`;
+  setHtml("architectureGraph", els.architectureGraph, architectureObservationNote() + ledger + candidates, () => {
     const rows = [...els.architectureGraph.querySelectorAll("[data-dependency-component]")];
     rows.forEach((button, index) => {
       button.addEventListener("click", () => {

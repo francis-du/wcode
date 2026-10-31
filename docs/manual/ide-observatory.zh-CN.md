@@ -49,6 +49,18 @@ wcode 的目标是让操作者理解仓库、查看 Agent 活动、定位问题�
 
 这些信息的证据强度不同。架构声明表达意图，语法关系仍是语法，实时语言提供方可能提供语义，检查输出是执行数据，而版本绑定 Evidence 按自己的规则提供证明。放在同一个工作台里，也必须保留这种区分。
 
+### 架构证据与有界观测
+
+实现映射已解析，说明 Design 引用在源码中的位置已找到；依赖已观测，说明当前保留的源码端点之间存在一条关系；验证已执行，则有独立的版本和运行结果。这是不同的观测：实现映射不等于测试通过，声明依赖未被观测也不代表对应能力未实现。
+
+Observatory 保持原有 5,000 个源码符号预算。Design 中的实现 Symbol 引用按文件批量解析，使精确入口定义优先于无关声明；已有请求调用者保留优先级，直接相邻的一跳调用目标仅按既有解析规则使用剩余名额，之后再在各文件间分配普通定义。Design 引用变多不会提高上限。未解析引用、存在歧义的同名定义和类型未知的接收者，都不能成为制造调用边或提高精度的理由。
+
+组件归属来自精确 Symbol 引用、显式 File 引用及其已解析 trace 映射。Symbol 引用先匹配限定名称，再匹配短名称，不会顺带占有无关的同文件定义。名称有歧义、图或扫描被截断，或者规范 trace 查询明确未解析时，直接匹配仍保持不确定；仅靠这种来源，即使列表里只有一个组件也不能确认 owner。显式 File 引用可以覆盖该文件的节点；已解析的 file trace 只绑定其 File 节点，唯一解析的 symbol trace 则独立确认其精确定义。只有两端各自无歧义地归属于一个不同组件，且关系精度为 syntax、semantic、deterministic 或 runtime，才进入 actual 依赖。syntax 仍然只是 syntax；阻断性漂移继续受原有更强精度规则限制。多归属、单端有归属，以及 declared/heuristic/mixed 关系都保留为候选，不计入 actual、aligned 或 blocking，也不会把 owner 组合笛卡尔展开成虚构组件关系。两端都没有 Design owner 的边不属于这个候选投影。
+
+源码检查器保留原始两端节点 ID、路径、符号、关系类型、provider、precision 和 revision。归属说明区分 `symbol_reference`、`ambiguous_symbol_reference`、`file_reference`、`trace_symbol`、`trace_file`，并明确 unique/ambiguous/unowned 状态。每个已确认组件对最多保留 8 条原始边，配合 `evidence_total` 和 `evidence_truncated`；架构视图最多保留 128 条 `dependency_candidates`，配合 `dependency_candidates_total` 和 `dependency_candidates_truncated`。每个端点最多保留 16 个 owner 样本，同时报告完整 owner 数。这些计数描述有界的观测输入，不代表仓库全部依赖。
+
+把候选当作架构事实之前，应检查原始源码与归属解释。缺失或截断证据持续可见；没有新增证据字段的旧快照仍可阅读，但字段缺失不能补造原始边，也不能证明观测完整。查看图谱或解析测试映射，都不会记录一次实际执行，也不产生验收结论。
+
 ## 本轮实现范围
 
 下列改进已在当前工作树实现，验证仍在进行。本文不代表全量检查、运行验收或发布已经完成。

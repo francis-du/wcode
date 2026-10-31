@@ -1,5 +1,9 @@
+use super::observatory_architecture::{
+    actual_component_dependencies, graph_node_path, precision_name, precision_rank,
+    ComponentDependencies,
+};
 use super::*;
-use crate::graph::{EdgeKind, GraphPrecision, NodeKind, SoftwareGraphSnapshot};
+use crate::graph::{GraphPrecision, SoftwareGraphSnapshot};
 use crate::graph_store::{GraphDiffResult, GraphHistoryEntry};
 use crate::intelligence_types::{
     FeatureAcceptanceView, FeatureComponentView, FeatureConstraintView, FeatureConvergenceState,
@@ -61,9 +65,8 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         input.graph.truncated || input.graph.scan_truncated,
     );
     let graph_precision = graph_precision_summary(input.graph);
-    let component_paths = component_paths(&state);
     let actual_dependencies =
-        actual_component_dependencies(&state, &input.traceability, input.graph, &component_paths);
+        actual_component_dependencies(&state, &input.traceability, input.graph);
     let desired_dependencies = desired_component_dependencies(&state);
     let changes = input
         .review
@@ -98,6 +101,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         &path_lines,
         &changed_paths,
         architecture_dependencies,
+        &actual_dependencies,
     );
     let history = input
         .history
@@ -237,29 +241,6 @@ fn graph_delta_paths(diff: &GraphDiffResult, current: &SoftwareGraphSnapshot) ->
     paths.into_iter().take(MAX_DELTA_PATHS).collect()
 }
 
-fn graph_node_path(node: &crate::graph::GraphNode) -> Option<&str> {
-    node.attributes
-        .get("path")
-        .and_then(serde_json::Value::as_str)
-}
-
-fn component_paths(state: &design::DesignState) -> BTreeMap<String, BTreeSet<String>> {
-    state
-        .components
-        .values()
-        .map(|component| {
-            (
-                component.id.clone(),
-                component
-                    .implementation
-                    .iter()
-                    .map(|reference| reference.path().to_owned())
-                    .collect(),
-            )
-        })
-        .collect()
-}
-
 fn desired_component_dependencies(state: &design::DesignState) -> BTreeSet<(String, String)> {
     let mut pairs = BTreeSet::new();
     for component in state.components.values() {
@@ -270,126 +251,6 @@ fn desired_component_dependencies(state: &design::DesignState) -> BTreeSet<(Stri
         }
     }
     pairs
-}
-
-fn actual_component_dependencies(
-    state: &design::DesignState,
-    traceability: &TraceabilityStatus,
-    graph: &SoftwareGraphSnapshot,
-    component_paths: &BTreeMap<String, BTreeSet<String>>,
-) -> BTreeMap<(String, String), String> {
-    let mut node_owners = HashMap::<String, BTreeSet<String>>::new();
-    for component in state.components.values() {
-        for reference in &component.implementation {
-            for node in graph.graph.nodes.values() {
-                let Some(path) = graph_node_path(node) else {
-                    continue;
-                };
-                if path != reference.path() {
-                    continue;
-                }
-                let matches_reference = match reference {
-                    design::CodeRef::File { .. } => node.kind == NodeKind::File,
-                    design::CodeRef::Symbol { symbol, .. } => {
-                        let qualified_name = node
-                            .attributes
-                            .get("qualified_name")
-                            .and_then(serde_json::Value::as_str);
-                        let name = node
-                            .attributes
-                            .get("name")
-                            .and_then(serde_json::Value::as_str);
-                        qualified_name == Some(symbol.as_str()) || name == Some(symbol.as_str())
-                    }
-                };
-                if matches_reference {
-                    node_owners
-                        .entry(node.id.clone())
-                        .or_default()
-                        .insert(component.id.clone());
-                }
-            }
-        }
-    }
-    for requirement in &traceability.requirements {
-        for reference in &requirement.implementation {
-            if state.components.contains_key(&reference.owner) {
-                if let Some(node_id) = &reference.node_id {
-                    node_owners
-                        .entry(node_id.clone())
-                        .or_default()
-                        .insert(reference.owner.clone());
-                }
-            }
-        }
-    }
-
-    let mut owners_by_path = HashMap::<String, Vec<String>>::new();
-    for (component, paths) in component_paths {
-        for path in paths {
-            owners_by_path
-                .entry(path.clone())
-                .or_default()
-                .push(component.clone());
-        }
-    }
-    for node in graph.graph.nodes.values() {
-        if node_owners.contains_key(&node.id) {
-            continue;
-        }
-        let Some(path) = node
-            .attributes
-            .get("path")
-            .and_then(serde_json::Value::as_str)
-        else {
-            continue;
-        };
-        let Some(owners) = owners_by_path.get(path) else {
-            continue;
-        };
-        if owners.len() == 1 {
-            node_owners
-                .entry(node.id.clone())
-                .or_default()
-                .insert(owners[0].clone());
-        }
-    }
-
-    let mut actual = BTreeMap::<(String, String), String>::new();
-    for edge in &graph.graph.edges {
-        if !matches!(
-            edge.kind,
-            EdgeKind::Calls
-                | EdgeKind::Imports
-                | EdgeKind::DependsOn
-                | EdgeKind::References
-                | EdgeKind::RuntimeCalls
-        ) {
-            continue;
-        }
-        let Some(from) = node_owners.get(&edge.from) else {
-            continue;
-        };
-        let Some(to) = node_owners.get(&edge.to) else {
-            continue;
-        };
-        let precision = precision_name(edge.provenance.precision);
-        for from_component in from {
-            for to_component in to {
-                if from_component == to_component {
-                    continue;
-                }
-                let key = (from_component.clone(), to_component.clone());
-                match actual.get(&key) {
-                    Some(existing) if precision_rank(existing) >= precision_rank(&precision) => {}
-                    _ => {
-                        actual.insert(key, precision.clone());
-                    }
-                }
-            }
-        }
-    }
-    actual
 }
 
 fn graph_precision_summary(graph: &SoftwareGraphSnapshot) -> ProjectGraphPrecisionSummary {
@@ -442,22 +303,6 @@ fn graph_precision_summary(graph: &SoftwareGraphSnapshot) -> ProjectGraphPrecisi
     }
 }
 
-fn precision_name(precision: GraphPrecision) -> String {
-    format!("{precision:?}").to_ascii_lowercase()
-}
-
-fn precision_rank(value: &str) -> u8 {
-    match value {
-        "runtime" => 6,
-        "semantic" => 5,
-        "deterministic" => 4,
-        "syntax" => 3,
-        "declared" => 2,
-        "heuristic" => 1,
-        _ => 0,
-    }
-}
-
 struct RequirementBuildContext<'a> {
     state: &'a design::DesignState,
     changed_paths: &'a HashSet<String>,
@@ -466,7 +311,7 @@ struct RequirementBuildContext<'a> {
     impact: Option<&'a ImpactAnalysis>,
     path_lines: &'a BTreeMap<String, usize>,
     desired_dependencies: &'a BTreeSet<(String, String)>,
-    actual_dependencies: &'a BTreeMap<(String, String), String>,
+    actual_dependencies: &'a ComponentDependencies,
 }
 
 fn build_requirement(
@@ -691,7 +536,7 @@ fn dependency_alignment(
     requirement: &design::Requirement,
     state: &design::DesignState,
     desired_dependencies: &BTreeSet<(String, String)>,
-    actual_dependencies: &BTreeMap<(String, String), String>,
+    actual_dependencies: &ComponentDependencies,
 ) -> Vec<FeatureDependencyAlignment> {
     let requirement_components = requirement
         .implemented_by
@@ -707,6 +552,7 @@ fn dependency_alignment(
     );
     pairs.extend(
         actual_dependencies
+            .confirmed
             .keys()
             .filter(|(from, _)| requirement_components.contains(from))
             .cloned(),
@@ -717,10 +563,10 @@ fn dependency_alignment(
 fn project_dependency_alignment(
     state: &design::DesignState,
     desired_dependencies: &BTreeSet<(String, String)>,
-    actual_dependencies: &BTreeMap<(String, String), String>,
+    actual_dependencies: &ComponentDependencies,
 ) -> Vec<FeatureDependencyAlignment> {
     let mut pairs = desired_dependencies.clone();
-    pairs.extend(actual_dependencies.keys().cloned());
+    pairs.extend(actual_dependencies.confirmed.keys().cloned());
     dependency_alignment_for_pairs(state, pairs, desired_dependencies, actual_dependencies)
 }
 
@@ -728,16 +574,18 @@ fn dependency_alignment_for_pairs(
     state: &design::DesignState,
     pairs: BTreeSet<(String, String)>,
     desired_dependencies: &BTreeSet<(String, String)>,
-    actual_dependencies: &BTreeMap<(String, String), String>,
+    actual_dependencies: &ComponentDependencies,
 ) -> Vec<FeatureDependencyAlignment> {
     pairs
         .into_iter()
         .map(|(from, to)| {
             let desired = desired_dependencies.contains(&(from.clone(), to.clone()));
-            let actual_precision = actual_dependencies.get(&(from.clone(), to.clone()));
-            let actual = actual_precision.is_some();
-            let precision = actual_precision
-                .cloned()
+            let observation = actual_dependencies
+                .confirmed
+                .get(&(from.clone(), to.clone()));
+            let actual = observation.is_some();
+            let precision = observation
+                .map(|observation| observation.precision.clone())
                 .unwrap_or_else(|| "not_observed".to_owned());
             let strong_actual_evidence =
                 matches!(precision.as_str(), "runtime" | "semantic" | "deterministic");
@@ -762,6 +610,12 @@ fn dependency_alignment_for_pairs(
                 status: status.to_owned(),
                 precision,
                 blocking,
+                evidence: observation
+                    .map(|value| value.evidence.clone())
+                    .unwrap_or_default(),
+                evidence_total: observation.map_or(0, |value| value.evidence_total),
+                evidence_truncated: observation
+                    .is_some_and(|value| value.evidence_total > value.evidence.len()),
             }
         })
         .collect()
@@ -860,3 +714,11 @@ fn change_view(state: &design::DesignState, file: &ChangedFileReview) -> Project
         affected_components,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/intelligence/dependency_owners.rs"]
+mod dependency_ownership_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/intelligence/architecture_diagnostic.rs"]
+mod architecture_diagnostic_tests;

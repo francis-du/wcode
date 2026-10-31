@@ -241,7 +241,21 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
       }
       if(state.workspaceTab==='architecture'&&state.architectureView==='blueprint') check(visible(document.getElementById('architectureBlueprint')),'system map hidden',document.getElementById('architectureBlueprint'));
       if(state.workspaceTab==='architecture'&&state.architectureView==='components') check(visible(document.getElementById('componentCards')),'component cards hidden',document.getElementById('componentCards'));
-      if(state.workspaceTab==='architecture'&&state.architectureView==='graph') check(visible(document.getElementById('architectureGraph')),'dependency graph hidden',document.getElementById('architectureGraph'));
+      if(state.workspaceTab==='architecture'&&state.architectureView==='graph'){
+        const ledger=document.getElementById('architectureGraph'),details=ledger.querySelector('.dependency-record .dependency-evidence');
+        check(visible(ledger),'dependency graph hidden',ledger);
+        check(ledger.querySelectorAll('[data-dependency-component]').length===2,'missing dependency observations',ledger);
+        check(details,'missing source evidence details',ledger);
+        if(details)details.open=true;
+        const candidates=ledger.querySelector('.dependency-candidates');
+        check(candidates&&visible(candidates),'unresolved source relations hidden',candidates);
+        check((candidates?.textContent||'').includes('140'),'candidate truncation count hidden',candidates);
+        check((details?.textContent||'').includes('tree-sitter'),'source provider missing',details);
+        check((ledger.textContent||'').includes(state.language==='zh-CN'?'本次快照不完整':'This snapshot is partial'),'partial graph warning missing',ledger);
+        for(const block of ledger.querySelectorAll('.dependency-evidence,.dependency-evidence-endpoint')){
+          check(block.scrollWidth<=block.clientWidth+1,'dependency evidence overflow',block,block.parentElement);
+        }
+      }
       if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'){
         const section=document.getElementById('codeGraphSection'),viewport=section?.querySelector('.code-graph-viewport'),canvas=section?.querySelector('.code-graph-canvas'),inspector=document.getElementById('codeGraphInspector'),full=state.codeGraphFull===true,overview=state.codeGraphView==='overview';
         check(section&&visible(section),'code graph hidden',section);

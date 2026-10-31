@@ -1,16 +1,310 @@
 use crate::design::{self, DesignState};
+use crate::graph::{EdgeKind, GraphNode, GraphPrecision, NodeKind, SoftwareGraphSnapshot};
 use crate::intelligence_types::{
-    FeatureDependencyAlignment, ProjectArchitectureComponentView, ProjectArchitectureSubsystemView,
-    ProjectArchitectureView,
+    FeatureDependencyAlignment, FeatureDependencyEvidence, FeatureDependencyOwner,
+    ProjectArchitectureComponentView, ProjectArchitectureSubsystemView, ProjectArchitectureView,
+    TraceReferenceKind, TraceabilityStatus,
 };
 use crate::scopes;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+const MAX_DEPENDENCY_EVIDENCE: usize = 8;
+const MAX_DEPENDENCY_CANDIDATES: usize = 128;
+const MAX_DEPENDENCY_OWNERS: usize = 16;
+
+type ComponentOwners = BTreeMap<String, BTreeSet<String>>;
+
+#[derive(Default)]
+pub(super) struct ComponentDependencyObservation {
+    pub precision: String,
+    pub evidence: Vec<FeatureDependencyEvidence>,
+    pub evidence_total: usize,
+}
+
+#[derive(Default)]
+pub(super) struct ComponentDependencies {
+    pub confirmed: BTreeMap<(String, String), ComponentDependencyObservation>,
+    pub candidates: Vec<FeatureDependencyEvidence>,
+    pub candidates_total: usize,
+}
+
+pub(super) fn actual_component_dependencies(
+    state: &DesignState,
+    traceability: &TraceabilityStatus,
+    graph: &SoftwareGraphSnapshot,
+) -> ComponentDependencies {
+    let unresolved_symbols = traceability
+        .requirements
+        .iter()
+        .flat_map(|requirement| &requirement.implementation)
+        .filter(|reference| {
+            reference.kind == TraceReferenceKind::Symbol
+                && (!reference.resolved || reference.node_id.is_none())
+        })
+        .map(|reference| (reference.owner.as_str(), reference.target.as_str()))
+        .collect::<HashSet<_>>();
+    let mut nodes_by_path = BTreeMap::<&str, Vec<&GraphNode>>::new();
+    for node in graph.graph.nodes.values() {
+        if let Some(path) = graph_node_path(node) {
+            nodes_by_path.entry(path).or_default().push(node);
+        }
+    }
+    let mut node_owners = BTreeMap::<String, ComponentOwners>::new();
+    for component in state.components.values() {
+        for reference in &component.implementation {
+            let Some(nodes) = nodes_by_path.get(reference.path()) else {
+                continue;
+            };
+            let (matches, source) = match reference {
+                design::CodeRef::File { .. } => (nodes.clone(), "file_reference"),
+                design::CodeRef::Symbol { symbol, .. } => {
+                    let matching = |key| {
+                        nodes
+                            .iter()
+                            .copied()
+                            .filter(|node| {
+                                node.kind != NodeKind::File
+                                    && node.attributes.get(key).and_then(serde_json::Value::as_str)
+                                        == Some(symbol.as_str())
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let mut matches = matching("qualified_name");
+                    if matches.is_empty() {
+                        matches = matching("name");
+                    }
+                    let target = format!("{}::{symbol}", reference.path());
+                    let source = if matches.len() == 1
+                        && !graph.truncated
+                        && !graph.scan_truncated
+                        && !unresolved_symbols.contains(&(component.id.as_str(), target.as_str()))
+                    {
+                        "symbol_reference"
+                    } else {
+                        "ambiguous_symbol_reference"
+                    };
+                    (matches, source)
+                }
+            };
+            for node in matches {
+                node_owners
+                    .entry(node.id.clone())
+                    .or_default()
+                    .entry(component.id.clone())
+                    .or_default()
+                    .insert(source.to_owned());
+            }
+        }
+    }
+    for requirement in &traceability.requirements {
+        for reference in &requirement.implementation {
+            if !reference.resolved || !state.components.contains_key(&reference.owner) {
+                continue;
+            }
+            let Some(node) = reference
+                .node_id
+                .as_ref()
+                .and_then(|id| graph.graph.nodes.get(id))
+            else {
+                continue;
+            };
+            let source = match reference.kind {
+                TraceReferenceKind::Symbol if node.kind != NodeKind::File => "trace_symbol",
+                TraceReferenceKind::File if node.kind == NodeKind::File => "trace_file",
+                _ => continue,
+            };
+            node_owners
+                .entry(node.id.clone())
+                .or_default()
+                .entry(reference.owner.clone())
+                .or_default()
+                .insert(source.to_owned());
+        }
+    }
+
+    let no_owners = ComponentOwners::new();
+    let mut actual = ComponentDependencies::default();
+    for edge in &graph.graph.edges {
+        if !matches!(
+            edge.kind,
+            EdgeKind::Calls
+                | EdgeKind::Imports
+                | EdgeKind::DependsOn
+                | EdgeKind::References
+                | EdgeKind::RuntimeCalls
+        ) {
+            continue;
+        }
+        let from = node_owners.get(&edge.from).unwrap_or(&no_owners);
+        let to = node_owners.get(&edge.to).unwrap_or(&no_owners);
+        if from.is_empty() && to.is_empty() {
+            continue;
+        }
+        let pair = unique_component_owner(from).zip(unique_component_owner(to));
+        let unique = pair.is_some();
+        if unique && pair.is_some_and(|(from, to)| from == to) {
+            continue;
+        }
+        let ownership =
+            if from.len() > 1 || to.len() > 1 || (!from.is_empty() && !to.is_empty() && !unique) {
+                "ambiguous"
+            } else if unique {
+                "unique"
+            } else {
+                "unowned"
+            };
+        let evidence = FeatureDependencyEvidence {
+            from_node: edge.from.clone(),
+            to_node: edge.to.clone(),
+            from_path: graph
+                .graph
+                .nodes
+                .get(&edge.from)
+                .and_then(graph_node_path)
+                .map(str::to_owned),
+            to_path: graph
+                .graph
+                .nodes
+                .get(&edge.to)
+                .and_then(graph_node_path)
+                .map(str::to_owned),
+            from_symbol: graph
+                .graph
+                .nodes
+                .get(&edge.from)
+                .and_then(graph_node_symbol)
+                .map(str::to_owned),
+            to_symbol: graph
+                .graph
+                .nodes
+                .get(&edge.to)
+                .and_then(graph_node_symbol)
+                .map(str::to_owned),
+            kind: edge.kind,
+            provider: edge.provenance.provider.clone(),
+            precision: precision_name(edge.provenance.precision),
+            revision: edge.provenance.revision.clone(),
+            ownership: ownership.to_owned(),
+            from_owners: owner_samples(from),
+            to_owners: owner_samples(to),
+            from_owners_total: from.len(),
+            to_owners_total: to.len(),
+        };
+        let observed = matches!(
+            edge.provenance.precision,
+            GraphPrecision::Syntax
+                | GraphPrecision::Semantic
+                | GraphPrecision::Deterministic
+                | GraphPrecision::Runtime
+        );
+        if let Some((from, to)) = pair.filter(|_| observed) {
+            let observation = actual
+                .confirmed
+                .entry((from.clone(), to.clone()))
+                .or_default();
+            observation.evidence_total += 1;
+            bounded_dependency_evidence(
+                &mut observation.evidence,
+                evidence,
+                MAX_DEPENDENCY_EVIDENCE,
+            );
+            observation.precision = observation.evidence[0].precision.clone();
+        } else {
+            actual.candidates_total += 1;
+            bounded_dependency_evidence(
+                &mut actual.candidates,
+                evidence,
+                MAX_DEPENDENCY_CANDIDATES,
+            );
+        }
+    }
+    actual
+}
+
+fn unique_component_owner(owners: &ComponentOwners) -> Option<&String> {
+    if owners.len() != 1 {
+        return None;
+    }
+    let (owner, sources) = owners.first_key_value()?;
+    sources
+        .iter()
+        .any(|source| {
+            matches!(
+                source.as_str(),
+                "symbol_reference" | "file_reference" | "trace_symbol" | "trace_file"
+            )
+        })
+        .then_some(owner)
+}
+
+fn owner_samples(owners: &ComponentOwners) -> Vec<FeatureDependencyOwner> {
+    owners
+        .iter()
+        .take(MAX_DEPENDENCY_OWNERS)
+        .map(|(component, sources)| FeatureDependencyOwner {
+            component: component.clone(),
+            sources: sources.iter().cloned().collect(),
+        })
+        .collect()
+}
+
+fn bounded_dependency_evidence(
+    samples: &mut Vec<FeatureDependencyEvidence>,
+    evidence: FeatureDependencyEvidence,
+    limit: usize,
+) {
+    samples.push(evidence);
+    samples.sort_by(|left, right| {
+        precision_rank(&right.precision)
+            .cmp(&precision_rank(&left.precision))
+            .then_with(|| left.from_node.cmp(&right.from_node))
+            .then_with(|| left.to_node.cmp(&right.to_node))
+            .then_with(|| left.provider.cmp(&right.provider))
+            .then_with(|| format!("{:?}", left.kind).cmp(&format!("{:?}", right.kind)))
+            .then_with(|| left.revision.cmp(&right.revision))
+    });
+    samples.truncate(limit);
+}
+
+pub(super) fn graph_node_path(node: &GraphNode) -> Option<&str> {
+    node.attributes
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+}
+
+fn graph_node_symbol(node: &GraphNode) -> Option<&str> {
+    if node.kind == NodeKind::File {
+        return None;
+    }
+    ["qualified_name", "name"].iter().find_map(|key| {
+        node.attributes
+            .get(*key)
+            .and_then(serde_json::Value::as_str)
+    })
+}
+
+pub(super) fn precision_name(precision: GraphPrecision) -> String {
+    format!("{precision:?}").to_ascii_lowercase()
+}
+
+pub(super) fn precision_rank(value: &str) -> u8 {
+    match value {
+        "runtime" => 6,
+        "semantic" => 5,
+        "deterministic" => 4,
+        "syntax" => 3,
+        "declared" => 2,
+        "heuristic" => 1,
+        _ => 0,
+    }
+}
 
 pub(super) fn build_project_architecture(
     state: &DesignState,
     path_lines: &BTreeMap<String, usize>,
     changed_paths: &HashSet<String>,
     dependencies: Vec<FeatureDependencyAlignment>,
+    observations: &ComponentDependencies,
 ) -> ProjectArchitectureView {
     let mut requirements_by_component = BTreeMap::<String, Vec<String>>::new();
     for requirement in state.requirements.values() {
@@ -104,6 +398,10 @@ pub(super) fn build_project_architecture(
         subsystems,
         components,
         dependencies,
+        dependency_candidates: observations.candidates.clone(),
+        dependency_candidates_total: observations.candidates_total,
+        dependency_candidates_truncated: observations.candidates_total
+            > observations.candidates.len(),
         desired_edges,
         observed_edges,
         aligned_edges,

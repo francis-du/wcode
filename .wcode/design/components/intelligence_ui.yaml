@@ -1,0 +1,114 @@
+schema_version: 1
+id: component:intelligence-ui
+name: Engineering Observatory
+responsibilities:
+  - expose live design traceability risk evidence graph and reconciliation state in the TUI
+  - share a bounded revision-bound actionable attention projection across TUI and WebUI, preserving evidence scope and precision, raw counts, partial coverage and current-plan ordering
+  - provide native selectable TUI attention tasks and providers plus protected paged source inspection and explicit snapshot SHA guarded line-window editing from the Web file tree with bounded drafts and stale-response isolation
+  - provide a bilingual progressive Setup Hub with local and remote paths, safe copy controls, command-only preset previews, compact connection polling and no operator credentials
+  - expose a protected Engineering Observatory whose default System → Subsystem → Component → Code blueprint explains architecture, purpose, ownership, dependency direction, current changes and Design-vs-Actual drift before the raw dependency graph
+  - serve bounded per-Workspace revision-stamped cached project snapshots immediately on first paint or Workspace switch, then revalidate Git-heavy project state through one server-side single-flight background refresh while browsers use lightweight cache probes and never create a heavy refresh storm
+  - project existing bounded task activity into a realtime Understand → Change → Prove → Learn → Observe engineering flow and explain each Vibe Coding change through Files → Components → Requirements → Verification → confirmed Drift without creating a second mutable control-state source
+  - use revision-exact Evidence for current Proof and expose explicit stable/changing/needs_convergence/incomplete requirement states with blockers
+  - compare the complete declared component architecture with bounded code-derived dependency observations, distinguish strong observed drift from evidence gaps, and retain code statistics, mapped Git changes and structural revision history without reverting to an undifferentiated node-ball graph
+  - derive actual dependencies only from distinct unambiguously owned endpoints at supported observed precision; preserve exact symbol versus explicit file ownership, unresolved or truncated symbol-match uncertainty, raw edge evidence, ambiguous or partially owned candidates, bounded owner samples and explicit totals/truncation without inventing Cartesian component pairs or promoting candidates to alignment/blocking
+  - keep resolved implementation mappings, observed dependency coverage and executed verification distinct, and render source evidence and candidate uncertainty without fabricating missing fields in historical snapshots
+  - expose Code Graph as an internal Architecture workbench mode rather than an eighth top-level workspace; provide bounded upstream/downstream call, reference, dependency, test, requirement and proof exploration with per-edge provider/precision and a why-related inspector
+  - keep English as the default UI language and expose explicit manual English / Simplified Chinese switching in both TUI and WebUI without locale auto-detection
+  - keep Observatory, Setup Hub, OAuth and TUI on the canonical Logo/homepage brand palette; use rounded frosted/liquid-glass primary workbenches, 20–28px outer curvature, softer nested radii, compact controls, touch-safe narrow layouts and progressive disclosure, while keeping the architecture canvas continuous and preventing square card/panel stacks from becoming the primary visual structure
+  - "apply one observability visual grammar across Overview, Architecture/Digital Twin, Task Activity, Verification Evidence, Current Changes, Requirements and Runtime: first-glance pulse/state, second-glance metrics and relations, third-glance inspectors/evidence; supporting metadata stays at least 12px and stale/unknown/inconclusive state never receives success styling"
+  - "keep the TUI visually compact and task-first: wide terminals render live Workspace Activity beside a right-side Engineering/connection control rail, medium and narrow terminals remove permanent engineering panels so real task rows dominate, and the I Engineering Console remains the drill-down for Architecture and Proof/Runtime; retain the pairing code after connection, expose the complete supported-command catalog, distinguish LSP available / launch-ready / live-validated state alongside real warm semantic-session/document/start/query telemetry, and centrally claim terminal output while ratatui owns the alternate screen so background runtime diagnostics cannot punch through the dashboard"
+  - expose W as the discoverable TUI shortcut for the protected Engineering Observatory and provide TUI/WebUI controls for selectable pending authorization requests plus protected WebUI project and command-access management while keeping executable access distinct from exact repository-operation approval
+  - derive a bounded project file tree and largest-file list from the same Software Graph snapshot, expose the 1000-line repository limit, and report truncation instead of starting an unbounded WebUI filesystem scan
+  - expose prompt-free Verified Experience evaluation with explicit temporal-holdout method, heuristic precision, raw denominators, cold-start/unavailable distinction and independent coverage, hit-rate, precision@K and recall@K metrics rather than an opaque self-score
+  - separate explicit Engineering Fitness benchmark summaries from bounded milestone outcome samples, retain revision provenance and history, and present unknown, stale, partial and unmeasured states without total scores or readiness authority
+  - open literal path-scoped readonly unified differences from the existing change table, retain staged/unstaged/baseline identity and line gutters, and invalidate source on stale snapshots or workspace/refresh transitions without adding an editor or proof authority
+constraints:
+  - CONSTRAINT-BRAND-PALETTE
+  - CONSTRAINT-ARCHITECTURE-FIRST-OBSERVABILITY
+  - CONSTRAINT-EXPLICIT-PRECISION
+depends_on:
+  - component:traceability-drift
+  - component:actual-state-providers
+  - component:software-graph
+  - component:verification-mesh
+  - component:evidence-runtime
+  - component:experience-graph
+  - component:reconciliation-engine
+implementation:
+  - kind: symbol
+    path: src/ui/monitor/intelligence.rs
+    symbol: render_intelligence_overlay
+  - kind: file
+    path: src/ui/monitor/shell.rs
+  - kind: file
+    path: src/ui/monitor/theme.rs
+  - kind: file
+    path: src/ui/setup_web.rs
+  - kind: symbol
+    path: src/ui/monitor/i18n.rs
+    symbol: UiLanguage::tr
+  - kind: symbol
+    path: src/runtime/harness/project/observatory.rs
+    symbol: ToolHarness::project_observatory
+  - kind: symbol
+    path: src/intelligence/observatory.rs
+    symbol: build_project_observatory
+  - kind: file
+    path: src/intelligence/observatory/attention.rs
+  - kind: file
+    path: src/ui/monitor/console.rs
+  - kind: file
+    path: src/intelligence/observatory/fitness.rs
+  - kind: file
+    path: src/intelligence/observatory/benchmark.rs
+  - kind: symbol
+    path: src/ui/intelligence_web/app/quality.js
+    symbol: renderFitnessObservatory
+  - kind: symbol
+    path: src/ui/intelligence_web/app/quality.js
+    symbol: renderFitnessBenchmark
+  - kind: symbol
+    path: src/intelligence/observatory/architecture.rs
+    symbol: build_project_architecture
+  - kind: symbol
+    path: src/intelligence/observatory/architecture.rs
+    symbol: actual_component_dependencies
+  - kind: symbol
+    path: src/intelligence/observatory/architecture.rs
+    symbol: bounded_dependency_evidence
+  - kind: symbol
+    path: src/intelligence/observatory/architecture.rs
+    symbol: owner_samples
+  - kind: symbol
+    path: src/intelligence/observatory/architecture.rs
+    symbol: unique_component_owner
+  - kind: symbol
+    path: src/intelligence/observatory/files.rs
+    symbol: build_project_structure
+  - kind: file
+    path: src/ui/intelligence_web/app/engineering.js
+  - kind: symbol
+    path: src/ui/intelligence_web/app/code_graph_explorer.js
+    symbol: openChangeSymbolInGraph
+  - kind: symbol
+    path: src/ui/intelligence_web/app/code_graph_explorer.js
+    symbol: openChangeSymbolImpact
+  - kind: symbol
+    path: src/ui/intelligence_web/app/structure.js
+    symbol: renderProjectStructure
+  - kind: symbol
+    path: src/ui/intelligence_web/app/features.js
+    symbol: renderVerifiedLearning
+  - kind: symbol
+    path: src/integrations/mcp/web.rs
+    symbol: intelligence_web_project
+  - kind: symbol
+    path: src/integrations/mcp/web.rs
+    symbol: intelligence_web_status
+  - kind: symbol
+    path: src/integrations/mcp/web.rs
+    symbol: intelligence_web_scopes
+  - kind: symbol
+    path: src/integrations/mcp/web.rs
+    symbol: intelligence_web_graph
