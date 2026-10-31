@@ -109,6 +109,47 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check(ownership?.querySelector('.execution-worker-result .pill')?.classList.contains('warn'),'worker completion certified as verification',ownership);
       }
       if(state.workspaceTab==='activity'){
+        const savedWorklist=state.project.execution.worklist,savedView={...worklistViewScope()},savedRevision=state.project.execution.revision,savedSync=state.syncError;
+        state.project.execution.worklist={available:true,exists:true,revision:9001,items_included:true,truncated:false,counts:{done:12,pending:1,blocked:1},runnable:['next'],items:[
+          ...Array.from({length:12},(_,i)=>({id:'history-'+i,title:'Historical '+i,status:'done'})),
+          {id:'next',title:'工程任务',status:'pending',depends_on:['history-11'],note:'Inspect the observed dependency before continuing.'},
+          {id:'blocked',title:'Needs attention',status:'blocked',note:'<script>not executable</script>'}
+        ]};
+        setWorklistView('open','',0);
+        check(document.querySelectorAll('[data-worklist-task]').length===2,'queue prioritizes open work');
+        check(document.querySelector('[data-worklist-task="next"]'),'pending task hidden by history');
+        check(!document.querySelector('.execution-workers script'),'queue note executes markup');
+        for(const selector of ['.worklist-toolbar','.worklist-pagination','.worklist-task-state','.worklist-dependencies','.worklist-task-note']){
+          document.querySelectorAll(selector).forEach(el=>check(el.scrollWidth<=el.clientWidth+1,selector+' native overflow',el));
+        }
+        let filter=document.querySelector('[data-worklist-filter]');filter.value='done';filter.dispatchEvent(new Event('change',{bubbles:true}));
+        check(document.querySelectorAll('[data-worklist-task]').length===8,'completed task page bounded');
+        document.querySelector('[data-worklist-next]').click();
+        check(document.querySelectorAll('[data-worklist-task]').length===4,'remaining completed tasks reachable');
+        filter=document.querySelector('[data-worklist-filter]');filter.value='open';filter.dispatchEvent(new Event('change',{bubbles:true}));
+        let search=document.querySelector('[data-worklist-search]');search.focus();search.value='工';search.dispatchEvent(new Event('input',{bubbles:true}));
+        search=document.querySelector('[data-worklist-search]');search.setSelectionRange(1,1);
+        state.project.execution.revision++;renderExecutionStatus();
+        check(document.activeElement===document.querySelector('[data-worklist-search]'),'background render preserves search focus');
+        check(document.activeElement.selectionStart===1,'background render preserves search caret');
+        search=document.querySelector('[data-worklist-search]');search.value='';search.dispatchEvent(new Event('input',{bubbles:true}));
+        search=document.querySelector('[data-worklist-search]');search.focus();
+        search.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:'工'}));search.value='工程';
+        search.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,data:'程'}));
+        state.project.execution.revision++;renderExecutionStatus();
+        check(document.querySelector('[data-worklist-search]')===search&&search.value==='工程','background render preserves Chinese composition');
+        state.project.execution.worklist.revision++;state.project.execution.worklist.runnable=[];
+        state.project.execution.worklist.items.find(item=>item.id==='next').status='blocked';renderExecutionStatus();
+        check(!document.querySelector('[data-worklist-runnable]'),'fresh revision withdraws runnable while composing');
+        check(document.querySelector('[data-worklist-search]')===search,'fresh revision preserves composing input');
+        state.syncError=true;renderExecutionStatus();
+        check(!document.querySelector('[data-worklist-runnable]'),'failure withdraws runnable while composing');
+        check(document.querySelector('[data-worklist-search]')===search,'freshness update preserves composing input');
+        search.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'工程'}));
+        check(worklistViewScope().query==='工程'&&document.querySelectorAll('[data-worklist-task]').length===1,'composition applies committed search');
+        state.project.execution.worklist=savedWorklist;state.project.execution.revision=savedRevision;state.syncError=savedSync;state.worklistViewScope=savedView;renderExecutionStatus();
+      }
+      if(state.workspaceTab==='activity'){
         clearRuntimeJobs();
         const retained=(digit,status,origin)=>({task_id:'TASK-'+digit.repeat(20)+'-'+'a'.repeat(32),workspace:state.current,tool:'run_command',status,origin,can_cancel:false,created_at_ms:1,updated_at_ms:2,completion_is_not_success:true});
         state.runtimeJobs=[retained('1','working','mcp'),retained('2','failed','ui')];state.runtimeJobsLoaded=true;state.runtimeJobsTruncated=true;renderRuntimeJobs();
@@ -121,6 +162,50 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         check((document.getElementById('runtimeJobList').textContent||'').includes(state.language==='zh-CN'?'2 条保留记录中的 1 条':'1 of 2'),'filtered retained denominator');
         check((document.getElementById('runtimeJobMessage').textContent||'').includes(state.language==='zh-CN'?'截断':'truncated'),'filtered partial coverage remains explicit');
         check(!document.querySelector('#runtimeJobDetail [data-job-cancel]'),'filter creates no cancellation authority');
+        const fragment=(text,truncated=false,redacted=false)=>({text,total_bytes:new TextEncoder().encode(text).length,truncated,redacted});
+        state.runtimeJobSelected=state.runtimeJobs[0].task_id;
+        state.runtimeJob={schema_version:1,kind:'command_job',task_id:state.runtimeJobSelected,workspace:state.current,tool:'run_command',
+          status:'completed',origin:'mcp',can_cancel:false,success:false,exit_code:1,error:null,completion_is_not_success:true,acceptance_ready:false,
+          stdout:fragment(Array.from({length:55},(_,i)=>(i===0?'<script>needle</script>':'needle line '+i)).join('\n'),true),
+          stderr:fragment('needle stderr\nneedle [REDACTED]',false,true)};
+        renderRuntimeJobs();
+        let outputQuery=document.querySelector('[data-job-output-query]');outputQuery.focus();outputQuery.value='needle';outputQuery.dispatchEvent(new Event('input',{bubbles:true}));
+        check(document.querySelectorAll('[data-job-output-match]').length===25,'output search page bounded');
+        check(runtimeJobOutputView().total_matches===57,'output search counts matching retained lines');
+        check(!document.querySelector('#runtimeJobDetail script'),'output search escapes markup');
+        document.querySelector('[data-job-output-page="1"]').focus();document.querySelector('[data-job-output-page="1"]').click();
+        check(runtimeJobOutputView().page===1&&document.querySelectorAll('[data-job-output-match]').length===25,'second output page reachable');
+        check(document.activeElement===document.querySelector('[data-job-output-page="2"]'),'keyboard output pagination keeps focus on next page');
+        document.querySelector('[data-job-output-page="2"]').focus();document.querySelector('[data-job-output-page="2"]').click();
+        check(document.querySelectorAll('[data-job-output-match]').length===7,'last output page reachable');
+        check(document.activeElement===document.querySelector('[data-job-output-page="1"]'),'last output page restores focus to enabled previous page');
+        let outputStream=document.querySelector('[data-job-output-stream]');outputStream.value='stderr';outputStream.dispatchEvent(new Event('change',{bubbles:true}));
+        check(runtimeJobOutputView().page===0&&runtimeJobOutputView().total_matches===2,'stream selection resets page without mixing lines');
+        outputQuery=document.querySelector('[data-job-output-query]');outputQuery.value='absent';outputQuery.dispatchEvent(new Event('input',{bubbles:true}));
+        check(document.querySelector('[data-job-output-empty]'),'zero retained matches explicit');
+        check((document.querySelector('[data-job-output-coverage]').textContent||'').includes(state.language==='zh-CN'?'脱敏':'redacted'),'zero matches retain redaction scope');
+        outputStream=document.querySelector('[data-job-output-stream]');outputStream.value='all';outputStream.dispatchEvent(new Event('change',{bubbles:true}));
+        outputQuery=document.querySelector('[data-job-output-query]');outputQuery.focus();outputQuery.value='needle';outputQuery.dispatchEvent(new Event('input',{bubbles:true}));
+        outputQuery=document.querySelector('[data-job-output-query]');outputQuery.setSelectionRange(3,3);
+        document.querySelector('[data-job-output-raw="stdout"]').open=false;
+        state.runtimeJob={...state.runtimeJob,stdout:fragment(state.runtimeJob.stdout.text+'\nneedle fresh',true)};renderRuntimeJobs();
+        check(document.activeElement===document.querySelector('[data-job-output-query]')&&document.activeElement.selectionStart===3,'job refresh preserves output search focus and caret');
+        check(!document.querySelector('[data-job-output-raw="stdout"]').open,'job refresh preserves collapsed raw stream');
+        outputQuery=document.querySelector('[data-job-output-query]');
+        outputQuery.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:'定'}));outputQuery.value='定位';
+        outputQuery.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,data:'位'}));
+        state.runtimeJob={...state.runtimeJob,stdout:fragment(state.runtimeJob.stdout.text+'\n定位',true)};renderRuntimeJobs();
+        check(document.querySelector('[data-job-output-query]')===outputQuery&&outputQuery.value==='定位','output refresh preserves Chinese composition');
+        outputQuery.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'定位'}));
+        check(runtimeJobOutputView().query==='定位'&&runtimeJobOutputView().total_matches===1,'output composition commits literal search');
+        for(const selector of ['.runtime-job-output','.runtime-job-output-controls','.runtime-job-output-matches']){
+          document.querySelectorAll(selector).forEach(el=>check(el.scrollWidth<=el.clientWidth+1,selector+' native overflow',el));
+        }
+        const obsoleteOutput=document.querySelector('[data-job-output-query]');
+        state.runtimeJobSelected=state.runtimeJobs[1].task_id;state.runtimeJob={...state.runtimeJob,task_id:state.runtimeJobSelected};renderRuntimeJobs();
+        obsoleteOutput.value='old-query';obsoleteOutput.dispatchEvent(new Event('input',{bubbles:true}));
+        check(runtimeJobOutputScope().query==='','obsolete output controls cannot change another task');
+
         const old=document.querySelector('[data-jobs-origin]');clearRuntimeJobs();renderRuntimeJobs();old.value='mcp';old.dispatchEvent(new Event('change',{bubbles:true}));
         check(state.runtimeJobsOriginFilter==='all','obsolete filter control rejected');
       }

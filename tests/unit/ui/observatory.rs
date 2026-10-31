@@ -1,4 +1,79 @@
 #[test]
+fn jobs_output_search_is_literal_scoped_bounded_and_preserves_coverage() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/job_output.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for retained output search and ablations");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let results = report["results"].as_array().unwrap();
+    assert_eq!(results.len(), 19);
+    assert!(results.iter().all(|result| result["passed"] == true));
+    let ablations = report["ablations"]["results"].as_array().unwrap();
+    assert_eq!(ablations.len(), 3);
+    assert!(ablations.iter().all(|case| case["passed"] == true
+        && case["baseline"]["invariant"] == true
+        && case["ablated"]["invariant"] == false
+        && case["restored"]["invariant"] == true));
+}
+
+#[test]
+fn engineering_work_queue_ablation_requires_context_and_freshness() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/worklist_ablation.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for isolated work queue ablations");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["cases"].as_array())
+                .is_some_and(|cases| cases.len() == 4
+                    && cases.iter().all(|case| case["passed"] == true
+                        && case["baseline"]["invariant"] == true
+                        && case["ablated"]["invariant"] == false
+                        && case["restored"]["invariant"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn engineering_work_queue_prioritizes_open_tasks_without_changing_authority() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/worklist.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for engineering work queue regressions");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 19
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn observatory_change_view_is_readonly_scoped_and_snapshot_bound() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")

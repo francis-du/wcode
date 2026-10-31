@@ -77,7 +77,9 @@ async function observeRuntimeJob(id = state.runtimeJobSelected, manual = true) {
   runtimeJobsScope();
   if (!/^TASK-\d{20}-[0-9a-f]{32}$/.test(id) || (id !== state.runtimeJobSelected && !state.runtimeJobs.some(row => row.task_id === id))) return false;
   const request = runtimeJobsRequest(); if (!request) return false;
+  if (state.runtimeJobSelected !== id) state.runtimeJob = null;
   state.runtimeJobSelected = id; if (manual) state.runtimeJobsPolls = 0;
+  renderRuntimeJobs();
   try {
     const data = await uiJson(`/intelligence/jobs/${encodeURIComponent(id)}`, "GET", undefined, { ...request, timeout: 15000 });
     if (!request.current()) return false;
@@ -127,8 +129,128 @@ function setRuntimeJobFilters(status, origin, scope = runtimeJobsScope()) {
   state.runtimeJobsStatusFilter = status; state.runtimeJobsOriginFilter = origin;
   renderRuntimeJobs(); return true;
 }
+
+function runtimeJobOutputScope() {
+  const owner = runtimeJobsScope(), job = state.runtimeJob;
+  const task = job?.task_id === state.runtimeJobSelected ? job.task_id : "";
+  const previous = state.runtimeJobOutput;
+  if (!previous || previous.owner !== owner || previous.task !== task) {
+    state.runtimeJobOutput = { owner, task, query: "", stream: "all", page: 0, composing: false };
+  }
+  return state.runtimeJobOutput;
+}
+function setRuntimeJobOutput(query, stream, page = 0, view = runtimeJobOutputScope()) {
+  if (runtimeJobOutputScope() !== view || typeof query !== "string" || query.length > 256
+    || /[\r\n\0]/.test(query) || !["all", "stdout", "stderr"].includes(stream)
+    || !Number.isSafeInteger(page) || page < 0) return false;
+  const changed = view.query !== query || view.stream !== stream;
+  view.query = query; view.stream = stream; view.page = changed ? 0 : page;
+  renderRuntimeJobs(); return true;
+}
+function runtimeJobOutputView() {
+  const view = runtimeJobOutputScope(), job = state.runtimeJob;
+  const available = !!view.task && validRuntimeJob(job, state.current, view.task);
+  const names = view.stream === "all" ? ["stdout", "stderr"] : [view.stream];
+  const rows = []; let totalLines = 0, truncated = false, redacted = false;
+  if (available) for (const name of names) {
+    const stream = job[name], lines = stream.text === "" ? [] : stream.text.split(/\r\n|\r|\n/);
+    totalLines += lines.length; truncated ||= stream.truncated; redacted ||= stream.redacted;
+    if (view.query) lines.forEach((text, index) => {
+      if (text.includes(view.query)) rows.push({ stream: name, line: index + 1, text });
+    });
+  }
+  const pages = Math.max(1, Math.ceil(rows.length / 25));
+  view.page = Math.min(view.page, pages - 1);
+  return { available, query: view.query, stream: view.stream, page: view.page, pages,
+    total_lines: totalLines, total_matches: rows.length, rows: rows.slice(view.page * 25, view.page * 25 + 25),
+    limited: truncated || redacted, truncated, redacted };
+}
+function runtimeJobOutputCoverage(view) {
+  return '<p class="panel-meta" data-job-output-coverage>'
+    + esc(localized("Search covers retained output only. Line numbers are relative to each retained fragment; streams have no shared time order.",
+      "仅搜索已保留输出。行号相对于各自保留片段；两个输出流没有共同时间顺序。"))
+    + (view.truncated ? " " + esc(localized("Output is truncated; omitted text is not searched.", "输出已截断，省略的内容不参与搜索。")) : "")
+    + (view.redacted ? " " + esc(localized("Output is redacted; hidden text is not searched.", "输出已脱敏，隐藏的内容不参与搜索。")) : "") + "</p>";
+}
+function runtimeJobOutputHtml(view) {
+  if (!view.available) return "";
+  const options = ["all", "stdout", "stderr"].map(name => '<option value="' + name + '"'
+    + (view.stream === name ? " selected" : "") + ">" + esc(name === "all" ? localized("Both streams", "两个输出流") : name) + "</option>").join("");
+  const matches = view.rows.map(row => {
+    const at = row.text.indexOf(view.query);
+    const text = esc(row.text.slice(0, at)) + "<mark>" + esc(row.text.slice(at, at + view.query.length))
+      + "</mark>" + esc(row.text.slice(at + view.query.length));
+    return '<li data-job-output-match><strong>' + esc(row.stream) + " · "
+      + esc(localized("retained line ", "保留片段第 ")) + row.line + esc(localized("", " 行"))
+      + "</strong><pre>" + text + "</pre></li>";
+  }).join("");
+  const summary = view.query
+    ? localized(view.total_matches + " matching retained lines of " + view.total_lines + "; showing " + view.rows.length + ".",
+      view.total_lines + " 行保留文本中有 " + view.total_matches + " 行匹配，当前显示 " + view.rows.length + " 行。")
+    : localized("Enter literal text to locate matching retained lines.", "输入字面文本以定位匹配的保留行。");
+  const pages = view.total_matches > 25 ? '<div class="runtime-job-output-pages">'
+    + '<button type="button" class="quiet-action" data-job-output-previous data-job-output-page="' + (view.page - 1) + '"' + (!view.page ? " disabled" : "") + ">"
+    + esc(localized("Previous", "上一页")) + "</button><span>" + esc(localized("Page ", "第 ")) + (view.page + 1) + " / " + view.pages
+    + '</span><button type="button" class="quiet-action" data-job-output-next data-job-output-page="' + (view.page + 1) + '"'
+    + (view.page + 1 >= view.pages ? " disabled" : "") + ">" + esc(localized("Next", "下一页")) + "</button></div>" : "";
+  return '<section class="runtime-job-output" aria-label="' + esc(localized("Search retained output", "搜索保留输出")) + '">'
+    + '<div class="runtime-job-output-controls"><label>' + esc(localized("Find in retained output", "在保留输出中查找"))
+    + '<input type="search" data-job-output-query maxlength="256" spellcheck="false" autocomplete="off" value="' + esc(view.query)
+    + '" aria-describedby="runtimeJobOutputHint"></label><label>' + esc(localized("Output stream", "输出流"))
+    + '<select data-job-output-stream>' + options + "</select></label></div>"
+    + '<p id="runtimeJobOutputHint" class="panel-meta">' + esc(localized("Literal, case-sensitive text; up to 256 characters.",
+      "按字面区分大小写匹配，最多 256 个字符。")) + "</p>" + runtimeJobOutputCoverage(view)
+    + '<p class="panel-meta" role="status" data-job-output-note>' + esc(summary) + "</p>"
+    + (view.query && !view.total_matches ? '<p data-job-output-empty>' + esc(localized("No matches in the selected retained output.",
+      "所选保留输出中没有匹配。")) + "</p>" : "")
+    + '<ol class="runtime-job-output-matches">' + matches + "</ol>" + pages + "</section>";
+}
+function bindRuntimeJobOutput(host, view) {
+  const input = host?.querySelector("[data-job-output-query]");
+  input?.addEventListener("compositionstart", () => { if (runtimeJobOutputScope() === view) view.composing = true; });
+  input?.addEventListener("compositionend", () => {
+    if (runtimeJobOutputScope() !== view) return;
+    view.composing = false; setRuntimeJobOutput(input.value, view.stream, 0, view);
+  });
+  input?.addEventListener("input", event => {
+    if (!event.isComposing && !view.composing) setRuntimeJobOutput(input.value, view.stream, 0, view);
+  });
+  const stream = host?.querySelector("[data-job-output-stream]");
+  stream?.addEventListener("change", () => setRuntimeJobOutput(view.query, stream.value, 0, view));
+  host?.querySelectorAll("[data-job-output-page]").forEach(button => button.addEventListener("click",
+    () => setRuntimeJobOutput(view.query, view.stream, Number(button.dataset.jobOutputPage), view)));
+}
+function setRuntimeJobDetailHtml(html, bind, view) {
+  const host = document.getElementById("runtimeJobDetail");
+  if (!host) return;
+  const same = host._runtimeJobOutputView === view;
+  if (same && view.composing) {
+    // Preserve the composing node while withdrawing any old mutation control.
+    host.querySelectorAll("[data-job-cancel]").forEach(button => { button.disabled = true; });
+    const note = host.querySelector("[data-job-output-note]");
+    if (note) note.textContent = localized("Finish typing to refresh the output view.", "完成输入后刷新输出视图。");
+    invalidate("runtimeJobDetail"); return;
+  }
+  const active = document.activeElement;
+  const focusSelectors = ["[data-job-output-query]", "[data-job-output-stream]", "[data-job-output-previous]", "[data-job-output-next]"];
+  const selector = same && host.contains?.(active) ? focusSelectors.find(value => active.matches?.(value)) : null;
+  const selection = selector === "[data-job-output-query]" ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
+  const raw = same ? Array.from(host.querySelectorAll("[data-job-output-raw]")).map(node => [node.dataset.jobOutputRaw, node.open]) : [];
+  if (!same) invalidate("runtimeJobDetail");
+  setHtml("runtimeJobDetail", host, html, bind);
+  host._runtimeJobOutputView = view;
+  for (const [name, open] of raw) { const node = host.querySelector('[data-job-output-raw="' + name + '"]'); if (node) node.open = open; }
+  let restored = selector && host.querySelector(selector);
+  if (selector === "[data-job-output-previous]" || selector === "[data-job-output-next]") {
+    if (!restored || restored.disabled) restored = host.querySelector(selector === "[data-job-output-next]" ? "[data-job-output-previous]" : "[data-job-output-next]");
+    if (!restored || restored.disabled) restored = host.querySelector("[data-job-output-query]");
+  }
+  restored?.focus({ preventScroll: true });
+  if (restored && selection && Number.isInteger(selection[0])) restored.setSelectionRange?.(...selection);
+}
+
 function renderRuntimeJobs() {
-  const scope = runtimeJobsScope();
+  const scope = runtimeJobsScope(), outputScope = runtimeJobOutputScope();
   const host = id => document.getElementById(id), job = state.runtimeJob, busy = state.runtimeJobsBusy;
   const filtered = runtimeJobsView();
   const options = (values, selected, labels) => values.map(value => `<option value="${value}" ${selected === value ? "selected" : ""}>${esc(value === "all" ? localized("All", "全部") : labels(value))}</option>`).join("");
@@ -149,9 +271,11 @@ function renderRuntimeJobs() {
   const rows = filtered.map(row => `<button type="button" class="quiet-action" data-job-id="${esc(row.task_id)}" ${busy ? "disabled" : ""}><code>${esc(row.task_id)}</code> · ${esc(row.origin)} · ${esc(statusLabel(row.status))}</button>`).join("");
   setHtml("runtimeJobList", host("runtimeJobList"), filterSummary + (rows || `<p class="panel-meta">${esc(state.runtimeJobsLoaded ? localized("No retained records match these filters in this bounded response.", "此有界响应中没有符合筛选条件的保留记录。") : localized("Refresh to discover real retained task IDs.", "刷新以发现真实的保留任务 ID。"))}</p>`), () => host("runtimeJobList")?.querySelectorAll("[data-job-id]").forEach(button => button.addEventListener("click", () => void observeRuntimeJob(button.dataset.jobId))));
   const controls = state.runtimeJobSelected ? `<button type="button" class="quiet-action" data-job-status ${busy ? "disabled" : ""}>${esc(localized("Refresh exact task", "刷新精确任务"))}</button>${job?.can_cancel && job.origin === "ui" ? `<button type="button" class="quiet-action" data-job-cancel ${busy || state.runtimeJobsUncertain ? "disabled" : ""}>${esc(localized("Cancel this UI-owned job", "取消此 UI 所属任务"))}</button>` : ""}` : "";
-  const streams = job ? ["stdout", "stderr"].map(name => `<details open><summary>${name} · ${num(job[name].total_bytes)} bytes ${job[name].truncated ? esc(localized("· truncated", "· 已截断")) : ""} ${job[name].redacted ? esc(localized("· redacted", "· 已脱敏")) : ""}</summary><pre>${esc(job[name].text)}</pre></details>`).join("") : "";
-  setHtml("runtimeJobDetail", host("runtimeJobDetail"), `${controls}${job ? `<p><code>${esc(job.task_id)}</code> · ${esc(job.origin)} · ${esc(statusLabel(job.status))}</p><p class="panel-meta">${esc(localized("Command outcome", "命令结果"))}: ${esc(job.success === null ? localized("Unknown", "未知") : job.success ? localized("Reported success", "报告成功") : localized("Reported failure", "报告失败"))} · exit ${esc(job.exit_code ?? "—")}</p>${job.error ? `<p class="warn">${esc(job.error)}</p>` : ""}${streams}` : ""}${state.runtimeJobsPolls >= 120 ? `<p>${esc(localized("Automatic observation paused; refresh the exact task to continue.", "自动观测已暂停；刷新精确任务以继续。"))}</p>` : ""}`, () => {
-    host("runtimeJobDetail")?.querySelector("[data-job-status]")?.addEventListener("click", () => void observeRuntimeJob());
-    host("runtimeJobDetail")?.querySelector("[data-job-cancel]")?.addEventListener("click", () => void cancelRuntimeJob());
-  });
+  const streams = job ? ["stdout", "stderr"].map(name => `<details open data-job-output-raw="${name}"><summary>${name} · ${num(job[name].total_bytes)} bytes ${job[name].truncated ? esc(localized("· truncated", "· 已截断")) : ""} ${job[name].redacted ? esc(localized("· redacted", "· 已脱敏")) : ""}</summary><pre>${esc(job[name].text)}</pre></details>`).join("") : "";
+  setRuntimeJobDetailHtml(`${controls}${job ? `<p><code>${esc(job.task_id)}</code> · ${esc(job.origin)} · ${esc(statusLabel(job.status))}</p><p class="panel-meta">${esc(localized("Command outcome", "命令结果"))}: ${esc(job.success === null ? localized("Unknown", "未知") : job.success ? localized("Reported success", "报告成功") : localized("Reported failure", "报告失败"))} · exit ${esc(job.exit_code ?? "—")}</p>${job.error ? `<p class="warn">${esc(job.error)}</p>` : ""}${runtimeJobOutputHtml(runtimeJobOutputView())}${streams}` : ""}${state.runtimeJobsPolls >= 120 ? `<p>${esc(localized("Automatic observation paused; refresh the exact task to continue.", "自动观测已暂停；刷新精确任务以继续。"))}</p>` : ""}`, () => {
+    const current = () => runtimeJobsScope() === scope && runtimeJobOutputScope() === outputScope;
+    host("runtimeJobDetail")?.querySelector("[data-job-status]")?.addEventListener("click", () => { if (current()) void observeRuntimeJob(); });
+    host("runtimeJobDetail")?.querySelector("[data-job-cancel]")?.addEventListener("click", () => { if (current()) void cancelRuntimeJob(); });
+    bindRuntimeJobOutput(host("runtimeJobDetail"), outputScope);
+  }, outputScope);
 }
