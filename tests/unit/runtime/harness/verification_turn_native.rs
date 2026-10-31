@@ -20,6 +20,11 @@ async fn verification_phase_cold_sibling_survives_external_cargo_wait_cap() {
 }
 
 async fn real_cargo_phase(hold: Duration) {
+    // Cold Windows toolchains need bounded startup/cleanup headroom. These
+    // fixture-only deadlines leave the real hold and production wait cap intact.
+    let startup_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 10 });
+    let check_timeout = if cfg!(windows) { 180 } else { 60 };
+    let finish_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 30 });
     let root = tempfile::tempdir().unwrap();
     for (relative, name) in [(".", "phase_root"), ("apps/console", "phase_console")] {
         let directory = root.path().join(relative);
@@ -89,12 +94,19 @@ async fn real_cargo_phase(hold: Duration) {
     let mut running = tokio::spawn(async move {
         let monitor = crate::monitor::TaskMonitor::new(["phase-fixture".into()]);
         runner
-            .verify_project_mode("phase-fixture", &workspace, ("quick", false), 60, &monitor)
+            .verify_project_mode(
+                "phase-fixture",
+                &workspace,
+                ("quick", false),
+                check_timeout,
+                &monitor,
+            )
             .await
     });
     let islands = [root.path().to_path_buf(), root.path().join("apps/console")];
     let mut started = false;
-    for _ in 0..400 {
+    let startup_deadline = Instant::now() + startup_timeout;
+    while Instant::now() < startup_deadline {
         if islands
             .iter()
             .any(|path| path.join("target/phase-started").exists())
@@ -127,7 +139,7 @@ async fn real_cargo_phase(hold: Duration) {
     for path in &islands {
         fs::write(path.join("target/phase-continue"), "").unwrap();
     }
-    let result = match tokio::time::timeout(Duration::from_secs(30), &mut running).await {
+    let result = match tokio::time::timeout(finish_timeout, &mut running).await {
         Ok(result) => result.unwrap(),
         Err(_) => {
             running.abort();
