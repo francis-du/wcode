@@ -36,6 +36,7 @@ statement: >-
   this ordering turn; actual workspace/registry/process guards still apply, and external queue caps are unchanged.
   Cargo and process-capacity queue waits do not consume the subsequent command execution timeout.
   Direct commands, workspace verification executables and trusted runtime executors start that timeout only at spawn.
+  Real-process timing regressions isolate authority and temporary stores, prewarm the exact child before measuring, retain two-second queue/runtime limits and distinguish the outer startup/cleanup envelope from those production limits.
   Legacy multi-query search reserves retained representatives before expanding/filling its result quota, so frequent
   early paths cannot starve a later query when the quota can represent every matching query. Duplicate queries do not
   consume quota, a shared source row may expand to distinct query results, and selected rows retain legacy path/line/query

@@ -9,11 +9,13 @@ permalink: /docs/releases/
 
 # Releases
 
-- [v0.9.1 — Job controls and verification discovery](v0.9.1/)
+- [v0.9.2 — Standalone engineering and resilient Jobs observation](v0.9.2/)
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
 
 ## 0.9.x
+
+- [v0.9.2](v0.9.2/) — engineering work queues, retained-output search, guarded source navigation and bounded observation recovery.
 
 - [v0.9.1](v0.9.1/) — upgrade and reconnection guide, scoped job controls, independent Cargo checks, TLS patches, and troubleshooting.
 

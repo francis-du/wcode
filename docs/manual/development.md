@@ -44,6 +44,8 @@ Every shard records input, complete round-plan and discovered-test inventory dig
 
 ## Runtime invariants
 
+Queue-budget regressions use a private authority/temp fixture and prewarm the exact executable before measuring. The occupied-capacity assertion and two-second queue/runtime limits remain unchanged; the separate ten-second test envelope includes native startup and bounded process/pipe cleanup. Removing the runtime deadline reset must still fail the regression.
+
 A Tool call has one real lifecycle:
 
 ```text

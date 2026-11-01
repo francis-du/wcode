@@ -1,6 +1,6 @@
 {
   "name": "wcode",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "wcode repository tools and checks for the selected workspace, with local and remote MCP connections.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "homepage": "https://wcode.francis.run/",
