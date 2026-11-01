@@ -1,6 +1,6 @@
 [package]
 name = "wcode-core-types"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 authors = ["francis-du"]
 description = "Stable immutable engineering facts shared across wcode core domains"

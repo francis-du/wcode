@@ -6,7 +6,7 @@
       "name": "wcode",
       "source": ".",
       "description": "wcode repository tools and checks, using the current directory as the default workspace.",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "category": "developer-tools",
       "tags": ["mcp", "repository-tools", "code-review", "verification"],
       "strict": true

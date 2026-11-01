@@ -1,6 +1,6 @@
 {
   "name": "wcode",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "wcode repository tools and checks, with instructions-only, local stdio and remote HTTP connection options.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "repository": "https://github.com/francis-du/wcode",
