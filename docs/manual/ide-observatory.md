@@ -139,6 +139,8 @@ The Jobs list and each output stream scroll independently. Search uses literal m
 
 Refreshing the same task preserves the reading position, expanded/collapsed streams and keyboard focus. **Jump to end** is explicit; polling does not pull the reader away from older output. Search controls retain focus while typing. Selecting another task or switching workspace/session clears the prior task's output and query immediately. Unavailable or stale activity correlations have no output-navigation action; they do not fall back to a different task. A completed task remains distinct from a successful command, verification or Acceptance.
 
+Leaving Activity or hiding the page pauses new reads of the selected working task. Returning to a visible Activity view resumes reads of the same task in the same workspace/session at the existing two-second polling interval, using the remaining 120-observation budget. Navigation and visibility changes neither renew that budget nor rerun the command. An observation error or unconfirmed cancellation keeps automatic observation paused; unknown, input-required and terminal states are not polled automatically. Use **Refresh exact task** to request the current status and renew the budget.
+
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.
