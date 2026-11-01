@@ -2,32 +2,37 @@ use std::process::Command;
 
 #[test]
 fn retained_job_controls_bind_scope_selection_and_poll_generation() {
-    let output = Command::new("node")
-        .args([
-            "--test",
-            "--test-isolation=none",
-            "--test-reporter=tap",
-            "--test-timeout=10000",
-            "tests/unit/ui/job_controls.cjs",
-        ])
-        .env_remove("NODE_TEST_CONTEXT")
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("Node must execute the Jobs control regression suite");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{stdout}\n{stderr}");
-    for summary in [
-        "# tests 22",
-        "# pass 22",
-        "# fail 0",
-        "# cancelled 0",
-        "# skipped 0",
-        "# todo 0",
+    for (script, count) in [
+        ("tests/unit/ui/job_controls.cjs", 22),
+        ("tests/unit/ui/job_lifecycle.cjs", 8),
     ] {
-        assert!(
-            stdout.lines().any(|line| line.trim() == summary),
-            "Missing complete test summary {summary}: {stdout}"
-        );
+        let output = Command::new("node")
+            .args([
+                "--test",
+                "--test-isolation=none",
+                "--test-reporter=tap",
+                "--test-timeout=10000",
+                script,
+            ])
+            .env_remove("NODE_TEST_CONTEXT")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("Node must execute the Jobs control regression suite");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{script}: {stdout}\n{stderr}");
+        for summary in [
+            format!("# tests {count}"),
+            format!("# pass {count}"),
+            "# fail 0".into(),
+            "# cancelled 0".into(),
+            "# skipped 0".into(),
+            "# todo 0".into(),
+        ] {
+            assert!(
+                stdout.lines().any(|line| line.trim() == summary),
+                "Missing complete test summary {summary} in {script}: {stdout}"
+            );
+        }
     }
 }

@@ -123,9 +123,10 @@ async function cancelRuntimeJob() {
 }
 function scheduleRuntimeJobObservation() {
   clearTimeout(state.runtimeJobsTimer); state.runtimeJobsTimer = null;
+  const scope = runtimeJobsScope();
   if (state.runtimeJobsBusy || state.runtimeJobsMessage || state.runtimeJobsUncertain || document.hidden
     || state.workspaceTab !== "activity" || state.runtimeJob?.status !== "working" || state.runtimeJobsPolls >= 120) return;
-  const scope = runtimeJobsScope(), selected = state.runtimeJobSelected, sequence = state.runtimeJobsSequence;
+  const selected = state.runtimeJobSelected, sequence = state.runtimeJobsSequence;
   state.runtimeJobsTimer = setTimeout(() => {
     // clearTimeout cannot withdraw a callback already queued for delivery.
     if (runtimeJobsScope() !== scope || state.runtimeJobSelected !== selected || state.runtimeJobsSequence !== sequence
