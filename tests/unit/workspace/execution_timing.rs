@@ -17,36 +17,24 @@ fn budget_fixture() -> (tempfile::TempDir, Workspace, String) {
 }
 
 async fn run_isolated(test: &str) -> bool {
-    const MARKER: &str = "WCODE_TEST_QUEUE_PROCESS";
-    if std::env::var(MARKER).as_deref() == Ok(test) {
-        return false;
-    }
-    // Occupying every global process slot in the main test process can delay
-    // unrelated tests. An exact-filtered child has its own production governor;
-    // the two-second queue/runtime bounds below remain unchanged.
-    let module = module_path!().split_once("::").unwrap().1;
-    let name = format!("{module}::{test}");
-    let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
-    command
-        .args([&name, "--exact", "--nocapture", "--test-threads=1"])
-        .env(MARKER, test)
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(60), command.output())
-        .await
-        .expect("isolated queue test exceeded its deadline")
-        .expect("isolated queue test could not start");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{name}: {stdout}\n{stderr}");
-    assert!(
-        stdout.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
-        "the isolated process must execute exactly one real test: {stdout}"
-    );
-    true
+    // Isolate authority/temp stores as well as the process governor. Parallel
+    // tests must not contend on the host's authorization files during timing.
+    crate::workspace::tests::process_fixture::run_in_private_fixture(module_path!(), test).await
 }
 
 async fn queued_runtime_budget(entry: &str) {
     let (root, workspace, program) = budget_fixture();
+    // Cold Windows executable startup is not the queue-budget assertion. Warm
+    // the exact fixture before occupying capacity, then remove its observations.
+    let warmup = workspace
+        .run_workspace_verification_executable(&program, &[], ".", 15)
+        .await
+        .expect("queue fixture must start before measuring admission");
+    assert!(warmup.success && !warmup.timed_out);
+    assert!(warmup.stdout.contains("queue-budget-finished"));
+    for name in ["queue-started.txt", "queue-finished.txt"] {
+        std::fs::remove_file(root.path().join(name)).unwrap();
+    }
     let governor = crate::resource::global();
     let mut held = Vec::new();
     for _ in 0..crate::resource::limits().child_processes {
@@ -83,9 +71,17 @@ async fn queued_runtime_budget(entry: &str) {
     );
     assert!(!root.path().join("queue-started.txt").exists());
     drop(held);
-    let result = tokio::time::timeout(Duration::from_secs(4), operation)
+    // This outer envelope includes native startup and bounded wait/pipe cleanup;
+    // the production queue and execution budgets remain two seconds each.
+    let result = tokio::time::timeout(Duration::from_secs(10), operation)
         .await
-        .expect("released queue must make progress")
+        .unwrap_or_else(|_| {
+            panic!(
+                "{entry}: released queue exceeded startup/runtime/cleanup envelope; started={}, finished={}",
+                root.path().join("queue-started.txt").exists(),
+                root.path().join("queue-finished.txt").exists()
+            )
+        })
         .expect("queue was released before its independent two-second bound");
     assert!(
         result.success && !result.timed_out,
