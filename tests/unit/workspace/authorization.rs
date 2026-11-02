@@ -495,3 +495,28 @@ fn authorization_capacity_preserves_unconsumed_operator_grants() {
         .request_command("demo", "git", "after-consume")
         .is_ok());
 }
+
+#[test]
+fn grouped_approval_decides_a_bounded_set_and_skips_non_pending() {
+    let manager = AuthorizationManager::default();
+    let first = manager
+        .request("demo", AuthorizationKind::RiskyExecution, "a", "sha256:a")
+        .unwrap();
+    let second = manager
+        .request("demo", AuthorizationKind::RiskyExecution, "b", "sha256:b")
+        .unwrap();
+    let third = manager
+        .request("demo", AuthorizationKind::RiskyExecution, "c", "sha256:c")
+        .unwrap();
+    assert!(manager.approve_session(&third.id));
+    let approved = manager.approve_session_many(&[
+        first.id.clone(),
+        second.id.clone(),
+        third.id.clone(),
+        "missing".to_owned(),
+    ]);
+    assert_eq!(approved, vec![first.id.clone(), second.id.clone()]);
+    assert!(manager.is_granted("sha256:a"));
+    assert!(manager.is_granted("sha256:b"));
+    assert!(manager.latest_pending().is_none());
+}
