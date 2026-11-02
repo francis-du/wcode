@@ -638,3 +638,60 @@ async fn github_check_run_listing_requires_a_check_run_array() {
     let error = fixture.provider.list_check_runs(&commit).await.unwrap_err();
     assert!(format!("{error:#}").contains("no check_runs array"));
 }
+
+#[tokio::test]
+async fn github_check_annotation_reading_is_bounded_and_read_only() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "start_line": 3,
+            "end_line": 4,
+            "annotation_level": "warning",
+            "title": "unused",
+            "message": "kept"
+        }]
+    });
+    let fixture = fixture(vec![reply(annotations)]).await;
+    let listed = fixture.provider.read_check_annotations(9).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, "src/lib.rs");
+    assert_eq!(listed[0].start_line, Some(3));
+    assert_eq!(listed[0].end_line, Some(4));
+    assert_eq!(listed[0].annotation_level, "warning");
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        "/repos/francis-du/wcode/check-runs/9/annotations"
+    );
+}
+
+#[tokio::test]
+async fn github_check_annotation_reading_fails_closed() {
+    let empty = fixture(vec![]).await;
+    assert!(empty.provider.read_check_annotations(0).await.is_err());
+    let missing = fixture(vec![reply(json!({"total_count": 0}))]).await;
+    let error = missing
+        .provider
+        .read_check_annotations(9)
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("no annotations array"));
+}
+
+#[tokio::test]
+async fn github_check_annotation_reading_rejects_oversized_fields() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "annotation_level": "warning",
+            "title": "t",
+            "message": "m".repeat(4097)
+        }]
+    });
+    let fixture = fixture(vec![reply(annotations)]).await;
+    assert!(fixture.provider.read_check_annotations(9).await.is_err());
+}

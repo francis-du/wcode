@@ -335,6 +335,31 @@ impl GitHubProvider {
             .map(|run| check_observation(run.clone()))
             .collect()
     }
+
+    /// Read the bounded annotations of one check run. Read-only inspection;
+    /// annotations are diagnostics, never an Acceptance or verification claim.
+    pub async fn read_check_annotations(&self, id: u64) -> Result<Vec<CheckAnnotation>> {
+        if id == 0 {
+            bail!("invalid check identity");
+        }
+        let id_text = id.to_string();
+        let value = self
+            .request(
+                Method::GET,
+                &["check-runs", &id_text, "annotations"],
+                None,
+                StatusCode::OK,
+            )
+            .await?;
+        let annotations = match value.get("annotations").and_then(Value::as_array) {
+            Some(annotations) => annotations,
+            None => bail!("GitHub returned no annotations array"),
+        };
+        annotations
+            .iter()
+            .map(|value| check_annotation(value.clone()))
+            .collect()
+    }
     fn check_body(&self, publication: &NativePublication, create: bool) -> Value {
         let ready = publication.verdict() == GateVerdict::Ready;
         let mut value = json!({
@@ -670,6 +695,42 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+fn check_annotation(value: Value) -> Result<CheckAnnotation> {
+    let path = value
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let level = value
+        .get("annotation_level")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if path.is_empty()
+        || path.len() > 512
+        || level.is_empty()
+        || level.len() > 16
+        || title.len() > 256
+        || message.len() > 4096
+    {
+        bail!("check annotation exceeds its bounds");
+    }
+    Ok(CheckAnnotation {
+        path: path.to_owned(),
+        start_line: value.get("start_line").and_then(Value::as_u64),
+        end_line: value.get("end_line").and_then(Value::as_u64),
+        annotation_level: level.to_owned(),
+        title: title.to_owned(),
+        message: message.to_owned(),
+    })
+}
+
 fn check_observation(value: Value) -> Result<CheckObservation> {
     let check: Check =
         serde_json::from_value(value).map_err(|_| anyhow!("GitHub check metadata incomplete"))?;

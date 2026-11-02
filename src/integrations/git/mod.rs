@@ -91,6 +91,17 @@ pub struct CheckObservation {
     pub conclusion: Option<String>,
 }
 
+/// One bounded check-run annotation. Observation only, never a gate.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CheckAnnotation {
+    pub path: String,
+    pub start_line: Option<u64>,
+    pub end_line: Option<u64>,
+    pub annotation_level: String,
+    pub title: String,
+    pub message: String,
+}
+
 impl CheckObservation {
     pub fn strictly_successful(&self) -> bool {
         self.status == "completed" && self.conclusion.as_deref() == Some("success")

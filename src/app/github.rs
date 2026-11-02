@@ -144,6 +144,18 @@ pub(super) enum GitHubCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Read the bounded annotations of one check run (read-only).
+    CheckAnnotations {
+        /// Trusted operator-managed directory containing .wcode/github-publisher.yaml.
+        #[arg(long)]
+        config_root: PathBuf,
+        /// Exact check-run ID to inspect.
+        #[arg(long)]
+        check_id: u64,
+        /// Print bounded machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Foreground controller: recheck one fixed candidate and its native proof every 30 seconds.
     /// Reuse its Check, revoke on unavailable proof/shutdown, never retarget or run PR code.
     WatchCandidate {
@@ -310,6 +322,47 @@ pub(super) async fn run(args: &super::Args, command: &GitHubCommand) -> Result<(
         }
         return Ok(());
     }
+    if let GitHubCommand::CheckAnnotations {
+        config_root,
+        check_id,
+        json,
+    } = command
+    {
+        let enrollment = GitHubEnrollment::load(config_root)
+            .map_err(|_| anyhow!("GitHub publisher enrollment is invalid or unsafe"))?
+            .ok_or_else(|| {
+                anyhow!("GitHub publisher enrollment is missing in the selected config root")
+            })?;
+        let provider = if app_mode_requested() {
+            app_provider(enrollment.github_config()?, None, None, None)?
+        } else {
+            let token = std::env::var("WCODE_GITHUB_PUBLISHER_TOKEN")
+                .map_err(|_| anyhow!("GitHub publisher credential is missing or invalid"))?;
+            let provider = GitHubProvider::new(enrollment.github_config()?, &token)?;
+            drop(token);
+            provider
+        };
+        let annotations = provider.read_check_annotations(*check_id).await?;
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&annotations)?);
+        } else {
+            for annotation in &annotations {
+                let line = annotation
+                    .start_line
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "—".to_owned());
+                println!(
+                    "{}\t{}\t{}:{}\t{}",
+                    annotation.annotation_level,
+                    annotation.path,
+                    line,
+                    annotation.title,
+                    annotation.message
+                );
+            }
+        }
+        return Ok(());
+    }
     // Validate restrictions before reading credentials or making any network call.
     let candidate = candidate_root(args, command)?;
     let options = match command {
@@ -371,7 +424,8 @@ pub(super) async fn run(args: &super::Args, command: &GitHubCommand) -> Result<(
         | GitHubCommand::WorkInbox { .. }
         | GitHubCommand::ServeInbox { .. }
         | GitHubCommand::WatchCandidate { .. }
-        | GitHubCommand::CheckRuns { .. } => unreachable!(),
+        | GitHubCommand::CheckRuns { .. }
+        | GitHubCommand::CheckAnnotations { .. } => unreachable!(),
         GitHubCommand::Preflight { check, .. } => {
             let report = provider.preflight(options.pull).await?;
             if options.json {
