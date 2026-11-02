@@ -45,6 +45,7 @@ const els = {
   authorizeOperation: q("#authorizeOperation"),
   operationMessage: q("#operationMessage"),
   authorizationList: q("#authorizationList"),
+  approveAllAuthorizations: q("#approveAllAuthorizations"),
   authorizationMessage: q("#authorizationMessage"),
   stats: q("#stats"),
   statusSummary: q("#statusSummary"),
