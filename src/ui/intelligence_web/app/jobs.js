@@ -95,6 +95,9 @@ async function observeRuntimeJob(id = state.runtimeJobSelected, manual = true, a
     if (!request.current()) return false;
     if (!validRuntimeJob(data, request.workspace, id)) throw new Error("Invalid command job");
     state.runtimeJob = data; state.runtimeJobsUncertain = false; state.runtimeJobsPolls++;
+    // Exact observation reconciles existing retained identities; it is not discovery.
+    state.runtimeJobs = state.runtimeJobs.map(row => row.task_id === data.task_id
+      ? { ...row, status: data.status, origin: data.origin, can_cancel: data.can_cancel } : row);
     return true;
   } catch (_) {
     if (request.current()) {
@@ -112,7 +115,10 @@ async function cancelRuntimeJob() {
     const data = await uiJson(`/intelligence/jobs/${encodeURIComponent(job.task_id)}/cancel`, "POST", {}, { ...request, timeout: 15000 });
     if (!request.current()) return false;
     if (!validRuntimeJob(data, request.workspace, job.task_id)) throw new Error("Invalid cancellation receipt");
-    state.runtimeJob = data; state.runtimeJobsUncertain = false; return true;
+    state.runtimeJob = data; state.runtimeJobsUncertain = false;
+    state.runtimeJobs = state.runtimeJobs.map(row => row.task_id === data.task_id
+      ? { ...row, status: data.status, origin: data.origin, can_cancel: data.can_cancel } : row);
+    return true;
   } catch (_) {
     if (request.current()) {
       state.runtimeJobsUncertain = true;
