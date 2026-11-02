@@ -7,6 +7,10 @@ mod web_execution;
 #[path = "web_graph.rs"]
 mod web_graph;
 pub(super) use web_execution::intelligence_web_revision;
+#[path = "web_authorizations.rs"]
+mod authorizations;
+pub(super) use authorizations::intelligence_web_approve_authorization_group;
+
 use web_execution::{
     intelligence_execution_snapshot, public_worklist_revision, worklist_snapshot_key,
 };
@@ -441,53 +445,6 @@ pub(super) async fn intelligence_web_approve_authorization(
             .into_response(),
         Err(error) => intelligence_bad_request(error),
     }
-}
-
-/// Approve a bounded set of pending requests as one operator decision.
-pub(super) async fn intelligence_web_approve_authorization_group(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(payload): Json<Value>,
-) -> Response {
-    if let Err(response) = intelligence_ui_authorized(&state, &headers) {
-        return *response;
-    }
-    let ids = match payload.get("ids").and_then(Value::as_array) {
-        Some(ids) => ids
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>(),
-        None => return intelligence_bad_request("ids are required"),
-    };
-    if ids.is_empty() || ids.len() > MAX_GROUPED_AUTHORIZATIONS {
-        return intelligence_bad_request("grouped authorization size is out of bounds");
-    }
-    let workspace_id = match intelligence_workspace_id(&state, &headers) {
-        Ok(id) => id,
-        Err(error) => return intelligence_bad_request(error),
-    };
-    for id in &ids {
-        if state
-            .workspaces
-            .authorization_request(id)
-            .is_none_or(|request| request.workspace != workspace_id)
-        {
-            return intelligence_bad_request(
-                "authorization request does not belong to the selected workspace",
-            );
-        }
-    }
-    let approved = state.workspaces.approve_authorization_group(&ids);
-    (
-        StatusCode::OK,
-        Json(json!({
-            "ok": true,
-            "approved": approved,
-            "pending": intelligence_pending_authorizations(&state, &workspace_id)
-        })),
-    )
-        .into_response()
 }
 
 pub(super) async fn intelligence_web_authorize_command_operation(
