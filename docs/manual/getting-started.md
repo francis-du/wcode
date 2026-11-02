@@ -91,6 +91,8 @@ OAuth client registrations remain persistent without a clock TTL. Access tokens 
 
 Local operators can inspect sessions with `GET /oauth/sessions` and revoke a `session_id` through `POST /oauth/sessions/revoke`. These administration APIs require the existing Host/Origin checks and current `X-Wcode-UI-Token`, not an ordinary MCP bearer. Session listings expose no credentials. A successful revoke is persisted across restart; a storage error removes live credentials but does not confirm durable revocation. They are not an RFC 7009 endpoint or Team ACL/SSO; Team ACL and SSO are not implemented.
 
+The protected WebUI **Access** panel also exposes an **OAuth sessions** card for the same task without external tooling. It lists bounded session metadata only and revokes a selected session after an explicit confirmation. A successful action reports the persisted access/refresh removal counts; a persistence failure reports that live credentials were removed but durable revocation was not confirmed.
+
 ## 4. Add Design gradually to an existing project
 
 You can use source search, guarded editing and native checks before modeling the whole repository. Global setup configures the agent only. Explicit project setup (`wcode setup --project`, or the interactive Current project choice) seeds a completely missing Design with `.wcode/project.yaml` and an empty `.wcode/design/` directory. The project name comes from the directory; its description is empty and it has no Policy, invented Product vision, requirements or component mappings.

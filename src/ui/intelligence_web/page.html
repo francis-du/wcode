@@ -91,6 +91,12 @@
         <div id="authorizationList" class="authorization-list"></div>
         <div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve this exact request, authorize all commands for this Workspace session, or deny.</div>
       </div>
+      <div class="access-card access-card-wide sessions-card">
+        <h4 data-i18n="OAuth sessions">OAuth sessions</h4>
+        <div id="sessionList" class="session-list"></div>
+        <div class="access-row access-row-spaced access-action-row"><button id="sessionRefresh" type="button" data-i18n="Refresh sessions">Refresh sessions</button></div>
+        <div id="sessionMessage" class="access-message" aria-live="polite" data-i18n="session safety note">Listings show bounded session metadata only; revoking removes access and refresh tokens and persists across restart.</div>
+      </div>
     </div>
   </section>
 

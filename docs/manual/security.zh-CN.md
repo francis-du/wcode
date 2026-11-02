@@ -93,6 +93,8 @@ Client 注册继续持久保存，不设置时钟 TTL。Access Token 在一小�
 
 已实现的本地操作者会话管理 API 为 `GET /oauth/sessions` 和 `POST /oauth/sessions/revoke`，撤销使用 JSON 字段 `session_id`。它们遵循现有 Host／Origin 规则，并要求当前服务器的 `X-Wcode-UI-Token`；普通 MCP Bearer 不能授权这些操作。列表只含有界会话信息和不透明会话 ID，不返回 Access／Refresh Token 或私有 Grant Owner ID。成功撤销会持久移除该 Grant 的 Access／Refresh Token，重启也不会恢复。写盘失败返回 `revocation_not_persisted`，移除当前运行中的凭据，但不确认持久撤销。这是操作者管理 API，不是 RFC 7009 接口、Team ACL 或 SSO；Team ACL 与 SSO 尚未实现。
 
+受保护 WebUI 的 **Access** 面板通过 **OAuth sessions** 卡片暴露同一边界：只列出有界元数据（不透明会话 ID、Client ID、Resource、Access／Refresh 数量与过期时间），并且撤销必须经过显式确认。该卡片绝不显示 Token 或私有 Grant Owner ID。成功撤销会报告已持久化的移除数量；持久化失败会保留实时移除结果，但报告尚未确认持久撤销，因此重启可能恢复该会话。该卡片仅面向操作者，不会放宽上述 HTTP 授权。
+
 替换隧道只有在公网健康响应与当前进程一致后才会成为有效入口，旧 Token
 的 Resource 随后才能迁移到这个入口。OAuth Metadata 与授权页仍使用请求
 实际进入的 Host。历史 Resource 不会把旧域名重新变成有效 Host；属于另一
