@@ -244,8 +244,6 @@ pub(crate) struct EngineeringJournalHistory {
     pub truncated: bool,
     /// Whether the retained window's chain links and content digests verify.
     /// Records written before the chain existed are skipped, not failed.
-    // Surfaced for the operator audit path; UI/MCP exposure is a follow-up.
-    #[allow(dead_code)]
     pub chain_valid: bool,
 }
 

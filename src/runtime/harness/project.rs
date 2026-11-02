@@ -210,6 +210,7 @@ fn observatory_engineering_journal(workspace: &Workspace) -> ProjectEngineeringJ
             stores_prompts_or_chain_of_thought: false,
             retained_records: 0,
             truncated: false,
+            chain_valid: false,
             records: Vec::new(),
         };
     };
@@ -219,6 +220,7 @@ fn observatory_engineering_journal(workspace: &Workspace) -> ProjectEngineeringJ
         stores_prompts_or_chain_of_thought: false,
         retained_records: history.retained_records,
         truncated: history.truncated,
+        chain_valid: history.chain_valid,
         records: history
             .records
             .into_iter()
