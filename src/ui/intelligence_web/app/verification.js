@@ -107,7 +107,12 @@ async function startVerificationTask(level) {
     if (request.current()) { entry.controller = null; entry.busy = false; renderVerificationTask(); scheduleVerificationObservation(entry); }
   }
 }
-function scheduleVerificationObservation(entry) {
+function verificationObservationCurrent(entry) {
+  return entry && entry.workspace === state.current && entry.owner === token
+    && state.verificationTasks.get(entry.workspace) === entry;
+}
+function scheduleVerificationObservation(entry = verificationEntry()) {
+  if (!verificationObservationCurrent(entry)) return;
   clearTimeout(entry.timer); entry.timer = null;
   if (entry.busy || !entry.task || entry.error || entry.workspace !== state.current || document.hidden || state.workspaceTab !== "proof") return;
   if (entry.task.terminal) {
@@ -116,7 +121,16 @@ function scheduleVerificationObservation(entry) {
     return;
   }
   if (entry.task.status === "input_required" || entry.polls >= 120) return;
-  entry.timer = setTimeout(() => { entry.timer = null; void observeVerificationTask(); }, Math.min(8000, Math.max(2000, entry.task.poll_interval_ms)));
+  const stamp = observationStamp(), id = entry.task.task_id, sequence = entry.sequence;
+  const timer = setTimeout(() => {
+    if (!verificationObservationCurrent(entry) || !observationCurrent(stamp) || entry.timer !== timer
+      || entry.sequence !== sequence || entry.task?.task_id !== id) return;
+    entry.timer = null;
+    if (entry.busy || entry.error || document.hidden || state.workspaceTab !== "proof"
+      || entry.task.terminal || entry.task.status === "input_required" || entry.polls >= 120) return;
+    void observeVerificationTask();
+  }, Math.min(8000, Math.max(2000, entry.task.poll_interval_ms)));
+  entry.timer = timer;
 }
 async function observeVerificationTask({ result = false, manual = false, taskId } = {}) {
   const entry = verificationEntry(true), id = taskId || entry.task?.task_id;
@@ -171,6 +185,20 @@ function verificationReportHtml(receipt) {
   const rows = report.checks.map(row => `<details class="verification-check"><summary><code>${esc(row.id || localized("Unknown check", "未知检查"))}</code> · ${esc(statusLabel(row.execution || "unknown"))} · ${esc(row.success === null ? localized("Outcome unknown", "结果未知") : row.success ? localized("Reported pass", "报告通过") : localized("Reported failure", "报告失败"))}${row.reused ? " · " + esc(localized("Reused", "已复用")) : ""}</summary><p class="panel-meta">${esc(row.command || localized("Command unavailable", "命令不可用"))} · ${esc(localized("Exit", "退出码"))}: ${esc(row.exit_code ?? "—")} · ${num(row.elapsed_ms || 0)} ms</p>${row.evidence_id ? `<button type="button" class="acceptance-evidence-link" data-acceptance-evidence="${esc(row.evidence_id)}">${esc(row.evidence_id)}</button>` : ""}<label>stdout</label><pre>${esc(row.stdout_tail ?? localized("Output unavailable", "输出不可用"))}</pre><label>stderr</label><pre>${esc(row.stderr_tail ?? localized("Output unavailable", "输出不可用"))}</pre>${row.output_truncated ? `<p class="warn">${esc(localized("Output is bounded and truncated.", "输出有界且已截断。"))}</p>` : ""}</details>`).join("");
   return `<p>${esc(localized("Reported verification", "报告的验证"))}: ${esc(report.level)} · ${esc(report.passed === null ? localized("Unknown", "未知") : report.passed ? localized("Passed", "已通过") : localized("Failed", "失败"))} · ${num(report.checks_run)} ${esc(localized("checks", "项检查"))} · ${num(report.checks_failed)} ${esc(localized("failures", "项失败"))}</p><p class="panel-meta">${esc(localized("This report is distinct from the freshly captured canonical Acceptance decision.", "此报告与重新捕获的统一验收结论分别呈现。"))}</p>${report.skipped_checks.length ? `<p class="warn">${esc(localized("Skipped", "已跳过"))}: ${report.skipped_checks.map(esc).join(" · ")}</p>` : ""}${report.checks_truncated ? `<p class="warn">${report.checks.length} / ${report.checks_total} ${esc(localized("checks returned; remaining diagnostics are not in this bounded response.", "项检查已返回；其余诊断不在此有界响应中。"))}</p>` : ""}<div class="verification-checks">${rows}</div>`;
 }
+function bindVerificationControls(host, entry, page = state.workspaceTab) {
+  const stamp = observationStamp(), owner = token, taskId = entry?.task?.task_id, binding = {};
+  host._verificationControls = binding;
+  const current = () => host._verificationControls === binding && owner === token
+    && observationCurrent(stamp) && !document.hidden && state.workspaceTab === page
+    && verificationEntry() === entry && entry?.task?.task_id === taskId;
+  return (button, action) => {
+    if (!button) return;
+    if (button._verificationClick) button.removeEventListener?.("click", button._verificationClick);
+    const listener = () => { if (current()) void action(); };
+    button._verificationClick = listener;
+    button.addEventListener("click", listener);
+  };
+}
 function renderVerificationTask() {
   const host = els.verificationTask; if (!host) return;
   const entry = verificationEntry(), task = entry?.task, acceptance = acceptanceView();
@@ -180,14 +208,23 @@ function renderVerificationTask() {
   const gate = !verificationLaunchContext() ? `<p class="warn">${esc(localized("Refresh a current authorized snapshot before running verification. Read-only or cached observations do not authorize execution.", "执行验证前，请刷新当前已授权快照。只读或缓存观测不能授权执行。"))}</p>` : "";
   const taskHtml = task ? `<div class="verification-task-state">${pill(statusLabel(task.status), task.status === "failed" ? "bad" : "info")}<code>${esc(task.task_id)}</code><span>${esc(statusLabel(task.freshness))} · Git: ${esc(statusLabel(task.git_freshness))}</span><p>${esc(task.status_message)}</p><p class="panel-meta">${esc(localized("Task completion is not success or Acceptance approval.", "任务完成不是成功或验收批准。"))}</p>${task.authorization_required || task.status === "input_required" ? `<p class="warn">${esc(localized("An exact operator request needs review. Approval is not applied automatically; inspect access, then query this task's actual status.", "精确操作员请求需要复核。不会自动批准；请检查权限，再查询此任务的真实状态。"))}</p><button type="button" class="quiet-action" data-summary-action="access">${esc(localized("Inspect approval", "检查批准"))}</button>` : ""}${task.freshness !== "current" ? `<p class="warn">${esc(localized("Task revision is stale or unknown; its result cannot establish current Acceptance.", "任务版本过期或未知，其结果不能建立当前验收结论。"))}</p>` : ""}<div class="acceptance-actions"><button type="button" class="quiet-action" data-verification-status ${entry.busy ? "disabled" : ""}>${esc(localized("Refresh task status", "刷新任务状态"))}</button>${active ? `<button type="button" class="quiet-action" data-verification-cancel ${entry.busy ? "disabled" : ""}>${esc(localized("Cancel verification", "取消验证"))}</button>` : ""}${task.terminal ? `<button type="button" class="quiet-action" data-verification-result ${entry.busy ? "disabled" : ""}>${esc(localized("Inspect retained result", "检查保留结果"))}</button><button type="button" class="quiet-action" data-verification-refresh>${esc(localized("Refresh Evidence / Acceptance", "刷新证据 / 验收"))}</button>` : ""}</div>${entry.polls >= 120 || document.hidden ? `<p class="panel-meta">${esc(localized("Automatic observation paused; refresh status to continue. Verification is not restarted.", "自动观测已暂停；刷新状态以继续，不会重新执行验证。"))}</p>` : ""}</div>${entry.result ? verificationReportHtml(entry.result) : ""}` : "";
   const html = `<header><h3>${esc(localized("Run native verification", "运行原生验证"))}</h3><p class="panel-meta">${esc(localized("Quick or full runs the discovered native checks through protected durable tasks. Nothing starts until you click Run.", "Quick 或 Full 通过受保护的持久化任务执行已发现的原生检查。点击运行后才会启动。"))}</p></header>${planHtml}${gate}<div class="acceptance-actions"><button type="button" class="quiet-action" data-verification-run="quick" ${disabled ? "disabled" : ""}>${esc(localized("Run quick", "运行 Quick"))}</button><button type="button" class="quiet-action" data-verification-run="full" ${disabled ? "disabled" : ""}>${esc(localized("Run full", "运行 Full"))}</button></div>${entry?.error ? `<p class="warn" role="alert">${esc(entry.error)}</p>` : ""}${entry?.uncertain || !task ? `<details class="verification-reconnect"><summary>${esc(localized("Reconnect a known task ID", "重连已知任务 ID"))}</summary><p class="panel-meta">${esc(localized("Only this workspace and local UI session's native verification tasks are accessible. If launch returned no ID, its outcome remains unknown.", "仅能访问当前工作区和本地 UI 会话的原生验证任务。若启动未返回 ID，其结果仍然未知。"))}</p><input data-verification-reconnect-id aria-label="${esc(localized("Verification task ID", "验证任务 ID"))}" maxlength="160" autocomplete="off"><button type="button" class="quiet-action" data-verification-reconnect ${entry?.busy ? "disabled" : ""}>${esc(localized("Read task status", "读取任务状态"))}</button></details>` : ""}${verificationRecoveryHtml(entry)}${taskHtml}`;
-  setHtml("verificationTask", host, html, () => {
-    bindSummaryActions(host); bindVerificationRecovery(host, entry);
-    host.querySelectorAll("[data-verification-run]").forEach(button => button.addEventListener("click", () => void startVerificationTask(button.dataset.verificationRun)));
-    host.querySelector("[data-verification-status]")?.addEventListener("click", () => void observeVerificationTask({ manual: true }));
-    host.querySelector("[data-verification-result]")?.addEventListener("click", () => void observeVerificationTask({ result: true, manual: true }));
-    host.querySelector("[data-verification-cancel]")?.addEventListener("click", () => void cancelVerificationTask());
-    host.querySelector("[data-verification-refresh]")?.addEventListener("click", () => void refreshVerificationAcceptance(entry));
-    host.querySelector("[data-verification-reconnect]")?.addEventListener("click", () => void observeVerificationTask({ manual: true, taskId: String(host.querySelector("[data-verification-reconnect-id]")?.value || "").trim() }));
-    host.querySelectorAll("[data-acceptance-evidence]").forEach(button => button.addEventListener("click", () => openAcceptanceEvidence(button.dataset.acceptanceEvidence)));
+  setHtml("verificationTask", host, html);
+  const bind = bindVerificationControls(host, entry, "proof");
+  bindVerificationRecovery(host, entry, bind);
+  host.querySelectorAll("[data-summary-action]").forEach(button => {
+    const target = button.dataset.summaryAction;
+    bind(button, async () => { if (target === "access") { setAccessPanel(true); await loadAccess(); } });
+  });
+  host.querySelectorAll("[data-verification-run]").forEach(button => {
+    const level = button.dataset.verificationRun; bind(button, () => startVerificationTask(level));
+  });
+  bind(host.querySelector("[data-verification-status]"), () => observeVerificationTask({ manual: true }));
+  bind(host.querySelector("[data-verification-result]"), () => observeVerificationTask({ result: true, manual: true }));
+  bind(host.querySelector("[data-verification-cancel]"), () => cancelVerificationTask());
+  bind(host.querySelector("[data-verification-refresh]"), () => refreshVerificationAcceptance(entry));
+  bind(host.querySelector("[data-verification-reconnect]"), () => observeVerificationTask({ manual: true,
+    taskId: String(host.querySelector("[data-verification-reconnect-id]")?.value || "").trim() }));
+  host.querySelectorAll("[data-acceptance-evidence]").forEach(button => {
+    const id = button.dataset.acceptanceEvidence; bind(button, () => openAcceptanceEvidence(id));
   });
 }
