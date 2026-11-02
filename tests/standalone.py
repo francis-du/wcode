@@ -59,7 +59,7 @@ NATIVE_FAILURE_FILES = (
     "tests/unit/workspace/execution_sandbox.rs",
     "tests/unit/runtime/harness/verification_turn_native.rs",
     "tests/unit/evidence/failure_memory.rs", "tests/unit/integrations/git/watch.rs",
-    "tests/unit/integrations/mcp/calls.rs",
+    "tests/unit/integrations/mcp/calls.rs", "tests/oss_payload.rs",
 )
 REQUIRED_FILES = (
     "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "README.md",
@@ -265,7 +265,7 @@ class RustFailureDiagnostics:
             r"thread '((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)'"
             r"(?: \([0-9]{1,9}\))? panicked at "
             r"(?:src[/\\](?:(?:[A-Za-z0-9_-]+|\.\.)[/\\]){0,12})?"
-            r"(tests[/\\]unit[/\\][A-Za-z0-9_/\\.-]+\.rs):"
+            r"(tests[/\\][A-Za-z0-9_/\\.-]+\.rs):"
             r"([1-9][0-9]{0,8}):([1-9][0-9]{0,8}):", line)
         if native_location:
             name, path, row, column = native_location.groups()

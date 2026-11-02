@@ -448,32 +448,40 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(hints))
 
     def test_fanout_call_locations_accept_exact_portable_paths_and_chunked_lines(self):
-        fixed = "tests/unit/integrations/mcp/calls.rs"
-        name = "mcp::tool_tests::parallel_fanout_runs_writes_and_coalesces_same_file_edits"
-        paths = (fixed, fixed.replace("/", "\\"),
-                 "src/integrations/../../" + fixed)
-        for path in paths:
-            for ending in ("\n", "\r\n"):
-                for chunk_size in (1, 7, 4096):
-                    with self.subTest(path=path, ending=ending, chunk_size=chunk_size):
-                        parser = standalone.RustFailureDiagnostics()
-                        text = (f"thread '{name}' (17) panicked at {path}:552:5:"
-                                + ending + "PRIVATE_ASSERTION_BODY token/path" + ending).encode()
-                        for offset in range(0, len(text), chunk_size):
-                            parser.feed(text[offset:offset + chunk_size])
-                        hints = parser.finish()
-                        self.assertEqual(hints["failure_native_locations"], [
-                            {"test": name, "file": fixed, "line": 552, "column": 5},
-                        ])
-                        self.assertNotIn("PRIVATE", json.dumps(hints))
-                        self.assertEqual(hints["failure_native_codes"], [])
-                        self.assertFalse(hints["failure_diagnostics_partial"])
+        cases = [
+            ("tests/unit/integrations/mcp/calls.rs",
+             "mcp::tool_tests::parallel_fanout_runs_writes_and_coalesces_same_file_edits"),
+            ("tests/oss_payload.rs",
+             "source_payload_excludes_python_bytecode_but_keeps_adjacent_sources"),
+        ]
+        for fixed, name in cases:
+            paths = (fixed, fixed.replace("/", "\\"),
+                     "src/integrations/../../" + fixed)
+            for path in paths:
+                for ending in ("\n", "\r\n"):
+                    for chunk_size in (1, 7, 4096):
+                        with self.subTest(path=path, ending=ending, chunk_size=chunk_size):
+                            parser = standalone.RustFailureDiagnostics()
+                            text = (f"thread '{name}' (17) panicked at {path}:552:5:"
+                                    + ending + "PRIVATE_ASSERTION_BODY token/path" + ending).encode()
+                            for offset in range(0, len(text), chunk_size):
+                                parser.feed(text[offset:offset + chunk_size])
+                            hints = parser.finish()
+                            self.assertEqual(hints["failure_native_locations"], [
+                                {"test": name, "file": fixed, "line": 552, "column": 5},
+                            ])
+                            self.assertNotIn("PRIVATE", json.dumps(hints))
+                            self.assertEqual(hints["failure_native_codes"], [])
+                            self.assertFalse(hints["failure_diagnostics_partial"])
 
     def test_fanout_call_locations_reject_unknown_paths_bodies_and_injected_headers(self):
         fixed = "tests/unit/integrations/mcp/calls.rs"
         paths = ("PRIVATE/" + fixed, "/" + fixed, "C:/PRIVATE/" + fixed,
                  "tests/unit/integrations/mcp/PRIVATE.rs", fixed + ".PRIVATE",
                  "tests/unit/integrations/mcp/../mcp/calls.rs",
+                 "tests/PRIVATE.rs", "tests/subdir/oss_payload.rs",
+                 "tests/oss_payload_PRIVATE.rs", "tests/../oss_payload.rs",
+                 "src/../tests/PRIVATE.rs",
                  "src/" + "../" * 13 + fixed, "tests/unit/integrations/mcp/calls\x00.rs")
         lines = [f"thread 'native::case' panicked at {path}:552:5:" for path in paths]
         lines += [
