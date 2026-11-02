@@ -167,6 +167,9 @@ pub(super) enum GitHubCommand {
         /// Print bounded machine-readable output.
         #[arg(long)]
         json: bool,
+        /// Also write the receipt as JSON to this path.
+        #[arg(long)]
+        to: Option<PathBuf>,
     },
     /// Foreground controller: recheck one fixed candidate and its native proof every 30 seconds.
     /// Reuse its Check, revoke on unavailable proof/shutdown, never retarget or run PR code.
@@ -379,6 +382,7 @@ pub(super) async fn run(args: &super::Args, command: &GitHubCommand) -> Result<(
         config_root,
         check_id,
         json,
+        to,
     } = command
     {
         let enrollment = GitHubEnrollment::load(config_root)
@@ -396,8 +400,13 @@ pub(super) async fn run(args: &super::Args, command: &GitHubCommand) -> Result<(
             provider
         };
         let receipt = provider.read_check_receipt(*check_id).await?;
+        let encoded = serde_json::to_string_pretty(&receipt)?;
+        if let Some(path) = to {
+            std::fs::write(path, format!("{encoded}\n"))
+                .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))?;
+        }
         if *json {
-            println!("{}", serde_json::to_string_pretty(&receipt)?);
+            println!("{encoded}");
         } else {
             println!(
                 "{}\t{}\t{}\t{}\t{}",
