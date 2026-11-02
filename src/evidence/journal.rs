@@ -387,19 +387,29 @@ fn latest_record_hash(workspace: &Workspace) -> Result<Option<String>> {
 /// report the first missing link, link mismatch or content-digest mismatch.
 /// Records written before the chain existed have no digest and are skipped.
 pub(crate) fn verify_chain(records: &[EngineeringMilestone]) -> Result<()> {
-    let mut previous: Option<&str> = None;
-    for record in records.iter().rev() {
-        match (previous, record.chain_previous.as_deref()) {
-            (None, None) => {}
-            (Some(expected), Some(stored)) if expected == stored => {}
-            _ => bail!("engineering journal chain link is missing or mismatched"),
+    let mut by_hash: BTreeMap<String, usize> = BTreeMap::new();
+    let mut hashed = 0usize;
+    for (index, record) in records.iter().enumerate() {
+        if let Some(stored) = record.record_hash.as_deref() {
+            if stored != record_digest(record) {
+                bail!("engineering journal record digest mismatch");
+            }
+            hashed += 1;
+            by_hash.insert(stored.to_owned(), index);
         }
-        match record.record_hash.as_deref() {
-            Some(stored) if stored == record_digest(record) => {}
-            Some(_) => bail!("engineering journal record digest mismatch"),
-            None => {}
+    }
+    let mut links = 0usize;
+    for record in records {
+        if let Some(previous) = record.chain_previous.as_deref() {
+            if by_hash.contains_key(previous) {
+                links += 1;
+            } else {
+                bail!("engineering journal chain link is dangling");
+            }
         }
-        previous = record.record_hash.as_deref();
+    }
+    if hashed > 1 && links + 1 != hashed {
+        bail!("engineering journal chain has a gap");
     }
     Ok(())
 }

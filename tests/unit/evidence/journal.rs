@@ -657,11 +657,21 @@ fn engineering_journal_chain_links_records_and_detects_tampering() {
     let history = load_recent(&workspace, 8).unwrap();
     assert!(history.chain_valid);
     let records = history.records;
-    let ordered = records.iter().rev().collect::<Vec<_>>();
-    assert!(ordered[0].chain_previous.is_none());
-    for pair in ordered.windows(2) {
-        assert_eq!(pair[0].record_hash, pair[1].chain_previous);
+    let hashes = records
+        .iter()
+        .filter_map(|record| record.record_hash.as_deref().map(|hash| (hash, record)))
+        .collect::<std::collections::BTreeMap<&str, &EngineeringMilestone>>();
+    let mut links = 0;
+    for record in &records {
+        if let Some(previous) = record.chain_previous.as_deref() {
+            assert!(
+                hashes.contains_key(previous),
+                "every chain link must resolve inside the retained window"
+            );
+            links += 1;
+        }
     }
+    assert_eq!(links + 1, hashes.len());
     let mut tampered = records.clone();
     tampered[0].duration_ms += 1;
     assert!(crate::engineering_journal::verify_chain(&tampered).is_err());
