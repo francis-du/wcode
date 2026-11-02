@@ -91,6 +91,15 @@ pub struct CheckObservation {
     pub conclusion: Option<String>,
 }
 
+/// An authoritative CI receipt: one check run plus its bounded annotations and
+/// a digest over both. Observation only, never an imported Acceptance.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CheckReceipt {
+    pub check: CheckObservation,
+    pub annotations: Vec<CheckAnnotation>,
+    pub digest: String,
+}
+
 /// One bounded check-run annotation. Observation only, never a gate.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CheckAnnotation {

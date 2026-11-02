@@ -151,7 +151,7 @@ Menu Bar 是独立 accessory UI 进程，不是第二套 wcode daemon，也不�
 
 ## 仍然存在的缺口
 
-本轮没有建立完整的调试器界面、断点与变量监视流程、任意交互终端会话或外部链路接入。`wcode github check-runs --sha` 可列出绑定到某个精确提交的检查运行，`wcode github check-annotations --check-id` 可读取该运行的有限 annotations；两者都通过既有登记、只读，且绝不是验证或验收结论。全面的测试发现、逐测试结果历史、覆盖率可视化、完整历史源码浏览和安全的 Git 冲突解决也仍需后续工作。
+本轮没有建立完整的调试器界面、断点与变量监视流程、任意交互终端会话或外部链路接入。`wcode github check-runs --sha` 可列出绑定到某个精确提交的检查运行，`wcode github check-annotations --check-id` 可读取该运行的有限 annotations，`wcode github check-receipt --check-id` 将两者绑定成一份带摘要的收据；三者都通过既有登记、只读，且绝不是验证或验收结论。全面的测试发现、逐测试结果历史、覆盖率可视化、完整历史源码浏览和安全的 Git 冲突解决也仍需后续工作。
 
 文件树和图谱是有界观测。可见快照里没有某个文件，不代表它不存在；已映射测试不代表已执行；历史通过可能过期；缺失提供方不代表诊断干净。所有界面继续受 Workspace、保护路径、命令授权、OAuth 和版本规则约束。
 

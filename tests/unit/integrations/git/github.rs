@@ -695,3 +695,29 @@ async fn github_check_annotation_reading_rejects_oversized_fields() {
     let fixture = fixture(vec![reply(annotations)]).await;
     assert!(fixture.provider.read_check_annotations(9).await.is_err());
 }
+
+#[tokio::test]
+async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "start_line": 1,
+            "annotation_level": "notice",
+            "title": "t",
+            "message": "m"
+        }]
+    });
+    let fixture = fixture(vec![reply(check()), reply(annotations)]).await;
+    let receipt = fixture.provider.read_check_receipt(9).await.unwrap();
+    assert_eq!(receipt.check.id, 9);
+    assert_eq!(receipt.annotations.len(), 1);
+    assert_eq!(receipt.digest.len(), 64);
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].path, "/repos/francis-du/wcode/check-runs/9");
+    assert_eq!(
+        requests[1].path,
+        "/repos/francis-du/wcode/check-runs/9/annotations"
+    );
+}

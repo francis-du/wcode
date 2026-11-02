@@ -7,6 +7,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -360,6 +361,20 @@ impl GitHubProvider {
             .map(|value| check_annotation(value.clone()))
             .collect()
     }
+
+    /// Read one authoritative CI receipt: the check run plus its bounded
+    /// annotations and a digest over both. The digest only evidences this
+    /// captured receipt; it is not a verification or Acceptance claim.
+    pub async fn read_check_receipt(&self, id: u64) -> Result<CheckReceipt> {
+        let check = self.read_check(id).await?;
+        let annotations = self.read_check_annotations(id).await?;
+        let digest = check_receipt_digest(&check, &annotations);
+        Ok(CheckReceipt {
+            check,
+            annotations,
+            digest,
+        })
+    }
     fn check_body(&self, publication: &NativePublication, create: bool) -> Value {
         let ready = publication.verdict() == GateVerdict::Ready;
         let mut value = json!({
@@ -695,6 +710,21 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+fn check_receipt_digest(check: &CheckObservation, annotations: &[CheckAnnotation]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(check.id.to_string().as_bytes());
+    hasher.update(check.head_sha.as_bytes());
+    hasher.update(check.name.as_bytes());
+    hasher.update(check.status.as_bytes());
+    hasher.update(check.conclusion.as_deref().unwrap_or("").as_bytes());
+    for annotation in annotations {
+        hasher.update(annotation.path.as_bytes());
+        hasher.update(annotation.annotation_level.as_bytes());
+        hasher.update(annotation.message.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 fn check_annotation(value: Value) -> Result<CheckAnnotation> {
     let path = value
         .get("path")
