@@ -306,6 +306,28 @@ pub async fn run() -> Result<()> {
             ControlCommand::MenuBar { json } => {
                 return crate::menu_bar::run(*json);
             }
+            ControlCommand::Telemetry { to, limit } => {
+                if args.workspace.len() != 1 {
+                    bail!("telemetry accepts one project workspace");
+                }
+                let root = args
+                    .workspace
+                    .first()
+                    .map(PathBuf::as_path)
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                let workspace = crate::workspace::Workspace::new_with_security(
+                    root,
+                    false,
+                    false,
+                    crate::workspace::WorkspaceSecurity::default(),
+                )?;
+                let events = crate::telemetry::export(&workspace, *limit)?;
+                match to {
+                    Some(path) => crate::telemetry::write_to(path, &events)?,
+                    None => print!("{}", crate::telemetry::encode(&events)?),
+                }
+                return Ok(());
+            }
             ControlCommand::GitHub { action } => {
                 return github::run(&args, action).await;
             }
@@ -416,9 +438,10 @@ pub async fn run() -> Result<()> {
             ControlCommand::Setup { .. }
             | ControlCommand::HelpAll { .. }
             | ControlCommand::MenuBar { .. }
+            | ControlCommand::Telemetry { .. }
             | ControlCommand::GitHub { .. } => {
                 unreachable!(
-                    "setup, help-all, menu-bar and github return before runtime initialization"
+                    "setup, help-all, menu-bar, telemetry and github return before runtime initialization"
                 )
             }
             ControlCommand::AgentPlugin {

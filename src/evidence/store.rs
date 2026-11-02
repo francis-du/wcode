@@ -213,7 +213,7 @@ pub(crate) fn workspace_state_directory(workspace: &Workspace) -> Result<PathBuf
     Ok(state_root()?.join(STORE_VERSION).join(workspace_key))
 }
 
-fn workspace_root_key(root: &Path) -> Result<String> {
+pub(crate) fn workspace_root_key(root: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     if let Some(root) = root.to_str() {
         // Preserve the established storage identity for every UTF-8 root.
