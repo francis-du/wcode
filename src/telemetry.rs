@@ -116,6 +116,23 @@ pub(crate) fn write_to(path: &Path, events: &[TelemetryEvent]) -> Result<()> {
     std::fs::write(path, encoded).with_context(|| format!("cannot write {}", path.display()))
 }
 
+/// CLI entry point: read one workspace's retained observations and write them
+/// only where the operator asked. Nothing is uploaded.
+pub(crate) fn run_export(root: &Path, to: Option<&Path>, limit: usize) -> Result<()> {
+    let workspace = crate::workspace::Workspace::new_with_security(
+        root,
+        false,
+        false,
+        crate::workspace::WorkspaceSecurity::default(),
+    )?;
+    let events = export(&workspace, limit)?;
+    match to {
+        Some(path) => write_to(path, &events)?,
+        None => print!("{}", encode(&events)?),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "../tests/unit/telemetry.rs"]
 mod tests;

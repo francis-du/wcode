@@ -315,17 +315,7 @@ pub async fn run() -> Result<()> {
                     .first()
                     .map(PathBuf::as_path)
                     .unwrap_or_else(|| std::path::Path::new("."));
-                let workspace = crate::workspace::Workspace::new_with_security(
-                    root,
-                    false,
-                    false,
-                    crate::workspace::WorkspaceSecurity::default(),
-                )?;
-                let events = crate::telemetry::export(&workspace, *limit)?;
-                match to {
-                    Some(path) => crate::telemetry::write_to(path, &events)?,
-                    None => print!("{}", crate::telemetry::encode(&events)?),
-                }
+                crate::telemetry::run_export(root, to.as_deref(), *limit)?;
                 return Ok(());
             }
             ControlCommand::GitHub { action } => {
