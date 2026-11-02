@@ -59,6 +59,7 @@ NATIVE_FAILURE_FILES = (
     "tests/unit/workspace/execution_sandbox.rs",
     "tests/unit/runtime/harness/verification_turn_native.rs",
     "tests/unit/evidence/failure_memory.rs", "tests/unit/integrations/git/watch.rs",
+    "tests/unit/integrations/mcp/calls.rs",
 )
 REQUIRED_FILES = (
     "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "README.md",
@@ -472,6 +473,9 @@ def archive_parts(name: str, expected_root: str) -> tuple[str, ...]:
         raise StandaloneError("archive path escapes its package root")
     if not raw_parts or raw_parts[0] != expected_root:
         raise StandaloneError("archive contains an unexpected or multiple root")
+    if (any(part.casefold() == "__pycache__" for part in raw_parts[1:])
+            or raw_parts[-1].casefold().endswith((".pyc", ".pyo"))):
+        raise StandaloneError("source package contains Python bytecode or cache")
     for part in raw_parts:
         if (len(part) > 255 or part.endswith((".", " "))
                 or any(character in part for character in ':<>"|?*')

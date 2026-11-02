@@ -75,6 +75,10 @@ OSS workflow 只验证 OSS，不再探测或条件构建商业源码。即使机
 
 本地可以同时验证两个仓，但 commercial build 变绿不代表某次 OSS verification 已通过，反过来也一样。
 
+Python 验证可能生成 `__pycache__` 目录及 `.pyc` / `.pyo` 文件。源码包显式排除这些产物，standalone 归档验证器也会在解压前拒绝它们；相邻 `.py` / `.cjs` 源码及合法测试夹具继续保留。[Cargo 的 include 规则](https://doc.rust-lang.org/cargo/reference/manifest.html#the-exclude-and-include-fields)在指定 `include` 时跳过 Git ignore 规则，因此 manifest 自身包含否定匹配。真实 Cargo 回归使用当前 include 数组验证合成源码与生成缓存的取舍。
+
+Standalone 失败诊断只返回有界的标准测试 ID、固定白名单测试路径及行列，其中包含 MCP fanout 夹具。任意路径、断言正文与环境不会回显。定位或类别仅是诊断提示，不能证明根因，也不能把失败子进程改成通过。
+
 ## 许可证边界
 
 既有 wcode 源码继续使用 Apache-2.0。把商业文件迁出公开仓不会重新许可任何 OSS 文件。独立商业仓拥有自己的 LICENSE/NOTICE，最终商业条款仍需相应法律审查。

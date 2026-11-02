@@ -31,6 +31,8 @@ include = [
     "/plugin/**",
     "/src/**",
     "/tests/**",
+    "!**/__pycache__/**",
+    "!**/*.py[co]",
 ]
 
 [workspace]
