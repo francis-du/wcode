@@ -151,7 +151,7 @@ Leaving Activity or hiding the page pauses new reads of the selected working tas
 
 ## Remaining limits
 
-No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI/PR log explorer, or external trace ingestion is established by this slice. Comprehensive test discovery, individual result history, coverage visualization, full historical source browsing, and safe Git conflict resolution also need further work.
+No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI job/step log or annotation explorer, or external trace ingestion is established by this slice. `wcode github check-runs --sha` now lists the check runs bound to one exact commit through the existing enrollment; it is read-only and is never a verification or Acceptance claim. Comprehensive test discovery, individual result history, coverage visualization, full historical source browsing, and safe Git conflict resolution also need further work.
 
 The source tree and graphs are bounded observations. A file outside a visible snapshot is not necessarily absent. A mapped test has not necessarily run; a historical pass may be stale; a missing provider is not a clean diagnostic result. Existing Workspace, protected-path, command authorization, OAuth, and revision rules continue to govern every surface.
 

@@ -316,6 +316,25 @@ impl GitHubProvider {
         }
         Ok(check)
     }
+
+    /// List the check runs bound to one exact commit. Read-only operator
+    /// inspection: the response is never a verification or Acceptance claim.
+    pub async fn list_check_runs(&self, commit: &str) -> Result<Vec<CheckObservation>> {
+        if commit.len() != 64 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("invalid commit identity");
+        }
+        let suffix = ["commits", commit, "check-runs"];
+        let value = self
+            .request(Method::GET, &suffix, None, StatusCode::OK)
+            .await?;
+        let runs = match value.get("check_runs").and_then(Value::as_array) {
+            Some(runs) => runs,
+            None => bail!("GitHub returned no check_runs array"),
+        };
+        runs.iter()
+            .map(|run| check_observation(run.clone()))
+            .collect()
+    }
     fn check_body(&self, publication: &NativePublication, create: bool) -> Value {
         let ready = publication.verdict() == GateVerdict::Ready;
         let mut value = json!({

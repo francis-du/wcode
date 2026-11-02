@@ -600,3 +600,41 @@ async fn github_gate_unconfirmed_success_response_attempts_failure_replacement()
         ["failure", "success", "failure"]
     );
 }
+
+#[tokio::test]
+async fn github_check_run_listing_is_commit_bound_and_read_only() {
+    let commit = "c".repeat(64);
+    let mut listed = check();
+    listed["head_sha"] = json!(commit);
+    let fixture = fixture(vec![reply(
+        json!({"total_count": 1, "check_runs": [listed]}),
+    )])
+    .await;
+    let runs = fixture.provider.list_check_runs(&commit).await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, 9);
+    assert_eq!(runs[0].name, "wcode/change-acceptance");
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        format!("/repos/francis-du/wcode/commits/{commit}/check-runs")
+    );
+}
+
+#[tokio::test]
+async fn github_check_run_listing_rejects_incomplete_commit_identity() {
+    let fixture = fixture(vec![]).await;
+    let error = fixture.provider.list_check_runs("abc").await.unwrap_err();
+    assert!(format!("{error:#}").contains("invalid commit identity"));
+    assert!(fixture.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn github_check_run_listing_requires_a_check_run_array() {
+    let commit = "c".repeat(64);
+    let fixture = fixture(vec![reply(json!({"total_count": 0}))]).await;
+    let error = fixture.provider.list_check_runs(&commit).await.unwrap_err();
+    assert!(format!("{error:#}").contains("no check_runs array"));
+}
