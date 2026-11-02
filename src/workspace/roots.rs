@@ -612,6 +612,31 @@ impl Workspace {
         Ok(())
     }
 
+    /// Historical reads address the Git object database, so an absent leaf or an
+    /// absent directory tree is allowed. Existing components must still not be
+    /// symlinks, preserving the same isolation boundary as the worktree reads.
+    pub(super) fn ensure_no_symlink_components_allow_missing(&self, relative: &Path) -> Result<()> {
+        let mut current = self.root.clone();
+        for component in relative.components() {
+            let Component::Normal(value) = component else {
+                continue;
+            };
+            current.push(value);
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    bail!(
+                        "symlink paths are blocked to preserve workspace isolation: {}",
+                        current.display()
+                    )
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn existing_path(&self, path: &str) -> Result<PathBuf> {
         self.ensure_root_intact()?;
         let relative = Self::validate_relative(path)?;

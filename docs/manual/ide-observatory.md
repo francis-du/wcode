@@ -47,6 +47,8 @@ The current Observatory already exposes architecture and Code Graph inspection, 
 
 [Change inspection](../change-inspection/) already supplies read-only working, staged, and unstaged comparisons, before/after syntax mapping, changed-line navigation, and protected source windows from graph nodes. Source identity, repository revision, precision, redaction, and truncation remain part of those views. The file-browser bridge reuses these boundaries for protected source navigation.
 
+Bounded historical source reading now reuses the same boundaries to read the inspected file as of one exact recorded commit. The revision selector is populated only from the repository's own bounded commit list, and the response keeps unknown revision, missing path, restricted path, binary, redacted, directory, and truncated states explicit. Historical source is bound to that commit rather than to the current change snapshot, and it does not feed syntax mapping, Code Graph, impact analysis or Verification Evidence.
+
 These are different kinds of observations. Architecture declarations are intent; syntax relationships are syntax; live provider results may supply semantics; check output is execution data; revision-bound Evidence supplies proof under its own rules. Showing them together must preserve those distinctions.
 
 ### Architecture evidence and bounded observation
@@ -71,6 +73,7 @@ The following changes are implemented in this working-tree slice. Verification i
 | TUI | Summary, Attention, Tasks, Agents, and Providers views provide selectable rows and contextual details. | Selection must remain bound to the current workspace and row identity as live data changes. Hidden or narrow layouts must retain readable controls. |
 | WebUI | An actionable observation coverage strip and selectable attention items route operators to the relevant existing workbench view. | Navigation does not execute checks, approve requests, or mark work complete. |
 | Project files | Interactive file-tree and largest-file entries open protected source inspection, with 240-line paging and snapshot/SHA checks. | Source retrieval remains bounded and revision-aware; protected, missing, stale, redacted, or binary content stays explicit. |
+| Historical source | The selected file can be read as of one exact recorded commit, chosen from a revision selector bounded to the repository's reported commit list. | The revision must be a complete commit object ID; unknown, missing, restricted, binary, redacted, directory and truncated states stay explicit, and a returned SHA always covers the exact bytes read at that commit. |
 | macOS Menu Bar | `wcode menu-bar` observes the same protected local runtime-presence contract published by the HTTP/MCP runtime and `wcode mcp-stdio`. `wcode menu-bar --json` exposes the portable bounded projection. | The first slice is observation-only: runtime/MCP/task counts and partial/unknown state. It stores no UI/OAuth token, owner, command arguments, source path, or raw diagnostic, and it cannot approve, execute, cancel, or establish verification/Acceptance. |
 
 The operator path is: choose a workspace → select an attention item → inspect its details → open the relevant source, activity, provider, changes, or proof view → resolve the cause through the agent or an authorized operation → inspect fresh proof. TUI, WebUI, and the Menu Bar can use different layouts but should describe the same underlying runtime truth.
@@ -151,7 +154,7 @@ Leaving Activity or hiding the page pauses new reads of the selected working tas
 
 ## Remaining limits
 
-No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI/PR log explorer, or external trace ingestion is established by this slice. Comprehensive test discovery, individual result history, coverage visualization, full historical source browsing, and safe Git conflict resolution also need further work.
+No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI/PR log explorer, or external trace ingestion is established by this slice. Comprehensive test discovery, individual result history, coverage visualization, unbounded historical source browsing across arbitrary revision expressions, and safe Git conflict resolution also need further work.
 
 The source tree and graphs are bounded observations. A file outside a visible snapshot is not necessarily absent. A mapped test has not necessarily run; a historical pass may be stale; a missing provider is not a clean diagnostic result. Existing Workspace, protected-path, command authorization, OAuth, and revision rules continue to govern every surface.
 

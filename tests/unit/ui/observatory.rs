@@ -120,6 +120,29 @@ fn observatory_change_view_is_readonly_scoped_and_snapshot_bound() {
 }
 
 #[test]
+fn observatory_historical_source_is_revision_bounded_and_read_only() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/historical_source.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for bounded historical source regressions and ablations");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 11
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn observatory_fitness_preserves_unknown_revision_scope_and_visible_denominators() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")
