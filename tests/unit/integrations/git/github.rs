@@ -721,3 +721,32 @@ async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
         "/repos/francis-du/wcode/check-runs/9/annotations"
     );
 }
+
+#[test]
+fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let receipt = crate::git_provider::CheckReceipt {
+        check: crate::git_provider::CheckObservation {
+            id: 9,
+            head_sha: "b".repeat(64),
+            name: "wcode/change-acceptance".to_owned(),
+            source_id: "wcode".to_owned(),
+            external_id: "wcode:test".to_owned(),
+            status: "completed".to_owned(),
+            conclusion: Some("success".to_owned()),
+        },
+        annotations: Vec::new(),
+        digest: "a".repeat(64),
+    };
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let loaded = crate::git_provider::github::load_receipts(&path).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0], receipt);
+    assert!(
+        crate::git_provider::github::load_receipts(&root.path().join("missing.jsonl"))
+            .unwrap()
+            .is_empty()
+    );
+}

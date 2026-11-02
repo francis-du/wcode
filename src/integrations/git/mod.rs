@@ -4,7 +4,7 @@ use crate::verification::acceptance::{AcceptanceState, ChangeAcceptanceRecord};
 use crate::verification::acceptance_native::NativeAcceptanceRecord;
 use crate::verification::change::{full_oid, GitChangeTarget};
 use anyhow::{bail, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -80,7 +80,7 @@ pub enum GateVerdict {
 }
 
 /// Public serialization is an observation, never an imported authority.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckObservation {
     pub id: u64,
     pub head_sha: String,
@@ -93,7 +93,7 @@ pub struct CheckObservation {
 
 /// An authoritative CI receipt: one check run plus its bounded annotations and
 /// a digest over both. Observation only, never an imported Acceptance.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckReceipt {
     pub check: CheckObservation,
     pub annotations: Vec<CheckAnnotation>,
@@ -101,7 +101,7 @@ pub struct CheckReceipt {
 }
 
 /// One bounded check-run annotation. Observation only, never a gate.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckAnnotation {
     pub path: String,
     pub start_line: Option<u64>,

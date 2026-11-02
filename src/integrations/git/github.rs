@@ -8,6 +8,7 @@ use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -710,6 +711,52 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+/// Bounded local retention of captured authoritative CI receipts, one JSON
+/// object per line. Receipts are keyed by check-run ID, newest last, and the
+/// store is capped so an operator can retain receipts without unbounded growth.
+const MAX_RECEIPTS: usize = 128;
+const MAX_RECEIPT_STORE_BYTES: u64 = 4 * 1024 * 1024;
+
+pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes =
+        std::fs::read(path).map_err(|error| anyhow!("cannot read {}: {error}", path.display()))?;
+    if bytes.len() as u64 > MAX_RECEIPT_STORE_BYTES {
+        bail!("receipt store exceeds its size bound");
+    }
+    let mut receipts = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        receipts.push(
+            serde_json::from_slice(line)
+                .map_err(|error| anyhow!("invalid receipt store line: {error}"))?,
+        );
+    }
+    Ok(receipts)
+}
+
+pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> {
+    let mut receipts = load_receipts(path)?;
+    receipts.retain(|existing| existing.check.id != receipt.check.id);
+    receipts.push(receipt.clone());
+    let overflow = receipts.len().saturating_sub(MAX_RECEIPTS);
+    receipts.drain(..overflow);
+    let mut encoded = receipts
+        .iter()
+        .map(|entry| {
+            serde_json::to_string(entry).map_err(|error| anyhow!("cannot encode receipt: {error}"))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join("\n");
+    encoded.push('\n');
+    std::fs::write(path, encoded)
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
 fn check_receipt_digest(check: &CheckObservation, annotations: &[CheckAnnotation]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(check.id.to_string().as_bytes());
