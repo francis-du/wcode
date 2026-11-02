@@ -399,6 +399,22 @@ Object.assign(translations["zh-CN"], {
   "live runtime topology meta": "从真实运行遥测投影当前入口、MCP/授权、工作区边界、Harness 队列、仓库模型和验证状态。",
 });
 
+Object.assign(translations["zh-CN"], {
+  "Runner": "运行器",
+  "queue wait": "排队等待",
+  "timed out": "超时",
+  "output incomplete": "输出不完整",
+  "Check / test identity": "检查 / 测试标识",
+  "Failure location": "失败位置",
+  "UI-owned": "UI 所属",
+  "MCP-owned": "MCP 所属",
+  "Unknown": "未知",
+  "Yes": "是",
+  "No": "否",
+  "Command program, arguments, cwd and structured diagnostics are not retained for command jobs.":
+    "命令的程序、参数、工作目录与结构化诊断不会为命令任务保留。",
+});
+
 // Descriptive translation keys need English copy too, not their internal IDs.
 translations.en = {
   "command jobs observation": "Inspect real retained command tasks and bounded redacted output. Only current UI-owned running jobs can be cancelled here; MCP-owned jobs remain observation-only. This page does not launch commands.",

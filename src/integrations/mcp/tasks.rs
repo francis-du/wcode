@@ -110,6 +110,9 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
         let exit_code = output
             .and_then(|output| output["exit_code"].as_i64())
             .and_then(|value| i32::try_from(value).ok());
+        let queue_wait_ms = output.and_then(|output| output["process_queue_wait_ms"].as_u64());
+        let timed_out = output.and_then(|output| output["timed_out"].as_bool());
+        let output_incomplete = output.and_then(|output| output["output_incomplete"].as_bool());
         Ok(crate::monitor_jobs::MonitorJobSnapshot {
             job_id: record.task_id,
             workspace: record.workspace,
@@ -132,6 +135,9 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
             exit_code,
             success,
             error,
+            queue_wait_ms,
+            timed_out,
+            output_incomplete,
         })
     }
 

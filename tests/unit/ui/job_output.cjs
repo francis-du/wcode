@@ -18,7 +18,8 @@ function listing(ids = [idA]) {
 }
 function detail(out = 'ordinary output\nneedle stdout', err = 'needle stderr', extra = {}) {
   return { schema_version: 1, kind: 'command_job', task_id: idA, workspace: 'A', tool: 'run_command',
-    status: 'completed', origin: 'mcp', can_cancel: false, success: null, exit_code: null, error: null,
+    status: 'completed', origin: 'mcp', can_cancel: false, success: null, exit_code: null,
+    queue_wait_ms: null, timed_out: null, output_incomplete: null, error: null,
     stdout: stream(out), stderr: stream(err), completion_is_not_success: true, acceptance_ready: false, ...extra };
 }
 function prepared() {
@@ -101,6 +102,24 @@ async function runAblations() {
         }
         const passed = boundaries.filter(row => row.available && row.query_cleared && row.stale_control_rejected).length;
         return { invariant: passed === 2, preserved_boundaries: passed, total_boundaries: 2, boundaries };
+      },
+    },
+    {
+      id: 'job-runner-metadata-explicit-unknown',
+      mutation: text => {
+        const start = text.indexOf('function runtimeJobMetadataHtml(job) {');
+        const end = text.indexOf('function runtimeJobOutputScope() {', start);
+        assert.ok(start >= 0 && end > start, 'metadata function boundaries must exist');
+        return text.slice(0, start) + 'function runtimeJobMetadataHtml(job) { return ""; }\n' + text.slice(end);
+      },
+      observe: async mutation => {
+        const s = await isolated(mutation, detail('visible', '', {
+          status: 'completed', success: true, exit_code: 0, queue_wait_ms: 7, timed_out: false, output_incomplete: false,
+        }));
+        const html = s.node('#runtimeJobDetail').innerHTML;
+        const explained = [/Runner/, /queue wait/, /timed out/, /output incomplete/,
+          /Check \/ test identity/, /Failure location/, /Unknown/].filter(pattern => pattern.test(html)).length;
+        return { invariant: explained === 7, explicit_metadata_facts: explained, required_metadata_facts: 7 };
       },
     },
     {

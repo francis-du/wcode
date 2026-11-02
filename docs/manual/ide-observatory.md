@@ -112,6 +112,10 @@ The existing Jobs inspector now searches retained output locally: at most 256 qu
 
 Search state binds the exact task, Workspace, session owner and epoch. Selecting another task withdraws old output before the response arrives; failed or invalid detail clears old matches. Same-task updates preserve the query, valid pagination, focus and Chinese composition. `tests/unit/ui/job_output.cjs` verifies these behaviors and separately ablates literal matching, identity boundaries and coverage explanations inside isolated VMs: matching lines 2/5→incorrect 5/5→restored 2/5, task/owner boundaries 2/2→0/2→2/2, coverage statements 4/4→0/4→4/4. These are functional comparisons, with no measured latency or model-cost claim.
 
+### Job identity and runner metadata (third iteration)
+
+The exact-task Jobs detail now shows deterministic runner metadata retained with the completed command result: process queue wait, timeout state and output-capture completeness. A working job has no completed result, so those fields stay explicitly unknown. Check/test identity and structured failure location remain explicitly unknown for command jobs: the observation contract does not retain or export command program, arguments or cwd, and it does not parse arbitrary output into invented locations. Native verification results keep their own projection with check identities, per-check outcomes and coverage counts; this slice does not merge that surface into command-job inspection.
+
 ### Primary-source research refresh (2026-10-30 UTC)
 
 Search became available after the initial source audit. The following primary sources were rechecked; this is a bounded review, not an exhaustive claim about the newest research.
@@ -144,7 +148,7 @@ Leaving Activity or hiding the page pauses new reads of the selected working tas
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.
-2. **Extend result and output inspection.** Retained command output now has local search, stream filters, stable scrolling and an exact activity-to-task link. Follow-up work should add native check/test identities, failure locations, producer metadata and real coverage data. Full command program/arguments/cwd are not exported by the current observation contract. Arbitrary command replay remains separate from reading output.
+2. **Extend result and output inspection.** Retained command output has local search, stream filters, stable scrolling and an exact activity-to-task link, and the exact-task detail now exposes retained runner metadata (queue wait, timeout, output completeness). Check/test identity, structured failure location and coverage remain boundaries for command jobs because program/arguments/cwd are not exported and no structured diagnostics are retained. Native verification results already expose check identities and coverage in their own surface. Arbitrary command replay remains separate from reading output.
 3. **Add commit-bound external checks.** CI/PR observation should distinguish local changes, commit SHA, check suite/job/step, attempt, platform, and conclusion. Authentication and polling limits are integration concerns; a last successful run cannot prove the current worktree.
 4. **Add runtime signal correlation.** Align existing execution/task/evidence identifiers first. Application traces, logs, metrics, and profiles require explicit collection, retention, redaction, resource identity, and clock handling. wcode runtime health is not application observability.
 5. **Add debugger and interactive terminal protocols when justified.** Breakpoints, stepping, stack frames, watch values, and locals require a debugger session and supported adapters. A terminal session requires process/PTY lifecycle, input ownership, cancellation, and platform testing. These cannot be inferred from ordinary command execution.
@@ -152,6 +156,8 @@ Leaving Activity or hiding the page pauses new reads of the selected working tas
 ## Remaining limits
 
 No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI/PR log explorer, or external trace ingestion is established by this slice. Comprehensive test discovery, individual result history, coverage visualization, full historical source browsing, and safe Git conflict resolution also need further work.
+
+Command-job inspection still cannot identify which check or test a command represented or where it failed: the retained observation contract deliberately excludes command program/arguments/cwd and retains no structured failure location. Those fields stay explicit unknowns rather than being inferred from output text.
 
 The source tree and graphs are bounded observations. A file outside a visible snapshot is not necessarily absent. A mapped test has not necessarily run; a historical pass may be stale; a missing provider is not a clean diagnostic result. Existing Workspace, protected-path, command authorization, OAuth, and revision rules continue to govern every surface.
 
