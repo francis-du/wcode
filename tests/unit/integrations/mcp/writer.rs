@@ -740,6 +740,7 @@ async fn mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_fail
             cwd: ".".into(),
             timeout_seconds: 10,
             builtin: false,
+            admitted: false,
         },
     )
     .await

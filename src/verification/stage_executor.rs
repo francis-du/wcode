@@ -33,6 +33,10 @@ pub struct StageExecutorSpec {
     pub timeout_seconds: u64,
     #[serde(default)]
     pub builtin: bool,
+    /// Marks an externally verified producer. Its result is admitted as an
+    /// external receipt and is never relabeled as native verification.
+    #[serde(default)]
+    pub admitted: bool,
 }
 
 impl StageExecutorSpec {
@@ -85,6 +89,9 @@ pub struct StageExecutionResult {
     pub executor_id: String,
     pub stage: VerificationStage,
     pub languages: Vec<SemanticLanguage>,
+    /// True when the producing executor is an admitted external receipt rather
+    /// than a native verification producer.
+    pub admitted: bool,
     pub verdict: ReviewVerdict,
     pub summary: String,
     pub artifact_digest: String,
@@ -216,6 +223,7 @@ pub async fn execute(
         executor_id: executor.id.clone(),
         stage: executor.stage,
         languages: executor.languages.clone(),
+        admitted: executor.admitted,
         verdict,
         summary,
         artifact_digest,
@@ -620,6 +628,7 @@ fn spec_owned(
         cwd: ".".into(),
         timeout_seconds,
         builtin: true,
+        admitted: false,
     }
 }
 

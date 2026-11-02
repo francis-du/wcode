@@ -27,6 +27,7 @@ fn executor_timeout_accepts_thirty_minutes_and_rejects_larger_values() {
         cwd: ".".to_owned(),
         timeout_seconds: 1800,
         builtin: false,
+        admitted: false,
     };
     assert!(spec.validate().is_ok());
     spec.timeout_seconds = 1801;
@@ -231,10 +232,32 @@ async fn safe_repository_test_executor_runs_without_authorization() {
         cwd: ".".into(),
         timeout_seconds: 10,
         builtin: false,
+        admitted: false,
     };
     let result = execute(&workspace, &executor)
         .await
         .expect("bounded repository test executor should be autonomous");
     assert!(result.command.success, "{}", result.command.stderr);
     assert!(workspaces.authorization_requests(10).is_empty());
+}
+
+#[test]
+fn admitted_executor_flag_is_parsed_and_validated() {
+    let yaml = r#"
+schema_version: 1
+executors:
+  - id: external-mutation
+    stage: mutation
+    languages: [rust]
+    program: cargo-mutants
+    admitted: true
+"#;
+    let config: ExecutorConfig = serde_yaml::from_str(yaml).unwrap();
+    assert!(config.executors[0].admitted);
+    assert!(config.executors[0].validate().is_ok());
+
+    let mut spec = config.executors[0].clone();
+    spec.admitted = false;
+    assert!(!spec.admitted);
+    assert!(spec.validate().is_ok());
 }

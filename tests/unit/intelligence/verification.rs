@@ -201,6 +201,7 @@ fn explicit_presentation_stage_executor_opts_the_language_into_targeting() {
                 cwd: ".".into(),
                 timeout_seconds: 10,
                 builtin: false,
+                admitted: false,
             },
             available: false,
             reason: "fixture".into(),
@@ -715,6 +716,7 @@ async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
             cwd: ".".into(),
             timeout_seconds: 10,
             builtin: false,
+            admitted: false,
         },
     )
     .await

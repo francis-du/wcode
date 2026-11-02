@@ -162,7 +162,7 @@ The v0.7.2 follow-up keeps the control plane model-neutral, but deliberately opt
 
 The preload hint does not mean a tool call result is cache-safe, idempotent, or permission-free. Standard MCP annotations remain the source for read-only/destructive/idempotency semantics, and wcode still performs its own runtime policy checks. Hosts that ignore the hint receive the same deterministic full catalog and behavior.
 
-The same release narrows advanced Verification Mesh targets conservatively. High/Critical plans prefer source files that already carry deterministic risk attribution, while CSS/HTML presentation sources do not manufacture language-level Property/Mutation/Fuzz targets unless an explicit advanced executor opts them in. Full deterministic verification and Security/Adversarial review stay intact. Missing real Rust mutation or fuzz executors remain explicit gaps; ordinary `cargo test` is never relabeled as mutation or fuzz evidence.
+The same release narrows advanced Verification Mesh targets conservatively. High/Critical plans prefer source files that already carry deterministic risk attribution, while CSS/HTML presentation sources do not manufacture language-level Property/Mutation/Fuzz targets unless an explicit advanced executor opts them in. An executor may set `admitted: true` to declare an externally verified producer; its `StageExecutionResult` then carries `admitted: true`, so the outcome stays an external receipt and is never relabeled as native verification. Full deterministic verification and Security/Adversarial review stay intact. Missing real Rust mutation or fuzz executors remain explicit gaps; ordinary `cargo test` is never relabeled as mutation or fuzz evidence.
 
 ## 2026-09-15 polyglot quality follow-up
 
