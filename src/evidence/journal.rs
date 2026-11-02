@@ -90,6 +90,16 @@ pub(crate) struct EngineeringMilestone {
     pub checks_failed: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval_intent: Option<String>,
+    // Best-effort verified actor. `unknown` means no authenticated identity was
+    // available; a model-asserted identity is never accepted here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    // Chain over the retained window: the previous record's hash and this
+    // record's own digest. Both are optional so older records stay readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_previous: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_hash: Option<String>,
 }
 
 impl EngineeringMilestone {
@@ -115,6 +125,9 @@ impl EngineeringMilestone {
             checks_run: None,
             checks_failed: None,
             retrieval_intent: None,
+            actor: None,
+            chain_previous: None,
+            record_hash: None,
         };
         milestone.validate()?;
         Ok(milestone)
@@ -190,8 +203,38 @@ impl EngineeringMilestone {
                 bail!("invalid engineering journal repository path");
             }
         }
+        if self
+            .actor
+            .as_ref()
+            .is_some_and(|actor| !bounded_token(actor, 80))
+        {
+            bail!("invalid engineering journal actor");
+        }
+        for hash in [self.chain_previous.as_ref(), self.record_hash.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            if !valid_record_hash(hash) {
+                bail!("invalid engineering journal chain hash");
+            }
+        }
         Ok(())
     }
+}
+
+fn valid_record_hash(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Digest a record with its own `record_hash` cleared, so the stored digest
+/// covers the observed content plus the previous link and nothing self-referential.
+fn record_digest(milestone: &EngineeringMilestone) -> String {
+    let mut cleared = milestone.clone();
+    cleared.record_hash = None;
+    let Ok(bytes) = serde_json::to_vec(&cleared) else {
+        return String::new();
+    };
+    digest_bytes(&bytes)
 }
 
 #[derive(Clone, Debug)]
@@ -199,6 +242,11 @@ pub(crate) struct EngineeringJournalHistory {
     pub records: Vec<EngineeringMilestone>,
     pub retained_records: usize,
     pub truncated: bool,
+    /// Whether the retained window's chain links and content digests verify.
+    /// Records written before the chain existed are skipped, not failed.
+    // Surfaced for the operator audit path; UI/MCP exposure is a follow-up.
+    #[allow(dead_code)]
+    pub chain_valid: bool,
 }
 
 pub(crate) fn persist(workspace: &Workspace, milestone: &EngineeringMilestone) -> Result<()> {
@@ -211,6 +259,22 @@ pub(crate) fn persist_with_error(
     milestone: &EngineeringMilestone,
     transient_error: Option<&str>,
 ) -> Result<()> {
+    milestone.validate()?;
+    // Link the new record to the newest retained record before taking the lock.
+    // The chain is best-effort: a missing predecessor leaves `chain_previous`
+    // empty rather than blocking the write.
+    let previous_hash = latest_record_hash(workspace)?;
+    let mut linked = milestone.clone();
+    linked.chain_previous = previous_hash;
+    linked.actor = Some(
+        linked
+            .actor
+            .clone()
+            .filter(|actor| bounded_token(actor, 80))
+            .unwrap_or_else(|| "unknown".to_owned()),
+    );
+    linked.record_hash = Some(record_digest(&linked));
+    let milestone = &linked;
     milestone.validate()?;
     let access = journal_access(workspace)?;
     let _access = access
@@ -275,6 +339,7 @@ pub(crate) fn load_recent(
             records: Vec::new(),
             retained_records: 0,
             truncated: false,
+            chain_valid: true,
         });
     }
     ensure_existing_directory(&directory)?;
@@ -291,11 +356,66 @@ pub(crate) fn load_recent(
     }
     records.sort_by_key(|record| std::cmp::Reverse(record.timestamp_ms));
     let truncated = retained_records > limit || records.len() < selected.len();
+    let chain_valid = verify_chain(&records).is_ok();
     Ok(EngineeringJournalHistory {
         records,
         retained_records,
         truncated,
+        chain_valid,
     })
+}
+
+/// Hash of the newest retained record, if any. Takes no journal lock so the
+/// persist path can link a new record before it acquires the lock.
+fn latest_record_hash(workspace: &Workspace) -> Result<Option<String>> {
+    let directory = journal_directory(workspace)?;
+    if !directory.exists() {
+        return Ok(None);
+    }
+    ensure_existing_directory(&directory)?;
+    // Best-effort: an unreadable or over-bound directory must never block a
+    // write. The persist path prunes overflow separately.
+    let mut paths = journal_paths(&directory).unwrap_or_default();
+    let newest = paths.pop();
+    let Some(path) = newest else {
+        return Ok(None);
+    };
+    Ok(read_milestone(&path)?.and_then(|record| record.record_hash))
+}
+
+/// Re-walk a retained window (as returned by `load_recent`, newest first) and
+/// report the first missing link, link mismatch or content-digest mismatch.
+/// Records written before the chain existed have no digest and are skipped.
+pub(crate) fn verify_chain(records: &[EngineeringMilestone]) -> Result<()> {
+    let mut previous: Option<&str> = None;
+    for record in records.iter().rev() {
+        match (previous, record.chain_previous.as_deref()) {
+            (None, None) => {}
+            (Some(expected), Some(stored)) if expected == stored => {}
+            _ => bail!("engineering journal chain link is missing or mismatched"),
+        }
+        match record.record_hash.as_deref() {
+            Some(stored) if stored == record_digest(record) => {}
+            Some(_) => bail!("engineering journal record digest mismatch"),
+            None => {}
+        }
+        previous = record.record_hash.as_deref();
+    }
+    Ok(())
+}
+
+/// Bounded JSON-lines export of a retained window. `max` is clamped to the
+/// retained capacity; callers decide how much of the window to disclose.
+// Operator audit surface; UI/MCP exposure is a separate follow-up.
+#[allow(dead_code)]
+pub(crate) fn export_records(records: &[EngineeringMilestone], max: usize) -> Result<String> {
+    let limit = max.clamp(1, MAX_ENGINEERING_MILESTONES);
+    let mut out = String::new();
+    for record in records.iter().take(limit) {
+        out.push_str(&serde_json::to_string(record).context("cannot encode journal record")?);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 fn read_milestone(path: &Path) -> Result<Option<EngineeringMilestone>> {

@@ -314,7 +314,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Other Git providers | Vendor-neutral core | Missing | Provider-neutral core | Adapter contract now; GitLab/Bitbucket later | Later |
 | Team organizations and projects | Workspace registry | Missing | Workspaces registry | Organization/member/project identity and scoped authorization | High |
 | High-risk team roles | Command/risky/delete authorization | Foundation | AuthorizationManager | Owner/Admin/Developer/Reviewer/Viewer mapped to real operations | High |
-| Engineering journal | Bounded append-oriented milestone JSON | Partial | Engineering milestones / journal | No verified actor, policy/exception event, chain/checkpoint or audit export | High |
+| Engineering journal | Bounded append-oriented milestone JSON with a verified-actor field, per-record chain digest and bounded JSON-lines export | Partial | Engineering milestones / journal | Actor falls back to `unknown` when no authenticated identity is available; no policy/exception event yet; export is a library surface not yet exposed through UI/MCP | High |
 | OAuth connection | Access/refresh grants, client binding, refresh rotation | Partial | AuthState / PublicEndpoints / auth tokens | No time expiry/revoke/session UI; old access remains after refresh | Critical |
 | Workspace access | Root/path guards and read-only enforcement | Complete | Workspace / Workspaces / fs_safety | Single operator chooses roots; OAuth client has no per-root principal ACL | Critical |
 | Command boundary | Direct argv, policy shapes, authorization, process limits | Complete | CommandResult / run_command | Ordinary repo builds/scripts run as host user; not OS tenant isolation | Critical |
