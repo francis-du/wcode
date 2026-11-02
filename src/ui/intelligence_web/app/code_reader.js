@@ -234,7 +234,7 @@ function codeReaderChangeHtml(change, removed) {
     `<button type="button" class="code-reader-range added" data-reader-goto="${range.start_line}">+${esc(rangeLabel(range))}</button>`
   ).join("");
   const removedRanges = before.slice(0, 12).map(range =>
-    `<span class="code-reader-range removed">−${esc(rangeLabel(range))}</span>`
+    `<span class="code-reader-range removed">-${esc(rangeLabel(range))}</span>`
   ).join("");
   const more = after.length > 12 || before.length > 12
     ? `<span class="panel-meta">${esc(t("bounded map"))}</span>`
