@@ -47,6 +47,8 @@ The current Observatory already exposes architecture and Code Graph inspection, 
 
 [Change inspection](../change-inspection/) already supplies read-only working, staged, and unstaged comparisons, before/after syntax mapping, changed-line navigation, and protected source windows from graph nodes. Source identity, repository revision, precision, redaction, and truncation remain part of those views. The file-browser bridge reuses these boundaries for protected source navigation.
 
+The code reader opens a mapped file from the file tree, a requirement's implementation references, or a changed file. It shows bounded, line-numbered source with the working, staged or unstaged change overlay, a change map, the requirements linked to that file, and the same revision, SHA, redaction and truncation boundaries as the change inspector. Reading source this way is observation only: it does not edit files, apply changes, run checks, or establish Acceptance.
+
 These are different kinds of observations. Architecture declarations are intent; syntax relationships are syntax; live provider results may supply semantics; check output is execution data; revision-bound Evidence supplies proof under its own rules. Showing them together must preserve those distinctions.
 
 ### Architecture evidence and bounded observation

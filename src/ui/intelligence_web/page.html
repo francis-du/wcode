@@ -94,6 +94,21 @@
     </div>
   </section>
 
+  <section id="codeReaderPanel" class="code-reader-panel hidden" role="dialog" aria-modal="false" aria-labelledby="codeReaderTitle" tabindex="-1">
+    <header class="code-reader-toolbar">
+      <div class="code-reader-heading">
+        <span class="section-kicker" data-i18n="Code reader">Code reader</span>
+        <strong id="codeReaderTitle" data-i18n="Read-only source">Read-only source</strong>
+        <code id="codeReaderPath"></code>
+      </div>
+      <div class="code-reader-actions">
+        <button id="codeReaderReload" type="button" data-i18n="Reload">Reload</button>
+        <button id="codeReaderClose" type="button" data-i18n="Close">Close</button>
+      </div>
+    </header>
+    <div id="codeReaderBody" class="code-reader-body"></div>
+  </section>
+
   <main class="observatory-main">
     <div class="workspace-identity">
       <div class="workspace-location">

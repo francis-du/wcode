@@ -104,7 +104,7 @@ function implementationRows(items, sourcePaths = repositorySourcePaths()) {
         esc(statusLabel(item.resolved ? "resolved" : "unresolved"))
       } · ${esc(item.provider)} / ${esc(statusLabel(item.precision))}${
         item.changed ? ` · ${esc(localized("changed now", "当前已变更"))}` : ""
-      }</div>${designSourceAction(item, sourcePaths)}</div>`
+      }</div>${designSourceAction(item, sourcePaths)}${codeReaderSourceAction(item, sourcePaths)}</div>`
     ).join("")
   }</div>`;
 }
@@ -447,7 +447,9 @@ function renderDetail() {
         esc(t("No current working-tree file is mapped to this requirement."))
       }</div>`
   }</section>`;
-  setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id });
+  setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id }, () => {
+    bindCodeReaderActions(els.detail);
+  });
 }
 
 function changeTable(items, compact = false) {
@@ -458,7 +460,7 @@ function changeTable(items, compact = false) {
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) => {
       const tone = statusClass(item.untracked ? "untracked" : item.status);
-      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path">${compact ? `<code>${esc(item.path)}</code>` : `<button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button>`}</div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
+      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path"><button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button><button type="button" class="quiet-action change-reader-open" data-reader-path="${esc(item.path)}">${esc(t("Open in code reader"))}</button></div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
         item.untracked ? pill(t("untracked"), "info") : ""
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td>${
         compact
@@ -652,6 +654,7 @@ function renderChanges() {
           els.detail.scrollIntoView({ behavior: "smooth", block: "start" });
         })
       ),
+    () => bindCodeReaderActions(els.changes),
   );
   els.changes.querySelectorAll("[data-change-path]").forEach(button => {
     button.onclick = () => { void openChangeInspection(button.dataset.changePath); };

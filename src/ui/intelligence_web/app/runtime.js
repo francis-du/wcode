@@ -71,9 +71,11 @@ function renderProject(force = false) {
     renderCodeStats(); renderRevisions(); renderLanguageQuality();
     renderExecutionStatus(); renderActivity(); renderProofSummary(); renderRuntimeJobs();
     renderAdaptiveVerification(); renderVerifiedLearning();
+    if (typeof renderCodeReader === "function") renderCodeReader();
     return;
   }
   renderTabPanels(state.workspaceTab);
+  if (typeof renderCodeReader === "function") renderCodeReader();
 }
 function renderExecutionStatus() {
   if (worklistRenderDeferred()) return;
@@ -204,6 +206,7 @@ function cacheWorkspaceSnapshot() {
 }
 function restoreWorkspaceSnapshot(workspace) {
   if (typeof clearChangeInspection === "function") clearChangeInspection();
+  if (typeof clearCodeReader === "function") clearCodeReader();
   const cached = state.projectCache.get(workspace);
   if (!cached) return false;
   state.project = cached.project;
@@ -267,6 +270,7 @@ function refreshFailureCopy(failure = state.syncFailure) {
 }
 function showRefreshFailure(error, phase = "request") {
   if (typeof invalidateChangeInspection === "function") invalidateChangeInspection();
+  if (typeof invalidateCodeReader === "function") invalidateCodeReader();
   state.syncError = true;
   state.syncFailure = {
     code: ["authorization_required", "invalid_response", "timeout", "network"].includes(error?.code) ? error.code : "",
@@ -301,6 +305,7 @@ function renderProjectPlaceholder(failed = false) {
 function clearWorkspaceView({ preserveDom = false } = {}) {
   state.workspaceEpoch++;
   if (typeof clearChangeInspection === "function") clearChangeInspection();
+  if (typeof clearCodeReader === "function") clearCodeReader();
   suspendVerificationTasks(); clearRuntimeJobs();
   setHtml("observationCoverage", els.observationCoverage, "");
   state.pendingValue = null; state.pendingApplied = 0;
@@ -815,6 +820,7 @@ document.addEventListener("keydown", event => {
   if (event.key !== "Escape" || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
   if (state.commandPaletteOpen) { event.preventDefault(); setCommandPalette(false); return; }
   if (state.codeGraphFull) { event.preventDefault(); setCodeGraphFull(false); return; }
+  if (state.codeReader?.open) { event.preventDefault(); closeCodeReader(); return; }
   if (accessPanelOpen()) { event.preventDefault(); setAccessPanel(false); return; }
   if (els.componentInspector?.classList.contains("open")) {
     event.preventDefault();
