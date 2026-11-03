@@ -191,6 +191,21 @@ async function run(){
     assert.ok(attention.indexOf('src/a.rs')<attention.indexOf('<details'),'urgent source issue must be outside collapsed observations');
     assert.match(summary,/code-1/);assert.doesNotMatch(attention,/Working-tree status is unknown/,'shared projection owns repository attention');
   });
+  await test('attention items keep stable identities so a refresh can restore focus',async()=>{
+    const s=sandbox();s.context.fixture={...project(),proof:{revision_code:'code-1',revision_design:'design-1',current_evidence:1},attention:{revision:{code:'code-1',design:'design-1'},total:3,items:[
+      {id:'failure',kind:'verification_failure',severity:'high',subject:'Failing check',message:'Current producer failed',provider:'verification',precision:'deterministic',section:'proof'},
+      {id:'size',kind:'oversized_source',severity:'high',subject:'src/a.rs',message:'Decompose source',provider:'structure',precision:'source',section:'files',path:'src/a.rs'},
+      {id:'coverage',kind:'partial_coverage',severity:'info',subject:'Partial scan',message:'Bounded data',provider:'scan',precision:'syntax',section:'diagnostics'}
+    ]}};
+    s.run('state.project=fixture;renderAttention();');
+    const attention=s.node('#attention').innerHTML, summary=s.node('#statusSummary').innerHTML;
+    assert.match(attention,/data-attention-id="size"/,'backend attention identity must reach the signal list');
+    assert.match(summary,/data-attention-id="failure"/,'the primary signal keeps its identity in the summary');
+    const ids=[...`${summary}${attention}`.matchAll(/data-attention-id="([^"]*)"/g)].map(match=>match[1]);
+    assert.ok(ids.length>=2,'every rendered signal must carry an identity');
+    assert.equal(new Set(ids).size,ids.length,'attention identities must be unique');
+    assert.ok(ids.every(id=>id.length>0),'attention identities must not be empty');
+  });
   await test('shared attention revision disagreement and stale snapshots demand a real refresh',async()=>{
     const s=sandbox();s.context.fixture={...project(),proof:{revision_code:'current'},attention:{revision:{code:'old'},total:0,items:[],partial:true,partial_reasons:['scan bounded']}};
     s.run('state.project=fixture;state.syncError=true;renderAttention();');
