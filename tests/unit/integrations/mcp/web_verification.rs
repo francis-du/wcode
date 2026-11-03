@@ -570,6 +570,13 @@ async fn intelligence_status_scopes_and_graph_routes_are_protected_and_shaped() 
         assert_eq!(headers["referrer-policy"], "no-referrer", "{path}");
     }
 
+    // The Observatory page is intentionally public, but it carries the same
+    // protected-response headers.
+    let headers = intelligence_headers(&state, "/intelligence").await;
+    assert_eq!(headers["cache-control"], "no-store");
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert_eq!(headers["referrer-policy"], "no-referrer");
+
     let (code, status) = http(&state, id, "GET", "/intelligence/status", None, true).await;
     assert!(
         code == StatusCode::OK || code == StatusCode::INTERNAL_SERVER_ERROR,
