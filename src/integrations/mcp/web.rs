@@ -26,7 +26,6 @@ pub(super) use web_jobs::{
 };
 #[path = "web_verification.rs"]
 mod web_verification;
-use web_verification::no_store;
 pub(super) use web_change_impact::intelligence_web_change_impact;
 #[cfg(test)]
 pub(super) use web_change_impact::IntelligenceChangeImpactQuery;
@@ -40,6 +39,7 @@ pub(super) use web_graph::{
     intelligence_web_edit_source,
 };
 pub(super) use web_historical::{intelligence_web_historical_source, intelligence_web_revisions};
+use web_verification::no_store;
 pub(super) use web_verification::{
     intelligence_web_verification_cancel, intelligence_web_verification_result,
     intelligence_web_verification_run, intelligence_web_verification_status,
