@@ -184,6 +184,11 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(intelligence_web_change_detail),
         )
         .route(
+            "/intelligence/historical-source",
+            get(intelligence_web_historical_source),
+        )
+        .route("/intelligence/revisions", get(intelligence_web_revisions))
+        .route(
             "/intelligence/change-impact",
             get(intelligence_web_change_impact),
         )

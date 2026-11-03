@@ -591,6 +591,7 @@ async function uiJson(path, method = "GET", body, options = {}) {
       const detail = typeof data?.error === "string" ? data.error : data?.error?.message;
       const error = new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ""}`);
       error.status = response.status;
+      if (typeof data?.code === "string" && data.code) error.code = data.code;
       throw error;
     }
     if (!data || typeof data !== "object" || Array.isArray(data)) {
