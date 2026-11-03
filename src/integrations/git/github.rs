@@ -1,12 +1,14 @@
 //! GitHub Check Runs transport for a separately deployed trusted publisher.
 //! No PR checkout, command execution, branch-protection mutation or JSON CAR import.
 //! Protocol: https://docs.github.com/en/rest/checks/runs
+use super::receipt_digest::check_receipt_digest;
 use super::*;
 use anyhow::{anyhow, bail, Result};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -315,6 +317,83 @@ impl GitHubProvider {
             bail!("GitHub returned another check identity");
         }
         Ok(check)
+    }
+
+    /// List the check runs bound to one exact commit. Read-only operator
+    /// inspection: the response is never a verification or Acceptance claim.
+    pub async fn list_check_runs(&self, commit: &str) -> Result<Vec<CheckObservation>> {
+        if !full_oid(commit) {
+            bail!("invalid commit identity");
+        }
+        let suffix = ["commits", commit, "check-runs"];
+        let value = self
+            .request(Method::GET, &suffix, None, StatusCode::OK)
+            .await?;
+        let runs = match value.get("check_runs").and_then(Value::as_array) {
+            Some(runs) => runs,
+            None => bail!("GitHub returned no check_runs array"),
+        };
+        if runs.len() > MAX_CHECK_RUNS {
+            bail!("GitHub returned too many check runs");
+        }
+        runs.iter()
+            .map(|run| check_observation(run.clone()))
+            .collect()
+    }
+
+    /// Read the bounded annotations of one check run. Read-only inspection;
+    /// annotations are diagnostics, never an Acceptance or verification claim.
+    pub async fn read_check_annotations(&self, id: u64) -> Result<Vec<CheckAnnotation>> {
+        if id == 0 {
+            bail!("invalid check identity");
+        }
+        let id_text = id.to_string();
+        let value = self
+            .request(
+                Method::GET,
+                &["check-runs", &id_text, "annotations"],
+                None,
+                StatusCode::OK,
+            )
+            .await?;
+        let annotations = match value.get("annotations").and_then(Value::as_array) {
+            Some(annotations) => annotations,
+            None => bail!("GitHub returned no annotations array"),
+        };
+        if annotations.len() > MAX_CHECK_ANNOTATIONS {
+            bail!("GitHub returned too many check annotations");
+        }
+        annotations
+            .iter()
+            .map(|value| check_annotation(value.clone()))
+            .collect()
+    }
+
+    /// Read one authoritative CI receipt: the check run plus its bounded
+    /// annotations, the repository binding it was captured from, and a digest
+    /// over every field. The digest only evidences this captured receipt; it is
+    /// not a verification or Acceptance claim.
+    pub async fn read_check_receipt(&self, id: u64) -> Result<CheckReceipt> {
+        let check = self.read_check(id).await?;
+        let annotations = self.read_check_annotations(id).await?;
+        let fields = CheckReceiptFields {
+            schema_version: CHECK_RECEIPT_SCHEMA_VERSION,
+            provider: "github".to_owned(),
+            repository: self.config.repository.key(),
+            repository_id: self.config.repository_id,
+            app_id: app_id_from_source(&check.source_id),
+        };
+        let digest = check_receipt_digest(&fields, &check, &annotations);
+        Ok(CheckReceipt {
+            schema_version: fields.schema_version,
+            provider: fields.provider,
+            repository: fields.repository,
+            repository_id: fields.repository_id,
+            app_id: fields.app_id,
+            check,
+            annotations,
+            digest,
+        })
     }
     fn check_body(&self, publication: &NativePublication, create: bool) -> Value {
         let ready = publication.verdict() == GateVerdict::Ready;
@@ -651,6 +730,190 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+/// Receipt files carry CI metadata plus annotation text, so they are created
+/// private to the operator instead of with the process default mode.
+#[cfg(unix)]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, bytes).map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+/// The store is replaced through a temporary file in the same directory.
+/// `O_CREAT|O_EXCL|O_NOFOLLOW` keeps a pre-planted symlink or a colliding name
+/// from redirecting the write somewhere the operator did not choose.
+#[cfg(unix)]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_private(path, bytes)
+}
+
+fn unique_temporary_path(directory: &Path, name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+    directory.join(format!(".{name}.tmp-{}-{sequence}", std::process::id()))
+}
+
+/// Bounded local retention of captured authoritative CI receipts, one JSON
+/// object per line. Receipts are keyed by check-run ID, newest last, and the
+/// store is capped so an operator can retain receipts without unbounded growth.
+const MAX_RECEIPTS: usize = 128;
+const MAX_RECEIPT_STORE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
+const MAX_CHECK_RUNS: usize = 1000;
+const MAX_CHECK_ANNOTATIONS: usize = 1000;
+
+pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        bail!("receipt store must not be a symlink: {}", path.display());
+    }
+    let bytes =
+        std::fs::read(path).map_err(|error| anyhow!("cannot read {}: {error}", path.display()))?;
+    if bytes.len() as u64 > MAX_RECEIPT_STORE_BYTES {
+        bail!("receipt store exceeds its size bound");
+    }
+    let mut receipts = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        if line.len() as u64 > MAX_RECEIPT_BYTES {
+            bail!("receipt store entry exceeds its size bound");
+        }
+        let receipt: CheckReceipt = serde_json::from_slice(line)
+            .map_err(|error| anyhow!("invalid receipt store line: {error}"))?;
+        if receipt.schema_version != CHECK_RECEIPT_SCHEMA_VERSION {
+            bail!("unsupported receipt store schema");
+        }
+        if !receipt.verify_digest() {
+            bail!("receipt store entry digest does not match its contents");
+        }
+        receipts.push(receipt);
+    }
+    if receipts.len() > MAX_RECEIPTS {
+        bail!("receipt store exceeds its entry bound");
+    }
+    Ok(receipts)
+}
+
+pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> {
+    if receipt.schema_version != CHECK_RECEIPT_SCHEMA_VERSION {
+        bail!("cannot retain a receipt with an unsupported schema");
+    }
+    if !receipt.verify_digest() {
+        bail!("cannot retain a receipt whose digest does not match its contents");
+    }
+    let mut receipts = load_receipts(path)?;
+    receipts.retain(|existing| existing.check.id != receipt.check.id);
+    receipts.push(receipt.clone());
+    let overflow = receipts.len().saturating_sub(MAX_RECEIPTS);
+    receipts.drain(..overflow);
+    let mut encoded = receipts
+        .iter()
+        .map(|entry| {
+            serde_json::to_string(entry).map_err(|error| anyhow!("cannot encode receipt: {error}"))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join("\n");
+    encoded.push('\n');
+    // Replace the store atomically so an interrupted write can never leave a
+    // truncated receipt behind for the next reader.
+    let directory = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => Path::new(".").to_path_buf(),
+    };
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "receipts.jsonl".to_owned());
+    let temporary = unique_temporary_path(&directory, &name);
+    write_private_exclusive(&temporary, encoded.as_bytes())?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(anyhow!("cannot replace {}: {error}", path.display()));
+    }
+    Ok(())
+}
+
+fn check_annotation(value: Value) -> Result<CheckAnnotation> {
+    let path = value
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let level = value
+        .get("annotation_level")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let start_line = value.get("start_line").and_then(Value::as_u64);
+    let end_line = value.get("end_line").and_then(Value::as_u64);
+    if path.is_empty()
+        || path.len() > 512
+        || level.is_empty()
+        || level.len() > 16
+        || title.len() > 256
+        || message.len() > 4096
+    {
+        bail!("check annotation exceeds its bounds");
+    }
+    if start_line.is_some_and(|start| end_line.is_some_and(|end| start > end)) {
+        bail!("check annotation line range is reversed");
+    }
+    Ok(CheckAnnotation {
+        path: path.to_owned(),
+        start_line,
+        end_line,
+        annotation_level: level.to_owned(),
+        title: title.to_owned(),
+        message: message.to_owned(),
+    })
+}
+
+fn app_id_from_source(source_id: &str) -> u64 {
+    source_id
+        .strip_prefix("github-app:")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+}
+
 fn check_observation(value: Value) -> Result<CheckObservation> {
     let check: Check =
         serde_json::from_value(value).map_err(|_| anyhow!("GitHub check metadata incomplete"))?;

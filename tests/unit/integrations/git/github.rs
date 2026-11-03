@@ -600,3 +600,362 @@ async fn github_gate_unconfirmed_success_response_attempts_failure_replacement()
         ["failure", "success", "failure"]
     );
 }
+
+#[tokio::test]
+async fn github_check_run_listing_is_commit_bound_and_read_only() {
+    let commit = "c".repeat(64);
+    let mut listed = check();
+    listed["head_sha"] = json!(commit);
+    let fixture = fixture(vec![reply(
+        json!({"total_count": 1, "check_runs": [listed]}),
+    )])
+    .await;
+    let runs = fixture.provider.list_check_runs(&commit).await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, 9);
+    assert_eq!(runs[0].name, "wcode/change-acceptance");
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        format!("/repos/francis-du/wcode/commits/{commit}/check-runs")
+    );
+}
+
+#[tokio::test]
+async fn github_check_run_listing_rejects_incomplete_commit_identity() {
+    let fixture = fixture(vec![]).await;
+    let error = fixture.provider.list_check_runs("abc").await.unwrap_err();
+    assert!(format!("{error:#}").contains("invalid commit identity"));
+    assert!(fixture.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn github_check_run_listing_accepts_a_sha1_commit_identity() {
+    let commit = "c".repeat(40);
+    let fixture = fixture(vec![reply(json!({"total_count": 0, "check_runs": []}))]).await;
+    let runs = fixture.provider.list_check_runs(&commit).await.unwrap();
+    assert!(runs.is_empty());
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        format!("/repos/francis-du/wcode/commits/{commit}/check-runs")
+    );
+}
+
+#[tokio::test]
+async fn github_check_run_listing_requires_a_check_run_array() {
+    let commit = "c".repeat(64);
+    let fixture = fixture(vec![reply(json!({"total_count": 0}))]).await;
+    let error = fixture.provider.list_check_runs(&commit).await.unwrap_err();
+    assert!(format!("{error:#}").contains("no check_runs array"));
+}
+
+#[tokio::test]
+async fn github_check_annotation_reading_is_bounded_and_read_only() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "start_line": 3,
+            "end_line": 4,
+            "annotation_level": "warning",
+            "title": "unused",
+            "message": "kept"
+        }]
+    });
+    let fixture = fixture(vec![reply(annotations)]).await;
+    let listed = fixture.provider.read_check_annotations(9).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, "src/lib.rs");
+    assert_eq!(listed[0].start_line, Some(3));
+    assert_eq!(listed[0].end_line, Some(4));
+    assert_eq!(listed[0].annotation_level, "warning");
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        "/repos/francis-du/wcode/check-runs/9/annotations"
+    );
+}
+
+#[tokio::test]
+async fn github_check_annotation_reading_fails_closed() {
+    let empty = fixture(vec![]).await;
+    assert!(empty.provider.read_check_annotations(0).await.is_err());
+    let missing = fixture(vec![reply(json!({"total_count": 0}))]).await;
+    let error = missing
+        .provider
+        .read_check_annotations(9)
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("no annotations array"));
+}
+
+#[tokio::test]
+async fn github_check_annotation_reading_rejects_oversized_fields() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "annotation_level": "warning",
+            "title": "t",
+            "message": "m".repeat(4097)
+        }]
+    });
+    let fixture = fixture(vec![reply(annotations)]).await;
+    assert!(fixture.provider.read_check_annotations(9).await.is_err());
+}
+
+#[tokio::test]
+async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
+    let annotations = json!({
+        "total_count": 1,
+        "annotations": [{
+            "path": "src/lib.rs",
+            "start_line": 1,
+            "annotation_level": "notice",
+            "title": "t",
+            "message": "m"
+        }]
+    });
+    let fixture = fixture(vec![reply(check()), reply(annotations)]).await;
+    let receipt = fixture.provider.read_check_receipt(9).await.unwrap();
+    assert_eq!(receipt.check.id, 9);
+    assert_eq!(receipt.annotations.len(), 1);
+    assert_eq!(receipt.digest.len(), 64);
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].path, "/repos/francis-du/wcode/check-runs/9");
+    assert_eq!(
+        requests[1].path,
+        "/repos/francis-du/wcode/check-runs/9/annotations"
+    );
+}
+
+fn receipt_fields() -> crate::git_provider::CheckReceiptFields {
+    crate::git_provider::CheckReceiptFields {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn receipt_store_is_written_private_to_the_operator() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let check = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "wcode/change-acceptance".to_owned(),
+        source_id: "github-app:7".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&receipt_fields(), &check, &[]);
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+        check,
+        annotations: Vec::new(),
+        digest,
+    };
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o077;
+    assert_eq!(
+        mode, 0,
+        "receipt store must not be readable or writable by others"
+    );
+}
+
+#[test]
+fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let check = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "wcode/change-acceptance".to_owned(),
+        source_id: "github-app:7".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let annotations = vec![crate::git_provider::CheckAnnotation {
+        path: "src/lib.rs".to_owned(),
+        start_line: Some(1),
+        end_line: Some(2),
+        annotation_level: "warning".to_owned(),
+        title: "t".to_owned(),
+        message: "m".to_owned(),
+    }];
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &check,
+        &annotations,
+    );
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+        check,
+        annotations,
+        digest,
+    };
+    assert!(receipt.verify_digest());
+    assert_eq!(
+        receipt.repository_binding(),
+        Some(("github", "francis-du/wcode", 1234, 7))
+    );
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let loaded = crate::git_provider::github::load_receipts(&path).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0], receipt);
+    assert!(
+        crate::git_provider::github::load_receipts(&root.path().join("missing.jsonl"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn receipt_digest_covers_every_field_and_the_store_rejects_tampering() {
+    let observation = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "wcode/change-acceptance".to_owned(),
+        source_id: "github-app:7".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let annotations = vec![crate::git_provider::CheckAnnotation {
+        path: "src/lib.rs".to_owned(),
+        start_line: Some(1),
+        end_line: Some(2),
+        annotation_level: "warning".to_owned(),
+        title: "t".to_owned(),
+        message: "m".to_owned(),
+    }];
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &observation,
+        &annotations,
+    );
+    let mut retitled = annotations.clone();
+    retitled[0].title = "retitled".to_owned();
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &retitled
+        )
+    );
+    let mut shifted = annotations.clone();
+    shifted[0].start_line = Some(3);
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &shifted
+        )
+    );
+    let mut relabeled = observation.clone();
+    relabeled.source_id = "github-app:8".to_owned();
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &relabeled,
+            &annotations
+        )
+    );
+    let mut rebound = receipt_fields();
+    rebound.repository = "evil/repo".to_owned();
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &rebound,
+            &observation,
+            &annotations
+        )
+    );
+    let mut reappd = receipt_fields();
+    reappd.app_id = 8;
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &reappd,
+            &observation,
+            &annotations
+        )
+    );
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+        check: observation,
+        annotations,
+        digest,
+    };
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let encoded = std::fs::read_to_string(&path).unwrap();
+    let tampered = encoded.replace("wcode/change-acceptance", "wcode/other-check");
+    assert_ne!(encoded, tampered);
+    std::fs::write(&path, tampered).unwrap();
+    let error = crate::git_provider::github::load_receipts(&path).unwrap_err();
+    assert!(format!("{error:#}").contains("digest"));
+}
+
+#[test]
+fn receipt_without_repository_binding_stays_observation_only() {
+    let observation = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "check".to_owned(),
+        source_id: "github-app:0".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let mut fields = receipt_fields();
+    fields.app_id = 0;
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&fields, &observation, &[]);
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 0,
+        check: observation,
+        annotations: Vec::new(),
+        digest,
+    };
+    assert!(receipt.verify_digest());
+    assert_eq!(receipt.repository_binding(), None);
+}

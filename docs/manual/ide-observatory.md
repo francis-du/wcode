@@ -172,7 +172,7 @@ Verification buttons also bind the workspace, session, epoch, retained entry, ta
 
 ## Remaining limits
 
-No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, external CI/PR log explorer, or external trace ingestion is established by this slice. Comprehensive test discovery, individual result history, coverage visualization, unbounded historical source browsing across arbitrary revision expressions, and safe Git conflict resolution also need further work.
+No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive terminal session, or external trace ingestion is established by this slice. `wcode github check-runs --sha` lists the check runs bound to one exact commit, `wcode github check-annotations --check-id` reads that run's bounded annotations, and `wcode github check-receipt --check-id` binds both into one digest-bearing receipt, optionally retained with `--to` or appended to a bounded local store with `--store`; all go through the existing enrollment, are read-only, and are never a verification or Acceptance claim. A full external CI/PR log explorer, comprehensive test discovery, individual result history, coverage visualization, unbounded historical source browsing across arbitrary revision expressions, and safe Git conflict resolution also need further work.
 
 Command-job inspection still cannot identify which check or test a command represented or where it failed: the retained observation contract deliberately excludes command program/arguments/cwd and retains no structured failure location. Those fields stay explicit unknowns rather than being inferred from output text.
 
