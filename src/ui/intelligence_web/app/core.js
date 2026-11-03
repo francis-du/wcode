@@ -46,6 +46,9 @@ const els = {
   operationMessage: q("#operationMessage"),
   authorizationList: q("#authorizationList"),
   authorizationMessage: q("#authorizationMessage"),
+  sessionList: q("#sessionList"),
+  sessionMessage: q("#sessionMessage"),
+  sessionRefresh: q("#sessionRefresh"),
   stats: q("#stats"),
   statusSummary: q("#statusSummary"),
   observationCoverage: q("#observationCoverage"),
@@ -154,6 +157,10 @@ const state = {
   accessLoaded: false,
   accessEpoch: 0,
   accessBusy: false,
+  sessions: [],
+  sessionsLoaded: false,
+  sessionsBusy: false,
+  sessionConfirm: null,
   runtimeJobs: [],
   runtimeJobsLoaded: false,
   runtimeJob: null,
@@ -549,6 +556,7 @@ function applyLanguage() {
   if (state.access || state.workspaceAccess || state.authorizations.length) {
     renderAccess(true);
   }
+  if (state.sessionsLoaded) renderSessions();
 }
 
 async function uiJson(path, method = "GET", body, options = {}) {

@@ -254,15 +254,30 @@ fn issue_tokens_locked(
     response
 }
 
-#[derive(Serialize)]
-struct OAuthSession {
-    id: String,
-    client_id: String,
-    resource: Option<String>,
-    access_count: usize,
-    refresh_count: usize,
-    access_expires_at_ms: Option<u64>,
-    refresh_expires_at_ms: Option<u64>,
+#[derive(Clone, Serialize)]
+pub(crate) struct OAuthSession {
+    pub(crate) id: String,
+    pub(crate) client_id: String,
+    pub(crate) resource: Option<String>,
+    pub(crate) access_count: usize,
+    pub(crate) refresh_count: usize,
+    pub(crate) access_expires_at_ms: Option<u64>,
+    pub(crate) refresh_expires_at_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct OperatorRevocation {
+    pub(crate) removed_access: usize,
+    pub(crate) removed_refresh: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OperatorRevocationError {
+    InvalidSessionId,
+    NotPersisted {
+        removed_access: usize,
+        removed_refresh: usize,
+    },
 }
 
 fn oauth_session_id(client_id: &str, owner_id: &str) -> String {
@@ -288,6 +303,118 @@ fn private_json(value: serde_json::Value) -> Response {
     response
 }
 
+impl AuthState {
+    /// Bounded session metadata for operator surfaces. Never returns tokens or
+    /// the private grant owner ID used to derive the opaque session ID.
+    pub(crate) fn operator_sessions(&self) -> Vec<OAuthSession> {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .expect("auth mutation lock poisoned");
+        let now = epoch_ms();
+        let mut sessions = std::collections::BTreeMap::<String, OAuthSession>::new();
+        for saved in self
+            .access_tokens
+            .lock()
+            .expect("token lock poisoned")
+            .values()
+        {
+            if !credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now) {
+                continue;
+            }
+            let id = oauth_session_id(&saved.client_id, &saved.owner_id);
+            let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
+                id,
+                client_id: saved.client_id.clone(),
+                resource: saved.resource.clone(),
+                access_count: 0,
+                refresh_count: 0,
+                access_expires_at_ms: None,
+                refresh_expires_at_ms: None,
+            });
+            session.access_count += 1;
+            session.access_expires_at_ms = Some(
+                session
+                    .access_expires_at_ms
+                    .unwrap_or(0)
+                    .max(saved.issued_at_ms.saturating_add(ACCESS_TOKEN_TTL_MS)),
+            );
+        }
+        for saved in self
+            .refresh_tokens
+            .lock()
+            .expect("refresh lock poisoned")
+            .values()
+        {
+            if !credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now) {
+                continue;
+            }
+            let id = oauth_session_id(&saved.client_id, &saved.owner_id);
+            let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
+                id,
+                client_id: saved.client_id.clone(),
+                resource: saved.resource.clone(),
+                access_count: 0,
+                refresh_count: 0,
+                access_expires_at_ms: None,
+                refresh_expires_at_ms: None,
+            });
+            session.refresh_count += 1;
+            session.refresh_expires_at_ms = Some(
+                session
+                    .refresh_expires_at_ms
+                    .unwrap_or(0)
+                    .max(saved.issued_at_ms.saturating_add(REFRESH_TOKEN_TTL_MS)),
+            );
+        }
+        sessions.into_values().collect()
+    }
+
+    /// Removes every live access and refresh token bound to the opaque session
+    /// ID and persists the removal. A failed write keeps the live removal but
+    /// reports `NotPersisted`, so callers must not acknowledge durability.
+    pub(crate) fn revoke_operator_session(
+        &self,
+        session_id: &str,
+    ) -> Result<OperatorRevocation, OperatorRevocationError> {
+        if session_id.len() != 64 || !session_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(OperatorRevocationError::InvalidSessionId);
+        }
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .expect("auth mutation lock poisoned");
+        let removed_access = {
+            let mut saved = self.access_tokens.lock().expect("token lock poisoned");
+            let before = saved.len();
+            saved.retain(|_, grant| {
+                oauth_session_id(&grant.client_id, &grant.owner_id) != session_id
+            });
+            before - saved.len()
+        };
+        let removed_refresh = {
+            let mut saved = self.refresh_tokens.lock().expect("refresh lock poisoned");
+            let before = saved.len();
+            saved.retain(|_, grant| {
+                oauth_session_id(&grant.client_id, &grant.owner_id) != session_id
+            });
+            before - saved.len()
+        };
+        // Do not restore live credentials after a failed revoke write or acknowledge durability.
+        if self.persist().is_err() {
+            tracing::error!("cannot persist OAuth session revocation");
+            return Err(OperatorRevocationError::NotPersisted {
+                removed_access,
+                removed_refresh,
+            });
+        }
+        Ok(OperatorRevocation {
+            removed_access,
+            removed_refresh,
+        })
+    }
+}
+
 pub(super) async fn oauth_sessions(
     State(state): State<Arc<AuthState>>,
     headers: HeaderMap,
@@ -295,69 +422,7 @@ pub(super) async fn oauth_sessions(
     if !operator_request_allowed(&state, &headers) {
         return oauth_error(StatusCode::FORBIDDEN, "operator_authorization_required");
     }
-    let _mutation = state
-        .mutation_lock
-        .lock()
-        .expect("auth mutation lock poisoned");
-    let now = epoch_ms();
-    let mut sessions = std::collections::BTreeMap::<String, OAuthSession>::new();
-    for saved in state
-        .access_tokens
-        .lock()
-        .expect("token lock poisoned")
-        .values()
-    {
-        if !credential_current(saved.issued_at_ms, ACCESS_TOKEN_TTL_MS, now) {
-            continue;
-        }
-        let id = oauth_session_id(&saved.client_id, &saved.owner_id);
-        let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
-            id,
-            client_id: saved.client_id.clone(),
-            resource: saved.resource.clone(),
-            access_count: 0,
-            refresh_count: 0,
-            access_expires_at_ms: None,
-            refresh_expires_at_ms: None,
-        });
-        session.access_count += 1;
-        session.access_expires_at_ms = Some(
-            session
-                .access_expires_at_ms
-                .unwrap_or(0)
-                .max(saved.issued_at_ms.saturating_add(ACCESS_TOKEN_TTL_MS)),
-        );
-    }
-    for saved in state
-        .refresh_tokens
-        .lock()
-        .expect("refresh lock poisoned")
-        .values()
-    {
-        if !credential_current(saved.issued_at_ms, REFRESH_TOKEN_TTL_MS, now) {
-            continue;
-        }
-        let id = oauth_session_id(&saved.client_id, &saved.owner_id);
-        let session = sessions.entry(id.clone()).or_insert_with(|| OAuthSession {
-            id,
-            client_id: saved.client_id.clone(),
-            resource: saved.resource.clone(),
-            access_count: 0,
-            refresh_count: 0,
-            access_expires_at_ms: None,
-            refresh_expires_at_ms: None,
-        });
-        session.refresh_count += 1;
-        session.refresh_expires_at_ms = Some(
-            session
-                .refresh_expires_at_ms
-                .unwrap_or(0)
-                .max(saved.issued_at_ms.saturating_add(REFRESH_TOKEN_TTL_MS)),
-        );
-    }
-    private_json(
-        json!({"sessions": sessions.into_values().collect::<Vec<_>>(), "authority": "local_operator"}),
-    )
+    private_json(json!({"sessions": state.operator_sessions(), "authority": "local_operator"}))
 }
 
 #[derive(Deserialize)]
@@ -374,43 +439,18 @@ pub(super) async fn oauth_session_revoke(
     if !operator_request_allowed(&state, &headers) {
         return oauth_error(StatusCode::FORBIDDEN, "operator_authorization_required");
     }
-    if input.session_id.len() != 64
-        || !input
-            .session_id
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_session_id");
-    }
-    let _mutation = state
-        .mutation_lock
-        .lock()
-        .expect("auth mutation lock poisoned");
-    let removed_access = {
-        let mut saved = state.access_tokens.lock().expect("token lock poisoned");
-        let before = saved.len();
-        saved.retain(|_, grant| {
-            oauth_session_id(&grant.client_id, &grant.owner_id) != input.session_id
-        });
-        before - saved.len()
-    };
-    let removed_refresh = {
-        let mut saved = state.refresh_tokens.lock().expect("refresh lock poisoned");
-        let before = saved.len();
-        saved.retain(|_, grant| {
-            oauth_session_id(&grant.client_id, &grant.owner_id) != input.session_id
-        });
-        before - saved.len()
-    };
-    // Do not restore live credentials after a failed revoke write or acknowledge durability.
-    if state.persist().is_err() {
-        tracing::error!("cannot persist OAuth session revocation");
-        return oauth_error(
+    match state.revoke_operator_session(&input.session_id) {
+        Ok(revocation) => private_json(json!({
+            "revoked": true,
+            "removed_access": revocation.removed_access,
+            "removed_refresh": revocation.removed_refresh,
+        })),
+        Err(OperatorRevocationError::InvalidSessionId) => {
+            oauth_error(StatusCode::BAD_REQUEST, "invalid_session_id")
+        }
+        Err(OperatorRevocationError::NotPersisted { .. }) => oauth_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "revocation_not_persisted",
-        );
+        ),
     }
-    private_json(
-        json!({"revoked": true, "removed_access": removed_access, "removed_refresh": removed_refresh}),
-    )
 }

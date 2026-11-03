@@ -617,7 +617,7 @@ async function activityTick() {
   try {
     await refreshActivity();
     void refreshTunnels();
-    if (autoEnabled() && accessPanelOpen() && !state.accessBusy) await loadAccess();
+    if (autoEnabled() && accessPanelOpen() && !state.accessBusy) { await loadAccess(); void loadSessions(); }
   } finally { state.activityTickActive = false; scheduleActivity(); }
 }
 const commandActions = () => [
@@ -691,7 +691,7 @@ els.workspace.addEventListener("change", async () => {
   const refresh = refreshProject({ workspace: els.workspace.value, reason: "manual", preferCached: true });
   void activityTick();
   await refresh; scheduleProject();
-  if (accessPanelOpen()) await loadAccess();
+  if (accessPanelOpen()) { await loadAccess(); void loadSessions(); }
 });
 document.getElementById("projectHome")?.addEventListener("click", event => {
   event.preventDefault();
@@ -711,8 +711,9 @@ els.theme.addEventListener("click", () => {
   state.theme = state.theme === "system" ? "dark" : state.theme === "dark" ? "light" : "system";
   savePreference("wcode.ui.theme", state.theme); applyTheme();
 });
-els.manage.addEventListener("click", async () => { const open = !accessPanelOpen(); setAccessPanel(open); if (open) await loadAccess(); });
+els.manage.addEventListener("click", async () => { const open = !accessPanelOpen(); setAccessPanel(open); if (open) { await loadAccess(); void loadSessions(); } });
 els.closeAccess.addEventListener("click", () => setAccessPanel(false));
+els.sessionRefresh.addEventListener("click", loadSessions);
 els.addWorkspace.addEventListener("click", addWorkspaceFromUi);
 els.fileSearch?.addEventListener("input", renderProjectStructure);
 els.workspacePath.addEventListener("keydown", event => { if (event.key === "Enter") addWorkspaceFromUi(); });
@@ -731,7 +732,7 @@ els.refresh.addEventListener("click", async () => {
     } catch {}
     await Promise.all([refreshProject({ reason: "manual", force: true, revision, preferCached: true }), refreshActivity(), refreshTunnels()]);
     schedule();
-    if (accessPanelOpen()) await loadAccess();
+    if (accessPanelOpen()) { await loadAccess(); void loadSessions(); }
   } finally {
     setManualRefreshBusy(false);
   }
