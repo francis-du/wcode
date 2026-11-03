@@ -1,14 +1,14 @@
 //! GitHub Check Runs transport for a separately deployed trusted publisher.
 //! No PR checkout, command execution, branch-protection mutation or JSON CAR import.
 //! Protocol: https://docs.github.com/en/rest/checks/runs
+use super::receipt_digest::check_receipt_digest;
 use super::*;
 use anyhow::{anyhow, bail, Result};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -322,7 +322,7 @@ impl GitHubProvider {
     /// List the check runs bound to one exact commit. Read-only operator
     /// inspection: the response is never a verification or Acceptance claim.
     pub async fn list_check_runs(&self, commit: &str) -> Result<Vec<CheckObservation>> {
-        if commit.len() != 64 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if !full_oid(commit) {
             bail!("invalid commit identity");
         }
         let suffix = ["commits", commit, "check-runs"];
@@ -376,13 +376,20 @@ impl GitHubProvider {
     pub async fn read_check_receipt(&self, id: u64) -> Result<CheckReceipt> {
         let check = self.read_check(id).await?;
         let annotations = self.read_check_annotations(id).await?;
-        let digest = check_receipt_digest(&check, &annotations);
-        Ok(CheckReceipt {
+        let fields = CheckReceiptFields {
             schema_version: CHECK_RECEIPT_SCHEMA_VERSION,
             provider: "github".to_owned(),
             repository: self.config.repository.key(),
             repository_id: self.config.repository_id,
             app_id: app_id_from_source(&check.source_id),
+        };
+        let digest = check_receipt_digest(&fields, &check, &annotations);
+        Ok(CheckReceipt {
+            schema_version: fields.schema_version,
+            provider: fields.provider,
+            repository: fields.repository,
+            repository_id: fields.repository_id,
+            app_id: fields.app_id,
             check,
             annotations,
             digest,
@@ -723,6 +730,57 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+/// Receipt files carry CI metadata plus annotation text, so they are created
+/// private to the operator instead of with the process default mode.
+#[cfg(unix)]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, bytes).map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+/// The store is replaced through a temporary file in the same directory.
+/// `O_CREAT|O_EXCL|O_NOFOLLOW` keeps a pre-planted symlink or a colliding name
+/// from redirecting the write somewhere the operator did not choose.
+#[cfg(unix)]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_private(path, bytes)
+}
+
+fn unique_temporary_path(directory: &Path, name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+    directory.join(format!(".{name}.tmp-{}-{sequence}", std::process::id()))
+}
+
 /// Bounded local retention of captured authoritative CI receipts, one JSON
 /// object per line. Receipts are keyed by check-run ID, newest last, and the
 /// store is capped so an operator can retain receipts without unbounded growth.
@@ -735,6 +793,10 @@ const MAX_CHECK_ANNOTATIONS: usize = 1000;
 pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
     if !path.exists() {
         return Ok(Vec::new());
+    }
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        bail!("receipt store must not be a symlink: {}", path.display());
     }
     let bytes =
         std::fs::read(path).map_err(|error| anyhow!("cannot read {}: {error}", path.display()))?;
@@ -795,66 +857,13 @@ pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> 
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "receipts.jsonl".to_owned());
-    let temporary = directory.join(format!(".{name}.tmp-{}", std::process::id()));
-    std::fs::write(&temporary, encoded.as_bytes())
-        .map_err(|error| anyhow!("cannot write {}: {error}", temporary.display()))?;
+    let temporary = unique_temporary_path(&directory, &name);
+    write_private_exclusive(&temporary, encoded.as_bytes())?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
         return Err(anyhow!("cannot replace {}: {error}", path.display()));
     }
     Ok(())
-}
-
-fn hash_text(hasher: &mut Sha256, value: &str) {
-    hasher.update((value.len() as u64).to_le_bytes());
-    hasher.update(value.as_bytes());
-}
-
-fn hash_optional_text(hasher: &mut Sha256, value: Option<&str>) {
-    match value {
-        Some(value) => {
-            hasher.update([1u8]);
-            hash_text(hasher, value);
-        }
-        None => hasher.update([0u8]),
-    }
-}
-
-fn hash_optional_u64(hasher: &mut Sha256, value: Option<u64>) {
-    match value {
-        Some(value) => {
-            hasher.update([1u8]);
-            hasher.update(value.to_le_bytes());
-        }
-        None => hasher.update([0u8]),
-    }
-}
-
-/// Digest over every captured field, length-prefixed so no two field layouts
-/// can collide. It evidences capture integrity only; it is not an authentication
-/// of the producer.
-pub(crate) fn check_receipt_digest(
-    check: &CheckObservation,
-    annotations: &[CheckAnnotation],
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(check.id.to_le_bytes());
-    hash_text(&mut hasher, &check.head_sha);
-    hash_text(&mut hasher, &check.name);
-    hash_text(&mut hasher, &check.source_id);
-    hash_text(&mut hasher, &check.external_id);
-    hash_text(&mut hasher, &check.status);
-    hash_optional_text(&mut hasher, check.conclusion.as_deref());
-    hasher.update((annotations.len() as u64).to_le_bytes());
-    for annotation in annotations {
-        hash_text(&mut hasher, &annotation.path);
-        hash_optional_u64(&mut hasher, annotation.start_line);
-        hash_optional_u64(&mut hasher, annotation.end_line);
-        hash_text(&mut hasher, &annotation.annotation_level);
-        hash_text(&mut hasher, &annotation.title);
-        hash_text(&mut hasher, &annotation.message);
-    }
-    format!("{:x}", hasher.finalize())
 }
 
 fn check_annotation(value: Value) -> Result<CheckAnnotation> {

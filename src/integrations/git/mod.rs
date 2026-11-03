@@ -10,6 +10,8 @@ use std::pin::Pin;
 
 pub mod enrollment;
 pub mod github;
+#[path = "receipt_digest.rs"]
+pub(crate) mod receipt_digest;
 pub use enrollment::{GitHubEnrollment, GITHUB_ENROLLMENT_FILE};
 
 pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
@@ -99,6 +101,29 @@ fn default_check_receipt_schema_version() -> u32 {
     CHECK_RECEIPT_SCHEMA_VERSION
 }
 
+/// The receipt's own binding fields. These are hashed together with the check
+/// run and its annotations so a receipt whose binding was altered cannot still
+/// verify.
+pub(crate) struct CheckReceiptFields {
+    pub schema_version: u32,
+    pub provider: String,
+    pub repository: String,
+    pub repository_id: u64,
+    pub app_id: u64,
+}
+
+impl CheckReceipt {
+    pub(crate) fn fields(&self) -> CheckReceiptFields {
+        CheckReceiptFields {
+            schema_version: self.schema_version,
+            provider: self.provider.clone(),
+            repository: self.repository.clone(),
+            repository_id: self.repository_id,
+            app_id: self.app_id,
+        }
+    }
+}
+
 /// An authoritative CI receipt: one check run plus its bounded annotations and
 /// a digest over both. Observation only, never an imported Acceptance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -141,8 +166,11 @@ impl CheckReceipt {
     /// Recompute the digest over every captured field. A receipt whose digest
     /// does not match its contents was altered or truncated after capture.
     pub fn verify_digest(&self) -> bool {
-        crate::git_provider::github::check_receipt_digest(&self.check, &self.annotations)
-            == self.digest
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &self.fields(),
+            &self.check,
+            &self.annotations,
+        ) == self.digest
     }
 }
 

@@ -632,6 +632,21 @@ async fn github_check_run_listing_rejects_incomplete_commit_identity() {
 }
 
 #[tokio::test]
+async fn github_check_run_listing_accepts_a_sha1_commit_identity() {
+    let commit = "c".repeat(40);
+    let fixture = fixture(vec![reply(json!({"total_count": 0, "check_runs": []}))]).await;
+    let runs = fixture.provider.list_check_runs(&commit).await.unwrap();
+    assert!(runs.is_empty());
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        format!("/repos/francis-du/wcode/commits/{commit}/check-runs")
+    );
+}
+
+#[tokio::test]
 async fn github_check_run_listing_requires_a_check_run_array() {
     let commit = "c".repeat(64);
     let fixture = fixture(vec![reply(json!({"total_count": 0}))]).await;
@@ -722,6 +737,51 @@ async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
     );
 }
 
+fn receipt_fields() -> crate::git_provider::CheckReceiptFields {
+    crate::git_provider::CheckReceiptFields {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn receipt_store_is_written_private_to_the_operator() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let check = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "wcode/change-acceptance".to_owned(),
+        source_id: "github-app:7".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&receipt_fields(), &check, &[]);
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+        check,
+        annotations: Vec::new(),
+        digest,
+    };
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o077;
+    assert_eq!(
+        mode, 0,
+        "receipt store must not be readable or writable by others"
+    );
+}
+
 #[test]
 fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
     let root = tempfile::tempdir().unwrap();
@@ -743,7 +803,11 @@ fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
         title: "t".to_owned(),
         message: "m".to_owned(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&check, &annotations);
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &check,
+        &annotations,
+    );
     let receipt = crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".to_owned(),
@@ -790,24 +854,60 @@ fn receipt_digest_covers_every_field_and_the_store_rejects_tampering() {
         title: "t".to_owned(),
         message: "m".to_owned(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&observation, &annotations);
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &observation,
+        &annotations,
+    );
     let mut retitled = annotations.clone();
     retitled[0].title = "retitled".to_owned();
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&observation, &retitled)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &retitled
+        )
     );
     let mut shifted = annotations.clone();
     shifted[0].start_line = Some(3);
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&observation, &shifted)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &shifted
+        )
     );
     let mut relabeled = observation.clone();
     relabeled.source_id = "github-app:8".to_owned();
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&relabeled, &annotations)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &relabeled,
+            &annotations
+        )
+    );
+    let mut rebound = receipt_fields();
+    rebound.repository = "evil/repo".to_owned();
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &rebound,
+            &observation,
+            &annotations
+        )
+    );
+    let mut reappd = receipt_fields();
+    reappd.app_id = 8;
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &reappd,
+            &observation,
+            &annotations
+        )
     );
 
     let root = tempfile::tempdir().unwrap();
@@ -842,7 +942,10 @@ fn receipt_without_repository_binding_stays_observation_only() {
         status: "completed".to_owned(),
         conclusion: Some("success".to_owned()),
     };
-    let digest = crate::git_provider::github::check_receipt_digest(&observation, &[]);
+    let mut fields = receipt_fields();
+    fields.app_id = 0;
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&fields, &observation, &[]);
     let receipt = crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".to_owned(),
