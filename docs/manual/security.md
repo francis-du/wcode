@@ -111,9 +111,9 @@ The tunnel provides reachability, not authorization.
 
 ## Intelligence HTTP responses
 
-Every `/intelligence/*` response carries protected project data, so a scoped
-middleware (`src/integrations/mcp/cache_policy.rs`) guarantees three headers on
-each one:
+Every `/intelligence` page and `/intelligence/*` response carries protected project
+data, so a scoped middleware
+(`src/integrations/mcp/cache_policy.rs`) guarantees three headers on each one:
 
 | Header | Value | Why |
 | --- | --- | --- |
