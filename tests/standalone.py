@@ -236,7 +236,8 @@ def stop_process(process: subprocess.Popen[bytes], env: dict[str, str]) -> None:
 class RustFailureDiagnostics:
     """Untrusted diagnostic hints: accept only standard ASCII Rust test IDs/counts."""
 
-    def __init__(self):
+    def __init__(self, root: Path | None = None):
+        self.root = Path(root) if root is not None else Path(__file__).resolve().parent.parent
         self.pending = bytearray()
         self.discarding = False
         self.partial = False
@@ -247,6 +248,18 @@ class RustFailureDiagnostics:
         self.categories: set[str] = set()
         self.native_codes: set[str] = set()
         self.native_locations: set[tuple[str, str, int, int]] = set()
+
+    def _repo_relative_test_file(self, path: str) -> bool:
+        """Only a real repository test file may be published as a diagnostic."""
+        if not path or Path(path).name != path:
+            return False
+        try:
+            root = self.root.resolve(strict=True)
+            candidate = (root / "tests" / path).resolve(strict=True)
+            candidate.relative_to(root)
+        except (OSError, ValueError):
+            return False
+        return candidate.is_file()
 
     def _line(self, raw: bytes) -> None:
         try:
@@ -327,6 +340,8 @@ class RustFailureDiagnostics:
             entry = (name, path, int(row), int(column))
             if len(name) > 256:
                 self.partial = True
+            elif not self._repo_relative_test_file(path):
+                return
             elif len(self.locations) < MAX_FAILURE_TESTS or entry in self.locations:
                 self.locations.add(entry)
             else:
