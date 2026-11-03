@@ -232,7 +232,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence/graph", get(intelligence_web_graph))
         .route("/mcp", get(mcp_get).post(mcp))
         .merge(crate::mcp_legacy_sse::routes())
-        .layer(axum::middleware::from_fn(cache_policy::intelligence_no_store))
+        .layer(axum::middleware::from_fn(
+            cache_policy::intelligence_no_store,
+        ))
         .with_state(state)
 }
 
