@@ -218,6 +218,10 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .delete(intelligence_web_deny_authorization),
         )
         .route(
+            "/intelligence/authorizations/approve-group",
+            post(intelligence_web_approve_authorization_group),
+        )
+        .route(
             "/intelligence/command-operations",
             post(intelligence_web_authorize_command_operation),
         )

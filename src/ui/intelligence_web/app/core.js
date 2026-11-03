@@ -45,7 +45,11 @@ const els = {
   authorizeOperation: q("#authorizeOperation"),
   operationMessage: q("#operationMessage"),
   authorizationList: q("#authorizationList"),
+  approveAllAuthorizations: q("#approveAllAuthorizations"),
   authorizationMessage: q("#authorizationMessage"),
+  sessionList: q("#sessionList"),
+  sessionMessage: q("#sessionMessage"),
+  sessionRefresh: q("#sessionRefresh"),
   stats: q("#stats"),
   statusSummary: q("#statusSummary"),
   observationCoverage: q("#observationCoverage"),
@@ -91,6 +95,11 @@ const els = {
   codeGraphSummary: q("#codeGraphSummary"),
   codeGraphMap: q("#codeGraphMap"),
   codeGraphInspector: q("#codeGraphInspector"),
+  codeReaderPanel: q("#codeReaderPanel"),
+  codeReaderPath: q("#codeReaderPath"),
+  codeReaderBody: q("#codeReaderBody"),
+  codeReaderClose: q("#codeReaderClose"),
+  codeReaderReload: q("#codeReaderReload"),
   requirements: q("#requirements"),
   reqCount: q("#reqCount"),
   detail: q("#featureDetail"),
@@ -149,6 +158,10 @@ const state = {
   accessLoaded: false,
   accessEpoch: 0,
   accessBusy: false,
+  sessions: [],
+  sessionsLoaded: false,
+  sessionsBusy: false,
+  sessionConfirm: null,
   runtimeJobs: [],
   runtimeJobsLoaded: false,
   runtimeJob: null,
@@ -212,6 +225,7 @@ const state = {
   codeGraphSourceController: null,
   codeGraphSearchTimer: null,
   codeGraphSearchResults: [],
+  codeReader: null,
   codeGraphLayouts: new Map(),
   codeGraphViewports: new Map(),
   codeGraphPaintKey: "",
@@ -543,6 +557,7 @@ function applyLanguage() {
   if (state.access || state.workspaceAccess || state.authorizations.length) {
     renderAccess(true);
   }
+  if (state.sessionsLoaded) renderSessions();
 }
 
 async function uiJson(path, method = "GET", body, options = {}) {

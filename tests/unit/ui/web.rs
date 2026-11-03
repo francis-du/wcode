@@ -707,6 +707,25 @@ fn observatory_javascript_bundle_parses_without_errors() {
 }
 
 #[test]
+fn observatory_exposes_oauth_session_administration_with_explicit_confirmation() {
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"sessionList\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"sessionMessage\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("id=\"sessionRefresh\""));
+    assert!(INTELLIGENCE_APP_PAGE.contains("data-i18n=\"OAuth sessions\""));
+    assert!(INTELLIGENCE_JS.contains("/oauth/sessions"));
+    assert!(INTELLIGENCE_JS.contains("/oauth/sessions/revoke"));
+    assert!(INTELLIGENCE_JS.contains("validOAuthSessions"));
+    assert!(INTELLIGENCE_JS.contains("sessionConfirm"));
+    assert!(INTELLIGENCE_JS.contains("data-confirm-revoke"));
+    assert!(INTELLIGENCE_JS.contains("revocation_not_persisted"));
+    assert!(INTELLIGENCE_JS.contains("X-Wcode-UI-Token"));
+    assert!(INTELLIGENCE_JS.contains("会话已撤销"));
+    assert!(INTELLIGENCE_CSS.contains(".session-item"));
+    assert!(INTELLIGENCE_CSS.contains(".session-actions .danger"));
+    assert!(INTELLIGENCE_CSS.contains(".session-meta"));
+}
+
+#[test]
 fn observatory_assets_have_a_mobile_safe_touch_layout() {
     assert!(INTELLIGENCE_APP_PAGE.contains("viewport-fit=cover"));
     assert!(INTELLIGENCE_APP_PAGE.contains("aria-controls=\"accessPanel\""));

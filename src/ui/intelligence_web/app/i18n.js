@@ -85,6 +85,8 @@ const translations = {
     "Pending authorizations": "待授权请求",
     "authorization safety note": "可批准当前精确请求、为当前 Workspace 本次运行全部授权，或拒绝。",
     "Approve": "批准",
+    "Approve all listed": "批准全部列出项",
+    "Grouped approval decided": "分组审批已决定",
     "Deny": "拒绝",
     "No pending authorizations": "没有待授权请求",
     "No authorized projects": "没有已授权项目",
@@ -399,6 +401,22 @@ Object.assign(translations["zh-CN"], {
   "live runtime topology meta": "从真实运行遥测投影当前入口、MCP/授权、工作区边界、Harness 队列、仓库模型和验证状态。",
 });
 
+Object.assign(translations["zh-CN"], {
+  "Runner": "运行器",
+  "queue wait": "排队等待",
+  "timed out": "超时",
+  "output incomplete": "输出不完整",
+  "Check / test identity": "检查 / 测试标识",
+  "Failure location": "失败位置",
+  "UI-owned": "UI 所属",
+  "MCP-owned": "MCP 所属",
+  "Unknown": "未知",
+  "Yes": "是",
+  "No": "否",
+  "Command program, arguments, cwd and structured diagnostics are not retained for command jobs.":
+    "命令的程序、参数、工作目录与结构化诊断不会为命令任务保留。",
+});
+
 // Descriptive translation keys need English copy too, not their internal IDs.
 translations.en = {
   "command jobs observation": "Inspect real retained command tasks and bounded redacted output. Only current UI-owned running jobs can be cancelled here; MCP-owned jobs remain observation-only. This page does not launch commands.",
@@ -475,6 +493,28 @@ Object.assign(translations["zh-CN"], {
   "Historical source code": "历史源代码",
   "This source file is empty at this revision.": "该版本下此源码文件为空。",
   "Historical source is bound to the exact commit shown above, not to the current change snapshot.": "历史源码绑定到上方显示的精确提交，而不是当前变更快照。",
+  "OAuth sessions": "OAuth 会话",
+  "Refresh sessions": "刷新会话",
+  "session safety note": "列表仅展示有界的会话元数据；撤销会移除访问令牌与刷新令牌，并持久化到重启之后。",
+  "Session state unavailable; refresh before deciding.": "会话状态尚未取得，请刷新后再操作。",
+  "Client": "客户端",
+  "Access tokens": "访问令牌",
+  "Refresh tokens": "刷新令牌",
+  "access": "访问",
+  "refresh": "刷新",
+  "Revoke": "撤销",
+  "Revoke session": "撤销会话",
+  "Confirm revoke": "确认撤销",
+  "Cancel": "取消",
+  "local operator": "本地操作员",
+  "No active sessions": "没有活跃会话",
+  "Unable to update sessions": "无法更新会话",
+  "No matching session; it may already be revoked": "没有匹配的会话，可能已被撤销",
+  "Session revoked": "会话已撤销",
+  "persisted": "已持久化",
+  "Live credentials removed, but durable revocation was not confirmed; restart may restore this session": "实时凭据已移除，但未能确认持久化撤销；重启可能会恢复该会话",
+  "Revocation failed": "撤销失败",
+  "invalid session id": "会话 ID 无效",
   "wcode Project Status": "wcode 项目状态",
   "wcode · Project Status": "wcode · 项目状态",
   "Project tools": "工程状态",
@@ -540,6 +580,39 @@ Object.assign(translations.en, {
   "verification learning signals meta": "Signals from adaptive verification and verified repository learning.",
   "Requirement to evidence chain": "REQUIREMENT → COMPONENT → CODE → VERIFICATION → EVIDENCE",
   "Change to confidence chain": "CURRENT CHANGES → IMPACT ANALYSIS → VERIFICATION → CONFIDENCE"
+});
+
+Object.assign(translations["zh-CN"], {
+  "Code reader": "代码阅读器",
+  "Read-only source": "只读源码",
+  "Read-only source code": "只读源代码",
+  "Reload": "重新加载",
+  "Read source": "阅读源码",
+  "Open in code reader": "在代码阅读器中打开",
+  "Changed lines": "变更行",
+  "Requirements linked to this file": "关联此文件的需求",
+  "Removed baseline lines": "删除的基线行",
+  "bounded map": "有界地图",
+  "No differences in this selected layer.": "所选层没有差异。",
+  "This source file is empty.": "此源码文件为空。",
+  "Source pages": "源码分页",
+  "Previous": "上一页",
+  "Next": "下一页",
+  "lines": "行",
+  "Captured snapshot identity": "捕获的快照身份",
+  "Binary difference; text preview is unavailable.": "二进制差异，不能作为文本预览。",
+  "No current working-tree change is mapped to this file.": "当前工作树没有映射到此文件的变更。",
+  "Reading bounded source and change…": "正在读取有界源码与变更…",
+  "Reading bounded change snapshot…": "正在读取有界变更快照…",
+  "Retry source read": "重试源码读取",
+  "Source is unavailable in this observation.": "此观测未提供源码。",
+  "redacted": "已脱敏",
+  "bounded preview": "有界预览",
+  "stale": "已过期",
+  "missing": "缺失",
+  "No requirement is linked to this file in the current snapshot.": "当前快照中没有需求关联此文件。",
+  "This reader observation belongs to an earlier project revision. Reload it before comparing with the current snapshot.": "此阅读器观测属于先前的项目版本。请先重新加载，再与当前快照比较。",
+  "The change snapshot and the current source bytes do not match; line highlighting is withheld.": "变更快照与当前源码字节不一致，已暂缓行高亮。"
 });
 
 function normalizeLanguage(value) {

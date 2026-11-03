@@ -162,7 +162,7 @@ The v0.7.2 follow-up keeps the control plane model-neutral, but deliberately opt
 
 The preload hint does not mean a tool call result is cache-safe, idempotent, or permission-free. Standard MCP annotations remain the source for read-only/destructive/idempotency semantics, and wcode still performs its own runtime policy checks. Hosts that ignore the hint receive the same deterministic full catalog and behavior.
 
-The same release narrows advanced Verification Mesh targets conservatively. High/Critical plans prefer source files that already carry deterministic risk attribution, while CSS/HTML presentation sources do not manufacture language-level Property/Mutation/Fuzz targets unless an explicit advanced executor opts them in. Full deterministic verification and Security/Adversarial review stay intact. Missing real Rust mutation or fuzz executors remain explicit gaps; ordinary `cargo test` is never relabeled as mutation or fuzz evidence.
+The same release narrows advanced Verification Mesh targets conservatively. High/Critical plans prefer source files that already carry deterministic risk attribution, while CSS/HTML presentation sources do not manufacture language-level Property/Mutation/Fuzz targets unless an explicit advanced executor opts them in. An executor may set `admitted: true` to declare an externally verified producer; its `StageExecutionResult` then carries `admitted: true`, so the outcome stays an external receipt and is never relabeled as native verification. Full deterministic verification and Security/Adversarial review stay intact. Missing real Rust mutation or fuzz executors remain explicit gaps; ordinary `cargo test` is never relabeled as mutation or fuzz evidence.
 
 ## 2026-09-15 polyglot quality follow-up
 
@@ -314,7 +314,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Other Git providers | Vendor-neutral core | Missing | Provider-neutral core | Adapter contract now; GitLab/Bitbucket later | Later |
 | Team organizations and projects | Workspace registry | Missing | Workspaces registry | Organization/member/project identity and scoped authorization | High |
 | High-risk team roles | Command/risky/delete authorization | Foundation | AuthorizationManager | Owner/Admin/Developer/Reviewer/Viewer mapped to real operations | High |
-| Engineering journal | Bounded append-oriented milestone JSON | Partial | Engineering milestones / journal | No verified actor, policy/exception event, chain/checkpoint or audit export | High |
+| Engineering journal | Bounded append-oriented milestone JSON with a verified-actor field, per-record chain digest and bounded JSON-lines export | Partial | Engineering milestones / journal | Actor falls back to `unknown` when no authenticated identity is available; no policy/exception event yet; export is a library surface not yet exposed through UI/MCP | High |
 | OAuth connection | Access/refresh grants, client binding, refresh rotation | Partial | AuthState / PublicEndpoints / auth tokens | No time expiry/revoke/session UI; old access remains after refresh | Critical |
 | Workspace access | Root/path guards and read-only enforcement | Complete | Workspace / Workspaces / fs_safety | Single operator chooses roots; OAuth client has no per-root principal ACL | Critical |
 | Command boundary | Direct argv, policy shapes, authorization, process limits | Complete | CommandResult / run_command | Ordinary repo builds/scripts run as host user; not OS tenant isolation | Critical |
@@ -333,7 +333,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Multi-agent work | Worklist CAS, scoped claims, private lease tokens, bounded results | Complete | Worklist / writer lease / task claim | Host spawns agents; reports do not become verification evidence | High |
 | Context efficiency | Bounded context, progressive schemas, compact acknowledgements | Complete | Agent Context / tool manifest | Byte/4 estimates do not establish billed token savings or model success | High |
 | Pilot metrics / export | Check history and milestone foundations | Foundation | Check history / journal | Acceptance counts, missing/stale findings and measured durations | High |
-| Vendor telemetry | Local engineering observations | Missing | Local runtime observation | Optional explicit schema and opt-in sink; no default source upload | Later |
+| Vendor telemetry | Local engineering observations | Partial | Local runtime observation / telemetry export | Explicit versioned schema and a strictly opt-in `telemetry` export (journal-backed); no default or background upload; no credentials, tokens, raw source, prompts or query text | Later |
 | Release pipeline / tests | Three-platform CI, native browser, adversarial artifacts | Complete | GitHub Actions / release contracts | Each result applies to its precise SHA; no current release requested | Core |
 | Own agent/IDE/chat/billing/remote shell | Not required for acceptance | Exclude | No component needed | Preserve useful OSS inspection/editing; stop expanding unrelated product surface | None |
 

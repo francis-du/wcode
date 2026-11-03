@@ -25,6 +25,9 @@ function validRuntimeJob(data, workspace, id) {
     && typeof data.can_cancel === "boolean" && (!data.can_cancel || (data.origin === "ui" && data.status === "working"))
     && (data.success === null || typeof data.success === "boolean")
     && (data.exit_code === null || Number.isSafeInteger(data.exit_code))
+    && (data.queue_wait_ms == null || Number.isSafeInteger(data.queue_wait_ms))
+    && (data.timed_out == null || typeof data.timed_out === "boolean")
+    && (data.output_incomplete == null || typeof data.output_incomplete === "boolean")
     && (data.error === null || (typeof data.error === "string" && data.error.length <= 4000))
     && data.completion_is_not_success === true && data.acceptance_ready === false
     && stream(data.stdout) && stream(data.stderr);
@@ -95,6 +98,9 @@ async function observeRuntimeJob(id = state.runtimeJobSelected, manual = true, a
     if (!request.current()) return false;
     if (!validRuntimeJob(data, request.workspace, id)) throw new Error("Invalid command job");
     state.runtimeJob = data; state.runtimeJobsUncertain = false; state.runtimeJobsPolls++;
+    // Exact observation reconciles existing retained identities; it is not discovery.
+    state.runtimeJobs = state.runtimeJobs.map(row => row.task_id === data.task_id
+      ? { ...row, status: data.status, origin: data.origin, can_cancel: data.can_cancel } : row);
     return true;
   } catch (_) {
     if (request.current()) {
@@ -112,7 +118,10 @@ async function cancelRuntimeJob() {
     const data = await uiJson(`/intelligence/jobs/${encodeURIComponent(job.task_id)}/cancel`, "POST", {}, { ...request, timeout: 15000 });
     if (!request.current()) return false;
     if (!validRuntimeJob(data, request.workspace, job.task_id)) throw new Error("Invalid cancellation receipt");
-    state.runtimeJob = data; state.runtimeJobsUncertain = false; return true;
+    state.runtimeJob = data; state.runtimeJobsUncertain = false;
+    state.runtimeJobs = state.runtimeJobs.map(row => row.task_id === data.task_id
+      ? { ...row, status: data.status, origin: data.origin, can_cancel: data.can_cancel } : row);
+    return true;
   } catch (_) {
     if (request.current()) {
       state.runtimeJobsUncertain = true;
@@ -172,7 +181,7 @@ function renderRuntimeJobs() {
   const rows = filtered.map(row => `<button type="button" class="runtime-job-row ${row.task_id === selected ? "selected" : ""}" data-job-id="${esc(row.task_id)}" aria-pressed="${row.task_id === selected}" ${busy ? "disabled" : ""}><code>${esc(row.task_id)}</code><small>${esc(row.origin)} · ${esc(statusLabel(row.status))}</small></button>`).join("");
   setHtml("runtimeJobList", host("runtimeJobList"), filterSummary + (rows || `<p class="panel-meta">${esc(state.runtimeJobsLoaded ? localized("No retained records match these filters in this bounded response.", "此有界响应中没有符合筛选条件的保留记录。") : localized("Refresh to discover real retained task IDs.", "刷新以发现真实的保留任务 ID。"))}</p>`), () => host("runtimeJobList")?.querySelectorAll("[data-job-id]").forEach(button => button.addEventListener("click", () => { if (currentScope()) void observeRuntimeJob(button.dataset.jobId); })));
   const controls = state.runtimeJobSelected ? `<button type="button" class="quiet-action" data-job-status ${busy ? "disabled" : ""}>${esc(localized("Refresh exact task", "刷新精确任务"))}</button>${job?.can_cancel && job.origin === "ui" ? `<button type="button" class="quiet-action" data-job-cancel ${busy || state.runtimeJobsUncertain ? "disabled" : ""}>${esc(localized("Cancel this UI-owned job", "取消此 UI 所属任务"))}</button>` : ""}` : "";
-  setHtml("runtimeJobDetail", host("runtimeJobDetail"), `${controls}${job ? `<p><code>${esc(job.task_id)}</code> · ${esc(job.origin)} · ${esc(statusLabel(job.status))}</p><p class="panel-meta">${esc(localized("Command outcome", "命令结果"))}: ${esc(job.success === null ? localized("Unknown", "未知") : job.success ? localized("Reported success", "报告成功") : localized("Reported failure", "报告失败"))} · exit ${esc(job.exit_code ?? "—")}</p>${job.error ? `<p class="warn">${esc(job.error)}</p>` : ""}` : ""}${state.runtimeJobsPolls >= 120 ? `<p>${esc(localized("Automatic observation paused; refresh the exact task to continue.", "自动观测已暂停；刷新精确任务以继续。"))}</p>` : ""}`, () => {
+  setHtml("runtimeJobDetail", host("runtimeJobDetail"), `${controls}${job ? `<p><code>${esc(job.task_id)}</code> · ${esc(job.origin)} · ${esc(statusLabel(job.status))}</p><p class="panel-meta">${esc(localized("Command outcome", "命令结果"))}: ${esc(job.success === null ? localized("Unknown", "未知") : job.success ? localized("Reported success", "报告成功") : localized("Reported failure", "报告失败"))} · exit ${esc(job.exit_code ?? "—")}</p>${runtimeJobMetadataHtml(job)}${job.error ? `<p class="warn">${esc(job.error)}</p>` : ""}` : ""}${state.runtimeJobsPolls >= 120 ? `<p>${esc(localized("Automatic observation paused; refresh the exact task to continue.", "自动观测已暂停；刷新精确任务以继续。"))}</p>` : ""}`, () => {
     host("runtimeJobDetail")?.querySelector("[data-job-status]")?.addEventListener("click", () => { if (currentSelection()) void observeRuntimeJob(selected); });
     host("runtimeJobDetail")?.querySelector("[data-job-cancel]")?.addEventListener("click", () => { if (currentSelection()) void cancelRuntimeJob(); });
   });

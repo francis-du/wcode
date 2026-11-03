@@ -32,7 +32,7 @@ roots = ["src/workspace/", "src/design/", "src/graph/", "src/semantics/", "src/v
 contracts = ["verification::evaluate_snapshot", "design::AcceptancePolicy", "evidence::Evidence", "graph::SoftwareGraph", "runtime::contracts::TaskTelemetry", "runtime::contracts::RuntimeTelemetry", "runtime::contracts::MonitorJobAccess"]
 
 [ownership.oss_product]
-roots = ["src/app/", "src/integrations/", "src/ui/", "src/main.rs", "src/lib.rs"]
+roots = ["src/app/", "src/integrations/", "src/ui/", "src/telemetry.rs", "src/main.rs", "src/lib.rs"]
 shared_runtime = ["src/runtime/", "src/scopes/"]
 
 [distribution]

@@ -738,6 +738,8 @@ pub struct ProjectEngineeringJournalView {
     pub stores_prompts_or_chain_of_thought: bool,
     pub retained_records: usize,
     pub truncated: bool,
+    /// Whether the retained window's chain links and content digests verify.
+    pub chain_valid: bool,
     pub records: Vec<ProjectEngineeringMilestoneView>,
 }
 

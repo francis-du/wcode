@@ -172,7 +172,7 @@ fn menu_bar_startup_diagnostics_keep_only_a_bounded_tail() {
 }
 
 #[test]
-fn menu_bar_companion_respects_launch_context() {
+fn menu_bar_companion_requires_a_graphical_session() {
     assert!(companion_allowed(true, true, false, false));
     for flags in [
         (false, true, false, false),
@@ -182,6 +182,18 @@ fn menu_bar_companion_respects_launch_context() {
     ] {
         assert!(!companion_allowed(flags.0, flags.1, flags.2, flags.3));
     }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn menu_bar_graphical_gate_allows_macos() {
+    assert!(graphical_session());
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[test]
+fn menu_bar_graphical_gate_rejects_platforms_without_a_native_tray() {
+    assert!(!graphical_session());
 }
 
 #[cfg(target_os = "macos")]

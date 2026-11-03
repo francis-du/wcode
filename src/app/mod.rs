@@ -27,6 +27,8 @@ use tracing_subscriber::EnvFilter;
 
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 
+#[path = "big_stack.rs"]
+mod big_stack;
 #[path = "commands.rs"]
 mod commands;
 use commands::ControlCommand;
@@ -70,7 +72,7 @@ QUICK START
   wcode help-all                 Show every supported CLI command and parameter.
   wcode help-all setup           Inspect one command, including advanced options.
   wcode mcp-stdio               Connect an MCP Host; its current directory becomes the project.
-  wcode menu-bar                Observe HTTP/MCP and stdio runtime status from the macOS menu bar.
+  wcode menu-bar                Observe HTTP/MCP and stdio runtime status from the macOS or Windows menu bar.
   wcode intelligence            Inspect project intelligence and LSP readiness.
   wcode intelligence --refresh-semantic
                                 Discover and initialize available language servers.
@@ -220,7 +222,7 @@ struct Args {
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
-    /// Do not start the macOS menu bar companion. CI and SSH sessions skip it automatically.
+    /// Do not start the native menu bar companion. CI and SSH sessions skip it automatically.
     #[arg(long, global = true, help_heading = "Experience")]
     no_menu_bar: bool,
 
@@ -251,9 +253,13 @@ struct Args {
 }
 
 pub async fn run() -> Result<()> {
-    let args = Args::parse();
+    let args = big_stack::parse_cli_args();
     if let Some(ControlCommand::HelpAll { command_path, json }) = args.command.as_ref() {
-        return commands::print_complete_help(command_path, *json);
+        let command_path = command_path.clone();
+        let json = *json;
+        return big_stack::run_on_explicit_stack(move || {
+            commands::print_complete_help(&command_path, json)
+        });
     }
     if args.show_config {
         println!(
@@ -305,6 +311,18 @@ pub async fn run() -> Result<()> {
             }
             ControlCommand::MenuBar { json } => {
                 return crate::menu_bar::run(*json);
+            }
+            ControlCommand::Telemetry { to, limit } => {
+                if args.workspace.len() != 1 {
+                    bail!("telemetry accepts one project workspace");
+                }
+                let root = args
+                    .workspace
+                    .first()
+                    .map(PathBuf::as_path)
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                crate::telemetry::run_export(root, to.as_deref(), *limit)?;
+                return Ok(());
             }
             ControlCommand::GitHub { action } => {
                 return github::run(&args, action).await;
@@ -416,9 +434,10 @@ pub async fn run() -> Result<()> {
             ControlCommand::Setup { .. }
             | ControlCommand::HelpAll { .. }
             | ControlCommand::MenuBar { .. }
+            | ControlCommand::Telemetry { .. }
             | ControlCommand::GitHub { .. } => {
                 unreachable!(
-                    "setup, help-all, menu-bar and github return before runtime initialization"
+                    "setup, help-all, menu-bar, telemetry and github return before runtime initialization"
                 )
             }
             ControlCommand::AgentPlugin {
