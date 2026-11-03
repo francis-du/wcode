@@ -31,7 +31,7 @@ fn complete_revision(revision: &Revision) -> bool {
     full(&revision.code) && revision.design.as_deref().is_none_or(full)
 }
 
-fn no_store(mut response: Response) -> Response {
+pub(super) fn no_store(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());

@@ -521,3 +521,49 @@ async fn web_verification_restart_is_failed_and_legacy_binding_remains_unknown()
         .contains("runtime restart"));
     assert!(crate::evidence_store::load(&workspace).unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn intelligence_status_scopes_and_graph_routes_are_protected_and_shaped() {
+    let root = tempfile::tempdir().unwrap();
+    git(root.path(), &["init", "-q"]);
+    git(
+        root.path(),
+        &["config", "user.email", "test@example.invalid"],
+    );
+    git(root.path(), &["config", "user.name", "Test"]);
+    fs::write(root.path().join("lib.rs"), "pub fn value() -> u8 { 1 }\n").unwrap();
+    git(root.path(), &["add", "lib.rs"]);
+    git(root.path(), &["commit", "-qm", "init"]);
+    let state = fixture(&[root.path()], true);
+    let id = state.workspaces.default_id();
+
+    for path in [
+        "/intelligence/status",
+        "/intelligence/scopes",
+        "/intelligence/graph",
+    ] {
+        let (code, rejected) = http(&state, id, "GET", path, None, false).await;
+        assert_eq!(code, StatusCode::UNAUTHORIZED, "{path}: {rejected}");
+    }
+
+    let (code, status) = http(&state, id, "GET", "/intelligence/status", None, true).await;
+    assert!(
+        code == StatusCode::OK || code == StatusCode::INTERNAL_SERVER_ERROR,
+        "{status}"
+    );
+    assert!(status.is_object(), "{status}");
+
+    let (code, scopes) = http(&state, id, "GET", "/intelligence/scopes", None, true).await;
+    assert!(
+        code == StatusCode::OK || code == StatusCode::INTERNAL_SERVER_ERROR,
+        "{scopes}"
+    );
+    assert!(scopes.is_object(), "{scopes}");
+
+    let (code, graph) = http(&state, id, "GET", "/intelligence/graph", None, true).await;
+    assert!(
+        code == StatusCode::OK || code == StatusCode::NOT_FOUND,
+        "{graph}"
+    );
+    assert!(graph.is_object(), "{graph}");
+}
