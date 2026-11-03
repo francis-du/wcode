@@ -597,6 +597,27 @@ impl SoftwareIntelligenceRuntime {
         )
     }
 
+    /// Record an admitted external producer's result as an external receipt.
+    /// It is retained in the ledger for the operator, but it is never relabeled
+    /// as native verification and can never satisfy a required stage.
+    pub(crate) fn verification_stage_submit_admitted(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        submission: StageSubmission,
+        binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Evidence> {
+        self.record_stage_submission(
+            workspace_id,
+            workspace,
+            plan_id,
+            submission,
+            EvidenceAuthority::SelfReported,
+            binding,
+        )
+    }
+
     fn record_stage_submission(
         &self,
         workspace_id: &str,
