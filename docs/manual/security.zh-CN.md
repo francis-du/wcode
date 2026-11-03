@@ -106,6 +106,18 @@ Host 校验与 Origin 校验分别执行。请求携带 Origin 时，它必须�
 
 公网隧道只解决可达性，不提供授权。
 
+## Intelligence HTTP 响应
+
+每个 `/intelligence/*` 响应都带受保护的项目数据，因此有一个作用域中间件（`src/integrations/mcp/cache_policy.rs`）保证每个响应都带三个头：
+
+| 头 | 值 | 原因 |
+| --- | --- | --- |
+| `Cache-Control` | `no-store` | 项目结构、证据、授权请求和命令策略不得被共享或中间层缓存留存。 |
+| `X-Content-Type-Options` | `nosniff` | 与 setup 页面已有的保护一致。 |
+| `Referrer-Policy` | `no-referrer` | 工作区根路径和计划标识符不得通过 referrer 泄漏。 |
+
+处理器可以显式设置这些头；中间件只补缺失的那个，所以显式策略（例如静态资源的 `public, max-age=3600` 生命周期）会被保留。非 intelligence 路由（`/healthz`、`/mcp`、`/sse`）不在作用域内。
+
 ## 多媒体与模型能力
 
 `read_media` 默认只返回 Metadata。它可以识别有界的 PNG/JPEG/GIF/WebP 图片、常见音频，以及 MP4/WebM 的基础 Metadata。调用方通过 `include_content=true` 显式选择返回二进制内容，此时 wcode 直接使用标准 MCP `image` / `audio` Tool Result Content Block，不再要求私有 Capability Extension。由于 MCP 当前没有标准 Video Tool Result Content Block，视频继续只返回 Metadata。

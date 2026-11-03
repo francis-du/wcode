@@ -109,6 +109,23 @@ Verified tunnels enter the trusted endpoint registry before their links are disp
 
 The tunnel provides reachability, not authorization.
 
+## Intelligence HTTP responses
+
+Every `/intelligence/*` response carries protected project data, so a scoped
+middleware (`src/integrations/mcp/cache_policy.rs`) guarantees three headers on
+each one:
+
+| Header | Value | Why |
+| --- | --- | --- |
+| `Cache-Control` | `no-store` | Project structure, evidence, authorization requests and command policy must not be retained by a shared or intermediary cache. |
+| `X-Content-Type-Options` | `nosniff` | Same protection the setup page already sends. |
+| `Referrer-Policy` | `no-referrer` | Workspace roots and plan identifiers must not leak through a referrer. |
+
+Handlers may set these explicitly; the middleware only fills a header that is
+absent, so an explicit policy (such as the `public, max-age=3600` lifetime for
+static assets) is preserved. Non-intelligence routes (`/healthz`, `/mcp`,
+`/sse`) are out of scope.
+
 ## Media and model capability
 
 `read_media` is metadata-first. It can identify bounded PNG/JPEG/GIF/WebP images, common audio formats, and MP4/WebM metadata. The caller explicitly opts into binary payloads with `include_content=true`, which returns standard MCP `image` / `audio` Tool Result content blocks; no private capability extension is required. Video remains metadata-only because MCP has no standard video Tool Result content block.
