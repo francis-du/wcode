@@ -24,6 +24,11 @@ pub(crate) struct MonitorJobSnapshot {
     pub(crate) exit_code: Option<i32>,
     pub(crate) success: Option<bool>,
     pub(crate) error: Option<String>,
+    /// Deterministic runner metadata retained with the completed command
+    /// result. Live output has none, so these stay unknown until completion.
+    pub(crate) queue_wait_ms: Option<u64>,
+    pub(crate) timed_out: Option<bool>,
+    pub(crate) output_incomplete: Option<bool>,
 }
 
 /// Implementations enforce exact runtime owner and Workspace/job identity.

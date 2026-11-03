@@ -792,21 +792,35 @@ impl ToolHarness {
                 };
                 self.ensure_execution_git_binding(workspace, &execution_git_binding)
                     .await?;
-                self.intelligence.verification_stage_submit_native_bound(
-                    workspace_id,
-                    workspace,
-                    plan_id,
-                    StageSubmission {
-                        stage: execution.stage,
-                        producer,
-                        verdict: execution.verdict,
-                        summary: execution.summary.clone(),
-                        artifact_digest: execution.artifact_digest.clone(),
-                        targets,
-                        model: None,
-                    },
-                    execution_git_binding.clone(),
-                )?;
+                let submission = StageSubmission {
+                    stage: execution.stage,
+                    producer,
+                    verdict: execution.verdict,
+                    summary: execution.summary.clone(),
+                    artifact_digest: execution.artifact_digest.clone(),
+                    targets,
+                    model: None,
+                };
+                // An admitted executor declares an externally verified producer:
+                // its result stays an external receipt and is never relabeled as
+                // native verification, so it cannot satisfy a required stage.
+                if execution.admitted {
+                    self.intelligence.verification_stage_submit_admitted(
+                        workspace_id,
+                        workspace,
+                        plan_id,
+                        submission,
+                        execution_git_binding.clone(),
+                    )?;
+                } else {
+                    self.intelligence.verification_stage_submit_native_bound(
+                        workspace_id,
+                        workspace,
+                        plan_id,
+                        submission,
+                        execution_git_binding.clone(),
+                    )?;
+                }
                 results.push(execution);
             }
         }

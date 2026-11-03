@@ -77,6 +77,9 @@ function renderAccess(force = false) {
         button.addEventListener("click", () => decideAuthorization(button.dataset.approveAuthorization, true)));
       els.authorizationList.querySelectorAll("[data-deny-authorization]").forEach(button =>
         button.addEventListener("click", () => decideAuthorization(button.dataset.denyAuthorization, false)));
+      if (els.approveAllAuthorizations) {
+        els.approveAllAuthorizations.addEventListener("click", () => approveAllAuthorizations());
+      }
     });
   const allCommands = state.access?.all_commands_authorized === true;
   const commandPolicy = state.access?.command_exec_policy || (allCommands ? "session_override" : "disabled");
@@ -267,6 +270,31 @@ async function authorizeOperationFromUi() {
     renderAccess(); renderStats(); renderAttention();
   });
 }
+async function approveAllAuthorizations() {
+  if (state.accessBusy || !state.accessLoaded) return;
+  const ids = state.authorizations.map(request => request.id);
+  if (!ids.length) return;
+  let resumeSemantic = false;
+  await mutateAccess(els.authorizationMessage, async op => {
+    const data = await uiJson("/intelligence/authorizations/approve-group", "POST", { ids }, { workspace: op.stamp.workspace });
+    if (!accessOperationCurrent(op)) return;
+    if (!Array.isArray(data.pending)) throw new Error("Invalid authorization response");
+    state.authorizations = data.pending;
+    state.accessLoaded = true;
+    observePending(data.pending.length, op.stamp);
+    accessMessage(els.authorizationMessage, `${t("Grouped approval decided")}: ${Array.isArray(data.approved) ? data.approved.length : 0} / ${ids.length}`);
+    try {
+      const commands = await uiJson("/intelligence/commands", "GET", undefined, { workspace: op.stamp.workspace });
+      if (!validCommandAccess(commands)) throw new Error("Invalid command access response");
+      if (accessOperationCurrent(op)) state.access = commands;
+    } catch { if (accessOperationCurrent(op)) state.access = null; }
+    if (!accessOperationCurrent(op)) return;
+    renderAccess(); renderStats(); renderAttention();
+    resumeSemantic = state.semanticRefreshPending;
+  });
+  if (resumeSemantic) await refreshSemanticProviders();
+}
+
 async function decideAuthorization(id, approve) {
   if (state.accessBusy || !state.accessLoaded) return;
   let resumeSemantic = false;

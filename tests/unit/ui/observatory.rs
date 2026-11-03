@@ -40,7 +40,7 @@ fn jobs_output_search_is_literal_scoped_bounded_and_preserves_coverage() {
     assert_eq!(results.len(), 19);
     assert!(results.iter().all(|result| result["passed"] == true));
     let ablations = report["ablations"]["results"].as_array().unwrap();
-    assert_eq!(ablations.len(), 3);
+    assert_eq!(ablations.len(), 4);
     assert!(ablations.iter().all(|case| case["passed"] == true
         && case["baseline"]["invariant"] == true
         && case["ablated"]["invariant"] == false
@@ -355,24 +355,54 @@ fn acceptance_ui_keeps_canonical_state_required_axes_and_stale_scope_explicit() 
 #[test]
 fn verification_ui_runs_observes_cancels_and_refreshes_canonical_acceptance() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (file, expected) in [("verification.cjs", 16), ("verification_lifecycle.cjs", 8)] {
+        let output = std::process::Command::new("node")
+            .arg(root.join("tests/unit/ui").join(file))
+            .arg(root)
+            .output()
+            .expect("Node is required for native verification UI protocol regressions");
+        let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+        assert!(
+            output.status.success()
+                && report
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value["results"].as_array())
+                    .is_some_and(|results| results.len() == expected
+                        && results.iter().all(|item| item["passed"] == true)),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let output = std::process::Command::new("node")
-        .arg(root.join("tests/unit/ui/verification.cjs"))
-        .arg(root)
+        .args([
+            "--test",
+            "--test-isolation=none",
+            "--test-reporter=tap",
+            "--test-timeout=10000",
+        ])
+        .arg(root.join("tests/unit/ui/verification_controls.cjs"))
+        .env_remove("NODE_TEST_CONTEXT")
+        .current_dir(root)
         .output()
-        .expect("Node is required for native verification UI protocol regressions");
-    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
-    assert!(
-        output.status.success()
-            && report
-                .as_ref()
-                .ok()
-                .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 16
-                    && results.iter().all(|item| item["passed"] == true)),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+        .expect("Node is required for native verification control binding regressions");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    for summary in [
+        "# tests 10",
+        "# pass 10",
+        "# fail 0",
+        "# cancelled 0",
+        "# skipped 0",
+        "# todo 0",
+    ] {
+        assert!(
+            stdout.lines().any(|line| line.trim() == summary),
+            "Missing complete test summary {summary}: {stdout}"
+        );
+    }
 }
 
 #[test]
@@ -390,7 +420,7 @@ fn jobs_ui_observation_and_verification_recovery_preserve_native_authority() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 23
+                .is_some_and(|results| results.len() == 25
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

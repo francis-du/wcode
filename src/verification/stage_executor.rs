@@ -33,6 +33,10 @@ pub struct StageExecutorSpec {
     pub timeout_seconds: u64,
     #[serde(default)]
     pub builtin: bool,
+    /// Marks an externally verified producer. Its result is admitted as an
+    /// external receipt and is never relabeled as native verification.
+    #[serde(default)]
+    pub admitted: bool,
 }
 
 impl StageExecutorSpec {
@@ -85,10 +89,58 @@ pub struct StageExecutionResult {
     pub executor_id: String,
     pub stage: VerificationStage,
     pub languages: Vec<SemanticLanguage>,
+    /// True when the producing executor is an admitted external receipt rather
+    /// than a native verification producer.
+    pub admitted: bool,
     pub verdict: ReviewVerdict,
     pub summary: String,
     pub artifact_digest: String,
     pub command: CommandResult,
+}
+
+/// A retained external receipt for an admitted stage executor: bounded fields
+/// plus a digest over them. Observation only, never native verification.
+// Protocol half of admitted stage receipts; the operator CLI/UX is a follow-up.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StageReceipt {
+    pub executor_id: String,
+    pub stage: VerificationStage,
+    pub verdict: ReviewVerdict,
+    pub summary: String,
+    pub artifact_digest: String,
+    pub admitted: bool,
+    pub digest: String,
+}
+
+#[allow(dead_code)]
+impl StageReceipt {
+    pub fn from_result(result: &StageExecutionResult) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(result.executor_id.as_bytes());
+        hasher.update(
+            serde_json::to_string(&result.stage)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        hasher.update(
+            serde_json::to_string(&result.verdict)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        hasher.update(result.summary.as_bytes());
+        hasher.update(result.artifact_digest.as_bytes());
+        hasher.update(u8::from(result.admitted).to_string().as_bytes());
+        Self {
+            executor_id: result.executor_id.clone(),
+            stage: result.stage,
+            verdict: result.verdict,
+            summary: result.summary.clone(),
+            artifact_digest: result.artifact_digest.clone(),
+            admitted: result.admitted,
+            digest: format!("{:x}", hasher.finalize()),
+        }
+    }
 }
 
 pub fn registry(workspace: &Workspace) -> Result<StageExecutorRegistry> {
@@ -216,6 +268,7 @@ pub async fn execute(
         executor_id: executor.id.clone(),
         stage: executor.stage,
         languages: executor.languages.clone(),
+        admitted: executor.admitted,
         verdict,
         summary,
         artifact_digest,
@@ -620,6 +673,7 @@ fn spec_owned(
         cwd: ".".into(),
         timeout_seconds,
         builtin: true,
+        admitted: false,
     }
 }
 

@@ -22,7 +22,7 @@ Streamable HTTP + OAuth。Skill 和插件包提供使用说明，MCP 提供工�
 
 ### 本机 Menu Bar 状态
 
-在 macOS 上，`wcode menu-bar` 会打开一个只负责观测的 Menu Bar 状态项。主 HTTP/MCP Runtime 与每个 `wcode mcp-stdio` 进程都发布同一份有界心跳契约到 WCode 受保护的本机状态目录，因此不用打开 IDE 就能看到 HTTP/stdio Runtime 数量、MCP 活动以及 active/queued 任务数。
+在 macOS 和 Windows 上，`wcode menu-bar` 会打开一个只负责观测的 Menu Bar 状态项。主 HTTP/MCP Runtime 与每个 `wcode mcp-stdio` 进程都发布同一份有界心跳契约到 WCode 受保护的本机状态目录，因此不用打开 IDE 就能看到 HTTP/stdio Runtime 数量、MCP 活动以及 active/queued 任务数。
 
 Presence 记录只包含 transport、版本、有界 Workspace ID、活动时间和聚合状态；**不会**保存 UI Token、OAuth 凭据、MCP owner、命令参数、源码路径或原始诊断。过期或损坏记录只会显示为 partial/unknown，不能冒充已连接。Menu Bar 不能批准授权、取消任务、执行任意命令，也不能建立 Verification/Acceptance。其他平台可用 `wcode menu-bar --json` 读取同一份可移植只读状态投影。
 

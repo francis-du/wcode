@@ -445,6 +445,7 @@ async fn legacy_stage_authority_cannot_satisfy_an_otherwise_ready_plan() {
                 cwd: ".".into(),
                 timeout_seconds: 10,
                 builtin: false,
+                admitted: false,
             },
         )
         .await

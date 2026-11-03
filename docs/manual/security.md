@@ -95,6 +95,8 @@ State is persisted per configured Workspace-root set in the user's wcode state d
 
 The implemented local-operator session administration APIs are `GET /oauth/sessions` and `POST /oauth/sessions/revoke`, with a `session_id` JSON field for revocation. They enforce the existing Host and Origin rules and require the current server's `X-Wcode-UI-Token`; an ordinary MCP bearer does not authorize them. Listings contain bounded session metadata and an opaque session ID, never access/refresh tokens or private grant owner IDs. Successful revocation persists removal of that grant's access and refresh tokens, so restart does not restore them. A write failure returns `revocation_not_persisted` and removes live credentials without confirming durable revocation. These are operator administration APIs, not an RFC 7009 endpoint, Team ACL or SSO; Team ACL and SSO are not implemented.
 
+The protected WebUI **Access** panel exposes the same boundary through an **OAuth sessions** card: it lists bounded metadata (opaque session ID, client ID, resource, access/refresh counts and expiry) and requires an explicit confirmed **Revoke** action. The card never displays tokens or private grant owner IDs. A successful revoke reports the persisted removal counts; a persistence failure keeps the live removal but reports that durable revocation was not confirmed, so a restart may restore the session. The card is operator-only and does not broaden the HTTP authorization above.
+
 A replacement tunnel is accepted only after its public health response matches
 the current process. The saved token resource may then migrate to that active
 endpoint. OAuth metadata and authorization use the exact Host that received the

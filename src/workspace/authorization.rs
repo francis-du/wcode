@@ -386,6 +386,58 @@ impl AuthorizationManager {
         true
     }
 
+    /// Approve a bounded set of pending requests as one operator decision.
+    /// Returns the IDs that were actually approved; unknown, already-decided or
+    /// non-pending IDs are skipped rather than failing the whole group. Each
+    /// approved request keeps its own one-shot versus session semantics.
+    // Protocol half of grouped approval; the operator UX is a separate follow-up.
+    #[allow(dead_code)]
+    pub fn approve_session_many(&self, ids: &[String]) -> Vec<String> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("authorization state lock poisoned");
+        state.expire_pending();
+        let mut approved = Vec::new();
+        for id in ids {
+            let (fingerprint, workspace, one_shot) = {
+                let Some(request) = state.requests.get_mut(id) else {
+                    continue;
+                };
+                if request.status != AuthorizationStatus::Pending {
+                    continue;
+                }
+                let one_shot = matches!(
+                    request.kind,
+                    AuthorizationKind::DestructiveDelete | AuthorizationKind::HumanDecision
+                );
+                request.status = if one_shot {
+                    AuthorizationStatus::ApprovedOnce
+                } else {
+                    AuthorizationStatus::ApprovedSession
+                };
+                request.decided_at_ms = Some(now_ms());
+                (
+                    request.fingerprint.clone(),
+                    request.workspace.clone(),
+                    one_shot,
+                )
+            };
+            state.interactive_tokens.remove(id);
+            state.pending_deadlines.remove(id);
+            if one_shot {
+                state.one_shot_grants.insert(
+                    fingerprint,
+                    (id.clone(), Instant::now() + ONE_SHOT_AUTHORIZATION_TTL),
+                );
+            } else {
+                state.session_grants.insert(fingerprint, workspace);
+            }
+            approved.push(id.clone());
+        }
+        approved
+    }
+
     pub fn consume_one_shot_grant(&self, fingerprint: &str) -> bool {
         self.consume_one_shot_receipt(None, AuthorizationKind::DestructiveDelete, fingerprint)
             .is_some()

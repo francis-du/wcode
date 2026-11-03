@@ -7,6 +7,10 @@ mod web_execution;
 #[path = "web_graph.rs"]
 mod web_graph;
 pub(super) use web_execution::intelligence_web_revision;
+#[path = "web_authorizations.rs"]
+mod authorizations;
+pub(super) use authorizations::intelligence_web_approve_authorization_group;
+
 use web_execution::{
     intelligence_execution_snapshot, public_worklist_revision, worklist_snapshot_key,
 };
@@ -402,6 +406,8 @@ pub(super) async fn intelligence_web_authorizations(
     )
         .into_response()
 }
+
+const MAX_GROUPED_AUTHORIZATIONS: usize = 64;
 
 pub(super) async fn intelligence_web_approve_authorization(
     State(state): State<Arc<AppState>>,
