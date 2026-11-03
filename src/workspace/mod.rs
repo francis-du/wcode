@@ -883,6 +883,8 @@ impl Workspace {
 
 mod change_view;
 pub use change_view::ChangeLayer;
+mod historical_source;
+pub(crate) use historical_source::{historical_source_error_code, MAX_HISTORICAL_REVISIONS};
 
 #[path = "fs_safety.rs"]
 mod fs_safety;

@@ -45,6 +45,9 @@ fn observation(origin: MonitorJobOrigin) -> MonitorJobSnapshot {
         exit_code: None,
         success: None,
         error: None,
+        queue_wait_ms: None,
+        timed_out: None,
+        output_incomplete: None,
     }
 }
 

@@ -22,6 +22,10 @@ Thumbs.db
 *.bak
 *.orig
 
+# Generated Python bytecode
+__pycache__/
+*.py[co]
+
 # Local environment and secrets
 .env
 .env.*

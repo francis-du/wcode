@@ -42,7 +42,7 @@ function fixture(code = source) {
   const state = {current:'A',workspaceEpoch:1,workspaceTab:'activity',runtimeJobsSequence:0};
   const context = vm.createContext({state,token:'session-A',AbortController,
     document:{hidden:false,getElementById:host},
-    localized:(english)=>english,esc:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])),
+    localized:(english)=>english,t:(english)=>english,esc:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])),
     num:value=>value,statusLabel:value=>value,
     invalidate:key=>html.delete(key),
     setHtml:(key,node,markup,bind)=>{if(html.get(key)===markup)return;html.set(key,markup);node.innerHTML=markup;bind?.();},

@@ -54,3 +54,14 @@ jobs:
 
       - name: Verify real OSS source package without commercial
         run: python tests/standalone.py --diagnostics
+
+      - name: Retain bounded standalone failure output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          # The captured child output can contain paths, source or credentials,
+          # so it is retained as an authenticated artifact instead of the CI log.
+          name: wcode-standalone-failure-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/wcode-standalone-failure.log
+          if-no-files-found: ignore
+          retention-days: 14

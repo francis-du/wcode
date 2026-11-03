@@ -37,6 +37,12 @@ MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_METADATA_BYTES = 1024 * 1024
 MAX_REPORT_BYTES = 64 * 1024
 MAX_REPORT_EVENTS = 64
+# The captured child output is retained to a file, never echoed into the CI log:
+# it can contain absolute paths, source text or credentials. Only the bounded
+# diagnostic hints above are emitted.
+MAX_FAILURE_LOG_BYTES = 2 * 1024 * 1024
+FAILURE_LOG = os.environ.get(
+    "WCODE_STANDALONE_FAILURE_LOG", "target/wcode-standalone-failure.log")
 MAX_FAILURE_TESTS = 256
 MAX_FAILURE_LINE_BYTES = 1024
 # Only fixed native status codes and known test files may leave captured output.
@@ -59,6 +65,7 @@ NATIVE_FAILURE_FILES = (
     "tests/unit/workspace/execution_sandbox.rs",
     "tests/unit/runtime/harness/verification_turn_native.rs",
     "tests/unit/evidence/failure_memory.rs", "tests/unit/integrations/git/watch.rs",
+    "tests/unit/integrations/mcp/calls.rs", "tests/oss_payload.rs",
 )
 REQUIRED_FILES = (
     "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "README.md",
@@ -235,11 +242,17 @@ class RustFailureDiagnostics:
         self.partial = False
         self.tests: set[str] = set()
         self.summaries: list[dict[str, int]] = []
-        self.locations: set[tuple[str, int, int]] = set()
+        self.locations: set[tuple[str, str, int, int]] = set()
         self.error_codes: set[str] = set()
         self.categories: set[str] = set()
         self.native_codes: set[str] = set()
         self.native_locations: set[tuple[str, str, int, int]] = set()
+
+    def _known_test(self, path: str) -> bool:
+        """Only a real repository test file may be published as a diagnostic."""
+        root = Path(__file__).resolve().parent.parent
+        candidate = (root / "tests" / path).resolve()
+        return candidate.is_file() and candidate.is_relative_to(root)
 
     def _line(self, raw: bytes) -> None:
         try:
@@ -264,7 +277,7 @@ class RustFailureDiagnostics:
             r"thread '((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)'"
             r"(?: \([0-9]{1,9}\))? panicked at "
             r"(?:src[/\\](?:(?:[A-Za-z0-9_-]+|\.\.)[/\\]){0,12})?"
-            r"(tests[/\\]unit[/\\][A-Za-z0-9_/\\.-]+\.rs):"
+            r"(tests[/\\][A-Za-z0-9_/\\.-]+\.rs):"
             r"([1-9][0-9]{0,8}):([1-9][0-9]{0,8}):", line)
         if native_location:
             name, path, row, column = native_location.groups()
@@ -312,13 +325,16 @@ class RustFailureDiagnostics:
             return
         location = re.fullmatch(
             r"thread '((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)'"
-            r"(?: \([0-9]{1,9}\))? panicked at tests[/\\]architecture\.rs:"
+            r"(?: \([0-9]{1,9}\))? panicked at tests[/\\]([A-Za-z0-9_.-]+\.rs):"
             r"([1-9][0-9]{0,8}):([1-9][0-9]{0,8}):", line)
         if location:
-            name, row, column = location.groups()
-            entry = (name, int(row), int(column))
+            name, path, row, column = location.groups()
+            path = path.replace("\\", "/")
+            entry = (name, path, int(row), int(column))
             if len(name) > 256:
                 self.partial = True
+            elif not self._known_test(path):
+                return
             elif len(self.locations) < MAX_FAILURE_TESTS or entry in self.locations:
                 self.locations.add(entry)
             else:
@@ -360,12 +376,11 @@ class RustFailureDiagnostics:
         return {"failure_tests": sorted(self.tests), "failure_summaries": self.summaries,
                 "failure_error_codes": sorted(self.error_codes),
                 "failure_categories": sorted(self.categories),
-                "failure_locations": [{"test": name, "line": row, "column": column}
-                                      for name, row, column in sorted(self.locations)],
+                "failure_locations": [{"test": name, "file": path, "line": row, "column": column}
+                                      for name, path, row, column in sorted(self.locations)],
                 "failure_native_codes": sorted(self.native_codes),
-                "failure_native_locations": [
-                    {"test": name, "file": path, "line": row, "column": column}
-                    for name, path, row, column in sorted(self.native_locations)],
+                "failure_native_locations": [{"test": name, "file": path, "line": row, "column": column}
+                                             for name, path, row, column in sorted(self.native_locations)],
                 "failure_diagnostics_partial": self.partial}
 
 
@@ -458,6 +473,14 @@ def run_stage(stage: str, argv: list[str], cwd: Path, env: dict[str, str],
          seconds=round(time.monotonic() - started, 3),
          exit_code=process.returncode, output_bytes=output_bytes, **hints)
     if failure:
+        try:
+            directory = os.path.dirname(FAILURE_LOG)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(FAILURE_LOG, "wb") as handle:
+                handle.write(b"".join(captured)[:MAX_FAILURE_LOG_BYTES])
+        except OSError:
+            pass
         raise StandaloneError(failure)
     return b"".join(captured)
 
@@ -472,6 +495,9 @@ def archive_parts(name: str, expected_root: str) -> tuple[str, ...]:
         raise StandaloneError("archive path escapes its package root")
     if not raw_parts or raw_parts[0] != expected_root:
         raise StandaloneError("archive contains an unexpected or multiple root")
+    if (any(part.casefold() == "__pycache__" for part in raw_parts[1:])
+            or raw_parts[-1].casefold().endswith((".pyc", ".pyo"))):
+        raise StandaloneError("source package contains Python bytecode or cache")
     for part in raw_parts:
         if (len(part) > 255 or part.endswith((".", " "))
                 or any(character in part for character in ':<>"|?*')
@@ -898,7 +924,7 @@ def verify_standalone(root: Path, target: Path, diagnostics: bool = False) -> No
         run_stage("standalone_build", cached_cargo_args("build", target) + ["--workspace"],
                   standalone, env, 1800, diagnostics=diagnostics)
         run_stage("standalone_test", cached_cargo_args("test", target) + ["--workspace"],
-                  standalone, env, 2400, diagnostics=diagnostics)
+                  standalone, env, 2400, capture_output=True, diagnostics=diagnostics)
 
         repack_version, repack_inventories, repack_names = workspace_inventories(
             standalone, env, "repack")

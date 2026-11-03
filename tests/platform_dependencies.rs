@@ -1,5 +1,5 @@
-//! The menu-bar event loop is macOS-only; unrelated window backends must not
-//! silently add Linux font/rendering packages to the published dependency graph.
+//! The menu-bar event loop is macOS/Windows-only; unrelated window backends must
+//! not silently add Linux font/rendering packages to the published dependency graph.
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -33,6 +33,42 @@ fn macos_event_loop_keeps_native_handles_without_linux_default_backends() {
     for unused in ["x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] {
         assert!(!features.contains(unused), "unexpected backend: {unused}");
     }
+}
+
+#[test]
+fn windows_event_loop_keeps_native_handles_without_linux_default_backends() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = fs::read_to_string(root.join("Cargo.toml"))
+        .unwrap()
+        .parse::<DocumentMut>()
+        .unwrap();
+    assert!(manifest["dependencies"].get("winit").is_none());
+    let dependency = &manifest["target"]["cfg(windows)"]["dependencies"]["winit"];
+    assert_eq!(
+        dependency.get("default-features").and_then(Item::as_bool),
+        Some(false),
+        "Windows does not need the Wayland/X11 defaults"
+    );
+    let features: BTreeSet<_> = dependency
+        .get("features")
+        .and_then(Item::as_array)
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert!(
+        features.contains("rwh_06"),
+        "native window handle support stays enabled"
+    );
+    for unused in ["x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] {
+        assert!(!features.contains(unused), "unexpected backend: {unused}");
+    }
+    let tray = &manifest["target"]["cfg(windows)"]["dependencies"]["tray-icon"];
+    assert_eq!(
+        tray.get("default-features").and_then(Item::as_bool),
+        Some(false),
+        "Windows does not need the Linux StatusNotifier backend"
+    );
 }
 
 #[test]

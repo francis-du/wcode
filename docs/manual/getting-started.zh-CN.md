@@ -86,6 +86,8 @@ OAuth Client 注册继续持久保存，不设置时钟 TTL。Access Token 在�
 
 本地操作者可以通过 `GET /oauth/sessions` 检查会话，并通过 `POST /oauth/sessions/revoke` 撤销 `session_id`。这些管理 API 遵循现有 Host／Origin 检查并要求当前 `X-Wcode-UI-Token`，不接受普通 MCP Bearer 作为授权。会话列表不暴露凭据。成功撤销持久保存，重启不会恢复；存储错误会移除运行中的凭据，但不确认持久撤销。它们不是 RFC 7009 接口或 Team ACL／SSO；Team ACL 与 SSO 尚未实现。
 
+受保护 WebUI 的 **Access** 面板也提供 **OAuth sessions** 卡片，无需外部工具即可完成同一操作。它只列出有界的会话元数据，并在显式确认后撤销选中的会话。成功操作会报告已持久化的 Access／Refresh 移除数量；持久化失败会报告实时凭据已移除但尚未确认持久撤销。
+
 ## 4. 老项目逐步补充 Design
 
 不需要先把整个仓库建模完，源码搜索、受控编辑和原生检查就能开始使用。全局 setup 只配置智能体；显式项目 setup（`wcode setup --project`，或交互选择“当前项目”）会在 Design 完全缺失时创建 `.wcode/project.yaml` 和空的 `.wcode/design/` 目录。项目名取目录名，描述为空，不写入 Policy，也不推测 Product 愿景、需求或组件映射。

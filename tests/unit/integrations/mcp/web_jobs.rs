@@ -98,6 +98,9 @@ async fn web_jobs_real_command_output_and_cancellation_preserve_owner_and_worksp
         assert_eq!(detail["origin"], if ui_owned { "ui" } else { "mcp" });
         assert_eq!(detail["can_cancel"], ui_owned);
         assert_eq!(detail["success"], Value::Null);
+        assert_eq!(detail["queue_wait_ms"], Value::Null);
+        assert_eq!(detail["timed_out"], Value::Null);
+        assert_eq!(detail["output_incomplete"], Value::Null);
         assert_eq!(detail["completion_is_not_success"], true);
         assert_eq!(detail["acceptance_ready"], false);
         assert!(detail["stdout"]["text"].as_str().unwrap().len() <= 32768);
@@ -163,6 +166,56 @@ async fn web_jobs_real_command_output_and_cancellation_preserve_owner_and_worksp
         assert_eq!(retained["status"], "cancelled");
         assert_eq!(retained["can_cancel"], false);
     }
+}
+
+#[tokio::test]
+async fn web_jobs_detail_exposes_retained_runner_metadata_without_command_arguments() {
+    assert!(std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("ok.js"), "process.exit(0);\n").unwrap();
+    let state = fixture(&[root.path()], true);
+    let id = state.workspaces.default_id();
+    let owner = crate::mcp_tasks::monitor_ui_owner(&state);
+    let record = crate::mcp_tasks::start_tool_task_bound(
+        state.clone(),
+        json!({
+            "name":"run_command", "arguments":{"workspace":id,"program":"node",
+                "args":["ok.js"],"task_mode":true,"timeout_seconds":30}
+        }),
+        owner,
+        None,
+    )
+    .await
+    .unwrap();
+    let path = format!("/intelligence/jobs/{}", record.task_id);
+    let detail = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let (code, detail) = http(&state, id, "GET", &path, None, true).await;
+            assert_eq!(code, StatusCode::OK, "{detail}");
+            if detail["status"] == "completed" {
+                break detail;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("command job did not reach a retained completion");
+    assert_eq!(detail["success"], true);
+    assert_eq!(detail["timed_out"], false);
+    assert_eq!(detail["output_incomplete"], false);
+    assert!(detail["queue_wait_ms"].is_u64());
+    let text = detail.to_string();
+    assert!(!text.contains("ok.js"));
+    for field in ["program", "args", "cwd", "owner", "runtime_instance_id"] {
+        assert!(detail.get(field).is_none(), "{field} must not be exported");
+    }
+    let (_, list) = http(&state, id, "GET", "/intelligence/jobs", None, true).await;
+    assert_native_ui_interop(&json!({"workspace":id,"jobs":list,"job":detail}));
 }
 
 #[tokio::test]

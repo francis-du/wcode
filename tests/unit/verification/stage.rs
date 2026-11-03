@@ -27,6 +27,7 @@ fn executor_timeout_accepts_thirty_minutes_and_rejects_larger_values() {
         cwd: ".".to_owned(),
         timeout_seconds: 1800,
         builtin: false,
+        admitted: false,
     };
     assert!(spec.validate().is_ok());
     spec.timeout_seconds = 1801;
@@ -231,10 +232,69 @@ async fn safe_repository_test_executor_runs_without_authorization() {
         cwd: ".".into(),
         timeout_seconds: 10,
         builtin: false,
+        admitted: false,
     };
     let result = execute(&workspace, &executor)
         .await
         .expect("bounded repository test executor should be autonomous");
     assert!(result.command.success, "{}", result.command.stderr);
     assert!(workspaces.authorization_requests(10).is_empty());
+}
+
+#[test]
+fn admitted_executor_flag_is_parsed_and_validated() {
+    let yaml = r#"
+schema_version: 1
+executors:
+  - id: external-mutation
+    stage: mutation
+    languages: [rust]
+    program: cargo-mutants
+    admitted: true
+"#;
+    let config: ExecutorConfig = serde_yaml::from_str(yaml).unwrap();
+    assert!(config.executors[0].admitted);
+    assert!(config.executors[0].validate().is_ok());
+
+    let mut spec = config.executors[0].clone();
+    spec.admitted = false;
+    assert!(!spec.admitted);
+    assert!(spec.validate().is_ok());
+}
+
+#[test]
+fn stage_receipt_digests_admitted_results_and_changes_with_content() {
+    fn make(summary: &str) -> StageExecutionResult {
+        StageExecutionResult {
+            executor_id: "external-mutation".to_owned(),
+            stage: VerificationStage::Mutation,
+            languages: vec![SemanticLanguage::Rust],
+            admitted: true,
+            verdict: ReviewVerdict::Pass,
+            summary: summary.to_owned(),
+            artifact_digest: "b".repeat(64),
+            command: CommandResult {
+                program: "cargo-mutants".to_owned(),
+                args: vec!["mutants".to_owned()],
+                exit_code: Some(0),
+                success: true,
+                process_queue_wait_ms: 0,
+                stdout: String::new(),
+                raw_stdout: None,
+                stderr: String::new(),
+                truncated: false,
+                redacted: false,
+                timed_out: false,
+                output_incomplete: false,
+                retry_guidance: None,
+            },
+        }
+    }
+    let receipt = StageReceipt::from_result(&make("no mutants survived"));
+    assert!(receipt.admitted);
+    assert_eq!(receipt.digest.len(), 64);
+    assert_ne!(
+        StageReceipt::from_result(&make("mutants survived")).digest,
+        receipt.digest
+    );
 }

@@ -42,6 +42,11 @@ fn design_source_navigation_preserves_observed_paths_and_revision() {
 }
 
 #[test]
+fn oauth_session_administration_requires_confirmation_and_reports_persistence() {
+    run_observatory_contract("tests/unit/ui/session_admin.cjs", 7);
+}
+
+#[test]
 fn retained_job_output_search_preserves_scope_focus_and_scroll() {
     let output = Command::new("node")
         .args(["tests/unit/ui/job_output_reading.cjs", "."])

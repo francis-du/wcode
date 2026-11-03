@@ -122,6 +122,7 @@ mod setup_web;
 mod stage_executor;
 #[path = "integrations/mcp/store.rs"]
 mod task_store;
+mod telemetry;
 #[path = "runtime/tunnel/mod.rs"]
 mod tunnel;
 #[path = "verification/mod.rs"]

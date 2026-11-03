@@ -422,6 +422,12 @@ impl Workspaces {
         self.authorization.request_by_id(id)
     }
 
+    /// Approve a bounded set of pending requests as one operator decision.
+    /// Returns the IDs that were actually approved.
+    pub fn approve_authorization_group(&self, ids: &[String]) -> Vec<String> {
+        self.authorization.approve_session_many(ids)
+    }
+
     pub(crate) fn authorization_interactive_token(&self, id: &str) -> Option<String> {
         self.authorization.interactive_token(id)
     }

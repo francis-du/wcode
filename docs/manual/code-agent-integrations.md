@@ -23,7 +23,7 @@ instructions; MCP is what gives the client access to wcode tools.
 
 ### Local Menu Bar status
 
-On macOS, `wcode menu-bar` opens an observation-only Menu Bar item for the local WCode runtimes. The main HTTP/MCP runtime and every `wcode mcp-stdio` process publish the same bounded heartbeat contract under WCode's protected local state. The menu shows active HTTP/stdio runtime counts, MCP activity, and active/queued task counts without opening an IDE.
+On macOS and Windows, `wcode menu-bar` opens an observation-only Menu Bar item for the local WCode runtimes. The main HTTP/MCP runtime and every `wcode mcp-stdio` process publish the same bounded heartbeat contract under WCode's protected local state. The menu shows active HTTP/stdio runtime counts, MCP activity, and active/queued task counts without opening an IDE.
 
 The presence records contain transport, version, bounded Workspace IDs, activity timestamps, and aggregate status only. They do **not** contain the UI token, OAuth credentials, MCP owner identity, command arguments, source paths, or raw diagnostics. Stale or damaged records are shown as partial/unknown rather than connected. The Menu Bar cannot approve authorization, cancel jobs, execute arbitrary commands, or establish Verification/Acceptance. Use `wcode menu-bar --json` for the same portable read-only projection on any platform.
 

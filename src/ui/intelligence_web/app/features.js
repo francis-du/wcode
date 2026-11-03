@@ -104,7 +104,7 @@ function implementationRows(items, sourcePaths = repositorySourcePaths()) {
         esc(statusLabel(item.resolved ? "resolved" : "unresolved"))
       } · ${esc(item.provider)} / ${esc(statusLabel(item.precision))}${
         item.changed ? ` · ${esc(localized("changed now", "当前已变更"))}` : ""
-      }</div>${designSourceAction(item, sourcePaths)}</div>`
+      }</div>${designSourceAction(item, sourcePaths)}${codeReaderSourceAction(item, sourcePaths)}</div>`
     ).join("")
   }</div>`;
 }
@@ -447,7 +447,9 @@ function renderDetail() {
         esc(t("No current working-tree file is mapped to this requirement."))
       }</div>`
   }</section>`;
-  setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id });
+  setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id }, () => {
+    bindCodeReaderActions(els.detail);
+  });
 }
 
 function changeTable(items, compact = false) {
@@ -458,7 +460,7 @@ function changeTable(items, compact = false) {
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) => {
       const tone = statusClass(item.untracked ? "untracked" : item.status);
-      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path">${compact ? `<code>${esc(item.path)}</code>` : `<button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button>`}</div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
+      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path"><button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button><button type="button" class="quiet-action change-reader-open" data-reader-path="${esc(item.path)}">${esc(t("Open in code reader"))}</button></div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
         item.untracked ? pill(t("untracked"), "info") : ""
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td>${
         compact
@@ -652,6 +654,7 @@ function renderChanges() {
           els.detail.scrollIntoView({ behavior: "smooth", block: "start" });
         })
       ),
+    () => bindCodeReaderActions(els.changes),
   );
   els.changes.querySelectorAll("[data-change-path]").forEach(button => {
     button.onclick = () => { void openChangeInspection(button.dataset.changePath); };
@@ -956,6 +959,7 @@ function renderChangeInspector() {
       : `<p>${esc(localized("No differences in this selected layer. This does not mean every layer is clean.", "所选层没有差异，不代表其他层也没有改动。"))}</p>`);
     body += changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
   }
+  body += historicalSourcePanel(current);
   const repositoryRevision = current.repositoryRevision;
   const identity = view ? `<details class="change-identity"><summary>${esc(localized("Captured snapshot identity (not continuous live proof)", "本次读取的快照身份（不是持续实时证明）"))}</summary><code>HEAD ${esc(view.head || "—")}<br>index ${esc(view.index_fingerprint || "—")}<br>worktree ${esc(view.worktree_sha256 || localized("missing", "不存在"))}<br>snapshot ${esc(view.snapshot_id)}<br>repository code ${esc(repositoryRevision?.code || "—")}<br>repository Design ${esc(repositoryRevision?.design || "—")}</code></details>` : "";
   host.innerHTML = `<section class="change-inspector"><header><div><h3>${esc(localized("Read-only code changes", "只读代码变更"))}</h3><code>${esc(current.path)}</code></div><button type="button" data-change-close>${esc(localized("Close", "关闭"))}</button></header><div class="change-toolbar">${layers}<button type="button" data-change-reload>${esc(localized("Reload file", "重新读取"))}</button></div>${body}${identity}</section>`;
@@ -972,4 +976,5 @@ function renderChangeInspector() {
   host.querySelectorAll("[data-change-impact]").forEach(button => { button.onclick = () => { void openChangeSymbolImpact(button.dataset.changeImpact); }; });
   host.querySelectorAll("[data-change-source-line]").forEach(button => { button.onclick = () => { revealChangeSourceLine(button.dataset.changeSourceSide, button.dataset.changeSourceNode, button.dataset.changeSourceLine); }; });
   host.querySelectorAll("[data-change-relation-node]").forEach(button => { button.onclick = () => { void openChangeRelationNodeInGraph(button.dataset.changeRelationNode); }; });
+  bindHistoricalSourcePanel(current);
 }

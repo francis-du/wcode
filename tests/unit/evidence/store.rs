@@ -626,9 +626,24 @@ fn non_utf8_real_workspace_stores_isolate_evidence_and_journal_without_legacy_fa
     second_event.event_id = Some(uuid::Uuid::new_v4().to_string());
     second_event.failure_codes = vec![EngineeringFailureCode::AuthorizationRequired];
     persist_journal(&second, &second_event).unwrap();
-    assert_eq!(load_journal(&first, 4).unwrap().records, vec![first_event]);
+    let first_history = load_journal(&first, 4).unwrap();
+    assert_eq!(first_history.records.len(), 1);
+    assert_eq!(first_history.records[0].event_id, first_event.event_id);
     assert_eq!(
-        load_journal(&second, 4).unwrap().records,
-        vec![second_event]
+        first_history.records[0].failure_codes,
+        first_event.failure_codes
     );
+    assert_eq!(first_history.records[0].actor.as_deref(), Some("unknown"));
+    assert!(first_history.records[0].record_hash.is_some());
+    assert!(first_history.chain_valid);
+    let second_history = load_journal(&second, 4).unwrap();
+    assert_eq!(second_history.records.len(), 1);
+    assert_eq!(second_history.records[0].event_id, second_event.event_id);
+    assert_eq!(
+        second_history.records[0].failure_codes,
+        second_event.failure_codes
+    );
+    assert_eq!(second_history.records[0].actor.as_deref(), Some("unknown"));
+    assert!(second_history.records[0].record_hash.is_some());
+    assert!(second_history.chain_valid);
 }

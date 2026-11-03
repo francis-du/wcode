@@ -6,7 +6,13 @@ pub(crate) mod web_change_impact;
 mod web_execution;
 #[path = "web_graph.rs"]
 mod web_graph;
+#[path = "web_historical.rs"]
+mod web_historical;
 pub(super) use web_execution::intelligence_web_revision;
+#[path = "web_authorizations.rs"]
+mod authorizations;
+pub(super) use authorizations::intelligence_web_approve_authorization_group;
+
 use web_execution::{
     intelligence_execution_snapshot, public_worklist_revision, worklist_snapshot_key,
 };
@@ -32,6 +38,7 @@ pub(super) use web_graph::{
     intelligence_web_change_detail, intelligence_web_code_graph, intelligence_web_code_source,
     intelligence_web_edit_source,
 };
+pub(super) use web_historical::{intelligence_web_historical_source, intelligence_web_revisions};
 pub(super) use web_verification::{
     intelligence_web_verification_cancel, intelligence_web_verification_result,
     intelligence_web_verification_run, intelligence_web_verification_status,
@@ -402,6 +409,8 @@ pub(super) async fn intelligence_web_authorizations(
     )
         .into_response()
 }
+
+const MAX_GROUPED_AUTHORIZATIONS: usize = 64;
 
 pub(super) async fn intelligence_web_approve_authorization(
     State(state): State<Arc<AppState>>,

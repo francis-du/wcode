@@ -89,9 +89,31 @@
       <div class="access-card access-card-wide authorizations-card">
         <h4 data-i18n="Pending authorizations">Pending authorizations</h4>
         <div id="authorizationList" class="authorization-list"></div>
+        <button id="approveAllAuthorizations" class="quiet-action" type="button" data-i18n="Approve all listed">Approve all listed</button>
         <div id="authorizationMessage" class="access-message" data-i18n="authorization safety note">Approve this exact request, authorize all commands for this Workspace session, or deny.</div>
       </div>
+      <div class="access-card access-card-wide sessions-card">
+        <h4 data-i18n="OAuth sessions">OAuth sessions</h4>
+        <div id="sessionList" class="session-list"></div>
+        <div class="access-row access-row-spaced access-action-row"><button id="sessionRefresh" type="button" data-i18n="Refresh sessions">Refresh sessions</button></div>
+        <div id="sessionMessage" class="access-message" aria-live="polite" data-i18n="session safety note">Listings show bounded session metadata only; revoking removes access and refresh tokens and persists across restart.</div>
+      </div>
     </div>
+  </section>
+
+  <section id="codeReaderPanel" class="code-reader-panel hidden" role="dialog" aria-modal="false" aria-labelledby="codeReaderTitle" tabindex="-1">
+    <header class="code-reader-toolbar">
+      <div class="code-reader-heading">
+        <span class="section-kicker" data-i18n="Code reader">Code reader</span>
+        <strong id="codeReaderTitle" data-i18n="Read-only source">Read-only source</strong>
+        <code id="codeReaderPath"></code>
+      </div>
+      <div class="code-reader-actions">
+        <button id="codeReaderReload" type="button" data-i18n="Reload">Reload</button>
+        <button id="codeReaderClose" type="button" data-i18n="Close">Close</button>
+      </div>
+    </header>
+    <div id="codeReaderBody" class="code-reader-body"></div>
   </section>
 
   <main class="observatory-main">

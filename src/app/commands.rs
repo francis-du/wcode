@@ -77,6 +77,15 @@ pub(super) enum ControlCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Export local engineering observations. Opt-in; nothing is uploaded.
+    Telemetry {
+        /// Write the export to this file path instead of stdout.
+        #[arg(long)]
+        to: Option<std::path::PathBuf>,
+        /// Include at most this many events.
+        #[arg(long, default_value_t = 256)]
+        limit: usize,
+    },
     /// Show project health, language-server readiness, and code intelligence.
     Intelligence {
         /// Discover and initialize available language servers before showing status.
