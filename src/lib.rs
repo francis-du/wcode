@@ -146,38 +146,12 @@ pub(crate) const AUTHOR_HANDLE: &str = "@francis-du";
 pub mod app;
 pub use app::run;
 
-fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+pub fn run_main() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(resource::tokio_worker_threads())
         .max_blocking_threads(resource::TOKIO_MAX_BLOCKING_THREADS)
         .thread_keep_alive(std::time::Duration::from_secs(10))
         .enable_all()
-        .build()
-        .map_err(|error| anyhow::anyhow!("cannot build the wcode runtime: {error}"))
-}
-
-/// Startup builds the whole CLI tree and the first workspace state before the
-/// first await. Windows gives the process main thread a 1 MiB stack while Unix
-/// gives 8 MiB, so the same future overflows there. Only Windows moves the
-/// runtime to an explicitly sized thread: macOS requires winit's `EventLoop` to
-/// be created on the process main thread.
-#[cfg(windows)]
-pub fn run_main() -> anyhow::Result<()> {
-    const MAIN_STACK_BYTES: usize = 16 * 1024 * 1024;
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name("wcode-main".to_owned())
-        .stack_size(MAIN_STACK_BYTES)
-        .spawn(move || {
-            let _ = sender.send(runtime().and_then(|runtime| runtime.block_on(run())));
-        })
-        .map_err(|error| anyhow::anyhow!("cannot start the wcode main thread: {error}"))?;
-    receiver
-        .recv()
-        .map_err(|_| anyhow::anyhow!("the wcode main thread exited without a result"))?
-}
-
-#[cfg(not(windows))]
-pub fn run_main() -> anyhow::Result<()> {
-    runtime()?.block_on(run())
+        .build()?
+        .block_on(run())
 }

@@ -27,6 +27,8 @@ use tracing_subscriber::EnvFilter;
 
 const DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD: f64 = 5.0;
 
+#[path = "cli_parse.rs"]
+mod cli_parse;
 #[path = "commands.rs"]
 mod commands;
 use commands::ControlCommand;
@@ -251,7 +253,7 @@ struct Args {
 }
 
 pub async fn run() -> Result<()> {
-    let args = Args::parse();
+    let args = cli_parse::parse_cli_args()?;
     if let Some(ControlCommand::HelpAll { command_path, json }) = args.command.as_ref() {
         return commands::print_complete_help(command_path, *json);
     }
