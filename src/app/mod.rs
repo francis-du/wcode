@@ -72,7 +72,7 @@ QUICK START
   wcode help-all                 Show every supported CLI command and parameter.
   wcode help-all setup           Inspect one command, including advanced options.
   wcode mcp-stdio               Connect an MCP Host; its current directory becomes the project.
-  wcode menu-bar                Observe HTTP/MCP and stdio runtime status from the macOS menu bar.
+  wcode menu-bar                Observe HTTP/MCP and stdio runtime status from the macOS or Windows menu bar.
   wcode intelligence            Inspect project intelligence and LSP readiness.
   wcode intelligence --refresh-semantic
                                 Discover and initialize available language servers.
@@ -222,7 +222,7 @@ struct Args {
     #[arg(long, default_value_t = DEFAULT_INPUT_TOKEN_PRICE_PER_MILLION_USD, help_heading = "Runtime", hide = true)]
     input_token_price_per_million_usd: f64,
 
-    /// Do not start the macOS menu bar companion. CI and SSH sessions skip it automatically.
+    /// Do not start the native menu bar companion. CI and SSH sessions skip it automatically.
     #[arg(long, global = true, help_heading = "Experience")]
     no_menu_bar: bool,
 
