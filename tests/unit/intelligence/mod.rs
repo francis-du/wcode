@@ -530,6 +530,16 @@ fn ci_receipt_binding() -> crate::verification::receipt::ReceiptBinding {
     }
 }
 
+fn receipt_fields() -> crate::git_provider::CheckReceiptFields {
+    crate::git_provider::CheckReceiptFields {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".into(),
+        repository: "francis-du/wcode".into(),
+        repository_id: 1234,
+        app_id: 7,
+    }
+}
+
 fn ci_check_receipt(head_sha: &str) -> crate::git_provider::CheckReceipt {
     let check = crate::git_provider::CheckObservation {
         id: 9,
@@ -548,7 +558,11 @@ fn ci_check_receipt(head_sha: &str) -> crate::git_provider::CheckReceipt {
         title: "t".into(),
         message: "m".into(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&check, &annotations);
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &check,
+        &annotations,
+    );
     crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".into(),

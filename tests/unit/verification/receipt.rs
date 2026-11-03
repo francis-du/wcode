@@ -58,13 +58,21 @@ fn check_receipt(head_sha: &str) -> CheckReceipt {
         title: "t".into(),
         message: "m".into(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&check, &annotations);
-    CheckReceipt {
+    let fields = crate::git_provider::CheckReceiptFields {
         schema_version: CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".into(),
         repository: "francis-du/wcode".into(),
         repository_id: 1234,
         app_id: 7,
+    };
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&fields, &check, &annotations);
+    CheckReceipt {
+        schema_version: fields.schema_version,
+        provider: fields.provider,
+        repository: fields.repository,
+        repository_id: fields.repository_id,
+        app_id: fields.app_id,
         check,
         annotations,
         digest,
@@ -105,16 +113,22 @@ fn ci_receipt_result_mapping_is_fail_closed_for_incomplete_runs() {
 
     let mut failed = check_receipt(&git.head_sha);
     failed.check.conclusion = Some("failure".into());
-    failed.digest =
-        crate::git_provider::github::check_receipt_digest(&failed.check, &failed.annotations);
+    failed.digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &failed.fields(),
+        &failed.check,
+        &failed.annotations,
+    );
     let evidence = import_check_receipt(&failed, &binding, &git, &revision).unwrap();
     assert_eq!(evidence.result, EvidenceResult::Fail);
 
     let mut queued = check_receipt(&git.head_sha);
     queued.check.status = "in_progress".into();
     queued.check.conclusion = None;
-    queued.digest =
-        crate::git_provider::github::check_receipt_digest(&queued.check, &queued.annotations);
+    queued.digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &queued.fields(),
+        &queued.check,
+        &queued.annotations,
+    );
     let evidence = import_check_receipt(&queued, &binding, &git, &revision).unwrap();
     assert_eq!(evidence.result, EvidenceResult::Inconclusive);
 }
@@ -146,15 +160,21 @@ fn ci_receipt_import_rejects_binding_digest_and_bound_mismatches() {
 
     let mut oversized = check_receipt(&git.head_sha);
     oversized.annotations[0].path = "x".repeat(513);
-    oversized.digest =
-        crate::git_provider::github::check_receipt_digest(&oversized.check, &oversized.annotations);
+    oversized.digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &oversized.fields(),
+        &oversized.check,
+        &oversized.annotations,
+    );
     assert!(import_check_receipt(&oversized, &binding, &git, &revision).is_err());
 
     let mut reversed = check_receipt(&git.head_sha);
     reversed.annotations[0].start_line = Some(9);
     reversed.annotations[0].end_line = Some(2);
-    reversed.digest =
-        crate::git_provider::github::check_receipt_digest(&reversed.check, &reversed.annotations);
+    reversed.digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &reversed.fields(),
+        &reversed.check,
+        &reversed.annotations,
+    );
     assert!(import_check_receipt(&reversed, &binding, &git, &revision).is_err());
 }
 
