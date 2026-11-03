@@ -52,6 +52,7 @@ fn journal(records: Vec<Milestone>) -> ProjectEngineeringJournalView {
         stores_prompts_or_chain_of_thought: false,
         retained_records: records.len(),
         truncated: false,
+        chain_valid: true,
         records,
     }
 }

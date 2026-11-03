@@ -84,9 +84,20 @@ fn engineering_journal_persists_only_bounded_structured_milestones() {
     let history = load_recent(&workspace, 16).unwrap();
     assert_eq!(history.retained_records, 1);
     assert!(!history.truncated);
-    assert_eq!(history.records, vec![milestone]);
+    assert!(history.chain_valid);
+    assert_eq!(history.records.len(), 1);
+    let stored = &history.records[0];
+    assert_eq!(stored.event_id, milestone.event_id);
+    assert_eq!(stored.tool, milestone.tool);
+    assert_eq!(stored.stage, milestone.stage);
+    assert_eq!(stored.outcome, milestone.outcome);
+    assert_eq!(stored.duration_ms, milestone.duration_ms);
+    assert_eq!(stored.paths, milestone.paths);
+    assert_eq!(stored.actor.as_deref(), Some("unknown"));
+    assert!(stored.chain_previous.is_none());
+    assert!(stored.record_hash.is_some());
 
-    let encoded = serde_json::to_string(&history.records[0]).unwrap();
+    let encoded = serde_json::to_string(stored).unwrap();
     for forbidden in [
         "prompt",
         "query",
@@ -609,4 +620,91 @@ fn engineering_journal_failed_existing_overflow_cleanup_does_not_append() {
         .records
         .iter()
         .any(|record| record.event_id == event.event_id));
+}
+
+#[test]
+fn engineering_journal_actor_defaults_to_unknown_and_is_bounded() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let event =
+        EngineeringMilestone::new("verify_project", "prove", "succeeded", 1, Vec::new()).unwrap();
+    persist(&workspace, &event).unwrap();
+    let history = load_recent(&workspace, 4).unwrap();
+    assert_eq!(history.records[0].actor.as_deref(), Some("unknown"));
+    assert!(history.chain_valid);
+
+    let mut long =
+        EngineeringMilestone::new("verify_project", "prove", "succeeded", 1, Vec::new()).unwrap();
+    long.actor = Some("a".repeat(81));
+    assert!(persist(&workspace, &long).is_err());
+}
+
+#[test]
+fn engineering_journal_chain_links_records_and_detects_tampering() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    for index in 0..3 {
+        let event = EngineeringMilestone::new(
+            "verify_project",
+            "prove",
+            "succeeded",
+            index + 1,
+            Vec::new(),
+        )
+        .unwrap();
+        persist(&workspace, &event).unwrap();
+    }
+    let history = load_recent(&workspace, 8).unwrap();
+    assert!(history.chain_valid);
+    let records = history.records;
+    let hashes = records
+        .iter()
+        .filter_map(|record| record.record_hash.as_deref().map(|hash| (hash, record)))
+        .collect::<std::collections::BTreeMap<&str, &EngineeringMilestone>>();
+    let mut links = 0;
+    for record in &records {
+        if let Some(previous) = record.chain_previous.as_deref() {
+            assert!(
+                hashes.contains_key(previous),
+                "every chain link must resolve inside the retained window"
+            );
+            links += 1;
+        }
+    }
+    assert_eq!(links + 1, hashes.len());
+    let mut tampered = records.clone();
+    tampered[0].duration_ms += 1;
+    assert!(crate::engineering_journal::verify_chain(&tampered).is_err());
+    let mut gap = records.clone();
+    gap[0].chain_previous = Some("0".repeat(64));
+    assert!(crate::engineering_journal::verify_chain(&gap).is_err());
+}
+
+#[test]
+fn engineering_journal_export_is_bounded_and_json_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    for index in 0..3 {
+        let event = EngineeringMilestone::new(
+            "verify_project",
+            "prove",
+            "succeeded",
+            index + 1,
+            Vec::new(),
+        )
+        .unwrap();
+        persist(&workspace, &event).unwrap();
+    }
+    let history = load_recent(&workspace, 8).unwrap();
+    let exported = crate::engineering_journal::export_records(&history.records, 2).unwrap();
+    let lines = exported.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    for line in lines {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert!(value.get("record_hash").is_some());
+        assert_eq!(
+            value.get("actor").and_then(|actor| actor.as_str()),
+            Some("unknown")
+        );
+    }
 }
