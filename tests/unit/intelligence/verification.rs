@@ -486,6 +486,47 @@ fn required_stage_evidence_replaces_automation_gap_blockers() {
 }
 
 #[test]
+fn admitted_stage_evidence_stays_an_external_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let plan = runtime
+        .create_plan_for_risk("demo", &workspace, RiskLevel::Medium)
+        .unwrap();
+    let evidence = runtime
+        .verification_stage_submit_admitted(
+            "demo",
+            &workspace,
+            &plan.id,
+            StageSubmission {
+                stage: VerificationStage::Property,
+                producer: "external-test-runner".into(),
+                verdict: crate::verification::ReviewVerdict::Pass,
+                summary: "Property stage passed.".into(),
+                artifact_digest: "sha256:property".into(),
+                targets: plan.stage_targets.clone(),
+                model: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(evidence.authority, EvidenceAuthority::SelfReported);
+    assert_eq!(evidence.confidence, Confidence::Low);
+    let after = runtime
+        .verification_status("demo", &workspace, &plan.id)
+        .unwrap();
+    assert_ne!(
+        after.stage_results.get("property"),
+        Some(&EvidenceResult::Pass),
+        "an admitted external receipt must not satisfy a required stage"
+    );
+    assert!(after
+        .blockers
+        .iter()
+        .any(|blocker| blocker == "property-evidence-missing"));
+}
+
+#[test]
 fn stage_readiness_requires_every_changed_language_target() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
