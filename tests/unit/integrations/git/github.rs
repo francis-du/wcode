@@ -722,6 +722,40 @@ async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn receipt_store_is_written_private_to_the_operator() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts.jsonl");
+    let check = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: "b".repeat(64),
+        name: "wcode/change-acceptance".to_owned(),
+        source_id: "github-app:7".to_owned(),
+        external_id: "wcode:test".to_owned(),
+        status: "completed".to_owned(),
+        conclusion: Some("success".to_owned()),
+    };
+    let digest = crate::git_provider::github::check_receipt_digest(&check, &[]);
+    let receipt = crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+        check,
+        annotations: Vec::new(),
+        digest,
+    };
+    crate::git_provider::github::append_receipt(&path, &receipt).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o077;
+    assert_eq!(
+        mode, 0,
+        "receipt store must not be readable or writable by others"
+    );
+}
+
 #[test]
 fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
     let root = tempfile::tempdir().unwrap();

@@ -723,6 +723,27 @@ struct Check {
     status: String,
     conclusion: Option<String>,
 }
+/// Receipt files carry CI metadata plus annotation text, so they are created
+/// private to the operator instead of with the process default mode.
+#[cfg(unix)]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, bytes).map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
 /// Bounded local retention of captured authoritative CI receipts, one JSON
 /// object per line. Receipts are keyed by check-run ID, newest last, and the
 /// store is capped so an operator can retain receipts without unbounded growth.
@@ -796,8 +817,7 @@ pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> 
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "receipts.jsonl".to_owned());
     let temporary = directory.join(format!(".{name}.tmp-{}", std::process::id()));
-    std::fs::write(&temporary, encoded.as_bytes())
-        .map_err(|error| anyhow!("cannot write {}: {error}", temporary.display()))?;
+    write_private(&temporary, encoded.as_bytes())?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
         return Err(anyhow!("cannot replace {}: {error}", path.display()));

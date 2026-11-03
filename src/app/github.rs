@@ -406,8 +406,7 @@ pub(super) async fn run(args: &super::Args, command: &GitHubCommand) -> Result<(
         let receipt = provider.read_check_receipt(*check_id).await?;
         let encoded = serde_json::to_string_pretty(&receipt)?;
         if let Some(path) = to {
-            std::fs::write(path, format!("{encoded}\n"))
-                .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))?;
+            crate::git_provider::github::write_private(path, format!("{encoded}\n").as_bytes())?;
         }
         if let Some(path) = store {
             crate::git_provider::github::append_receipt(path, &receipt)?;
