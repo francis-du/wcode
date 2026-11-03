@@ -14,6 +14,7 @@ pub mod change;
 mod contract;
 pub(crate) mod policy;
 pub(crate) mod policy_store;
+pub mod receipt;
 pub use contract::evaluate_snapshot;
 
 pub const MAX_VERIFICATION_JOBS: usize = 256;

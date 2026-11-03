@@ -441,6 +441,8 @@ pub(crate) use harness_capabilities::{
 mod harness_acceptance;
 #[path = "acceptance_context.rs"]
 mod harness_acceptance_context;
+#[path = "ci_receipt.rs"]
+mod harness_ci_receipt;
 #[path = "core.rs"]
 mod harness_core;
 #[path = "policy.rs"]

@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use clap::{Command, CommandFactory, Subcommand};
 use serde_json::{json, Value};
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq, Subcommand)]
 pub(super) enum ControlCommand {
@@ -118,6 +119,33 @@ pub(super) enum ControlCommand {
         #[arg(long)]
         execute_stages: bool,
         /// Print JSON instead of the terminal summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import one captured authoritative CI receipt as observation-only evidence.
+    ImportCiReceipt {
+        /// Verification plan the receipt is attached to.
+        #[arg(long)]
+        plan_id: String,
+        /// Bounded local receipt store written by `wcode github check-receipt --store`.
+        #[arg(long)]
+        store: PathBuf,
+        /// Check-run ID to import from the store.
+        #[arg(long)]
+        check_id: u64,
+        /// Operator-declared repository the receipt must belong to (namespace/name).
+        #[arg(long)]
+        repository: String,
+        /// Operator-declared provider repository ID.
+        #[arg(long)]
+        repository_id: u64,
+        /// Operator-declared GitHub App ID.
+        #[arg(long)]
+        app_id: u64,
+        /// Operator-declared check name the receipt must match.
+        #[arg(long)]
+        check_name: String,
+        /// Print the imported evidence as JSON.
         #[arg(long)]
         json: bool,
     },

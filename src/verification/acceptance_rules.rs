@@ -561,7 +561,7 @@ pub(super) fn verification_reasons(
     }
     Ok(())
 }
-pub(super) fn gate_evidence_ids(
+pub(crate) fn gate_evidence_ids(
     input: &AcceptanceInput<'_>,
     status: Option<&VerificationStatus>,
 ) -> Vec<String> {

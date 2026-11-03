@@ -119,6 +119,61 @@ impl VerificationExecutionReceipt {
     }
 }
 
+pub const MAX_EXTERNAL_RECEIPT_ANNOTATIONS: usize = 128;
+pub const MAX_EXTERNAL_RECEIPT_ANNOTATION_PATH: usize = 512;
+pub const MAX_EXTERNAL_RECEIPT_ANNOTATION_MESSAGE: usize = 4_096;
+
+/// A captured authoritative CI receipt retained as observation-only Evidence.
+/// It is never a native execution receipt and never satisfies a verification
+/// stage or acceptance gate.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalReceipt {
+    pub schema_version: u32,
+    pub provider: String,
+    pub repository: String,
+    pub repository_id: u64,
+    pub app_id: u64,
+    pub check_id: u64,
+    pub check_name: String,
+    pub head_sha: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub annotations: Vec<crate::git_provider::CheckAnnotation>,
+    pub digest: String,
+    pub captured_at_ms: u64,
+}
+
+impl ExternalReceipt {
+    pub fn validate(&self) -> Result<(), EvidenceError> {
+        let digest =
+            self.digest.len() == 64 && self.digest.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if self.schema_version != crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION
+            || self.provider.trim().is_empty()
+            || self.repository.trim().is_empty()
+            || self.repository_id == 0
+            || self.app_id == 0
+            || self.check_id == 0
+            || self.check_name.trim().is_empty()
+            || self.head_sha.trim().is_empty()
+            || self.status.trim().is_empty()
+            || self.annotations.len() > MAX_EXTERNAL_RECEIPT_ANNOTATIONS
+            || self.annotations.iter().any(|annotation| {
+                annotation.path.chars().count() > MAX_EXTERNAL_RECEIPT_ANNOTATION_PATH
+                    || annotation.message.chars().count() > MAX_EXTERNAL_RECEIPT_ANNOTATION_MESSAGE
+                    || annotation
+                        .start_line
+                        .is_some_and(|start| annotation.end_line.is_some_and(|end| start > end))
+            })
+            || !digest
+        {
+            return Err(EvidenceError::InvalidEvidence);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceKind {
@@ -134,6 +189,7 @@ pub enum EvidenceKind {
     Benchmark,
     Runtime,
     Verification,
+    CiReceipt,
     Reconciliation,
     ModelReview,
     HumanApproval,
@@ -159,6 +215,7 @@ pub enum EvidenceAuthority {
     NativeStage,
     LocalOperator,
     SelfReported,
+    ExternalReceipt,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -209,6 +266,8 @@ pub struct Evidence {
     pub execution_git_binding: Option<ExecutionGitBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_policy_binding: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_receipt: Option<ExternalReceipt>,
     pub timestamp_ms: u64,
 }
 
@@ -241,6 +300,7 @@ impl Evidence {
             execution_receipt: None,
             execution_git_binding: None,
             execution_policy_binding: None,
+            external_receipt: None,
             timestamp_ms: now_ms(),
         };
         evidence.validate()?;
@@ -313,6 +373,11 @@ impl Evidence {
                 .execution_receipt
                 .as_ref()
                 .is_some_and(|receipt| !receipt.valid())
+            || self
+                .external_receipt
+                .as_ref()
+                .is_some_and(|receipt| receipt.validate().is_err())
+            || (self.external_receipt.is_some() && self.execution_receipt.is_some())
             || !valid_text_id(&self.id, 160)
             || !valid_text_id(&self.subject, 512)
             || self.producer.trim().is_empty()

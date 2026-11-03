@@ -4,6 +4,7 @@ use crate::stage_executor::{execute as execute_stage, StageExecutorSpec};
 use crate::workspace::{Workspace, WorkspaceSecurity};
 use std::fs;
 
+mod ci_receipt;
 mod decision;
 mod evolution;
 mod evolution_cache;
