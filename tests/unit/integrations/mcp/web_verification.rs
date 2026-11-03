@@ -541,6 +541,9 @@ async fn intelligence_status_scopes_and_graph_routes_are_protected_and_shaped() 
         "/intelligence/status",
         "/intelligence/scopes",
         "/intelligence/graph",
+        "/intelligence/workspaces",
+        "/intelligence/authorizations",
+        "/intelligence/commands",
     ] {
         let (code, rejected) = http(&state, id, "GET", path, None, false).await;
         assert_eq!(code, StatusCode::UNAUTHORIZED, "{path}: {rejected}");

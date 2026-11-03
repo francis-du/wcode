@@ -21,6 +21,8 @@ use crate::workspace::{
     CreateFileRequest, FileEditRequest, MovePathRequest, TextEdit, Workspace, Workspaces,
 };
 use crate::{AUTHOR_URL, PROJECT_URL};
+#[path = "cache_policy.rs"]
+mod cache_policy;
 use anyhow::{anyhow, Result as AnyResult};
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -230,6 +232,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/intelligence/graph", get(intelligence_web_graph))
         .route("/mcp", get(mcp_get).post(mcp))
         .merge(crate::mcp_legacy_sse::routes())
+        .layer(axum::middleware::from_fn(cache_policy::intelligence_no_store))
         .with_state(state)
 }
 
