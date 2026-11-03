@@ -632,6 +632,21 @@ async fn github_check_run_listing_rejects_incomplete_commit_identity() {
 }
 
 #[tokio::test]
+async fn github_check_run_listing_accepts_a_sha1_commit_identity() {
+    let commit = "c".repeat(40);
+    let fixture = fixture(vec![reply(json!({"total_count": 0, "check_runs": []}))]).await;
+    let runs = fixture.provider.list_check_runs(&commit).await.unwrap();
+    assert!(runs.is_empty());
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        format!("/repos/francis-du/wcode/commits/{commit}/check-runs")
+    );
+}
+
+#[tokio::test]
 async fn github_check_run_listing_requires_a_check_run_array() {
     let commit = "c".repeat(64);
     let fixture = fixture(vec![reply(json!({"total_count": 0}))]).await;

@@ -322,7 +322,7 @@ impl GitHubProvider {
     /// List the check runs bound to one exact commit. Read-only operator
     /// inspection: the response is never a verification or Acceptance claim.
     pub async fn list_check_runs(&self, commit: &str) -> Result<Vec<CheckObservation>> {
-        if commit.len() != 64 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if !full_oid(commit) {
             bail!("invalid commit identity");
         }
         let suffix = ["commits", commit, "check-runs"];
