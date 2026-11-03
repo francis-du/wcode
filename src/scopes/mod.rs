@@ -117,7 +117,7 @@ impl ProductScope {
             ],
             Self::Risk => &["src/intelligence/risk.rs"],
             Self::Verification => &["src/verification/"],
-            Self::Evidence => &["src/evidence/"],
+            Self::Evidence => &["src/evidence/", "src/telemetry.rs"],
             Self::Reconciliation => &["src/reconciliation/"],
             Self::Experience => &["src/ui/"],
         }

@@ -333,7 +333,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Multi-agent work | Worklist CAS, scoped claims, private lease tokens, bounded results | Complete | Worklist / writer lease / task claim | Host spawns agents; reports do not become verification evidence | High |
 | Context efficiency | Bounded context, progressive schemas, compact acknowledgements | Complete | Agent Context / tool manifest | Byte/4 estimates do not establish billed token savings or model success | High |
 | Pilot metrics / export | Check history and milestone foundations | Foundation | Check history / journal | Acceptance counts, missing/stale findings and measured durations | High |
-| Vendor telemetry | Local engineering observations | Missing | Local runtime observation | Optional explicit schema and opt-in sink; no default source upload | Later |
+| Vendor telemetry | Local engineering observations | Partial | Local runtime observation / telemetry export | Explicit versioned schema and a strictly opt-in `telemetry` export (journal-backed); no default or background upload; no credentials, tokens, raw source, prompts or query text | Later |
 | Release pipeline / tests | Three-platform CI, native browser, adversarial artifacts | Complete | GitHub Actions / release contracts | Each result applies to its precise SHA; no current release requested | Core |
 | Own agent/IDE/chat/billing/remote shell | Not required for acceptance | Exclude | No component needed | Preserve useful OSS inspection/editing; stop expanding unrelated product surface | None |
 

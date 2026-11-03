@@ -31,6 +31,7 @@ fn help_exposes_the_stable_agent_and_transport_commands() {
         "update",
         "mcp-stdio",
         "menu-bar",
+        "telemetry",
         "intelligence",
         "verification",
         "help-all",
