@@ -8,7 +8,7 @@ use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -744,6 +744,35 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(path, bytes).map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
 }
 
+/// The store is replaced through a temporary file in the same directory.
+/// `O_CREAT|O_EXCL|O_NOFOLLOW` keeps a pre-planted symlink or a colliding name
+/// from redirecting the write somewhere the operator did not choose.
+#[cfg(unix)]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn write_private_exclusive(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_private(path, bytes)
+}
+
+fn unique_temporary_path(directory: &Path, name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+    directory.join(format!(".{name}.tmp-{}-{sequence}", std::process::id()))
+}
+
 /// Bounded local retention of captured authoritative CI receipts, one JSON
 /// object per line. Receipts are keyed by check-run ID, newest last, and the
 /// store is capped so an operator can retain receipts without unbounded growth.
@@ -816,8 +845,8 @@ pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> 
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "receipts.jsonl".to_owned());
-    let temporary = directory.join(format!(".{name}.tmp-{}", std::process::id()));
-    write_private(&temporary, encoded.as_bytes())?;
+    let temporary = unique_temporary_path(&directory, &name);
+    write_private_exclusive(&temporary, encoded.as_bytes())?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
         return Err(anyhow!("cannot replace {}: {error}", path.display()));
