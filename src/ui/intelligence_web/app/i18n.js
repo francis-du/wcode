@@ -486,6 +486,39 @@ Object.assign(translations.en, {
   "Change to confidence chain": "CURRENT CHANGES → IMPACT ANALYSIS → VERIFICATION → CONFIDENCE"
 });
 
+Object.assign(translations["zh-CN"], {
+  "Code reader": "代码阅读器",
+  "Read-only source": "只读源码",
+  "Read-only source code": "只读源代码",
+  "Reload": "重新加载",
+  "Read source": "阅读源码",
+  "Open in code reader": "在代码阅读器中打开",
+  "Changed lines": "变更行",
+  "Requirements linked to this file": "关联此文件的需求",
+  "Removed baseline lines": "删除的基线行",
+  "bounded map": "有界地图",
+  "No differences in this selected layer.": "所选层没有差异。",
+  "This source file is empty.": "此源码文件为空。",
+  "Source pages": "源码分页",
+  "Previous": "上一页",
+  "Next": "下一页",
+  "lines": "行",
+  "Captured snapshot identity": "捕获的快照身份",
+  "Binary difference; text preview is unavailable.": "二进制差异，不能作为文本预览。",
+  "No current working-tree change is mapped to this file.": "当前工作树没有映射到此文件的变更。",
+  "Reading bounded source and change…": "正在读取有界源码与变更…",
+  "Reading bounded change snapshot…": "正在读取有界变更快照…",
+  "Retry source read": "重试源码读取",
+  "Source is unavailable in this observation.": "此观测未提供源码。",
+  "redacted": "已脱敏",
+  "bounded preview": "有界预览",
+  "stale": "已过期",
+  "missing": "缺失",
+  "No requirement is linked to this file in the current snapshot.": "当前快照中没有需求关联此文件。",
+  "This reader observation belongs to an earlier project revision. Reload it before comparing with the current snapshot.": "此阅读器观测属于先前的项目版本。请先重新加载，再与当前快照比较。",
+  "The change snapshot and the current source bytes do not match; line highlighting is withheld.": "变更快照与当前源码字节不一致，已暂缓行高亮。"
+});
+
 function normalizeLanguage(value) {
   const language = String(value || "").trim().toLowerCase();
   if (language === "en" || language.startsWith("en-")) return "en";
