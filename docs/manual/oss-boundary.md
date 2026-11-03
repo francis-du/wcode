@@ -75,6 +75,10 @@ Commercial CI is independently responsible for selecting an exact wcode revision
 
 The two repositories may be tested together locally, but a green commercial build is not evidence that an OSS verification result passed, and vice versa.
 
+Python validation may generate `__pycache__` directories and `.pyc` / `.pyo` files. The source package explicitly excludes these artifacts and the standalone archive validator rejects them before extraction. Adjacent `.py` / `.cjs` sources and legitimate test fixtures remain included. [Cargo's include rules](https://doc.rust-lang.org/cargo/reference/manifest.html#the-exclude-and-include-fields) bypass Git ignore rules when `include` is specified, so the manifest carries its own negated patterns. A real Cargo regression exercises the current include array against synthetic sources and generated caches.
+
+Standalone failure diagnostics return only bounded standard test IDs, fixed allowlisted test paths and coordinates, including the MCP fanout fixture. Arbitrary paths, assertion bodies and environment are not echoed. A location or category is a diagnostic hint; it cannot establish a root cause or turn a failed child into a pass.
+
 ## License boundary
 
 Existing wcode source remains Apache-2.0. Moving commercial files out of the public repository does not relicense any OSS source. The separate commercial repository owns its own LICENSE/NOTICE and final terms require the appropriate legal review.

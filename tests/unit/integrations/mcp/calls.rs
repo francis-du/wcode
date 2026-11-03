@@ -544,7 +544,7 @@ async fn parallel_fanout_runs_writes_and_coalesces_same_file_edits() {
     .unwrap();
 
     let result = &response["structuredContent"];
-    assert_eq!(result["succeeded"], 4);
+    assert_eq!(result["succeeded"], 4, "{result:#}");
     assert_eq!(result["failed"], 0);
     assert_eq!(result["coalesced_same_file_edits"], 1);
     assert_eq!(

@@ -141,6 +141,18 @@ Refreshing the same task preserves the reading position, expanded/collapsed stre
 
 Leaving Activity or hiding the page pauses new reads of the selected working task. Returning to a visible Activity view resumes reads of the same task in the same workspace/session at the existing two-second polling interval, using the remaining 120-observation budget. Navigation and visibility changes neither renew that budget nor rerun the command. An observation error or unconfirmed cancellation keeps automatic observation paused; unknown, input-required and terminal states are not polled automatically. Use **Refresh exact task** to request the current status and renew the budget.
 
+An accepted exact task observation or cancellation receipt updates the matching retained list row's lifecycle, origin and cancellation availability, so status filters reflect the known task state. It does not add a missing row or invent a newer timestamp; list coverage and historical metadata retain their bounds. A later valid list is a new observation rather than a sticky terminal cache. Nine production-bundle controls cover these transitions, stale scopes, malformed replies and single-transition ablations for both LF and CRLF source. The original 22 controls and eight Jobs lifecycle controls remain in the native gate.
+
+## Verification observation across page changes
+
+Native verification continues on the server while the operator reads another page. Leaving **Check results** or hiding the document pauses new status reads. Returning to the visible page resumes only the retained task's GET observer, using the remaining 120-read budget and its existing 2–8 second interval. This does not launch checks, renew the budget, resolve an uncertain launch, or change Acceptance. Errors, unconfirmed cancellations, approval requests and exhausted budgets remain paused. Terminal result inspection and the fresh Acceptance capture retain their existing flow.
+
+A callback already queued before navigation checks its timer identity, workspace/session/epoch, task and observation sequence again. It cannot query a replacement task or consume a newly scheduled timer. This reuses the existing observer and [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API); background timer throttling is not used as an application state guard.
+
+The 2026-11-02 production-bundle lifecycle controls passed 2/8 on the old code, 4/8 with lifecycle entry points alone, 7/8 without the timer-identity check, and 8/8 with the complete change. The original 16 protocol controls also pass. These are deterministic behavior comparisons with fixed selected input hashes, not a native browser freeze benchmark or proof of execution/Acceptance authority.
+
+Verification buttons also bind the workspace, session, epoch, retained entry, task and page that rendered them. An old Cancel, Run or recovery click cannot operate on a replacement task. Identical markup retains the DOM and receives one current listener, including after ordinary observation updates; first launch and explicit retained-ID recovery remain usable. Ten production-bundle controls cover stale actions, positive flows and independent LF/CRLF guard ablations. The first eight behavior cases passed 1/8 before the binding fix and 8/8 after it. These UI bindings supplement the existing server authorization and never grant Acceptance.
+
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.

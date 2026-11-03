@@ -175,8 +175,9 @@ function activateWorkspaceTab(tab, { scroll = false } = {}) {
   // Paint the newly visible surface from the latest snapshot without forcing a
   // full multi-panel cascade across every hidden tab.
   if (state.project) renderTabPanels(next);
-  // Navigation pauses/resumes only the selected Job's bounded read observer.
+  // Navigation resumes only retained same-task read observers, never execution.
   scheduleRuntimeJobObservation();
+  scheduleVerificationObservation();
   if (scroll) document.querySelector(".observatory-main")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function revealSection(id) {
@@ -845,6 +846,7 @@ document.addEventListener("visibilitychange", () => {
     void refreshTick(); void activityTick();
   }
   scheduleRuntimeJobObservation();
+  scheduleVerificationObservation();
   renderLive();
 });
 function startObservatory() {

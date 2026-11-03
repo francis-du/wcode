@@ -90,6 +90,56 @@ class SourcePackageSafety(unittest.TestCase):
                         self.root / f"output-{index}", ROOT)
         self.assertFalse((self.root / "outside").exists())
 
+    def test_archive_rejects_python_bytecode_and_cache_before_member_writes(self):
+        bad = [
+            ("tests/__pycache__/standalone.cpython-315.pyc", tarfile.REGTYPE),
+            ("tests/__PYCACHE__/retained.fixture", tarfile.REGTYPE),
+            ("tests/compiled.pyc", tarfile.REGTYPE),
+            ("tests/compiled.PyC", tarfile.REGTYPE),
+            ("tests/compiled.pyo", tarfile.REGTYPE),
+            ("tests/compiled.PYO", tarfile.REGTYPE),
+            ("__pycache__", tarfile.DIRTYPE),
+            ("tests/__pYcAcHe__", tarfile.DIRTYPE),
+        ]
+        for index, (name, kind) in enumerate(bad):
+            destination = self.root / f"bytecode-{index}"
+            with self.subTest(name=name):
+                with self.assertRaises(standalone.StandaloneError):
+                    standalone.unpack_package(
+                        self.archive([(ROOT + "/" + name, b"" if kind == tarfile.DIRTYPE
+                                       else b"untrusted bytecode", kind)]), destination, ROOT)
+                self.assertFalse((destination / ROOT / name).exists())
+
+    def test_source_inventory_rejects_existing_python_bytecode_and_cache_inputs(self):
+        names = ["tests/__pycache__/module.cpython-315.pyc",
+                 "tests/__PYCACHE__/other.fixture", "compiled.pyc", "compiled.PYC",
+                 "nested/compiled.pyo", "nested/compiled.PYO"]
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"existing compiled input")
+            with self.subTest(name=name), self.assertRaises(standalone.StandaloneError):
+                standalone.validate_package_sources(self.root, (name + "\n").encode(), ROOT)
+
+    def test_python_source_and_adjacent_legitimate_fixtures_remain_byte_exact(self):
+        names = ["tests/standalone.py", "tests/controls.cjs", "tests/fixtures/sample.py",
+                 "tests/fixtures/bytecode.pyc.txt", "tests/fixtures/source.pyo.json",
+                 "tests/__pycache___/kept.fixture", "tests/fixtures/__pycache__.txt"]
+        content = b"legitimate fixture\x00\xff\r\n"
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        inventory = standalone.validate_package_sources(
+            self.root, ("\n".join(names) + "\n").encode(), ROOT)
+        self.assertEqual(inventory, set(names))
+        tree, files = standalone.unpack_package(
+            self.archive([(ROOT + "/" + name, content, tarfile.REGTYPE) for name in names]),
+            self.root / "legitimate-fixtures", ROOT)
+        self.assertEqual(set(files), set(names))
+        for name in names:
+            self.assertEqual((tree / name).read_bytes(), content)
+
     def test_archive_rejects_multiple_roots_and_commercial_payload(self):
         for index, name in enumerate(("other/src/lib.rs", ROOT + "/commercial/src/lib.rs",
                                       ROOT + "/COMMERCIAL/secret", ROOT + "/.git/config")):
@@ -396,6 +446,88 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertEqual(len(hints["failure_native_locations"]), standalone.MAX_FAILURE_TESTS)
         self.assertTrue(hints["failure_diagnostics_partial"])
         self.assertNotIn("PRIVATE", json.dumps(hints))
+
+    def test_fanout_call_locations_accept_exact_portable_paths_and_chunked_lines(self):
+        cases = [
+            ("tests/unit/integrations/mcp/calls.rs",
+             "mcp::tool_tests::parallel_fanout_runs_writes_and_coalesces_same_file_edits"),
+            ("tests/oss_payload.rs",
+             "source_payload_excludes_python_bytecode_but_keeps_adjacent_sources"),
+        ]
+        for fixed, name in cases:
+            paths = (fixed, fixed.replace("/", "\\"),
+                     "src/integrations/../../" + fixed)
+            for path in paths:
+                for ending in ("\n", "\r\n"):
+                    for chunk_size in (1, 7, 4096):
+                        with self.subTest(path=path, ending=ending, chunk_size=chunk_size):
+                            parser = standalone.RustFailureDiagnostics()
+                            text = (f"thread '{name}' (17) panicked at {path}:552:5:"
+                                    + ending + "PRIVATE_ASSERTION_BODY token/path" + ending).encode()
+                            for offset in range(0, len(text), chunk_size):
+                                parser.feed(text[offset:offset + chunk_size])
+                            hints = parser.finish()
+                            self.assertEqual(hints["failure_native_locations"], [
+                                {"test": name, "file": fixed, "line": 552, "column": 5},
+                            ])
+                            self.assertNotIn("PRIVATE", json.dumps(hints))
+                            self.assertEqual(hints["failure_native_codes"], [])
+                            self.assertFalse(hints["failure_diagnostics_partial"])
+
+    def test_fanout_call_locations_reject_unknown_paths_bodies_and_injected_headers(self):
+        fixed = "tests/unit/integrations/mcp/calls.rs"
+        paths = ("PRIVATE/" + fixed, "/" + fixed, "C:/PRIVATE/" + fixed,
+                 "tests/unit/integrations/mcp/PRIVATE.rs", fixed + ".PRIVATE",
+                 "tests/unit/integrations/mcp/../mcp/calls.rs",
+                 "tests/PRIVATE.rs", "tests/subdir/oss_payload.rs",
+                 "tests/oss_payload_PRIVATE.rs", "tests/../oss_payload.rs",
+                 "src/../tests/PRIVATE.rs",
+                 "src/" + "../" * 13 + fixed, "tests/unit/integrations/mcp/calls\x00.rs")
+        lines = [f"thread 'native::case' panicked at {path}:552:5:" for path in paths]
+        lines += [
+            f"thread 'unsafe name' panicked at {fixed}:552:5:",
+            f"thread 'PRIVATE/source.rs' panicked at {fixed}:552:5:",
+            f"thread '{'x' * 257}' panicked at {fixed}:552:5:",
+            f"thread 'native::case' panicked at {fixed}:0:5:",
+            f"thread 'native::case' panicked at {fixed}:552:0:",
+            f"thread 'native::case' panicked at {fixed}:1000000000:5:",
+            f"thread 'native::case' panicked at {fixed}:552:5: PRIVATE",
+            f"\x1b[31mthread 'native::case' panicked at {fixed}:552:5:",
+            f"thread 'native::case' panicked at {fixed}:552:5:\x00",
+            f"thread 'native::case' panicked at tests/unit/integrations/mcp/callé.rs:552:5:",
+        ]
+        parser = standalone.RustFailureDiagnostics()
+        parser.feed(("\r\n".join(lines) + "\r\n").encode())
+        hints = parser.finish()
+        self.assertEqual(hints["failure_native_locations"], [])
+        self.assertNotIn("PRIVATE", json.dumps(hints))
+
+    def test_failed_fanout_child_emits_only_fixed_location_and_no_report_diagnostics(self):
+        path = self.root / "fanout-report.json"
+        report = standalone.StageReport(path)
+        fixed = "tests/unit/integrations/mcp/calls.rs"
+        name = "mcp::tool_tests::parallel_fanout_runs_writes_and_coalesces_same_file_edits"
+        header = f"thread '{name}' (17) panicked at {fixed}:552:5:"
+        code = (f"print({header!r});print('PRIVATE_ASSERTION_BODY credential/path');"
+                f"print('test {name} ... FAILED');raise SystemExit(7)")
+        output = io.StringIO()
+        with patch.object(standalone, "REPORT", report), contextlib.redirect_stdout(output):
+            with self.assertRaises(standalone.StandaloneError):
+                standalone.run_stage(
+                    "rust_child", [sys.executable, "-c", code], self.root,
+                    standalone.controlled_env(), 5, diagnostics=True)
+            standalone.emit("oss_standalone", "failed")
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        failed = next(row for row in records if row["stage"] == "rust_child"
+                      and row["status"] == "failed")
+        self.assertEqual(failed["failure_native_locations"], [
+            {"test": name, "file": fixed, "line": 552, "column": 5},
+        ])
+        self.assertEqual(failed["failure_tests"], [name])
+        self.assertEqual(failed["exit_code"], 7)
+        self.assertNotIn("PRIVATE", output.getvalue())
+        self.assertNotIn(b"failure_native_locations", path.read_bytes())
+        self.assertNotIn(name.encode(), path.read_bytes())
 
     def test_runtime_diagnostics_do_not_expose_command_or_host_paths(self):
         parser = standalone.RustFailureDiagnostics()
