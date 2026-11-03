@@ -44,3 +44,7 @@ Thumbs.db
 
 # Cargo.lock is intentionally committed for this CLI application.
 
+
+# Python bytecode from the standalone diagnostics scripts.
+__pycache__/
+*.pyc
