@@ -40,7 +40,7 @@ fn jobs_output_search_is_literal_scoped_bounded_and_preserves_coverage() {
     assert_eq!(results.len(), 19);
     assert!(results.iter().all(|result| result["passed"] == true));
     let ablations = report["ablations"]["results"].as_array().unwrap();
-    assert_eq!(ablations.len(), 3);
+    assert_eq!(ablations.len(), 4);
     assert!(ablations.iter().all(|case| case["passed"] == true
         && case["baseline"]["invariant"] == true
         && case["ablated"]["invariant"] == false
@@ -420,7 +420,7 @@ fn jobs_ui_observation_and_verification_recovery_preserve_native_authority() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 23
+                .is_some_and(|results| results.len() == 25
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

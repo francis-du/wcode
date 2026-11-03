@@ -7,7 +7,7 @@ const id = 'TASK-' + '1'.repeat(20) + '-' + 'a'.repeat(32);
 function row(extra = {}) { return { task_id: id, workspace: 'A', tool: 'run_command', status: 'working', origin: 'mcp', can_cancel: false, created_at_ms: 1, updated_at_ms: 2, completion_is_not_success: true, ...extra }; }
 function list(extra = {}) { return { schema_version: 1, kind: 'command_job_list', workspace: 'A', items: [row()], truncated: false, coverage: 'retained_bounded', discovery_is_not_execution: true, ...extra }; }
 function recovery(extra = {}) { return list({ kind: 'verification_task_list', items: [row({ tool: 'verify_project', origin: 'ui' })], ...extra }); }
-function detail(extra = {}) { return { schema_version: 1, kind: 'command_job', task_id: id, workspace: 'A', tool: 'run_command', status: 'working', origin: 'mcp', can_cancel: false, success: null, exit_code: null, error: null, stdout: { text: '海\n<script>not HTML</script>', total_bytes: 28, truncated: true, redacted: false }, stderr: { text: '[REDACTED]', total_bytes: 10, truncated: false, redacted: true }, completion_is_not_success: true, acceptance_ready: false, ...extra }; }
+function detail(extra = {}) { return { schema_version: 1, kind: 'command_job', task_id: id, workspace: 'A', tool: 'run_command', status: 'working', origin: 'mcp', can_cancel: false, success: null, exit_code: null, queue_wait_ms: null, timed_out: null, output_incomplete: null, error: null, stdout: { text: '海\n<script>not HTML</script>', total_bytes: 28, truncated: true, redacted: false }, stderr: { text: '[REDACTED]', total_bytes: 10, truncated: false, redacted: true }, completion_is_not_success: true, acceptance_ready: false, ...extra }; }
 function prepared(auth = true) {
   const s = sandbox(false, auth, { fakeTimers: true }); s.context.fixture = fixture();
   s.run('state.project=fixture;state.workspaceTab="activity";renderRuntimeJobs();'); return s;
@@ -191,6 +191,21 @@ async function main() {
     assert.equal(s.run('setRuntimeJobFilters("all","<script>")'),false);
     assert.equal(s.run('runtimeJobsView().length'),1);
     assert.doesNotMatch(s.node('#runtimeJobForm').innerHTML,/<script>/);
+  });
+  await test('job detail surfaces retained runner metadata with explicit unknown identity and location', async () => {
+    const s=prepared();await discover(s);
+    await observe(s, detail({ status: 'completed', success: true, exit_code: 0, queue_wait_ms: 12, timed_out: false, output_incomplete: false }));
+    const html=s.node('#runtimeJobDetail').innerHTML;
+    assert.match(html,/Runner/);assert.match(html,/MCP-owned/);assert.match(html,/12/);
+    assert.match(html,/timed out/);assert.match(html,/output incomplete/);assert.match(html,/No/);
+    assert.match(html,/Check \/ test identity/);assert.match(html,/Failure location/);
+    assert.match(html,/Unknown/);assert.match(html,/not retained for command jobs/);
+    assert.doesNotMatch(html,/<script>|undefined|NaN/);
+  });
+  await test('absent runner metadata stays unknown without inventing values', async () => {
+    const s=prepared();await discover(s);await observe(s, detail());
+    const html=s.node('#runtimeJobDetail').innerHTML;
+    assert.match(html,/Unknown/);assert.doesNotMatch(html,/NaN|undefined|null|0 ms/);
   });
   console.log(JSON.stringify({ suite: 'native-jobs-ui', results }, null, 2));
   assert.ok(results.every(row => row.passed), results.filter(row => !row.passed).map(row => row.name).join('\n'));
