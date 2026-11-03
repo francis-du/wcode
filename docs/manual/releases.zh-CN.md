@@ -66,3 +66,18 @@ permalink: /zh/docs/releases/
 ## 发布策略
 
 每个 Release Page 都是不可变的历史文档。以后发布新版本，只需要新增中英文版本页，并在本索引顶部增加一条；全局侧边栏始终只保留一个“发布版本”入口，因此版本再多也不会让主导航持续膨胀。
+
+## 验证已发布的版本
+
+`Build & Release` 在打 tag 时构建并发布各平台归档。如果要**重新验证一个已存在的发布**而不重新发布，手动运行 `Verify Published Release` workflow（Actions -> Verify Published Release -> Run workflow），需要三个输入：
+
+| 输入 | 含义 |
+| --- | --- |
+| `release_tag` | 要验证的已有 tag，例如 `v0.9.2`。 |
+| `publication_run` | 原始成功发布任务所在的 workflow run ID。 |
+| `publication_attempt` | 该 run 的 attempt（默认 `1`）。 |
+
+该 workflow 会把 tag 解析到精确提交，读取该提交的 `Cargo.toml` 版本，然后在 Linux、macOS 和 Windows 上通过 `tests/published_release.py` 下载并实际运行官方发布归档，每个平台都会把验证证明作为 artifact 上传。
+
+这是对已发布内容的再验证，不是重新发布：它不会创建 release、上传或 tag。通过不会追溯改变更早提交的证据，旧的绿色候选也不能证明更新的提交。
+
