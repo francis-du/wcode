@@ -235,7 +235,7 @@ class RustFailureDiagnostics:
         self.partial = False
         self.tests: set[str] = set()
         self.summaries: list[dict[str, int]] = []
-        self.locations: set[tuple[str, int, int]] = set()
+        self.locations: set[tuple[str, str, int, int]] = set()
         self.error_codes: set[str] = set()
         self.categories: set[str] = set()
         self.native_codes: set[str] = set()
@@ -312,11 +312,12 @@ class RustFailureDiagnostics:
             return
         location = re.fullmatch(
             r"thread '((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)'"
-            r"(?: \([0-9]{1,9}\))? panicked at tests[/\\]architecture\.rs:"
+            r"(?: \([0-9]{1,9}\))? panicked at tests[/\\]([A-Za-z0-9_.-]+\.rs):"
             r"([1-9][0-9]{0,8}):([1-9][0-9]{0,8}):", line)
         if location:
-            name, row, column = location.groups()
-            entry = (name, int(row), int(column))
+            name, path, row, column = location.groups()
+            path = path.replace("\\", "/")
+            entry = (name, path, int(row), int(column))
             if len(name) > 256:
                 self.partial = True
             elif len(self.locations) < MAX_FAILURE_TESTS or entry in self.locations:
@@ -360,8 +361,8 @@ class RustFailureDiagnostics:
         return {"failure_tests": sorted(self.tests), "failure_summaries": self.summaries,
                 "failure_error_codes": sorted(self.error_codes),
                 "failure_categories": sorted(self.categories),
-                "failure_locations": [{"test": name, "line": row, "column": column}
-                                      for name, row, column in sorted(self.locations)],
+                "failure_locations": [{"test": name, "file": path, "line": row, "column": column}
+                                      for name, path, row, column in sorted(self.locations)],
                 "failure_native_codes": sorted(self.native_codes),
                 "failure_native_locations": [
                     {"test": name, "file": path, "line": row, "column": column}

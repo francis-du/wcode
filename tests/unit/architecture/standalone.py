@@ -424,22 +424,24 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(hints))
         self.assertFalse(hints["failure_diagnostics_partial"])
 
-    def test_panic_locations_accept_only_the_known_architecture_file(self):
+    def test_panic_locations_accept_every_repo_relative_test_file(self):
         parser = standalone.RustFailureDiagnostics()
         parser.feed(b"thread 'suite::one' panicked at tests/architecture.rs:147:")
         parser.feed(b"5:\nPRIVATE panic body\n")
         parser.feed(b"thread 'suite::two' (1234) panicked at tests\\architecture.rs:9:17:\r\n")
+        parser.feed(b"thread 'suite::three' panicked at tests/source_layout.rs:12:3:\n")
         hints = parser.finish()
         self.assertEqual(hints["failure_locations"], [
-            {"test": "suite::one", "line": 147, "column": 5},
-            {"test": "suite::two", "line": 9, "column": 17},
+            {"test": "suite::one", "file": "architecture.rs", "line": 147, "column": 5},
+            {"test": "suite::three", "file": "source_layout.rs", "line": 12, "column": 3},
+            {"test": "suite::two", "file": "architecture.rs", "line": 9, "column": 17},
         ])
         self.assertNotIn("PRIVATE", json.dumps(hints))
 
-    def test_panic_locations_reject_bodies_other_paths_and_unsafe_identifiers(self):
+    def test_panic_locations_reject_absolute_paths_and_unsafe_identifiers(self):
         parser = standalone.RustFailureDiagnostics()
         lines = [
-            "thread 'suite::one' panicked at tests/source_layout.rs:1:1:",
+            "thread 'suite::one' panicked at tests/unit/ui/PRIVATE.rs:1:1:",
             "thread 'suite::one' panicked at /private/tests/architecture.rs:1:1:",
             "thread 'unsafe name' panicked at tests/architecture.rs:1:1:",
             "thread 'src/private.rs' panicked at tests/architecture.rs:1:1:",
@@ -500,7 +502,8 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertEqual(failed["failure_tests"], ["suite::broken"])
         self.assertEqual(failed["failure_summaries"][0]["failed"], 1)
         self.assertEqual(failed["failure_locations"],
-                         [{"test": "suite::broken", "line": 147, "column": 5}])
+                         [{"test": "suite::broken", "file": "architecture.rs",
+                           "line": 147, "column": 5}])
         self.assertNotIn("PRIVATE_UNSTRUCTURED_OUTPUT", output.getvalue())
         self.assertNotIn(b"suite::broken", path.read_bytes())
         self.assertNotIn(b"failure_tests", path.read_bytes())
