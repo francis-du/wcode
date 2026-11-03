@@ -32,6 +32,8 @@ mod commands;
 use commands::ControlCommand;
 #[path = "acceptance.rs"]
 mod acceptance;
+#[path = "ci_receipt.rs"]
+mod ci_receipt;
 #[path = "github.rs"]
 mod github;
 #[path = "intelligence.rs"]
@@ -314,7 +316,8 @@ pub async fn run() -> Result<()> {
             | ControlCommand::McpStdio
             | ControlCommand::Intelligence { .. }
             | ControlCommand::Acceptance { .. }
-            | ControlCommand::Verification { .. } => {}
+            | ControlCommand::Verification { .. }
+            | ControlCommand::ImportCiReceipt { .. } => {}
         }
     }
     let open_setup = args.open_setup;
@@ -494,6 +497,10 @@ pub async fn run() -> Result<()> {
                     *json,
                 )
                 .await?;
+                return Ok(());
+            }
+            ControlCommand::ImportCiReceipt { .. } => {
+                ci_receipt::run_import_ci_receipt(&workspaces, &harness, command).await?;
                 return Ok(());
             }
             ControlCommand::Update => {}

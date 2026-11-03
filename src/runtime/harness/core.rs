@@ -835,7 +835,6 @@ impl ToolHarness {
 
     /// Native CI receipt import. Not an MCP tool: callers must supply a
     /// captured receipt and the operator-declared repository binding.
-    #[allow(dead_code)]
     pub async fn verification_import_ci_receipt(
         &self,
         workspace_id: &str,
