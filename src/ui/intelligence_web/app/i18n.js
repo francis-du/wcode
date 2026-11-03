@@ -85,6 +85,8 @@ const translations = {
     "Pending authorizations": "待授权请求",
     "authorization safety note": "可批准当前精确请求、为当前 Workspace 本次运行全部授权，或拒绝。",
     "Approve": "批准",
+    "Approve all listed": "批准全部列出项",
+    "Grouped approval decided": "分组审批已决定",
     "Deny": "拒绝",
     "No pending authorizations": "没有待授权请求",
     "No authorized projects": "没有已授权项目",
