@@ -737,6 +737,16 @@ async fn github_check_receipt_binds_check_and_annotations_with_a_digest() {
     );
 }
 
+fn receipt_fields() -> crate::git_provider::CheckReceiptFields {
+    crate::git_provider::CheckReceiptFields {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".to_owned(),
+        repository: "francis-du/wcode".to_owned(),
+        repository_id: 1234,
+        app_id: 7,
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn receipt_store_is_written_private_to_the_operator() {
@@ -752,7 +762,8 @@ fn receipt_store_is_written_private_to_the_operator() {
         status: "completed".to_owned(),
         conclusion: Some("success".to_owned()),
     };
-    let digest = crate::git_provider::github::check_receipt_digest(&check, &[]);
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&receipt_fields(), &check, &[]);
     let receipt = crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".to_owned(),
@@ -792,7 +803,11 @@ fn receipt_store_deduplicates_and_reads_back_bounded_entries() {
         title: "t".to_owned(),
         message: "m".to_owned(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&check, &annotations);
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &check,
+        &annotations,
+    );
     let receipt = crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".to_owned(),
@@ -839,24 +854,60 @@ fn receipt_digest_covers_every_field_and_the_store_rejects_tampering() {
         title: "t".to_owned(),
         message: "m".to_owned(),
     }];
-    let digest = crate::git_provider::github::check_receipt_digest(&observation, &annotations);
+    let digest = crate::git_provider::receipt_digest::check_receipt_digest(
+        &receipt_fields(),
+        &observation,
+        &annotations,
+    );
     let mut retitled = annotations.clone();
     retitled[0].title = "retitled".to_owned();
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&observation, &retitled)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &retitled
+        )
     );
     let mut shifted = annotations.clone();
     shifted[0].start_line = Some(3);
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&observation, &shifted)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &observation,
+            &shifted
+        )
     );
     let mut relabeled = observation.clone();
     relabeled.source_id = "github-app:8".to_owned();
     assert_ne!(
         digest,
-        crate::git_provider::github::check_receipt_digest(&relabeled, &annotations)
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &receipt_fields(),
+            &relabeled,
+            &annotations
+        )
+    );
+    let mut rebound = receipt_fields();
+    rebound.repository = "evil/repo".to_owned();
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &rebound,
+            &observation,
+            &annotations
+        )
+    );
+    let mut reappd = receipt_fields();
+    reappd.app_id = 8;
+    assert_ne!(
+        digest,
+        crate::git_provider::receipt_digest::check_receipt_digest(
+            &reappd,
+            &observation,
+            &annotations
+        )
     );
 
     let root = tempfile::tempdir().unwrap();
@@ -891,7 +942,10 @@ fn receipt_without_repository_binding_stays_observation_only() {
         status: "completed".to_owned(),
         conclusion: Some("success".to_owned()),
     };
-    let digest = crate::git_provider::github::check_receipt_digest(&observation, &[]);
+    let mut fields = receipt_fields();
+    fields.app_id = 0;
+    let digest =
+        crate::git_provider::receipt_digest::check_receipt_digest(&fields, &observation, &[]);
     let receipt = crate::git_provider::CheckReceipt {
         schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
         provider: "github".to_owned(),
