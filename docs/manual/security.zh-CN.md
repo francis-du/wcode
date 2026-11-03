@@ -108,7 +108,7 @@ Host 校验与 Origin 校验分别执行。请求携带 Origin 时，它必须�
 
 ## Intelligence HTTP 响应
 
-每个 `/intelligence/*` 响应都带受保护的项目数据，因此有一个作用域中间件（`src/integrations/mcp/cache_policy.rs`）保证每个响应都带三个头：
+每个 `/intelligence` 页面和 `/intelligence/*` 响应都带受保护的项目数据，因此有一个作用域中间件（`src/integrations/mcp/cache_policy.rs`）保证每个响应都带三个头：
 
 | 头 | 值 | 原因 |
 | --- | --- | --- |

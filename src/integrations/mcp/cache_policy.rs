@@ -10,7 +10,8 @@ use axum::response::Response;
 /// the static asset cache lifetime. `nosniff` and `no-referrer` match the
 /// protections the setup page already sends.
 pub(super) async fn intelligence_no_store(request: Request, next: Next) -> Response {
-    let protected = request.uri().path().starts_with("/intelligence/");
+    let path = request.uri().path();
+    let protected = path == "/intelligence" || path.starts_with("/intelligence/");
     let mut response = next.run(request).await;
     if protected {
         let headers = response.headers_mut();
