@@ -333,6 +333,9 @@ impl GitHubProvider {
             Some(runs) => runs,
             None => bail!("GitHub returned no check_runs array"),
         };
+        if runs.len() > MAX_CHECK_RUNS {
+            bail!("GitHub returned too many check runs");
+        }
         runs.iter()
             .map(|run| check_observation(run.clone()))
             .collect()
@@ -357,6 +360,9 @@ impl GitHubProvider {
             Some(annotations) => annotations,
             None => bail!("GitHub returned no annotations array"),
         };
+        if annotations.len() > MAX_CHECK_ANNOTATIONS {
+            bail!("GitHub returned too many check annotations");
+        }
         annotations
             .iter()
             .map(|value| check_annotation(value.clone()))
@@ -364,13 +370,19 @@ impl GitHubProvider {
     }
 
     /// Read one authoritative CI receipt: the check run plus its bounded
-    /// annotations and a digest over both. The digest only evidences this
-    /// captured receipt; it is not a verification or Acceptance claim.
+    /// annotations, the repository binding it was captured from, and a digest
+    /// over every field. The digest only evidences this captured receipt; it is
+    /// not a verification or Acceptance claim.
     pub async fn read_check_receipt(&self, id: u64) -> Result<CheckReceipt> {
         let check = self.read_check(id).await?;
         let annotations = self.read_check_annotations(id).await?;
         let digest = check_receipt_digest(&check, &annotations);
         Ok(CheckReceipt {
+            schema_version: CHECK_RECEIPT_SCHEMA_VERSION,
+            provider: "github".to_owned(),
+            repository: self.config.repository.key(),
+            repository_id: self.config.repository_id,
+            app_id: app_id_from_source(&check.source_id),
             check,
             annotations,
             digest,
@@ -716,6 +728,9 @@ struct Check {
 /// store is capped so an operator can retain receipts without unbounded growth.
 const MAX_RECEIPTS: usize = 128;
 const MAX_RECEIPT_STORE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
+const MAX_CHECK_RUNS: usize = 1000;
+const MAX_CHECK_ANNOTATIONS: usize = 1000;
 
 pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
     if !path.exists() {
@@ -731,15 +746,32 @@ pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
         if line.is_empty() {
             continue;
         }
-        receipts.push(
-            serde_json::from_slice(line)
-                .map_err(|error| anyhow!("invalid receipt store line: {error}"))?,
-        );
+        if line.len() as u64 > MAX_RECEIPT_BYTES {
+            bail!("receipt store entry exceeds its size bound");
+        }
+        let receipt: CheckReceipt = serde_json::from_slice(line)
+            .map_err(|error| anyhow!("invalid receipt store line: {error}"))?;
+        if receipt.schema_version != CHECK_RECEIPT_SCHEMA_VERSION {
+            bail!("unsupported receipt store schema");
+        }
+        if !receipt.verify_digest() {
+            bail!("receipt store entry digest does not match its contents");
+        }
+        receipts.push(receipt);
+    }
+    if receipts.len() > MAX_RECEIPTS {
+        bail!("receipt store exceeds its entry bound");
     }
     Ok(receipts)
 }
 
 pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> {
+    if receipt.schema_version != CHECK_RECEIPT_SCHEMA_VERSION {
+        bail!("cannot retain a receipt with an unsupported schema");
+    }
+    if !receipt.verify_digest() {
+        bail!("cannot retain a receipt whose digest does not match its contents");
+    }
     let mut receipts = load_receipts(path)?;
     receipts.retain(|existing| existing.check.id != receipt.check.id);
     receipts.push(receipt.clone());
@@ -753,21 +785,74 @@ pub(crate) fn append_receipt(path: &Path, receipt: &CheckReceipt) -> Result<()> 
         .collect::<Result<Vec<_>>>()?
         .join("\n");
     encoded.push('\n');
-    std::fs::write(path, encoded)
-        .map_err(|error| anyhow!("cannot write {}: {error}", path.display()))
+    // Replace the store atomically so an interrupted write can never leave a
+    // truncated receipt behind for the next reader.
+    let directory = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => Path::new(".").to_path_buf(),
+    };
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "receipts.jsonl".to_owned());
+    let temporary = directory.join(format!(".{name}.tmp-{}", std::process::id()));
+    std::fs::write(&temporary, encoded.as_bytes())
+        .map_err(|error| anyhow!("cannot write {}: {error}", temporary.display()))?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(anyhow!("cannot replace {}: {error}", path.display()));
+    }
+    Ok(())
 }
 
-fn check_receipt_digest(check: &CheckObservation, annotations: &[CheckAnnotation]) -> String {
+fn hash_text(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_le_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn hash_optional_text(hasher: &mut Sha256, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            hasher.update([1u8]);
+            hash_text(hasher, value);
+        }
+        None => hasher.update([0u8]),
+    }
+}
+
+fn hash_optional_u64(hasher: &mut Sha256, value: Option<u64>) {
+    match value {
+        Some(value) => {
+            hasher.update([1u8]);
+            hasher.update(value.to_le_bytes());
+        }
+        None => hasher.update([0u8]),
+    }
+}
+
+/// Digest over every captured field, length-prefixed so no two field layouts
+/// can collide. It evidences capture integrity only; it is not an authentication
+/// of the producer.
+pub(crate) fn check_receipt_digest(
+    check: &CheckObservation,
+    annotations: &[CheckAnnotation],
+) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(check.id.to_string().as_bytes());
-    hasher.update(check.head_sha.as_bytes());
-    hasher.update(check.name.as_bytes());
-    hasher.update(check.status.as_bytes());
-    hasher.update(check.conclusion.as_deref().unwrap_or("").as_bytes());
+    hasher.update(check.id.to_le_bytes());
+    hash_text(&mut hasher, &check.head_sha);
+    hash_text(&mut hasher, &check.name);
+    hash_text(&mut hasher, &check.source_id);
+    hash_text(&mut hasher, &check.external_id);
+    hash_text(&mut hasher, &check.status);
+    hash_optional_text(&mut hasher, check.conclusion.as_deref());
+    hasher.update((annotations.len() as u64).to_le_bytes());
     for annotation in annotations {
-        hasher.update(annotation.path.as_bytes());
-        hasher.update(annotation.annotation_level.as_bytes());
-        hasher.update(annotation.message.as_bytes());
+        hash_text(&mut hasher, &annotation.path);
+        hash_optional_u64(&mut hasher, annotation.start_line);
+        hash_optional_u64(&mut hasher, annotation.end_line);
+        hash_text(&mut hasher, &annotation.annotation_level);
+        hash_text(&mut hasher, &annotation.title);
+        hash_text(&mut hasher, &annotation.message);
     }
     format!("{:x}", hasher.finalize())
 }
@@ -789,6 +874,8 @@ fn check_annotation(value: Value) -> Result<CheckAnnotation> {
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let start_line = value.get("start_line").and_then(Value::as_u64);
+    let end_line = value.get("end_line").and_then(Value::as_u64);
     if path.is_empty()
         || path.len() > 512
         || level.is_empty()
@@ -798,14 +885,24 @@ fn check_annotation(value: Value) -> Result<CheckAnnotation> {
     {
         bail!("check annotation exceeds its bounds");
     }
+    if start_line.is_some_and(|start| end_line.is_some_and(|end| start > end)) {
+        bail!("check annotation line range is reversed");
+    }
     Ok(CheckAnnotation {
         path: path.to_owned(),
-        start_line: value.get("start_line").and_then(Value::as_u64),
-        end_line: value.get("end_line").and_then(Value::as_u64),
+        start_line,
+        end_line,
         annotation_level: level.to_owned(),
         title: title.to_owned(),
         message: message.to_owned(),
     })
+}
+
+fn app_id_from_source(source_id: &str) -> u64 {
+    source_id
+        .strip_prefix("github-app:")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
 
 fn check_observation(value: Value) -> Result<CheckObservation> {

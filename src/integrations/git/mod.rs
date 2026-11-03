@@ -91,13 +91,59 @@ pub struct CheckObservation {
     pub conclusion: Option<String>,
 }
 
+/// Schema of a captured receipt. Version 1 binds every receipt to the provider,
+/// repository and App that produced it; earlier captures carry no binding.
+pub const CHECK_RECEIPT_SCHEMA_VERSION: u32 = 1;
+
+fn default_check_receipt_schema_version() -> u32 {
+    CHECK_RECEIPT_SCHEMA_VERSION
+}
+
 /// An authoritative CI receipt: one check run plus its bounded annotations and
 /// a digest over both. Observation only, never an imported Acceptance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckReceipt {
+    #[serde(default = "default_check_receipt_schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub repository: String,
+    #[serde(default)]
+    pub repository_id: u64,
+    #[serde(default)]
+    pub app_id: u64,
     pub check: CheckObservation,
     pub annotations: Vec<CheckAnnotation>,
     pub digest: String,
+}
+
+impl CheckReceipt {
+    /// Repository binding an importer must verify before treating a capture as
+    /// authoritative. A receipt without one stays observation-only.
+    pub fn repository_binding(&self) -> Option<(&str, &str, u64, u64)> {
+        if self.schema_version < CHECK_RECEIPT_SCHEMA_VERSION
+            || self.provider.is_empty()
+            || self.repository.is_empty()
+            || self.repository_id == 0
+            || self.app_id == 0
+        {
+            return None;
+        }
+        Some((
+            &self.provider,
+            &self.repository,
+            self.repository_id,
+            self.app_id,
+        ))
+    }
+
+    /// Recompute the digest over every captured field. A receipt whose digest
+    /// does not match its contents was altered or truncated after capture.
+    pub fn verify_digest(&self) -> bool {
+        crate::git_provider::github::check_receipt_digest(&self.check, &self.annotations)
+            == self.digest
+    }
 }
 
 /// One bounded check-run annotation. Observation only, never a gate.
