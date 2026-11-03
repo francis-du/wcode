@@ -71,11 +71,11 @@ Observatory 保持原有 5,000 个源码符号预算。Design 中的实现 Symbo
 | TUI | Summary 总览、Attention 问题、Tasks 任务、Agents 协作和 Providers 提供方支持逐行选择与上下文详情。 | 实时数据变化时，选择仍绑定到当前工作区与记录身份；窄屏保留可读控件。 |
 | WebUI | 可操作的观测覆盖条与可选待处理条目通向现有工作台视图。 | 导航不会执行检查、批准请求或将工作标记完成。 |
 | 项目文件 | 可交互的文件树与最大文件条目连接受保护源码检查，支持每页 240 行并校验快照与 SHA。 | 读取有界且校验版本；受保护、缺失、过期、脱敏和二进制内容明确呈现。 |
-| macOS Menu Bar | `wcode menu-bar` 读取 HTTP/MCP runtime 与 `wcode mcp-stdio` 共同发布的受保护本机 runtime-presence；`wcode menu-bar --json` 输出同一份可移植有界投影。 | 首版只观测 runtime/MCP/任务计数以及 partial/unknown；不保存 UI/OAuth token、owner、命令参数、源码路径或原始诊断，也不能批准、执行、取消或建立 Verification/Acceptance。 |
+| 原生 Menu Bar（macOS、Windows） | `wcode menu-bar` 读取 HTTP/MCP runtime 与 `wcode mcp-stdio` 共同发布的受保护本机 runtime-presence；`wcode menu-bar --json` 输出同一份可移植有界投影。 | 首版只观测 runtime/MCP/任务计数以及 partial/unknown；不保存 UI/OAuth token、owner、命令参数、源码路径或原始诊断，也不能批准、执行、取消或建立 Verification/Acceptance。 |
 
 操作者路径是：选择工作区 → 选择待处理问题 → 查看详情 → 打开相关源码、活动、提供方、变更或证据视图 → 通过 Agent 或已授权操作解决原因 → 检查新证据。TUI、WebUI 与 Menu Bar 可以采用不同布局，但应解释同一份底层运行时事实。
 
-Menu Bar 是独立 accessory UI 进程，不是第二套 wcode daemon，也不会作为普通 Dock App 抢前台；原生状态项只在 macOS 主线程事件循环已经运行后创建。HTTP/MCP 与 stdio 进程在受保护的本机 authority state root 下发布短生命周期心跳；超过活动窗口的记录不会继续算在线。菜单直接展示 transport 数量、最新 runtime 版本与 Workspace ID、最近 MCP 活动、任务/队列数量和覆盖状态。损坏、别名、超量或覆盖不完整都保持 partial/unknown。非 macOS 平台目前还没有原生托盘，但 `wcode menu-bar --json` 保留跨平台状态契约，供后续 Windows/Linux tray 复用。
+Menu Bar 是独立 accessory UI 进程，不是第二套 wcode daemon，也不会作为普通 Dock App 抢前台；原生状态项只在平台主线程事件循环已经运行后创建。HTTP/MCP 与 stdio 进程在受保护的本机 authority state root 下发布短生命周期心跳；超过活动窗口的记录不会继续算在线。菜单直接展示 transport 数量、最新 runtime 版本与 Workspace ID、最近 MCP 活动、任务/队列数量和覆盖状态。损坏、别名、超量或覆盖不完整都保持 partial/unknown。原生托盘已在 macOS 与 Windows 上实现；Linux 仍未实现，因为需要 StatusNotifierItem/D-Bus host。`wcode menu-bar --json` 在所有平台上保留同一份可移植状态契约。
 
 ## 能力核查与消融取舍（2026-10-31）
 
