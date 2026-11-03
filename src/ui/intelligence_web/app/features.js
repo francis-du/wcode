@@ -959,6 +959,7 @@ function renderChangeInspector() {
       : `<p>${esc(localized("No differences in this selected layer. This does not mean every layer is clean.", "所选层没有差异，不代表其他层也没有改动。"))}</p>`);
     body += changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
   }
+  body += historicalSourcePanel(current);
   const repositoryRevision = current.repositoryRevision;
   const identity = view ? `<details class="change-identity"><summary>${esc(localized("Captured snapshot identity (not continuous live proof)", "本次读取的快照身份（不是持续实时证明）"))}</summary><code>HEAD ${esc(view.head || "—")}<br>index ${esc(view.index_fingerprint || "—")}<br>worktree ${esc(view.worktree_sha256 || localized("missing", "不存在"))}<br>snapshot ${esc(view.snapshot_id)}<br>repository code ${esc(repositoryRevision?.code || "—")}<br>repository Design ${esc(repositoryRevision?.design || "—")}</code></details>` : "";
   host.innerHTML = `<section class="change-inspector"><header><div><h3>${esc(localized("Read-only code changes", "只读代码变更"))}</h3><code>${esc(current.path)}</code></div><button type="button" data-change-close>${esc(localized("Close", "关闭"))}</button></header><div class="change-toolbar">${layers}<button type="button" data-change-reload>${esc(localized("Reload file", "重新读取"))}</button></div>${body}${identity}</section>`;
@@ -975,4 +976,5 @@ function renderChangeInspector() {
   host.querySelectorAll("[data-change-impact]").forEach(button => { button.onclick = () => { void openChangeSymbolImpact(button.dataset.changeImpact); }; });
   host.querySelectorAll("[data-change-source-line]").forEach(button => { button.onclick = () => { revealChangeSourceLine(button.dataset.changeSourceSide, button.dataset.changeSourceNode, button.dataset.changeSourceLine); }; });
   host.querySelectorAll("[data-change-relation-node]").forEach(button => { button.onclick = () => { void openChangeRelationNodeInGraph(button.dataset.changeRelationNode); }; });
+  bindHistoricalSourcePanel(current);
 }
