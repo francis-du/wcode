@@ -301,7 +301,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | Verification execution | verify_project; bounded no-shell runner; failed/skipped/reused reports | Complete | ToolHarness::verify_project / VerificationReport | Core runner preserves skipped failure and detects revision changes | Core |
 | Exact AC test execution | analysis mapping and generated AC Evidence | Partial | VerificationRef / execution receipt | A generic test check can currently imply other mapped tests ran | Critical |
 | Plan-strength enforcement | VerificationPlan, VerificationStatus, execution floor | Partial | VerificationPlan / Execution floor | Aggregate quick Pass does not prove every full-plan check executed | Critical |
-| Stage automation | Property/mutation/fuzz adapters and stage targets | Partial | StageExecutorRegistry / stage targets | Missing tooling remains automation gap; external reports need trusted receipts | High |
+| Stage automation | Property/mutation/fuzz adapters and stage targets | Partial | StageExecutorRegistry / stage targets | Missing tooling remains automation gap; imported CI receipts stay observation-only | High |
 | Evidence ledger | Revision, kind, producer, confidence, targets, bounded persistence | Partial | Evidence / evidence_store | Producer strings/digests are not authenticated execution identities | Critical |
 | Evidence freshness | Code + Design hash, effective/current aggregation | Complete | Revision / latest_current | Add Git head/base/tree and policy binding to acceptance envelope | Critical |
 | Human approval | verification_approve and frozen reconciliation snapshot | Partial | AuthorizationManager / plan digest | Caller-supplied confirmed/approver does not authenticate a human | Critical |

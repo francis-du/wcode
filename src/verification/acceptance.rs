@@ -23,6 +23,8 @@ mod timing;
 pub use timing::{execution_duration_metrics, AcceptanceCheckTiming};
 #[path = "acceptance_rules.rs"]
 mod rules;
+#[cfg(test)]
+pub(crate) use rules::gate_evidence_ids;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

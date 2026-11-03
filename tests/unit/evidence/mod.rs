@@ -338,3 +338,95 @@ fn advisory_authority_cannot_replace_native_negative_proof() {
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].result, EvidenceResult::Pass);
 }
+
+fn external_receipt_fixture() -> ExternalReceipt {
+    ExternalReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".into(),
+        repository: "francis-du/wcode".into(),
+        repository_id: 1234,
+        app_id: 7,
+        check_id: 9,
+        check_name: "wcode/change-acceptance".into(),
+        head_sha: "b".repeat(64),
+        status: "completed".into(),
+        conclusion: Some("success".into()),
+        annotations: vec![crate::git_provider::CheckAnnotation {
+            path: "src/lib.rs".into(),
+            start_line: Some(1),
+            end_line: Some(2),
+            annotation_level: "warning".into(),
+            title: "t".into(),
+            message: "m".into(),
+        }],
+        digest: "a".repeat(64),
+        captured_at_ms: 1,
+    }
+}
+
+#[test]
+fn external_receipt_rejects_oversized_or_malformed_payloads() {
+    let mut receipt = external_receipt_fixture();
+    assert_eq!(receipt.validate(), Ok(()));
+
+    receipt.annotations[0].path = "x".repeat(513);
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.annotations[0].message = "x".repeat(4_097);
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.digest = "a".repeat(63);
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.digest = "z".repeat(64);
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.annotations = (0..129)
+        .map(|index| crate::git_provider::CheckAnnotation {
+            path: format!("src/file-{index}.rs"),
+            start_line: None,
+            end_line: None,
+            annotation_level: "notice".into(),
+            title: "t".into(),
+            message: "m".into(),
+        })
+        .collect();
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.repository_id = 0;
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.app_id = 0;
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.provider = String::new();
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.annotations[0].start_line = Some(9);
+    receipt.annotations[0].end_line = Some(2);
+    assert_eq!(receipt.validate(), Err(EvidenceError::InvalidEvidence));
+
+    receipt = external_receipt_fixture();
+    receipt.annotations[0].end_line = Some(2);
+    assert_eq!(receipt.validate(), Ok(()));
+}
+
+#[test]
+fn external_receipt_cannot_coexist_with_an_execution_receipt() {
+    let mut record = receipt_record("EV-both", 1, "full", &[("a", EvidenceResult::Pass)]);
+    assert_eq!(record.validate(), Ok(()));
+    record.external_receipt = Some(external_receipt_fixture());
+    assert_eq!(record.validate(), Err(EvidenceError::InvalidEvidence));
+
+    let mut observation = scoped_record("EV-observation", 2, EvidenceResult::Pass);
+    observation.external_receipt = Some(external_receipt_fixture());
+    assert_eq!(observation.validate(), Ok(()));
+}

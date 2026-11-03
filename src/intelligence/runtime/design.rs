@@ -699,6 +699,58 @@ impl SoftwareIntelligenceRuntime {
         Ok(evidence)
     }
 
+    /// Import a captured authoritative CI receipt as observation-only Evidence.
+    /// The receipt can never satisfy a stage or acceptance; it is retained for
+    /// the evidence ledger only. Every binding mismatch fails before persist.
+    pub fn verification_import_ci_receipt(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        receipt: &crate::git_provider::CheckReceipt,
+        binding: &crate::verification::receipt::ReceiptBinding,
+        git_binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Evidence> {
+        self.ensure_verification_loaded(workspace_id, workspace)?;
+        let plan = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+            state.verification.status(plan_id)?.plan
+        };
+        if plan.workspace != workspace_id {
+            return Err(anyhow!(
+                "verification plan does not belong to the selected workspace"
+            ));
+        }
+        let revision = plan.revision.clone().ok_or_else(|| {
+            anyhow!("verification plan has no bound revision; create a current plan")
+        })?;
+        if revision.code.ends_with(":partial") || self.current_revision(workspace)? != revision {
+            return Err(anyhow!(
+                "stale verification plan cannot authorize current evidence"
+            ));
+        }
+        let git = git_binding
+            .ok_or_else(|| anyhow!("CI receipt import requires a Git execution binding"))?;
+        let mut evidence =
+            crate::verification::receipt::import_check_receipt(receipt, binding, &git, &revision)?;
+        evidence.subject = plan.subject.clone();
+        evidence.execution_policy_binding = Some(plan.policy.clone());
+        evidence.validate()?;
+        if self.current_revision(workspace)? != revision {
+            return Err(anyhow!("revision changed before CI receipt persistence"));
+        }
+        evidence_store::persist(workspace, &evidence)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("software intelligence state poisoned"))?;
+        push_evidence(&mut state.evidence, workspace_id, evidence.clone());
+        Ok(evidence)
+    }
+
     #[cfg(test)]
     pub(crate) fn verification_approve(
         &self,

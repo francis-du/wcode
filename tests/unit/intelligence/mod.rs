@@ -520,3 +520,53 @@ fn transitive_call_impact_walks_reverse_callers() {
     assert!(symbols.contains("src/caller.rs::caller"));
     assert_eq!(callers, 1);
 }
+
+fn ci_receipt_binding() -> crate::verification::receipt::ReceiptBinding {
+    crate::verification::receipt::ReceiptBinding {
+        repository: "francis-du/wcode".into(),
+        repository_id: 1234,
+        app_id: 7,
+        check_name: "wcode/change-acceptance".into(),
+    }
+}
+
+fn ci_check_receipt(head_sha: &str) -> crate::git_provider::CheckReceipt {
+    let check = crate::git_provider::CheckObservation {
+        id: 9,
+        head_sha: head_sha.to_owned(),
+        name: "wcode/change-acceptance".into(),
+        source_id: "github-app:7".into(),
+        external_id: "wcode:test".into(),
+        status: "completed".into(),
+        conclusion: Some("success".into()),
+    };
+    let annotations = vec![crate::git_provider::CheckAnnotation {
+        path: "src/lib.rs".into(),
+        start_line: Some(1),
+        end_line: Some(2),
+        annotation_level: "warning".into(),
+        title: "t".into(),
+        message: "m".into(),
+    }];
+    let digest = crate::git_provider::github::check_receipt_digest(&check, &annotations);
+    crate::git_provider::CheckReceipt {
+        schema_version: crate::git_provider::CHECK_RECEIPT_SCHEMA_VERSION,
+        provider: "github".into(),
+        repository: "francis-du/wcode".into(),
+        repository_id: 1234,
+        app_id: 7,
+        check,
+        annotations,
+        digest,
+    }
+}
+
+fn ci_git_binding() -> crate::verification::change::ExecutionGitBinding {
+    crate::verification::change::ExecutionGitBinding {
+        repository: format!("sha256:{}", "a".repeat(64)),
+        head_sha: "b".repeat(40),
+        tree_sha: "c".repeat(40),
+        dirty: false,
+        index_fingerprint: format!("sha256:{}", "d".repeat(64)),
+    }
+}

@@ -49,6 +49,7 @@ pub(super) fn usable_for_git(input: &AcceptanceInput<'_>, record: &Evidence) -> 
             | EvidenceAuthority::NativeStage
             | EvidenceAuthority::LocalOperator
             | EvidenceAuthority::LegacyUnknown
+            | EvidenceAuthority::ExternalReceipt
     ) || current_git(input, record)
 }
 
