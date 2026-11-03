@@ -642,6 +642,30 @@ class SourcePackageSafety(unittest.TestCase):
         self.assertNotIn(b"failure_locations", path.read_bytes())
         self.assertEqual(json.loads(path.read_bytes())["status"], "failed")
 
+    def test_failed_child_retains_bounded_output_in_a_file_not_the_log(self):
+        root = self.root / "failure-log"
+        root.mkdir()
+        log = root / "failure.log"
+        path = self.root / "report.json"
+        report = standalone.StageReport(path)
+        code = (
+            "print('test suite::broken ... FAILED');"
+            "print('PRIVATE_BODY_MARKER');"
+            "raise SystemExit(7)"
+        )
+        output = io.StringIO()
+        with patch.object(standalone, "REPORT", report), \
+                patch.object(standalone, "FAILURE_LOG", str(log)), \
+                contextlib.redirect_stdout(output):
+            with self.assertRaises(standalone.StandaloneError):
+                standalone.run_stage(
+                    "rust_child", [sys.executable, "-c", code], self.root,
+                    standalone.controlled_env(), 5, capture_output=True,
+                    diagnostics=True)
+        retained = log.read_bytes()
+        self.assertIn(b"PRIVATE_BODY_MARKER", retained)
+        self.assertNotIn("PRIVATE_BODY_MARKER", output.getvalue())
+
     def test_failure_diagnostics_are_opt_in_and_never_emitted_for_success(self):
         for enabled, exit_code in ((False, 7), (True, 0)):
             output = io.StringIO()

@@ -37,6 +37,12 @@ MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_METADATA_BYTES = 1024 * 1024
 MAX_REPORT_BYTES = 64 * 1024
 MAX_REPORT_EVENTS = 64
+# The captured child output is retained to a file, never echoed into the CI log:
+# it can contain absolute paths, source text or credentials. Only the bounded
+# diagnostic hints above are emitted.
+MAX_FAILURE_LOG_BYTES = 2 * 1024 * 1024
+FAILURE_LOG = os.environ.get(
+    "WCODE_STANDALONE_FAILURE_LOG", "target/wcode-standalone-failure.log")
 MAX_FAILURE_TESTS = 256
 MAX_FAILURE_LINE_BYTES = 1024
 # Only fixed native status codes and known test files may leave captured output.
@@ -460,6 +466,14 @@ def run_stage(stage: str, argv: list[str], cwd: Path, env: dict[str, str],
          seconds=round(time.monotonic() - started, 3),
          exit_code=process.returncode, output_bytes=output_bytes, **hints)
     if failure:
+        try:
+            directory = os.path.dirname(FAILURE_LOG)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(FAILURE_LOG, "wb") as handle:
+                handle.write(b"".join(captured)[:MAX_FAILURE_LOG_BYTES])
+        except OSError:
+            pass
         raise StandaloneError(failure)
     return b"".join(captured)
 
@@ -903,7 +917,7 @@ def verify_standalone(root: Path, target: Path, diagnostics: bool = False) -> No
         run_stage("standalone_build", cached_cargo_args("build", target) + ["--workspace"],
                   standalone, env, 1800, diagnostics=diagnostics)
         run_stage("standalone_test", cached_cargo_args("test", target) + ["--workspace"],
-                  standalone, env, 2400, diagnostics=diagnostics)
+                  standalone, env, 2400, capture_output=True, diagnostics=diagnostics)
 
         repack_version, repack_inventories, repack_names = workspace_inventories(
             standalone, env, "repack")
