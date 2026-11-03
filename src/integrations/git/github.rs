@@ -740,6 +740,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
         .mode(0o600)
         .open(path)
         .and_then(|mut file| file.write_all(bytes))
@@ -792,6 +793,10 @@ const MAX_CHECK_ANNOTATIONS: usize = 1000;
 pub(crate) fn load_receipts(path: &Path) -> Result<Vec<CheckReceipt>> {
     if !path.exists() {
         return Ok(Vec::new());
+    }
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        bail!("receipt store must not be a symlink: {}", path.display());
     }
     let bytes =
         std::fs::read(path).map_err(|error| anyhow!("cannot read {}: {error}", path.display()))?;
