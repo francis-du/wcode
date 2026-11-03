@@ -105,6 +105,23 @@ async fn http(
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+async fn intelligence_headers(state: &Arc<AppState>, path: &str) -> HeaderMap {
+    let request = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header("host", "127.0.0.1:8765")
+        .header("origin", "http://127.0.0.1:8765")
+        .header("x-wcode-ui-token", state.auth.ui_token())
+        .body(Body::empty())
+        .unwrap();
+    crate::mcp::router(state.clone())
+        .oneshot(request)
+        .await
+        .unwrap()
+        .headers()
+        .clone()
+}
+
 async fn request_body(state: &AppState, id: &str, workspace: &Workspace) -> Value {
     json!({"level":"quick", "revision":current_revision(state,workspace).await.unwrap(),
         "snapshot_revision":snapshot_key(state,id,workspace).await.unwrap()})
@@ -547,6 +564,10 @@ async fn intelligence_status_scopes_and_graph_routes_are_protected_and_shaped() 
     ] {
         let (code, rejected) = http(&state, id, "GET", path, None, false).await;
         assert_eq!(code, StatusCode::UNAUTHORIZED, "{path}: {rejected}");
+        let headers = intelligence_headers(&state, path).await;
+        assert_eq!(headers["cache-control"], "no-store", "{path}");
+        assert_eq!(headers["x-content-type-options"], "nosniff", "{path}");
+        assert_eq!(headers["referrer-policy"], "no-referrer", "{path}");
     }
 
     let (code, status) = http(&state, id, "GET", "/intelligence/status", None, true).await;
