@@ -66,3 +66,27 @@ Release notes are indexed here instead of being expanded in the global documenta
 ## Release policy
 
 Each release page is immutable historical documentation. New versions add one release page per language and one entry at the top of this index; the global sidebar continues to expose only the single Releases entry so navigation stays bounded as history grows.
+
+## Verifying an already published release
+
+`Build & Release` builds and publishes platform archives during a tag push. To
+re-verify an **existing** publication without republishing it, run the
+`Verify Published Release` workflow manually (Actions -> Verify Published
+Release -> Run workflow) with three inputs:
+
+| Input | Meaning |
+| --- | --- |
+| `release_tag` | The existing tag to verify, e.g. `v0.9.2`. |
+| `publication_run` | Workflow run ID of the original successful publication job. |
+| `publication_attempt` | That run's attempt (default `1`). |
+
+The workflow resolves the tag to its exact commit, reads that commit's
+`Cargo.toml` version, then downloads and exercises the official release archives
+on Linux, macOS and Windows via `tests/published_release.py`. Each platform
+uploads its verification proof as an artifact.
+
+This is a re-verification of what was published, not a republish: it never
+creates a release, upload or tag. A green result does not retroactively change an
+earlier commit's evidence, and an older green candidate does not validate a newer
+commit.
+
