@@ -26,6 +26,7 @@ pub(super) use web_jobs::{
 };
 #[path = "web_verification.rs"]
 mod web_verification;
+use web_verification::no_store;
 pub(super) use web_change_impact::intelligence_web_change_impact;
 #[cfg(test)]
 pub(super) use web_change_impact::IntelligenceChangeImpactQuery;
@@ -820,7 +821,7 @@ pub(super) async fn intelligence_web_status(
 ) -> Response {
     let (workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
         Ok(selected) => selected,
-        Err(response) => return *response,
+        Err(response) => return no_store(*response),
     };
     let harness = state.harness.clone();
     let workspace_for_read = workspace.clone();
@@ -840,23 +841,26 @@ pub(super) async fn intelligence_web_status(
         }
     };
     let (base_result, review) = tokio::join!(base_task, review_task);
-    let base = match base_result {
-        Ok(Ok(value)) => value,
-        Ok(Err(error)) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error.to_string()})),
-            )
-                .into_response()
-        }
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("intelligence dashboard task failed: {error}")})),
-            )
-                .into_response()
-        }
-    };
+    let base =
+        match base_result {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                return no_store(
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": error.to_string()})),
+                    )
+                        .into_response(),
+                )
+            }
+            Err(error) => return no_store(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("intelligence dashboard task failed: {error}")})),
+                )
+                    .into_response(),
+            ),
+        };
     let risk = review.and_then(|review| {
         state
             .harness
@@ -901,7 +905,12 @@ pub(super) async fn intelligence_web_status(
             .monitor
             .record_intelligence_result(&workspace_id, "risk_status", risk);
     }
-    (StatusCode::OK, Json(value)).into_response()
+    (
+        StatusCode::OK,
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(value),
+    )
+        .into_response()
 }
 
 pub(super) async fn intelligence_web_scopes(
@@ -910,7 +919,7 @@ pub(super) async fn intelligence_web_scopes(
 ) -> Response {
     let (workspace_id, workspace) = match intelligence_ui_workspace(&state, &headers) {
         Ok(selected) => selected,
-        Err(response) => return *response,
+        Err(response) => return no_store(*response),
     };
     let harness = state.harness.clone();
     match mcp_tools::run_blocking(move || {
@@ -926,15 +935,18 @@ pub(super) async fn intelligence_web_scopes(
                 .record_intelligence_result(&workspace_id, "scope_status", &status);
             (
                 StatusCode::OK,
+                [(header::CACHE_CONTROL, "no-store")],
                 Json(json!({"workspace": workspace_id, "scope_status": status})),
             )
                 .into_response()
         }
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": error.to_string()})),
-        )
-            .into_response(),
+        Err(error) => no_store(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": error.to_string()})),
+            )
+                .into_response(),
+        ),
     }
 }
 
@@ -944,7 +956,7 @@ pub(super) async fn intelligence_web_graph(
 ) -> Response {
     let (_, workspace) = match intelligence_ui_workspace(&state, &headers) {
         Ok(selected) => selected,
-        Err(response) => return *response,
+        Err(response) => return no_store(*response),
     };
     let harness = state.harness.clone();
     let graph = tokio::task::spawn_blocking(move || {
@@ -964,16 +976,25 @@ pub(super) async fn intelligence_web_graph(
     })
     .await;
     match graph {
-        Ok(Ok(graph)) => (StatusCode::OK, Json(json!(graph))).into_response(),
-        Ok(Err(error)) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": error.to_string()})),
+        Ok(Ok(graph)) => (
+            StatusCode::OK,
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(json!(graph)),
         )
             .into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("graph dashboard task failed: {error}")})),
-        )
-            .into_response(),
+        Ok(Err(error)) => no_store(
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": error.to_string()})),
+            )
+                .into_response(),
+        ),
+        Err(error) => no_store(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("graph dashboard task failed: {error}")})),
+            )
+                .into_response(),
+        ),
     }
 }
