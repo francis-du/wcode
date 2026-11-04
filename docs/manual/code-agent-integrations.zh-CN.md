@@ -44,6 +44,17 @@ MCP Host 启动进程时的当前目录就是默认 Workspace，因此一份全�
 配置可以跨仓库复用，也不会误把插件包目录当源码。`--workspace` 只作为
 用户显式覆盖。
 
+已经知道自己项目上下文的 agent 可以一次继承多个根，而不必逐个配置：
+
+- `WCODE_WORKSPACES` —— 路径列表。条目之间用平台路径列表分隔符（Unix 为
+  `:`，Windows 为 `;`）和/或换行分隔，例如
+  `WCODE_WORKSPACES=/repo/a:/repo/b`。
+- `WCODE_WORKSPACES_FILE` —— 一个每行一个绝对或相对根的文件（`#` 开头为
+  注释），适合会话已经把上下文落到某个位置的场景。
+
+显式 `--workspace` 始终优先。两者都没有时，使用 MCP Host 启动进程的当前
+目录，与之前完全一致。
+
 ### stdio 下的人工授权
 
 `stdin` / `stdout` 本身就是 MCP 协议通道，所以 wcode 不会在这里插入终端
