@@ -403,6 +403,7 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
         assert_eq!(result["dispatch"], "completion-driven");
         assert_eq!(result["succeeded"], 1);
         assert_eq!(result["failed"], 3);
+        assert_eq!(result["items"][3]["ok"], true);
         for index in [1, 2] {
             assert!(result["items"][index]["error"]
                 .as_str()
