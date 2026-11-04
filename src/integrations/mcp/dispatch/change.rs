@@ -6,11 +6,7 @@ pub(super) async fn change_intelligence_tool(
     args: &Value,
 ) -> Result<Value, String> {
     let (workspace_id, workspace) = selected_workspace(state, args)?;
-    let timeout_seconds = args
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(30)
-        .clamp(1, 120);
+    let timeout_seconds = bounded_usize_arg_range(args, "timeout_seconds", 30, 1, 120)? as u64;
     let review = match state
         .harness
         .review_changes(

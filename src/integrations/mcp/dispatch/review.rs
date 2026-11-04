@@ -13,6 +13,7 @@ pub(super) async fn review_changes_tool(state: &AppState, args: &Value) -> Resul
         Some(Value::Bool(value)) => *value,
         Some(_) => return Err("adversarial must be a boolean when provided".to_owned()),
     };
+    let timeout_seconds = bounded_usize_arg_range(args, "timeout_seconds", 30, 1, 120)? as u64;
     let base = revision_arg(args, "base_revision", false)?;
     let target = revision_arg(args, "target_revision", true)?;
     if target.is_some() && base.is_none() {
@@ -47,10 +48,6 @@ pub(super) async fn review_changes_tool(state: &AppState, args: &Value) -> Resul
             incomplete,
         ));
     }
-    let timeout_seconds = args
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(30);
     match state
         .harness
         .review_changes(workspace_id, &workspace, timeout_seconds, &state.monitor)

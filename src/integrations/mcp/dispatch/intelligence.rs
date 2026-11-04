@@ -148,8 +148,8 @@ pub(super) async fn call(
         "software_graph" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
-            let max_files = usize_arg(args, "max_files").unwrap_or(500);
-            let max_symbols = usize_arg(args, "max_symbols").unwrap_or(1_000);
+            let max_files = bounded_usize_arg_range(args, "max_files", 500, 1, 5_000)?;
+            let max_symbols = bounded_usize_arg_range(args, "max_symbols", 1_000, 1, 5_000)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -211,8 +211,8 @@ pub(super) async fn call(
         "semantic_provider_refresh" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
-            let max_files = usize_arg(args, "max_files").unwrap_or(128);
-            let max_symbols = usize_arg(args, "max_symbols").unwrap_or(1_000);
+            let max_files = bounded_usize_arg_range(args, "max_files", 128, 1, 256)?;
+            let max_symbols = bounded_usize_arg_range(args, "max_symbols", 1_000, 1, 2_000)?;
             state
                 .harness
                 .semantic_provider_refresh(&workspace, &path, max_files, max_symbols)
@@ -223,14 +223,14 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let path = required_string(args, "path")?.to_owned();
             let symbol = string_arg(args, "symbol").map(str::to_owned);
-            let line = usize_arg(args, "line");
-            let character = usize_arg(args, "character");
+            let line = optional_bounded_usize_arg(args, "line", 1)?;
+            let character = optional_bounded_usize_arg(args, "character", 1)?;
             let intent =
                 serde_json::from_value::<crate::semantic_provider::SemanticNavigationIntent>(
                     Value::String(string_arg(args, "intent").unwrap_or("inspect").to_owned()),
                 )
                 .map_err(|error| format!("invalid semantic navigation intent: {error}"))?;
-            let max_results = usize_arg(args, "max_results").unwrap_or(50);
+            let max_results = bounded_usize_arg_range(args, "max_results", 50, 1, 100)?;
             let request = crate::harness::SemanticNavigationRequest {
                 path,
                 symbol,
@@ -239,7 +239,8 @@ pub(super) async fn call(
                 intent,
                 max_results,
                 new_name: string_arg(args, "new_name").map(str::to_owned),
-                max_files: usize_arg(args, "max_files").unwrap_or(32),
+                // max_files is not a catalog parameter; keep the previous default.
+                max_files: 32,
             };
             state
                 .harness
@@ -302,7 +303,7 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let query = required_string(args, "query")?.to_owned();
             let intent = string_arg(args, "intent").unwrap_or("inspect").to_owned();
-            let budget = usize_arg(args, "budget").unwrap_or(12_000);
+            let budget = bounded_usize_arg_range(args, "budget", 12_000, 1_000, 64_000)?;
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
             let harness = state.harness.clone();
             run_blocking(move || {
@@ -332,7 +333,7 @@ pub(super) async fn call(
             } else {
                 selected_workspace(state, args)?
             };
-            let budget = usize_arg(args, "budget").unwrap_or(0);
+            let budget = bounded_usize_arg_range(args, "budget", 0, 1_000, 12_000)?;
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
             let decision_query = query.clone();
             let context_harness = state.harness.clone();
@@ -618,7 +619,8 @@ pub(super) async fn call(
             )
             .map_err(|error| format!("invalid language: {error}"))?;
             let provider_id = required_string(args, "provider_id")?.to_owned();
-            let timeout_seconds = usize_arg(args, "timeout_seconds").unwrap_or(120) as u64;
+            let timeout_seconds =
+                bounded_usize_arg_range(args, "timeout_seconds", 120, 1, 1_800)? as u64;
             state
                 .harness
                 .language_quality_run(

@@ -877,6 +877,43 @@ pub(super) fn bounded_usize_arg(
         .ok_or_else(|| format!("{key} must be an integer between {min} and {max} when provided"))
 }
 
+/// Validate an optional integer argument against its declared schema minimum and
+/// maximum. Values outside the declared range are rejected instead of clamped.
+pub(super) fn bounded_usize_arg_range(
+    args: &Value,
+    key: &str,
+    default: usize,
+    min: usize,
+    max: usize,
+) -> Result<usize, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(default);
+    };
+    value
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| (min..=max).contains(value))
+        .ok_or_else(|| format!("{key} must be an integer between {min} and {max} when provided"))
+}
+
+/// Validate an optional integer argument against its declared schema minimum,
+/// preserving absence. Schemas without a declared maximum keep downstream bounds.
+pub(super) fn optional_bounded_usize_arg(
+    args: &Value,
+    key: &str,
+    min: usize,
+) -> Result<Option<usize>, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(None);
+    };
+    value
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value >= min)
+        .map(Some)
+        .ok_or_else(|| format!("{key} must be an integer >= {min} when provided"))
+}
+
 pub(super) fn optional_string_array_arg(
     args: &Value,
     key: &str,
