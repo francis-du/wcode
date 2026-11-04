@@ -47,6 +47,16 @@ pub(super) fn command_timeout_seconds(args: &Value) -> Result<u64, String> {
     }
 }
 
+/// The OS sandbox is opt-in per call; the default lane executes directly.
+pub(super) fn command_sandbox_requested(args: &Value) -> Result<bool, String> {
+    match args.get("sandbox") {
+        None => Ok(false),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| "sandbox must be a boolean when provided".to_owned()),
+    }
+}
+
 pub(super) fn preflight_sync_command(state: &AppState, args: &Value) -> Result<(), String> {
     let (workspace_id, workspace) = selected_workspace(state, args)?;
     required_string(args, "program")?;
@@ -62,6 +72,7 @@ pub(super) fn preflight_sync_command(state: &AppState, args: &Value) -> Result<(
         }
     }
     command_timeout_seconds(args)?;
+    command_sandbox_requested(args)?;
     let unrestricted = state
         .workspaces
         .all_commands_authorized(Some(&workspace_id))
@@ -614,7 +625,9 @@ pub(super) async fn call(
                     .ok_or("cwd must be a non-empty string when provided")?,
             };
             let timeout_seconds = command_timeout_seconds(args)?;
+            let sandbox = command_sandbox_requested(args)?;
             let revision_key = if command_environment.is_empty()
+                && !sandbox
                 && workspace.verification_command_shape_allowed(&program, &command_args)
             {
                 state
@@ -644,6 +657,7 @@ pub(super) async fn call(
                             cwd,
                             timeout_seconds,
                             &command_environment,
+                            sandbox,
                         )
                         .await
                 }

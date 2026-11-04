@@ -91,10 +91,10 @@ impl ToolHarness {
             "builtin_discovery": true,
             "config": ".wcode/executors.yaml",
             "command_shell_supported": true,
-            "broad_commands_sandboxed": true,
+            "broad_commands_sandboxed": false,
             "languages": 22,
             "stages": ["property", "mutation", "fuzz", "runtime_canary"],
-            "execution_policy": "bounded-direct-plus-sandboxed-broad-commands",
+            "execution_policy": "direct-default-plus-opt-in-sandbox",
             "requires_risky_exec": false
         });
         let capability_routing = json!({

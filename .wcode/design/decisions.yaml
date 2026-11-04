@@ -130,10 +130,10 @@
 
 - schema_version: 1
   id: ADR-011-BROAD-EXECUTION-SANDBOX
-  title: Policy-bypass commands are sandboxed instead of becoming raw Full Access children
+  title: The OS sandbox is an opt-in per-call isolation layer, not an implicit condition of command shape
   status: accepted
-  decision: Commands that remain valid under wcode's bounded command profiles keep the existing direct execution path. A command admitted only because Workspace all-command or Full Access bypasses the bounded profile is broad execution and must be transformed by an OS sandbox before spawn. macOS uses Seatbelt and Linux uses bubblewrap; an unavailable or unsupported provider fails the broad command closed. Sandbox policy grants Workspace read/write and required system/tool reads, denies external network access, preserves resource/cwd bounds and keeps sensitive environment scrubbing active. Human authorization cannot disable this isolation layer.
-  rationale: All-command and Full Access currently create the exact broad agent-owned execution surface anticipated by REQ-EXECUTION-SANDBOX-001. Sandboxing only the bypass lane preserves compatibility and performance for normal engineering commands while preventing explicit approval from becoming equivalent to unisolated shell authority.
+  decision: Commands keep the direct execution path by default, including shapes outside wcode's bounded command profiles. The OS sandbox is selected only when the caller asks for it on that specific call (the MCP run_command `sandbox` argument or the run_command_sandboxed embedder API). When selected, macOS uses Seatbelt and Linux uses bubblewrap; an unavailable or unsupported provider falls back to direct execution instead of refusing the command. Sandbox policy grants Workspace read/write and required system/tool reads, denies external network access, preserves resource/cwd bounds and keeps sensitive environment scrubbing active. Human authorization cannot disable this isolation layer.
+  rationale: The upper-layer agent owns the execution decision, so not every command needs OS isolation and an unavailable sandbox must never be the reason a requested command does not run. Keeping the direct lane as the default preserves compatibility and performance while the opt-in sandbox contains the broad agent-owned shell surface when the caller asks for it.
   affects:
     - REQ-EXECUTION-SANDBOX-001
     - component:execution-sandbox

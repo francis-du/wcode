@@ -84,18 +84,10 @@ pub(super) fn is_shell_program(program: &str) -> bool {
     )
 }
 
-pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> bool {
-    if bounded_full_access_command(program, args) {
-        return false;
-    }
-    let bounded = bounded_security(LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program));
-    validate_command_policy(program, args, bounded).is_err()
-}
-
 /// Classification profile for "this command is already covered by the bounded
 /// policy". It must stay explicit: the shipped default is permissive, so a
 /// permissive default here would classify every command as bounded and disable
-/// the sandbox/SSH lanes.
+/// the hardened Git/SSH lanes.
 fn bounded_security(allow_risky_exec: bool) -> WorkspaceSecurity {
     WorkspaceSecurity {
         allow_risky_exec,

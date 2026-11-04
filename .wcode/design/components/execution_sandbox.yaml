@@ -1,12 +1,12 @@
 schema_version: 1
 id: component:execution-sandbox
-name: Broad Execution OS Sandbox
+name: Opt-in Execution OS Sandbox
 responsibilities:
-  - classify command shapes outside bounded profiles as broad execution under ordinary permissive execution and explicit Workspace all-command or Full Access overrides
-  - transform broad commands into platform-native sandbox launches before process spawn while leaving bounded profiles, including supported syntax-only shell checks, on the hardened direct path
+  - keep command execution direct by default for every command shape and select the OS sandbox only when the caller opts in per call through the MCP run_command `sandbox` argument or the run_command_sandboxed embedder API
+  - transform a requested sandboxed command into a platform-native sandbox launch before process spawn while leaving every non-opted-in command, including supported syntax-only shell checks, on the hardened direct path
   - make the selected Workspace read-only unless writes are enabled or an explicit all-command override supplies write access; retain required system/tool reads and private scratch while protecting credential, repository-control and configured authority-state paths
   - deny external network access and preserve cwd/time/resource bounds and sensitive/injection-capable environment scrubbing
-  - use macOS Seatbelt and Linux bubblewrap; reject broad execution on Windows or when any platform/provider cannot enforce the required boundary
+  - use macOS Seatbelt and Linux bubblewrap; fall back to direct execution when any platform/provider cannot enforce the requested boundary
   - keep sandbox isolation independent from command authorization so ordinary admission, exact grants and session overrides never disable containment or authorize separate HumanApproval decisions
 constraints:
   - CONSTRAINT-EXECUTION-SANDBOX-LAYERING
@@ -18,5 +18,5 @@ depends_on:
   - component:authorization
 implementation:
   - {kind: file, path: src/workspace/sandbox.rs}
-  - {kind: symbol, path: src/workspace/operations/execution.rs, symbol: Workspace::run_command}
+  - {kind: symbol, path: src/workspace/operations/execution.rs, symbol: Workspace::run_command_sandboxed}
   - {kind: file, path: src/workspace/command_policy.rs}

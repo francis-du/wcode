@@ -571,7 +571,7 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     }
 
     let bytes = serde_json::to_vec(first).unwrap().len();
-    assert!(bytes <= 60_000, "tool catalog is {bytes} bytes");
+    assert!(bytes <= 60_300, "tool catalog is {bytes} bytes");
     assert!(
         first.iter().all(|tool| tool.get("title").is_none()),
         "tool catalog must not repeat display titles mechanically derived from canonical names"

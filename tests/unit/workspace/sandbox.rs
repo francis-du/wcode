@@ -42,69 +42,6 @@ async fn macos_sandbox_runs_installed_cargo_with_isolated_home() {
 }
 
 #[test]
-fn broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only() {
-    assert!(!command_requires_sandbox(
-        false,
-        true,
-        true,
-        "sh",
-        &["-c".into(), "echo hi".into()],
-    ));
-    assert!(command_requires_sandbox(
-        true,
-        true,
-        true,
-        "sh",
-        &["-c".into(), "echo hi".into()],
-    ));
-    assert!(command_requires_sandbox(
-        true,
-        true,
-        true,
-        "unknown-agent-tool",
-        &["--do-anything".into()],
-    ));
-    assert!(!command_requires_sandbox(
-        true,
-        true,
-        true,
-        "cargo",
-        &["test".into()],
-    ));
-    assert!(!command_requires_sandbox(
-        true,
-        false,
-        true,
-        "cargo",
-        &["--version".into()],
-    ));
-    assert!(!command_requires_sandbox(
-        true,
-        true,
-        false,
-        "cargo",
-        &["fmt".into()],
-    ));
-    for git_args in [
-        vec!["add".into(), "-A".into()],
-        vec!["describe".into(), "--always".into()],
-        vec!["tag".into()],
-    ] {
-        assert!(
-            !command_requires_sandbox(true, false, false, "git", &git_args),
-            "bounded Git must stay direct: {git_args:?}"
-        );
-    }
-    assert!(!command_requires_sandbox(
-        true,
-        false,
-        false,
-        "sh",
-        &["-n".into(), "syntax.sh".into()],
-    ));
-}
-
-#[test]
 fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("repo");
@@ -211,7 +148,7 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
         .any(|items| { items[0] == "--chdir" && items[1] == cwd.to_string_lossy() }));
 
     let status = status();
-    assert!(status.broad_execution_requires_sandbox);
+    assert!(!status.broad_execution_requires_sandbox);
     assert!(status.approval_independent);
     assert!(!status.fail_closed);
     assert_eq!(status.network, "denied");
@@ -243,14 +180,6 @@ fn protected_symlink_targets_are_masked_and_hardlink_aliases_fail_closed() {
     std::fs::hard_link(workspace.join(".env"), workspace.join("alias.txt")).unwrap();
     let error = sandbox_protected_paths(&workspace).unwrap_err().to_string();
     assert!(error.contains("multiple hard links"));
-}
-
-#[test]
-fn broad_execution_requires_sandbox_only_for_unbounded_bypass() {
-    assert!(!broad_execution_requires_sandbox(false, false));
-    assert!(!broad_execution_requires_sandbox(false, true));
-    assert!(!broad_execution_requires_sandbox(true, true));
-    assert!(broad_execution_requires_sandbox(true, false));
 }
 
 fn assert_read_only_mask(args: &[OsString], source: &Path, target: &Path) {

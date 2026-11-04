@@ -131,7 +131,7 @@ Changes must preserve all of the following boundaries:
 - SHA-256 edit preconditions, per-file locking, post-lock path re-resolution, bounded atomic writes, and create-without-overwrite semantics;
 - `delete_path` as the model-facing file-tool deletion primitive, limited to one regular file or empty directory; recursive/root/symlink/hard-link deletion stays permanently blocked and no human approval is required;
 - executable-plus-argv command invocation without implicit shell parsing; the default policy is permissive and the calling agent owns authorization, while `--read-only`, `--no-exec`, `--no-semantic` and `--full-access` remain accepted for compatibility;
-- inspected bounded development profiles use the direct lane; otherwise-valid command shapes outside those profiles, including explicit shell script execution, use the OS sandbox when a backend is available and run directly when it is not;
+- inspected bounded development profiles use the direct lane; every other command also uses the direct lane by default, and the OS sandbox is opt-in per call through `sandbox: true` / `run_command_sandboxed`, falling back to direct execution when no backend is available;
 - normal command policy retains command-specific consequence checks for Git, GitHub and infrastructure tools when an embedder opts into a restrictive `WorkspaceSecurity`; command admission does not supply credentials or authorize publication, deployment, a HumanApproval decision or merge acceptance;
 - repository-declared verification executors retain their separate no-shell profile; ordinary command permissions do not broaden that profile or turn execution into native acceptance authority;
 - URL arguments never embed credentials, and high-confidence secret text stays redacted from model-facing reads;
@@ -140,9 +140,9 @@ Changes must preserve all of the following boundaries:
 - bounded output, timeout termination, sensitive-environment scrubbing, and disabled interactive prompts;
 - HTTPS/loopback public URL policy, OAuth PKCE/resource binding, bounded DCR metadata, exact redirect policy, Origin validation, and refresh-token rotation.
 
-`--allow-risky-exec`, `--allow-destructive-writes`, overlapping/broad Workspace flags, and equivalent switches remain accepted for compatibility, but the default policy is permissive and the calling agent owns authorization. Hardened direct profiles do not themselves provide OS isolation; broad commands use the platform sandbox when available and run directly otherwise.
+`--allow-risky-exec`, `--allow-destructive-writes`, overlapping/broad Workspace flags, and equivalent switches remain accepted for compatibility, but the default policy is permissive and the calling agent owns authorization. Hardened direct profiles do not themselves provide OS isolation; the platform sandbox is opt-in per call and falls back to direct execution when unavailable.
 
-Add a bounded development CLI profile only after inspecting the command family's Workspace, argument, environment and process consequences. Preserve representative allowed-shape tests and escape/mutation rejection tests for every new family. Commands outside bounded profiles follow the broad-command sandbox policy and must never be refused merely because no sandbox backend exists. Ordinary command admission, explicit session overrides and independent verification-executor trust remain distinct as documented in the [Security Model](../security/).
+Add a bounded development CLI profile only after inspecting the command family's Workspace, argument, environment and process consequences. Preserve representative allowed-shape tests and escape/mutation rejection tests for every new family. Commands outside bounded profiles stay on the direct lane unless the caller opts in to the sandbox, and must never be refused merely because no sandbox backend exists. Ordinary command admission, explicit session overrides and independent verification-executor trust remain distinct as documented in the [Security Model](../security/).
 
 ## Cross-platform dependency handling
 

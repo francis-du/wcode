@@ -55,7 +55,7 @@ Mandatory controls live in deterministic mechanisms:
 
 - Workspace root/path containment and malformed-path rejection;
 - permissive-by-default command execution with the calling agent owning authorization;
-- command validation without implicit shell parsing; broad commands use the OS sandbox when available and run directly otherwise;
+- command validation without implicit shell parsing; the OS sandbox is opt-in per call and falls back to direct execution when unavailable;
 - SHA edit preconditions;
 - Product Scope and Convention checks;
 - `review_changes` maintainability signals;

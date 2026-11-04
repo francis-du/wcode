@@ -66,13 +66,13 @@ N      拒绝
 
 命令视图中还可以按 **F** 开关 Workspace 级全部授权。受保护 WebUI 提供同一开关；支持 Form Elicitation 的 stdio 客户端会看到 `exact`、`all_commands`、`deny` 三种选择。
 
-正常开启执行能力时，普通命令不需要额外人工命令授权，显式撤销过的可执行程序访问除外。Workspace 本次运行全部授权和 Full Access 使用 `session_override`，其优先级高于 `--no-exec`、显式命令撤权、只读命令写入分类和普通命令策略过滤。宽命令仍必须进入强沙箱，并在这个边界内获得 Workspace 写入能力。撤销会话授权后，恢复基础执行/写入策略及原有显式命令撤权。没有覆盖时，exec 关闭对应规范状态 `disabled`，exec 开启对应 `permissive_sandboxed`。这些状态不会取消受保护权威状态根、受保护 CWD、进程/资源上限、环境清理或 WCode 文件工具/删除控制。
+正常开启执行能力时，普通命令不需要额外人工命令授权，显式撤销过的可执行程序访问除外。Workspace 本次运行全部授权和 Full Access 使用 `session_override`，其优先级高于 `--no-exec`、显式命令撤权、只读命令写入分类和普通命令策略过滤。OS 沙盒按调用选择性启用：`run_command` 默认直接执行，上层 agent 可以在需要隔离的具体调用上传入 `sandbox: true`（嵌入式 API 为 `run_command_sandboxed`）；没有可用后端时回退为直接执行，沙盒永远不会成为命令无法运行的理由。撤销会话授权后，恢复基础执行/写入策略及原有显式命令撤权。没有覆盖时，exec 关闭对应规范状态 `disabled`，exec 开启对应 `permissive_sandboxed`。这些状态不会取消受保护权威状态根、受保护 CWD、进程/资源上限、环境清理或 WCode 文件工具/删除控制。
 
 `RiskyExecution` 继续作为自动 Profile 之外非普通命令执行的 Fingerprint-scoped Trust 机制，例如没有 Automatic Profile 的 LSP Server 或高级 Stage Executor。普通 `run_command` 不需要它，也不会自行满足这些独立信任检查。显式 Runtime Risk Grant、Workspace 会话覆盖或 Full Access 可以在支持的路径中满足既有 Runtime Trust，但都不能授权 HumanApproval。对非自动 LSP Server，精确模式仍绑定 Workspace + Server + 当前 Binary Identity。Hardened 自动 LSP 与仓库声明的验证 Profile 保留自身的可执行程序、参数及环境限制。
 
 无论命令授权状态如何，WCode 自己的文件工具都保持 Workspace 隔离。
 
-本地 Policy 激活与撤销复用精确 HumanDecision，并记录独立治理历史，见[本地验收 Policy](../acceptance-policy/)。宽命令沙箱使用实际配置的权威状态根，而不是仅匹配目录名称；macOS 拒绝读写，Linux 无法遮罩则拒绝启动。普通有界构建和测试仍运行仓库代码并拥有宿主用户权限，可能触及该用户的状态。因此带校验和的本地历史不能独立证明面对任意仓库代码的权威防伪；商业 merge gate 还需要不可信 Worker 之外的可信 Policy 和执行集成。
+本地 Policy 激活与撤销复用精确 HumanDecision，并记录独立治理历史，见[本地验收 Policy](../acceptance-policy/)。宽命令沙箱使用实际配置的权威状态根，而不是仅匹配目录名称；macOS 拒绝读写，Linux 无法遮罩则拒绝启动，且仅在调用方显式请求沙盒时生效。普通有界构建和测试仍运行仓库代码并拥有宿主用户权限，可能触及该用户的状态。因此带校验和的本地历史不能独立证明面对任意仓库代码的权威防伪；商业 merge gate 还需要不可信 Worker 之外的可信 Policy 和执行集成。
 
 ## OAuth 与远程 MCP
 
