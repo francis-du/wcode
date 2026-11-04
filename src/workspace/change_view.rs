@@ -257,48 +257,54 @@ fn parse_changed_ranges(diff: &str) -> ChangedRangesSnapshot {
             binary = false;
             continue;
         }
-        if let Some(path) = line.strip_prefix("--- ") {
-            if !binary && current.is_none() {
-                current = diff_header_path(path, "");
+        // File headers and binary notices only appear before a file's first
+        // hunk. Inside a hunk a content line may itself begin with `--- ` or
+        // `+++ ` (a removed line starting with `-- `, or an added line starting
+        // with `++ `), and must be read as content rather than as a header.
+        if !in_hunk {
+            if let Some(path) = line.strip_prefix("--- ") {
+                if !binary && current.is_none() {
+                    current = diff_header_path(path, "");
+                    if let Some(path) = current.clone() {
+                        snapshot
+                            .files
+                            .entry(path)
+                            .or_insert_with(|| FileChangedRanges {
+                                before: Some(Vec::new()),
+                                after: Some(Vec::new()),
+                                truncated: false,
+                            });
+                    }
+                }
+                continue;
+            }
+            if let Some(path) = line.strip_prefix("+++ ") {
+                if !binary {
+                    // A `/dev/null` "+++" side is a deletion; keep the path already
+                    // resolved from the `---` header so its removed lines stay visible.
+                    if let Some(resolved) = diff_header_path(path, "") {
+                        current = Some(resolved.clone());
+                        snapshot
+                            .files
+                            .entry(resolved)
+                            .or_insert_with(|| FileChangedRanges {
+                                before: Some(Vec::new()),
+                                after: Some(Vec::new()),
+                                truncated: false,
+                            });
+                    }
+                }
+                continue;
+            }
+            if line.starts_with("Binary files ") || line == "GIT binary patch" {
+                binary = true;
                 if let Some(path) = current.clone() {
-                    snapshot
-                        .files
-                        .entry(path)
-                        .or_insert_with(|| FileChangedRanges {
-                            before: Some(Vec::new()),
-                            after: Some(Vec::new()),
-                            truncated: false,
-                        });
+                    let entry = snapshot.files.entry(path).or_default();
+                    entry.before = None;
+                    entry.after = None;
                 }
+                continue;
             }
-            continue;
-        }
-        if let Some(path) = line.strip_prefix("+++ ") {
-            if !binary {
-                // A `/dev/null` "+++" side is a deletion; keep the path already
-                // resolved from the `---` header so its removed lines stay visible.
-                if let Some(resolved) = diff_header_path(path, "") {
-                    current = Some(resolved.clone());
-                    snapshot
-                        .files
-                        .entry(resolved)
-                        .or_insert_with(|| FileChangedRanges {
-                            before: Some(Vec::new()),
-                            after: Some(Vec::new()),
-                            truncated: false,
-                        });
-                }
-            }
-            continue;
-        }
-        if line.starts_with("Binary files ") || line == "GIT binary patch" {
-            binary = true;
-            if let Some(path) = current.clone() {
-                let entry = snapshot.files.entry(path).or_default();
-                entry.before = None;
-                entry.after = None;
-            }
-            continue;
         }
         if let Some(header) = line.strip_prefix("@@ ") {
             let mut fields = header.split_whitespace();
@@ -348,11 +354,18 @@ fn parse_changed_ranges(diff: &str) -> ChangedRangesSnapshot {
     snapshot
 }
 
-/// Parse a completed diff probe. A failed, redacted, timed-out or incompletely
-/// captured probe retains no ranges. Truncation stays per file: only a file
-/// whose own ranges hit `MAX_CHANGED_RANGES` is marked truncated.
+/// Parse a completed diff probe. A failed, redacted, timed-out, incompletely
+/// captured or byte-truncated probe retains no ranges: a diff cut off at the
+/// output cap would otherwise be read as a complete change set. Truncation
+/// stays per file: only a file whose own ranges hit `MAX_CHANGED_RANGES` is
+/// marked truncated.
 fn changed_ranges_from_output(output: &CommandResult) -> Option<ChangedRangesSnapshot> {
-    if !output.success || output.redacted || output.timed_out || output.output_incomplete {
+    if !output.success
+        || output.redacted
+        || output.timed_out
+        || output.output_incomplete
+        || output.truncated
+    {
         return None;
     }
     Some(parse_changed_ranges(&output.stdout))
@@ -643,8 +656,12 @@ impl Workspace {
     }
 
     /// Bounded changed-line ranges for the requested paths, extracted from one
-    /// `git diff HEAD` probe. `None` means the ranges are unavailable; a returned
-    /// snapshot may still be partial when `truncated` is set.
+    /// `git diff HEAD` probe. `None` means the ranges are unavailable: the
+    /// workspace root is not inside a Git work tree (which includes a
+    /// sub-workspace whose own directory has no `.git`), or the probe failed,
+    /// was incompletely captured, or was cut off at the output cap. A returned
+    /// snapshot covers the requested paths; a file whose own ranges hit
+    /// `MAX_CHANGED_RANGES` is marked truncated individually.
     pub(crate) async fn changed_line_ranges(
         &self,
         paths: &[String],
