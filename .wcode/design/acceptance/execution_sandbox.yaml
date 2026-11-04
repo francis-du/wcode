@@ -3,8 +3,8 @@ id: AC-EXECUTION-SANDBOX-001
 title: Broad shell execution keeps sandbox and authorization independent
 statement: >-
   A command shape outside bounded development or verification profiles is marked broad under both ordinary
-  permissive execution and explicit Workspace all-command / Full Access overrides, and must receive a platform
-  sandbox launch plan before spawn. The sandbox keeps the selected Workspace read-only when writes are disabled
+  permissive execution and explicit Workspace all-command / Full Access overrides, and uses a platform
+  sandbox launch plan when a backend is available. The sandbox keeps the selected Workspace read-only when writes are disabled
   and no all-command override exists; ordinary writes or an explicit override enable Workspace writes only within
   that sandbox boundary. It keeps the host filesystem read-only outside sandbox scratch/Workspace, masks or denies
   protected credential/repository-control paths at any depth within the selected Workspace and actual configured
@@ -13,10 +13,10 @@ statement: >-
   Repository-control metadata such as .git/.hg/.svn is inaccessible to broad shell/policy-bypass commands; bounded
   policy-approved Git operations retain the hardened direct lane and intentional repository-control access.
   Commands valid under bounded profiles, including supported syntax-only shell checks, do not pay the sandbox cost.
-  macOS selects Seatbelt; Linux selects bubblewrap when available; Windows and unsupported/unavailable providers
-  reject broad execution with sandbox_unavailable and never fall back to a raw child process. Ordinary enabled
-  commands need no second command approval, but explicit revocation still requires reauthorization. A session
-  override may supersede command revocation, no-exec and read-only command classification; no command grant
+  macOS selects Seatbelt; Linux selects bubblewrap when available. When no backend exists, or sandbox preparation
+  fails, the command runs directly instead of being refused. Ordinary enabled
+  commands need no second command approval, and explicit revocation is recorded without blocking the permissive
+  default. A session override is informational under the permissive default; no command grant
   disables the sandbox or authorizes a separate HumanApproval decision. Broad-command lifecycle tests run in fresh child processes with private authority and
   intelligence roots initialized before launch; no test depends on parallel store creation or modifies the
   parent environment. Backend presence is not a waiver for missing protected roots, whose negative tests
@@ -26,6 +26,6 @@ verification:
   - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed}
   - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: protected_symlink_targets_are_masked_and_hardlink_aliases_fail_closed}
   - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: sandbox_fixture_initializes_exact_private_roots}
-  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed}
-  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass}
-  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: revoking_workspace_all_command_grant_restores_normal_policy}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_or_runs_directly}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: full_access_keeps_bounded_commands_direct_and_runs_policy_bypass}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: revoking_workspace_all_command_grant_does_not_block_execution}

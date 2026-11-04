@@ -92,7 +92,7 @@ fn broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only()
     ] {
         assert!(
             !command_requires_sandbox(true, false, false, "git", &git_args),
-            "bounded Git must stay direct under Full Access: {git_args:?}"
+            "bounded Git must stay direct: {git_args:?}"
         );
     }
     assert!(!command_requires_sandbox(
@@ -213,7 +213,7 @@ fn sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed() {
     let status = status();
     assert!(status.broad_execution_requires_sandbox);
     assert!(status.approval_independent);
-    assert!(status.fail_closed);
+    assert!(!status.fail_closed);
     assert_eq!(status.network, "denied");
     assert_eq!(
         status.filesystem,

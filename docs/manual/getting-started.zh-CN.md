@@ -186,8 +186,8 @@ TUI 主屏优先展示连接状态和 Subspace 活动，移除了重复的 OVERV
 - `↑/↓`：选择待授权请求。
 - `Y/N`：批准或拒绝当前请求。
 - `P`：查看并确认 Full Access，显式开启当前用户 Home 访问与 Runtime 会话覆盖。
-  宽命令仍须经过 OS 沙箱；文件工具的 Protected Path、Symlink/Hard-link 与
-  Filesystem Root 等边界继续保留。
+  宽命令在可用 Backend 上使用 OS 沙箱，不可用时直接运行；文件工具的路径包含、
+  Symlink/Hard-link 与 Filesystem Root 等边界继续保留。
 
 受保护 WebUI 处理同一批请求，并把“可执行程序访问”和“精确仓库操作”
 分开显示；批准一层不会自动放开另一层。

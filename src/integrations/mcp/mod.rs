@@ -106,8 +106,6 @@ const PARALLEL_WRITE_TOOLS: &[&str] = &[
 
 #[path = "authorization.rs"]
 mod mcp_authorization;
-#[cfg(test)]
-pub(crate) use mcp_authorization::AUTHORIZATION_INPUT_KEY;
 pub(crate) use mcp_authorization::{
     apply_authorization_response, authorization_elicitation_params,
     authorization_request_from_tool_result, authorization_request_state, supports_form_elicitation,

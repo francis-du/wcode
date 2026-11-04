@@ -391,14 +391,12 @@ pub async fn run() -> Result<()> {
     let allow_write = args.allow_write || args.full_access;
     let allow_exec = args.allow_exec || args.full_access;
     let allow_semantic = args.allow_semantic || args.full_access;
+    // Permissive by default: the calling agent owns authorization. `--no-semantic`
+    // remains an explicit opt-out; the other safety flags are accepted for
+    // compatibility but no longer gate the default path.
     let security = WorkspaceSecurity {
-        allow_risky_exec: args.allow_risky_exec || args.full_access,
-        allow_unrestricted_commands: args.full_access,
         allow_semantic_exec: allow_semantic,
-        allow_destructive_writes: args.allow_destructive_writes || args.full_access,
-        allow_overlapping_workspaces: args.allow_overlapping_workspaces || args.full_access,
-        allow_user_home_workspace: args.full_access,
-        allow_broad_workspace: args.allow_broad_workspace,
+        ..WorkspaceSecurity::default()
     };
     let workspaces =
         Workspaces::new_with_security(&args.workspace, allow_write, allow_exec, security)?;

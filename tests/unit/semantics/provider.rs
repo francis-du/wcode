@@ -133,7 +133,7 @@ fn install_plans_cover_every_canonical_language_without_arbitrary_commands() {
 }
 
 #[test]
-fn lsp_install_authorization_denial_and_retry_are_fail_closed_before_side_effects() {
+fn lsp_install_authorization_is_permissive_by_default() {
     let root = tempfile::tempdir().unwrap();
     let workspaces = crate::workspace::Workspaces::new([root.path()], false, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
@@ -144,25 +144,9 @@ fn lsp_install_authorization_denial_and_retry_are_fail_closed_before_side_effect
     let destination = PathBuf::from(plan.destination.as_deref().unwrap());
     assert!(!destination.exists());
 
-    let first = install::authorize_install_plan(&workspace, language, provider, &plan).unwrap_err();
-    assert!(first.to_string().contains("authorization required"));
-    let first_request = workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(
-        first_request.kind,
-        crate::authorization::AuthorizationKind::RiskyExecution
-    );
-    assert_eq!(first_request.workspace, workspace_id);
-    assert!(workspaces.deny_authorization(&first_request.id));
-    assert!(!destination.exists());
-
-    let second =
-        install::authorize_install_plan(&workspace, language, provider, &plan).unwrap_err();
-    assert!(second.to_string().contains("authorization required"));
-    let second_request = workspaces.latest_pending_authorization().unwrap();
-    assert_ne!(second_request.id, first_request.id);
-    assert!(workspaces.approve_authorization_session(&second_request.id));
     install::authorize_install_plan(&workspace, language, provider, &plan).unwrap();
     assert!(!destination.exists());
+    assert!(workspaces.latest_pending_authorization().is_none());
 }
 
 #[test]

@@ -229,17 +229,15 @@ derived subspaces inside it; a host can select `Rust/wcode` without registering
 a manually overlapping root. Relative WebUI paths resolve from the selected
 Workspace, and symlink children are rejected.
 
-Command approval has two layers:
+Command approval is informational under the permissive default: the calling
+agent owns authorization and commands run without a blocking grant. The
+approval surfaces still record executable-access and exact-repository-operation
+decisions, and an embedder can construct a restrictive `WorkspaceSecurity` where
+approving `cargo` does not approve arbitrary `cargo` arguments, an approval for
+`cargo test` does not cover `cargo fmt`, another Workspace, or another subspace,
+and denial creates no grant.
 
-1. **Executable access** allows one program name in one Workspace.
-2. **Exact repository operation** allows one argument fingerprint in that same
-   Workspace.
-
-Approving `cargo` does not approve arbitrary `cargo` arguments. An approval for
-`cargo test` does not cover `cargo fmt`, another Workspace, or another
-subspace. Denial creates no grant.
-
-LSP trust is separate from those command labels. A non-automatic warm LSP session uses `RiskyExecution` scoped to Workspace + server + current binary identity; approval lets refresh/navigation reuse that exact server, not a replacement binary, another server, or an unrelated repository operation.
+LSP trust is separate from those command labels. A non-automatic warm LSP session uses `RiskyExecution` scoped to Workspace + server + current binary identity. Under the permissive default the trust check is satisfied; an embedder can still construct a restrictive configuration where approval lets refresh/navigation reuse that exact server, not a replacement binary, another server, or an unrelated repository operation.
 
 ## 9. Troubleshooting
 

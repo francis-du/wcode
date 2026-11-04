@@ -132,7 +132,7 @@ impl Workspace {
         Ok(Self {
             root_identity: root_identity(&root)?,
             root,
-            allow_write: false,
+            allow_write: self.allow_write,
             allow_exec: self.allow_exec,
             security: self.security,
             authorization: self.authorization.clone(),

@@ -88,11 +88,24 @@ pub(super) fn command_requires_broad_sandbox(program: &str, args: &[String]) -> 
     if bounded_full_access_command(program, args) {
         return false;
     }
-    let bounded = WorkspaceSecurity {
-        allow_risky_exec: LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program),
-        ..WorkspaceSecurity::default()
-    };
+    let bounded = bounded_security(LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program));
     validate_command_policy(program, args, bounded).is_err()
+}
+
+/// Classification profile for "this command is already covered by the bounded
+/// policy". It must stay explicit: the shipped default is permissive, so a
+/// permissive default here would classify every command as bounded and disable
+/// the sandbox/SSH lanes.
+fn bounded_security(allow_risky_exec: bool) -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: true,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
 }
 
 fn bounded_full_access_command(program: &str, args: &[String]) -> bool {
@@ -100,11 +113,7 @@ fn bounded_full_access_command(program: &str, args: &[String]) -> bool {
         if matches!(args, [command, flag] if command == "describe" && flag == "--always") {
             return true;
         }
-        let bounded = WorkspaceSecurity {
-            allow_risky_exec: true,
-            ..WorkspaceSecurity::default()
-        };
-        return validate_command_policy(program, args, bounded).is_ok();
+        return validate_command_policy(program, args, bounded_security(true)).is_ok();
     }
     matches!(
         (program, args),

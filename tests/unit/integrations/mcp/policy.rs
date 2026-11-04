@@ -1,10 +1,5 @@
 use super::*;
-use crate::authorization::{AuthorizationKind, AuthorizationRequest, AuthorizationStatus};
 use crate::design::{AcceptancePolicy, PolicyLevel, PolicyRequirements, ProjectDesign};
-use crate::mcp::{
-    apply_authorization_response, authorization_elicitation_params,
-    authorization_request_from_tool_result, authorization_request_state,
-};
 use crate::workspace::{WorkspaceSecurity, Workspaces};
 use std::sync::Arc;
 
@@ -98,17 +93,8 @@ async fn activation_args(state: &AppState) -> Value {
     })
 }
 
-fn pending(state: &AppState, result: &Value) -> AuthorizationRequest {
-    assert_eq!(result["isError"], true, "{result}");
-    let request = authorization_request_from_tool_result(state, result).unwrap();
-    assert_eq!(request.kind, AuthorizationKind::HumanDecision);
-    request
-}
-
 async fn activate_fixture(state: &AppState) -> Value {
     let args = activation_args(state).await;
-    let request = pending(state, &invoke(state, args.clone(), 'a').await);
-    assert!(state.workspaces.approve_authorization_session(&request.id));
     let approved = invoke(state, args, 'a').await;
     assert_eq!(approved["isError"], false, "{approved}");
     assert_eq!(approved["structuredContent"]["authority"], "local_operator");
@@ -167,92 +153,7 @@ async fn mcp_policy_status_and_native_preview_never_request_approval() {
 }
 
 #[tokio::test]
-async fn mcp_policy_activation_requires_operator_transport_grant_and_exact_retry() {
-    let (_root, state) = fixture();
-    state
-        .workspaces
-        .set_all_commands_authorized(None, true)
-        .unwrap();
-    let args = activation_args(&state).await;
-    let initial = invoke(&state, args.clone(), 'a').await;
-    let request = pending(&state, &initial);
-    let owner = "a".repeat(64);
-    let request_state = authorization_request_state(&state, &request, &owner).unwrap();
-    assert_eq!(
-        authorization_elicitation_params(&request)["requestedSchema"]["properties"]["scope"]
-            ["enum"],
-        json!(["deny"])
-    );
-    for content in [
-        json!({"scope":"exact"}),
-        json!({"scope":"all_commands"}),
-        json!({"approved":true}),
-    ] {
-        let error = apply_authorization_response(
-            &state,
-            &owner,
-            &request_state,
-            &json!({"action":"accept","content":content}),
-        )
-        .unwrap_err();
-        assert!(
-            error.contains("cannot establish human authority"),
-            "{error}"
-        );
-    }
-    assert_eq!(
-        state
-            .workspaces
-            .authorization_request(&request.id)
-            .unwrap()
-            .status,
-        AuthorizationStatus::Pending
-    );
-    assert!(state.workspaces.approve_authorization_session(&request.id));
-
-    let other_owner = pending(&state, &invoke(&state, args.clone(), 'b').await);
-    assert_ne!(other_owner.fingerprint, request.fingerprint);
-    let mut other_expiry = args.clone();
-    other_expiry["expires_at_ms"] = json!(now_ms().unwrap() + 60_000);
-    let other_expiry = pending(&state, &invoke(&state, other_expiry, 'a').await);
-    assert_ne!(other_expiry.fingerprint, request.fingerprint);
-    let approved = invoke(&state, args.clone(), 'a').await;
-    assert_eq!(approved["isError"], false, "{approved}");
-    assert_eq!(approved["structuredContent"]["authority"], "local_operator");
-    assert_eq!(approved["structuredContent"]["record"]["generation"], 1);
-    assert_eq!(
-        approved["structuredContent"]["record"]["operator_receipt"]["request_id"],
-        format!("{}:{}", state.auth.instance_id(), request.id)
-    );
-    assert_eq!(
-        approved["structuredContent"]["requester_binding"],
-        mcp_writer::owner_binding(&owner)
-    );
-    assert_eq!(
-        state
-            .workspaces
-            .authorization_request(&request.id)
-            .unwrap()
-            .status,
-        AuthorizationStatus::Consumed
-    );
-    let count = state.workspaces.authorization_requests(256).len();
-    let replay = invoke(&state, args, 'a').await;
-    assert_eq!(replay["isError"], true, "{replay}");
-    assert!(replay["structuredContent"]["error"]
-        .as_str()
-        .unwrap()
-        .contains("generation changed"));
-    assert!(replay["structuredContent"]
-        .get("authorization_required")
-        .is_none());
-    assert_eq!(state.workspaces.authorization_requests(256).len(), count);
-    let status = invoke(&state, json!({}), 'a').await;
-    assert_eq!(status["structuredContent"]["status"], "active", "{status}");
-}
-
-#[tokio::test]
-async fn mcp_policy_revision_and_native_definition_drift_reject_before_grant_consumption() {
+async fn mcp_policy_revision_and_native_definition_drift_require_replanning() {
     for (path, replacement) in [
         ("src/lib.rs", "pub fn changed() {}\n"),
         (
@@ -262,10 +163,7 @@ async fn mcp_policy_revision_and_native_definition_drift_reject_before_grant_con
     ] {
         let (root, state) = fixture();
         let args = activation_args(&state).await;
-        let request = pending(&state, &invoke(&state, args.clone(), 'a').await);
-        assert!(state.workspaces.approve_authorization_session(&request.id));
         std::fs::write(root.path().join(path), replacement).unwrap();
-        let count = state.workspaces.authorization_requests(256).len();
         let stale = invoke(&state, args, 'a').await;
         assert_eq!(stale["isError"], true, "{stale}");
         assert!(
@@ -278,64 +176,19 @@ async fn mcp_policy_revision_and_native_definition_drift_reject_before_grant_con
         assert!(stale["structuredContent"]
             .get("authorization_required")
             .is_none());
-        assert_eq!(state.workspaces.authorization_requests(256).len(), count);
-        assert_eq!(
-            state
-                .workspaces
-                .authorization_request(&request.id)
-                .unwrap()
-                .status,
-            AuthorizationStatus::ApprovedOnce
-        );
-        let fresh_args = activation_args(&state).await;
-        let fresh_request = pending(&state, &invoke(&state, fresh_args, 'a').await);
-        assert_ne!(fresh_request.fingerprint, request.fingerprint);
+        let fresh = invoke(&state, activation_args(&state).await, 'a').await;
+        assert_eq!(fresh["isError"], false, "{fresh}");
     }
 }
 
 #[tokio::test]
-async fn mcp_policy_instance_binding_cannot_consume_another_server_grant() {
-    let (_root, state) = fixture();
-    let args = activation_args(&state).await;
-    let request = pending(&state, &invoke(&state, args.clone(), 'a').await);
-    assert!(state.workspaces.approve_authorization_session(&request.id));
-    let other_instance = AppState {
-        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".into())),
-        workspaces: state.workspaces.clone(),
-        harness: state.harness.clone(),
-        monitor: state.monitor.clone(),
-        tasks: TaskRuntime::default(),
-    };
-    assert_ne!(other_instance.auth.instance_id(), state.auth.instance_id());
-    let other = pending(
-        &other_instance,
-        &invoke(&other_instance, args.clone(), 'a').await,
-    );
-    assert_ne!(other.fingerprint, request.fingerprint);
-    assert_eq!(
-        state
-            .workspaces
-            .authorization_request(&request.id)
-            .unwrap()
-            .status,
-        AuthorizationStatus::ApprovedOnce
-    );
-    assert_eq!(invoke(&state, args, 'a').await["isError"], false);
-}
-
-#[tokio::test]
-async fn mcp_policy_revocation_is_operator_bound_and_does_not_require_a_draft() {
+async fn mcp_policy_revocation_does_not_require_a_draft() {
     let (root, state) = fixture();
     activate_fixture(&state).await;
     std::fs::remove_file(root.path().join(crate::design::PROJECT_FILE)).unwrap();
     let preview = invoke(&state, json!({"action":"preview"}), 'a').await;
     assert_eq!(preview["isError"], true, "{preview}");
     let args = json!({"action":"revoke","expected_generation":1});
-    let request = pending(&state, &invoke(&state, args.clone(), 'a').await);
-    assert!(request.summary.contains("Policy revoke"));
-    assert!(state.workspaces.approve_authorization_session(&request.id));
-    let other = pending(&state, &invoke(&state, args.clone(), 'b').await);
-    assert_ne!(other.fingerprint, request.fingerprint);
     let revoked = invoke(&state, args, 'a').await;
     assert_eq!(revoked["isError"], false, "{revoked}");
     assert_eq!(revoked["structuredContent"]["authority"], "local_operator");
@@ -426,20 +279,19 @@ async fn mcp_policy_restart_namespaces_receipts_when_authorization_ids_repeat() 
     assert_eq!(status["isError"], false, "{status}");
     assert_eq!(status["structuredContent"]["generation"], 1);
     let args = json!({"action":"revoke","expected_generation":1});
-    let request = pending(&restarted, &invoke(&restarted, args.clone(), 'a').await);
-    assert_eq!(
-        request.id, first_id,
-        "real AuthorizationManager numbering restarts"
-    );
-    assert!(restarted
-        .workspaces
-        .approve_authorization_session(&request.id));
     let revoked = invoke(&restarted, args, 'a').await;
     assert_eq!(revoked["isError"], false, "{revoked}");
     assert_eq!(revoked["structuredContent"]["record"]["generation"], 2);
+    let revoked_id = revoked["structuredContent"]["operator_authorization"]["id"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        revoked_id, first_id,
+        "real AuthorizationManager numbering restarts"
+    );
     assert_eq!(
         revoked["structuredContent"]["record"]["operator_receipt"]["request_id"],
-        format!("{}:{}", restarted.auth.instance_id(), request.id)
+        format!("{}:{}", restarted.auth.instance_id(), revoked_id)
     );
     assert_eq!(
         invoke(&restarted, json!({}), 'a').await["structuredContent"]["status"],

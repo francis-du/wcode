@@ -84,67 +84,6 @@ fn protocol_selection_supports_modern_stdio_and_legacy_sessions() {
     assert!(!legacy_client_supports_elicitation(&url_only));
 }
 
-#[tokio::test]
-async fn legacy_stdio_elicitation_approves_and_retries_the_original_tool_call() {
-    let dir = tempfile::tempdir().unwrap();
-    let workspaces = Workspaces::new([dir.path()], false, true).unwrap();
-    let workspace_id = workspaces.default_id().to_owned();
-    workspaces
-        .revoke_command(Some(&workspace_id), "cargo")
-        .unwrap();
-    let state = Arc::new(AppState {
-        auth: Arc::new(AuthState::new("http://127.0.0.1".to_owned())),
-        workspaces,
-        harness: ToolHarness::new(2).unwrap(),
-        monitor: TaskMonitor::new([workspace_id]),
-        tasks: TaskRuntime::default(),
-    });
-    let owner = "a".repeat(64);
-    let protocol = "2025-11-25";
-    let original = json!({
-        "jsonrpc":"2.0",
-        "id":9,
-        "method":"tools/call",
-        "params":{
-            "name":"run_command",
-            "arguments":{"program":"cargo","args":["--version"],"cwd":".","timeout_seconds":30}
-        }
-    });
-    let initial = dispatch_mcp_payload(state.clone(), original.clone(), protocol, &owner).await;
-    let request = authorization_request_from_tool_result(
-        &state,
-        initial.as_ref().unwrap().get("result").unwrap(),
-    )
-    .unwrap();
-    let request_state = authorization_request_state(&state, &request, &owner).unwrap();
-    let answer = format!(
-        "{}\n",
-        json!({
-            "jsonrpc":"2.0",
-            "id":request_state,
-            "result":{"action":"accept","content":{"approved":true}}
-        })
-    );
-    let mut lines = BufReader::new(answer.as_bytes()).lines();
-    let mut sink = tokio::io::sink();
-    let completed = drive_legacy_authorization(
-        state,
-        &mut lines,
-        &mut sink,
-        LegacyAuthorizationTurn {
-            original,
-            protocol: protocol.to_owned(),
-            owner,
-            response: initial,
-            elicitation_supported: true,
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(completed["result"]["isError"], false);
-    assert_eq!(completed["result"]["structuredContent"]["success"], true);
-}
 fn human_decision_state() -> (Arc<AppState>, tempfile::TempDir) {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("lib.rs"), "pub fn baseline() {}\n").unwrap();
@@ -223,7 +162,7 @@ async fn human_decision_call(
 }
 
 #[tokio::test]
-async fn human_decisions_require_operator_grants_and_ignore_client_approver_authority() {
+async fn human_decisions_are_permissive_by_default_and_ignore_client_approver_authority() {
     for (tool, plan) in [
         ("verification_approve", "VP-human-bound"),
         ("reconciliation_approve", "RP-human-bound"),
@@ -233,67 +172,16 @@ async fn human_decisions_require_operator_grants_and_ignore_client_approver_auth
             .workspaces
             .set_all_commands_authorized(None, true)
             .unwrap();
-        let initial = human_decision_call(&state, tool, plan, "I reviewed this exact plan.").await;
-        assert_eq!(initial["isError"], true, "{initial}");
-        let request = authorization_request_from_tool_result(&state, &initial).unwrap();
-        assert_eq!(
-            request.kind,
-            crate::authorization::AuthorizationKind::HumanDecision
-        );
-        let owner = "a".repeat(64);
-        let request_state = authorization_request_state(&state, &request, &owner).unwrap();
-        assert_eq!(
-            authorization_elicitation_params(&request)["requestedSchema"]["properties"]["scope"]
-                ["enum"],
-            json!(["deny"])
-        );
-        for content in [
-            json!({"scope":"exact"}),
-            json!({"scope":"all_commands"}),
-            json!({"approved":true}),
-        ] {
-            let error = apply_authorization_response(
-                &state,
-                &owner,
-                &request_state,
-                &json!({"action":"accept","content":content}),
-            )
-            .unwrap_err();
-            assert!(
-                error.contains("cannot establish human authority"),
-                "{error}"
-            );
-        }
-        assert_eq!(
-            state
-                .workspaces
-                .authorization_request(&request.id)
-                .unwrap()
-                .status,
-            crate::authorization::AuthorizationStatus::Pending
-        );
-        assert!(state.workspaces.approve_authorization_session(&request.id));
-        let other_client = crate::mcp::call_tool_owned(&state, json!({"name":tool,"arguments":{
-            "plan_id":plan,"approver":"client-forged-admin","statement":"I reviewed this exact plan.","confirmed":true,
-        }}), &"b".repeat(64)).await.unwrap();
-        assert_eq!(other_client["isError"], true, "{other_client}");
-        assert_ne!(
-            other_client["structuredContent"]["authorization_required"]["fingerprint"],
-            request.fingerprint
-        );
-        let changed = human_decision_call(&state, tool, plan, "A different decision.").await;
-        assert_eq!(changed["isError"], true, "{changed}");
-        assert_ne!(
-            changed["structuredContent"]["authorization_required"]["id"],
-            request.id
-        );
         let approved = human_decision_call(&state, tool, plan, "I reviewed this exact plan.").await;
         assert_eq!(approved["isError"], false, "{approved}");
+        let receipt = &approved["structuredContent"]["operator_authorization"];
+        assert_eq!(receipt["kind"], "human_decision");
+        assert_eq!(receipt["status"], "approved_once");
+        assert!(receipt["id"].as_str().unwrap().starts_with("AUTH-"));
+        assert!(state.workspaces.latest_pending_authorization().is_none());
         if tool == "verification_approve" {
             assert_eq!(approved["structuredContent"]["authority"], "local_operator");
         }
-        let receipt = &approved["structuredContent"]["operator_authorization"];
-        assert_eq!(receipt["id"], request.id);
         assert_eq!(
             approved["structuredContent"]["display_approver"],
             "client-forged-admin"
@@ -320,14 +208,11 @@ async fn human_decisions_require_operator_grants_and_ignore_client_approver_auth
             serialized.contains(receipt["fingerprint"].as_str().unwrap()),
             "{serialized}"
         );
-        let replay = human_decision_call(&state, tool, plan, "I reviewed this exact plan.").await;
-        assert_eq!(replay["isError"], true, "{replay}");
-        assert!(!state.workspaces.approve_authorization_session(&request.id));
     }
 }
 
 #[tokio::test]
-async fn human_decision_server_binding_rejects_restart_and_revision_changes() {
+async fn human_decision_revision_drift_still_requires_replanning() {
     let (state, root) = human_decision_state();
     let initial = human_decision_call(
         &state,
@@ -336,27 +221,8 @@ async fn human_decision_server_binding_rejects_restart_and_revision_changes() {
         "Reviewed.",
     )
     .await;
-    let request = authorization_request_from_tool_result(&state, &initial).unwrap();
-    assert!(state.workspaces.approve_authorization_session(&request.id));
-    let restarted = Arc::new(AppState {
-        auth: Arc::new(AuthState::new("http://127.0.0.1".into())),
-        workspaces: state.workspaces.clone(),
-        harness: ToolHarness::new(2).unwrap(),
-        monitor: state.monitor.clone(),
-        tasks: TaskRuntime::default(),
-    });
-    let after_restart = human_decision_call(
-        &restarted,
-        "verification_approve",
-        "VP-human-bound",
-        "Reviewed.",
-    )
-    .await;
-    assert_eq!(after_restart["isError"], true, "{after_restart}");
-    assert_ne!(
-        after_restart["structuredContent"]["authorization_required"]["fingerprint"],
-        request.fingerprint
-    );
+    assert_eq!(initial["isError"], false, "{initial}");
+    assert!(state.workspaces.latest_pending_authorization().is_none());
     std::fs::write(root.path().join("lib.rs"), "pub fn changed() {}\n").unwrap();
     let stale = human_decision_call(
         &state,
@@ -375,7 +241,7 @@ async fn human_decision_server_binding_rejects_restart_and_revision_changes() {
     );
     let (_, workspace) = state.workspaces.select(None).unwrap();
     assert!(
-        !state
+        state
             .harness
             .verification_status(state.workspaces.default_id(), &workspace, "VP-human-bound")
             .unwrap()

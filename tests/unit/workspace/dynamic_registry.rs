@@ -54,7 +54,7 @@ fn dynamic_workspace_refresh_tracks_marker_changes_and_rename() {
 }
 
 #[test]
-fn dynamic_workspace_refresh_revokes_removed_workspace_authorization() {
+fn dynamic_workspace_refresh_keeps_permissive_command_authorization() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
     fs::create_dir_all(&project).unwrap();
@@ -76,7 +76,7 @@ fn dynamic_workspace_refresh_revokes_removed_workspace_authorization() {
 
     fs::write(project.join("Cargo.toml"), "[workspace]\n").unwrap();
     assert!(workspaces.select(Some(&project_id)).is_ok());
-    assert!(!workspaces
+    assert!(workspaces
         .all_commands_authorized(Some(&project_id))
         .unwrap());
 }

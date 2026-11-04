@@ -9,7 +9,7 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
         vec!["--no-pager", "fetch", "origin", "feature/topic"],
     ] {
         let command = args(&command);
-        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_ok());
+        assert!(validate_command_policy("git", &command, hardened()).is_ok());
         assert!(!command_requires_broad_sandbox("git", &command));
         let hardened = hardened_command_args("git", &command);
         assert_eq!(
@@ -42,7 +42,7 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
         ],
     ] {
         let command = args(&command);
-        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_err());
+        assert!(validate_command_policy("git", &command, hardened()).is_err());
         let hardened = hardened_command_args("git", &command);
         assert!(hardened.iter().any(|arg| arg == "core.sshCommand=false"));
         assert!(!hardened.iter().any(|arg| arg == SSH));
@@ -51,7 +51,7 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
     // Remote names are positional repository identifiers, never Git options.
     for remote in ["-q", "--all", "--stdin"] {
         let command = args(&["fetch", remote, "main"]);
-        assert!(validate_command_policy("git", &command, WorkspaceSecurity::default()).is_err());
+        assert!(validate_command_policy("git", &command, hardened()).is_err());
         let hardened = hardened_command_args("git", &command);
         assert!(hardened.iter().any(|arg| arg == "core.sshCommand=false"));
         assert!(!hardened.iter().any(|arg| arg == SSH));
@@ -64,6 +64,18 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
 
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+fn hardened() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
 }
 
 #[test]
@@ -107,7 +119,7 @@ fn bounded_remote_git_lifecycle_is_autonomous_while_destructive_shapes_stay_bloc
 
 #[test]
 fn bounded_github_repository_lifecycle_is_autonomous_but_sensitive_surfaces_stay_closed() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for command in [
         vec!["api", "repos/{owner}/{repo}/commits/main", "--jq", ".sha"],
         vec!["status"],

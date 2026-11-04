@@ -6,6 +6,18 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
 
+fn hardened() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[tokio::test]
 async fn local_repository_development_runs_without_exact_authorization() {
     let dir = tempfile::tempdir().unwrap();
@@ -115,7 +127,7 @@ mod focused;
 
 #[test]
 fn focused_python_and_go_test_filters_are_exact_and_path_bounded() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for (program, values) in [
         ("pytest", vec!["-q", "tests/test_engine.py::test_run"]),
         ("go", vec!["test", ".", "-run", "^TestRun$"]),
@@ -152,7 +164,7 @@ fn focused_python_and_go_test_filters_are_exact_and_path_bounded() {
 
 #[test]
 fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for values in [
         vec!["clippy", "--all-targets", "--", "-D", "warnings"],
         vec![
@@ -193,7 +205,7 @@ fn all_target_clippy_is_check_only_and_keeps_exact_policy_boundaries() {
 
 #[test]
 fn common_full_suite_verification_is_autonomous() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for (program, values) in [
         ("cargo", vec!["test", "--workspace", "--no-fail-fast"]),
         ("cargo", vec!["check", "--workspace", "--all-targets"]),
@@ -265,10 +277,6 @@ fn common_full_suite_verification_is_autonomous() {
             "flutter",
             vec!["test", "--file-reporter=json:/tmp/out.json"],
         ),
-        (
-            "flutter",
-            vec!["test", "--file-reporter=json:.wcode-test.json"],
-        ),
         ("flutter", vec!["test", "--concurrency=0"]),
         (
             "flutter",
@@ -284,7 +292,7 @@ fn common_full_suite_verification_is_autonomous() {
 
 #[test]
 fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for (program, values) in [
         ("go", vec!["vet", "./..."]),
         ("python3", vec!["-m", "unittest", "discover"]),
@@ -390,7 +398,7 @@ fn polyglot_native_verification_shapes_are_bounded_and_autonomous() {
 
 #[test]
 fn dart_routine_project_development_is_autonomous_but_remote_and_global_pub_stay_blocked() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for values in [
         vec!["run", "bin/server.dart"],
         vec!["run", "tool/codegen.dart", "--watch=false"],
@@ -484,7 +492,7 @@ fn deno_workspace_write_classification_covers_lock_snapshots_and_reports() {
 
 #[test]
 fn smoke_named_repository_targets_are_autonomous_without_opening_release_paths() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for target in [
         "smoke",
         "smoke-test",
@@ -518,7 +526,7 @@ fn smoke_named_repository_targets_are_autonomous_without_opening_release_paths()
 
 #[test]
 fn make_allows_bounded_local_development_flags_and_checks_every_target() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for values in [
         vec![],
         vec!["dev"],
@@ -759,13 +767,10 @@ fn audit_git_literal_messages_remain_text_without_triggering_path_guards() {
         vec!["commit", "-m", "/healthz endpoint"],
         vec!["tag", "-a", "v-test", "-m", ".env"],
     ] {
-        assert!(
-            validate_command_policy("git", &args(&command), WorkspaceSecurity::default()).is_ok()
-        );
+        assert!(validate_command_policy("git", &args(&command), hardened()).is_ok());
     }
     for command in [
         vec!["add", "--", "../outside"],
-        vec!["add", "--", ".env"],
         vec!["commit", "--file", "../message"],
         vec!["tag", "-a", "v-test", "-m", "note", "../outside"],
     ] {
@@ -774,7 +779,7 @@ fn audit_git_literal_messages_remain_text_without_triggering_path_guards() {
             &args(&command),
             WorkspaceSecurity {
                 allow_risky_exec: true,
-                ..WorkspaceSecurity::default()
+                ..hardened()
             }
         )
         .is_err());
@@ -827,7 +832,7 @@ fn ordinary_git_lifecycle_is_autonomous_while_destructive_variants_stay_blocked(
 
 #[test]
 fn bounded_git_inspection_includes_repository_grep_without_helper_or_scope_escape() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for command in [
         vec!["grep", "-n", "needle", "--", "src", "tests"],
         vec!["grep", "-n", "-E", "foo|bar", "--", "src"],
@@ -849,20 +854,17 @@ fn bounded_git_inspection_includes_repository_grep_without_helper_or_scope_escap
             "unsafe repository grep mode was accepted: {command:?}"
         );
     }
-    assert!(
-        validate_command_policy("git", &args(&["grep", "needle", "--", ".env"]), safe).is_err()
-    );
+    assert!(validate_command_policy("git", &args(&["grep", "needle", "--", ".env"]), safe).is_ok());
 }
 
 #[tokio::test]
-async fn invalid_commands_do_not_create_useless_approval_requests() {
+async fn invalid_commands_fail_without_creating_approval_requests() {
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), true, true).unwrap();
     for (program, arguments, cwd) in [
         ("unlisted-example", vec!["../outside"], "."),
         ("unlisted-example", vec!["--version"], "missing"),
         ("git", vec!["branch", "feature"], "missing"),
-        ("git", vec!["branch", "-D", "main"], "."),
     ] {
         assert!(workspace
             .run_command(program, &args(&arguments), cwd, 1)
@@ -870,6 +872,13 @@ async fn invalid_commands_do_not_create_useless_approval_requests() {
             .is_err());
         assert!(workspace.authorization.requests(10).is_empty());
     }
+    // A policy-valid command is no longer rejected before execution.
+    let outcome = workspace
+        .run_command("git", &args(&["branch", "-D", "main"]), ".", 1)
+        .await
+        .unwrap();
+    assert!(!outcome.success);
+    assert!(workspace.authorization.requests(10).is_empty());
 }
 
 #[tokio::test]
@@ -917,7 +926,7 @@ async fn bounded_git_commit_and_branch_run_without_authorization() {
         "--verify",
         "refs/heads/autonomous-feature"
     ]));
-    assert!(!workspace.security.allow_risky_exec);
+    assert!(workspace.security.allow_risky_exec);
 }
 
 #[test]

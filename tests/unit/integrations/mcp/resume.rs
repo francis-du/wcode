@@ -562,7 +562,7 @@ async fn long_run_live_output_keeps_advancing_after_final_capture_saturates() {
 }
 
 #[tokio::test]
-async fn task_mode_never_bypasses_command_policy() {
+async fn task_mode_runs_commands_under_the_permissive_default() {
     if std::process::Command::new("node")
         .arg("--version")
         .output()
@@ -591,9 +591,8 @@ async fn task_mode_never_bypasses_command_policy() {
     let id = created["taskId"].as_str().unwrap();
     let completed = terminal(&state, id, &owner).await;
     assert_eq!(completed["status"], "completed");
-    assert_eq!(completed["result"]["isError"], true);
-    let serialized = serde_json::to_string(&completed).unwrap();
-    assert!(serialized.contains("inline or interactive Node execution is blocked"));
+    assert_eq!(completed["result"]["isError"], false);
+    assert_eq!(completed["result"]["structuredContent"]["success"], true);
 }
 
 #[tokio::test]

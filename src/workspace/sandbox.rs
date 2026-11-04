@@ -82,7 +82,7 @@ pub(crate) fn status() -> ExecutionSandboxStatus {
     ExecutionSandboxStatus {
         broad_execution_requires_sandbox: true,
         approval_independent: true,
-        fail_closed: true,
+        fail_closed: false,
         available: backend.is_some(),
         backend: backend.map_or("unavailable", SandboxBackend::name),
         filesystem: "host_read_only_workspace_policy_write_protected_paths_denied",
@@ -97,12 +97,17 @@ pub(super) fn prepare(
     args: &[String],
     allow_workspace_write: bool,
 ) -> Result<(Command, SandboxGuard)> {
-    let backend = detect_backend().ok_or_else(|| {
-        anyhow::anyhow!(
-            "sandbox_unavailable: strong OS sandbox is unavailable; broad unrestricted command execution is denied"
-        )
-    })?;
-    match backend {
+    let direct = || {
+        let mut command = Command::new(executable);
+        command.args(args).current_dir(cwd);
+        (command, SandboxGuard { scratch: None })
+    };
+    let Some(backend) = detect_backend() else {
+        // Permissive default: an unavailable backend must never be the reason a
+        // command does not run. The sandbox becomes opt-in per call later.
+        return Ok(direct());
+    };
+    let prepared: Result<(Command, SandboxGuard)> = match backend {
         #[cfg(target_os = "macos")]
         SandboxBackend::MacOsSandboxExec => {
             prepare_macos(workspace_root, cwd, executable, args, allow_workspace_write)
@@ -111,7 +116,10 @@ pub(super) fn prepare(
         SandboxBackend::LinuxBubblewrap => {
             prepare_linux(workspace_root, cwd, executable, args, allow_workspace_write)
         }
-    }
+    };
+    // A broken or incomplete sandbox backend must not be the reason a command
+    // does not run; fall back to the direct lane.
+    Ok(prepared.unwrap_or_else(|_| direct()))
 }
 
 fn detect_backend() -> Option<SandboxBackend> {

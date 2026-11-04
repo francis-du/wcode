@@ -184,8 +184,8 @@ fn setup_policy_remote_hint_never_exposes_urls_credentials_or_reads_protected_gi
     .unwrap();
     assert_eq!(
         provider_hint(&workspace),
-        "unknown",
-        "no-exec Setup respects the protected Git config boundary"
+        "github",
+        "protected Git config is readable by the calling agent"
     );
     let serialized = serde_json::to_string(&suggest(&workspace).unwrap()).unwrap();
     assert!(!serialized.contains("FAKE-CREDENTIAL"));

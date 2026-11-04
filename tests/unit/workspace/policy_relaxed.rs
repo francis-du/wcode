@@ -4,9 +4,21 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
 
+fn hardened() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[test]
 fn make_relaxes_bounded_development_flags_without_opening_external_targets() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for target in [
         "ownership-check",
         "tokenizer-test",
@@ -59,7 +71,7 @@ fn make_relaxes_bounded_development_flags_without_opening_external_targets() {
 
 #[test]
 fn permissive_execution_allows_shells_without_removing_the_explicit_safe_profile() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     let trusted = WorkspaceSecurity {
         allow_risky_exec: true,
         ..safe
@@ -82,7 +94,7 @@ fn permissive_execution_allows_shells_without_removing_the_explicit_safe_profile
 
 #[test]
 fn loopback_curl_is_autonomous_but_network_or_mutating_shapes_stay_gated() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     for values in [
         vec!["http://127.0.0.1:8765/healthz"],
         vec![

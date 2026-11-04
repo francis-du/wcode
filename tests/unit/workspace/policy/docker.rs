@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn compose_mutations_require_exact_risky_authorization_and_keep_task_lifecycle_attached() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     let trusted = WorkspaceSecurity {
         allow_risky_exec: true,
-        ..WorkspaceSecurity::default()
+        ..hardened()
     };
 
     for values in [

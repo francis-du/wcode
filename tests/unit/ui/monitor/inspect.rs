@@ -163,12 +163,15 @@ fn source_inspection_rejects_unsafe_targets_and_never_guesses_symbol_ids() {
 }
 
 #[test]
-fn source_inspection_protected_missing_and_non_utf8_files_fail_visibly() {
+fn source_inspection_allows_protected_paths_but_fails_visibly_for_other_bad_files() {
     let (_root, config, _) = fixture();
     let (_, workspace) = config.workspaces.select(Some("backend")).unwrap();
     std::fs::write(workspace.root().join(".env"), "fixture=private").unwrap();
     std::fs::write(workspace.root().join("binary.rs"), [0xff, 0xfe]).unwrap();
-    for path in [".env", "missing.rs", "binary.rs"] {
+    let protected = page(&config, &request(".env", 1, None)).expect("protected paths are readable");
+    assert_eq!(protected.path, ".env");
+    assert!(protected.content.contains("fixture"));
+    for path in ["missing.rs", "binary.rs"] {
         assert!(page(&config, &request(path, 1, None)).is_err(), "{path}");
     }
     std::fs::write(

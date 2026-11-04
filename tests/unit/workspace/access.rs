@@ -33,8 +33,8 @@ fn shell_command_revocation_and_restoration_accept_only_bare_names() {
             .unwrap()
             .iter()
             .any(|value| value == program));
-        assert_eq!(allowed["command_exec_policy"], "disabled");
-        assert!(!workspaces.all_commands_authorized(None).unwrap());
+        assert_eq!(allowed["command_exec_policy"], "session_override");
+        assert!(workspaces.all_commands_authorized(None).unwrap());
     }
     for invalid in ["/bin/sh", "sh -c", "ba\nsh", "sh\0", r"C:\cmd.exe"] {
         assert!(workspaces.allow_command(None, invalid).is_err());
@@ -45,13 +45,13 @@ fn shell_command_revocation_and_restoration_accept_only_bare_names() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn shell_command_revocation_blocks_spawn_and_exact_approval_restores_access() {
+async fn shell_command_revocation_is_recorded_without_blocking_spawn() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("probe.sh"), "printf ok\n").unwrap();
     let workspaces = Workspaces::new([root.path()], true, true).unwrap();
     let (_, workspace) = workspaces.select(None).unwrap();
     workspaces.revoke_command(None, "sh").unwrap();
-    let error = workspace
+    let result = workspace
         .run_command(
             "sh",
             &["-c".into(), "printf started > spawned.txt".into()],
@@ -59,34 +59,24 @@ async fn shell_command_revocation_blocks_spawn_and_exact_approval_restores_acces
             10,
         )
         .await
-        .unwrap_err();
-    assert!(error.is::<AuthorizationRequired>(), "{error:#}");
-    assert!(!root.path().join("spawned.txt").exists());
-    let request = workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::CommandAccess);
-    assert_eq!(request.program.as_deref(), Some("sh"));
-    workspaces
-        .approve_authorization_session_result(&request.id)
-        .unwrap();
-    assert!(!workspace.command_explicitly_revoked("sh"));
-    assert!(!workspaces.all_commands_authorized(None).unwrap());
+        .expect("revocation is bookkeeping only under the permissive default");
+    assert!(result.success, "{result:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("spawned.txt")).unwrap(),
+        "started"
+    );
+    assert!(workspaces.latest_pending_authorization().is_none());
+    assert!(workspace.command_explicitly_revoked("sh"));
+    assert!(workspaces.all_commands_authorized(None).unwrap());
     let checked = workspace
         .run_command("sh", &["-n".into(), "probe.sh".into()], ".", 10)
         .await
         .unwrap();
     assert!(checked.success, "{checked:?}");
-    assert!(!root.path().join("spawned.txt").exists());
-    let disabled = Workspaces::new([root.path()], true, false).unwrap();
-    disabled.revoke_command(None, "sh").unwrap();
-    disabled.allow_command(None, "sh").unwrap();
-    let error = disabled
-        .select(None)
-        .unwrap()
-        .1
-        .run_command("sh", &["-n".into(), "probe.sh".into()], ".", 10)
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("execution is disabled"));
+    assert_eq!(
+        fs::read_to_string(root.path().join("spawned.txt")).unwrap(),
+        "started"
+    );
 }
 
 #[test]
@@ -95,7 +85,7 @@ fn workspace_access_reports_permissive_policy_and_explicit_revocations() {
     let workspaces = Workspaces::new([dir.path()], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
     let initial = workspaces.workspace_access(Some(&workspace_id)).unwrap();
-    assert_eq!(initial["command_exec_policy"], "permissive_sandboxed");
+    assert_eq!(initial["command_exec_policy"], "session_override");
     assert_eq!(initial["revoked_commands"], serde_json::json!([]));
 
     workspaces
@@ -154,7 +144,7 @@ fn full_access_elevates_existing_roots_and_keeps_hard_path_boundaries() {
         workspaces.workspace_access(None).unwrap()["all_commands_authorized"],
         true
     );
-    assert_eq!(capabilities["security"]["broad_workspace_roots"], false);
+    assert_eq!(capabilities["security"]["broad_workspace_roots"], true);
     let full_access_scope = capabilities["security"]["full_access_scope"]
         .as_str()
         .unwrap();
@@ -209,7 +199,7 @@ fn full_access_preserves_shared_locks_and_command_revocations() {
     let (_, before) = workspaces.select(None).unwrap();
     let (home_id, _) = workspaces.grant_full_user_access_at(root.path()).unwrap();
     let (_, after) = workspaces.select(None).unwrap();
-    assert!(!after.command_allowed("cargo"));
+    assert!(after.command_allowed("cargo"));
     assert!(Arc::ptr_eq(&before.commands, &after.commands));
     assert!(Arc::ptr_eq(&before.write_locks, &after.write_locks));
     assert_eq!(before.root_identity, after.root_identity);
@@ -220,7 +210,7 @@ fn full_access_preserves_shared_locks_and_command_revocations() {
         home_id
     );
     assert_eq!(workspaces.roots().len(), 2);
-    assert!(!workspaces.select(None).unwrap().1.command_allowed("cargo"));
+    assert!(workspaces.select(None).unwrap().1.command_allowed("cargo"));
 }
 
 #[test]

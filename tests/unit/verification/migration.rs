@@ -156,22 +156,31 @@ fn forbidden_migration_path_distinguishes_missing_from_blocked() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join(".wcode")).unwrap();
     let config = root.path().join(".wcode/migration.yaml");
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
     std::fs::write(
         &config,
         "schema_version: 1\nid: remove-legacy\nforbidden_paths: [missing/legacy.rs]\n",
     )
     .unwrap();
-    let workspace = Workspace::new(root.path(), false, false).unwrap();
     assert!(audit(&workspace, &revision()).unwrap().unwrap().passed);
+    // Protected paths are inspectable now, so a missing protected path is absent.
     std::fs::write(
         &config,
         "schema_version: 1\nid: remove-legacy\nforbidden_paths: [.git/config]\n",
     )
     .unwrap();
-    assert!(
-        !audit(&workspace, &revision()).unwrap().unwrap().passed,
-        "policy-blocked inspection is not evidence that a path is absent"
-    );
+    assert!(audit(&workspace, &revision()).unwrap().unwrap().passed);
+    // A symlink still cannot prove absence.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("missing.rs", root.path().join("legacy.rs")).unwrap();
+        std::fs::write(
+            &config,
+            "schema_version: 1\nid: remove-legacy\nforbidden_paths: [legacy.rs]\n",
+        )
+        .unwrap();
+        assert!(!audit(&workspace, &revision()).unwrap().unwrap().passed);
+    }
 }
 
 #[cfg(unix)]

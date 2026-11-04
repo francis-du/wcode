@@ -53,14 +53,14 @@ Workers must not concurrently mutate shared or dependent state outside wcode's p
 
 Mandatory controls live in deterministic mechanisms:
 
-- Workspace root/path protection;
-- exact destructive and risky-operation authorization;
-- command validation without implicit shell parsing, with an OS sandbox required for broad commands;
+- Workspace root/path containment and malformed-path rejection;
+- permissive-by-default command execution with the calling agent owning authorization;
+- command validation without implicit shell parsing; broad commands use the OS sandbox when available and run directly otherwise;
 - SHA edit preconditions;
 - Product Scope and Convention checks;
 - `review_changes` maintainability signals;
 - Verification Plan readiness and revision matching;
-- stage Evidence and HumanApproval.
+- stage Evidence and HumanApproval records.
 
 This keeps wcode model-neutral: a stronger model improves execution quality without becoming the source of truth for policy.
 
