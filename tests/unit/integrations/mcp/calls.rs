@@ -403,6 +403,12 @@ async fn parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
         assert_eq!(result["dispatch"], "completion-driven");
         assert_eq!(result["succeeded"], 1);
         assert_eq!(result["failed"], 3);
+        // The single success must be the independent task: the failed task and
+        // both of its dependents are the three failures.
+        assert_eq!(
+            result["items"][3]["ok"], true,
+            "the independent task must be the one that succeeded"
+        );
         for index in [1, 2] {
             assert!(result["items"][index]["error"]
                 .as_str()
