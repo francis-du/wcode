@@ -594,6 +594,26 @@ pub(super) fn atomic_create_new(path: &Path, content: &[u8]) -> Result<()> {
     }
 }
 
+/// Windows error codes that mean another handle still has the destination open.
+/// A concurrent reader, indexer or scanner releases it within milliseconds, so
+/// the replace is retried a bounded number of times before the write fails.
+/// These are the Win32 codes, kept as plain integers so the retry policy stays
+/// testable on every platform.
+#[cfg(any(windows, test))]
+const WINDOWS_ERROR_ACCESS_DENIED: i32 = 5;
+#[cfg(any(windows, test))]
+const WINDOWS_ERROR_SHARING_VIOLATION: i32 = 32;
+#[cfg(any(windows, test))]
+const WINDOWS_REPLACE_RETRY_ATTEMPTS: u32 = 8;
+
+#[cfg(any(windows, test))]
+fn windows_replace_is_transient(code: Option<i32>) -> bool {
+    matches!(
+        code,
+        Some(WINDOWS_ERROR_ACCESS_DENIED) | Some(WINDOWS_ERROR_SHARING_VIOLATION)
+    )
+}
+
 #[cfg(not(windows))]
 fn replace_path(source: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(source, destination)
@@ -614,16 +634,50 @@ fn replace_path(source: &Path, destination: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let result = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING,
-        )
-    };
-    if result == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
+    let mut attempt = 0u32;
+    loop {
+        let result = unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                destination.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING,
+            )
+        };
+        if result != 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        attempt += 1;
+        if !windows_replace_is_transient(error.raw_os_error())
+            || attempt >= WINDOWS_REPLACE_RETRY_ATTEMPTS
+        {
+            return Err(error);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2 * attempt as u64));
+    }
+}
+
+#[cfg(test)]
+mod replace_path_tests {
+    use super::windows_replace_is_transient;
+
+    #[test]
+    fn windows_replace_retries_only_transient_share_failures() {
+        assert!(windows_replace_is_transient(Some(5)));
+        assert!(windows_replace_is_transient(Some(32)));
+        assert!(!windows_replace_is_transient(Some(2)));
+        assert!(!windows_replace_is_transient(Some(183)));
+        assert!(!windows_replace_is_transient(None));
+    }
+
+    #[test]
+    fn windows_replace_retry_budget_is_bounded_and_short() {
+        // Eight attempts with a 2ms linear backoff stay far inside any
+        // interactive write budget while outlasting a scanner's handle.
+        assert_eq!(super::WINDOWS_REPLACE_RETRY_ATTEMPTS, 8);
+        let worst_case_ms: u64 = (1..super::WINDOWS_REPLACE_RETRY_ATTEMPTS)
+            .map(|attempt| 2 * attempt as u64)
+            .sum();
+        assert!(worst_case_ms < 120, "retry budget was {worst_case_ms}ms");
     }
 }
