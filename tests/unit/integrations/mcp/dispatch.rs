@@ -4,6 +4,8 @@ use serde_json::json;
 
 #[path = "admission.rs"]
 mod admission;
+#[path = "dispatch/argument_bounds.rs"]
+mod argument_bounds;
 #[path = "dispatch/limit_bounds.rs"]
 mod limit_bounds;
 #[path = "dispatch/parallel_command.rs"]

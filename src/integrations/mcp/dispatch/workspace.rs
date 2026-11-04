@@ -185,7 +185,7 @@ fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRe
         100
     };
     let max_results = if auto_page {
-        2_000
+        number("max_results", 2_000, 1, 2_000)?
     } else {
         number("max_results", default_max_results, 1, 2_000)?
     };
@@ -236,7 +236,7 @@ pub(super) async fn call(
         "list_files" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
-            let limit = usize_arg(args, "max_entries").unwrap_or(2_000);
+            let limit = bounded_usize_arg_range(args, "max_entries", 2_000, 1, 10_000)?;
             run_blocking(move || {
                 workspace.list_files(&path, limit).map(|files| {
                     json!({"workspace": workspace_id, "files": files, "count": files.len()})
@@ -263,11 +263,9 @@ pub(super) async fn call(
                         .ok_or_else(|| "auto_page must be a boolean".to_owned())?,
                 };
                 let max_results = if auto_page {
-                    2_000
+                    bounded_usize_arg_range(args, "max_results", 2_000, 1, 2_000)?
                 } else {
-                    usize_arg(args, "max_results")
-                        .unwrap_or(500)
-                        .clamp(1, 2_000)
+                    bounded_usize_arg_range(args, "max_results", 500, 1, 2_000)?
                 };
                 let harness = state.harness.clone();
                 let request = crate::code_index::SyntaxSearchRequest {
@@ -331,8 +329,8 @@ pub(super) async fn call(
                     .ok_or_else(|| "include_comments must be a boolean".to_owned())?,
             };
             let bug_patterns = optional_string_array_arg(args, "bug_patterns", 5)?;
-            let max_files = usize_arg(args, "max_files").unwrap_or(50_000);
-            let max_results = usize_arg(args, "max_results").unwrap_or(200);
+            let max_files = bounded_usize_arg_range(args, "max_files", 50_000, 1, 50_000)?;
+            let max_results = bounded_usize_arg_range(args, "max_results", 200, 1, 2_000)?;
             let harness = state.harness.clone();
             let request = crate::code_index::SyntaxSearchRequest {
                 path,
@@ -348,7 +346,7 @@ pub(super) async fn call(
         "file_outline" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let path = required_string(args, "path")?.to_owned();
-            let max_symbols = usize_arg(args, "max_symbols").unwrap_or(500);
+            let max_symbols = bounded_usize_arg_range(args, "max_symbols", 500, 1, 1_000)?;
             let harness = state.harness.clone();
             run_blocking(move || harness.file_outline(workspace_id, &workspace, &path, max_symbols))
                 .await
@@ -358,7 +356,7 @@ pub(super) async fn call(
             let query = required_string(args, "query")?.to_owned();
             let path = string_arg(args, "path").unwrap_or(".").to_owned();
             let kind = string_arg(args, "kind").map(str::to_owned);
-            let max_results = usize_arg(args, "max_results").unwrap_or(50);
+            let max_results = bounded_usize_arg_range(args, "max_results", 50, 1, 200)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness.find_symbol(
@@ -375,7 +373,7 @@ pub(super) async fn call(
         "symbol_context" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let symbol_id = required_string(args, "symbol_id")?.to_owned();
-            let max_body_lines = usize_arg(args, "max_body_lines").unwrap_or(1_000);
+            let max_body_lines = bounded_usize_arg_range(args, "max_body_lines", 1_000, 1, 1_000)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness.symbol_context(workspace_id, &workspace, &symbol_id, max_body_lines)
@@ -385,8 +383,8 @@ pub(super) async fn call(
         "read_file" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let path = required_string(args, "path")?.to_owned();
-            let start = usize_arg(args, "start_line").unwrap_or(1);
-            let end = usize_arg(args, "end_line");
+            let start = optional_bounded_usize_arg(args, "start_line", 1)?.unwrap_or(1);
+            let end = optional_bounded_usize_arg(args, "end_line", 1)?;
             run_blocking(move || {
                 workspace.read_file(&path, start, end).and_then(|view| {
                     let mut value = serde_json::to_value(view)?;
@@ -399,8 +397,8 @@ pub(super) async fn call(
         "read_files" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let paths = string_array_arg(args, "paths", 32)?;
-            let start = usize_arg(args, "start_line").unwrap_or(1);
-            let end = usize_arg(args, "end_line");
+            let start = optional_bounded_usize_arg(args, "start_line", 1)?.unwrap_or(1);
+            let end = optional_bounded_usize_arg(args, "end_line", 1)?;
             run_blocking(move || {
                 workspace.read_files(&paths, start, end).map(|files| {
                     json!({"workspace": workspace_id, "count": files.len(), "files": files})
@@ -426,8 +424,8 @@ pub(super) async fn call(
             let old_text = required_string(args, "old_text")?.to_owned();
             let new_text = required_string(args, "new_text")?.to_owned();
             let expected = required_string(args, "expected_sha256")?.to_owned();
-            let start_line = usize_arg(args, "start_line");
-            let end_line = usize_arg(args, "end_line");
+            let start_line = optional_bounded_usize_arg(args, "start_line", 1)?;
+            let end_line = optional_bounded_usize_arg(args, "end_line", 1)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 workspace
