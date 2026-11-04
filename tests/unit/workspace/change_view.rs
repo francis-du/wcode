@@ -151,6 +151,81 @@ fn change_ranges_track_modified_lines_without_promoting_context() {
     assert!(!capped);
 }
 
+#[test]
+fn changed_ranges_snapshot_maps_each_file_and_keeps_binary_unknown() {
+    let diff = "diff --git main.rs main.rs\n--- main.rs\n+++ main.rs\n@@ -2,3 +2,4 @@\n keep\n-old2\n+new2\n+insert\n keep\n\
+diff --git foo bar.rs foo bar.rs\n--- foo bar.rs\t\n+++ foo bar.rs\t\n@@ -1 +1 @@\n-a\n+b\n\
+diff --git café.rs café.rs\nBinary files café.rs and café.rs differ\n";
+    let snapshot = parse_changed_ranges(diff);
+    assert!(!snapshot.truncated);
+    assert_eq!(
+        snapshot.files["main.rs"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 3,
+            end_line: 3
+        }])
+    );
+    assert_eq!(
+        snapshot.files["main.rs"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 3,
+            end_line: 4
+        }])
+    );
+    assert_eq!(
+        snapshot.files["foo bar.rs"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert_eq!(
+        snapshot.files["foo bar.rs"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert!(!snapshot.files.contains_key("café.rs"));
+}
+
+#[test]
+fn changed_ranges_snapshot_caps_ranges_per_file_and_flags_truncation() {
+    let mut diff =
+        String::from("diff --git big.rs big.rs\n--- big.rs\n+++ big.rs\n@@ -1,900 +1,900 @@\n");
+    for _ in 0..300 {
+        diff.push_str("-old\n+new\n context\n");
+    }
+    let snapshot = parse_changed_ranges(&diff);
+    let entry = &snapshot.files["big.rs"];
+    assert!(entry.truncated);
+    assert_eq!(entry.before.as_ref().unwrap().len(), 256);
+    assert_eq!(entry.after.as_ref().unwrap().len(), 256);
+}
+
+#[tokio::test]
+async fn changed_line_ranges_reads_working_tree_diff_for_requested_paths() {
+    let (root, workspace) = fixture();
+    fs::write(root.path().join("main.rs"), "fn changed() {}\n").unwrap();
+    let paths = vec!["main.rs".to_owned()];
+    let snapshot = workspace.changed_line_ranges(&paths).await.unwrap();
+    assert!(!snapshot.truncated);
+    assert_eq!(
+        snapshot.files["main.rs"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert_eq!(
+        snapshot.files["main.rs"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+}
+
 #[tokio::test]
 async fn change_view_rejects_stale_worktree_and_index_snapshots() {
     let (root, workspace) = fixture();

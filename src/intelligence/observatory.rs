@@ -16,6 +16,7 @@ use crate::intelligence_types::{
 use crate::reconcile::ImpactAnalysis;
 use crate::report_types::{ChangeReviewReport, ChangedFileReview};
 use crate::scopes;
+use crate::workspace::ChangedRangesSnapshot;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const MAX_PROJECT_CHANGES: usize = 500;
@@ -41,6 +42,7 @@ pub(crate) struct ObservatoryInput<'a> {
     pub engineering_journal: ProjectEngineeringJournalView,
     pub reconciliation_plans: usize,
     pub latest_reconciliation_plan: Option<String>,
+    pub change_ranges: Option<ChangedRangesSnapshot>,
 }
 
 pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectObservatory {
@@ -70,7 +72,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
     let desired_dependencies = desired_component_dependencies(&state);
     let changes = input
         .review
-        .map(|review| build_changes(&state, review))
+        .map(|review| build_changes(&state, review, input.change_ranges.as_ref()))
         .unwrap_or_default();
     let drift = input.risk.as_ref().map(|risk| &risk.drift);
     let requirement_context = RequirementBuildContext {
@@ -661,16 +663,46 @@ fn split_target(target: &str) -> (String, Option<String>) {
 fn build_changes(
     state: &design::DesignState,
     review: &ChangeReviewReport,
+    change_ranges: Option<&ChangedRangesSnapshot>,
 ) -> Vec<ProjectChangeView> {
     review
         .files
         .iter()
         .take(MAX_PROJECT_CHANGES)
-        .map(|file| change_view(state, file))
+        .map(|file| change_view(state, file, change_ranges))
         .collect()
 }
 
-fn change_view(state: &design::DesignState, file: &ChangedFileReview) -> ProjectChangeView {
+fn change_ranges_view(
+    file: &ChangedFileReview,
+    snapshot: Option<&ChangedRangesSnapshot>,
+) -> (
+    Option<Vec<crate::workspace::ChangeLineRange>>,
+    Option<Vec<crate::workspace::ChangeLineRange>>,
+    bool,
+) {
+    if file.binary {
+        return (None, None, false);
+    }
+    let Some(snapshot) = snapshot else {
+        return (None, None, false);
+    };
+    let truncated = snapshot.truncated
+        || snapshot
+            .files
+            .get(&file.path)
+            .is_some_and(|ranges| ranges.truncated);
+    match snapshot.files.get(&file.path) {
+        Some(ranges) => (ranges.before.clone(), ranges.after.clone(), truncated),
+        None => (None, None, truncated),
+    }
+}
+
+fn change_view(
+    state: &design::DesignState,
+    file: &ChangedFileReview,
+    change_ranges: Option<&ChangedRangesSnapshot>,
+) -> ProjectChangeView {
     let mut affected_components = state
         .components
         .values()
@@ -700,6 +732,8 @@ fn change_view(state: &design::DesignState, file: &ChangedFileReview) -> Project
     }
     affected_requirements.sort();
     affected_requirements.dedup();
+    let (before_changed_ranges, after_changed_ranges, changed_ranges_truncated) =
+        change_ranges_view(file, change_ranges);
     ProjectChangeView {
         path: file.path.clone(),
         status: file.status.clone(),
@@ -712,6 +746,9 @@ fn change_view(state: &design::DesignState, file: &ChangedFileReview) -> Project
         untracked: file.untracked,
         affected_requirements,
         affected_components,
+        before_changed_ranges,
+        after_changed_ranges,
+        changed_ranges_truncated,
     }
 }
 

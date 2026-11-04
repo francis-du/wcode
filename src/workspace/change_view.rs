@@ -1,9 +1,11 @@
 //! Read-only, single-path change inspection. This is an observed file snapshot,
 //! not a transaction, semantic proof, or permission to apply a patch.
 use super::*;
+use std::collections::BTreeMap;
 
 const MAX_CHANGE_VIEW_BYTES: usize = 64 * 1024;
 const MAX_CHANGED_RANGES: usize = 256;
+pub(crate) const MAX_CHANGED_RANGE_FILES: usize = 500;
 const STALE_VIEW: &str = "change snapshot changed; reload the selected file";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -172,6 +174,177 @@ fn unified_changed_ranges(content: &str) -> (Vec<ChangeLineRange>, Vec<ChangeLin
         }
     }
     (before, after, capped)
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FileChangedRanges {
+    pub before: Option<Vec<ChangeLineRange>>,
+    pub after: Option<Vec<ChangeLineRange>>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ChangedRangesSnapshot {
+    pub files: BTreeMap<String, FileChangedRanges>,
+    pub truncated: bool,
+}
+
+fn unquote_git_path(raw: &str) -> String {
+    // Git appends a tab after paths that contain spaces in the ---/+++ header.
+    let raw = raw.strip_suffix('\t').unwrap_or(raw);
+    let Some(inner) = raw
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return raw.to_owned();
+    };
+    let mut bytes = Vec::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            let mut buffer = [0u8; 4];
+            bytes.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('a') => bytes.push(0x07),
+            Some('b') => bytes.push(0x08),
+            Some('f') => bytes.push(0x0c),
+            Some('n') => bytes.push(b'\n'),
+            Some('r') => bytes.push(b'\r'),
+            Some('t') => bytes.push(b'\t'),
+            Some('v') => bytes.push(0x0b),
+            Some('\\') => bytes.push(b'\\'),
+            Some('"') => bytes.push(b'"'),
+            Some(digit @ '0'..='7') => {
+                let mut value = digit.to_digit(8).unwrap() as u8;
+                for _ in 0..2 {
+                    if let Some(next @ '0'..='7') = chars.peek().copied() {
+                        value = value * 8 + next.to_digit(8).unwrap() as u8;
+                        chars.next();
+                    }
+                }
+                bytes.push(value);
+            }
+            Some(other) => {
+                let mut buffer = [0u8; 4];
+                bytes.extend_from_slice(other.encode_utf8(&mut buffer).as_bytes());
+            }
+            None => bytes.push(b'\\'),
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn diff_header_path(line: &str, prefix: &str) -> Option<String> {
+    let path = line.strip_prefix(prefix)?;
+    if path == "/dev/null" {
+        return None;
+    }
+    Some(unquote_git_path(path))
+}
+
+fn parse_changed_ranges(diff: &str) -> ChangedRangesSnapshot {
+    let mut snapshot = ChangedRangesSnapshot::default();
+    let mut current: Option<String> = None;
+    let mut before_line = 0usize;
+    let mut after_line = 0usize;
+    let mut in_hunk = false;
+    let mut binary = false;
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            current = None;
+            in_hunk = false;
+            binary = false;
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("--- ") {
+            if !binary && current.is_none() {
+                current = diff_header_path(path, "");
+                if let Some(path) = current.clone() {
+                    snapshot
+                        .files
+                        .entry(path)
+                        .or_insert_with(|| FileChangedRanges {
+                            before: Some(Vec::new()),
+                            after: Some(Vec::new()),
+                            truncated: false,
+                        });
+                }
+            }
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("+++ ") {
+            if !binary {
+                current = diff_header_path(path, "");
+                if let Some(path) = current.clone() {
+                    snapshot
+                        .files
+                        .entry(path)
+                        .or_insert_with(|| FileChangedRanges {
+                            before: Some(Vec::new()),
+                            after: Some(Vec::new()),
+                            truncated: false,
+                        });
+                }
+            }
+            continue;
+        }
+        if line.starts_with("Binary files ") || line == "GIT binary patch" {
+            binary = true;
+            if let Some(path) = current.clone() {
+                let entry = snapshot.files.entry(path).or_default();
+                entry.before = None;
+                entry.after = None;
+            }
+            continue;
+        }
+        if let Some(header) = line.strip_prefix("@@ ") {
+            let mut fields = header.split_whitespace();
+            let Some((before_start, _)) = fields.next().and_then(|v| diff_coordinate(v, '-'))
+            else {
+                in_hunk = false;
+                continue;
+            };
+            let Some((after_start, _)) = fields.next().and_then(|v| diff_coordinate(v, '+')) else {
+                in_hunk = false;
+                continue;
+            };
+            before_line = before_start;
+            after_line = after_start;
+            in_hunk = true;
+            continue;
+        }
+        if !in_hunk || line.starts_with("\\ No newline at end of file") {
+            continue;
+        }
+        let Some(path) = current.clone() else {
+            continue;
+        };
+        let Some(entry) = snapshot.files.get_mut(&path) else {
+            continue;
+        };
+        match line.as_bytes().first().copied() {
+            Some(b'-') => {
+                if let Some(before) = entry.before.as_mut() {
+                    entry.truncated |= push_changed_line(before, before_line);
+                }
+                before_line = before_line.saturating_add(1);
+            }
+            Some(b'+') => {
+                if let Some(after) = entry.after.as_mut() {
+                    entry.truncated |= push_changed_line(after, after_line);
+                }
+                after_line = after_line.saturating_add(1);
+            }
+            Some(b' ') => {
+                before_line = before_line.saturating_add(1);
+                after_line = after_line.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+    snapshot
 }
 
 impl Workspace {
@@ -456,6 +629,49 @@ impl Workspace {
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
         })
+    }
+
+    /// Bounded changed-line ranges for the requested paths, extracted from one
+    /// `git diff HEAD` probe. `None` means the ranges are unavailable; a returned
+    /// snapshot may still be partial when `truncated` is set.
+    pub(crate) async fn changed_line_ranges(
+        &self,
+        paths: &[String],
+    ) -> Option<ChangedRangesSnapshot> {
+        if !self.exec_enabled() || !self.root().join(".git").exists() {
+            return None;
+        }
+        let mut truncated = false;
+        let mut selected = Vec::new();
+        for path in paths {
+            if selected.len() >= MAX_CHANGED_RANGE_FILES {
+                truncated = true;
+                break;
+            }
+            selected.push(path.clone());
+        }
+        if selected.is_empty() {
+            return Some(ChangedRangesSnapshot::default());
+        }
+        let mut args: Vec<String> = vec![
+            "--literal-pathspecs".into(),
+            "diff".into(),
+            "--no-color".into(),
+            "--no-renames".into(),
+            "--no-prefix".into(),
+            "--unified=0".into(),
+            "--ignore-submodules=all".into(),
+            "HEAD".into(),
+            "--".into(),
+        ];
+        args.extend(selected.iter().cloned());
+        let output = self.run_command("git", &args, ".", 10).await.ok()?;
+        if !output.success || output.redacted || output.timed_out || output.output_incomplete {
+            return None;
+        }
+        let mut snapshot = parse_changed_ranges(&output.stdout);
+        snapshot.truncated = truncated || output.truncated || snapshot.truncated;
+        Some(snapshot)
     }
 }
 

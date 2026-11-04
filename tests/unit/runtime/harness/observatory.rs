@@ -131,6 +131,78 @@ async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_fil
 }
 
 #[tokio::test]
+async fn project_observatory_change_ranges_surface_in_project_changes() {
+    use std::process::Command;
+
+    let root = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(root.path())
+            .status()
+            .expect("git must be available for observatory change range tests")
+    };
+    assert!(git(&["init", "-q"]).success());
+    assert!(git(&["config", "user.email", "wcode@example.test"]).success());
+    assert!(git(&["config", "user.name", "wcode test"]).success());
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    assert!(git(&["add", "."]).success());
+    assert!(git(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]).success());
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> i32 { 2 }\n",
+    )
+    .unwrap();
+
+    let workspace = Workspace::new(root.path(), false, true).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    let monitor = TaskMonitor::new(["demo".to_owned()]);
+    let review = harness
+        .review_changes("demo".to_owned(), &workspace, 30, &monitor)
+        .await
+        .unwrap();
+    let paths = review
+        .files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+    let change_ranges = workspace.changed_line_ranges(&paths).await.unwrap();
+    let project = harness
+        .project_observatory_with_change_ranges(
+            "demo",
+            &workspace,
+            Some(&review),
+            Some(change_ranges),
+        )
+        .unwrap();
+    let change = project
+        .changes
+        .iter()
+        .find(|change| change.path == "src/lib.rs")
+        .expect("changed file should be projected");
+    assert_eq!(
+        change.before_changed_ranges,
+        Some(vec![crate::workspace::ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert_eq!(
+        change.after_changed_ranges,
+        Some(vec![crate::workspace::ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert!(!change.changed_ranges_truncated);
+}
+
+#[tokio::test]
 async fn observatory_revision_signal_uses_metadata_without_git_or_execution() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("src")).unwrap();

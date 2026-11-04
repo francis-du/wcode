@@ -449,20 +449,23 @@ function renderDetail() {
   }</section>`;
   setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id }, () => {
     bindCodeReaderActions(els.detail);
+    bindChangeOpenActions(els.detail);
   });
 }
 
 function changeTable(items, compact = false) {
   return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
-  }</th><th>${esc(t("Scope"))}</th><th>${esc(t("Diff"))}</th>${
+  }</th><th>${esc(t("Scope"))}</th><th>${esc(t("Diff"))}</th><th>${
+    esc(t("Changed lines"))
+  }</th>${
     compact ? "" : `<th>${esc(t("Requirements"))}</th>`
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) => {
       const tone = statusClass(item.untracked ? "untracked" : item.status);
       return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path"><button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button><button type="button" class="quiet-action change-reader-open" data-reader-path="${esc(item.path)}">${esc(t("Open in code reader"))}</button></div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
         item.untracked ? pill(t("untracked"), "info") : ""
-      }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td>${
+      }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td><td data-label="${esc(t("Changed lines"))}">${changeRangesCell(item)}</td>${
         compact
           ? ""
           : `<td data-label="${esc(t("Requirements"))}">${
@@ -656,9 +659,7 @@ function renderChanges() {
       ),
     () => bindCodeReaderActions(els.changes),
   );
-  els.changes.querySelectorAll("[data-change-path]").forEach(button => {
-    button.onclick = () => { void openChangeInspection(button.dataset.changePath); };
-  });
+  bindChangeOpenActions(els.changes);
   renderChangeInspector();
 }
 
@@ -894,7 +895,7 @@ function changeDisplayRows(view) {
     return row;
   });
 }
-async function openChangeInspection(path, layer = "working", fresh = false) {
+async function openChangeInspection(path, layer = "working", fresh = false, focusLine = null) {
   if (typeof path !== "string" || !path || !["working", "staged", "unstaged"].includes(layer)) return;
   const previous = state.changeInspection;
   const expected = !fresh && previous?.path === path
@@ -904,7 +905,8 @@ async function openChangeInspection(path, layer = "working", fresh = false) {
   const sequence = state.changeRequestSequence = (state.changeRequestSequence || 0) + 1;
   const workspace = state.current, epoch = state.workspaceEpoch, controller = new AbortController();
   state.changeInspection = {path, layer, snapshotId: expected, data: null, symbolImpact: null, relationImpact: null, repositoryRevision: null,
-    impactNodeId: "", impactLoading: false, impactError: "", impactController: null, error: "", loading: true, controller};
+    impactNodeId: "", impactLoading: false, impactError: "", impactController: null, error: "", loading: true, controller,
+    focusLine: Number.isInteger(focusLine) && focusLine > 0 ? focusLine : null};
   renderChangeInspector();
   const params = new URLSearchParams({path, layer});
   if (expected) params.set("expected_snapshot", expected);
@@ -963,6 +965,14 @@ function renderChangeInspector() {
   const repositoryRevision = current.repositoryRevision;
   const identity = view ? `<details class="change-identity"><summary>${esc(localized("Captured snapshot identity (not continuous live proof)", "本次读取的快照身份（不是持续实时证明）"))}</summary><code>HEAD ${esc(view.head || "—")}<br>index ${esc(view.index_fingerprint || "—")}<br>worktree ${esc(view.worktree_sha256 || localized("missing", "不存在"))}<br>snapshot ${esc(view.snapshot_id)}<br>repository code ${esc(repositoryRevision?.code || "—")}<br>repository Design ${esc(repositoryRevision?.design || "—")}</code></details>` : "";
   host.innerHTML = `<section class="change-inspector"><header><div><h3>${esc(localized("Read-only code changes", "只读代码变更"))}</h3><code>${esc(current.path)}</code></div><button type="button" data-change-close>${esc(localized("Close", "关闭"))}</button></header><div class="change-toolbar">${layers}<button type="button" data-change-reload>${esc(localized("Reload file", "重新读取"))}</button></div>${body}${identity}</section>`;
+  const focusLine = current.focusLine;
+  if (focusLine != null && view) {
+    current.focusLine = null;
+    const target = host.querySelector(`.change-source-line[data-change-after-line="${focusLine}"]`)
+      || host.querySelector(`.change-source-line[data-change-before-line="${focusLine}"]`);
+    target?.scrollIntoView?.({ block: "center" });
+    target?.focus?.({ preventScroll: true });
+  }
   host.querySelectorAll("[data-change-layer]").forEach(button => {
     button.onclick = () => { void openChangeInspection(current.path, button.dataset.changeLayer); };
   });

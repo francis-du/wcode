@@ -95,12 +95,29 @@ impl ToolHarness {
         workspace: &Workspace,
         review: Option<&ChangeReviewReport>,
     ) -> Result<ProjectObservatory> {
+        let change_ranges = match review {
+            Some(review) => {
+                let paths = review
+                    .files
+                    .iter()
+                    .map(|file| file.path.clone())
+                    .collect::<Vec<_>>();
+                workspace.changed_line_ranges(&paths).await
+            }
+            None => None,
+        };
         let harness = self.clone();
         let id = workspace_id.to_owned();
         let selected = workspace.clone();
         let review = review.cloned();
-        let mut snapshot = tokio::task::spawn_blocking(move || {
-            harness.project_observatory(id, &selected, review.as_ref())
+        let mut snapshot = tokio::task::spawn_blocking(move || match change_ranges {
+            Some(change_ranges) => harness.project_observatory_with_change_ranges(
+                id,
+                &selected,
+                review.as_ref(),
+                Some(change_ranges),
+            ),
+            None => harness.project_observatory(id, &selected, review.as_ref()),
         })
         .await??;
         let captured = self
@@ -127,6 +144,16 @@ impl ToolHarness {
         workspace_id: impl Into<String>,
         workspace: &Workspace,
         review: Option<&ChangeReviewReport>,
+    ) -> Result<ProjectObservatory> {
+        self.project_observatory_with_change_ranges(workspace_id, workspace, review, None)
+    }
+
+    pub fn project_observatory_with_change_ranges(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        review: Option<&ChangeReviewReport>,
+        change_ranges: Option<crate::workspace::ChangedRangesSnapshot>,
     ) -> Result<ProjectObservatory> {
         const MAX_OBSERVATORY_SYMBOLS: usize = 5_000;
         const MAX_OBSERVATORY_HISTORY: usize = 32;
@@ -427,6 +454,7 @@ impl ToolHarness {
             engineering_journal,
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
+            change_ranges,
         });
         snapshot.attention =
             crate::intelligence::observatory_attention::build(&snapshot, review, &verification);

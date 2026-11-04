@@ -3,6 +3,7 @@ use crate::evidence::Evidence;
 use crate::graph::{EdgeKind, GraphPrecision, NodeKind};
 use crate::risk::{BugPatternStatus, Risk, RiskLevel, VerificationProfile};
 use crate::semantic::{SemanticFact, SemanticMatch};
+use crate::workspace::ChangeLineRange;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -439,6 +440,9 @@ pub struct ProjectChangeView {
     pub untracked: bool,
     pub affected_requirements: Vec<String>,
     pub affected_components: Vec<String>,
+    pub before_changed_ranges: Option<Vec<ChangeLineRange>>,
+    pub after_changed_ranges: Option<Vec<ChangeLineRange>>,
+    pub changed_ranges_truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
