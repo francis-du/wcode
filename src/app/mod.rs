@@ -114,11 +114,12 @@ struct Args {
     command: Option<ControlCommand>,
 
     /// Project directory to use instead of the current directory. Usually unnecessary.
+    /// May be repeated. When omitted, roots are inherited from the agent session
+    /// (`WCODE_WORKSPACES` or `WCODE_WORKSPACES_FILE`), then the current directory.
     #[arg(
         short = 'w',
         long,
         value_name = "PATH",
-        default_value = ".",
         help_heading = "Project",
         global = true
     )]
@@ -257,8 +258,68 @@ struct Args {
     legacy_open_setup: bool,
 }
 
+/// Workspace roots inherited from the calling agent's session.
+///
+/// An agent that already knows its project context can hand the whole set to
+/// wcode instead of configuring one root at a time:
+///
+/// - `WCODE_WORKSPACES`: a path list. Entries are separated by the platform
+///   path-list separator (`:` on Unix, `;` on Windows) and/or by newlines.
+/// - `WCODE_WORKSPACES_FILE`: a file holding one absolute or relative root per
+///   line (`#` starts a comment), convenient when the session already persists
+///   its context somewhere.
+///
+/// An explicit `--workspace` always wins. When neither is present, the current
+/// directory is used, exactly as before.
+fn parse_workspace_list(raw: &str) -> Vec<PathBuf> {
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    raw.split(['\n', '\r', separator])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn parse_workspace_file(contents: &str) -> Vec<PathBuf> {
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty() && !entry.starts_with('#'))
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn session_workspace_roots() -> Option<Vec<PathBuf>> {
+    if let Ok(raw) = std::env::var("WCODE_WORKSPACES") {
+        let roots = parse_workspace_list(&raw);
+        if !roots.is_empty() {
+            return Some(roots);
+        }
+    }
+    let Ok(path) = std::env::var("WCODE_WORKSPACES_FILE") else {
+        return None;
+    };
+    let Ok(contents) = std::fs::read_to_string(path.trim()) else {
+        return None;
+    };
+    let roots = parse_workspace_file(&contents);
+    if roots.is_empty() {
+        None
+    } else {
+        Some(roots)
+    }
+}
+
+fn resolved_workspace_roots(explicit: &[PathBuf]) -> Vec<PathBuf> {
+    if !explicit.is_empty() {
+        return explicit.to_vec();
+    }
+    session_workspace_roots().unwrap_or_else(|| vec![PathBuf::from(".")])
+}
+
 pub async fn run() -> Result<()> {
     let args = big_stack::parse_cli_args();
+    let workspace_roots = resolved_workspace_roots(&args.workspace);
     if let Some(ControlCommand::HelpAll { command_path, json }) = args.command.as_ref() {
         let command_path = command_path.clone();
         let json = *json;
@@ -289,11 +350,10 @@ pub async fn run() -> Result<()> {
                 github_check_name,
                 json,
             } => {
-                if args.workspace.len() != 1 {
+                if workspace_roots.len() != 1 {
                     bail!("setup accepts one project workspace; configure each project separately");
                 }
-                let root = args
-                    .workspace
+                let root = workspace_roots
                     .first()
                     .map(PathBuf::as_path)
                     .unwrap_or_else(|| std::path::Path::new("."));
@@ -318,11 +378,10 @@ pub async fn run() -> Result<()> {
                 return crate::menu_bar::run(*json);
             }
             ControlCommand::Telemetry { to, limit } => {
-                if args.workspace.len() != 1 {
+                if workspace_roots.len() != 1 {
                     bail!("telemetry accepts one project workspace");
                 }
-                let root = args
-                    .workspace
+                let root = workspace_roots
                     .first()
                     .map(PathBuf::as_path)
                     .unwrap_or_else(|| std::path::Path::new("."));
@@ -399,7 +458,7 @@ pub async fn run() -> Result<()> {
         ..WorkspaceSecurity::default()
     };
     let workspaces =
-        Workspaces::new_with_security(&args.workspace, allow_write, allow_exec, security)?;
+        Workspaces::new_with_security(&workspace_roots, allow_write, allow_exec, security)?;
     if args.full_access {
         workspaces.grant_full_user_access()?;
     }
@@ -914,3 +973,7 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app/workspaces.rs"]
+mod workspace_tests;

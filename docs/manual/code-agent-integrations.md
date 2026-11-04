@@ -46,6 +46,19 @@ Host configuration work across repositories and avoids accidentally treating a
 plugin/package directory as source code. `--workspace` is only an explicit
 operator override.
 
+An agent that already knows its project context can inherit several roots at
+once instead of configuring them one at a time:
+
+- `WCODE_WORKSPACES` — a path list. Entries are separated by the platform
+  path-list separator (`:` on Unix, `;` on Windows) and/or by newlines, for
+  example `WCODE_WORKSPACES=/repo/a:/repo/b`.
+- `WCODE_WORKSPACES_FILE` — a file holding one absolute or relative root per
+  line (`#` starts a comment), convenient when the session already persists its
+  context somewhere.
+
+An explicit `--workspace` always wins. When neither is set, the MCP Host working
+directory is used, exactly as before.
+
 ### Human authorization over stdio
 
 `stdin` and `stdout` are the MCP protocol channel, so wcode never pauses that

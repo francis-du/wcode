@@ -247,7 +247,8 @@ fn candidate_root(args: &super::Args, command: &GitHubCommand) -> Result<Option<
         if !(args.allow_write || args.full_access) || !(args.allow_exec || args.full_access) {
             bail!("GitHub publication is disabled by read-only or no-exec mode");
         }
-        if args.workspace.len() != 1 {
+        let workspace_roots = super::resolved_workspace_roots(&args.workspace);
+        if workspace_roots.len() != 1 {
             bail!("GitHub publication requires exactly one candidate workspace");
         }
         if workspace_id.trim().is_empty()
@@ -259,7 +260,7 @@ fn candidate_root(args: &super::Args, command: &GitHubCommand) -> Result<Option<
                 "GitHub publication requires bounded workspace identity and complete commit SHAs"
             );
         }
-        let candidate = std::fs::canonicalize(&args.workspace[0])
+        let candidate = std::fs::canonicalize(&workspace_roots[0])
             .map_err(|_| anyhow!("GitHub candidate workspace is unavailable"))?;
         let trusted = std::fs::canonicalize(config_root)
             .map_err(|_| anyhow!("GitHub publisher configuration directory is unavailable"))?;
