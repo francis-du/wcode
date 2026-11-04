@@ -42,6 +42,7 @@ code{font:13px var(--font-mono);color:var(--soft);}
 
 /* Read-only change drilldown uses the existing source and status palette. */
 .change-open{padding:2px 0;min-height:28px;border:0;background:transparent;color:var(--accent);font:13px var(--font-mono);text-align:left;cursor:pointer;}.change-open:hover{text-decoration:underline;}
+.change-ranges{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:12px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--soft);}.change-ranges.unavailable{color:var(--muted);}.change-ranges.warn{color:var(--warn);}.change-range-open{padding:0;min-height:24px;border:0;background:transparent;color:var(--accent);font:inherit;cursor:pointer;text-align:left;}.change-range-open:hover{text-decoration:underline;}
 .change-inspector{min-width:0;margin-top:22px;padding:18px;border:1px solid var(--line);border-radius:18px;background:var(--surface);}
 .change-inspector header{display:flex;align-items:start;justify-content:space-between;gap:14px;}.change-inspector header>div{min-width:0;}.change-inspector h3{margin:0 0 8px;}.change-inspector code{white-space:normal;overflow-wrap:anywhere;}
 .change-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0;}.change-toolbar [aria-pressed="true"]{border-color:var(--accent);color:var(--accent);}

@@ -11,7 +11,7 @@ const results = [];
 const flush = () => new Promise(setImmediate);
 
 function productionSource() {
-  return ['code_reader.js', 'features.js', 'code_graph.js', 'design_sources.js', 'structure.js']
+  return ['code_reader.js', 'change_ranges.js', 'features.js', 'code_graph.js', 'design_sources.js', 'structure.js']
     .map(APP).join('\n');
 }
 function escapeHtml(value) {
@@ -296,6 +296,34 @@ async function test(name, fn) {
     const tree = s.host('#fileTree').innerHTML;
     assert.match(tree, /data-reader-path="src\/a.rs"/);
     assert.match(tree, /tree-file-reader/);
+  });
+  await test('requirement change table renders bounded ranges with a jump target', () => {
+    const s = setup();
+    const table = s.api.changeTable([{
+      path: 'src/a.rs', status: 'modified', additions: 2, deletions: 1,
+      before_changed_ranges: [{ start_line: 10, end_line: 11 }],
+      after_changed_ranges: [{ start_line: 12, end_line: 13 }],
+      changed_ranges_truncated: false,
+    }], true);
+    assert.match(table, /L10–11 → L12–13/);
+    assert.match(table, /data-change-path="src\/a.rs"/);
+    assert.match(table, /data-change-layer="working"/);
+    assert.match(table, /data-change-focus-line="12"/);
+    assert.match(table, /data-label="Changed lines"/);
+  });
+  await test('requirement change table keeps unavailable and truncated ranges explicit', () => {
+    const s = setup();
+    const unavailable = s.api.changeTable([{ path: 'src/a.rs', status: 'modified' }], true);
+    assert.match(unavailable, /ranges not retained/);
+    assert.doesNotMatch(unavailable, /L0|→ L0/);
+    const truncated = s.api.changeTable([{
+      path: 'src/b.rs', status: 'modified',
+      before_changed_ranges: [{ start_line: 1, end_line: 2 }],
+      after_changed_ranges: [{ start_line: 1, end_line: 2 }],
+      changed_ranges_truncated: true,
+    }], true);
+    assert.match(truncated, /ranges truncated/);
+    assert.match(truncated, /L1–2 → L1–2/);
   });
   await test('ablation: removing change-row parsing removes the overlay while source rendering remains', async () => {
     const anchor = 'for (const row of changeDisplayRows(change))';

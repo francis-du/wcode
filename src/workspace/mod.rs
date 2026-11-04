@@ -882,7 +882,8 @@ impl Workspace {
 }
 
 mod change_view;
-pub use change_view::ChangeLayer;
+pub(crate) use change_view::ChangedRangesSnapshot;
+pub use change_view::{ChangeLayer, ChangeLineRange};
 mod historical_source;
 pub(crate) use historical_source::{historical_source_error_code, MAX_HISTORICAL_REVISIONS};
 

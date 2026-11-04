@@ -470,6 +470,16 @@ async function test(name, fn) {
     assert.equal(malformed.state.changeInspection.data,null);
     assert(malformed.state.changeInspection.error);
   });
+  await test('opening a change with a focus line consumes it after render', async ()=>{
+    const s=setup(), p=s.api.openChangeInspection('main.rs','working',false,4);
+    assert.equal(s.state.changeInspection.focusLine,4);
+    s.requests[0].resolve({workspace:'A',change:view()});
+    await p;
+    assert.equal(s.state.changeInspection.focusLine,null);
+    const invalid=setup();
+    void invalid.api.openChangeInspection('main.rs','working',false,0);
+    assert.equal(invalid.state.changeInspection.focusLine,null);
+  });
   await test('real runtime transitions wire invalidation and cache clearing', ()=>{
     for(const name of ['restoreWorkspaceSnapshot','renderProjectPlaceholder','clearWorkspaceView']) {
       const start=runtime.indexOf('function '+name+'('); assert(start>=0);

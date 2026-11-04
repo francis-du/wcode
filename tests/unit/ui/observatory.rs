@@ -111,7 +111,30 @@ fn observatory_change_view_is_readonly_scoped_and_snapshot_bound() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 32
+                .is_some_and(|results| results.len() == 33
+                    && results.iter().all(|item| item["passed"] == true)),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn code_reader_requirement_changes_expose_bounded_line_ranges() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .arg(root.join("tests/unit/ui/code_reader.cjs"))
+        .arg(root)
+        .output()
+        .expect("Node is required for code reader requirement changes");
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout);
+    assert!(
+        output.status.success()
+            && report
+                .as_ref()
+                .ok()
+                .and_then(|value| value["results"].as_array())
+                .is_some_and(|results| results.len() == 12
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
