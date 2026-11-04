@@ -265,7 +265,12 @@ diff --git a/modified.txt b/modified.txt
     assert!(!snapshot.files["modified.txt"].truncated);
 }
 
-fn probe_result(stdout: &str, success: bool, output_incomplete: bool) -> CommandResult {
+fn probe_result(
+    stdout: &str,
+    success: bool,
+    truncated: bool,
+    output_incomplete: bool,
+) -> CommandResult {
     CommandResult {
         program: "git".to_owned(),
         args: Vec::new(),
@@ -275,7 +280,7 @@ fn probe_result(stdout: &str, success: bool, output_incomplete: bool) -> Command
         stdout: stdout.to_owned(),
         raw_stdout: None,
         stderr: String::new(),
-        truncated: output_incomplete,
+        truncated,
         redacted: false,
         timed_out: false,
         output_incomplete,
@@ -287,7 +292,7 @@ fn probe_result(stdout: &str, success: bool, output_incomplete: bool) -> Command
 fn changed_ranges_from_output_reports_incomplete_output_as_unavailable() {
     let diff =
         "diff --git a/main.rs b/main.rs\n--- main.rs\n+++ main.rs\n@@ -1 +1 @@\n-old\n+new\n";
-    let complete = changed_ranges_from_output(&probe_result(diff, true, false))
+    let complete = changed_ranges_from_output(&probe_result(diff, true, false, false))
         .expect("a completed probe retains ranges");
     assert!(!complete.files["main.rs"].truncated);
     assert_eq!(
@@ -310,15 +315,52 @@ fn changed_ranges_from_output_reports_incomplete_output_as_unavailable() {
     for _ in 0..300 {
         capped.push_str("-old\n+new\n context\n");
     }
-    let capped = changed_ranges_from_output(&probe_result(&capped, true, false))
+    let capped = changed_ranges_from_output(&probe_result(&capped, true, false, false))
         .expect("a completed probe retains ranges");
     assert!(capped.files["big.rs"].truncated);
 
     assert!(
-        changed_ranges_from_output(&probe_result(diff, true, true)).is_none(),
+        changed_ranges_from_output(&probe_result(diff, true, true, true)).is_none(),
         "incomplete output must retain no ranges instead of claiming truncation"
     );
-    assert!(changed_ranges_from_output(&probe_result(diff, false, false)).is_none());
+    assert!(
+        changed_ranges_from_output(&probe_result(diff, true, true, false)).is_none(),
+        "a diff cut off at the output cap must retain no ranges instead of reading partial hunks as complete"
+    );
+    assert!(changed_ranges_from_output(&probe_result(diff, false, false, false)).is_none());
+}
+
+#[test]
+fn changed_ranges_ignores_hunk_lines_that_look_like_diff_headers() {
+    // A removed line beginning with `-- ` and an added line beginning with `++ `
+    // appear in a unified diff as `--- ` and `+++ `. They are content, not file
+    // headers, and must not hijack the file the following hunk lines belong to.
+    let diff = "diff --git a/code.txt b/code.txt\n--- code.txt\n+++ code.txt\n\
+                @@ -1,2 +1,2 @@\n--- legacy note\n+++ marker\n";
+    let snapshot = changed_ranges_from_output(&probe_result(diff, true, false, false))
+        .expect("a completed probe retains ranges");
+    assert_eq!(
+        snapshot.files["code.txt"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert_eq!(
+        snapshot.files["code.txt"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert!(
+        !snapshot.files.contains_key("marker"),
+        "a content line must not be parsed as a file header"
+    );
+    assert!(
+        !snapshot.files.contains_key("legacy note"),
+        "a content line must not be parsed as a file header"
+    );
 }
 
 #[tokio::test]
