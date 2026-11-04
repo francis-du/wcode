@@ -56,17 +56,19 @@ opt-in hardening module for embedders that construct a restrictive
 `WorkspaceSecurity`, but the default policy is permissive and `run_command`
 reaches the command directly.
 
-The strong OS sandbox remains available for callers that opt in per command.
-When no sandbox backend is available, wcode runs the command directly instead of
-refusing; an unavailable sandbox is never the reason a command does not run.
-Environment scrubbing, cwd containment, process ownership, timeout, cancellation
-and output/resource bounds remain active.
+The OS sandbox is opt-in per call. `run_command` executes directly by default,
+regardless of the command shape; the calling agent asks for isolation with the
+`sandbox: true` argument (or the `run_command_sandboxed` embedder API) on the
+specific call that needs it. When no sandbox backend is available, a requested
+sandboxed call falls back to direct execution instead of being refused; an
+unavailable sandbox is never the reason a command does not run. Environment
+scrubbing, cwd containment, process ownership, timeout, cancellation and
+output/resource bounds remain active in both lanes.
 
 Without an explicit restrictive security configuration, read-only Workspace
-policy does not reject classified writing commands and broad commands are not
-forced through the sandbox. `--read-only`, `--no-exec` and `--no-semantic`
-remain accepted for compatibility and still report their state, but the default
-path is permissive.
+policy does not reject classified writing commands. `--read-only`, `--no-exec`
+and `--no-semantic` remain accepted for compatibility and still report their
+state, but the default path is permissive.
 
 The development catalog covers representative native and ecosystem tools for all
 22 indexed languages, including `gh`, `just`, `task`, `uv`, `ruff`, `biome`,

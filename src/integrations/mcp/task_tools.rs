@@ -11,6 +11,7 @@ const COMMAND_FIELDS: &[&str] = &[
     "args",
     "cwd",
     "env",
+    "sandbox",
     "timeout_seconds",
     "task_mode",
 ];
@@ -179,6 +180,11 @@ fn validate_command_shape(object: &Map<String, Value>) -> Result<(), TaskRpcErro
             return Err(TaskRpcError::invalid(
                 "durable command tasks require task_mode=true",
             ));
+        }
+    }
+    if let Some(sandbox) = object.get("sandbox") {
+        if !sandbox.is_boolean() {
+            return Err(TaskRpcError::invalid("sandbox must be a boolean"));
         }
     }
     if let Some(env) = object.get("env") {

@@ -1,31 +1,35 @@
 schema_version: 1
 id: AC-EXECUTION-SANDBOX-001
-title: Broad shell execution keeps sandbox and authorization independent
+title: The OS sandbox is opt-in per call and falls back to direct execution
 statement: >-
-  A command shape outside bounded development or verification profiles is marked broad under both ordinary
-  permissive execution and explicit Workspace all-command / Full Access overrides, and uses a platform
-  sandbox launch plan when a backend is available. The sandbox keeps the selected Workspace read-only when writes are disabled
+  Command execution is direct by default for every command shape, under both ordinary permissive execution and
+  explicit Workspace all-command / Full Access overrides. The OS sandbox is selected only when the caller asks for
+  it on that call (the MCP run_command `sandbox` argument or the run_command_sandboxed embedder API). When selected,
+  the sandbox keeps the selected Workspace read-only when writes are disabled
   and no all-command override exists; ordinary writes or an explicit override enable Workspace writes only within
   that sandbox boundary. It keeps the host filesystem read-only outside sandbox scratch/Workspace, masks or denies
   protected credential/repository-control paths at any depth within the selected Workspace and actual configured
   authority-state roots, denies external network access, preserves cwd/process/resource limits, and applies
   sensitive/injection-capable environment scrubbing with explicit provider credential allowances.
-  Repository-control metadata such as .git/.hg/.svn is inaccessible to broad shell/policy-bypass commands; bounded
+  Repository-control metadata such as .git/.hg/.svn is inaccessible to sandboxed shell/policy-bypass commands; bounded
   policy-approved Git operations retain the hardened direct lane and intentional repository-control access.
-  Commands valid under bounded profiles, including supported syntax-only shell checks, do not pay the sandbox cost.
-  macOS selects Seatbelt; Linux selects bubblewrap when available. When no backend exists, or sandbox preparation
-  fails, the command runs directly instead of being refused. Ordinary enabled
+  Commands valid under bounded profiles, including supported syntax-only shell checks, stay direct unless the caller
+  opts in. macOS selects Seatbelt; Linux selects bubblewrap when available. When no backend exists, or sandbox
+  preparation fails, the requested sandboxed command runs directly instead of being refused. Ordinary enabled
   commands need no second command approval, and explicit revocation is recorded without blocking the permissive
   default. A session override is informational under the permissive default; no command grant
-  disables the sandbox or authorizes a separate HumanApproval decision. Broad-command lifecycle tests run in fresh child processes with private authority and
+  disables the sandbox or authorizes a separate HumanApproval decision. Command lifecycle tests run in fresh child processes with private authority and
   intelligence roots initialized before launch; no test depends on parallel store creation or modifies the
   parent environment. Backend presence is not a waiver for missing protected roots, whose negative tests
   retain fail-closed behavior. Exact child-test execution and successful completion must be observed.
 verification:
-  - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: broad_command_classification_sandboxes_shell_unknown_and_policy_bypass_only}
   - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: sandbox_launch_plan_is_workspace_write_network_denied_and_fail_closed}
   - {kind: test, path: tests/unit/workspace/sandbox.rs, symbol: protected_symlink_targets_are_masked_and_hardlink_aliases_fail_closed}
   - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: sandbox_fixture_initializes_exact_private_roots}
-  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_or_runs_directly}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_runs_directly_by_default}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: workspace_all_command_grant_sandboxes_broad_shell_when_requested}
   - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: full_access_keeps_bounded_commands_direct_and_runs_policy_bypass}
+  - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: full_access_opt_in_sandbox_isolates_broad_shell_when_backend_exists}
   - {kind: test, path: tests/unit/workspace/execution_sandbox.rs, symbol: revoking_workspace_all_command_grant_does_not_block_execution}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: permissive_shell_execution_runs_directly_by_default}
+  - {kind: test, path: tests/unit/workspace/execution_timing.rs, symbol: permissive_shell_execution_sandboxes_when_requested}

@@ -318,7 +318,7 @@ Maturity: **Complete** means the stated bounded contract is implemented; **Parti
 | OAuth connection | Access/refresh grants, client binding, refresh rotation | Partial | AuthState / PublicEndpoints / auth tokens | No time expiry/revoke/session UI; old access remains after refresh | Critical |
 | Workspace access | Root/path guards and read-only enforcement | Complete | Workspace / Workspaces / fs_safety | Single operator chooses roots; OAuth client has no per-root principal ACL | Critical |
 | Command boundary | Direct argv, policy shapes, authorization, process limits | Complete | CommandResult / run_command | Ordinary repo builds/scripts run as host user; not OS tenant isolation | Critical |
-| Full Access / broad sandbox | macOS Seatbelt / Linux bubblewrap broad-command lane | Partial | WorkspaceSecurity / authorization | Does not isolate ordinary builds/LSP or shared authority state | Critical |
+| Full Access / broad sandbox | macOS Seatbelt / Linux bubblewrap opt-in command lane | Partial | WorkspaceSecurity / authorization | Does not isolate ordinary builds/LSP or shared authority state; the sandbox is opt-in per call | Critical |
 | Protected paths / redaction | fs_safety, environment/content/header redaction | Partial | fs_safety / redaction | Runtime authority state needs protection; redaction is not write isolation | Critical |
 | Remote MCP / tunnel | OAuth, endpoint provenance, local probe and provider recovery | Partial | AppState / AuthState / tunnel health | Detailed anonymous health currently discloses roots/launch profiles | Critical |
 | LSP execution | Capability probes, bounded children, scrubbed environment | Complete | semantic providers / command execution | Installed LSP process retains host-user access | High |
@@ -411,7 +411,7 @@ The engine captures inputs before evaluation and rechecks them before persisting
 | Restart/concurrency | Expired grant, changed head or interrupted record write | Atomic writes, one-shot/restart invalidation, bounded queues and recovery tests |
 | Shared deployment | One process/OS user shares roots and authority | One tenant/operator boundary per runtime until real project ACL + worker isolation exists |
 
-Workspace path isolation is not an OS sandbox. The current broad-command sandbox does not isolate ordinary builds or LSP processes. Local mode assumes a trusted OS account and repository toolchain. A team-managed runtime requires explicit tenant/project identity and isolated workers; a dedicated deployment has its own authority state and credentials.
+Workspace path isolation is not an OS sandbox. The opt-in command sandbox does not isolate ordinary builds or LSP processes. Local mode assumes a trusted OS account and repository toolchain. A team-managed runtime requires explicit tenant/project identity and isolated workers; a dedicated deployment has its own authority state and credentials.
 
 Do not claim “source never leaves the device”: source returned through MCP may reach the chosen host/model; configured remote MCP/tunnel clients can receive it; optional providers and Git/CI integrations have their own data flows. Evidence/export may contain source-derived paths, summaries or output. Document destinations and user-configured retention.
 

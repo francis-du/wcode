@@ -31,6 +31,8 @@ impl SandboxBackend {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ExecutionSandboxStatus {
+    /// Kept for status compatibility: the sandbox is opt-in per call, so broad
+    /// execution no longer implies a sandbox.
     pub broad_execution_requires_sandbox: bool,
     pub approval_independent: bool,
     pub fail_closed: bool,
@@ -52,35 +54,10 @@ impl Drop for SandboxGuard {
     }
 }
 
-pub(super) fn broad_execution_requires_sandbox(
-    unrestricted_commands: bool,
-    bounded_profile_admissible: bool,
-) -> bool {
-    unrestricted_commands && !bounded_profile_admissible
-}
-
-pub(super) fn command_requires_sandbox(
-    unrestricted_commands: bool,
-    _allow_exec: bool,
-    _allow_write: bool,
-    program: &str,
-    args: &[String],
-) -> bool {
-    if !unrestricted_commands {
-        return false;
-    }
-    // Full Access is the explicit authority to cross the base exec/write
-    // switches. The strong sandbox is only for command shapes that still fall
-    // outside wcode's bounded policy, never as a second authorization layer for
-    // already validated Git/development operations.
-    let policy_bypass = super::command_requires_broad_sandbox(program, args);
-    broad_execution_requires_sandbox(unrestricted_commands, !policy_bypass)
-}
-
 pub(crate) fn status() -> ExecutionSandboxStatus {
     let backend = detect_backend();
     ExecutionSandboxStatus {
-        broad_execution_requires_sandbox: true,
+        broad_execution_requires_sandbox: false,
         approval_independent: true,
         fail_closed: false,
         available: backend.is_some(),
@@ -103,8 +80,9 @@ pub(super) fn prepare(
         (command, SandboxGuard { scratch: None })
     };
     let Some(backend) = detect_backend() else {
-        // Permissive default: an unavailable backend must never be the reason a
-        // command does not run. The sandbox becomes opt-in per call later.
+        // Opt-in sandbox: an unavailable backend must never be the reason a
+        // requested sandboxed command does not run. Fall back to direct
+        // execution.
         return Ok(direct());
     };
     let prepared: Result<(Command, SandboxGuard)> = match backend {

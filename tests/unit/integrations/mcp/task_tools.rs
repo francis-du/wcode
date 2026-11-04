@@ -400,6 +400,8 @@ async fn ordinary_command_task_rejects_identity_fields_and_invalid_create_args()
         ("task_mode", json!(false)),
         ("task_mode", Value::Null),
         ("task_mode", json!("yes")),
+        ("sandbox", Value::Null),
+        ("sandbox", json!("yes")),
         ("timeout_seconds", json!(1801)),
         ("args", json!("git --version")),
         ("env", json!({"SECRET":"x"})),
@@ -431,6 +433,43 @@ async fn ordinary_command_task_rejects_identity_fields_and_invalid_create_args()
         !task_root.exists(),
         "invalid input must not create a worker or durable receipt"
     );
+}
+
+#[tokio::test]
+async fn ordinary_command_task_forwards_the_opt_in_sandbox_argument() {
+    let root = tempfile::tempdir().unwrap();
+    let state = fixture(&[root.path()]);
+    let sandboxed = crate::workspace::execution_sandbox_status().available;
+    let command = if sandboxed {
+        "test \"$WCODE_SANDBOX\" = 1 || exit 41"
+    } else {
+        "if test \"$WCODE_SANDBOX\" = 1; then exit 41; fi"
+    };
+    let created = call(
+        &state,
+        MODERN,
+        "command_task",
+        json!({"action":"create","program":"sh","args":["-c",command],"sandbox":true}),
+        OWNER,
+    )
+    .await;
+    assert!(created.get("error").is_none(), "{created}");
+    let data = &created["result"]["structuredContent"];
+    let id = data["task_id"].as_str().unwrap();
+    let workspace = data["workspace"].as_str().unwrap();
+    let completed = terminal(&state, id, workspace).await;
+    assert_eq!(completed["status"], "completed");
+    let result = call(
+        &state,
+        MODERN,
+        "command_task",
+        json!({"action":"result","task_id":id,"workspace":workspace}),
+        OWNER,
+    )
+    .await;
+    let inner = &result["result"]["structuredContent"]["result"];
+    assert_eq!(inner["isError"], false, "{result}");
+    assert_eq!(inner["structuredContent"]["success"], true, "{result}");
 }
 
 #[tokio::test]

@@ -12,6 +12,8 @@ mod limit_bounds;
 mod parallel_command;
 #[path = "preview.rs"]
 mod preview;
+#[path = "dispatch/sandbox_argument.rs"]
+mod sandbox_argument;
 
 fn batch_test_state(root: &std::path::Path) -> AppState {
     let workspaces = Workspaces::new([root], true, false).unwrap();
@@ -106,6 +108,9 @@ async fn strict_command_rejects_invalid_optional_settings() {
         ("timeout_seconds", json!(1801)),
         ("task_mode", Value::Null),
         ("task_mode", json!("yes")),
+        ("sandbox", Value::Null),
+        ("sandbox", json!("yes")),
+        ("sandbox", json!(1)),
     ] {
         let mut arguments = json!({"program": "git", "args": ["--version"]});
         arguments[key] = value;
@@ -145,6 +150,10 @@ async fn strict_command_rejects_invalid_optional_settings() {
         leaf_workspace::command_timeout_seconds(&json!({"task_mode":true})).unwrap(),
         600
     );
+    assert!(!leaf_workspace::command_sandbox_requested(&json!({})).unwrap());
+    assert!(!leaf_workspace::command_sandbox_requested(&json!({"sandbox":false})).unwrap());
+    assert!(leaf_workspace::command_sandbox_requested(&json!({"sandbox":true})).unwrap());
+    assert!(leaf_workspace::command_sandbox_requested(&json!({"sandbox":"yes"})).is_err());
     for task_mode in [false, true] {
         for seconds in [1, 60, 61, 600, 1800] {
             assert_eq!(

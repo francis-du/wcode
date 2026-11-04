@@ -341,6 +341,10 @@ fn ensure_workspace_executable(path: &Path) -> Result<()> {
 }
 
 impl Workspace {
+    /// Run a command directly, without the OS sandbox.
+    ///
+    /// The sandbox is opt-in per call: callers that want isolation must ask for
+    /// it with [`Workspace::run_command_sandboxed`] or the `sandbox` argument.
     pub async fn run_command(
         &self,
         program: &str,
@@ -348,7 +352,22 @@ impl Workspace {
         cwd: &str,
         timeout_seconds: u64,
     ) -> Result<CommandResult> {
-        self.run_command_with_environment(program, args, cwd, timeout_seconds, &[])
+        self.run_command_with_environment(program, args, cwd, timeout_seconds, &[], false)
+            .await
+    }
+
+    /// Run a command inside the OS sandbox when a backend is available.
+    ///
+    /// An unavailable or broken backend falls back to direct execution, so the
+    /// sandbox is never the reason a requested command does not run.
+    pub async fn run_command_sandboxed(
+        &self,
+        program: &str,
+        args: &[String],
+        cwd: &str,
+        timeout_seconds: u64,
+    ) -> Result<CommandResult> {
+        self.run_command_with_environment(program, args, cwd, timeout_seconds, &[], true)
             .await
     }
 
@@ -359,6 +378,7 @@ impl Workspace {
         cwd: &str,
         timeout_seconds: u64,
         environment: &[(String, String)],
+        sandbox: bool,
     ) -> Result<CommandResult> {
         let environment = validate_command_environment(environment)?;
         // Argument containment is an invariant, not a policy gate: malformed,
@@ -383,17 +403,6 @@ impl Workspace {
             validate_command_policy(program, args, admissible)?;
         }
         let development_program = LANGUAGE_DEVELOPMENT_COMMANDS.contains(&program);
-        let bounded_workspace_verifier = self.workspace_program_available(program)
-            && validate_verification_command_shape(program, args).is_ok();
-        let broad_execution = !bounded_workspace_verifier
-            && ((permissive_commands && command_requires_broad_sandbox(program, args))
-                || sandbox::command_requires_sandbox(
-                    unrestricted_commands,
-                    self.allow_exec,
-                    self.allow_write,
-                    program,
-                    args,
-                ));
         let mut safe_development = self.security;
         safe_development.allow_unrestricted_commands = false;
         // Repository development tools are intentionally autonomous. Give
@@ -401,8 +410,9 @@ impl Workspace {
         // build/test/lint/codegen/package-manager workflows do not create a
         // repetitive RiskyExecution approval request. Permanent policy
         // rejections (protected/escaping paths, credential flows, and explicitly
-        // blocked host operations) still fail closed. Shell interpreters use the
-        // permissive lane only when they are forced through the strong sandbox.
+        // blocked host operations) still fail closed. Shell interpreters take
+        // the permissive lane when command execution is enabled; the OS
+        // sandbox remains opt-in per call.
         safe_development.allow_risky_exec = development_program;
         let autonomous_development =
             validate_command_policy(program, args, safe_development).is_ok();
@@ -504,7 +514,7 @@ impl Workspace {
                     .map_err(anyhow::Error::msg)?;
                 (None, Some(permit), wait_ms)
             };
-        let effective_args = if broad_execution {
+        let effective_args = if sandbox {
             args.to_vec()
         } else {
             hardened_command_args(program, args)
@@ -519,7 +529,7 @@ impl Workspace {
             command_program(program, args)
         };
         let mut sandbox_guard = None;
-        let mut command = if broad_execution {
+        let mut command = if sandbox {
             let (command, guard) = sandbox::prepare(
                 &self.root,
                 &cwd,
@@ -543,7 +553,7 @@ impl Workspace {
             &mut command,
             program,
             args,
-            !broad_execution
+            !sandbox
                 && (effective_security.allow_risky_exec
                     || (program == "git" && is_git_ssh_command(args))),
         );

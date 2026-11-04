@@ -1,17 +1,18 @@
 schema_version: 1
 id: REQ-EXECUTION-SANDBOX-001
-title: Broad command execution requires an OS sandbox layer
+title: Command execution is direct by default and the OS sandbox is opt-in per call
 intent: >-
   Ordinary enabled run_command execution admits otherwise-valid commands without a second command approval,
-  including explicit shell invocation. Bounded development and verification profiles retain the hardened direct
-  execution path, including supported syntax-only shell checks. Command shapes outside those profiles require an
-  operating-system sandbox before spawn, both under ordinary execution and under explicit Workspace all-command
-  or Full Access overrides. The sandbox denies external network access and protects credential, repository-control
-  and configured authority-state paths while preserving cwd/time/resource bounds and environment scrubbing.
-  Ordinary read-only Workspaces receive no Workspace write access; an explicit all-command override may enable
-  Workspace writes inside the same sandbox boundary. macOS uses Seatbelt and Linux uses bubblewrap when available.
-  Windows and any platform/provider without an enforceable sandbox reject broad execution rather than silently
-  launching an unsandboxed process. Explicit revocation and no-exec remain effective for ordinary execution;
+  including explicit shell invocation, and every command shape uses the direct execution path by default. The
+  operating-system sandbox is selected only when the caller asks for it on that call (the MCP run_command `sandbox`
+  argument or the run_command_sandboxed embedder API), both under ordinary execution and under explicit Workspace
+  all-command or Full Access overrides. A requested sandbox denies external network access and protects credential,
+  repository-control and configured authority-state paths while preserving cwd/time/resource bounds and environment
+  scrubbing. Ordinary read-only Workspaces receive no Workspace write access inside the sandbox; an explicit
+  all-command override may enable Workspace writes inside the same sandbox boundary. macOS uses Seatbelt and Linux
+  uses bubblewrap when available. When no backend exists, or sandbox preparation fails, the requested sandboxed
+  command falls back to direct execution instead of being refused, so an unavailable sandbox is never the reason a
+  command does not run. Explicit revocation and no-exec remain effective for ordinary execution;
   an operator's session override may supersede those command controls but cannot disable OS isolation or authorize
   a separate HumanApproval decision. Non-command providers and verification executors retain independent trust.
 priority: medium

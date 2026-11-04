@@ -121,10 +121,41 @@ async fn queued_runtime_executor_retains_its_full_runtime_budget() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn permissive_shell_execution_sandboxes_or_runs_directly() {
+async fn permissive_shell_execution_runs_directly_by_default() {
     if crate::workspace::tests::process_fixture::run_in_private_fixture(
         module_path!(),
-        "permissive_shell_execution_sandboxes_or_runs_directly",
+        "permissive_shell_execution_runs_directly_by_default",
+    )
+    .await
+    {
+        return;
+    }
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    let workspace = Workspace::new(&root, true, true).unwrap();
+    let outside = fixture.path().join("wcode-shell-escape.txt");
+    // The default lane never sets the sandbox marker and writes escape the
+    // Workspace because nothing contains them.
+    let command = "test \"$WCODE_SANDBOX\" = 1 && exit 41; printf ok > shell-ok.txt; printf escape > ../wcode-shell-escape.txt";
+    let result = workspace
+        .run_command("sh", &["-c".into(), command.into()], ".", 10)
+        .await
+        .expect("permissive shell must run directly by default");
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
+        "ok"
+    );
+    assert!(outside.exists(), "default execution must not be sandboxed");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn permissive_shell_execution_sandboxes_when_requested() {
+    if crate::workspace::tests::process_fixture::run_in_private_fixture(
+        module_path!(),
+        "permissive_shell_execution_sandboxes_when_requested",
     )
     .await
     {
@@ -139,12 +170,12 @@ async fn permissive_shell_execution_sandboxes_or_runs_directly() {
     let command = if sandboxed {
         "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf ok > shell-ok.txt; if printf escape > ../wcode-shell-escape.txt 2>/dev/null; then exit 42; fi"
     } else {
-        "printf ok > shell-ok.txt; printf escape > ../wcode-shell-escape.txt"
+        "test \"$WCODE_SANDBOX\" = 1 && exit 41; printf ok > shell-ok.txt; printf escape > ../wcode-shell-escape.txt"
     };
     let result = workspace
-        .run_command("sh", &["-c".into(), command.into()], ".", 10)
+        .run_command_sandboxed("sh", &["-c".into(), command.into()], ".", 10)
         .await
-        .expect("permissive shell must run with or without a sandbox backend");
+        .expect("opt-in sandbox must run with or without a backend");
     assert!(result.success, "{}", result.stderr);
     assert_eq!(
         std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
@@ -155,10 +186,10 @@ async fn permissive_shell_execution_sandboxes_or_runs_directly() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn read_only_workspace_shell_writes_follow_sandbox_availability() {
+async fn read_only_workspace_shell_writes_run_directly_by_default() {
     if crate::workspace::tests::process_fixture::run_in_private_fixture(
         module_path!(),
-        "read_only_workspace_shell_writes_follow_sandbox_availability",
+        "read_only_workspace_shell_writes_run_directly_by_default",
     )
     .await
     {
@@ -166,16 +197,11 @@ async fn read_only_workspace_shell_writes_follow_sandbox_availability() {
     }
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), false, true).unwrap();
-    let sandboxed = crate::workspace::execution_sandbox_status().available;
-    let command = if sandboxed {
-        "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf blocked > forbidden.txt 2>/dev/null"
-    } else {
-        "printf blocked > forbidden.txt"
-    };
+    let command = "test \"$WCODE_SANDBOX\" = 1 && exit 41; printf blocked > forbidden.txt";
     let result = workspace
         .run_command("sh", &["-c".into(), command.into()], ".", 10)
         .await
-        .expect("read-only shell must run with or without a sandbox backend");
+        .expect("read-only shell must run directly by default");
     assert!(result.success, "{}", result.stderr);
     assert!(root.path().join("forbidden.txt").exists());
 }

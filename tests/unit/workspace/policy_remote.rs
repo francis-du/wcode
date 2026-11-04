@@ -10,7 +10,6 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
     ] {
         let command = args(&command);
         assert!(validate_command_policy("git", &command, hardened()).is_ok());
-        assert!(!command_requires_broad_sandbox("git", &command));
         let hardened = hardened_command_args("git", &command);
         assert_eq!(
             hardened.iter().filter(|arg| arg.as_str() == SSH).count(),
@@ -56,10 +55,6 @@ fn bounded_ssh_fetch_hardening_requires_validated_remote_and_ref() {
         assert!(hardened.iter().any(|arg| arg == "core.sshCommand=false"));
         assert!(!hardened.iter().any(|arg| arg == SSH));
     }
-    assert!(command_requires_broad_sandbox(
-        "sh",
-        &args(&["-c", "git fetch origin main"])
-    ));
 }
 
 fn args(values: &[&str]) -> Vec<String> {

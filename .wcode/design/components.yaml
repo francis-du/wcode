@@ -426,8 +426,8 @@
     - expose bounded ignore-aware list create edit batch move metadata and delete primitives; model-facing root listings reuse the repository walker so gitignored/generated directories such as target never become source-tree noise, while an explicitly addressed ignored/generated directory remains browsable instead of being silently hidden
     - retain SHA preconditions, atomic commits and workspace safety on every mutation
     - authorize validated derived subspaces inside a configured parent without relaxing manual overlap policy or symlink checks
-    - keep executable access separate from exact repository-operation approval by default; an explicit Workspace all-command grant may bypass command allowlist/shape filtering only through the OS-sandboxed broad execution lane
-    - expose explicit Full Access for the current user Home only after operator confirmation; bounded commands retain their normal direct path while policy-bypass direct commands require the same OS sandbox, and guarded file tools retain filesystem-root, protected-path and symlink/hard-link boundaries
+    - keep executable access separate from exact repository-operation approval by default; an explicit Workspace all-command grant bypasses command allowlist/shape filtering, and the OS sandbox remains an opt-in per-call lane rather than an implicit condition of the grant
+    - expose explicit Full Access for the current user Home only after operator confirmation; every command keeps its normal direct path unless the caller opts in to the OS sandbox, and guarded file tools retain filesystem-root, protected-path and symlink/hard-link boundaries
   constraints:
     - CONSTRAINT-ROOT-ISOLATION
     - CONSTRAINT-SHA-PRECONDITION
