@@ -708,3 +708,17 @@ fn engineering_journal_export_is_bounded_and_json_lines() {
         );
     }
 }
+
+#[test]
+fn engineering_journal_export_clamps_the_requested_window() {
+    let records = (0..600)
+        .map(|index| {
+            EngineeringMilestone::new("verify_project", "prove", "succeeded", index, Vec::new())
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let exported = crate::engineering_journal::export_records(&records, 1_000_000).unwrap();
+    assert_eq!(exported.lines().count(), 512);
+    let exported = crate::engineering_journal::export_records(&records, 0).unwrap();
+    assert_eq!(exported.lines().count(), 1);
+}

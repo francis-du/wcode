@@ -602,6 +602,10 @@ pub(super) fn task_detail(name: &str, args: &Value) -> String {
                 .unwrap_or(""),
             usize_arg(args, "limit").unwrap_or(50)
         ),
+        "evidence_journal_export" => format!(
+            "export engineering journal · limit {}",
+            usize_arg(args, "limit").unwrap_or(50)
+        ),
         "verification_claim" => format!(
             "claim blind review · {} capabilities",
             array_len(args, "capabilities")
