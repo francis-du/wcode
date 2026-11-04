@@ -439,7 +439,19 @@ async fn ordinary_command_task_rejects_identity_fields_and_invalid_create_args()
 async fn ordinary_command_task_forwards_the_opt_in_sandbox_argument() {
     let root = tempfile::tempdir().unwrap();
     let state = fixture(&[root.path()]);
-    let sandboxed = crate::workspace::execution_sandbox_status().available;
+    // Calibrate on real behaviour: a backend binary can exist while the
+    // platform still refuses to apply it.
+    let (_, workspace) = state.workspaces.select(None).unwrap();
+    let probe = workspace
+        .run_command_sandboxed(
+            "sh",
+            &["-c".into(), "printf %s \"$WCODE_SANDBOX\"".into()],
+            ".",
+            10,
+        )
+        .await
+        .expect("sandbox probe must run");
+    let sandboxed = probe.success && probe.stdout == "1";
     let command = if sandboxed {
         "test \"$WCODE_SANDBOX\" = 1 || exit 41"
     } else {
