@@ -1,6 +1,6 @@
 use super::mcp_tools::{
     acquire_tool_permit, agent_context_structured_result, agent_context_tool_result,
-    optional_string_array_arg, required_string, reviewer_role_arg, run_blocking,
+    bounded_usize_arg, optional_string_array_arg, required_string, reviewer_role_arg, run_blocking,
     selected_workspace, string_arg, string_array_arg, structured_tool_result, task_detail,
     tool_result, tool_result_with_text, usize_arg, workspace_arg,
 };

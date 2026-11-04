@@ -248,7 +248,7 @@ pub(super) async fn call(
         }
         "graph_history" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
-            let limit = usize_arg(args, "limit").unwrap_or(20);
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 64)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -452,7 +452,7 @@ pub(super) async fn call(
         }
         "semantic_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let limit = usize_arg(args, "limit").unwrap_or(50);
+            let limit = bounded_usize_arg(args, "limit", 50, 1, 500)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -469,7 +469,7 @@ pub(super) async fn call(
                 .get("include_candidates")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
-            let limit = usize_arg(args, "limit").unwrap_or(20);
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 100)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -549,7 +549,7 @@ pub(super) async fn call(
         "evidence_status" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let subject = string_arg(args, "subject").map(str::to_owned);
-            let limit = usize_arg(args, "limit").unwrap_or(50);
+            let limit = bounded_usize_arg(args, "limit", 50, 1, 500)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -686,7 +686,7 @@ pub(super) async fn call(
         }
         "verification_history" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let limit = usize_arg(args, "limit").unwrap_or(20);
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 100)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
@@ -720,7 +720,7 @@ pub(super) async fn call(
         }
         "reconciliation_history" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
-            let limit = usize_arg(args, "limit").unwrap_or(10).clamp(1, 100);
+            let limit = bounded_usize_arg(args, "limit", 10, 1, 100)?.clamp(1, 100);
             let harness = state.harness.clone();
             run_blocking(move || {
                 harness
