@@ -186,7 +186,6 @@ pub(crate) struct FileChangedRanges {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ChangedRangesSnapshot {
     pub files: BTreeMap<String, FileChangedRanges>,
-    pub truncated: bool,
 }
 
 fn unquote_git_path(raw: &str) -> String {
@@ -276,11 +275,13 @@ fn parse_changed_ranges(diff: &str) -> ChangedRangesSnapshot {
         }
         if let Some(path) = line.strip_prefix("+++ ") {
             if !binary {
-                current = diff_header_path(path, "");
-                if let Some(path) = current.clone() {
+                // A `/dev/null` "+++" side is a deletion; keep the path already
+                // resolved from the `---` header so its removed lines stay visible.
+                if let Some(resolved) = diff_header_path(path, "") {
+                    current = Some(resolved.clone());
                     snapshot
                         .files
-                        .entry(path)
+                        .entry(resolved)
                         .or_insert_with(|| FileChangedRanges {
                             before: Some(Vec::new()),
                             after: Some(Vec::new()),
@@ -345,6 +346,16 @@ fn parse_changed_ranges(diff: &str) -> ChangedRangesSnapshot {
         }
     }
     snapshot
+}
+
+/// Parse a completed diff probe. A failed, redacted, timed-out or incompletely
+/// captured probe retains no ranges. Truncation stays per file: only a file
+/// whose own ranges hit `MAX_CHANGED_RANGES` is marked truncated.
+fn changed_ranges_from_output(output: &CommandResult) -> Option<ChangedRangesSnapshot> {
+    if !output.success || output.redacted || output.timed_out || output.output_incomplete {
+        return None;
+    }
+    Some(parse_changed_ranges(&output.stdout))
 }
 
 impl Workspace {
@@ -641,11 +652,9 @@ impl Workspace {
         if !self.exec_enabled() || !self.root().join(".git").exists() {
             return None;
         }
-        let mut truncated = false;
         let mut selected = Vec::new();
         for path in paths {
             if selected.len() >= MAX_CHANGED_RANGE_FILES {
-                truncated = true;
                 break;
             }
             selected.push(path.clone());
@@ -666,12 +675,7 @@ impl Workspace {
         ];
         args.extend(selected.iter().cloned());
         let output = self.run_command("git", &args, ".", 10).await.ok()?;
-        if !output.success || output.redacted || output.timed_out || output.output_incomplete {
-            return None;
-        }
-        let mut snapshot = parse_changed_ranges(&output.stdout);
-        snapshot.truncated = truncated || output.truncated || snapshot.truncated;
-        Some(snapshot)
+        changed_ranges_from_output(&output)
     }
 }
 

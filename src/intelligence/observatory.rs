@@ -687,11 +687,10 @@ fn change_ranges_view(
     let Some(snapshot) = snapshot else {
         return (None, None, false);
     };
-    let truncated = snapshot.truncated
-        || snapshot
-            .files
-            .get(&file.path)
-            .is_some_and(|ranges| ranges.truncated);
+    let truncated = snapshot
+        .files
+        .get(&file.path)
+        .is_some_and(|ranges| ranges.truncated);
     match snapshot.files.get(&file.path) {
         Some(ranges) => (ranges.before.clone(), ranges.after.clone(), truncated),
         None => (None, None, truncated),
@@ -759,3 +758,7 @@ mod dependency_ownership_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/intelligence/architecture_diagnostic.rs"]
 mod architecture_diagnostic_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/intelligence/observatory_ranges.rs"]
+mod observatory_change_ranges_tests;

@@ -157,7 +157,7 @@ fn changed_ranges_snapshot_maps_each_file_and_keeps_binary_unknown() {
 diff --git foo bar.rs foo bar.rs\n--- foo bar.rs\t\n+++ foo bar.rs\t\n@@ -1 +1 @@\n-a\n+b\n\
 diff --git café.rs café.rs\nBinary files café.rs and café.rs differ\n";
     let snapshot = parse_changed_ranges(diff);
-    assert!(!snapshot.truncated);
+    assert!(snapshot.files.values().all(|ranges| !ranges.truncated));
     assert_eq!(
         snapshot.files["main.rs"].before,
         Some(vec![ChangeLineRange {
@@ -203,13 +203,131 @@ fn changed_ranges_snapshot_caps_ranges_per_file_and_flags_truncation() {
     assert_eq!(entry.after.as_ref().unwrap().len(), 256);
 }
 
+#[test]
+fn changed_ranges_snapshot_keeps_deleted_and_added_file_ranges() {
+    // Verbatim `git diff --no-prefix --unified=0` output, as emitted by the probe.
+    let diff = "\
+diff --git a/deleted.txt b/deleted.txt
+--- deleted.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-hello
+-world
+diff --git a/added.txt b/added.txt
+--- /dev/null
++++ added.txt
+@@ -0,0 +1,2 @@
++hello
++world
+diff --git a/modified.txt b/modified.txt
+--- modified.txt
++++ modified.txt
+@@ -2,3 +2,4 @@
+ keep
+-old
++new
++inserted
+ keep
+";
+    let snapshot = parse_changed_ranges(diff);
+    assert_eq!(
+        snapshot.files["deleted.txt"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 2
+        }])
+    );
+    assert_eq!(snapshot.files["deleted.txt"].after, Some(Vec::new()));
+    assert!(!snapshot.files["deleted.txt"].truncated);
+    assert_eq!(snapshot.files["added.txt"].before, Some(Vec::new()));
+    assert_eq!(
+        snapshot.files["added.txt"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 2
+        }])
+    );
+    assert!(!snapshot.files["added.txt"].truncated);
+    assert_eq!(
+        snapshot.files["modified.txt"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 3,
+            end_line: 3
+        }])
+    );
+    assert_eq!(
+        snapshot.files["modified.txt"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 3,
+            end_line: 4
+        }])
+    );
+    assert!(!snapshot.files["modified.txt"].truncated);
+}
+
+fn probe_result(stdout: &str, success: bool, output_incomplete: bool) -> CommandResult {
+    CommandResult {
+        program: "git".to_owned(),
+        args: Vec::new(),
+        exit_code: Some(0),
+        success,
+        process_queue_wait_ms: 0,
+        stdout: stdout.to_owned(),
+        raw_stdout: None,
+        stderr: String::new(),
+        truncated: output_incomplete,
+        redacted: false,
+        timed_out: false,
+        output_incomplete,
+        retry_guidance: None,
+    }
+}
+
+#[test]
+fn changed_ranges_from_output_reports_incomplete_output_as_unavailable() {
+    let diff =
+        "diff --git a/main.rs b/main.rs\n--- main.rs\n+++ main.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let complete = changed_ranges_from_output(&probe_result(diff, true, false))
+        .expect("a completed probe retains ranges");
+    assert!(!complete.files["main.rs"].truncated);
+    assert_eq!(
+        complete.files["main.rs"].before,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+    assert_eq!(
+        complete.files["main.rs"].after,
+        Some(vec![ChangeLineRange {
+            start_line: 1,
+            end_line: 1
+        }])
+    );
+
+    let mut capped =
+        String::from("diff --git a/big.rs b/big.rs\n--- big.rs\n+++ big.rs\n@@ -1,900 +1,900 @@\n");
+    for _ in 0..300 {
+        capped.push_str("-old\n+new\n context\n");
+    }
+    let capped = changed_ranges_from_output(&probe_result(&capped, true, false))
+        .expect("a completed probe retains ranges");
+    assert!(capped.files["big.rs"].truncated);
+
+    assert!(
+        changed_ranges_from_output(&probe_result(diff, true, true)).is_none(),
+        "incomplete output must retain no ranges instead of claiming truncation"
+    );
+    assert!(changed_ranges_from_output(&probe_result(diff, false, false)).is_none());
+}
+
 #[tokio::test]
 async fn changed_line_ranges_reads_working_tree_diff_for_requested_paths() {
     let (root, workspace) = fixture();
     fs::write(root.path().join("main.rs"), "fn changed() {}\n").unwrap();
     let paths = vec!["main.rs".to_owned()];
     let snapshot = workspace.changed_line_ranges(&paths).await.unwrap();
-    assert!(!snapshot.truncated);
+    assert!(!snapshot.files["main.rs"].truncated);
     assert_eq!(
         snapshot.files["main.rs"].before,
         Some(vec![ChangeLineRange {
