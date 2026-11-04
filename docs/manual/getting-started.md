@@ -192,9 +192,9 @@ The useful keys are:
 - `↑/↓` — select a pending authorization request.
 - `Y/N` — approve or deny the selected request.
 - `P` — review the explicit Full Access confirmation for current-user Home
-  access and runtime session overrides. Broad commands still require the OS
-  sandbox; file-tool protected-path, symlink/hard-link, and filesystem-root
-  boundaries remain.
+  access and runtime session overrides. Broad commands use the OS sandbox when a
+  backend is available and run directly otherwise; file-tool path-containment,
+  symlink/hard-link, and filesystem-root boundaries remain.
 
 The protected WebUI exposes the same requests. It labels executable access and
 exact repository operations separately; approving one does not imply the

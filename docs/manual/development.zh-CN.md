@@ -124,23 +124,23 @@ Persistent Intelligence State 存在 Repository 外的 Bounded Per-user / Per-wo
 任何修改都要保持这些 Trust Boundary：
 
 - Canonical Workspace Root Isolation 与 Root Identity Recheck；
-- Derived Subspace 只能位于已配置 Parent 内，相对路径从当前 Workspace 解析，并拒绝 Symlink Component；手工重叠 Configured Root 继续阻断；
-- 拒绝 Absolute Path、Parent Traversal、Protected Path、Symlink Component 与不安全 Hard-link Write；
+- Derived Subspace 只能位于已配置 Parent 内，相对路径从当前 Workspace 解析，并拒绝 Symlink Component；重叠 Configured Root 接受，因此把窄 Root 作为工作集选择；
+- 拒绝 Absolute Path、Parent Traversal、Symlink Component 与不安全 Hard-link Write；受保护的凭据与环境路径可由调用方 Agent 读写，不再拒绝；
 - SHA-256 Edit Precondition、Per-file Lock、Post-lock Path Re-resolution、Bounded Atomic Write 与 Create-without-overwrite；
-- `delete_path` 是 Model-facing 文件工具删除入口，只能在 Exact One-shot Human Approval 后删除一个 Regular File 或 Empty Directory；Recursive/Root/Protected/Symlink/Hard-link Delete 永久阻断；
-- 命令通过可执行程序加 argv 调用，不隐式解析 Shell 字符串；普通命令准入、显式撤权及会话覆盖遵循当前[安全模型](../security/)与[参考手册](../reference/)；
-- 经过检查的有界开发 Profile 使用 Hardened Direct Lane；超出这些 Profile 的其他合法命令形态，包括显式 Shell 脚本执行，必须进入可实施的 OS 沙箱，不能回退为无沙箱进程；
-- 普通命令策略保留 Git、GitHub 与基础设施工具的命令级后果检查；允许执行不等于提供凭据，也不授权发布、部署、HumanApproval 决策或合并验收；
-- 仓库声明的 Verification Executor 保留独立的 Hardened No-shell Profile；普通命令权限不会扩大该 Profile，也不会把命令执行升级为原生验收权威；
-- URL Argument 不能内嵌 Credential，Credential/Environment File 不进入 Model-facing Filesystem / Index Surface；
+- `delete_path` 是 Model-facing 文件工具删除入口，只能删除一个 Regular File 或 Empty Directory；Recursive/Root/Symlink/Hard-link Delete 永久阻断，且不需要人工授权；
+- 命令通过可执行程序加 argv 调用，不隐式解析 Shell 字符串；默认策略宽松，授权由调用方 Agent 负责，`--read-only`、`--no-exec`、`--no-semantic` 与 `--full-access` 继续被接受以兼容；
+- 经过检查的有界开发 Profile 使用 Direct Lane；超出这些 Profile 的其他合法命令形态，包括显式 Shell 脚本执行，在可用 Backend 上使用 OS 沙箱，不可用时直接运行；
+- 普通命令策略在嵌入式使用方选择严格 `WorkspaceSecurity` 时保留 Git、GitHub 与基础设施工具的命令级后果检查；允许执行不等于提供凭据，也不授权发布、部署、HumanApproval 决策或合并验收；
+- 仓库声明的 Verification Executor 保留独立的 No-shell Profile；普通命令权限不会扩大该 Profile，也不会把命令执行升级为原生验收权威；
+- URL Argument 不能内嵌 Credential，高置信度 Secret 文本继续对 Model-facing Read 脱敏；
 - 每一种 Indexed Language 必须恰好保留一个经过 Contract Test 的 Canonical LSP Launch Profile；Provider-specific Executable Alias / Argument（包括 JDT LS `-data` 这种 Workspace/Runtime 唯一 State）属于 LSP Adapter 的正式职责，只有被证明可用的 Alternate 才能进入 Fallback Order；Compatibility Test 不冒充外部 Server 已安装，真实 Initialize Failure 必须可观测，而且只能切到单独获得 Trust 的已安装 Alternate；
 - 第一方 LSP 只有拥有内置 Hardened Profile 时才可自动执行：Executable 必须解析到 Workspace 之外，stdio / Output / Timeout 保持有界，凭据和执行注入环境变量被清理，并在 Provider 支持时关闭仓库代码执行能力；Warm Session 有容量和 Idle 上限，以 Workspace + LSP Server Binary Identity 为 Key，按 Source Revision 同步 Document，而且 Result 仍必须经过 Workspace Filter；`--no-semantic` 可关闭整条 Lane；没有内置安全 Profile 的 LSP 仍需适用的独立执行信任；有界的仓库声明 Verification Executor 使用单独的 Hardened Autonomous Local Lane；
 - Output Bounded、Timeout Termination、Sensitive Environment Scrub、Interactive Prompt Disabled；
 - Public URL 只允许 HTTPS / Loopback HTTP，OAuth PKCE/Resource Binding、Bounded DCR Metadata、Redirect、Origin、Refresh-token Rotation 保持显式。
 
-`--allow-risky-exec`、`--allow-destructive-writes`、Overlapping/Broad Workspace 等 Flag 都是 Trust-boundary Expansion，只能视为 Operator 的显式决定，不能变成“为了方便”的默认值。能精确描述 Operation 时优先使用 Session Authorization。信任 Flag 和 Hardened Direct Profile 本身不提供 OS 隔离；宽命令另行要求平台沙箱。
+`--allow-risky-exec`、`--allow-destructive-writes`、Overlapping/Broad Workspace 等 Flag 继续被接受以兼容，但默认策略是宽松的，授权由调用方 Agent 负责。Hardened Direct Profile 本身不提供 OS 隔离；宽命令在可用 Backend 上使用平台沙箱，不可用时直接运行。
 
-新增有界 Development CLI Profile 前，必须检查该命令家族对 Workspace、参数、环境和进程的实际影响。每个新家族都应保留代表性的允许形态与逃逸／危险修改拒绝测试。超出有界 Profile 的命令遵循独立的宽命令沙箱策略，不能为运行它们而扩大直接执行范围或增加无沙箱回退。普通命令准入、显式会话覆盖和独立 Verification Executor 信任仍按[安全模型](../security/)分别处理。
+新增有界 Development CLI Profile 前，必须检查该命令家族对 Workspace、参数、环境和进程的实际影响。每个新家族都应保留代表性的允许形态与逃逸／危险修改拒绝测试。超出有界 Profile 的命令遵循宽命令沙箱策略，不能仅因没有沙箱 Backend 就拒绝执行。普通命令准入、显式会话覆盖和独立 Verification Executor 信任仍按[安全模型](../security/)分别处理。
 
 ## 跨平台依赖处理
 

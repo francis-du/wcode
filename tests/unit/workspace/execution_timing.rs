@@ -121,10 +121,10 @@ async fn queued_runtime_executor_retains_its_full_runtime_budget() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
+async fn permissive_shell_execution_sandboxes_or_runs_directly() {
     if crate::workspace::tests::process_fixture::run_in_private_fixture(
         module_path!(),
-        "permissive_shell_execution_is_sandboxed_or_fails_closed",
+        "permissive_shell_execution_sandboxes_or_runs_directly",
     )
     .await
     {
@@ -135,39 +135,30 @@ async fn permissive_shell_execution_is_sandboxed_or_fails_closed() {
     std::fs::create_dir(&root).unwrap();
     let workspace = Workspace::new(&root, true, true).unwrap();
     let outside = fixture.path().join("wcode-shell-escape.txt");
-    let result = workspace
-        .run_command(
-            "sh",
-            &[
-                "-c".into(),
-                "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf ok > shell-ok.txt; if printf escape > ../wcode-shell-escape.txt 2>/dev/null; then exit 42; fi".into(),
-            ],
-            ".",
-            10,
-        )
-        .await;
-    if crate::workspace::execution_sandbox_status().available {
-        let result = result.expect("permissive shell must use the strong sandbox");
-        assert!(result.success, "{}", result.stderr);
-        assert_eq!(
-            std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
-            "ok"
-        );
-        assert!(!outside.exists());
+    let sandboxed = crate::workspace::execution_sandbox_status().available;
+    let command = if sandboxed {
+        "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf ok > shell-ok.txt; if printf escape > ../wcode-shell-escape.txt 2>/dev/null; then exit 42; fi"
     } else {
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("sandbox_unavailable"));
-    }
+        "printf ok > shell-ok.txt; printf escape > ../wcode-shell-escape.txt"
+    };
+    let result = workspace
+        .run_command("sh", &["-c".into(), command.into()], ".", 10)
+        .await
+        .expect("permissive shell must run with or without a sandbox backend");
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        std::fs::read_to_string(root.join("shell-ok.txt")).unwrap(),
+        "ok"
+    );
+    assert_eq!(outside.exists(), !sandboxed);
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn read_only_workspace_blocks_sandboxed_shell_writes() {
+async fn read_only_workspace_shell_writes_follow_sandbox_availability() {
     if crate::workspace::tests::process_fixture::run_in_private_fixture(
         module_path!(),
-        "read_only_workspace_blocks_sandboxed_shell_writes",
+        "read_only_workspace_shell_writes_follow_sandbox_availability",
     )
     .await
     {
@@ -175,27 +166,18 @@ async fn read_only_workspace_blocks_sandboxed_shell_writes() {
     }
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), false, true).unwrap();
-    let result = workspace
-        .run_command(
-            "sh",
-            &[
-                "-c".into(),
-                "test \"$WCODE_SANDBOX\" = 1 || exit 41; if printf blocked > forbidden.txt 2>/dev/null; then exit 42; fi".into(),
-            ],
-            ".",
-            10,
-        )
-        .await;
-    if crate::workspace::execution_sandbox_status().available {
-        let result = result.expect("read-only shell must still launch inside the sandbox");
-        assert!(result.success, "{}", result.stderr);
-        assert!(!root.path().join("forbidden.txt").exists());
+    let sandboxed = crate::workspace::execution_sandbox_status().available;
+    let command = if sandboxed {
+        "test \"$WCODE_SANDBOX\" = 1 || exit 41; printf blocked > forbidden.txt 2>/dev/null"
     } else {
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("sandbox_unavailable"));
-    }
+        "printf blocked > forbidden.txt"
+    };
+    let result = workspace
+        .run_command("sh", &["-c".into(), command.into()], ".", 10)
+        .await
+        .expect("read-only shell must run with or without a sandbox backend");
+    assert!(result.success, "{}", result.stderr);
+    assert!(root.path().join("forbidden.txt").exists());
 }
 
 #[tokio::test]

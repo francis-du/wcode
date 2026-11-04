@@ -205,11 +205,17 @@ fn expired_worklist_claim_is_visible_reclaimable_and_old_token_cannot_submit() {
 }
 
 #[test]
-fn worklist_scopes_reject_root_traversal_protected_and_symlinks() {
+fn worklist_scopes_reject_root_traversal_and_symlinks_but_allow_protected_paths() {
     let (root, workspace, _harness) = setup();
-    for path in [".", "../src", ".git/config", "src\\a.rs", ".env"] {
+    for path in [".", "../src", "src\\a.rs"] {
         assert!(
             canonical_paths(&workspace, &[path.into()]).is_err(),
+            "{path}"
+        );
+    }
+    for path in [".git/config", ".env"] {
+        assert!(
+            canonical_paths(&workspace, &[path.into()]).is_ok(),
             "{path}"
         );
     }

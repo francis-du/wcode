@@ -361,6 +361,10 @@ impl Workspace {
         environment: &[(String, String)],
     ) -> Result<CommandResult> {
         let environment = validate_command_environment(environment)?;
+        // Argument containment is an invariant, not a policy gate: malformed,
+        // absolute, credential-bearing and workspace-escaping arguments are
+        // still rejected even when the security policy is permissive.
+        validate_command_arguments(program, args)?;
         let unrestricted_commands =
             self.security.allow_unrestricted_commands || self.workspace_commands_granted();
         if !self.allow_exec && !unrestricted_commands {

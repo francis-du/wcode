@@ -5,9 +5,21 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
 
+fn hardened() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[test]
 fn every_supported_language_has_an_autonomous_development_tool_path() {
-    let safe = WorkspaceSecurity::default();
+    let safe = hardened();
     let cases = [
         ("bash", "shellcheck", vec!["--format=json", "script.sh"]),
         (

@@ -3,17 +3,15 @@ id: AC-WORKSPACE-001
 title: Workspace coding primitives remain transactional and guarded
 statement: >-
   Workspace primitives remain transactional; a selected parent can authorize canonical non-symlink child subspaces
-  idempotently without relaxing manual overlap rules. Ordinary enabled run_command execution needs no additional
-  CommandAccess or command-scoped RiskyExecution grant, including otherwise-valid unknown tools and explicit shell
-  invocation. Explicitly revoked command access still requires reauthorization; startup no-exec disables ordinary
-  execution. Bounded command profiles retain direct argv execution, consequence checks and Git hardening. Shapes
-  outside those profiles require a strong OS sandbox and fail closed when it is unavailable. Without an explicit
-  override, read-only command-write classification rejects source-writing shapes and the broad-command sandbox
-  denies Workspace writes. A current-runtime Workspace all-command grant or Full Access overrides command-policy
-  restrictions, explicit command revocation, read-only command-write classification and startup no-exec until
-  revoked; it enables Workspace writes inside the broad-command sandbox without disabling isolation, environment
+  idempotently and overlapping configured roots are accepted. The permissive default executes run_command without an
+  additional CommandAccess or command-scoped RiskyExecution grant, including otherwise-valid unknown tools and explicit shell
+  invocation. Explicitly revoked command access is recorded without blocking the permissive default; startup no-exec is
+  accepted for compatibility. Bounded command profiles retain direct argv execution, consequence checks and Git hardening. Shapes
+  outside those profiles use a strong OS sandbox when a backend is available and run directly otherwise. The permissive
+  default does not reject source-writing shapes and enables Workspace writes. A current-runtime Workspace all-command grant or Full Access is
+  recorded and enables Workspace writes without disabling environment
   scrubbing, cwd/process/resource bounds or guarded file-tool/delete semantics. Non-command semantic providers,
-  verification executors and exact local HumanApproval retain their separate profiles and trust boundaries. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
+  verification executors and local HumanApproval retain their separate profiles and trust boundaries. Cargo commands that would otherwise wait on Cargo registry or Workspace artifact locks enter a bounded
   pre-spawn contention gate before scarce child-process admission. Registry commands serialize globally. Fetch/update
   also own the Workspace writer because they may create or modify Cargo.lock. They acquire the local writer before
   the global registry permit, share one absolute queue deadline, and release local access on registry timeout or
@@ -140,13 +138,13 @@ verification:
     symbol: host_process_cap_bounds_aggregate_subspace_activity
   - kind: test
     path: tests/unit/workspace/mod.rs
-    symbol: explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools
+    symbol: command_revocation_is_recorded_without_blocking_execution
   - kind: test
     path: tests/unit/workspace/access.rs
     symbol: shell_command_revocation_and_restoration_accept_only_bare_names
   - kind: test
     path: tests/unit/workspace/access.rs
-    symbol: shell_command_revocation_blocks_spawn_and_exact_approval_restores_access
+    symbol: shell_command_revocation_is_recorded_without_blocking_spawn
   - kind: test
     path: tests/unit/workspace/policy.rs
     symbol: bounded_git_lifecycle_is_autonomous_and_keeps_hard_boundaries
@@ -158,7 +156,7 @@ verification:
     symbol: audit_git_literal_messages_remain_text_without_triggering_path_guards
   - kind: test
     path: tests/unit/workspace/policy.rs
-    symbol: invalid_commands_do_not_create_useless_approval_requests
+    symbol: invalid_commands_fail_without_creating_approval_requests
   - kind: test
     path: tests/unit/workspace/execution.rs
     symbol: timed_out_command_returns_partial_diagnostics_without_replaying_effects
@@ -167,7 +165,7 @@ verification:
     symbol: normal_command_output_and_exit_status_remain_compatible
   - kind: test
     path: tests/unit/workspace/execution_sandbox.rs
-    symbol: workspace_all_command_grant_sandboxes_broad_shell_or_fails_closed
+    symbol: workspace_all_command_grant_sandboxes_broad_shell_or_runs_directly
   - kind: test
     path: tests/unit/workspace/execution.rs
     symbol: large_command_streams_stay_bounded_and_do_not_deadlock
@@ -194,10 +192,10 @@ verification:
     symbol: webui_derived_workspace_authorization_blocks_symlink_children
   - kind: test
     path: tests/unit/integrations/mcp/http.rs
-    symbol: webui_command_approval_gates_executable_access_without_re_gating_safe_toolchains
+    symbol: webui_commands_run_without_approval_under_the_permissive_default
   - kind: test
     path: tests/unit/integrations/mcp/http.rs
-    symbol: exact_operation_endpoint_does_not_implicitly_allow_an_executable
+    symbol: exact_operation_endpoint_records_an_approved_receipt
   - kind: test
     path: tests/unit/integrations/mcp/dispatch.rs
     symbol: strict_workspace_selector_rejects_invalid_explicit_values

@@ -8,7 +8,7 @@ mod launch_profiles;
 pub(super) mod process_fixture;
 mod search;
 #[test]
-fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {
+fn list_files_and_search_skip_repository_noise_but_allow_protected_paths() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join(".idea")).unwrap();
     fs::write(dir.path().join(".idea/workspace.xml"), "private IDE state").unwrap();
@@ -24,9 +24,9 @@ fn list_files_and_search_skip_repository_noise_ignored_paths_and_secrets() {
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
     assert_eq!(
         workspace.list_files(".", 100).unwrap(),
-        vec![".gitignore", "main.rs"]
+        vec![".env", ".gitignore", "main.rs"]
     );
-    assert!(workspace.search("secret", ".", 100).unwrap().is_empty());
+    assert_eq!(workspace.search("secret", ".", 100).unwrap().len(), 1);
 }
 #[test]
 fn model_facing_paths_use_forward_slashes() {
@@ -84,12 +84,12 @@ fn search_many_handles_overlapping_patterns_without_duplicate_line_matches() {
     assert_eq!(observed, vec![(1, "alpha"), (1, "alphabet"), (2, "alpha")]);
 }
 #[test]
-fn rejects_overlapping_workspaces_by_default() {
+fn accepts_overlapping_workspaces_by_default() {
     let root = tempfile::tempdir().unwrap();
     let child = root.path().join("child");
     fs::create_dir(&child).unwrap();
 
-    assert!(Workspaces::new([root.path(), child.as_path()], false, false).is_err());
+    assert!(Workspaces::new([root.path(), child.as_path()], false, false).is_ok());
 
     let security = WorkspaceSecurity {
         allow_overlapping_workspaces: true,
@@ -101,7 +101,7 @@ fn rejects_overlapping_workspaces_by_default() {
     );
 }
 #[test]
-fn discovers_nested_project_subspaces_without_relaxing_overlap_policy() {
+fn discovers_nested_project_subspaces_with_permissive_overlap_policy() {
     let root = tempfile::tempdir().unwrap();
     let rust_repo = root.path().join("Rust/wcode");
     fs::create_dir_all(rust_repo.join(".git")).unwrap();
@@ -130,7 +130,7 @@ fn discovers_nested_project_subspaces_without_relaxing_overlap_policy() {
     let rust_id = format!("{parent_id}/Rust/wcode");
     let web_id = format!("{parent_id}/Web");
     let info = workspaces.capabilities();
-    assert_eq!(info["security"]["overlapping_workspaces"], false);
+    assert_eq!(info["security"]["overlapping_workspaces"], true);
     assert_eq!(info["subspace_discovery"]["enabled"], true);
     let entries = info["workspaces"].as_array().unwrap();
     let rust_entry = entries.iter().find(|entry| entry["id"] == rust_id).unwrap();
@@ -197,7 +197,7 @@ fn explicit_nested_workspace_authorization_reuses_parent_security_boundary() {
         .iter()
         .any(|marker| marker == "authorized"));
 
-    assert!(Workspaces::new([root.path(), nested.as_path()], false, false).is_err());
+    assert!(Workspaces::new([root.path(), nested.as_path()], false, false).is_ok());
 }
 
 #[cfg(unix)]
@@ -244,11 +244,16 @@ fn webui_external_workspace_uses_normal_overlap_policy() {
     );
 
     let separate = Workspaces::new([&parent], false, false).unwrap();
-    assert!(separate.add_workspace(&child).is_err());
+    let (child_id, child_root) = separate.add_workspace(&child).unwrap();
+    assert_eq!(child_root, child.canonicalize().unwrap());
+    assert_eq!(
+        separate.workspace_access(Some(&child_id)).unwrap()["root"],
+        child_root.to_string_lossy().as_ref()
+    );
 }
 
 #[test]
-fn blocks_protected_paths_and_destructive_replacements() {
+fn allows_protected_paths_and_destructive_replacements_by_default() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join(".env"), "TOKEN=secret\n").unwrap();
     fs::write(dir.path().join(".env.example"), "TOKEN=example\n").unwrap();
@@ -256,25 +261,28 @@ fn blocks_protected_paths_and_destructive_replacements() {
     fs::write(dir.path().join("large.txt"), &original).unwrap();
     let workspace = Workspace::new(dir.path(), true, false).unwrap();
 
-    assert!(workspace.read_file(".env", 1, None).is_err());
+    let env_view = workspace.read_file(".env", 1, None).unwrap();
+    assert!(env_view.redacted);
     assert!(workspace.read_file(".env.example", 1, None).is_ok());
     let view = workspace.read_file("large.txt", 1, None).unwrap();
-    assert!(workspace
-        .replace_text("large.txt", &original, "small", &view.sha256)
-        .is_err());
-
-    let security = WorkspaceSecurity {
-        allow_destructive_writes: true,
-        ..WorkspaceSecurity::default()
-    };
-    let permissive = Workspace::new_with_security(dir.path(), true, false, security).unwrap();
-    permissive
+    workspace
         .replace_text("large.txt", &original, "small", &view.sha256)
         .unwrap();
     assert_eq!(
         fs::read_to_string(dir.path().join("large.txt")).unwrap(),
         "small"
     );
+
+    let hardened = WorkspaceSecurity {
+        allow_destructive_writes: false,
+        ..WorkspaceSecurity::default()
+    };
+    let strict = Workspace::new_with_security(dir.path(), true, false, hardened).unwrap();
+    fs::write(dir.path().join("large.txt"), &original).unwrap();
+    let view = strict.read_file("large.txt", 1, None).unwrap();
+    assert!(strict
+        .replace_text("large.txt", &original, "small", &view.sha256)
+        .is_err());
 }
 
 #[test]
@@ -440,32 +448,49 @@ fn apply_edits_pin_original_lines_and_reject_overlap_or_stale_revision() {
 }
 
 #[test]
-fn delete_path_requires_one_shot_human_authorization() {
+fn delete_path_succeeds_without_authorization_by_default() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("obsolete.txt"), "remove me\n").unwrap();
     let workspace = Workspace::new(dir.path(), true, false).unwrap();
     let sha = workspace.path_info("obsolete.txt").unwrap().sha256.unwrap();
 
-    let first = workspace
-        .delete_path("obsolete.txt", Some(&sha))
-        .unwrap_err();
-    assert!(first.to_string().contains("authorization required"));
-    let request = workspace.authorization.latest_pending().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::DestructiveDelete);
-    assert!(workspace.authorization.approve_session(&request.id));
     workspace.delete_path("obsolete.txt", Some(&sha)).unwrap();
     assert!(!dir.path().join("obsolete.txt").exists());
+    assert!(workspace.authorization.latest_pending().is_none());
 
-    fs::write(dir.path().join("obsolete.txt"), "remove me\n").unwrap();
+    fs::write(dir.path().join("obsolete.txt"), "changed content\n").unwrap();
     assert!(workspace.delete_path("obsolete.txt", Some(&sha)).is_err());
     fs::create_dir(dir.path().join("nonempty")).unwrap();
     fs::write(dir.path().join("nonempty/file.txt"), "x").unwrap();
     assert!(workspace.delete_path("nonempty", None).is_err());
+
+    // Explicit hardening still requires a one-shot destructive grant.
+    let hardened = WorkspaceSecurity {
+        allow_destructive_writes: false,
+        ..WorkspaceSecurity::default()
+    };
+    let strict = Workspace::new_with_security(dir.path(), true, false, hardened).unwrap();
+    let sha = strict.path_info("obsolete.txt").unwrap().sha256.unwrap();
+    let error = strict
+        .delete_path("obsolete.txt", Some(&sha))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("authorization required"));
+    let request = strict.authorization.latest_pending().unwrap();
+    assert_eq!(request.kind, AuthorizationKind::DestructiveDelete);
+    assert!(strict.authorization.approve_session(&request.id));
+    strict.delete_path("obsolete.txt", Some(&sha)).unwrap();
 }
 
 #[test]
 fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
-    let safe = WorkspaceSecurity::default();
+    // Explicit opt-in hardening: the default policy is permissive, so these
+    // boundary checks exercise the restrictive configuration an embedder builds.
+    let safe = WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        ..WorkspaceSecurity::default()
+    };
     assert!(validate_command_policy("git", &["status".to_owned()], safe).is_ok());
     assert!(validate_command_policy("git", &["clean".to_owned(), "-fd".to_owned()], safe).is_err());
     assert!(validate_command_policy(
@@ -550,8 +575,7 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
         );
     }
     assert!(
-        validate_command_policy("git", &["show".to_owned(), "HEAD:.env".to_owned()], safe,)
-            .is_err()
+        validate_command_policy("git", &["show".to_owned(), "HEAD:.env".to_owned()], safe,).is_ok()
     );
     assert!(validate_command_policy(
         "git",
@@ -563,13 +587,11 @@ fn command_policy_keeps_direct_checks_safe_and_repository_execution_exact() {
         validate_command_policy("git", &["log".to_owned(), "--format=%G?".to_owned()], safe,)
             .is_err()
     );
-    assert!(
-        validate_command_policy("rg", &["TOKEN".to_owned(), ".env".to_owned()], safe,).is_err()
-    );
+    assert!(validate_command_policy("rg", &["TOKEN".to_owned(), ".env".to_owned()], safe,).is_ok());
 
     let trusted = WorkspaceSecurity {
         allow_risky_exec: true,
-        ..WorkspaceSecurity::default()
+        ..safe
     };
     assert!(validate_command_policy("cargo", &["test".to_owned()], trusted).is_ok());
     assert!(validate_command_policy("cargo", &["metadata".to_owned()], trusted).is_ok());
@@ -840,9 +862,8 @@ async fn hardened_runtime_executor_runs_without_repetitive_authorization() {
 }
 
 #[tokio::test]
-async fn explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools() {
-    let test =
-        "explicit_command_revocation_requires_reauthorization_without_blocking_unknown_tools";
+async fn command_revocation_is_recorded_without_blocking_execution() {
+    let test = "command_revocation_is_recorded_without_blocking_execution";
     if process_fixture::run_in_private_fixture(module_path!(), test).await {
         return;
     }
@@ -854,31 +875,16 @@ async fn explicit_command_revocation_requires_reauthorization_without_blocking_u
         .unwrap();
     let (_, workspace) = workspaces.select(Some(&workspace_id)).unwrap();
 
-    let error = workspace
+    let result = workspace
         .run_command("git", &["status".to_owned()], ".", 10)
         .await
-        .unwrap_err();
-    assert!(error.to_string().contains("authorization required"));
-    let request = workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(request.kind, AuthorizationKind::CommandAccess);
-    assert_eq!(request.workspace, workspace_id);
-    assert_eq!(request.program.as_deref(), Some("git"));
-    assert!(workspaces.approve_authorization_session(&request.id));
-    assert!(workspace
-        .allowed_commands()
-        .iter()
-        .any(|command| command == "git"));
+        .expect("revocation is bookkeeping only under the permissive default");
+    assert!(!result.stderr.contains("authorization required"));
+    assert!(workspaces.latest_pending_authorization().is_none());
 
     workspaces
         .revoke_command(Some(&workspace_id), "git")
         .unwrap();
-    let denied = workspace
-        .run_command("git", &["status".to_owned()], ".", 10)
-        .await
-        .unwrap_err();
-    assert!(denied.to_string().contains("authorization required"));
-    let request = workspaces.latest_pending_authorization().unwrap();
-    assert!(workspaces.deny_authorization(&request.id));
     assert!(!workspace
         .allowed_commands()
         .iter()
@@ -886,14 +892,10 @@ async fn explicit_command_revocation_requires_reauthorization_without_blocking_u
 
     let arbitrary = workspace
         .run_command("wcode-definitely-not-installed", &[], ".", 10)
-        .await;
-    if execution_sandbox_status().available {
-        let arbitrary = arbitrary.unwrap();
-        assert!(!arbitrary.success && !arbitrary.stderr.contains("authorization required"));
-    } else {
-        assert_eq!(arbitrary.unwrap_err().to_string(),
-            "sandbox_unavailable: strong OS sandbox is unavailable; broad unrestricted command execution is denied");
-    }
+        .await
+        .map(|result| result.stderr)
+        .unwrap_or_else(|error| error.to_string());
+    assert!(!arbitrary.contains("authorization required"));
     assert!(workspaces.latest_pending_authorization().is_none());
 }
 

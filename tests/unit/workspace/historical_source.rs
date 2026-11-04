@@ -121,7 +121,7 @@ async fn historical_source_reads_paths_absent_from_the_worktree() {
 }
 
 #[tokio::test]
-async fn historical_source_reports_unknown_missing_and_restricted_states() {
+async fn historical_source_reports_unknown_missing_and_permissive_protected_states() {
     let (root, workspace) = fixture();
     let revision = head(root.path());
 
@@ -144,12 +144,16 @@ async fn historical_source_reports_unknown_missing_and_restricted_states() {
         .to_string();
     assert!(missing.contains("missing at this revision"), "{missing}");
 
+    // Protected paths are no longer refused; the agent decides what to read.
+    fs::write(root.path().join(".env"), "TOKEN=historical\n").unwrap();
+    git(root.path(), &["add", ".env"]);
+    let with_secret = commit(root.path(), "add env");
     let protected = workspace
-        .historical_source(&revision, ".git/config", 1, None)
+        .historical_source(&with_secret, ".env", 1, None)
         .await
-        .unwrap_err()
-        .to_string();
-    assert!(protected.contains("protected"), "{protected}");
+        .unwrap();
+    assert!(protected.redacted);
+
     for path in [
         ".env",
         "../main.rs",

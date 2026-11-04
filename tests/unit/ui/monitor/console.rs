@@ -502,8 +502,8 @@ fn workspace_focus_identity_survives_activity_reordering() {
     assert_eq!(ui.workspace_focus_id.as_deref(), Some("beta"));
 }
 
-#[tokio::test]
-async fn workspace_activity_order_promotes_running_queued_approval_then_recent() {
+#[test]
+fn workspace_activity_order_promotes_running_queued_approval_then_recent() {
     let (_root, workspaces) =
         monitor_test_workspaces(&["idle", "recent", "failed", "approval", "queued", "active"]);
     let config = monitor_test_config(workspaces);
@@ -516,19 +516,6 @@ async fn workspace_activity_order_promotes_running_queued_approval_then_recent()
         "active".to_owned(),
     ]);
 
-    config
-        .workspaces
-        .revoke_command(Some("approval"), "cargo")
-        .unwrap();
-    let (_, approval_workspace) = config.workspaces.select(Some("approval")).unwrap();
-    let authorization_error = approval_workspace
-        .run_command("cargo", &["test".to_owned()], ".", 30)
-        .await
-        .unwrap_err();
-    assert!(authorization_error
-        .to_string()
-        .contains("authorization required"));
-
     let recent = monitor.queue("recent", "read_file", "recent", 1);
     recent.start();
     recent.finish(true, 1);
@@ -540,7 +527,9 @@ async fn workspace_activity_order_promotes_running_queued_approval_then_recent()
     active.start();
 
     let snapshot = monitor.snapshot();
-    let ordered = ordered_workspaces(&config, &snapshot);
+    let mut approvals = std::collections::BTreeMap::new();
+    approvals.insert("approval".to_owned(), 1);
+    let ordered = ordered_workspaces_with_approvals(&config, &snapshot, &approvals);
     let ids = ordered
         .iter()
         .map(|workspace| workspace.0.as_str())

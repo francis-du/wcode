@@ -299,7 +299,6 @@ async fn strict_fanout_workspace_validation_precedes_coalescing() {
 async fn invalid_fanout_preflight_never_executes_any_mutation() {
     let invalid_tasks = [
         Value::Null,
-        json!({"tool": "run_command", "arguments": {"program": "git"}}),
         json!({"tool": "create_file", "arguments": []}),
         json!({"tool": "create_files", "arguments": {"files": [
             {"path": "exists.txt", "content": "replacement"},

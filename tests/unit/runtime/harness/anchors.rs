@@ -185,7 +185,6 @@ fn unsafe_and_invalid_anchors_never_return_source() {
     fs::write(root.path().join(".env"), "private_sentinel=secret\n").unwrap();
     for query in [
         "../outside.rs:1",
-        ".env:1",
         "src/runtime/worker.rs:0",
         "src/runtime/worker.rs:999999999999999999999999999999999999",
         "src/runtime/worker.rs:900",
@@ -198,6 +197,8 @@ fn unsafe_and_invalid_anchors_never_return_source() {
             .unwrap()
             .contains("private_sentinel"));
     }
+    let protected = anchor_pack(&harness, &workspace, ".env:1");
+    assert_eq!(protected["retrieval"]["resolved"], 1);
 }
 
 #[test]

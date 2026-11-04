@@ -179,7 +179,7 @@ No complete debugger UI, breakpoint/watch/locals workflow, arbitrary interactive
 
 Command-job inspection still cannot identify which check or test a command represented or where it failed: the retained observation contract deliberately excludes command program/arguments/cwd and retains no structured failure location. Those fields stay explicit unknowns rather than being inferred from output text.
 
-The source tree and graphs are bounded observations. A file outside a visible snapshot is not necessarily absent. A mapped test has not necessarily run; a historical pass may be stale; a missing provider is not a clean diagnostic result. Existing Workspace, protected-path, command authorization, OAuth, and revision rules continue to govern every surface.
+The source tree and graphs are bounded observations. A file outside a visible snapshot is not necessarily absent. A mapped test has not necessarily run; a historical pass may be stale; a missing provider is not a clean diagnostic result. Workspace path containment and revision rules continue to govern every surface; permission policy is the calling agent's responsibility rather than an enforced gate.
 
 ## Acceptance criteria
 

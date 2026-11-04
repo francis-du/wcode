@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn session_grants_require_explicit_human_approval() {
+fn session_grants_record_explicit_human_approval() {
     let manager = AuthorizationManager::default();
     let request = manager
         .request(
@@ -11,15 +11,13 @@ fn session_grants_require_explicit_human_approval() {
             "sha256:demo",
         )
         .unwrap();
-    assert!(!manager.is_granted("sha256:demo"));
     assert_eq!(manager.latest_pending().unwrap().id, request.id);
     assert!(manager.approve_session(&request.id));
-    assert!(manager.is_granted("sha256:demo"));
     assert!(manager.latest_pending().is_none());
 }
 
 #[test]
-fn denial_never_creates_a_grant() {
+fn denial_marks_the_request_without_creating_a_pending_grant() {
     let manager = AuthorizationManager::default();
     let request = manager
         .request(
@@ -31,7 +29,10 @@ fn denial_never_creates_a_grant() {
         .unwrap();
     assert_eq!(manager.request_by_id(&request.id).unwrap().id, request.id);
     assert!(manager.deny(&request.id));
-    assert!(!manager.is_granted("sha256:deny"));
+    assert_eq!(
+        manager.request_by_id(&request.id).unwrap().status,
+        AuthorizationStatus::Denied
+    );
 }
 
 #[test]
@@ -103,7 +104,6 @@ fn destructive_approval_is_exact_and_consumed_once() {
         manager.requests(1)[0].status,
         AuthorizationStatus::ApprovedOnce
     );
-    assert!(!manager.is_granted("sha256:delete-once"));
     assert!(manager.consume_one_shot_grant("sha256:delete-once"));
     assert!(!manager.consume_one_shot_grant("sha256:delete-once"));
 }
@@ -147,7 +147,10 @@ fn workspace_command_grant_resolves_command_requests_but_not_delete() {
     );
 
     assert!(manager.set_workspace_commands_granted("demo", false));
-    assert!(!manager.workspace_commands_granted("demo"));
+    assert_eq!(
+        manager.request_by_id(&delete.id).unwrap().status,
+        AuthorizationStatus::Pending
+    );
 }
 
 fn expire_request(manager: &AuthorizationManager, id: &str) {
@@ -213,7 +216,6 @@ fn authorization_expiry_rejects_approval_and_invalidates_challenges() {
         assert!(manager.interactive_token(&request.id).is_some());
         expire_request(&manager, &request.id);
         assert!(!manager.approve_session(&request.id));
-        assert!(!manager.is_granted("expiry"));
         assert!(!manager.consume_one_shot_grant("expiry"));
         assert!(manager.interactive_token(&request.id).is_none());
         assert_eq!(
@@ -279,7 +281,6 @@ fn authorization_bulk_command_approval_does_not_revive_expired_requests() {
             AuthorizationStatus::Expired
         );
         assert!(manager.interactive_token(&request.id).is_none());
-        assert!(!manager.is_granted(&request.fingerprint));
     }
 }
 
@@ -365,7 +366,6 @@ fn human_decision_is_one_shot_and_never_covered_by_command_trust() {
         manager.request_by_id(&request.id).unwrap().status,
         AuthorizationStatus::Pending
     );
-    assert!(!manager.is_granted("human-bound"));
     assert!(manager.approve_session(&request.id));
     assert!(!manager.consume_one_shot_grant("human-bound"));
     assert!(manager

@@ -978,23 +978,22 @@ async fn change_symbol_impact_never_rebases_staged_symbols_onto_newer_worktree_b
 }
 
 #[tokio::test]
-async fn change_detail_http_never_exposes_protected_source_or_error_details() {
+async fn change_detail_http_allows_protected_paths_and_keeps_path_invariants() {
     let (state, root) = change_state();
     let id = state.workspaces.default_id();
     fs::write(root.path().join(".env"), "private-file-contents").unwrap();
-    for path in [".env", ".git/config", "../outside.txt", "."] {
+    for (path, allowed) in [(".env", true), ("../outside.txt", false)] {
         let response = intelligence_web_change_detail(
             State(state.clone()),
             ui_headers(&state, id),
             change_query(path, ChangeLayer::Working, None),
         )
         .await;
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status() == StatusCode::OK, allowed, "{path}");
         let body = response_json(response).await;
-        assert!(body.get("change").is_none());
-        assert!(!body.to_string().contains("private-file-contents"));
-        assert!(!body
-            .to_string()
-            .contains(&root.path().display().to_string()));
+        assert_eq!(body.get("change").is_some(), allowed, "{path}");
+        if !allowed {
+            assert!(!body.to_string().contains("private-file-contents"));
+        }
     }
 }

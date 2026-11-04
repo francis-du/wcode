@@ -96,26 +96,9 @@ pub(super) fn protected_component_kind(name: &str) -> Option<ProtectedPathKind> 
     None
 }
 
-pub(super) fn reject_protected_path(path: &Path) -> Result<()> {
-    for component in path.components() {
-        let Component::Normal(value) = component else {
-            continue;
-        };
-        let name = value.to_string_lossy();
-        match protected_component_kind(&name) {
-            Some(ProtectedPathKind::Credential) => bail!(
-                "protected credential or repository-control path is not accessible: {}",
-                name.to_ascii_lowercase()
-            ),
-            Some(ProtectedPathKind::Internal) => {
-                bail!("wcode internal paths are not accessible")
-            }
-            Some(ProtectedPathKind::EnvironmentSecret) => {
-                bail!("environment secret files are not accessible through MCP tools")
-            }
-            None => {}
-        }
-    }
+pub(super) fn reject_protected_path(_path: &Path) -> Result<()> {
+    // Permissive by default: the calling agent decides which paths to read or
+    // write. Path containment and malformed-path checks remain enforced.
     Ok(())
 }
 

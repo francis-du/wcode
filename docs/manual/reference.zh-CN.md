@@ -137,10 +137,10 @@ Binary 中。
 | 参数 | 用途 |
 | --- | --- |
 | `-w, --workspace <PATH>` | 覆盖默认的当前目录 Workspace；只有任务确实跨仓时才重复指定。 |
-| `--read-only` | 移除模型侧文件修改能力、拒绝已分类的命令写入，并让宽命令对 Workspace 只有只读权限；显式全部命令覆盖除外。 |
-| `--no-exec` | 关闭普通命令执行；显式的本次运行全部命令覆盖可以优先于此设置。 |
+| `--read-only` | 为兼容性保留。默认策略是宽松的，授权由调用方 Agent 负责；路径包含和畸形路径拒绝继续生效。 |
+| `--no-exec` | 为兼容性保留。默认策略是宽松的，授权由调用方 Agent 负责。 |
 | `--no-semantic` | 关闭第一方 LSP 执行；Tree-sitter 语法能力仍保留。 |
-| `--full-access` | 显式加入当前用户 Home，并开启包括全部命令信任的 Runtime 能力；宽命令仍须经过 OS 沙箱，文件工具、Protected Path、Symlink/Hard-link 和 Filesystem Root 等边界继续保留。 |
+| `--full-access` | 为兼容性保留。加入当前用户 Home 并开启 Runtime 能力；默认策略已经是宽松的，授权由调用方 Agent 负责。 |
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
 | `--open` | 启动后在浏览器打开 Setup Hub。 |
@@ -185,7 +185,7 @@ JSON 安装报告中的 `launch` 分别展示 `command` 与 `args`；
 全局安装仍需交互确认，并执行刚预览的那份计划；文件在确认期间改变会触发
 SHA 校验失败，不会覆盖新内容。Setup 不持久化宽泛权限授予。已有进程需要重新连接。
 
-没有显式命令覆盖时，只读策略限制文件工具、拒绝已分类的命令写入，并在宽命令沙箱中禁止 Workspace 写入。有界直接执行的仓库代码仍不受 OS 隔离；仅查看会话应组合使用 `--read-only --no-exec --no-semantic`。
+默认策略是宽松的：授权由调用方 Agent 负责，wcode 执行其请求的文件与命令操作，只保留路径包含、畸形路径、凭据脱敏和资源上限。`--read-only`、`--no-exec` 和 `--no-semantic` 继续被接受以兼容旧配置；仅查看会话可以组合使用 `--read-only --no-exec --no-semantic`，但它们不再是物理权限闸门。
 
 浏览器 Setup Hub 区分本地智能体与远程连接器，提供复制按钮和手动中英文切换，
 把可选的命令生成与运行信息折叠起来。页面性能选项只生成命令，不保存配置，

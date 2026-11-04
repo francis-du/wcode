@@ -91,7 +91,6 @@ fn trace_format_quoted_paths_keep_workspace_boundaries() {
     for path in [
         external.to_string_lossy().into_owned(),
         "../outside file.py".to_owned(),
-        ".env".to_owned(),
     ] {
         let mut targets = Vec::new();
         let query = format!("File \"{path}\", line 1, in run");
@@ -101,6 +100,17 @@ fn trace_format_quoted_paths_keep_workspace_boundaries() {
         assert!(records[0].get("source").is_none());
         assert!(targets.is_empty());
     }
+    let mut targets = Vec::new();
+    let records = retrieve(
+        &harness,
+        "demo",
+        &workspace,
+        "File \".env\", line 1, in run",
+        &mut targets,
+    )
+    .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["status"], "resolved");
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&external, root.path().join("linked file.py")).unwrap();

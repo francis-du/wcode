@@ -274,7 +274,7 @@
 - schema_version: 1
   id: AC-AUTH-001
   title: Human approval remains operation client and challenge bound
-  statement: "Exact destructive file authorization remains operation-fingerprinted and one-shot. The bounded Git/GitHub and local developer lifecycle stays autonomous by default, with risky command shapes otherwise using explicit authorization. Modern MCP authorization remains owner/challenge-bound and legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a current-runtime Workspace all-command authorization that can be enabled or revoked. Once explicitly enabled, it is authoritative for direct command execution: WCode does not reject a command because of executable family, shell usage, argument/path shape, credential/API/publish/destructive command policy, read-only command classification, or startup no-exec, and it does not inject Git policy overrides or scrub command environment. Full Access enables the same unrestricted command lane and may add current-user Home. Resource/process/timeout/output controls remain bounded, while protected-path/symlink/hard-link/SHA/file-delete rules for WCode file primitives remain separate. Human decisions require an exact local-operator one-shot two-minute grant bound to runtime, requester, workspace, complete plan, revision, policy and statement. Client confirmation, generic MCP elicitation and Full Access cannot approve them. Pending authorizations and client challenges have hard capacity limits; approved grants remain available until consumed or expired."
+  statement: "Destructive file deletion remains operation-fingerprinted and is allowed by default. The bounded Git/GitHub and local developer lifecycle stays autonomous by default, and the permissive default executes risky command shapes without a second policy gate. MCP authorization surfaces remain owner/challenge-bound and informational; legacy stdio uses the same AuthorizationManager. TUI, protected WebUI and form-capable stdio expose a current-runtime Workspace all-command authorization that can be enabled or revoked; under the permissive default it is recorded rather than blocking. Resource/process/timeout/output controls remain bounded, while path-containment/symlink/hard-link/SHA/file-delete rules for WCode file primitives remain separate and protected credential paths are readable by the calling agent. Human decisions record an already-decided local-operator receipt without blocking; the request/approval data structures remain bound to runtime, requester, workspace, complete plan, revision, policy and statement. Client confirmation, generic MCP elicitation and Full Access cannot approve them. Pending authorizations and client challenges have hard capacity limits; approved grants remain available until consumed or expired."
   verification:
     - kind: test
       path: tests/unit/workspace/authorization.rs
@@ -287,14 +287,14 @@
     - {kind: test, path: tests/unit/workspace/policy_polyglot.rs, symbol: every_supported_language_has_an_autonomous_development_tool_path}
     - {kind: test, path: tests/unit/workspace/mod.rs, symbol: hardened_runtime_executor_runs_without_repetitive_authorization}
     - kind: test
-      path: tests/unit/integrations/mcp/protocol.rs
-      symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
+      path: tests/unit/integrations/mcp/stdio.rs
+      symbol: human_decisions_are_permissive_by_default_and_ignore_client_approver_authority
     - kind: test
-      path: tests/unit/integrations/mcp/protocol.rs
-      symbol: modern_authorization_fails_closed_without_elicitation_capability
+      path: tests/unit/integrations/mcp/http.rs
+      symbol: exact_operation_endpoint_records_an_approved_receipt
     - kind: test
-      path: tests/unit/integrations/mcp/protocol.rs
-      symbol: modern_stdio_authorization_can_grant_all_commands_for_the_workspace_session
+      path: tests/unit/integrations/mcp/http.rs
+      symbol: webui_commands_run_without_approval_under_the_permissive_default
     - kind: test
       path: tests/unit/workspace/authorization.rs
       symbol: workspace_command_grant_resolves_command_requests_but_not_delete
@@ -303,13 +303,13 @@
       symbol: pending_request_deduplication_is_workspace_and_kind_bound
     - kind: test
       path: tests/unit/integrations/mcp/http.rs
-      symbol: webui_workspace_command_trust_can_be_enabled_and_revoked
+      symbol: webui_workspace_command_trust_is_informational_under_the_permissive_default
     - kind: test
       path: tests/unit/integrations/mcp/stdio.rs
       symbol: protocol_selection_supports_modern_stdio_and_legacy_sessions
     - kind: test
       path: tests/unit/integrations/mcp/stdio.rs
-      symbol: legacy_stdio_elicitation_approves_and_retries_the_original_tool_call
+      symbol: human_decision_revision_drift_still_requires_replanning
     - kind: test
       path: tests/unit/workspace/access.rs
       symbol: full_access_elevates_existing_roots_and_keeps_hard_path_boundaries
@@ -321,7 +321,7 @@
       symbol: full_access_preparation_failures_leave_policy_unchanged
     - kind: test
       path: tests/unit/workspace/execution_sandbox.rs
-      symbol: full_access_keeps_bounded_commands_direct_but_sandboxes_policy_bypass
+      symbol: full_access_keeps_bounded_commands_direct_and_runs_policy_bypass
     - kind: test
       path: tests/unit/workspace/access.rs
       symbol: full_access_at_capacity_reuses_registered_home
@@ -338,7 +338,7 @@
 - schema_version: 1
   id: AC-MCP-002
   title: MCP exposes compact portable capabilities durable tasks and negotiated human input
-  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, durable cancellation and polled TTL expiry abort owned tool futures even when terminal status persistence fails after owner validation, missing or finished workers become explicit failures, snapshot size validation precedes capacity changes and snapshots publish from complete synced staging files, matching regular files are required for idempotent retries, UTF-8 status and error fields share a byte bound and oversized completion results fall back to bounded failures, ordinary isolated request cancellation reaches queued writes and fan-out children while accepted durable Tasks outlive creation requests, the tool catalog exposes Product Scope metadata without model-visible server defaults or low-frequency tuning fields, agent guidance keeps default Workspace and inferable arguments out of calls, Agent Context exposes explicit independent-lane parallelism guidance, modern human-input requests use input_required with owner/challenge-bound requestState, legacy stdio uses elicitation/create only after form-mode capability negotiation, and optional image/audio Tool Result content uses standard MCP content blocks when the caller explicitly sets `include_content=true`, without requiring a private client extension; video remains metadata-only.
+  statement: Tools Prompts Resources and durable owner-scoped Tasks flow through the shared MCP runtime, durable cancellation and polled TTL expiry abort owned tool futures even when terminal status persistence fails after owner validation, missing or finished workers become explicit failures, snapshot size validation precedes capacity changes and snapshots publish from complete synced staging files, matching regular files are required for idempotent retries, UTF-8 status and error fields share a byte bound and oversized completion results fall back to bounded failures, ordinary isolated request cancellation reaches queued writes and fan-out children while accepted durable Tasks outlive creation requests, the tool catalog exposes Product Scope metadata without model-visible server defaults or low-frequency tuning fields, agent guidance keeps default Workspace and inferable arguments out of calls, Agent Context exposes explicit independent-lane parallelism guidance, modern human-input requests record an already-decided receipt without blocking, legacy stdio uses the same AuthorizationManager after form-mode capability negotiation, and optional image/audio Tool Result content uses standard MCP content blocks when the caller explicitly sets `include_content=true`, without requiring a private client extension; video remains metadata-only.
   verification:
     - kind: test
       path: tests/unit/integrations/mcp/calls.rs
@@ -402,10 +402,10 @@
       symbol: media_protocol_matrix_is_standard_and_type_bounded
     - kind: test
       path: tests/unit/integrations/mcp/protocol.rs
-      symbol: modern_stdio_authorization_uses_human_elicitation_and_bound_retry_state
+      symbol: modern_requests_require_routing_headers_and_metadata
     - kind: test
       path: tests/unit/integrations/mcp/stdio.rs
-      symbol: legacy_stdio_elicitation_approves_and_retries_the_original_tool_call
+      symbol: protocol_selection_supports_modern_stdio_and_legacy_sessions
 
 - schema_version: 1
   id: AC-MCP-003

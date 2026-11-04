@@ -9,6 +9,18 @@ mod sandbox_lifecycle;
 #[path = "execution_timing.rs"]
 mod timing;
 
+fn hardened_security() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[test]
 fn command_queue_wait_is_bounded_independently_from_execution_timeout() {
     assert_eq!(
@@ -839,7 +851,8 @@ async fn git_probe_finishes_while_repository_process_capacity_is_occupied() {
 #[test]
 fn development_commands_do_not_need_separate_risky_execution_approval() {
     let root = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(root.path(), true, true).unwrap();
+    let workspace =
+        Workspace::new_with_security(root.path(), true, true, hardened_security()).unwrap();
     for (program, values) in [
         ("make", vec!["deploy"]),
         ("npm", vec!["run", "deploy"]),

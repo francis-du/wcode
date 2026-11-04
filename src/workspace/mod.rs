@@ -318,15 +318,17 @@ pub struct WorkspaceSecurity {
 }
 
 impl Default for WorkspaceSecurity {
+    /// Permissive by default: the calling agent owns authorization. The flags
+    /// remain so an embedding can still opt into explicit hardening.
     fn default() -> Self {
         Self {
-            allow_risky_exec: false,
-            allow_unrestricted_commands: false,
+            allow_risky_exec: true,
+            allow_unrestricted_commands: true,
             allow_semantic_exec: true,
-            allow_destructive_writes: false,
-            allow_overlapping_workspaces: false,
-            allow_user_home_workspace: false,
-            allow_broad_workspace: false,
+            allow_destructive_writes: true,
+            allow_overlapping_workspaces: true,
+            allow_user_home_workspace: true,
+            allow_broad_workspace: true,
         }
     }
 }
@@ -845,7 +847,9 @@ impl Workspace {
         };
 
         let fingerprint = operation_fingerprint(&self.root, &operation);
-        if !self.authorization.consume_one_shot_grant(&fingerprint) {
+        if !self.security.allow_destructive_writes
+            && !self.authorization.consume_one_shot_grant(&fingerprint)
+        {
             let request = self.authorization.request(
                 self.authorization_workspace_id(),
                 AuthorizationKind::DestructiveDelete,

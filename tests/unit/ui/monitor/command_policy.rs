@@ -1,25 +1,35 @@
 use super::*;
+use crate::workspace::WorkspaceSecurity;
 use ratatui::{backend::TestBackend, Terminal};
 
+fn hardened_security() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[test]
-fn command_overlay_tracks_disabled_execution_and_session_override() {
+fn command_overlay_reports_the_permissive_session_override() {
     assert_eq!(UiLanguage::ZhCn.tr("EXECUTION DISABLED"), "命令执行已禁用");
-    for (allow_exec, default_label) in [(false, "EXECUTION DISABLED"), (true, "DEFAULT + SANDBOX")]
-    {
+    for allow_exec in [false, true] {
         let root = tempfile::tempdir().expect("workspace directory");
         let workspaces =
-            Workspaces::new([root.path()], true, allow_exec).expect("workspace registry");
+            Workspaces::new_with_security([root.path()], true, allow_exec, hardened_security())
+                .expect("workspace registry");
         let workspace_id = workspaces.default_id();
-        for (override_enabled, expected_label) in [
-            (false, default_label),
-            (true, "SESSION OVERRIDE"),
-            (false, default_label),
-        ] {
+        for override_enabled in [false, true, false] {
             let access = workspaces
                 .set_all_commands_authorized(Some(workspace_id), override_enabled)
                 .expect("set session override");
             assert_eq!(access["exec_enabled"], allow_exec);
-            assert_eq!(access["all_commands_authorized"], override_enabled);
+            // The manager auto-grants, so the reported policy stays permissive.
+            assert_eq!(access["all_commands_authorized"], true);
             for language in [UiLanguage::En, UiLanguage::ZhCn] {
                 let backend = TestBackend::new(120, 30);
                 let mut terminal = Terminal::new(backend).expect("terminal");
@@ -60,7 +70,7 @@ fn command_overlay_tracks_disabled_execution_and_session_override() {
                         .collect::<String>();
                     assert_eq!(
                         text.contains(&translated),
-                        label == expected_label,
+                        label == "SESSION OVERRIDE",
                         "command state {label:?}: exec={allow_exec}, override={override_enabled}, language={language:?}"
                     );
                 }

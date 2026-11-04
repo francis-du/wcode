@@ -16,6 +16,18 @@ mod code_navigation;
 #[path = "http/static_assets.rs"]
 mod static_assets;
 
+fn hardened_security() -> WorkspaceSecurity {
+    WorkspaceSecurity {
+        allow_risky_exec: false,
+        allow_unrestricted_commands: false,
+        allow_semantic_exec: false,
+        allow_destructive_writes: false,
+        allow_overlapping_workspaces: false,
+        allow_user_home_workspace: false,
+        allow_broad_workspace: false,
+    }
+}
+
 #[tokio::test]
 async fn observatory_project_distinguishes_unavailable_review_from_clean() {
     let (state, _root) = origin_test_state();
@@ -666,15 +678,14 @@ fn cargo_project(root: &std::path::Path, name: &str) {
 }
 
 #[tokio::test]
-async fn webui_command_approval_gates_executable_access_without_re_gating_safe_toolchains() {
+async fn webui_commands_run_without_approval_under_the_permissive_default() {
     let root = tempfile::tempdir().unwrap();
     cargo_project(root.path(), "parent_project");
     let child_root = root.path().join("child");
     cargo_project(&child_root, "child_project");
 
     let workspaces =
-        Workspaces::new_with_security([root.path()], true, true, WorkspaceSecurity::default())
-            .unwrap();
+        Workspaces::new_with_security([root.path()], true, true, hardened_security()).unwrap();
     let parent_id = workspaces.default_id().to_owned();
     let (child_id, _) = workspaces
         .add_workspace_from(Some(&parent_id), "child")
@@ -691,34 +702,17 @@ async fn webui_command_approval_gates_executable_access_without_re_gating_safe_t
         monitor: TaskMonitor::new([parent_id.clone(), child_id.clone()]),
         tasks: TaskRuntime::default(),
     });
-    let test_args = vec!["test".to_owned()];
-
-    let first = parent
-        .run_command("cargo", &test_args, ".", 30)
-        .await
-        .unwrap_err();
-    assert!(first.to_string().contains("authorization required"));
-    let executable_request = state.workspaces.latest_pending_authorization().unwrap();
-    assert_eq!(executable_request.kind, AuthorizationKind::CommandAccess);
-    let approved = intelligence_web_approve_authorization(
-        State(state.clone()),
-        ui_headers(&state, &parent_id),
-        Json(json!({"id": executable_request.id})),
-    )
-    .await;
-    assert_eq!(approved.status(), StatusCode::OK);
 
     let executed = parent
-        .run_command("cargo", &test_args, ".", 30)
+        .run_command("cargo", &["test".to_owned()], ".", 30)
         .await
-        .expect("approved executable should run a bounded test without a second authorization");
+        .expect("permissive default runs bounded commands without approval");
     assert!(executed.success, "cargo test failed: {}", executed.stderr);
 
-    let different_args = vec!["test".to_owned(), "--lib".to_owned()];
     let different = parent
-        .run_command("cargo", &different_args, ".", 30)
+        .run_command("cargo", &["test".to_owned(), "--lib".to_owned()], ".", 30)
         .await
-        .expect("another bounded test shape should not need exact-operation approval");
+        .expect("another bounded test shape should run without approval");
     assert!(
         different.success,
         "cargo test --lib failed: {}",
@@ -729,7 +723,7 @@ async fn webui_command_approval_gates_executable_access_without_re_gating_safe_t
     let child_clean = child
         .run_command("cargo", &["clean".to_owned()], ".", 30)
         .await
-        .expect("catalogued development commands should not need a separate risky-exec approval");
+        .expect("catalogued development commands should run without a separate approval");
     assert!(
         child_clean.success,
         "cargo clean failed: {}",
@@ -745,7 +739,7 @@ async fn webui_command_approval_gates_executable_access_without_re_gating_safe_t
 }
 
 #[test]
-fn exact_operation_endpoint_does_not_implicitly_allow_an_executable() {
+fn exact_operation_endpoint_records_an_approved_receipt() {
     let root = tempfile::tempdir().unwrap();
     let workspaces = Workspaces::new([root.path()], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
@@ -753,22 +747,18 @@ fn exact_operation_endpoint_does_not_implicitly_allow_an_executable() {
         .revoke_command(Some(&workspace_id), "cargo")
         .unwrap();
 
-    let error = workspaces
+    let request = workspaces
         .authorize_command_operation(Some(&workspace_id), "cargo", &["test".to_owned()], ".")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("Executable access") || error.contains("executable access"));
-    assert!(
-        !workspaces.workspace_access(Some(&workspace_id)).unwrap()["allowed_commands"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|program| program == "cargo")
+        .expect("permissive default authorizes the exact operation without blocking");
+    assert_eq!(request.kind, AuthorizationKind::RiskyExecution);
+    assert_eq!(
+        request.status,
+        crate::authorization::AuthorizationStatus::ApprovedSession
     );
 }
 
 #[tokio::test]
-async fn webui_workspace_command_trust_can_be_enabled_and_revoked() {
+async fn webui_workspace_command_trust_is_informational_under_the_permissive_default() {
     let root = tempfile::tempdir().unwrap();
     cargo_project(root.path(), "command_trust_project");
     let workspaces = Workspaces::new([root.path()], true, true).unwrap();
@@ -788,8 +778,8 @@ async fn webui_workspace_command_trust_can_be_enabled_and_revoked() {
     let first = workspace
         .run_command("cargo", &["--version".to_owned()], ".", 30)
         .await
-        .unwrap_err();
-    assert!(first.to_string().contains("authorization required"));
+        .expect("permissive default runs commands without a session grant");
+    assert!(first.success);
 
     let enabled = response_json(
         intelligence_web_enable_all_commands(
@@ -805,19 +795,11 @@ async fn webui_workspace_command_trust_can_be_enabled_and_revoked() {
         .workspaces
         .all_commands_authorized(Some(&workspace_id))
         .unwrap());
-    assert!(state
-        .workspaces
-        .authorization_requests(32)
-        .iter()
-        .all(
-            |request| request.kind == AuthorizationKind::DestructiveDelete
-                || request.status != crate::authorization::AuthorizationStatus::Pending
-        ));
 
     let result = workspace
         .run_command("cargo", &["--version".to_owned()], ".", 30)
         .await
-        .expect("workspace command trust should avoid another command-access request");
+        .expect("workspace command trust keeps commands runnable");
     assert!(result.success);
 
     let disabled = response_json(
@@ -828,10 +810,6 @@ async fn webui_workspace_command_trust_can_be_enabled_and_revoked() {
         .await,
     )
     .await;
-    assert_eq!(disabled["all_commands_authorized"], false);
-    assert_eq!(disabled["command_exec_policy"], "permissive_sandboxed");
-    assert!(!state
-        .workspaces
-        .all_commands_authorized(Some(&workspace_id))
-        .unwrap());
+    assert_eq!(disabled["all_commands_authorized"], true);
+    assert_eq!(disabled["command_exec_policy"], "session_override");
 }

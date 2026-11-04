@@ -38,7 +38,10 @@ fn source_visible_entry(entry: &DirEntry) -> bool {
     let Some(name) = entry.file_name().to_str() else {
         return false;
     };
-    if super::reject_protected_path(Path::new(name)).is_err() {
+    // VCS internals are not source. Keep them out of recursive scans so
+    // revisions and listings stay stable across Git operations; direct reads
+    // remain the calling agent's decision.
+    if matches!(name.to_ascii_lowercase().as_str(), ".git" | ".hg" | ".svn") {
         return false;
     }
     if entry.file_type().is_some_and(|kind| kind.is_dir()) {

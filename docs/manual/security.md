@@ -9,48 +9,99 @@ permalink: /docs/security/
 
 # Security Model
 
-wcode is designed around a simple rule: connecting a model must not implicitly expose the machine.
+wcode is permissive by default. The calling agent owns authorization: wcode
+executes the operations that agent requests and refuses only when an operation
+is genuinely impossible, such as malformed path syntax or an exhausted resource
+bound. Internal policy gates are no longer a second permission layer.
 
 ![wcode security and authorization boundary](/assets/wcode-security-boundary.svg)
 
 ## Workspace isolation
 
-Only configured Workspace roots exist from the model's point of view. Model-facing file operations reject absolute paths, parent traversal, protected paths, symlink components, workspace escape, and unsafe hard-link cases. The actual configured OAuth and engineering authority-state directories are excluded from file access and recursive discovery, including a Full Access Home Workspace. File tools cannot create into, replace, move or delete those roots or their ancestors. This protects file-tool entry points; bounded direct builds, scripts and LSP processes still run with the host user's permissions. The strong OS sandbox applies to the broad command lane described below. It is not tenant isolation or protection against an attacker controlling that OS account.
+Only configured Workspace roots exist from the model's point of view. Model-facing
+file operations reject absolute paths, parent traversal, `RootDir`/`Prefix`
+components, control characters, empty/`.` paths, symlink components, workspace
+escape, and unsafe hard-link cases. The actual configured OAuth and engineering
+authority-state directories remain excluded from file access and recursive
+discovery. File tools cannot create into, replace, move or delete those roots or
+their ancestors. These are path-containment and aliasing invariants, not policy
+choices. Protected credential and environment paths are not refused; the agent
+decides what to read or write.
 
-Use repository roots, not a home directory or filesystem root.
+Any directory can be exposed as a Workspace root, including a home directory or
+a filesystem root, and overlapping Workspace roots are accepted. Choose narrow
+roots when you want a smaller working set; wcode no longer enforces that as a
+permission rule.
 
 Project markers inside a configured root may become derived subspaces. This
 does not widen the outer root: relative paths resolve from the selected
 Workspace, canonical paths are checked again, and symlink children are
-rejected. Manually overlapping configured roots remain blocked by default.
+rejected.
 
 ## Hash-guarded writes
 
-Existing-file edits use the observed SHA-256 as a precondition. Atomic replacement prevents partial writes, while stale revisions fail instead of silently overwriting newer work.
+Existing-file edits use the observed SHA-256 as a precondition. Atomic replacement
+prevents partial writes, while stale revisions fail instead of silently overwriting
+newer work. Write size bounds and output bounds remain active.
 
-Deletion is deliberately separate: one regular file or empty directory requires an exact one-shot local authorization; recursive/root/protected/symlink/hard-link deletion remains blocked.
+Deletion is deliberately separate: one regular file or empty directory, with an
+exact SHA precondition for files. Recursive/root/symlink/hard-link deletion
+remains blocked by path invariants. No human approval is required.
 
-## Permissive command execution with a strong sandbox
+## Command execution
 
-`run_command` accepts an executable plus an argument array; it never implicitly parses one command string as shell syntax. With normal execution enabled, otherwise-valid commands, including unknown tools and explicit shell invocation, need no second `CommandAccess` or command-scoped `RiskyExecution` approval. An explicitly revoked executable still requires reauthorization, and `--no-exec` disables ordinary command execution. Normal command policy continues to check executable names, arguments, consequences and guarded Workspace cwd; a command grant does not widen file-tool access.
+`run_command` accepts an executable plus an argument array; it never implicitly
+parses one command string as shell syntax. Command policy still exists as an
+opt-in hardening module for embedders that construct a restrictive
+`WorkspaceSecurity`, but the default policy is permissive and `run_command`
+reaches the command directly.
 
-Known bounded development shapes use the hardened direct lane. Command shapes outside bounded profiles, including shell script execution such as `sh -c ...`, require the strong OS sandbox. A bounded syntax-only check such as `sh -n script.sh` can remain direct; the same constrained profile exists for `bash`, `dash` and `zsh`. macOS uses Seatbelt and Linux uses bubblewrap. Windows has no supported backend, and every unavailable or unenforceable backend rejects broad execution with `sandbox_unavailable`; there is no unsandboxed fallback. Broad execution denies external network access, keeps the host filesystem read-only outside the selected Workspace and private scratch, and masks or denies protected credential/repository-control paths and configured authority-state roots. Environment scrubbing, cwd, process ownership, timeout, cancellation and output/resource bounds remain active.
+The strong OS sandbox remains available for callers that opt in per command.
+When no sandbox backend is available, wcode runs the command directly instead of
+refusing; an unavailable sandbox is never the reason a command does not run.
+Environment scrubbing, cwd containment, process ownership, timeout, cancellation
+and output/resource bounds remain active.
 
-Without an explicit all-command override, read-only Workspace policy rejects classified writing commands and gives broad commands read-only Workspace access. Bounded direct repository code is still not OS-isolated, so an inspection-only session should combine `--read-only --no-exec --no-semantic`. The session override and its effect on Workspace writes are described below.
+Without an explicit restrictive security configuration, read-only Workspace
+policy does not reject classified writing commands and broad commands are not
+forced through the sandbox. `--read-only`, `--no-exec` and `--no-semantic`
+remain accepted for compatibility and still report their state, but the default
+path is permissive.
 
-The default development catalog covers representative native and ecosystem tools for all 22 indexed languages, and each family still has command-specific policy rather than blanket process trust. The bounded operator/development catalog includes `gh`, `just`, `task`, `uv`, `ruff`, `biome`, `deno`, `docker`, `kubectl`, `terraform`, `fd`, `jq`, `cmake`, `ninja`, `dotnet`, `mvn`, `gradle`, `swift`, `zig`, `pre-commit`, and `act`; language-native compilers, formatters, linters, type checkers and test runners are governed separately by exact policy. Rust verification may use installed cargo-nextest and retains `cargo test` as the compatible fallback. Bounded local tests, checks, builds, format/lint, workspace scripts, code generation, dependency maintenance, Docker development workflows, and repository-declared verification executors run autonomously through the hardened Workspace lane. Source-writing modes are tracked against read-only Workspace policy. Under normal command policy, consequence-specific denials still apply to credential flows, compiler/plugin/agent injection, Workspace escapes, protected paths, host-wide tool/runtime mutation, package publication/ownership, remote administrative mutation, and destructive infrastructure shapes.
+The development catalog covers representative native and ecosystem tools for all
+22 indexed languages, including `gh`, `just`, `task`, `uv`, `ruff`, `biome`,
+`deno`, `docker`, `kubectl`, `terraform`, `fd`, `jq`, `cmake`, `ninja`,
+`dotnet`, `mvn`, `gradle`, `swift`, `zig`, `pre-commit`, and `act`; each family
+still has command-specific policy for embedders that opt into hardening. Rust
+verification may use installed `cargo-nextest` and retains `cargo test` as the
+compatible fallback. Consequence checks that remain are path/argument
+containment and malformed-input rejections, not policy approvals.
 
-Git has a bounded lifecycle policy. With ordinary execution enabled and no explicit revocation, supported forms run without a second command approval: explicit-pathspec or `-A` staging, message-only commits, non-force push to the current upstream or a configured remote plus explicit branch, explicit-branch fetch, `pull --ff-only`, bounded branch/switch/tag operations, and `restore --staged` for explicit paths. Shape and consequence checks still block force/delete/mirror pushes, reset/clean, worktree-content restore, editor/hook/config injection and unsupported forms. Bounded direct Git calls disable repository-controlled hooks and helpers. Only bounded Git push may use the current SSH Agent through a fixed non-interactive SSH command; token-like environment variables, credential helpers, AskPass, arbitrary config, proxy helpers and HTTP extra headers remain stripped. Command admission does not supply credentials or guarantee a working remote transport. It also does not constitute user authorization to publish, a HumanApproval decision, or acceptance for merge/deployment; those retain their own intent, evidence and integration boundaries.
+Git keeps its bounded lifecycle hardening for repository-controlled hooks,
+helpers, credentials and config injection. Command admission does not supply
+credentials or guarantee a working remote transport. It also does not constitute
+user authorization to publish, a HumanApproval decision, or acceptance for
+merge/deployment; those retain their own intent, evidence and integration
+boundaries.
 
-GitHub CLI has its own bounded policy. Read-only PR/issue/run/workflow/release/repository/search views and `gh api` GET requests confined to `repos/{owner}/{repo}` can run directly. Supported explicit non-interactive PR/issue creation, comments, workflow dispatch, release creation against an existing verified tag, PR merge with one explicit merge method, and run rerun/cancel also need no second command approval under ordinary execution. Release asset upload paths, `gh auth`, arbitrary API requests, secrets/variables, extensions, host/repository redirection and admin/auto merge modes remain blocked by normal policy. Preconfigured `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` are explicit provider credential allowances; repository/host/config redirects and execution-injection variables are still scrubbed. A permitted command shape does not approve a human decision, publication or deployment.
+GitHub CLI keeps its argument and credential handling. A permitted command shape
+does not approve a human decision, publication or deployment.
 
-Repository-aware LSP servers can load repository-controlled configuration or code, so wcode keeps a separate hardened LSP lane: only built-in servers with an explicit automatic safety profile may run there by default. `rust-analyzer` must resolve outside the Workspace and also pass a bounded executable-viability probe; a rustup shim whose component is absent is treated as unavailable instead of triggering repeated `semantic_auto` failures. Its environment is scrubbed for credential and execution-injection variables, and wcode disables rust-analyzer build scripts, proc macros, automatic Cargo reload, and check-on-save. The warm session pool is capacity-bounded, keyed by Workspace + server binary identity, serializes one LSP protocol stream per slot, evicts idle/old slots, closes documents that leave the bounded index set, and rebuilds a slot when the server exits or its binary changes. Navigation results are still filtered through the Workspace boundary. `--no-semantic` disables this lane completely. LSP servers without an automatic safety profile still require the applicable explicit runtime trust; permissive ordinary `run_command` does not grant that trust. Repository-declared Property/Mutation/Fuzz/Runtime executors instead use a hardened autonomous local lane with no shell, bounded cwd/process/output/time, sensitive-environment scrubbing and Workspace path checks. These controls reduce the execution surface but are not an OS sandbox.
+Repository-aware LSP servers keep their separate execution lane with bounded
+environment, workspace path checks and process supervision. These controls
+reduce the execution surface but are not an OS sandbox.
 
 ## Human authorization is local
 
-Pending authorization requests are visible in the TUI and protected WebUI. The model can request access; MCP responses and file-tool writes cannot approve its HumanDecision request.
+Authorization requests, approvals and the TUI/WebUI approval surfaces remain
+available and keep their data structures, but they are informational under the
+permissive default. `require_human_decision` returns an already-decided receipt
+instead of creating a blocking request, and no tool call returns
+`AuthorizationRequired` unless an embedding explicitly opts into restrictive
+authorization.
 
-A HumanApproval uses a separate exact local-operator grant with a two-minute expiry and one-time consumption. It binds the server instance, Workspace, requesting MCP owner, complete plan digest, code and Design revision, policy and decision statement. Caller-supplied `confirmed`, `approver` or producer names, generic MCP form elicitation, command session grants and Full Access cannot authorize this decision. An approval is recorded as a human decision, never as an executed or passed test. This local operator boundary does not provide Team roles or isolate a malicious process running as the same OS user.
+Pending requests are still visible in the TUI and protected WebUI. The model can
+request access; MCP responses and file-tool writes cannot approve a request.
 
 ![wcode authorization and access controls](/assets/wcode-access-management.png)
 
@@ -67,13 +118,24 @@ N      deny
 
 The command view also uses **F** to toggle the Workspace-wide session grant. The protected WebUI exposes the same switch, and stdio elicitation offers `exact`, `all_commands`, or `deny` when the client supports forms.
 
-Ordinary command execution needs no separate human command grant when execution is enabled, except for explicitly revoked executable access. The Workspace-wide current-runtime grant and Full Access select `session_override`; it takes precedence over `--no-exec`, explicit command revocation, read-only command-write classification and normal command-policy filtering. Broad commands still require the strong sandbox, with Workspace writes enabled inside that boundary. Revoking the session grant restores the base execution/write policy and any explicit command revocations. Without an override, the canonical policy is `disabled` when exec is off and `permissive_sandboxed` when exec is on. These states do not change protected authority-state roots, guarded cwd, process/resource bounds, environment scrubbing or WCode's file-tool/delete controls.
+The Workspace-wide current-runtime grant and Full Access remain operator
+controls that change reported policy and Workspace write/exec state. Revoking
+the session grant restores the base policy. These controls no longer override a
+human decision, because human decisions are not blocking by default.
 
-`RiskyExecution` remains the fingerprint-scoped trust mechanism for non-command execution outside automatic profiles, such as an unprofiled LSP server or advanced stage executor. Ordinary `run_command` does not need it and does not itself satisfy those independent trust checks. An explicit runtime risk grant, Workspace session override or Full Access can satisfy the existing runtime trust mechanism where supported; none can authorize HumanApproval. For non-automatic LSP servers, exact mode binds Workspace + server + current binary identity. Hardened automatic LSP and repository-declared verification profiles retain their own executable, argument and environment restrictions.
+`RiskyExecution` remains the fingerprint-scoped trust mechanism for non-command
+execution outside automatic profiles, such as an unprofiled LSP server or
+advanced stage executor. Under the permissive default the trust check is
+satisfied; an embedding can still construct a restrictive configuration.
 
 WCode's own file primitives remain Workspace-isolated regardless of command grants.
 
-Local Policy activation and revocation reuse exact HumanDecision and record separate governance history; see [Local Acceptance Policy](../acceptance-policy/). Broad command sandboxes mask actual configured authority-state roots rather than directory names: macOS denies access and Linux refuses unavailable masks. Ordinary bounded builds and tests still run repository code with the host user's access to state. Checksummed local history alone cannot authenticate authority against arbitrary repository code; a commercial merge gate needs trusted Policy and execution integration outside the untrusted worker.
+Local Policy activation and revocation reuse exact HumanDecision records and
+record separate governance history; see [Local Acceptance Policy](../acceptance-policy/).
+Ordinary bounded builds and tests still run repository code with the host user's
+access to state. Checksummed local history alone cannot authenticate authority
+against arbitrary repository code; a commercial merge gate needs trusted Policy
+and execution integration outside the untrusted worker.
 
 ## OAuth and remote MCP
 
@@ -132,7 +194,11 @@ static assets) is preserved. Non-intelligence routes (`/healthz`, `/mcp`,
 
 ## Secrets and model context
 
-Credential-like paths are blocked and high-confidence secret text is redacted from model-facing reads and symbol context. Logs and diagnostics must not expose access tokens, refresh tokens, PKCE verifiers, or equivalent credentials. The OAuth state file contains bearer credentials; do not copy it into a repository or share it.
+High-confidence secret text is redacted from model-facing reads and symbol
+context. Logs and diagnostics must not expose access tokens, refresh tokens,
+PKCE verifiers, or equivalent credentials. The OAuth state file contains bearer
+credentials; do not copy it into a repository or share it. Credential-like paths
+are not blocked; the calling agent is responsible for not exfiltrating them.
 
 ## Verification and Evidence
 
@@ -140,10 +206,11 @@ Security is also an approval problem after code changes. Risk analysis may raise
 
 ## Safe defaults
 
-- Prefer one repository Workspace.
+- Prefer one repository Workspace as a working-set choice, not a permission rule.
 - Prefer stdio for local agents.
 - Keep OAuth for Streamable HTTP and legacy SSE connectors.
 - Keep SHA preconditions on edits.
-- Use exact grants for explicitly revoked executables or non-automatic providers when broader runtime trust is unnecessary.
-- Use `--read-only` or `--no-exec` when a task does not need writes or commands.
-- Use `--no-semantic` when the runtime should not start any first-party LSP server.
+- Treat authorization as the calling agent's responsibility; wcode no longer
+  enforces it as a policy gate.
+- `--read-only`, `--no-exec`, `--no-semantic` and `--full-access` remain
+  accepted for compatibility, but the default path is permissive.

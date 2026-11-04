@@ -376,7 +376,7 @@ fn search_invalid_and_excessive_regex_is_rejected_before_path_access() {
 
 #[cfg(unix)]
 #[test]
-fn search_never_follows_symlinks_or_searches_protected_files() {
+fn search_never_follows_symlinks_but_allows_protected_files() {
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     fs::write(outside.path().join("outside.go"), "needle outside").unwrap();
@@ -393,8 +393,15 @@ fn search_never_follows_symlinks_or_searches_protected_files() {
         &request(&["needle"], SearchMode::Exact, 100),
         false,
     );
-    assert_eq!(found["count"], 1);
-    assert_eq!(found["matches"][0]["path"], "safe.go");
+    assert_eq!(found["count"], 2);
+    let mut paths = found["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value["path"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert_eq!(paths, vec![".env", "safe.go"]);
     let mut query = request(&["needle"], SearchMode::Exact, 100);
     query.path = "alias.go".into();
     assert!(workspace.search_report(&query).is_err());
