@@ -314,7 +314,7 @@ Git 提交和附注标签的说明参数，只有在完整命令形式校验通�
 | 其他 Git Provider | Provider 中立的核心 | 未实现 | Provider-neutral core | 现在定义适配器契约，之后再做 GitLab／Bitbucket | 后续 |
 | 团队组织与项目 | Workspace 注册表 | 未实现 | Workspaces registry | 组织／成员／项目身份与有范围的授权 | 高 |
 | 高风险团队角色 | 命令／风险执行／删除授权 | 底层缺入口 | AuthorizationManager | 把 Owner／Admin／Developer／Reviewer／Viewer 映射到真实操作 | 高 |
-| 工程日志 | 有界、以追加为主的里程碑 JSON | 部分 | Engineering milestones / journal | 缺少已验证 actor、策略／例外事件、链／检查点和审计导出 | 高 |
+| 工程日志 | 有界、以追加为主的里程碑 JSON，含已验证 actor 字段、逐记录链摘要与有界 JSON-lines 导出 | 部分 | Engineering milestones / journal | 缺少策略／例外事件；有界 JSON-lines 导出已透过 MCP 只读 Operator Audit 工具 `evidence_journal_export` 暴露 | 高 |
 | OAuth 连接 | Access／Refresh grants、客户端绑定、Refresh 轮换 | 部分 | AuthState / PublicEndpoints / auth tokens | 没有时间到期／撤销／会话 UI；Refresh 后旧 Access 仍有效 | 关键 |
 | Workspace 访问 | 根目录／路径保护与只读强制执行 | 完整 | Workspace / Workspaces / fs_safety | 单一操作者选择根目录；OAuth 客户端没有按根目录的主体 ACL | 关键 |
 | 命令边界 | 直接 argv、策略形态、授权、进程限制 | 完整 | CommandResult / run_command | 普通仓库构建／脚本以宿主用户运行，不是 OS 租户隔离 | 关键 |

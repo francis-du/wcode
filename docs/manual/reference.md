@@ -363,6 +363,7 @@ evidence_status
 | `verification_status` / `verification_history` | Read readiness, blockers, stale revision, disagreement, and plan history. |
 | `verify_project` | Run inferred quick/full repository quality gates and record deterministic Evidence. |
 | `evidence_status` | Read persistent provenance-bearing Evidence for the selected Workspace. |
+| `evidence_journal_export` | Read-only operator audit: export a bounded JSON-lines window of retained engineering journal milestones; historical observations, not Evidence. |
 
 ## Precision rules
 

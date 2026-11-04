@@ -339,6 +339,7 @@ evidence_status
 | `verification_status` / `verification_history` | Ready、Blocker、Stale Revision、Disagreement、Plan History。 |
 | `verify_project` | 运行推断出的 quick/full 仓库质量门，并记录确定性 Evidence。 |
 | `evidence_status` | 读取当前 Workspace 的持久化 Provenance-bearing Evidence。 |
+| `evidence_journal_export` | 只读 Operator Audit：导出当前 Workspace 有界的 Engineering Journal 里程碑 JSON-lines 窗口；属于历史观测，不是 Evidence。 |
 
 ## Precision 规则
 

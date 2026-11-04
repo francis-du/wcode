@@ -17,7 +17,7 @@ pub(crate) mod failure_memory;
 mod workspace_access;
 
 const JOURNAL_VERSION: u8 = 1;
-const MAX_ENGINEERING_MILESTONES: usize = 512;
+pub(crate) const MAX_ENGINEERING_MILESTONES: usize = 512;
 const MAX_MILESTONE_BYTES: u64 = 16 * 1024;
 const MAX_MILESTONE_PATHS: usize = 32;
 const MAX_FAILURE_CODES: usize = 8;
@@ -414,8 +414,7 @@ pub(crate) fn verify_chain(records: &[EngineeringMilestone]) -> Result<()> {
 
 /// Bounded JSON-lines export of a retained window. `max` is clamped to the
 /// retained capacity; callers decide how much of the window to disclose.
-// Operator audit surface; UI/MCP exposure is a separate follow-up.
-#[allow(dead_code)]
+// Read-only operator audit surface exposed through MCP `evidence_journal_export`.
 pub(crate) fn export_records(records: &[EngineeringMilestone], max: usize) -> Result<String> {
     let limit = max.clamp(1, MAX_ENGINEERING_MILESTONES);
     let mut out = String::new();

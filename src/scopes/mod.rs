@@ -282,7 +282,7 @@ pub fn tool_scopes(name: &str) -> Vec<ProductScope> {
         | "verification_status"
         | "verification_history"
         | "verify_project" => &[Verification],
-        "evidence_status" => &[Evidence],
+        "evidence_status" | "evidence_journal_export" => &[Evidence],
         "reconciliation_plan"
         | "reconciliation_status"
         | "reconciliation_history"

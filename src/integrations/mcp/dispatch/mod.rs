@@ -14,6 +14,8 @@ mod policy;
 mod review;
 use review::review_changes_tool;
 
+#[path = "evidence_export.rs"]
+mod evidence_export;
 #[path = "intelligence.rs"]
 mod leaf_intelligence;
 #[path = "journal.rs"]
@@ -205,6 +207,7 @@ async fn call_leaf_tool_mode(
     let operation = async {
         match name {
             "acceptance_policy" => Ok(policy::call(state, &args).await),
+            "evidence_journal_export" => evidence_export::call(state, &args).await,
             name if leaf_intelligence::handles(name) => {
                 leaf_intelligence::call(state, name, &args).await
             }
