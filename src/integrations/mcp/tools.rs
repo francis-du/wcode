@@ -858,6 +858,25 @@ pub(super) fn usize_arg(args: &Value, key: &str) -> Option<usize> {
         .and_then(|value| usize::try_from(value).ok())
 }
 
+/// Validate an optional integer argument against its declared schema minimum.
+/// Values above `max` keep their existing downstream bound or clamp behavior.
+pub(super) fn bounded_usize_arg(
+    args: &Value,
+    key: &str,
+    default: usize,
+    min: usize,
+    max: usize,
+) -> Result<usize, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(default);
+    };
+    value
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value >= min)
+        .ok_or_else(|| format!("{key} must be an integer between {min} and {max} when provided"))
+}
+
 pub(super) fn optional_string_array_arg(
     args: &Value,
     key: &str,
