@@ -125,6 +125,27 @@ async fn evidence_journal_export_is_read_only_and_preserves_journal_state() {
 }
 
 #[tokio::test]
+async fn evidence_journal_export_rejects_limit_below_the_declared_minimum() {
+    let (_root, state) = fixture();
+    for arguments in [
+        json!({"limit": 0}),
+        json!({"limit": 1.5}),
+        json!({"limit": "10"}),
+    ] {
+        let error = call_tool(
+            &state,
+            json!({"name": "evidence_journal_export", "arguments": arguments}),
+        )
+        .await
+        .expect_err("limit below the schema minimum must fail closed");
+        assert!(
+            error.contains("limit must be"),
+            "unexpected error for {arguments}: {error}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn evidence_journal_export_rejects_unknown_and_malformed_arguments() {
     let (_root, state) = fixture();
     for arguments in [

@@ -1,6 +1,7 @@
 use super::*;
 
 const DEFAULT_EXPORT_LIMIT: usize = 50;
+const MIN_EXPORT_LIMIT: u64 = 1;
 
 pub(super) async fn call(state: &AppState, args: &Value) -> Result<AnyResult<Value>, String> {
     reject_unknown_arguments(args)?;
@@ -42,7 +43,13 @@ fn export_limit(args: &Value) -> Result<usize, String> {
     };
     let limit = value
         .as_u64()
-        .ok_or_else(|| "limit must be a non-negative integer when provided".to_owned())?;
+        .filter(|limit| *limit >= MIN_EXPORT_LIMIT)
+        .ok_or_else(|| {
+            format!(
+                "limit must be an integer between {MIN_EXPORT_LIMIT} and {} when provided",
+                crate::engineering_journal::MAX_ENGINEERING_MILESTONES
+            )
+        })?;
     usize::try_from(limit).map_err(|_| "limit is too large for this platform".to_owned())
 }
 
