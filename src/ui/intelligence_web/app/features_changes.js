@@ -484,6 +484,27 @@ async function openChangeInspection(path, layer = "working", fresh = false, focu
     if (active()) { state.changeInspection.loading = false; renderChangeInspector(); }
   }
 }
+// The change table already lists affected requirements and components, but the
+// inspector itself only showed the diff. Surface the same linkage here so an
+// operator reading a change can jump to the requirement it belongs to without
+// going back to the table.
+function changeInspectorLinkage(path) {
+  const project = state.project;
+  if (!project || project.workspace !== state.current) return { html: "", requirements: [] };
+  const change = (project.changes || []).find(item => item?.path === path);
+  const requirements = (change?.affected_requirements || []).filter(Boolean);
+  const components = (change?.affected_components || []).filter(Boolean);
+  if (!requirements.length && !components.length) return { html: "", requirements };
+  const chips = [
+    ...requirements.map(id => `<button type="button" class="quiet-action change-linkage-req" data-change-linkage-req="${esc(id)}" title="${esc(localized("Open requirement", "打开需求"))}">${esc(id)}</button>`),
+    ...components.map(id => `<span class="change-linkage-component">${esc(id)}</span>`),
+  ].join(" ");
+  return {
+    html: `<section class="change-linkage"><h4>${esc(localized("Affected requirements and components", "影响的需求与组件"))}</h4><div class="change-linkage-chips">${chips}</div></section>`,
+    requirements,
+  };
+}
+
 function renderChangeInspector() {
   const host = q("#changeInspector"), current = state.changeInspection;
   if (!host || !current) { if (host) host.innerHTML = ""; return; }
@@ -506,7 +527,8 @@ function renderChangeInspector() {
       : `<p>${esc(localized("No differences in this selected layer. This does not mean every layer is clean.", "所选层没有差异，不代表其他层也没有改动。"))}</p>`);
     body += changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
   }
-  body += historicalSourcePanel(current);
+  const linkage = changeInspectorLinkage(current.path);
+  body += linkage.html + historicalSourcePanel(current);
   const repositoryRevision = current.repositoryRevision;
   const identity = view ? `<details class="change-identity"><summary>${esc(localized("Captured snapshot identity (not continuous live proof)", "本次读取的快照身份（不是持续实时证明）"))}</summary><code>HEAD ${esc(view.head || "—")}<br>index ${esc(view.index_fingerprint || "—")}<br>worktree ${esc(view.worktree_sha256 || localized("missing", "不存在"))}<br>snapshot ${esc(view.snapshot_id)}<br>repository code ${esc(repositoryRevision?.code || "—")}<br>repository Design ${esc(repositoryRevision?.design || "—")}</code></details>` : "";
   host.innerHTML = `<section class="change-inspector"><header><div><h3>${esc(localized("Read-only code changes", "只读代码变更"))}</h3><code>${esc(current.path)}</code></div><button type="button" data-change-close>${esc(localized("Close", "关闭"))}</button></header><div class="change-toolbar">${layers}<button type="button" data-change-reload>${esc(localized("Reload file", "重新读取"))}</button></div>${body}${identity}</section>`;
@@ -531,5 +553,16 @@ function renderChangeInspector() {
   host.querySelectorAll("[data-change-impact]").forEach(button => { button.onclick = () => { void openChangeSymbolImpact(button.dataset.changeImpact); }; });
   host.querySelectorAll("[data-change-source-line]").forEach(button => { button.onclick = () => { revealChangeSourceLine(button.dataset.changeSourceSide, button.dataset.changeSourceNode, button.dataset.changeSourceLine); }; });
   host.querySelectorAll("[data-change-relation-node]").forEach(button => { button.onclick = () => { void openChangeRelationNodeInGraph(button.dataset.changeRelationNode); }; });
+  host.querySelectorAll("[data-change-linkage-req]").forEach(button => {
+    button.onclick = () => {
+      state.selected = button.dataset.changeLinkageReq;
+      state.filter = "all";
+      if (els.search) els.search.value = "";
+      revealSection("requirementsSection");
+      invalidate("requirements", "detail");
+      renderRequirements();
+      renderDetail();
+    };
+  });
   bindHistoricalSourcePanel(current);
 }
