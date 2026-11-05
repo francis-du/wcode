@@ -6,7 +6,11 @@ use std::{fs, path::Path, process::Command};
 /// Under full-suite parallelism on a loaded runner the global probe semaphore
 /// can be saturated by real cargo processes, so a single acquisition can hit
 /// the 5s `PROCESS_QUEUE_WAIT_CAP`. That is a load artifact, not the behaviour
-/// under test, so these cases retry once before failing.
+/// under test, so these cases retry before failing.
+///
+/// The saturation surfaces in two shapes and both are retried: the call returns
+/// an error naming the capacity limit, or it returns a report with a check that
+/// never started. A check that started and failed is a real result.
 async fn verify_with_capacity_retry(
     harness: &ToolHarness,
     workspace_id: &str,
@@ -15,18 +19,49 @@ async fn verify_with_capacity_retry(
     timeout_seconds: u64,
     monitor: &TaskMonitor,
 ) -> Result<VerificationReport> {
-    match harness
-        .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
-        .await
-    {
-        Err(error) if error.to_string().contains("capacity remained busy") => {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    retry_on_probe_capacity(
+        || async {
             harness
                 .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
                 .await
+        },
+        |result| match result {
+            Err(error) => probe_capacity_error(&error.to_string()),
+            Ok(report) => probe_capacity_report(report),
+        },
+    )
+    .await
+}
+
+async fn retry_on_probe_capacity<F, Fut, T, E>(
+    mut attempt: F,
+    mut is_artifact: impl FnMut(&Result<T, E>) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let mut result = attempt().await;
+    for delay_ms in [500_u64, 1_000] {
+        if !is_artifact(&result) {
+            return result;
         }
-        other => other,
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        result = attempt().await;
     }
+    result
+}
+
+fn probe_capacity_report(report: &VerificationReport) -> bool {
+    report.checks.iter().any(|check| {
+        check.execution == crate::evidence::VerificationCheckExecution::Unavailable
+            && check.stderr_tail.contains("capacity remained busy")
+    })
+}
+
+fn probe_capacity_error(error: &str) -> bool {
+    error.contains("capacity remained busy")
 }
 
 fn git(root: &Path, args: &[&str]) {

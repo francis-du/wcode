@@ -36,6 +36,42 @@ async fn real_cargo_phase(hold: Duration) {
     real_cargo_phase_with_static_gate(hold, false).await;
 }
 
+/// A saturated global probe semaphore can trip the 5s `PROCESS_QUEUE_WAIT_CAP`
+/// under full-suite parallelism, either as a returned error or as a check that
+/// never started. Retry only that capacity artifact, three attempts total; a
+/// real failure, timeout or deadlock still fails on the first attempt because
+/// the fixture deadlines and the production wait cap are unchanged.
+async fn retry_on_probe_capacity<F, Fut, T, E>(
+    mut attempt: F,
+    mut is_artifact: impl FnMut(&Result<T, E>) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let mut result = attempt().await;
+    for delay_ms in [500_u64, 1_000] {
+        if !is_artifact(&result) {
+            return result;
+        }
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        result = attempt().await;
+    }
+    result
+}
+
+fn probe_capacity_report(report: &VerificationReport) -> bool {
+    report.checks.iter().any(|check| {
+        check.execution == crate::evidence::VerificationCheckExecution::Unavailable
+            && check.stderr_tail.contains("capacity remained busy")
+    })
+}
+
+fn probe_capacity_error(error: &str) -> bool {
+    error.contains("capacity remained busy")
+}
+
 async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
     // Cold Windows toolchains need bounded startup/cleanup headroom. These
     // fixture-only deadlines leave the real hold and production wait cap intact.
@@ -129,25 +165,25 @@ async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
     let mut running = tokio::spawn(async move {
         // A saturated probe semaphore can make one acquisition hit the 5s
         // PROCESS_QUEUE_WAIT_CAP under full-suite parallelism; that is a load
-        // artifact, so retry once before surfacing it.
-        let attempt = || async {
-            runner
-                .verify_project_mode(
-                    "phase-fixture",
-                    &workspace,
-                    ("quick", false),
-                    check_timeout,
-                    &runner_monitor,
-                )
-                .await
-        };
-        match attempt().await {
-            Err(error) if error.to_string().contains("capacity remained busy") => {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                attempt().await
-            }
-            other => other,
-        }
+        // artifact, so retry before surfacing it.
+        retry_on_probe_capacity(
+            || async {
+                runner
+                    .verify_project_mode(
+                        "phase-fixture",
+                        &workspace,
+                        ("quick", false),
+                        check_timeout,
+                        &runner_monitor,
+                    )
+                    .await
+            },
+            |result| match result {
+                Err(error) => probe_capacity_error(&error.to_string()),
+                Ok(report) => probe_capacity_report(report),
+            },
+        )
+        .await
     });
     let islands = [root.path().to_path_buf(), root.path().join("apps/console")];
     let mut started = false;
