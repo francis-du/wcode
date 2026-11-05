@@ -409,6 +409,22 @@ async function test(name, fn) {
     assert.doesNotMatch(html, /bad range|bad kind|no-name/);
     assert.match(html, /data-reader-symbol-line="1"/);
   });
+  await test('symbol outline warns when the loaded graph snapshot is truncated', async () => {
+    const s = setup();
+    s.loadGraph = async () => {
+      s.state.codeGraph = { ...graphFixture(), truncated: true };
+      return true;
+    };
+    await openAndResolve(s);
+    const html = s.host('#codeReaderBody').innerHTML;
+    assert.match(html, /graph snapshot is truncated/);
+    assert.match(html, /may omit definitions/);
+    assert.match(html, /data-reader-symbol-line="1"/, 'the outline still renders');
+
+    const complete = setup();
+    await openAndResolve(complete);
+    assert.doesNotMatch(complete.host('#codeReaderBody').innerHTML, /graph snapshot is truncated/);
+  });
   await test('ablation: removing the changed-line overlap removes the marker but keeps the outline', async () => {
     const anchor = 'range.start_line <= symbol.endLine && range.end_line >= symbol.startLine';
     const baseline = setup();
