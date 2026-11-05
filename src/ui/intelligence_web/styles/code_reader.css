@@ -48,3 +48,4 @@ button.code-reader-range.added{border-color:color-mix(in srgb,var(--good) 44%,va
 .large-file-entry .large-file{width:100%}
 .tree-file-reader,.large-file-reader{flex:0 0 auto;min-height:30px;padding:4px 8px;font-size:12px;white-space:nowrap}
 @media(max-width:900px){.code-reader-view{grid-template-columns:1fr}.code-reader-side{position:static}.code-reader-source{min-height:52dvh}}
+.code-reader-layers{display:flex;gap:6px;flex-wrap:wrap;}.code-reader-layers [aria-pressed="true"]{border-color:var(--accent);color:var(--accent);}

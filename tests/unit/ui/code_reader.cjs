@@ -110,7 +110,7 @@ function setup({ ablate = null } = {}) {
       fileTree: host('#fileTree'), fileSearch: host('#fileSearch'), fileSearchStatus: host('#fileSearchStatus'),
       structureSummary: host('#structureSummary'), largeFiles: host('#largeFiles'),
     },
-    document: { querySelectorAll: () => [] },
+    document: { querySelectorAll: () => [], getElementById: id => host(id.startsWith('#') ? id : `#${id}`) },
     esc: escapeHtml, localized: en => en, num: value => String(Number(value || 0)),
     pill: (label, cls = '') => `<span class="pill ${cls}">${escapeHtml(label)}</span>`,
     statusLabel: value => String(value || '').replaceAll('_', ' '),
@@ -165,6 +165,16 @@ async function test(name, fn) {
     assert.match(html, /sha256:code/);
     assert.doesNotMatch(html, /contenteditable/i);
     assert.doesNotMatch(html, /data-code-edit/);
+  });
+  await test('the reader exposes the three change layers and marks the active one', async () => {
+    const s = setup();
+    await openAndResolve(s);
+    const layers = s.host('#codeReaderLayers').innerHTML;
+    assert.match(layers, /data-code-reader-layer="working"/);
+    assert.match(layers, /data-code-reader-layer="staged"/);
+    assert.match(layers, /data-code-reader-layer="unstaged"/);
+    assert.match(layers, /data-code-reader-layer="working" aria-pressed="true"/);
+    assert.match(layers, /data-code-reader-layer="staged" aria-pressed="false"/);
   });
   await test('change overlay distinguishes added, context and removed baseline lines', async () => {
     const s = setup();

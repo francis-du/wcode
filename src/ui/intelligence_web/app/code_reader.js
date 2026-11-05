@@ -395,7 +395,7 @@ function renderCodeReader() {
       ? codeReaderChangeHtml(change, removed)
       : current.loading
         ? `<p role="status">${esc(t("Reading bounded change snapshot…"))}</p>`
-        : `<div class="empty">${esc(t("No current working-tree change is mapped to this file."))}</div>`;
+        : `<div class="empty">${esc(localized("No change on the selected layer is mapped to this file.", "当前图层没有映射到本文件的改动。"))}</div>`;
   const mismatchNote = mismatch
     ? `<p class="warn">${esc(t("The change snapshot and the current source bytes do not match; line highlighting is withheld."))}</p>`
     : "";
@@ -416,4 +416,17 @@ function renderCodeReader() {
   });
   if (els.codeReaderClose) els.codeReaderClose.onclick = closeCodeReader;
   if (els.codeReaderReload) els.codeReaderReload.onclick = reloadCodeReader;
+  const layers = document.getElementById("codeReaderLayers");
+  if (layers) {
+    layers.innerHTML = ["working", "staged", "unstaged"].map(layer =>
+      `<button type="button" class="code-reader-layer" data-code-reader-layer="${layer}" aria-pressed="${current.layer === layer}">${esc(changeLayerLabel(layer))}</button>`
+    ).join("");
+    layers.querySelectorAll("[data-code-reader-layer]").forEach(button => {
+      button.addEventListener("click", () => {
+        const layer = button.dataset.codeReaderLayer;
+        if (!["working", "staged", "unstaged"].includes(layer) || layer === current.layer) return;
+        void openCodeReader(current.path, { layer, focusLine: current.focusLine });
+      });
+    });
+  }
 }

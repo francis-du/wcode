@@ -583,6 +583,7 @@ Object.assign(translations.en, {
 });
 
 Object.assign(translations["zh-CN"], {
+  "Change layer": "变更图层",
   "Code reader": "代码阅读器",
   "Read-only source": "只读源码",
   "Read-only source code": "只读源代码",
