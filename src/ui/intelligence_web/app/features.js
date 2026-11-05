@@ -56,7 +56,9 @@ function renderRequirements() {
       advisory ? `<span class="info">· ${advisory} ${t("advisory")}</span>` : ""
     }</div></button>`;
   }).join("") ||
-    `<div class="empty">${esc(t("No requirements match this filter."))}</div>`;
+    (all.length === 0 && state.project?.design_valid === false
+      ? `<div class="empty">${esc(localized("Design State is not initialized or failed validation, so there are no requirements to observe yet.", "设计状态未初始化或校验失败，暂时没有可观测的需求。"))}</div>`
+      : `<div class="empty">${esc(t("No requirements match this filter."))}</div>`);
   setHtml(
     "requirements",
     els.requirements,
