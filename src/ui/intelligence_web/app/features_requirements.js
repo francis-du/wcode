@@ -228,7 +228,8 @@ function featureFlow(r) {
     resolved = impl.filter((i) => i.resolved).length,
     ver = (r.acceptance || []).flatMap((a) => a.verification || []),
     verified = ver.filter((i) => i.resolved).length,
-    blockers = r.convergence_blockers || [];
+    blockers = r.convergence_blockers || [],
+    reviewAvailable = state.project?.git_review?.available === true;
   const steps = [[
     t("Desired State"),
     statusLabel(r.status === "complete" ? "declared" : "incomplete"),
@@ -252,13 +253,17 @@ function featureFlow(r) {
     resolved === impl.length ? "good" : "warn",
   ], [
     t("Change"),
-    r.changed
-      ? localized("changing", "变更中")
-      : localized("no mapped change", "无映射变更"),
-    r.changed
-      ? `+${r.change_additions}/-${r.change_deletions}`
-      : localized("working tree stable", "工作树稳定"),
-    r.changed ? "warn" : "good",
+    reviewAvailable
+      ? r.changed
+        ? localized("changing", "变更中")
+        : localized("no mapped change", "无映射变更")
+      : localized("change state unknown", "变更状态未知"),
+    reviewAvailable
+      ? r.changed
+        ? `+${r.change_additions}/-${r.change_deletions}`
+        : localized("working tree stable", "工作树稳定")
+      : localized("working-tree review unavailable", "工作树检查不可用"),
+    !reviewAvailable || r.changed ? "warn" : "good",
   ], [
     t("Proof"),
     `${t("Mapped")} ${verified}/${ver.length}`,
