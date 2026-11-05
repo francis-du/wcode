@@ -8,7 +8,7 @@ function validCommandAccess(data) {
     (data.revoked_commands === undefined ||
       (Array.isArray(data.revoked_commands) && data.revoked_commands.every(command => typeof command === "string"))) &&
     (data.command_exec_policy === undefined ||
-      ["permissive_sandboxed", "session_override", "disabled"].includes(data.command_exec_policy)) &&
+      ["permissive_sandboxed", "session_override", "permissive_direct", "disabled"].includes(data.command_exec_policy)) &&
     (data.all_commands_authorized === undefined || typeof data.all_commands_authorized === "boolean")
   );
 }
@@ -86,9 +86,9 @@ function renderAccess(force = false) {
   if (els.allCommandsStatus) els.allCommandsStatus.textContent = t(
     commandPolicy === "session_override"
       ? "Session command override enabled"
-      : commandPolicy === "permissive_sandboxed"
-        ? "Commands run by default; explicit revocations still apply"
-        : "Command execution is disabled"
+      : commandPolicy === "disabled"
+        ? "Command execution is disabled"
+        : "Commands run by default; explicit revocations still apply"
   );
   if (els.allCommandsToggle) {
     els.allCommandsToggle.textContent = t(allCommands ? "Disable session command override" : "Enable session command override");

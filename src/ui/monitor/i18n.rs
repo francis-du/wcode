@@ -191,6 +191,7 @@ impl UiLanguage {
             (Self::ZhCn, "ALL COMMANDS") => "全部命令",
             (Self::ZhCn, "AUTHORIZED") => "已授权",
             (Self::ZhCn, "PER-REQUEST") => "逐项授权",
+            (Self::ZhCn, "DEFAULT DIRECT") => "默认直通",
             (Self::ZhCn, "SESSION OVERRIDE") => "SESSION 覆盖",
             (Self::ZhCn, "DEFAULT + SANDBOX") => "默认 + SANDBOX",
             (Self::ZhCn, "EXECUTION DISABLED") => "命令执行已禁用",

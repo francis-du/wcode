@@ -33,7 +33,7 @@ fn shell_command_revocation_and_restoration_accept_only_bare_names() {
             .unwrap()
             .iter()
             .any(|value| value == program));
-        assert_eq!(allowed["command_exec_policy"], "session_override");
+        assert_eq!(allowed["command_exec_policy"], "disabled");
         assert!(workspaces.all_commands_authorized(None).unwrap());
     }
     for invalid in ["/bin/sh", "sh -c", "ba\nsh", "sh\0", r"C:\cmd.exe"] {
@@ -106,7 +106,7 @@ fn workspace_access_reports_permissive_policy_and_explicit_revocations() {
     let workspaces = Workspaces::new([dir.path()], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
     let initial = workspaces.workspace_access(Some(&workspace_id)).unwrap();
-    assert_eq!(initial["command_exec_policy"], "session_override");
+    assert_eq!(initial["command_exec_policy"], "permissive_direct");
     assert_eq!(initial["revoked_commands"], serde_json::json!([]));
 
     workspaces
@@ -123,7 +123,7 @@ fn workspace_access_reports_permissive_policy_and_explicit_revocations() {
         .set_all_commands_authorized(Some(&workspace_id), true)
         .unwrap();
     let override_access = workspaces.workspace_access(Some(&workspace_id)).unwrap();
-    assert_eq!(override_access["command_exec_policy"], "session_override");
+    assert_eq!(override_access["command_exec_policy"], "permissive_direct");
 }
 
 #[test]

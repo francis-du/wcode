@@ -58,10 +58,19 @@ fn command_overlay_reports_the_permissive_session_override() {
                     .chars()
                     .filter(|character| !character.is_whitespace())
                     .collect::<String>();
+                // The overlay shows exactly one lane label. With a hardened
+                // security set the session grant is what selects the override
+                // lane; execution being disabled always wins.
+                let expected = if !allow_exec {
+                    "EXECUTION DISABLED"
+                } else {
+                    "SESSION OVERRIDE"
+                };
                 for label in [
                     "EXECUTION DISABLED",
                     "DEFAULT + SANDBOX",
                     "SESSION OVERRIDE",
+                    "DEFAULT DIRECT",
                 ] {
                     let translated = language
                         .tr(label)
@@ -70,7 +79,7 @@ fn command_overlay_reports_the_permissive_session_override() {
                         .collect::<String>();
                     assert_eq!(
                         text.contains(&translated),
-                        label == "SESSION OVERRIDE",
+                        label == expected,
                         "command state {label:?}: exec={allow_exec}, override={override_enabled}, language={language:?}"
                     );
                 }
