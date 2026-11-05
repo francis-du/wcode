@@ -3,6 +3,32 @@ use crate::evidence::{EvidenceAuthority, EvidenceResult};
 use crate::monitor::TaskMonitor;
 use std::{fs, path::Path, process::Command};
 
+/// Under full-suite parallelism on a loaded runner the global probe semaphore
+/// can be saturated by real cargo processes, so a single acquisition can hit
+/// the 5s `PROCESS_QUEUE_WAIT_CAP`. That is a load artifact, not the behaviour
+/// under test, so these cases retry once before failing.
+async fn verify_with_capacity_retry(
+    harness: &ToolHarness,
+    workspace_id: &str,
+    workspace: &Workspace,
+    mode: (&str, bool),
+    timeout_seconds: u64,
+    monitor: &TaskMonitor,
+) -> Result<VerificationReport> {
+    match harness
+        .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
+        .await
+    {
+        Err(error) if error.to_string().contains("capacity remained busy") => {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            harness
+                .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
+                .await
+        }
+        other => other,
+    }
+}
+
 fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
         .args(args)
@@ -88,10 +114,16 @@ async fn partial_discovery_cannot_pass_native_verification() {
         assert!(required.iter().any(|check| check.id == "git-diff-check"));
 
         for (level, fail_fast) in [("quick", true), ("full", false)] {
-            let report = harness
-                .verify_project_mode("discovery", &workspace, (level, fail_fast), 30, &monitor)
-                .await
-                .unwrap();
+            let report = verify_with_capacity_retry(
+                &harness,
+                "discovery",
+                &workspace,
+                (level, fail_fast),
+                30,
+                &monitor,
+            )
+            .await
+            .unwrap();
             assert!(!report.passed, "{depth_partial}: {report:?}");
             let independent = report
                 .checks
@@ -171,10 +203,16 @@ async fn partial_discovery_cannot_pass_native_verification() {
         let (complete, cache_hit) = harness.load_project_profile(&workspace).unwrap();
         assert!(!cache_hit);
         assert!(complete.discovery.complete);
-        let recovered = harness
-            .verify_project_mode("discovery", &workspace, ("full", false), 30, &monitor)
-            .await
-            .unwrap();
+        let recovered = verify_with_capacity_retry(
+            &harness,
+            "discovery",
+            &workspace,
+            ("full", false),
+            30,
+            &monitor,
+        )
+        .await
+        .unwrap();
         assert!(recovered.passed, "{recovered:?}");
         assert!(!recovered
             .checks

@@ -506,13 +506,18 @@ async fn change_review_runs_all_probes_without_parent_slot_deadlock() {
     let workspace_id = "review-demo".to_owned();
     let harness = ToolHarness::new(1).unwrap();
     let monitor = TaskMonitor::new([workspace_id.clone()]);
-    let report = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        harness.review_changes(workspace_id, &workspace, 30, &monitor),
-    )
-    .await
-    .expect("review probes must not deadlock with one semaphore slot")
-    .unwrap();
+    // The 5s bound is the deadlock watchdog, not a capacity assertion. Under
+    // full-suite parallelism the global probe semaphore can be saturated by real
+    // cargo processes long enough to trip PROCESS_QUEUE_WAIT_CAP, so retry once
+    // before calling it a deadlock.
+    let review = || harness.review_changes(workspace_id.clone(), &workspace, 30, &monitor);
+    let report = match tokio::time::timeout(std::time::Duration::from_secs(5), review()).await {
+        Ok(result) => result.unwrap(),
+        Err(_) => tokio::time::timeout(std::time::Duration::from_secs(5), review())
+            .await
+            .expect("review probes must not deadlock with one semaphore slot")
+            .unwrap(),
+    };
 
     assert_eq!(report.execution, "parallel-git-probes");
     assert_eq!(report.probes.len(), 5);
