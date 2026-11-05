@@ -382,8 +382,9 @@ impl Workspace {
     ) -> Result<CommandResult> {
         let environment = validate_command_environment(environment)?;
         // Argument containment is an invariant, not a policy gate: malformed,
-        // absolute, credential-bearing and workspace-escaping arguments are
-        // still rejected even when the security policy is permissive.
+        // absolute and workspace-escaping arguments are still rejected even when
+        // the security policy is permissive. Credential-bearing values are no
+        // longer refused here, so `cat .env` reaches the command.
         validate_command_arguments(program, args)?;
         // `--no-exec` is an explicit operator hardening choice, so it wins over
         // the permissive default and over a session-wide command grant.

@@ -68,6 +68,10 @@ output/resource bounds remain active in both lanes.
 `--read-only` disables the file-modification tools, `--no-exec` disables command
 execution, and `--no-semantic` disables language-server discovery.
 
+The hidden `--allow-risky-exec`, `--allow-destructive-writes`,
+`--allow-overlapping-workspaces` and `--allow-broad-workspace` compatibility flags
+are accepted but do not change behaviour.
+
 A programmatic `WorkspaceSecurity` built with every flag cleared does not currently
 re-enable command-policy filtering: the session command grant is reported as
 present by default, so `unrestricted_commands` stays true. The CLI flags above are
