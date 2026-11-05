@@ -479,10 +479,11 @@ async function run(){
     assert.ok(s.node('#largeFiles').innerHTML.includes('line limit exempt'));
   });
   await test('the file tree marks files that are part of the current change set',async()=>{
-    const s=sandbox();s.context.fixture={...project(),structure:{entries:[{path:'src/changed.rs',language:'rust',lines:12},{path:'src/clean.rs',language:'rust',lines:20}]},changes:[{path:'src/changed.rs',status:'modified'}]};
+    const s=sandbox();s.context.fixture={...project(),structure:{entries:[{path:'src/changed.rs',language:'rust',lines:12},{path:'src/clean.rs',language:'rust',lines:20}],largest_files:[{path:'src/changed.rs',language:'rust',lines:12,bytes:48}]},changes:[{path:'src/changed.rs',status:'modified'}]};
     s.run('state.current="A";state.project=fixture;renderProjectStructure();');
     const html=s.node('#fileTree').innerHTML;
     assert.equal((html.match(/tree-file changed/g)||[]).length,1,'only the changed file carries the marker');
+    assert.equal((s.node('#largeFiles').innerHTML.match(/large-file changed/g)||[]).length,1,'the largest-file list carries the same marker');
     s.run('state.language="zh-CN";state.project=fixture;renderProjectStructure();');
     assert.ok(s.node('#fileTree').innerHTML.includes('已改动'),'the marker is localized');
   });

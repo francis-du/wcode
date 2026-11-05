@@ -70,7 +70,11 @@ function renderLargestFiles(structure) {
     }</div>`;
   }
   const lineLimit = Number(structure.line_limit || 1000);
+  const changed = changedSourcePaths();
   return files.map((file, index) => {
+    const isChanged = changed.has(file.path);
+    const fileClasses = ["large-file", file.over_limit ? "over-limit" : "", isChanged ? "changed" : ""]
+      .filter(Boolean).join(" ");
     const policyLabel = file.over_limit
       ? localized("over line limit", "超过行数限制")
       : file.generated
@@ -78,13 +82,13 @@ function renderLargestFiles(structure) {
           ? localized("generated · line limit exempt", "生成文件 · 不受行数限制")
           : localized("generated", "生成文件")
         : "";
-    return `<span class="large-file-entry"><button type="button" class="large-file ${file.over_limit ? "over-limit" : ""}" data-source-path="${esc(file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
+    return `<span class="large-file-entry"><button type="button" class="${esc(fileClasses)}" data-source-path="${esc(file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
       <span class="large-rank">${index + 1}</span>
       <span class="large-path"><code title="${esc(file.path)}">${esc(file.path)}</code><small>${
       esc(
         file.language,
       )
-    } · ${formatBytes(file.bytes)}${policyLabel ? ` · ${esc(policyLabel)}` : ""}</small></span>
+    } · ${formatBytes(file.bytes)}${policyLabel ? ` · ${esc(policyLabel)}` : ""}${isChanged ? ` · ${esc(localized("changed", "已改动"))}` : ""}</small></span>
       <strong>${num(file.lines)}L</strong>
     </button><button type="button" class="quiet-action large-file-reader" data-reader-path="${esc(file.path)}" title="${esc(localized("Read source: ", "阅读源码：") + file.path)}" aria-label="${esc(localized("Read source: ", "阅读源码：") + file.path)}">${esc(t("Read source"))}</button></span>`;
   }).join("");
