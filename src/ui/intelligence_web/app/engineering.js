@@ -485,18 +485,23 @@ function renderChangeConvergenceMap() {
 function renderChangeStory() {
   const p = state.project;
   if (!p) return;
+  // The change counts below come from the working-tree review. When that review
+  // is unavailable they are unknown, not zero, and must not be presented as an
+  // all-clear next to an attention list that says the review is unavailable.
+  const reviewAvailable = p.git_review?.available === true;
   const changes = p.changes || [], components = new Set(), requirements = new Set();
   changes.forEach(change => { (change.affected_components || []).forEach(id => components.add(id)); (change.affected_requirements || []).forEach(id => requirements.add(id)); });
   const impact = p.verification_impact, drift = Number(p.architecture?.blocking_drift_edges || 0), islands = impact?.affected_islands?.length || 0;
   const facts = [
-    [localized("Changed files", "变更文件"), changes.length, localized(`+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`, `+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`)],
-    [localized("Components", "组件"), components.size, localized("mapped owners", "映射归属")],
-    [localized("Requirements", "需求"), requirements.size, localized("affected intent", "受影响意图")],
+    [localized("Changed files", "变更文件"), reviewAvailable ? changes.length : "—", reviewAvailable ? localized(`+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`, `+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`) : localized("review unavailable", "检查不可用")],
+    [localized("Components", "组件"), reviewAvailable ? components.size : "—", reviewAvailable ? localized("mapped owners", "映射归属") : localized("unknown", "未知")],
+    [localized("Requirements", "需求"), reviewAvailable ? requirements.size : "—", reviewAvailable ? localized("affected intent", "受影响意图") : localized("unknown", "未知")],
     [localized("Verification islands", "验证项目岛"), islands, impact?.selective ? localized("selective", "选择性") : localized("broad fallback", "宽范围回退")],
     [localized("Confirmed drift", "确认偏离"), drift, drift ? localized("needs attention", "需要处理") : localized("none", "无")],
   ];
-  const html = facts.map(([label, value, detail]) => `<div class="change-impact-card"><span>${esc(label)}</span><strong>${num(value)}</strong><small>${esc(detail)}</small></div>`).join("");
-  setHtml("changeStory", els.changeStory, `<div class="change-impact-grid">${html}</div>`);
+  const note = reviewAvailable ? "" : `<div class="change-impact-unknown">${esc(localized("Working-tree review is unavailable, so the change counts above are unknown rather than zero.", "工作树检查不可用，以上变更计数未知，不能当作零。"))}</div>`;
+  const html = facts.map(([label, value, detail]) => `<div class="change-impact-card"><span>${esc(label)}</span><strong>${Number.isFinite(value) ? num(value) : esc(value)}</strong><small>${esc(detail)}</small></div>`).join("");
+  setHtml("changeStory", els.changeStory, `${note}<div class="change-impact-grid">${html}</div>`);
 }
 function renderRuntimeTopology() {
   if (!state.project || !els.runtimeTopology) return;
