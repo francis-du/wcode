@@ -1,3 +1,15 @@
+// The change table is a summary. It caps the requirement chips but always
+// discloses how many more the change set reports, so a capped row never reads
+// as the complete set.
+function changeRequirementCells(item) {
+  const ids = item.affected_requirements || [];
+  if (!ids.length) return "—";
+  const chips = ids.slice(0, 6).map((id) =>
+    `<button type="button" class="click-req" data-req="${esc(id)}">${esc(id)}</button>`
+  ).join(" ");
+  const rest = ids.length - Math.min(ids.length, 6);
+  return rest > 0 ? `${chips} <span class="panel-meta">+${rest} ${localized("more", "个更多")}</span>` : chips;
+}
 function changeTable(items, compact = false) {
   return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
@@ -13,11 +25,7 @@ function changeTable(items, compact = false) {
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td><td data-label="${esc(t("Changed lines"))}">${changeRangesCell(item)}</td>${
         compact
           ? ""
-          : `<td data-label="${esc(t("Requirements"))}">${
-            (item.affected_requirements || []).slice(0, 6).map((id) =>
-              `<button type="button" class="click-req" data-req="${esc(id)}">${esc(id)}</button>`
-            ).join(" ") || "—"
-          }</td>`
+          : `<td data-label="${esc(t("Requirements"))}">${changeRequirementCells(item)}</td>`
       }</tr>`;
     }).join("")
   }</tbody></table>`;
@@ -299,8 +307,21 @@ function changeSourceAction(symbol, side) {
   if (!line || !["before", "after"].includes(side)) return "";
   return `<button type="button" class="change-symbol-link" data-change-source-side="${side}" data-change-source-node="${esc(symbol.node_id)}" data-change-source-line="${line}">${esc(localized("Reveal changed line", "定位变更行"))}</button>`;
 }
+// Requirement chips come only from explicit `path::symbol` design mappings, so
+// a changed definition is tied to the requirement the design actually names
+// rather than to a name that merely looks similar.
+function changeSymbolRequirementChips(symbol, requirementSymbols) {
+  if (!symbol) return "";
+  const ids = requirementSymbols.get(symbol.qualified_name) || requirementSymbols.get(symbol.name) || [];
+  return ids.length
+    ? `<span class="change-symbol-reqs">${ids.map(id =>
+        `<button type="button" class="change-symbol-req" data-change-linkage-req="${esc(id)}">${esc(id)}</button>`
+      ).join("")}</span>`
+    : "";
+}
 function changeSymbolImpactPanel(impact, repositoryRevision) {
   if (!impact) return "";
+  const requirementSymbols = requirementSymbolMap(impact.path);
   const note = impact.mapping === "before_after_line_overlap"
     ? impact.counterpart_basis === "qualified_name_kind_syntax"
       ? localized(
@@ -332,12 +353,12 @@ function changeSymbolImpactPanel(impact, repositoryRevision) {
       ? localized("After-state mapped from the current working-tree snapshot.", "改后状态映射来自当前工作树快照。")
       : localized("After-state source is unavailable; the before snapshot remains independently mapped.", "改后源码不可用；改前快照仍保持独立映射。");
   const definitionChangeNote = symbol => impact.definition_change_basis === "qualified_name_kind_complete_syntax_outlines" && ({modified:localized("Modified definition · syntax only", "定义已修改 · 仅语法"),added:localized("Added definition · syntax only", "新增定义 · 仅语法"),removed:localized("Removed definition · syntax only", "移除定义 · 仅语法")})[symbol.definition_change] ? `<span class="panel-meta">${esc(({modified:localized("Modified definition · syntax only", "定义已修改 · 仅语法"),added:localized("Added definition · syntax only", "新增定义 · 仅语法"),removed:localized("Removed definition · syntax only", "移除定义 · 仅语法")})[symbol.definition_change])}</span>` : "";
-  const beforeItems = impact.before_symbols_available ? (impact.before_symbols || []).map(symbol => `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${changeSourceAction(symbol, "before")}</div>`).join("") : "";
+  const beforeItems = impact.before_symbols_available ? (impact.before_symbols || []).map(symbol => `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${changeSourceAction(symbol, "before")}${changeSymbolRequirementChips(symbol, requirementSymbols)}</div>`).join("") : "";
   const afterNavigable = impact.source_state === "worktree" && validChangeRepositoryRevision(repositoryRevision);
   const signatureNote = symbol => { const peers = impact.before_symbols_available ? (impact.before_symbols || []).filter(before => before.qualified_name === symbol.qualified_name && before.kind === symbol.kind) : []; if (peers.length !== 1 || typeof symbol.signature !== "string" || typeof peers[0]?.signature !== "string") return ""; if (symbol.signature_redacted !== false || peers[0].signature_redacted !== false) return `<span class="panel-meta">${esc(localized("Signature comparison unavailable · syntax signature only", "签名比较不可用 · 仅语法签名"))}</span>`; return `<span class="panel-meta">${esc(symbol.signature !== peers[0].signature ? localized("Signature changed · syntax signature only", "签名已变化 · 仅语法签名") : localized("Signature unchanged · syntax signature only", "签名未变化 · 仅语法签名"))}</span>`; };
   const afterItems = impact.after_symbols.map(symbol => afterNavigable && symbol.counterpart_only === false
-    ? `<div class="change-symbol-actions"><button type="button" class="change-symbol-link" data-change-symbol="${esc(symbol.node_id)}"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${signatureNote(symbol)}</button><button type="button" class="change-symbol-link" data-change-impact="${esc(symbol.node_id)}">${esc(localized("Explain impact", "解释影响"))}</button>${changeSourceAction(symbol, "after")}</div>`
-    : `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${signatureNote(symbol)}${changeSourceAction(symbol, "after")}</div>`).join("");
+    ? `<div class="change-symbol-actions"><button type="button" class="change-symbol-link" data-change-symbol="${esc(symbol.node_id)}"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${signatureNote(symbol)}</button><button type="button" class="change-symbol-link" data-change-impact="${esc(symbol.node_id)}">${esc(localized("Explain impact", "解释影响"))}</button>${changeSourceAction(symbol, "after")}${changeSymbolRequirementChips(symbol, requirementSymbols)}</div>`
+    : `<div class="change-symbol-before"><strong>${esc(symbol.qualified_name || symbol.name)}</strong><span>${esc(symbol.kind)} · ${symbol.start_line}–${symbol.end_line}</span>${definitionChangeNote(symbol)}${symbol.counterpart_only ? `<span class="panel-meta">${esc(localized("Paired counterpart · no changed-line overlap", "配对对应定义 · 无变更行重叠"))}</span>` : ""}${signatureNote(symbol)}${changeSourceAction(symbol, "after")}${changeSymbolRequirementChips(symbol, requirementSymbols)}</div>`).join("");
   const navigationNote = impact.source_state === "index" && impact.after_symbols.length
     ? localized(
       "Exact staged-snapshot symbols are not linked to the current graph because that graph represents different working-tree bytes.",

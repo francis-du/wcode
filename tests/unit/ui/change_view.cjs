@@ -7,6 +7,7 @@ const source = [
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/code_graph_explorer.js'), 'utf8'),
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/historical_source.js'), 'utf8'),
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_requirements.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/design_sources.js'), 'utf8'),
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_changes.js'), 'utf8'),
 ].join('\n');
 const runtime = fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/runtime.js'), 'utf8');
@@ -118,6 +119,24 @@ async function test(name, fn) {
     assert.match(s.host.innerHTML,/unique same qualified-name \+ kind counterparts/);
     assert.match(s.host.innerHTML,/original/);
     assert.match(s.host.innerHTML,/changed/);
+  });
+  await test('changed symbols chip only the requirements the design maps to them', ()=>{
+    const s=setup();
+    s.state.project={workspace:'A',
+      changes:[{path:'main.rs',affected_requirements:['REQ-A'],affected_components:['component:x']}],
+      requirements:[{id:'REQ-A',title:'A',components:[{id:'component:x',implementation:[
+        {target:'main.rs::changed',path:'main.rs',symbol:'changed',resolved:true,provider:'tree-sitter',precision:'syntax'}]}]}]};
+    render(s, view(), impact());
+    const html=s.host.innerHTML;
+    assert.match(html,/change-symbol-reqs/);
+    assert.match(html,/<button type="button" class="change-symbol-req" data-change-linkage-req="REQ-A"/,'a design-mapped changed symbol carries its requirement');
+
+    const unmapped=setup();
+    unmapped.state.project=s.state.project;
+    render(unmapped, view(), impact({after_symbols:[
+      {node_id:'symbol:ts:other',name:'other',qualified_name:'other',kind:'function',start_line:4,end_line:4,counterpart_only:false,changed_ranges:[{start_line:4,end_line:4}]}
+    ]}));
+    assert.doesNotMatch(unmapped.host.innerHTML,/<button type="button" class="change-symbol-req" data-change-linkage-req="REQ-A"/,'an unmapped symbol gets no guessed requirement');
   });
   await test('syntax-overlap rows expose same-snapshot diff-line drilldown while counterpart-only rows stay display-only', ()=>{
     const s=setup(), value=view();

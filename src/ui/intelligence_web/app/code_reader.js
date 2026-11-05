@@ -333,25 +333,7 @@ function codeReaderSymbols(current) {
   return symbols.slice(0, 200);
 }
 function codeReaderSymbolRequirements(path) {
-  const project = state.project;
-  if (!project || project.workspace !== state.current) return new Map();
-  const matches = new Map();
-  for (const requirement of project.requirements || []) {
-    if (!requirement?.id) continue;
-    const references = [
-      ...(requirement.components || []).flatMap(component => component.implementation || []),
-      ...(requirement.acceptance || []).flatMap(criterion => criterion.verification || []),
-    ];
-    for (const reference of references) {
-      if (designReferencePath(reference) !== path) continue;
-      const symbol = typeof reference?.symbol === "string" ? reference.symbol : "";
-      if (!symbol) continue;
-      if (!matches.has(symbol)) matches.set(symbol, []);
-      const ids = matches.get(symbol);
-      if (!ids.includes(requirement.id)) ids.push(requirement.id);
-    }
-  }
-  return matches;
+  return requirementSymbolMap(path);
 }
 function codeReaderSymbolChanged(symbol, change) {
   if (!change || change.after_source_matches_worktree === false) return false;

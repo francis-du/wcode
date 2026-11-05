@@ -289,6 +289,32 @@ function requirementChanges(r) {
     (change.affected_requirements || []).includes(r.id)
   );
 }
+// Explicit `path::symbol` design mappings are the only source that ties a
+// requirement to a definition. Unmapped symbols stay unmapped; nothing here
+// guesses an owner from a name that the design never declared.
+function requirementSymbolMap(path) {
+  const project = state.project;
+  if (!project || project.workspace !== state.current || typeof path !== "string") {
+    return new Map();
+  }
+  const matches = new Map();
+  for (const requirement of project.requirements || []) {
+    if (!requirement?.id) continue;
+    const references = [
+      ...(requirement.components || []).flatMap(component => component.implementation || []),
+      ...(requirement.acceptance || []).flatMap(criterion => criterion.verification || []),
+    ];
+    for (const reference of references) {
+      if (designReferencePath(reference) !== path) continue;
+      const symbol = typeof reference?.symbol === "string" ? reference.symbol : "";
+      if (!symbol) continue;
+      if (!matches.has(symbol)) matches.set(symbol, []);
+      const ids = matches.get(symbol);
+      if (!ids.includes(requirement.id)) ids.push(requirement.id);
+    }
+  }
+  return matches;
+}
 // A false `changed` flag means the working-tree review observed nothing, which
 // is not the same as observing no change. Callers pass the review availability
 // so an unavailable review stays an explicit unknown instead of a clean claim.
