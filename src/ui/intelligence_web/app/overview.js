@@ -1,9 +1,6 @@
 function graphPrecision() {
   return state.project?.graph_precision || { primary: "unknown", providers: [], semantic_edges: 0, runtime_edges: 0, syntax_edges: 0 };
 }
-function semanticAvailable() {
-  return (state.project?.language_quality?.languages || []).some(language => Number(language.detected_files || 0) > 0 && language.semantic_available);
-}
 function renderLive() {
   const p = state.project;
   if (!p) return;
@@ -422,27 +419,6 @@ function renderAttention() {
       .find(button => button.dataset.attentionId === activeId);
     if (restore && document.activeElement !== restore) restore.focus();
   });
-}
-function renderEffectiveEvidence(rows) {
-  const heading = `<h3>${esc(localized("Effective checks · this revision", "当前版本 · 有效检查"))}</h3>`;
-  const explanation = `<p class="panel-meta">${esc(localized(
-    "Latest result per target, producer and policy. Earlier attempts remain in historical counts above.",
-    "按目标、来源与策略分别取最新结果；先前执行仍保留在上方历史计数中。",
-  ))}</p>`;
-  if (!rows.length) return heading + explanation + `<div class="empty">${esc(localized(
-    "No effective verification evidence for this revision.", "此版本没有有效验证证据。",
-  ))}</div>`;
-  const body = rows.map(item => {
-    const diagnostic = item.summary
-      ? `<details><summary>${esc(localized("Diagnostic summary", "诊断摘要"))}</summary><pre class="evidence-diagnostic">${esc(item.summary)}</pre></details>`
-      : "";
-    return `<tr><td>${pill(statusLabel(item.result), statusClass(item.result))}</td>` +
-      `<td><code>${esc(item.subject)}</code><div>${esc(item.producer)}</div>${diagnostic}</td>` +
-      `<td>${esc(item.policy || "—")}<div>${esc(time(item.timestamp_ms))}</div></td></tr>`;
-  }).join("");
-  const headers = [t("Status"), localized("Check / producer", "检查 / 来源"), localized("Policy / time", "策略 / 时间")]
-    .map(label => `<th scope="col">${esc(label)}</th>`).join("");
-  return heading + explanation + `<div class="table-wrap"><table class="table proof-table"><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function renderProofSummary() {
   renderVerificationTask();
