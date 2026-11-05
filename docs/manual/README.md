@@ -38,11 +38,11 @@ Press **W** in the TUI to open the protected Project Status for the selected pro
 | Setup Hub | Setup commands, dry-run previews, launch options, performance presets, and runtime health. |
 | Overview | Project pulse, actionable observation coverage, engineering flow, timeline, diagnostics, and language quality. |
 | Engineering architecture | System and component ownership, declared and observed dependencies, and architecture inspection. |
-| Task activity | Running and queued work, execution timing, and resource use. |
+| Task activity | Running and queued work, execution timing, resource use, and a link from each task to the code it changed. |
 | Verification evidence | Current-revision results, readiness, and verified repository learning. |
 | Current changes | Working-tree changes, impact, and verification scope. |
 | Requirements | Requirement → component → code → verification → evidence traceability. |
-| Project files | The bounded source tree and largest files link to paged source inspection, with snapshot, SHA, and truncation indicators. |
+| Project files | The bounded source tree and largest files link to paged source inspection, mark files in the current change set, and keep snapshot, SHA, and truncation indicators. |
 | Access | Authorized projects, executable access, exact operations, and pending requests. |
 
 A mapped check has not necessarily run. A historical pass may belong to an older revision. See [Getting started](getting-started/) for navigation and [Repository Intelligence & Engineering State](software-intelligence/) for evidence semantics.
