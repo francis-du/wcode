@@ -1,3 +1,15 @@
+// The change table is a summary. It caps the requirement chips but always
+// discloses how many more the change set reports, so a capped row never reads
+// as the complete set.
+function changeRequirementCells(item) {
+  const ids = item.affected_requirements || [];
+  if (!ids.length) return "—";
+  const chips = ids.slice(0, 6).map((id) =>
+    `<button type="button" class="click-req" data-req="${esc(id)}">${esc(id)}</button>`
+  ).join(" ");
+  const rest = ids.length - Math.min(ids.length, 6);
+  return rest > 0 ? `${chips} <span class="panel-meta">+${rest} ${localized("more", "个更多")}</span>` : chips;
+}
 function changeTable(items, compact = false) {
   return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
@@ -13,11 +25,7 @@ function changeTable(items, compact = false) {
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td><td data-label="${esc(t("Changed lines"))}">${changeRangesCell(item)}</td>${
         compact
           ? ""
-          : `<td data-label="${esc(t("Requirements"))}">${
-            (item.affected_requirements || []).slice(0, 6).map((id) =>
-              `<button type="button" class="click-req" data-req="${esc(id)}">${esc(id)}</button>`
-            ).join(" ") || "—"
-          }</td>`
+          : `<td data-label="${esc(t("Requirements"))}">${changeRequirementCells(item)}</td>`
       }</tr>`;
     }).join("")
   }</tbody></table>`;

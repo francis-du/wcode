@@ -444,6 +444,19 @@ async function test(name, fn) {
     assert.match(known, /no mapped implementation change/);
     assert.doesNotMatch(known, /change state unknown/);
   });
+  await test('change table discloses the requirement chips it caps', () => {
+    const s = setup();
+    const ids = ['REQ-1', 'REQ-2', 'REQ-3', 'REQ-4', 'REQ-5', 'REQ-6', 'REQ-7', 'REQ-8'];
+    const capped = s.api.changeTable([{ path: 'src/a.rs', status: 'modified', affected_requirements: ids }], false);
+    assert.equal((capped.match(/data-req=/g) || []).length, 6, 'the table caps the chips');
+    assert.match(capped, /\+2 more/, 'the capped count stays explicit');
+
+    const exact = s.api.changeTable([{ path: 'src/a.rs', status: 'modified', affected_requirements: ids.slice(0, 6) }], false);
+    assert.doesNotMatch(exact, /more/, 'six requirements need no overflow note');
+
+    const none = s.api.changeTable([{ path: 'src/a.rs', status: 'modified' }], false);
+    assert.match(none, /—/, 'no requirements stays an em dash');
+  });
   await test('ablation: removing change-row parsing removes the overlay while source rendering remains', async () => {
     const anchor = 'for (const row of changeDisplayRows(change))';
     const baseline = setup();
