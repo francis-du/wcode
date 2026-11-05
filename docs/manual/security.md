@@ -66,21 +66,22 @@ scrubbing, cwd containment, process ownership, timeout, cancellation and
 output/resource bounds remain active in both lanes.
 
 `--read-only` disables the file-modification tools, `--no-exec` disables command
-execution, and `--no-semantic` disables language-server discovery.
-
-The hidden `--allow-risky-exec`, `--allow-destructive-writes`,
-`--allow-overlapping-workspaces` and `--allow-broad-workspace` compatibility flags
-are accepted but do not change behaviour.
-
-A programmatic `WorkspaceSecurity` built with every flag cleared does not currently
-re-enable command-policy filtering: the session command grant is reported as
-present by default, so `unrestricted_commands` stays true. The CLI flags above are
-the supported way to restrict a run; the security-set flags are advisory until
-that changes. Each is an
+execution, and `--no-semantic` disables language-server discovery. Each is an
 explicit operator choice and is honoured, including against a session-wide
 command grant. What is gone is the default policy layer: without one of these
 flags wcode does not refuse an operation as a matter of policy, and a read-only
 Workspace does not reject classified writing commands.
+
+Two sets of switches are currently advisory rather than effective:
+
+- the hidden `--allow-risky-exec`, `--allow-destructive-writes`,
+  `--allow-overlapping-workspaces` and `--allow-broad-workspace` compatibility
+  flags are accepted but do not change behaviour;
+- a programmatic `WorkspaceSecurity` built with every flag cleared does not
+  re-enable command-policy filtering, because the session command grant is
+  reported as present by default and `unrestricted_commands` stays true.
+
+The CLI flags above are the supported way to restrict a run.
 
 The development catalog covers representative native and ecosystem tools for all
 22 indexed languages, including `gh`, `just`, `task`, `uv`, `ruff`, `biome`,
