@@ -63,6 +63,18 @@ async function test(name, fn) {
     assert.equal(rows[5].before,4); assert.equal(rows[5].after,'');
     assert.equal(rows[6].before,''); assert.equal(rows[6].after,4);
   });
+  await test('the inspector links the change to the requirements and components it affects', ()=>{
+    const s=setup();
+    s.state.project={workspace:'A',changes:[{path:'main.rs',affected_requirements:['REQ-A','REQ-B'],affected_components:['component:x']}]};
+    render(s, view());
+    const html=s.host.innerHTML;
+    assert.ok(html.includes('data-change-linkage-req="REQ-A"'),'requirement chips render');
+    assert.ok(html.includes('data-change-linkage-req="REQ-B"'));
+    assert.ok(html.includes('component:x'),'component chips render');
+    s.state.project={workspace:'B',changes:[{path:'main.rs',affected_requirements:['REQ-A']}]};
+    render(s, view());
+    assert.ok(!s.host.innerHTML.includes('data-change-linkage-req'),'a foreign workspace never links');
+  });
   await test('untracked source keeps literal plus/minus with source line numbers', ()=>{
     const s=setup(), rows=s.api.changeDisplayRows(view({kind:'untracked_source',content:'-source\n+source'}));
     assert.equal(rows[0].after,1); assert.equal(rows[1].after,2);
