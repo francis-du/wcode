@@ -138,7 +138,7 @@ Binary 中。
 | --- | --- |
 | `-w, --workspace <PATH>` | 覆盖默认的当前目录 Workspace；只有任务确实跨仓时才重复指定。 |
 | `--read-only` | 为兼容性保留。默认策略是宽松的，授权由调用方 Agent 负责；路径包含和畸形路径拒绝继续生效。 |
-| `--no-exec` | 为兼容性保留。默认策略是宽松的，授权由调用方 Agent 负责。 |
+| `--no-exec` | 关闭命令执行。即便存在会话级命令授权也会生效。 |
 | `--no-semantic` | 关闭第一方 LSP 执行；Tree-sitter 语法能力仍保留。 |
 | `--full-access` | 为兼容性保留。加入当前用户 Home 并开启 Runtime 能力；默认策略已经是宽松的，授权由调用方 Agent 负责。 |
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
@@ -185,7 +185,7 @@ JSON 安装报告中的 `launch` 分别展示 `command` 与 `args`；
 全局安装仍需交互确认，并执行刚预览的那份计划；文件在确认期间改变会触发
 SHA 校验失败，不会覆盖新内容。Setup 不持久化宽泛权限授予。已有进程需要重新连接。
 
-默认策略是宽松的：授权由调用方 Agent 负责，wcode 执行其请求的文件与命令操作，只保留路径包含、畸形路径、凭据脱敏和资源上限。`--read-only`、`--no-exec` 和 `--no-semantic` 继续被接受以兼容旧配置；仅查看会话可以组合使用 `--read-only --no-exec --no-semantic`，但它们不再是物理权限闸门。
+默认策略是宽松的：授权由调用方 Agent 负责，wcode 执行其请求的文件与命令操作，只保留路径包含、畸形路径、凭据脱敏和资源上限。`--read-only` 关闭文件修改工具，`--no-exec` 关闭命令执行，`--no-semantic` 关闭语言服务器发现；三者都是操作者显式选择，并且会被真正遵守，包括优先于会话级命令授权。仅查看会话可以组合使用 `--read-only --no-exec --no-semantic`。
 
 浏览器 Setup Hub 区分本地智能体与远程连接器，提供复制按钮和手动中英文切换，
 把可选的命令生成与运行信息折叠起来。页面性能选项只生成命令，不保存配置，
@@ -302,7 +302,7 @@ evidence_status
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
-| `run_command` | 通过可执行程序加 argv 直接启动，不会隐式解析 Shell 字符串。普通 exec 开启时，通过校验的命令不再额外要求 CommandAccess / RiskyExecution；显式撤销过的可执行程序仍需重新授权，`--no-exec` 关闭普通执行。有界 Profile 走 Hardened Direct Lane；超出 Profile 的命令形态，包括显式 Shell 脚本执行，必须进入强 OS 沙箱，不可用时 fail closed；有界语法检查可保持直接执行。普通的操作后果检查和受保护 CWD 仍生效。显式会话覆盖优先于 no-exec、撤权、命令策略过滤和只读命令写入分类，但保留宽命令隔离、环境清理及独立的文件工具控制。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
+| `run_command` | 通过可执行程序加 argv 直接启动，不会隐式解析 Shell 字符串。普通 exec 开启时，通过校验的命令不再额外要求 CommandAccess / RiskyExecution；显式撤销过的可执行程序仍需重新授权，`--no-exec` 关闭普通执行。默认走直接执行；强 OS 沙箱按次通过 `sandbox: true` 选择加入，无后端时回退直接执行。普通的操作后果检查和受保护 CWD 仍生效。显式会话命令授权不能覆盖 no-exec；撤权、命令策略过滤和只读命令写入分类在默认宽松策略下不生效。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
 | `command_task` | 普通 `create` / `status` / `result` / `cancel` 调用复用同一份持久 `run_command` 状态；使用返回的 Task ID 与 Workspace，遵守轮询间隔，不得为了轮询重跑命令。检查精确 Transport Owner 与所选 Workspace，拒绝 Owner/Actor 参数。Terminal 不等于成功，应检查内层命令结果；日志不生成 Verification Evidence，不承诺 exactly-once 或旧 stdio Owner 恢复。 |
 
 ### Graph、Semantic 与 Language Quality

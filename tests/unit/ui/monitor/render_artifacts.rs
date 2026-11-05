@@ -146,7 +146,7 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
                 for label in [
                     "Catalog control",
                     "Exact repository operation",
-                    "SESSION OVERRIDE",
+                    "DEFAULT DIRECT",
                 ] {
                     assert!(
                         text.contains(language.tr(label)),

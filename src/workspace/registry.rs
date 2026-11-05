@@ -358,12 +358,16 @@ impl Workspaces {
         let (id, workspace) = self.select(id)?;
         let all_commands_authorized = workspace.security.allow_unrestricted_commands
             || self.authorization.workspace_commands_granted(&id);
-        let command_exec_policy = if all_commands_authorized {
-            "session_override"
-        } else if workspace.exec_enabled() {
-            "permissive_sandboxed"
-        } else {
+        // Report the lane that is actually in effect. The permissive default is
+        // not a session override: no operator or UI action enabled one.
+        let command_exec_policy = if !workspace.exec_enabled() {
             "disabled"
+        } else if workspace.security.allow_unrestricted_commands {
+            "permissive_direct"
+        } else if all_commands_authorized {
+            "session_override"
+        } else {
+            "permissive_sandboxed"
         };
         Ok(serde_json::json!({
             "id": id,
@@ -544,12 +548,12 @@ impl Workspaces {
             "default_workspace": self.default_id,
             "security": {
                 "delete_tool_exposed": true,
-                "delete_policy": "one-shot-human-approval; regular-file-or-empty-directory only; no recursive delete",
+                "delete_policy": "regular-file-or-empty-directory only; no recursive delete",
                 "coding_primitives": ["create_directory", "move_path", "path_info", "write_file", "apply_edits", "create_files", "move_paths", "apply_file_edits", "delete_path"],
                 "symlink_paths": "blocked",
-                "protected_paths": "blocked",
+                "protected_paths": "agent-controlled",
                 "full_access": self.full_access_enabled(),
-                "full_access_scope": "current-user-home workspace, not filesystem root; command-policy filtering disabled; filesystem tools retain protected-path/symlink/hard-link/root boundaries",
+                "full_access_scope": "current-user-home workspace, not filesystem root; command-policy filtering disabled; filesystem tools retain symlink/hard-link/root boundaries",
                 "overlapping_workspaces": security.allow_overlapping_workspaces,
                 "user_home_workspace": security.allow_user_home_workspace,
                 "broad_workspace_roots": security.allow_broad_workspace,

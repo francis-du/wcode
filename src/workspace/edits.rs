@@ -118,12 +118,7 @@ impl Workspace {
         for entry in fs::read_dir(&directory)?.take(max_entries.clamp(1, 128)) {
             let entry = entry?;
             let relative = entry.path().strip_prefix(&self.root)?.to_path_buf();
-            if reject_protected_path(&relative).is_ok()
-                && fs_safety::reject_authority_path_against(
-                    entry.path().as_path(),
-                    &authority,
-                    false,
-                )
+            if fs_safety::reject_authority_path_against(entry.path().as_path(), &authority, false)
                 .is_ok()
             {
                 entries.push(portable_relative_path(&relative));

@@ -75,6 +75,7 @@ pub(super) fn render_commands_overlay(
     let root = access["root"].as_str().unwrap_or(".");
     let (execution_label, execution_color) = match access["command_exec_policy"].as_str() {
         Some("session_override") => ("SESSION OVERRIDE", SUCCESS),
+        Some("permissive_direct") => ("DEFAULT DIRECT", SUCCESS),
         Some("permissive_sandboxed") => ("DEFAULT + SANDBOX", WARNING),
         Some("disabled") => ("EXECUTION DISABLED", WARNING),
         _ => ("Unknown", TEXT_DIM),

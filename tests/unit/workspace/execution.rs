@@ -415,12 +415,13 @@ async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects
     .await
     .expect("timeout fixture must flush diagnostics before the timed collection begins");
 
-    let result = collect_command_result(
+    let result = crate::workspace::command_result::collect_command_result(
         child,
         &program,
         &["timeout".into()],
         tokio::time::Instant::now() + Duration::from_secs(1),
         0,
+        "direct",
     )
     .await
     .expect("timeout must preserve a failed command result and its captured diagnostics");

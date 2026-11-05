@@ -105,7 +105,7 @@ fn safe_focused_relative_path(path: &str, suffix: Option<&str>) -> bool {
     {
         return false;
     }
-    super::reject_protected_path(Path::new(path)).is_ok()
+    true
 }
 
 fn simple_test_identifier(value: &str) -> bool {

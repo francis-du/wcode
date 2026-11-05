@@ -790,7 +790,7 @@ async fn webui_workspace_command_trust_is_informational_under_the_permissive_def
     )
     .await;
     assert_eq!(enabled["all_commands_authorized"], true);
-    assert_eq!(enabled["command_exec_policy"], "session_override");
+    assert_eq!(enabled["command_exec_policy"], "permissive_direct");
     assert!(state
         .workspaces
         .all_commands_authorized(Some(&workspace_id))
@@ -811,5 +811,5 @@ async fn webui_workspace_command_trust_is_informational_under_the_permissive_def
     )
     .await;
     assert_eq!(disabled["all_commands_authorized"], true);
-    assert_eq!(disabled["command_exec_policy"], "session_override");
+    assert_eq!(disabled["command_exec_policy"], "permissive_direct");
 }

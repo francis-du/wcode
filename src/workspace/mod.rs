@@ -757,7 +757,7 @@ impl Workspace {
             if locked_destination.starts_with(&locked_source) {
                 bail!("cannot move a directory into itself or one of its descendants");
             }
-            validate_movable_directory(&self.root, &locked_source)?;
+            validate_movable_directory(&locked_source)?;
             "directory"
         } else {
             bail!("move source is neither a regular file nor a directory");
@@ -912,6 +912,8 @@ pub(crate) fn command_writes_workspace(program: &str, args: &[String]) -> bool {
     command_requires_workspace_write(program, args)
 }
 
+#[path = "operations/command_result.rs"]
+mod command_result;
 #[path = "operations/execution.rs"]
 mod execution;
 use execution::redact_sensitive_line;
