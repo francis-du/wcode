@@ -153,9 +153,10 @@ function acceptanceNodes(r) {
     `<div class="empty">${esc(t("No acceptance criterion declared."))}</div>`;
 }
 function actualComponents(r, sourcePaths) {
+  const reviewAvailable = state.project?.git_review?.available === true;
   return r.components.map((component) =>
     `<div class="component-card ${
-      component.changed ? "changed" : ""
+      reviewAvailable && component.changed ? "changed" : ""
     }"><div class="req-top"><div><b>${
       esc(component.name)
     }</b><div class="component-id">${
@@ -163,9 +164,11 @@ function actualComponents(r, sourcePaths) {
     }</div></div><div class="pills">${
       pill(unit(component.implementation_lines, "line", "lines", "行"))
     }${
-      component.changed
-        ? pill(statusLabel("changed"), "warn")
-        : pill(statusLabel("current"), "good")
+      reviewAvailable
+        ? component.changed
+          ? pill(statusLabel("changed"), "warn")
+          : pill(statusLabel("current"), "good")
+        : pill(localized("change state unknown", "变更状态未知"), "warn")
     }</div></div>${implementationRows(component.implementation, sourcePaths)}</div>`
   ).join("") ||
     `<div class="empty">${esc(t("No current implementation mapping."))}</div>`;

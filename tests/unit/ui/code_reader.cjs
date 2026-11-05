@@ -454,6 +454,8 @@ async function test(name, fn) {
     assert.doesNotMatch(unknown, /no mapped implementation change/);
     assert.match(unknown, /mapped changes are unknown/);
     assert.match(unknown, /flow-label">Change<\/div><\/div><div class="flow-value">change state unknown<\/div><div class="flow-detail">working-tree review unavailable<\/div>/);
+    assert.match(unknown, /pill warn">change state unknown<\/span>/);
+    assert.doesNotMatch(unknown, /pill good">current<\/span>/);
 
     s.state.project.git_review = { available: true, reason: 'available' };
     s.api.renderDetail();
@@ -461,6 +463,7 @@ async function test(name, fn) {
     assert.match(known, /no mapped implementation change/);
     assert.doesNotMatch(known, /change state unknown/);
     assert.match(known, /flow-label">Change<\/div><\/div><div class="flow-value">no mapped change<\/div><div class="flow-detail">working tree stable<\/div>/);
+    assert.match(known, /pill good">current<\/span>/);
   });
   await test('change table discloses the requirement chips it caps', () => {
     const s = setup();
