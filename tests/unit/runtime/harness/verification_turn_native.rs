@@ -127,15 +127,27 @@ async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
     };
     let runner = harness.clone();
     let mut running = tokio::spawn(async move {
-        runner
-            .verify_project_mode(
-                "phase-fixture",
-                &workspace,
-                ("quick", false),
-                check_timeout,
-                &runner_monitor,
-            )
-            .await
+        // A saturated probe semaphore can make one acquisition hit the 5s
+        // PROCESS_QUEUE_WAIT_CAP under full-suite parallelism; that is a load
+        // artifact, so retry once before surfacing it.
+        let attempt = || async {
+            runner
+                .verify_project_mode(
+                    "phase-fixture",
+                    &workspace,
+                    ("quick", false),
+                    check_timeout,
+                    &runner_monitor,
+                )
+                .await
+        };
+        match attempt().await {
+            Err(error) if error.to_string().contains("capacity remained busy") => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                attempt().await
+            }
+            other => other,
+        }
     });
     let islands = [root.path().to_path_buf(), root.path().join("apps/console")];
     let mut started = false;
