@@ -35,7 +35,7 @@ async function openCodeReader(path, { layer = "working", focusLine = null, loadG
   const controller = new AbortController();
   const current = {
     open: reveal, path, layer, repositoryRevision: revision, source: null, change: null, requirements: [],
-    symbols: [], symbolRequirements: new Map(),
+    symbols: [], symbolRequirements: new Map(), graphTruncated: false,
     loading: true, sourceError: "", changeError: "", missing: false, focusLine: Number.isInteger(focusLine) ? focusLine : null,
     nodeId: "", snapshotId: "", workspace: state.current, epoch: state.workspaceEpoch, owner: token,
     sequence, controller,
@@ -81,6 +81,7 @@ async function openCodeReader(path, { layer = "working", focusLine = null, loadG
     current.snapshotId = graph.snapshot_id;
     current.symbols = codeReaderSymbols(current);
     current.symbolRequirements = codeReaderSymbolRequirements(current.path);
+    current.graphTruncated = graph.truncated === true;
     const startLine = current.focusLine != null ? Math.max(1, current.focusLine - 12) : null;
     await Promise.all([
       loadCodeReaderSource(current, node, graph.snapshot_id, { startLine }),
@@ -188,6 +189,7 @@ function invalidateCodeReader() {
   current.requirements = [];
   current.symbols = [];
   current.symbolRequirements = new Map();
+  current.graphTruncated = false;
   current.changeError = localized("Project state changed or could not be refreshed. Reload this file.", "项目状态已更新或刷新失败，请重新读取此文件。");
   renderCodeReader();
 }
@@ -381,11 +383,19 @@ function codeReaderSymbolsHtml(current, mismatch) {
       `观测到 ${symbols.length} 个符号；大纲最多显示前 80 个。`,
     ))}</div>`
     : "";
+  // The focus graph is bounded by its own node budget, so a complete-looking
+  // outline can still be a subset of the file's definitions.
+  const partial = current.graphTruncated
+    ? `<div class="panel-meta">${esc(localized(
+      "The loaded graph snapshot is truncated, so this outline may omit definitions the file actually has.",
+      "所加载的图谱快照已截断，此大纲可能遗漏文件实际存在的定义。",
+    ))}</div>`
+    : "";
   const note = `<div class="panel-meta">${esc(localized(
     "Symbols come from the bounded graph at the captured revision; a changed marker only means the captured change overlaps the definition's lines, not a semantic impact proof.",
     "符号来自捕获版本的有界图谱；变更标记只表示捕获的变更与定义行重叠，不是语义影响证明。",
   ))}</div>`;
-  return `<div class="code-reader-symbols">${rows}</div>${bounded}${note}`;
+  return `<div class="code-reader-symbols">${rows}</div>${bounded}${partial}${note}`;
 }
 function codeReaderIdentityHtml(current) {
   const source = current.source, change = current.change;
