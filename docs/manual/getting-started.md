@@ -213,7 +213,7 @@ Select the specific project in the workspace selector before inspecting its stat
 | Verification evidence | What evidence exists for this revision, and what remains unresolved? |
 | Current changes | Which files changed, what do they affect, and which checks are needed? |
 | Requirements | How does a requirement connect to implementation and proof? |
-| Project files | Which source files are present in the snapshot, and which are largest? |
+| Project files | Which source files are present in the snapshot, which are largest, and which are in the current change set? |
 
 The language and theme buttons are in the top bar. **Access** opens project and command permissions. On narrow screens, scroll the tab row to reach additional views.
 

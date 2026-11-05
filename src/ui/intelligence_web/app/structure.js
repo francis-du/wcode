@@ -24,11 +24,18 @@ function buildFileTree(entries) {
   return root;
 }
 
+function changedSourcePaths() {
+  const project = state.project;
+  if (!project || project.workspace !== state.current) return new Set();
+  return new Set((project.changes || []).map(change => change?.path).filter(Boolean));
+}
+
 function renderTreeContents(node, depth, expand = false) {
   const directories = [...node.directories.entries()]
     .sort(([left], [right]) => left.localeCompare(right));
   const files = [...node.files]
     .sort((left, right) => left.name.localeCompare(right.name));
+  const changed = changedSourcePaths();
   const directoryHtml = directories.map(([name, child]) =>
     `<details class="tree-directory" ${depth < 1 || expand ? "open" : ""}>
       <summary><span class="tree-marker" aria-hidden="true"></span><span>${
@@ -41,14 +48,17 @@ function renderTreeContents(node, depth, expand = false) {
       <div class="tree-children">${renderTreeContents(child, depth + 1, expand)}</div>
     </details>`
   ).join("");
-  const fileHtml = files.map((file) =>
-    `<span class="tree-file-entry"><button type="button" class="tree-file ${file.over_limit ? "over-limit" : ""}" data-source-path="${esc(file.path)}" title="${esc(localized("Inspect source: ", "检查源码：") + file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
+  const fileHtml = files.map((file) => {
+    const isChanged = changed.has(file.path);
+    const fileClasses = ["tree-file", file.over_limit ? "over-limit" : "", isChanged ? "changed" : ""]
+      .filter(Boolean).join(" ");
+    return `<span class="tree-file-entry"><button type="button" class="${esc(fileClasses)}" data-source-path="${esc(file.path)}" title="${esc(localized("Inspect source: ", "检查源码：") + file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
       <span class="tree-file-name">${esc(file.name)}</span>
       <span class="tree-file-meta">${esc(file.language)} · ${
       num(file.lines)
-    }L${file.generated ? ` · ${esc(localized("generated", "生成文件"))}` : ""}</span>
-    </button><button type="button" class="quiet-action tree-file-reader" data-reader-path="${esc(file.path)}" title="${esc(localized("Read source: ", "阅读源码：") + file.path)}" aria-label="${esc(localized("Read source: ", "阅读源码：") + file.path)}">${esc(t("Read source"))}</button></span>`
-  ).join("");
+    }L${file.generated ? ` · ${esc(localized("generated", "生成文件"))}` : ""}${isChanged ? ` · ${esc(localized("changed", "已改动"))}` : ""}</span>
+    </button><button type="button" class="quiet-action tree-file-reader" data-reader-path="${esc(file.path)}" title="${esc(localized("Read source: ", "阅读源码：") + file.path)}" aria-label="${esc(localized("Read source: ", "阅读源码：") + file.path)}">${esc(t("Read source"))}</button></span>`;
+  }).join("");
   return directoryHtml + fileHtml;
 }
 
@@ -60,7 +70,11 @@ function renderLargestFiles(structure) {
     }</div>`;
   }
   const lineLimit = Number(structure.line_limit || 1000);
+  const changed = changedSourcePaths();
   return files.map((file, index) => {
+    const isChanged = changed.has(file.path);
+    const fileClasses = ["large-file", file.over_limit ? "over-limit" : "", isChanged ? "changed" : ""]
+      .filter(Boolean).join(" ");
     const policyLabel = file.over_limit
       ? localized("over line limit", "超过行数限制")
       : file.generated
@@ -68,13 +82,13 @@ function renderLargestFiles(structure) {
           ? localized("generated · line limit exempt", "生成文件 · 不受行数限制")
           : localized("generated", "生成文件")
         : "";
-    return `<span class="large-file-entry"><button type="button" class="large-file ${file.over_limit ? "over-limit" : ""}" data-source-path="${esc(file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
+    return `<span class="large-file-entry"><button type="button" class="${esc(fileClasses)}" data-source-path="${esc(file.path)}" aria-label="${esc(localized("Inspect source: ", "检查源码：") + file.path)}">
       <span class="large-rank">${index + 1}</span>
       <span class="large-path"><code title="${esc(file.path)}">${esc(file.path)}</code><small>${
       esc(
         file.language,
       )
-    } · ${formatBytes(file.bytes)}${policyLabel ? ` · ${esc(policyLabel)}` : ""}</small></span>
+    } · ${formatBytes(file.bytes)}${policyLabel ? ` · ${esc(policyLabel)}` : ""}${isChanged ? ` · ${esc(localized("changed", "已改动"))}` : ""}</small></span>
       <strong>${num(file.lines)}L</strong>
     </button><button type="button" class="quiet-action large-file-reader" data-reader-path="${esc(file.path)}" title="${esc(localized("Read source: ", "阅读源码：") + file.path)}" aria-label="${esc(localized("Read source: ", "阅读源码：") + file.path)}">${esc(t("Read source"))}</button></span>`;
   }).join("");
