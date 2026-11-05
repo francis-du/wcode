@@ -102,6 +102,15 @@ async function run(){
     assert.equal(s.node('#workspaceName').textContent,'B');
     assert.equal(s.node('#workspaceRoot').textContent,'');assert.equal(s.node('#workspaceRevision').textContent,'');
   });
+  await test('the workspace switcher lists every inherited workspace and marks the current one',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),workspace_options:[{id:'A',root:'/fixture/A'},{id:'B',root:'/fixture/B'},{id:'C',root:'/fixture/C'}]};
+    s.run('state.project=fixture;state.current="B";renderWorkspaceOptions();');
+    const html=s.node('#workspace').innerHTML;
+    for (const id of ['A','B','C']) assert.ok(html.includes(`<option value="${id}"`),`missing option ${id}: ${html}`);
+    assert.match(html,/value="B" selected/);
+    assert.doesNotMatch(html,/value="A" selected/);
+  });
   await test('sync failures remain visible in workspace context and language changes refresh the page heading',async()=>{
     const s=sandbox();s.run('activateWorkspaceTab("proof");setSync("error","Snapshot unavailable");');
     assert.equal(s.node('#snapshotState').textContent,'Snapshot unavailable');assert.equal(s.node('#snapshotState').dataset.state,'error');
