@@ -194,6 +194,11 @@ const translations = {
     "No requirement-specific constraints.": "没有该需求专属约束。",
     "No current working-tree file is mapped to this requirement.":
       "当前 Working Tree 没有文件映射到该需求。",
+    "Working-tree review is unavailable, so mapped changes are unknown.":
+      "工作树检查不可用，映射的变更状态未知。",
+    "Working-tree review is unavailable, so component changes are unknown.":
+      "工作树检查不可用，组件变更状态未知。",
+    "change state unknown": "变更状态未知",
     "Working tree is clean or Git review is unavailable.":
       "Working Tree 干净，或 Git Review 当前不可用。",
     "No previous meaningful graph revision yet.":

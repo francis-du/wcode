@@ -136,7 +136,7 @@ function setup({ ablate = null } = {}) {
     observationCurrent: () => true,
   };
   vm.createContext(context);
-  vm.runInContext(text + '\nglobalThis.api={openCodeReader,closeCodeReader,clearCodeReader,invalidateCodeReader,renderCodeReader,reloadCodeReader,codeReaderSourceAction,bindCodeReaderActions,codeReaderChangeOverlays,codeReaderRequirements,codeReaderGotoLine,openCodeReaderRequirement,changeTable,implementationRows,renderProjectStructure,repositorySourcePaths};', context);
+  vm.runInContext(text + '\nglobalThis.api={openCodeReader,closeCodeReader,clearCodeReader,invalidateCodeReader,renderCodeReader,reloadCodeReader,codeReaderSourceAction,bindCodeReaderActions,codeReaderChangeOverlays,codeReaderRequirements,codeReaderGotoLine,openCodeReaderRequirement,changeTable,implementationRows,renderProjectStructure,repositorySourcePaths,renderDetail};', context);
   const loadGraph = async () => { state.codeGraph = graphFixture(); return true; };
   return { state, host, requests, navigation, api: context.api, loadGraph };
 }
@@ -427,6 +427,22 @@ async function test(name, fn) {
     assert.match(after, /data-reader-symbol-line="1"/);
     assert.match(after, /code-reader-symbol-name">symbol</);
     assert.match(after, /data-reader-requirement="REQ-A"/);
+  });
+  await test('requirement detail keeps an unavailable working-tree review as an explicit unknown', async () => {
+    const s = setup();
+    s.state.selected = 'REQ-A';
+    s.state.project.git_review = { available: false, reason: 'cached_snapshot' };
+    s.api.renderDetail();
+    const unknown = s.host('#featureDetail').innerHTML;
+    assert.match(unknown, /change state unknown/);
+    assert.doesNotMatch(unknown, /no mapped implementation change/);
+    assert.match(unknown, /mapped changes are unknown/);
+
+    s.state.project.git_review = { available: true, reason: 'available' };
+    s.api.renderDetail();
+    const known = s.host('#featureDetail').innerHTML;
+    assert.match(known, /no mapped implementation change/);
+    assert.doesNotMatch(known, /change state unknown/);
   });
   await test('ablation: removing change-row parsing removes the overlay while source rendering remains', async () => {
     const anchor = 'for (const row of changeDisplayRows(change))';
