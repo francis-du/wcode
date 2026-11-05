@@ -58,7 +58,12 @@ function renderRequirements() {
   }).join("") ||
     (all.length === 0 && state.project?.design_valid === false
       ? `<div class="empty">${esc(localized("Design State is not initialized or failed validation, so there are no requirements to observe yet.", "设计状态未初始化或校验失败，暂时没有可观测的需求。"))}</div>`
-      : `<div class="empty">${esc(t("No requirements match this filter."))}</div>`);
+      : state.filter === "changed" && state.project?.git_review?.available !== true
+        ? `<div class="empty">${esc(localized(
+            "Working-tree review is unavailable, so no requirement can be shown as changed. This is not a clean change state.",
+            "工作树检查不可用，无法判定哪些需求被变更；这不表示变更状态干净。",
+          ))}</div>`
+        : `<div class="empty">${esc(t("No requirements match this filter."))}</div>`);
   setHtml(
     "requirements",
     els.requirements,

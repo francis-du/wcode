@@ -300,6 +300,19 @@ async function run(){
     s.run('state.project=fixture;renderProjectStructure();');
     assert.doesNotMatch(s.node('#structureSummary').innerHTML, /Change markers unavailable/);
   });
+  await test('the changed-requirement filter stays unknown when the review is unavailable', () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' },
+      requirements: [{ id: 'REQ-A', title: 'A', intent: '', components: [], convergence: 'stable' }] };
+    s.run('state.project=fixture;state.filter="changed";renderRequirements();');
+    assert.match(s.node('#requirements').innerHTML, /no requirement can be shown as changed/i);
+    assert.doesNotMatch(s.node('#requirements').innerHTML, /No requirements match this filter/);
+
+    s.context.fixture = { ...project(), git_review: { available: true, reason: 'available' },
+      requirements: [{ id: 'REQ-A', title: 'A', intent: '', components: [], convergence: 'stable' }] };
+    s.run('state.project=fixture;state.filter="changed";renderRequirements();');
+    assert.match(s.node('#requirements').innerHTML, /No requirements match this filter/);
+  });
   await test('the change story keeps an unavailable review as unknown instead of zero',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),git_review:{available:false,reason:'cached_snapshot'},changes:[],
