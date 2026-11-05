@@ -449,6 +449,7 @@ function renderTraceabilityMap() {
 function renderChangeConvergenceMap() {
   if (!state.project || !els.changeConvergenceMap) return;
   const project = state.project, changes = project.changes || [], impact = project.verification_impact || {}, proof = effectiveProof(),
+    reviewAvailable = project.git_review?.available === true,
     components = new Set(), requirements = new Set();
   for (const change of changes) { for (const id of change.affected_components || []) components.add(id); for (const id of change.affected_requirements || []) requirements.add(id); }
   const reasons = impact.reasons || [], contracts = reasons.filter(item => item.kind === "contract_bridge"),
@@ -460,16 +461,16 @@ function renderChangeConvergenceMap() {
     confidenceTone = acceptanceDecision.status === "ready" ? "good" : acceptanceDecision.status === "blocked" ? "bad" : "info";
   const inputCard = (icon, title, value, detail, tone) => `<article class="impact-input-card ${tone}"><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></article>`;
   const inputHtml = [
-    inputCard("code", localized("Code file changes", "代码文件变更"), num(changes.length), localized(`${num(project.code?.additions || 0)} additions · ${num(project.code?.deletions || 0)} deletions`, `+${num(project.code?.additions || 0)} / -${num(project.code?.deletions || 0)}`), "primary"),
+    inputCard("code", localized("Code file changes", "代码文件变更"), reviewAvailable ? num(changes.length) : "—", reviewAvailable ? localized(`${num(project.code?.additions || 0)} additions · ${num(project.code?.deletions || 0)} deletions`, `+${num(project.code?.additions || 0)} / -${num(project.code?.deletions || 0)}`) : localized("review unavailable", "检查不可用"), "primary"),
     inputCard("network", localized("Shared contract / schema", "共享契约 / Schema"), num(contracts.length), localized("API, generated-code and cross-island bridges", "API、生成代码与跨项目岛桥接"), "info"),
     inputCard("settings", localized("Config & dependency", "配置与依赖"), num(configChanges.length), localized("Configuration, manifests and dependency surfaces", "配置、清单与依赖面"), "good"),
   ].join("");
   const impactCard = (icon, title, value, detail, tone, target) => `<button type="button" class="impact-analysis-card ${tone}" data-convergence-target="${target}"><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
   const middleHtml = [
-    impactCard("layers", localized("Affected components", "受影响组件"), num(components.size), localized("Owners, modules and dependency surface", "服务、模块与依赖关系"), "primary", "architectureSection"),
-    impactCard("document", localized("Affected requirements", "受影响需求"), num(requirements.size), localized("Intent, scenarios and acceptance criteria", "业务意图、场景与验收标准"), "info", "requirementsSection"),
+    impactCard("layers", localized("Affected components", "受影响组件"), reviewAvailable ? num(components.size) : "—", reviewAvailable ? localized("Owners, modules and dependency surface", "服务、模块与依赖关系") : localized("unknown", "未知"), "primary", "architectureSection"),
+    impactCard("document", localized("Affected requirements", "受影响需求"), reviewAvailable ? num(requirements.size) : "—", reviewAvailable ? localized("Intent, scenarios and acceptance criteria", "业务意图、场景与验收标准") : localized("unknown", "未知"), "info", "requirementsSection"),
     impactCard("warning", localized("Risk / drift", "风险 / 偏离"), num(risks.length + drift), localized(`${num(drift)} confirmed architecture drift`, `${num(drift)} 条确认架构偏离`), "warn", "overviewSection"),
-    impactCard("check", localized("Suggested verification", "建议验证集"), num(impact.affected_islands?.length || 0), impact.selective ? localized("Selective verification is available", "可进行选择性验证") : localized("Broad fallback / incomplete topology", "宽范围回退 / 拓扑不完整"), "accent", "proofSection"),
+    impactCard("check", localized("Suggested verification", "建议验证集"), impact.affected_islands?.length ? num(impact.affected_islands.length) : "—", impact.selective ? localized("Selective verification is available", "可进行选择性验证") : impact.affected_islands ? localized("Broad fallback / incomplete topology", "宽范围回退 / 拓扑不完整") : localized("No verification impact selection is recorded", "未记录验证影响选择"), "accent", "proofSection"),
   ].join("");
   const outcomeCard = (icon, title, value, detail, tone, target) => `<button type="button" class="convergence-outcome ${tone}" data-convergence-target="${target}"><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
   const outcomeHtml = [
@@ -498,7 +499,9 @@ function renderChangeStory() {
     [localized("Changed files", "变更文件"), reviewAvailable ? changes.length : "—", reviewAvailable ? localized(`+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`, `+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`) : localized("review unavailable", "检查不可用")],
     [localized("Components", "组件"), reviewAvailable ? components.size : "—", reviewAvailable ? localized("mapped owners", "映射归属") : localized("unknown", "未知")],
     [localized("Requirements", "需求"), reviewAvailable ? requirements.size : "—", reviewAvailable ? localized("affected intent", "受影响意图") : localized("unknown", "未知")],
-    [localized("Verification islands", "验证项目岛"), islands, impact?.selective ? localized("selective", "选择性") : localized("broad fallback", "宽范围回退")],
+    [localized("Verification islands", "验证项目岛"), impact ? islands : "—", impact
+      ? (impact.selective ? localized("selective", "选择性") : localized("broad fallback", "宽范围回退"))
+      : localized("unknown", "未知")],
     [localized("Confirmed drift", "确认偏离"), drift, drift ? localized("needs attention", "需要处理") : localized("none", "无")],
   ];
   const note = reviewAvailable ? "" : `<div class="change-impact-unknown">${esc(localized("Working-tree review is unavailable, so the change counts above are unknown rather than zero.", "工作树检查不可用，以上变更计数未知，不能当作零。"))}</div>`;
