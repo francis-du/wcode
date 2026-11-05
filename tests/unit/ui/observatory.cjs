@@ -288,6 +288,18 @@ async function run(){
     assert.match(known, /<strong>Affected requirements<\/strong><b>1<\/b>/);
     assert.match(known, /<strong>Suggested verification<\/strong><b>1<\/b>/);
   });
+  await test('the project files summary says when change markers are unavailable', async () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' },
+      structure: { entries: [{ path: 'a.rs', lines: 3 }], largest_files: [], truncated: false } };
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.match(s.node('#structureSummary').innerHTML, /Change markers unavailable/);
+
+    s.context.fixture = { ...project(), git_review: { available: true, reason: 'available' },
+      structure: { entries: [{ path: 'a.rs', lines: 3 }], largest_files: [], truncated: false } };
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.doesNotMatch(s.node('#structureSummary').innerHTML, /Change markers unavailable/);
+  });
   await test('the change story keeps an unavailable review as unknown instead of zero',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),git_review:{available:false,reason:'cached_snapshot'},changes:[],

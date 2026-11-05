@@ -183,6 +183,15 @@ function renderProjectStructure() {
         )
         : entries.length ? pill(t("Within line limit"), "good") : "",
     structure.truncated ? pill(t("Snapshot truncated"), "warn") : "",
+    state.project?.git_review?.available === true
+      ? ""
+      : pill(
+        localized(
+          "Change markers unavailable (working-tree review is unavailable)",
+          "变更标记不可用（工作树检查不可用）",
+        ),
+        "warn",
+      ),
   ].join("");
   setHtml("structureSummary", els.structureSummary, summary);
   setSourceActionHtml(
