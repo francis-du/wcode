@@ -415,8 +415,6 @@ impl AuthorizationManager {
     /// Returns the IDs that were actually approved; unknown, already-decided or
     /// non-pending IDs are skipped rather than failing the whole group. Each
     /// approved request keeps its own one-shot versus session semantics.
-    // Protocol half of grouped approval; the operator UX is a separate follow-up.
-    #[allow(dead_code)]
     pub fn approve_session_many(&self, ids: &[String]) -> Vec<String> {
         let mut state = self
             .state

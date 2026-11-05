@@ -703,25 +703,6 @@ async function loadCodeGraph({ nodeId, query: requestedQuery, repositoryRevision
     }
   }
 }
-function codeGraphDefaultQuery() {
-  const changed = state.project?.changes?.find(change => codeGraphIsCodePath(change?.path))?.path;
-  if (changed) return changed;
-  const components = state.project?.architecture?.components || [];
-  const component = components.find(item => item.id === state.selectedComponent &&
-      (item.implementation_targets || []).length)
-    || components.find(item => (item.implementation_targets || []).length);
-  const target = (component?.implementation_targets || []).find(codeGraphIsCodePath);
-  if (target) {
-    const value = String(target).trim();
-    const symbol = value.includes("::") ? value.split("::").pop().trim() : "";
-    return symbol.length >= 2 ? symbol : value;
-  }
-  const entry = (state.project?.structure?.entries || []).find(item => {
-    const path = typeof item === "string" ? item : item?.path;
-    return codeGraphIsCodePath(path);
-  });
-  return typeof entry === "string" ? entry : String(entry?.path || "");
-}
 function maybeLoadCodeGraph() {
   if (state.workspaceTab !== "architecture" || state.architectureView !== "codegraph" || state.codeGraphLoading) return;
   if (state.codeGraphView === "overview") {
