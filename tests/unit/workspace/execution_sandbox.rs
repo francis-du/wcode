@@ -29,7 +29,7 @@ async fn workspace_all_command_grant_runs_directly_by_default() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join(".env"), "SECRET=must-not-be-readable\n").unwrap();
-    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
     let workspace_id = workspace.authorization_workspace_id();
     workspace
         .authorization
@@ -65,7 +65,7 @@ async fn workspace_all_command_grant_sandboxes_broad_shell_when_requested() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join(".env"), "SECRET=must-not-be-readable\n").unwrap();
-    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
     let workspace_id = workspace.authorization_workspace_id();
     workspace
         .authorization

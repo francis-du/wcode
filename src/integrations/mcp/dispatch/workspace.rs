@@ -58,7 +58,7 @@ pub(super) fn command_sandbox_requested(args: &Value) -> Result<bool, String> {
 }
 
 pub(super) fn preflight_sync_command(state: &AppState, args: &Value) -> Result<(), String> {
-    let (workspace_id, workspace) = selected_workspace(state, args)?;
+    let (_workspace_id, workspace) = selected_workspace(state, args)?;
     required_string(args, "program")?;
     command_arguments(args)?;
     command_environment(args)?;
@@ -73,11 +73,9 @@ pub(super) fn preflight_sync_command(state: &AppState, args: &Value) -> Result<(
     }
     command_timeout_seconds(args)?;
     command_sandbox_requested(args)?;
-    let unrestricted = state
-        .workspaces
-        .all_commands_authorized(Some(&workspace_id))
-        .map_err(|error| error.to_string())?;
-    if !workspace.exec_enabled() && !unrestricted {
+    // `--no-exec` is an explicit operator hardening choice, so it wins over a
+    // session-wide command grant.
+    if !workspace.exec_enabled() {
         return Err("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace".to_owned());
     }
     Ok(())

@@ -486,7 +486,7 @@ async fn timeout_fixture_reaches_its_side_effect_when_not_terminated() {
 #[tokio::test]
 async fn workspace_all_command_grant_skips_repetitive_command_authorization() {
     let root = tempfile::tempdir().unwrap();
-    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let workspace = Workspace::new(root.path(), true, true).unwrap();
     workspace.revoke_command("cargo").unwrap();
     let workspace_id = workspace.authorization_workspace_id();
     workspace

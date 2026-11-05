@@ -43,6 +43,27 @@ fn shell_command_revocation_and_restoration_accept_only_bare_names() {
     assert!(validate_authorizable_program("sh").is_err());
 }
 
+#[tokio::test]
+async fn no_exec_blocks_command_execution_even_with_a_session_command_grant() {
+    let root = tempfile::tempdir().unwrap();
+    // allow_write = true, allow_exec = false: the `--no-exec` shape.
+    let workspaces = Workspaces::new([root.path()], true, false).unwrap();
+    let (_workspace_id, workspace) = workspaces.select(None).unwrap();
+    // A session-wide command grant is not allowed to override the explicit
+    // operator hardening flag.
+    workspace
+        .authorization
+        .set_workspace_commands_granted(&workspace.authorization_workspace_id(), true);
+    let error = workspace
+        .run_command("echo", &["hi".to_owned()], ".", 5)
+        .await
+        .expect_err("--no-exec must refuse to run commands");
+    assert!(
+        error.to_string().contains("command execution is disabled"),
+        "{error}"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn shell_command_revocation_is_recorded_without_blocking_spawn() {

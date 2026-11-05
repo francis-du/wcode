@@ -385,11 +385,13 @@ impl Workspace {
         // absolute, credential-bearing and workspace-escaping arguments are
         // still rejected even when the security policy is permissive.
         validate_command_arguments(program, args)?;
-        let unrestricted_commands =
-            self.security.allow_unrestricted_commands || self.workspace_commands_granted();
-        if !self.allow_exec && !unrestricted_commands {
+        // `--no-exec` is an explicit operator hardening choice, so it wins over
+        // the permissive default and over a session-wide command grant.
+        if !self.allow_exec {
             bail!("command execution is disabled; restart without --no-exec or explicitly authorize all commands for this Workspace");
         }
+        let unrestricted_commands =
+            self.security.allow_unrestricted_commands || self.workspace_commands_granted();
         let permissive_commands = self.allow_exec || self.security.allow_risky_exec;
         let permissive_shell = permissive_commands && is_shell_program(program);
         if !unrestricted_commands {
