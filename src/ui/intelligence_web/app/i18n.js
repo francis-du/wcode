@@ -194,11 +194,6 @@ const translations = {
     "No requirement-specific constraints.": "没有该需求专属约束。",
     "No current working-tree file is mapped to this requirement.":
       "当前 Working Tree 没有文件映射到该需求。",
-    "Working-tree review is unavailable, so mapped changes are unknown.":
-      "工作树检查不可用，映射的变更状态未知。",
-    "Working-tree review is unavailable, so component changes are unknown.":
-      "工作树检查不可用，组件变更状态未知。",
-    "change state unknown": "变更状态未知",
     "Working tree is clean or Git review is unavailable.":
       "Working Tree 干净，或 Git Review 当前不可用。",
     "No previous meaningful graph revision yet.":
@@ -265,10 +260,6 @@ Object.assign(translations["zh-CN"], {
   "undeclared actual": "未声明的实际依赖",
   "unverified actual": "未验证的实际依赖",
   "unknown": "未知",
-  "review unavailable": "检查不可用",
-  "changed unknown": "变更未知",
-  "files · changed unknown": "个文件 · 变更未知",
-  "Working-tree review is unavailable, so the change counts above are unknown rather than zero.": "工作树检查不可用，以上变更计数未知，不能当作零。",
   "declared": "已声明",
   "current": "当前",
   "resolved": "已解析",
@@ -626,9 +617,7 @@ Object.assign(translations["zh-CN"], {
   "No requirement is linked to this file in the current snapshot.": "当前快照中没有需求关联此文件。",
   "This reader observation belongs to an earlier project revision. Reload it before comparing with the current snapshot.": "此阅读器观测属于先前的项目版本。请先重新加载，再与当前快照比较。",
   "The change snapshot and the current source bytes do not match; line highlighting is withheld.": "变更快照与当前源码字节不一致，已暂缓行高亮。",
-  "Symbols in this file": "此文件中的符号",
-  "No symbol in this file is present in the current bounded graph; absence here does not prove the file defines none.": "当前有界图谱没有提供此文件中的符号；此处未观测到不代表文件没有定义符号。",
-  "Symbols come from the bounded graph at the captured revision; a changed marker only means the captured change overlaps the definition's lines, not a semantic impact proof.": "符号来自捕获版本的有界图谱；变更标记只表示捕获的变更与定义行重叠，不是语义影响证明。"
+  "Symbols in this file": "此文件中的符号"
 });
 
 function normalizeLanguage(value) {
