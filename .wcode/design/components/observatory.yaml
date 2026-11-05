@@ -101,7 +101,7 @@ implementation:
     path: src/ui/intelligence_web/app/structure.js
     symbol: renderProjectStructure
   - kind: symbol
-    path: src/ui/intelligence_web/app/features.js
+    path: src/ui/intelligence_web/app/features_changes.js
     symbol: renderVerifiedLearning
   - kind: symbol
     path: src/integrations/mcp/web.rs
