@@ -134,7 +134,7 @@ fn code_reader_requirement_changes_expose_bounded_line_ranges() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 20
+                .is_some_and(|results| results.len() == 21
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -300,7 +300,7 @@ fn observatory_behavior_keeps_refresh_state_and_operator_summary_truthful() {
             && report
                 .as_ref()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 89
+                .is_some_and(|results| results.len() == 90
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

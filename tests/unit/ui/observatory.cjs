@@ -268,6 +268,26 @@ async function run(){
     assert.match(known,/12 files · 1 changed/);
     assert.doesNotMatch(known,/changed unknown/);
   });
+  await test('the change convergence map keeps unavailable counts unknown', async () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' }, changes: [] };
+    s.run('state.project=fixture;renderChangeConvergenceMap();');
+    const unknown = s.node('#changeConvergenceMap').innerHTML;
+    assert.match(unknown, /<strong>Code file changes<\/strong><b>—<\/b><small>review unavailable<\/small>/);
+    assert.match(unknown, /<strong>Affected components<\/strong><b>—<\/b><small>unknown<\/small>/);
+    assert.match(unknown, /<strong>Affected requirements<\/strong><b>—<\/b><small>unknown<\/small>/);
+    assert.match(unknown, /<strong>Suggested verification<\/strong><b>—<\/b><small>No verification impact selection is recorded<\/small>/);
+
+    s.context.fixture = { ...project(), git_review: { available: true, reason: 'available' },
+      changes: [{ path: 'a.rs', affected_components: ['component:x'], affected_requirements: ['REQ-A'] }],
+      verification_impact: { affected_islands: ['island-1'], selective: true, reasons: [] } };
+    s.run('state.project=fixture;renderChangeConvergenceMap();');
+    const known = s.node('#changeConvergenceMap').innerHTML;
+    assert.match(known, /<strong>Code file changes<\/strong><b>1<\/b>/);
+    assert.match(known, /<strong>Affected components<\/strong><b>1<\/b>/);
+    assert.match(known, /<strong>Affected requirements<\/strong><b>1<\/b>/);
+    assert.match(known, /<strong>Suggested verification<\/strong><b>1<\/b>/);
+  });
   await test('the change story keeps an unavailable review as unknown instead of zero',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),git_review:{available:false,reason:'cached_snapshot'},changes:[],
@@ -275,8 +295,10 @@ async function run(){
     s.run('state.project=fixture;renderChangeStory();');
     const unknown=s.node('#changeStory').innerHTML;
     assert.match(unknown,/change counts above are unknown/,'an unavailable review must not render zero counts as fact');
-    assert.equal((unknown.match(/<strong>—<\/strong>/g) || []).length, 3,
-      'the changed-file, component and requirement counts stay unknown');
+    assert.equal((unknown.match(/<strong>—<\/strong>/g) || []).length, 4,
+      'the changed-file, component, requirement and verification-island counts stay unknown');
+    assert.match(unknown, /<span>Verification islands<\/span><strong>—<\/strong><small>unknown<\/small>/,
+      'an absent verification impact is unknown, not a zero-island broad fallback');
 
     s.context.fixture={...project(),git_review:{available:true,reason:'available'},
       changes:[{path:'a.rs',affected_components:['component:x'],affected_requirements:['REQ-A']}],
