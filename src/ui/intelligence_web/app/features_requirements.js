@@ -58,7 +58,12 @@ function renderRequirements() {
   }).join("") ||
     (all.length === 0 && state.project?.design_valid === false
       ? `<div class="empty">${esc(localized("Design State is not initialized or failed validation, so there are no requirements to observe yet.", "设计状态未初始化或校验失败，暂时没有可观测的需求。"))}</div>`
-      : `<div class="empty">${esc(t("No requirements match this filter."))}</div>`);
+      : state.filter === "changed" && state.project?.git_review?.available !== true
+        ? `<div class="empty">${esc(localized(
+            "Working-tree review is unavailable, so no requirement can be shown as changed. This is not a clean change state.",
+            "工作树检查不可用，无法判定哪些需求被变更；这不表示变更状态干净。",
+          ))}</div>`
+        : `<div class="empty">${esc(t("No requirements match this filter."))}</div>`);
   setHtml(
     "requirements",
     els.requirements,
@@ -148,9 +153,10 @@ function acceptanceNodes(r) {
     `<div class="empty">${esc(t("No acceptance criterion declared."))}</div>`;
 }
 function actualComponents(r, sourcePaths) {
+  const reviewAvailable = state.project?.git_review?.available === true;
   return r.components.map((component) =>
     `<div class="component-card ${
-      component.changed ? "changed" : ""
+      reviewAvailable && component.changed ? "changed" : ""
     }"><div class="req-top"><div><b>${
       esc(component.name)
     }</b><div class="component-id">${
@@ -158,9 +164,11 @@ function actualComponents(r, sourcePaths) {
     }</div></div><div class="pills">${
       pill(unit(component.implementation_lines, "line", "lines", "行"))
     }${
-      component.changed
-        ? pill(statusLabel("changed"), "warn")
-        : pill(statusLabel("current"), "good")
+      reviewAvailable
+        ? component.changed
+          ? pill(statusLabel("changed"), "warn")
+          : pill(statusLabel("current"), "good")
+        : pill(localized("change state unknown", "变更状态未知"), "warn")
     }</div></div>${implementationRows(component.implementation, sourcePaths)}</div>`
   ).join("") ||
     `<div class="empty">${esc(t("No current implementation mapping."))}</div>`;
@@ -223,7 +231,8 @@ function featureFlow(r) {
     resolved = impl.filter((i) => i.resolved).length,
     ver = (r.acceptance || []).flatMap((a) => a.verification || []),
     verified = ver.filter((i) => i.resolved).length,
-    blockers = r.convergence_blockers || [];
+    blockers = r.convergence_blockers || [],
+    reviewAvailable = state.project?.git_review?.available === true;
   const steps = [[
     t("Desired State"),
     statusLabel(r.status === "complete" ? "declared" : "incomplete"),
@@ -247,13 +256,17 @@ function featureFlow(r) {
     resolved === impl.length ? "good" : "warn",
   ], [
     t("Change"),
-    r.changed
-      ? localized("changing", "变更中")
-      : localized("no mapped change", "无映射变更"),
-    r.changed
-      ? `+${r.change_additions}/-${r.change_deletions}`
-      : localized("working tree stable", "工作树稳定"),
-    r.changed ? "warn" : "good",
+    reviewAvailable
+      ? r.changed
+        ? localized("changing", "变更中")
+        : localized("no mapped change", "无映射变更")
+      : localized("change state unknown", "变更状态未知"),
+    reviewAvailable
+      ? r.changed
+        ? `+${r.change_additions}/-${r.change_deletions}`
+        : localized("working tree stable", "工作树稳定")
+      : localized("working-tree review unavailable", "工作树检查不可用"),
+    !reviewAvailable || r.changed ? "warn" : "good",
   ], [
     t("Proof"),
     `${t("Mapped")} ${verified}/${ver.length}`,

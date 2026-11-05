@@ -260,13 +260,21 @@ async function run(){
     assert.match(unknown,/changed unknown/,'an unavailable review must not render a zero change count');
     assert.doesNotMatch(unknown,/12 files · 0 changed/);
 
+    s.run('renderRuntimeTopology();');
+    const topology=s.node('#runtimeTopology').innerHTML;
+    assert.match(topology,/runtime-status-card warn"><span>Workspace guard<\/span>/,'the runtime topology guard row is a warning when Git is unavailable');
+    assert.doesNotMatch(topology,/runtime-status-card good"><span>Workspace guard<\/span>/);
+
     s.context.fixture={...project(),git_review:{available:true,reason:'available'},
       changes:[{path:'a.rs'}],code:{source_files:12,changed_files:1},
       structure:{entries:[],largest_files:[],truncated:false}};
-    s.run('state.project=fixture;renderEngineeringFlow();');
+    s.run('state.project=fixture;renderEngineeringFlow();renderRuntimeTopology();');
     const known=s.node('#engineeringFlow').innerHTML;
     assert.match(known,/12 files · 1 changed/);
     assert.doesNotMatch(known,/changed unknown/);
+    const knownTopology=s.node('#runtimeTopology').innerHTML;
+    assert.match(knownTopology,/runtime-status-card good"><span>Workspace guard<\/span>/);
+    assert.doesNotMatch(knownTopology,/runtime-status-card warn"><span>Workspace guard<\/span>/);
   });
   await test('the change convergence map keeps unavailable counts unknown', async () => {
     const s = sandbox();
@@ -287,6 +295,31 @@ async function run(){
     assert.match(known, /<strong>Affected components<\/strong><b>1<\/b>/);
     assert.match(known, /<strong>Affected requirements<\/strong><b>1<\/b>/);
     assert.match(known, /<strong>Suggested verification<\/strong><b>1<\/b>/);
+  });
+  await test('the project files summary says when change markers are unavailable', async () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' },
+      structure: { entries: [{ path: 'a.rs', lines: 3 }], largest_files: [], truncated: false } };
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.match(s.node('#structureSummary').innerHTML, /Change markers unavailable/);
+
+    s.context.fixture = { ...project(), git_review: { available: true, reason: 'available' },
+      structure: { entries: [{ path: 'a.rs', lines: 3 }], largest_files: [], truncated: false } };
+    s.run('state.project=fixture;renderProjectStructure();');
+    assert.doesNotMatch(s.node('#structureSummary').innerHTML, /Change markers unavailable/);
+  });
+  await test('the changed-requirement filter stays unknown when the review is unavailable', () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' },
+      requirements: [{ id: 'REQ-A', title: 'A', intent: '', components: [], convergence: 'stable' }] };
+    s.run('state.project=fixture;state.filter="changed";renderRequirements();');
+    assert.match(s.node('#requirements').innerHTML, /no requirement can be shown as changed/i);
+    assert.doesNotMatch(s.node('#requirements').innerHTML, /No requirements match this filter/);
+
+    s.context.fixture = { ...project(), git_review: { available: true, reason: 'available' },
+      requirements: [{ id: 'REQ-A', title: 'A', intent: '', components: [], convergence: 'stable' }] };
+    s.run('state.project=fixture;state.filter="changed";renderRequirements();');
+    assert.match(s.node('#requirements').innerHTML, /No requirements match this filter/);
   });
   await test('the change story keeps an unavailable review as unknown instead of zero',async()=>{
     const s=sandbox();
