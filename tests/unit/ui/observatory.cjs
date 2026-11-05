@@ -251,6 +251,25 @@ async function run(){
   await test('out-of-order workspace response never replaces the selected project',async()=>{const s=sandbox();s.run('renderProject=()=>{};renderAttention=()=>{};');const a=s.run('refreshProject({workspace:"A",reason:"manual"})');await flush();const b=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();for(const req of s.requests.filter(r=>r.url==='/intelligence/revision'))respond(req,{workspace:req.options.headers['X-Wcode-Workspace'],fingerprint:'r'});await flush();const pending=s.requests.filter(r=>r.url==='/intelligence/project');for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='B'))respond(req,project('B'));await flush();for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='A'))respond(req,project('A'));await Promise.all([a,b]);assert.equal(s.run('state.current'),'B');assert.equal(s.run('state.project.workspace'),'B');});
   await test('old access results do not cross workspace boundaries',async()=>{const s=sandbox();const access=s.run('loadAccess()');await flush();s.run('state.current="B";state.accessLoaded=false;');for(const req of s.requests)respond(req,req.url.endsWith('authorizations')?{pending:[{id:'AUTH-A',workspace:'A'}]}:{allowed_commands:['private-A']});await access;assert.equal(s.run('state.accessLoaded'),false);assert.equal(s.run('state.authorizations.length'),0);});
   await test('component with no observed dependencies is not marked aligned',async()=>{const s=sandbox();assert.notEqual(s.run('architectureNodeTone({id:"empty",changed:false},[])'),'aligned');});
+  await test('an unavailable working-tree review keeps component change state unknown',async()=>{
+    const base=project();
+    base.architecture={components:[{id:'component:0',name:'Zero',changed:false,changed_paths:[],
+      implementation_targets:[],implementation_files:1,implementation_lines:3,responsibilities:[],
+      product_scopes:[],subsystem:'',requirements:[]}],dependencies:[],
+      desired_edges:0,observed_edges:0,blocking_drift_edges:0};
+    const s=sandbox();
+    s.context.fixture=base;
+    s.run('state.project=fixture;state.selectedComponent="component:0";renderComponentInspector();');
+    const unknown=s.node('#componentInspector').innerHTML;
+    assert.match(unknown,/change state unknown/,'an unavailable review must not render a clean stable pill');
+    assert.doesNotMatch(unknown,/>stable</);
+    assert.match(unknown,/component changes are unknown/);
+
+    s.run('state.project={...fixture,git_review:{available:true,reason:"available"}};renderComponentInspector();');
+    const known=s.node('#componentInspector').innerHTML;
+    assert.match(known,/>stable</,'an available review with no changed paths is stable');
+    assert.doesNotMatch(known,/change state unknown/);
+  });
   await test('quoted operation arguments are not silently split',async()=>{const s=sandbox();assert.deepEqual(JSON.parse(s.run('JSON.stringify(parseOperationArgs(\'["commit","-m","two words",""]\'))')),['commit','-m','two words','']);assert.throws(()=>s.run('parseOperationArgs(\'commit -m "two words"\')'));});
   await test('requirement filtering also changes its selected detail',async()=>{const s=sandbox();s.context.fixture={...project(),requirements:[{id:'first',title:'First',intent:'',components:[],convergence:'stable'},{id:'second',title:'Second',intent:'',components:[],convergence:'incomplete'}]};s.run('state.project=fixture;state.selected="first";state.filter="incomplete";renderRequirements();');assert.equal(s.run('state.selected'),'second');});
   await test('an empty requirement list blames the design state, not the filter',async()=>{const s=sandbox();s.context.fixture={...project(),requirements:[],design_valid:false};s.run('state.project=fixture;state.filter="all";renderRequirements();');assert.match(s.node('#requirements').innerHTML,/Design State is not initialized/);assert.ok(!s.node('#requirements').innerHTML.includes('No requirements match this filter.'));s.context.fixture={...project(),requirements:[],design_valid:true};s.run('state.project=fixture;renderRequirements();');assert.match(s.node('#requirements').innerHTML,/No requirements match this filter./);});

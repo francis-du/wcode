@@ -289,6 +289,23 @@ function requirementChanges(r) {
     (change.affected_requirements || []).includes(r.id)
   );
 }
+// A false `changed` flag means the working-tree review observed nothing, which
+// is not the same as observing no change. Callers pass the review availability
+// so an unavailable review stays an explicit unknown instead of a clean claim.
+function requirementChangePill(r, reviewAvailable) {
+  if (reviewAvailable !== true) {
+    return pill(localized("change state unknown", "变更状态未知"), "warn");
+  }
+  return r.changed
+    ? pill(
+        localized(
+          `changed +${r.change_additions}/-${r.change_deletions}`,
+          `已变更 +${r.change_additions}/-${r.change_deletions}`,
+        ),
+        "warn",
+      )
+    : pill(localized("no mapped implementation change", "无映射实现变更"), "good");
+}
 function renderDetail() {
   const r = (state.project?.requirements || []).find((item) =>
     item.id === state.selected
@@ -307,6 +324,10 @@ function renderDetail() {
       !dep.blocking && dep.status !== "aligned"
     ),
     changes = requirementChanges(r);
+  // `changed` is derived from the working-tree review. When that review is
+  // unavailable the flag is false because nothing was observed, not because
+  // nothing changed, so the requirement must not claim a clean mapping.
+  const reviewAvailable = state.project?.git_review?.available === true;
   const alignmentSignals = [];
   if (blockingDeps.length) {
     alignmentSignals.push(
@@ -347,20 +368,7 @@ function renderDetail() {
     esc(r.title)
   }</h2><div class="intent">${esc(r.intent)}</div><div class="pills">${
     pill(statusLabel(r.convergence), statusClass(r.convergence))
-  }${
-    r.changed
-      ? pill(
-        localized(
-          `changed +${r.change_additions}/-${r.change_deletions}`,
-          `已变更 +${r.change_additions}/-${r.change_deletions}`,
-        ),
-        "warn",
-      )
-      : pill(
-        localized("no mapped implementation change", "无映射实现变更"),
-        "good",
-      )
-  }${pill(unit(r.implementation_files, "file", "files", "个文件"))}${
+  }${requirementChangePill(r, reviewAvailable)}${pill(unit(r.implementation_files, "file", "files", "个文件"))}${
     pill(unit(r.implementation_symbols, "symbol", "symbols", "个符号"))
   }${pill(unit(r.implementation_lines, "line", "lines", "行"))}${
     pill(
@@ -446,7 +454,9 @@ function renderDetail() {
     changes.length
       ? changeTable(changes, true)
       : `<div class="empty">${
-        esc(t("No current working-tree file is mapped to this requirement."))
+        esc(reviewAvailable
+          ? t("No current working-tree file is mapped to this requirement.")
+          : localized("Working-tree review is unavailable, so mapped changes are unknown.", "工作树检查不可用，映射的变更状态未知。"))
       }</div>`
   }</section>`;
   setSourceActionHtml("detail", els.detail, html, { tab: "requirements", selection: "requirement", id: r.id }, () => {
