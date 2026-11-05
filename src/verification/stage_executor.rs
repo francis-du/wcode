@@ -98,51 +98,6 @@ pub struct StageExecutionResult {
     pub command: CommandResult,
 }
 
-/// A retained external receipt for an admitted stage executor: bounded fields
-/// plus a digest over them. Observation only, never native verification.
-// Protocol half of admitted stage receipts; the operator CLI/UX is a follow-up.
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct StageReceipt {
-    pub executor_id: String,
-    pub stage: VerificationStage,
-    pub verdict: ReviewVerdict,
-    pub summary: String,
-    pub artifact_digest: String,
-    pub admitted: bool,
-    pub digest: String,
-}
-
-#[allow(dead_code)]
-impl StageReceipt {
-    pub fn from_result(result: &StageExecutionResult) -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(result.executor_id.as_bytes());
-        hasher.update(
-            serde_json::to_string(&result.stage)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-        hasher.update(
-            serde_json::to_string(&result.verdict)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-        hasher.update(result.summary.as_bytes());
-        hasher.update(result.artifact_digest.as_bytes());
-        hasher.update(u8::from(result.admitted).to_string().as_bytes());
-        Self {
-            executor_id: result.executor_id.clone(),
-            stage: result.stage,
-            verdict: result.verdict,
-            summary: result.summary.clone(),
-            artifact_digest: result.artifact_digest.clone(),
-            admitted: result.admitted,
-            digest: format!("{:x}", hasher.finalize()),
-        }
-    }
-}
-
 pub fn registry(workspace: &Workspace) -> Result<StageExecutorRegistry> {
     #[cfg(test)]
     REGISTRY_CALLS.with(|count| count.set(count.get() + 1));
