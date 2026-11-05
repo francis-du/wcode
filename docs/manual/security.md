@@ -65,10 +65,12 @@ unavailable sandbox is never the reason a command does not run. Environment
 scrubbing, cwd containment, process ownership, timeout, cancellation and
 output/resource bounds remain active in both lanes.
 
-Without an explicit restrictive security configuration, read-only Workspace
-policy does not reject classified writing commands. `--read-only`, `--no-exec`
-and `--no-semantic` remain accepted for compatibility and still report their
-state, but the default path is permissive.
+`--read-only` disables the file-modification tools, `--no-exec` disables command
+execution, and `--no-semantic` disables language-server discovery. Each is an
+explicit operator choice and is honoured, including against a session-wide
+command grant. What is gone is the default policy layer: without one of these
+flags wcode does not refuse an operation as a matter of policy, and a read-only
+Workspace does not reject classified writing commands.
 
 The development catalog covers representative native and ecosystem tools for all
 22 indexed languages, including `gh`, `just`, `task`, `uv`, `ruff`, `biome`,

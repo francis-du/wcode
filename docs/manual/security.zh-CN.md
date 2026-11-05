@@ -35,7 +35,7 @@ wcode 默认是宽松的。调用方 Agent 拥有授权权：wcode 执行该 Age
 
 OS 强沙箱对按调用选择沙箱的调用方仍然可用。当没有可用沙箱后端时，wcode 直接运行命令而不会拒绝；沙箱不可用永远不会成为命令不运行的原因。环境清理、CWD 包含、进程归属、超时、取消和输出/资源上限继续生效。
 
-在没有显式严格安全配置时，只读 Workspace 不会拒绝被分类为写入的命令，宽命令也不会被强制进入沙箱。`--read-only`、`--no-exec` 和 `--no-semantic` 继续被接受并报告状态，但默认路径是宽松的。
+`--read-only` 关闭文件修改工具，`--no-exec` 关闭命令执行，`--no-semantic` 关闭语言服务器发现。三者都是操作者显式选择，并且会被真正遵守，包括优先于会话级命令授权。消失的是默认策略层：不带这些开关时，wcode 不会以策略为由拒绝操作；只读 Workspace 也不会拒绝被分类为写入的命令。
 
 开发 Catalog 覆盖 22 个已索引语言的代表性原生与生态工具，包括 `gh`、`just`、`task`、`uv`、`ruff`、`biome`、`deno`、`docker`、`kubectl`、`terraform`、`fd`、`jq`、`cmake`、`ninja`、`dotnet`、`mvn`、`gradle`、`swift`、`zig`、`pre-commit` 与 `act`；选择加固的嵌入式使用方仍可获得逐族命令策略。Rust Verification 可以使用已安装的 `cargo-nextest`，并保留 `cargo test` 作为兼容回退。保留的检查是路径/参数包含和畸形输入拒绝，不是策略审批。
 
