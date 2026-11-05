@@ -35,6 +35,7 @@ async function openCodeReader(path, { layer = "working", focusLine = null, loadG
   const controller = new AbortController();
   const current = {
     open: reveal, path, layer, repositoryRevision: revision, source: null, change: null, requirements: [],
+    symbols: [], symbolRequirements: new Map(),
     loading: true, sourceError: "", changeError: "", missing: false, focusLine: Number.isInteger(focusLine) ? focusLine : null,
     nodeId: "", snapshotId: "", workspace: state.current, epoch: state.workspaceEpoch, owner: token,
     sequence, controller,
@@ -78,6 +79,8 @@ async function openCodeReader(path, { layer = "working", focusLine = null, loadG
     }
     current.nodeId = node.id;
     current.snapshotId = graph.snapshot_id;
+    current.symbols = codeReaderSymbols(current);
+    current.symbolRequirements = codeReaderSymbolRequirements(current.path);
     const startLine = current.focusLine != null ? Math.max(1, current.focusLine - 12) : null;
     await Promise.all([
       loadCodeReaderSource(current, node, graph.snapshot_id, { startLine }),
@@ -183,6 +186,8 @@ function invalidateCodeReader() {
   if (!current) return;
   current.change = null;
   current.requirements = [];
+  current.symbols = [];
+  current.symbolRequirements = new Map();
   current.changeError = localized("Project state changed or could not be refreshed. Reload this file.", "项目状态已更新或刷新失败，请重新读取此文件。");
   renderCodeReader();
 }
@@ -295,6 +300,93 @@ function codeReaderRequirementsHtml(current) {
     `<button type="button" class="code-reader-requirement" data-reader-requirement="${esc(requirement.id)}"><span>${esc(requirement.id)}</span><small>${esc(requirement.title)}</small><em>${esc(requirement.via.join(" · "))}</em></button>`
   ).join("")}</div>`;
 }
+// The outline is only as complete as the bounded graph that was loaded for this
+// file, so an empty result stays an explicit observation gap rather than a claim
+// that the file defines nothing.
+function validCodeReaderSymbolNode(node) {
+  const attributes = node?.attributes;
+  const range = attributes?.range;
+  const start = range?.start_line;
+  const end = range?.end_line;
+  const name = attributes?.qualified_name || attributes?.name || node?.label;
+  return Boolean(node) && node.kind !== "file" && node.kind !== "package"
+    && codeGraphPath(node) && typeof name === "string" && name
+    && Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start;
+}
+function codeReaderSymbols(current) {
+  const nodes = Array.isArray(state.codeGraph?.nodes) ? state.codeGraph.nodes : [];
+  const symbols = [];
+  for (const entry of nodes) {
+    const node = entry?.node;
+    if (!validCodeReaderSymbolNode(node) || codeGraphPath(node) !== current.path) continue;
+    const attributes = node.attributes;
+    symbols.push({
+      nodeId: typeof node.id === "string" ? node.id : "",
+      name: attributes.qualified_name || attributes.name || node.label,
+      shortName: typeof attributes.name === "string" ? attributes.name : "",
+      kind: attributes.source_kind || node.kind || "symbol",
+      startLine: attributes.range.start_line,
+      endLine: attributes.range.end_line,
+    });
+  }
+  symbols.sort((left, right) => left.startLine - right.startLine || left.name.localeCompare(right.name));
+  return symbols.slice(0, 200);
+}
+function codeReaderSymbolRequirements(path) {
+  const project = state.project;
+  if (!project || project.workspace !== state.current) return new Map();
+  const matches = new Map();
+  for (const requirement of project.requirements || []) {
+    if (!requirement?.id) continue;
+    const references = [
+      ...(requirement.components || []).flatMap(component => component.implementation || []),
+      ...(requirement.acceptance || []).flatMap(criterion => criterion.verification || []),
+    ];
+    for (const reference of references) {
+      if (designReferencePath(reference) !== path) continue;
+      const symbol = typeof reference?.symbol === "string" ? reference.symbol : "";
+      if (!symbol) continue;
+      if (!matches.has(symbol)) matches.set(symbol, []);
+      const ids = matches.get(symbol);
+      if (!ids.includes(requirement.id)) ids.push(requirement.id);
+    }
+  }
+  return matches;
+}
+function codeReaderSymbolChanged(symbol, change) {
+  if (!change || change.after_source_matches_worktree === false) return false;
+  const ranges = Array.isArray(change.after_changed_ranges) ? change.after_changed_ranges : [];
+  return ranges.some(range => Number.isInteger(range?.start_line) && Number.isInteger(range?.end_line)
+    && range.start_line <= symbol.endLine && range.end_line >= symbol.startLine);
+}
+function codeReaderSymbolsHtml(current, mismatch) {
+  const symbols = current.symbols || [];
+  if (!symbols.length) {
+    return `<div class="empty">${esc(localized(
+      "No symbol in this file is present in the current bounded graph; absence here does not prove the file defines none.",
+      "当前有界图谱没有提供此文件中的符号；此处未观测到不代表文件没有定义符号。",
+    ))}</div>`;
+  }
+  const requirements = current.symbolRequirements || new Map();
+  const rows = symbols.slice(0, 80).map(symbol => {
+    const ids = requirements.get(symbol.name) || requirements.get(symbol.shortName) || [];
+    const chips = ids.map(id =>
+      `<button type="button" class="code-reader-requirement" data-reader-requirement="${esc(id)}"><span>${esc(id)}</span></button>`
+    ).join("");
+    return `<div class="code-reader-symbol${!mismatch && codeReaderSymbolChanged(symbol, current.change) ? " changed" : ""}"><button type="button" class="code-reader-symbol-jump" data-reader-symbol-line="${symbol.startLine}"><span class="code-reader-symbol-kind">${esc(symbol.kind)}</span><span class="code-reader-symbol-name">${esc(symbol.name)}</span><span class="code-reader-symbol-range">L${symbol.startLine}–L${symbol.endLine}</span></button><div class="code-reader-symbol-reqs">${chips}</div></div>`;
+  }).join("");
+  const bounded = symbols.length > 80
+    ? `<div class="panel-meta">${esc(localized(
+      `${symbols.length} symbols observed; the outline is bounded to the first 80.`,
+      `观测到 ${symbols.length} 个符号；大纲最多显示前 80 个。`,
+    ))}</div>`
+    : "";
+  const note = `<div class="panel-meta">${esc(localized(
+    "Symbols come from the bounded graph at the captured revision; a changed marker only means the captured change overlaps the definition's lines, not a semantic impact proof.",
+    "符号来自捕获版本的有界图谱；变更标记只表示捕获的变更与定义行重叠，不是语义影响证明。",
+  ))}</div>`;
+  return `<div class="code-reader-symbols">${rows}</div>${bounded}${note}`;
+}
 function codeReaderIdentityHtml(current) {
   const source = current.source, change = current.change;
   return `<details class="code-reader-identity"><summary>${esc(t("Captured snapshot identity"))}</summary><code>source ${esc(source?.source_revision || "—")}<br>worktree ${esc(source?.current_sha256 || "—")}<br>change ${esc(change?.snapshot_id || "—")}<br>repository code ${esc(current.repositoryRevision?.code || "—")}<br>repository Design ${esc(current.repositoryRevision?.design || "—")}</code></details>`;
@@ -399,7 +491,10 @@ function renderCodeReader() {
   const mismatchNote = mismatch
     ? `<p class="warn">${esc(t("The change snapshot and the current source bytes do not match; line highlighting is withheld."))}</p>`
     : "";
-  body.innerHTML = `${stale ? `<p class="warn" role="alert">${esc(t("This reader observation belongs to an earlier project revision. Reload it before comparing with the current snapshot."))}</p>` : ""}${current.sourceError && source ? `<p class="bad" role="alert">${esc(current.sourceError)}</p>` : ""}${mismatchNote}<div class="code-reader-view"><section class="code-reader-source-shell" aria-label="${esc(t("Read-only source"))}"><div class="code-reader-source-head"><div><strong>${esc(t("Read-only source"))}</strong><small>${esc(source ? `${source.path} · ${String(source.source_revision || "").slice(0, 19)}` : current.path)}</small></div><div class="pills">${flags}</div></div>${sourceState}</section><aside class="code-reader-side"><section class="code-reader-section"><h3>${esc(t("Changed lines"))}</h3>${changeState}</section><section class="code-reader-section"><h3>${esc(t("Requirements linked to this file"))}</h3>${codeReaderRequirementsHtml(current)}</section>${codeReaderIdentityHtml(current)}</aside></div>`;
+  body.innerHTML = `${stale ? `<p class="warn" role="alert">${esc(t("This reader observation belongs to an earlier project revision. Reload it before comparing with the current snapshot."))}</p>` : ""}${current.sourceError && source ? `<p class="bad" role="alert">${esc(current.sourceError)}</p>` : ""}${mismatchNote}<div class="code-reader-view"><section class="code-reader-source-shell" aria-label="${esc(t("Read-only source"))}"><div class="code-reader-source-head"><div><strong>${esc(t("Read-only source"))}</strong><small>${esc(source ? `${source.path} · ${String(source.source_revision || "").slice(0, 19)}` : current.path)}</small></div><div class="pills">${flags}</div></div>${sourceState}</section><aside class="code-reader-side"><section class="code-reader-section"><h3>${esc(t("Changed lines"))}</h3>${changeState}</section><section class="code-reader-section"><h3>${esc(t("Requirements linked to this file"))}</h3>${codeReaderRequirementsHtml(current)}</section><section class="code-reader-section"><h3>${esc(t("Symbols in this file"))}</h3>${codeReaderSymbolsHtml(current, mismatch)}</section>${codeReaderIdentityHtml(current)}</aside></div>`;
+  body.querySelectorAll("[data-reader-symbol-line]").forEach(button => {
+    button.addEventListener("click", () => { codeReaderGotoLine(button.dataset.readerSymbolLine); });
+  });
   body.querySelectorAll("[data-reader-goto]").forEach(button => {
     button.addEventListener("click", () => { codeReaderGotoLine(button.dataset.readerGoto); });
   });

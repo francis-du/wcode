@@ -48,6 +48,10 @@ function projectFixture() {
         id: 'component:a', name: 'A', responsibilities: [], depends_on: [], implementation_lines: 3, changed: true,
         changed_paths: ['src/a.rs'],
         implementation: [{ target: 'src/a.rs::symbol', path: 'src/a.rs', symbol: 'symbol', resolved: true, provider: 'tree-sitter', precision: 'syntax', changed: true }],
+      }, {
+        id: 'component:a-qualified', name: 'A qualified', responsibilities: [], depends_on: [], implementation_lines: 1, changed: false,
+        changed_paths: [],
+        implementation: [{ target: 'src/a.rs::Impl::method', path: 'src/a.rs', symbol: 'Impl::method', resolved: true, provider: 'tree-sitter', precision: 'syntax' }],
       }], acceptance: [{ id: 'AC-A', title: 'Acceptance', statement: 'read only', verification: [] }],
       constraints: [], drift: [], implementation_lines: 3, implementation_files: 1, implementation_symbols: 1,
     }],
@@ -55,10 +59,16 @@ function projectFixture() {
   };
 }
 function graphFixture() {
+  const provenance = { provider: 'tree-sitter', precision: 'syntax', revision: 'sha256:' + 'a'.repeat(64) };
   return {
     snapshot_id: 'GRAPH-1', captured_at_ms: 1, provider: 'wcode-composite', precision: 'mixed',
     query: 'file:src/a.rs', mode: 'all', depth: 2, root_ids: ['file:src/a.rs'],
-    nodes: [{ node: { id: 'file:src/a.rs', kind: 'file', label: 'src/a.rs', attributes: { path: 'src/a.rs', language: 'rust' }, provenance: { provider: 'tree-sitter', precision: 'syntax', revision: 'sha256:' + 'a'.repeat(64) } }, distance: 0, upstream: false, downstream: false }],
+    nodes: [
+      { node: { id: 'file:src/a.rs', kind: 'file', label: 'src/a.rs', attributes: { path: 'src/a.rs', language: 'rust' }, provenance }, distance: 0, upstream: false, downstream: false },
+      { node: { id: 'symbol:1', kind: 'function', label: 'symbol', attributes: { path: 'src/a.rs', name: 'symbol', qualified_name: 'symbol', symbol_kind: 'function', source_kind: 'function', language: 'rust', range: { start_line: 1, end_line: 3 } }, provenance }, distance: 1, upstream: false, downstream: false },
+      { node: { id: 'symbol:2', kind: 'function', label: 'other', attributes: { path: 'src/other.rs', name: 'other', qualified_name: 'other', symbol_kind: 'function', source_kind: 'function', language: 'rust', range: { start_line: 4, end_line: 6 } }, provenance }, distance: 1, upstream: false, downstream: false },
+      { node: { id: 'symbol:3', kind: 'function', label: 'Impl::method', attributes: { path: 'src/a.rs', name: 'method', qualified_name: 'Impl::method', symbol_kind: 'function', source_kind: 'function', language: 'rust', range: { start_line: 2, end_line: 2 } }, provenance }, distance: 1, upstream: false, downstream: false },
+    ],
     edges: [], precision_counts: {}, upstream_nodes: 0, downstream_nodes: 0, truncated: false,
   };
 }
@@ -334,6 +344,89 @@ async function test(name, fn) {
     }], true);
     assert.match(truncated, /ranges truncated/);
     assert.match(truncated, /L1–2 → L1–2/);
+  });
+  await test('symbol outline lists this file\'s observed definitions and links their requirements', async () => {
+    const s = setup();
+    await openAndResolve(s);
+    const html = s.host('#codeReaderBody').innerHTML;
+    assert.match(html, /Symbols in this file/);
+    assert.match(html, /data-reader-symbol-line="1"/);
+    assert.match(html, /code-reader-symbol-name">symbol</);
+    assert.match(html, /code-reader-symbol-kind">function</);
+    assert.match(html, /code-reader-symbol-range">L1–L3/);
+    assert.match(html, /code-reader-symbol-name">Impl::method</);
+    assert.match(html, /code-reader-symbol-range">L2–L2/);
+    assert.doesNotMatch(html, /code-reader-symbol-name">other</, 'a foreign path must not enter this outline');
+    assert.match(html, /code-reader-symbol-reqs[\s\S]*data-reader-requirement="REQ-A"/);
+    const chips = html.match(/data-reader-requirement="REQ-A"/g) || [];
+    assert.equal(chips.length, 3, 'the file requirement row plus both mapped symbols carry the requirement');
+  });
+  await test('symbol outline stays an explicit observation gap when the graph carries no symbol', async () => {
+    const s = setup();
+    s.loadGraph = async () => {
+      s.state.codeGraph = { ...graphFixture(), nodes: graphFixture().nodes.slice(0, 1) };
+      return true;
+    };
+    await openAndResolve(s);
+    const html = s.host('#codeReaderBody').innerHTML;
+    assert.match(html, /No symbol in this file is present in the current bounded graph/);
+    assert.match(html, /absence here does not prove the file defines none/);
+    assert.doesNotMatch(html, /data-reader-symbol-line/);
+  });
+  await test('symbol outline marks only definitions whose lines the captured change overlaps', async () => {
+    const touched = setup();
+    await openAndResolve(touched);
+    assert.match(touched.host('#codeReaderBody').innerHTML, /code-reader-symbol changed/);
+
+    const untouched = setup();
+    await openAndResolve(untouched, {
+      change: changeFixture({
+        before_changed_ranges: [{ start_line: 9, end_line: 9 }],
+        after_changed_ranges: [{ start_line: 9, end_line: 9 }],
+      }),
+    });
+    const html = untouched.host('#codeReaderBody').innerHTML;
+    assert.doesNotMatch(html, /code-reader-symbol changed/);
+    assert.match(html, /data-reader-symbol-line="1"/, 'the outline stays available without a changed marker');
+  });
+  await test('malformed or non-definition symbol nodes fail closed without entering the outline', async () => {
+    const s = setup();
+    const provenance = { provider: 'tree-sitter', precision: 'syntax', revision: 'sha256:' + 'a'.repeat(64) };
+    s.loadGraph = async () => {
+      s.state.codeGraph = {
+        ...graphFixture(),
+        nodes: [
+          ...graphFixture().nodes,
+          { node: { id: 'symbol:bad-range', kind: 'function', label: 'bad range', attributes: { path: 'src/a.rs', name: 'bad range', qualified_name: 'bad range', source_kind: 'function', range: { start_line: 0, end_line: 2 } }, provenance }, distance: 1, upstream: false, downstream: false },
+          { node: { id: 'symbol:bad-kind', kind: 'file', label: 'bad kind', attributes: { path: 'src/a.rs', name: 'bad kind', qualified_name: 'bad kind', source_kind: 'file', range: { start_line: 1, end_line: 2 } }, provenance }, distance: 1, upstream: false, downstream: false },
+          { node: { id: 'symbol:no-name', kind: 'function', label: '', attributes: { path: 'src/a.rs', source_kind: 'function', range: { start_line: 1, end_line: 2 } }, provenance }, distance: 1, upstream: false, downstream: false },
+        ],
+      };
+      return true;
+    };
+    await openAndResolve(s);
+    const html = s.host('#codeReaderBody').innerHTML;
+    assert.doesNotMatch(html, /bad range|bad kind|no-name/);
+    assert.match(html, /data-reader-symbol-line="1"/);
+  });
+  await test('ablation: removing the changed-line overlap removes the marker but keeps the outline', async () => {
+    const anchor = 'range.start_line <= symbol.endLine && range.end_line >= symbol.startLine';
+    const baseline = setup();
+    await openAndResolve(baseline);
+    assert.match(baseline.host('#codeReaderBody').innerHTML, /code-reader-symbol changed/);
+
+    const ablated = setup({
+      ablate: text => {
+        assert.equal(text.split(anchor).length, 2, 'ablation anchor must occur exactly once');
+        return text.replace(anchor, 'false');
+      },
+    });
+    await openAndResolve(ablated);
+    const after = ablated.host('#codeReaderBody').innerHTML;
+    assert.doesNotMatch(after, /code-reader-symbol changed/);
+    assert.match(after, /data-reader-symbol-line="1"/);
+    assert.match(after, /code-reader-symbol-name">symbol</);
+    assert.match(after, /data-reader-requirement="REQ-A"/);
   });
   await test('ablation: removing change-row parsing removes the overlay while source rendering remains', async () => {
     const anchor = 'for (const row of changeDisplayRows(change))';
