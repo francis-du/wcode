@@ -251,6 +251,23 @@ async function run(){
   await test('out-of-order workspace response never replaces the selected project',async()=>{const s=sandbox();s.run('renderProject=()=>{};renderAttention=()=>{};');const a=s.run('refreshProject({workspace:"A",reason:"manual"})');await flush();const b=s.run('refreshProject({workspace:"B",reason:"manual"})');await flush();for(const req of s.requests.filter(r=>r.url==='/intelligence/revision'))respond(req,{workspace:req.options.headers['X-Wcode-Workspace'],fingerprint:'r'});await flush();const pending=s.requests.filter(r=>r.url==='/intelligence/project');for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='B'))respond(req,project('B'));await flush();for(const req of pending.filter(r=>r.options.headers['X-Wcode-Workspace']==='A'))respond(req,project('A'));await Promise.all([a,b]);assert.equal(s.run('state.current'),'B');assert.equal(s.run('state.project.workspace'),'B');});
   await test('old access results do not cross workspace boundaries',async()=>{const s=sandbox();const access=s.run('loadAccess()');await flush();s.run('state.current="B";state.accessLoaded=false;');for(const req of s.requests)respond(req,req.url.endsWith('authorizations')?{pending:[{id:'AUTH-A',workspace:'A'}]}:{allowed_commands:['private-A']});await access;assert.equal(s.run('state.accessLoaded'),false);assert.equal(s.run('state.authorizations.length'),0);});
   await test('component with no observed dependencies is not marked aligned',async()=>{const s=sandbox();assert.notEqual(s.run('architectureNodeTone({id:"empty",changed:false},[])'),'aligned');});
+  await test('the engineering flow keeps an unavailable review as unknown instead of zero',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),git_review:{available:false,reason:'cached_snapshot'},changes:[],
+      code:{source_files:12,changed_files:0},structure:{entries:[],largest_files:[],truncated:false}};
+    s.run('state.project=fixture;renderEngineeringFlow();');
+    const unknown=s.node('#engineeringFlow').innerHTML;
+    assert.match(unknown,/changed unknown/,'an unavailable review must not render a zero change count');
+    assert.doesNotMatch(unknown,/12 files · 0 changed/);
+
+    s.context.fixture={...project(),git_review:{available:true,reason:'available'},
+      changes:[{path:'a.rs'}],code:{source_files:12,changed_files:1},
+      structure:{entries:[],largest_files:[],truncated:false}};
+    s.run('state.project=fixture;renderEngineeringFlow();');
+    const known=s.node('#engineeringFlow').innerHTML;
+    assert.match(known,/12 files · 1 changed/);
+    assert.doesNotMatch(known,/changed unknown/);
+  });
   await test('the change story keeps an unavailable review as unknown instead of zero',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),git_review:{available:false,reason:'cached_snapshot'},changes:[],

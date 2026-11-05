@@ -266,6 +266,8 @@ Object.assign(translations["zh-CN"], {
   "unverified actual": "未验证的实际依赖",
   "unknown": "未知",
   "review unavailable": "检查不可用",
+  "changed unknown": "变更未知",
+  "files · changed unknown": "个文件 · 变更未知",
   "Working-tree review is unavailable, so the change counts above are unknown rather than zero.": "工作树检查不可用，以上变更计数未知，不能当作零。",
   "declared": "已声明",
   "current": "当前",
