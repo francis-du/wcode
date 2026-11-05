@@ -147,7 +147,7 @@ embedded in the binary.
 | Option | Purpose |
 | --- | --- |
 | `-w, --workspace <PATH>` | Override the default current-directory Workspace. Repeat only when one task genuinely needs multiple roots. |
-| `--read-only` | Accepted for compatibility. The default policy is permissive and the calling agent owns authorization; path containment and malformed-path rejection remain active. |
+| `--read-only` | Disables the file-modification tools. Honoured, including against a session-wide command grant. |
 | `--no-exec` | Disables command execution. Honoured even against a session-wide command grant. |
 | `--no-semantic` | Disable first-party LSP execution; Tree-sitter syntax capability is retained. |
 | `--full-access` | Accepted for compatibility. Exposes the current-user Home and enables runtime capabilities; the default policy is already permissive and the calling agent owns authorization. |
