@@ -205,8 +205,8 @@ async fn full_access_mcp_command_lane_bypasses_shell_and_git_shape_filters() {
 
     let workspaces = Workspaces::new_with_security(
         [root.path()],
-        false,
-        false,
+        true,
+        true,
         WorkspaceSecurity {
             allow_risky_exec: true,
             allow_unrestricted_commands: true,
