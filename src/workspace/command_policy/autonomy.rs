@@ -153,7 +153,7 @@ fn safe_flutter_file_reporter(arg: &str) -> bool {
     {
         return false;
     }
-    reject_protected_path(Path::new(path)).is_ok()
+    true
 }
 
 pub(super) fn validate_mix_command(args: &[String], allow_risky_exec: bool) -> Result<()> {

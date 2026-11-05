@@ -507,7 +507,7 @@ pub(super) fn validate_independent_moves(moves: &[MovePathRequest]) -> Result<()
     Ok(())
 }
 
-pub(super) fn validate_movable_directory(root: &Path, source: &Path) -> Result<()> {
+pub(super) fn validate_movable_directory(source: &Path) -> Result<()> {
     reject_authority_path(source, true)?;
     let authority = authority_roots()?;
     let mut entries = 0usize;
@@ -519,8 +519,6 @@ pub(super) fn validate_movable_directory(root: &Path, source: &Path) -> Result<(
                 "directory move exceeds the {MAX_MOVE_TREE_ENTRIES}-entry safety inspection limit"
             );
         }
-        let relative = entry.path().strip_prefix(root)?;
-        reject_protected_path(relative)?;
         reject_authority_path_against(entry.path(), &authority, false)?;
         if entry.file_type().is_symlink() {
             bail!("directory moves containing symlinks are blocked");

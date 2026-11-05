@@ -274,7 +274,6 @@ pub(super) fn validate_wrapped_development_program(program: &str) -> Result<()> 
         if path.is_absolute() || program.split(['/', '\\']).any(|part| part == "..") {
             bail!("wrapped development executable must stay inside the selected workspace");
         }
-        reject_protected_path(path)?;
         return Ok(());
     }
     validate_authorizable_program(program)?;
