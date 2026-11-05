@@ -55,5 +55,5 @@ implementation:
     path: src/runtime/harness/project/observatory.rs
     symbol: ToolHarness::project_observatory
   - kind: symbol
-    path: src/ui/intelligence_web/app/features.js
+    path: src/ui/intelligence_web/app/features_changes.js
     symbol: renderVerificationImpact

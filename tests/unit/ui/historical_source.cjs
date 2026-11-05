@@ -10,7 +10,8 @@ const root = process.argv[2] || path.resolve(__dirname, '../../..');
 const sourcePath = path.join(root, 'src/ui/intelligence_web/app/historical_source.js');
 const source = [
   fs.readFileSync(sourcePath, 'utf8'),
-  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_requirements.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_changes.js'), 'utf8'),
 ].join('\n');
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const sourceDigest = digest(fs.readFileSync(sourcePath, 'utf8').replace(/\r\n?/g, '\n'));
