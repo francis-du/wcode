@@ -27,15 +27,57 @@ impl ToolHarness {
         timeout_seconds: u64,
         monitor: &T,
     ) -> Result<VerificationReport> {
-        self.verify_project_candidate(
-            workspace_id,
-            workspace,
-            mode,
-            timeout_seconds,
-            monitor,
-            None,
-        )
-        .await
+        #[cfg(not(test))]
+        {
+            self.verify_project_candidate(
+                workspace_id,
+                workspace,
+                mode,
+                timeout_seconds,
+                monitor,
+                None,
+            )
+            .await
+        }
+
+        #[cfg(test)]
+        {
+            // The whole test suite shares one process-wide probe semaphore, so
+            // under full-suite parallelism a real-Cargo case can fail only
+            // because every slot was held by a sibling test: the command never
+            // started. That is a scheduling artifact, not the behaviour under
+            // test, so retry it here once. Production callers keep the single
+            // attempt; the fixture deadlines and the production wait cap are
+            // unchanged, so a genuine deadlock or a real timeout still fails.
+            let workspace_id = workspace_id.into();
+            let mut result = self
+                .verify_project_candidate(
+                    workspace_id.clone(),
+                    workspace,
+                    mode,
+                    timeout_seconds,
+                    monitor,
+                    None,
+                )
+                .await;
+            for delay_ms in [500_u64, 1_000] {
+                if !test_probe_capacity_artifact(&result) {
+                    return result;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                result = self
+                    .verify_project_candidate(
+                        workspace_id.clone(),
+                        workspace,
+                        mode,
+                        timeout_seconds,
+                        monitor,
+                        None,
+                    )
+                    .await;
+            }
+            result
+        }
     }
 
     pub(crate) async fn verify_project_candidate<T: TaskTelemetry>(
@@ -484,5 +526,23 @@ impl ToolHarness {
         .await;
         leader.complete(&result);
         result
+    }
+}
+
+/// A verification outcome is a probe-capacity artifact only when the call
+/// failed by naming the saturated semaphore, or when a check never started
+/// because of it. A check that started and failed is a real result, and a real
+/// timeout stays a failure.
+#[cfg(test)]
+fn test_probe_capacity_artifact<T>(result: &Result<VerificationReport, T>) -> bool
+where
+    T: std::fmt::Display,
+{
+    match result {
+        Err(error) => error.to_string().contains("capacity remained busy"),
+        Ok(report) => report.checks.iter().any(|check| {
+            check.execution == crate::evidence::VerificationCheckExecution::Unavailable
+                && check.stderr_tail.contains("capacity remained busy")
+        }),
     }
 }

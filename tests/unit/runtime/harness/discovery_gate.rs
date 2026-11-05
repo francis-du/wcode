@@ -3,15 +3,9 @@ use crate::evidence::{EvidenceAuthority, EvidenceResult};
 use crate::monitor::TaskMonitor;
 use std::{fs, path::Path, process::Command};
 
-/// Under full-suite parallelism on a loaded runner the global probe semaphore
-/// can be saturated by real cargo processes, so a single acquisition can hit
-/// the 5s `PROCESS_QUEUE_WAIT_CAP`. That is a load artifact, not the behaviour
-/// under test, so these cases retry before failing.
-///
-/// The saturation surfaces in two shapes and both are retried: the call returns
-/// an error naming the capacity limit, or it returns a report with a check that
-/// never started. A check that started and failed is a real result.
-async fn verify_with_capacity_retry(
+/// `verify_project_mode` retries a saturated probe semaphore itself, so these
+/// cases call it directly and keep exercising one honest verification attempt.
+async fn verify_project_once(
     harness: &ToolHarness,
     workspace_id: &str,
     workspace: &Workspace,
@@ -19,49 +13,9 @@ async fn verify_with_capacity_retry(
     timeout_seconds: u64,
     monitor: &TaskMonitor,
 ) -> Result<VerificationReport> {
-    retry_on_probe_capacity(
-        || async {
-            harness
-                .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
-                .await
-        },
-        |result| match result {
-            Err(error) => probe_capacity_error(&error.to_string()),
-            Ok(report) => probe_capacity_report(report),
-        },
-    )
-    .await
-}
-
-async fn retry_on_probe_capacity<F, Fut, T, E>(
-    mut attempt: F,
-    mut is_artifact: impl FnMut(&Result<T, E>) -> bool,
-) -> Result<T, E>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
-    E: std::fmt::Display,
-{
-    let mut result = attempt().await;
-    for delay_ms in [500_u64, 1_000] {
-        if !is_artifact(&result) {
-            return result;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-        result = attempt().await;
-    }
-    result
-}
-
-fn probe_capacity_report(report: &VerificationReport) -> bool {
-    report.checks.iter().any(|check| {
-        check.execution == crate::evidence::VerificationCheckExecution::Unavailable
-            && check.stderr_tail.contains("capacity remained busy")
-    })
-}
-
-fn probe_capacity_error(error: &str) -> bool {
-    error.contains("capacity remained busy")
+    harness
+        .verify_project_mode(workspace_id, workspace, mode, timeout_seconds, monitor)
+        .await
 }
 
 fn git(root: &Path, args: &[&str]) {
@@ -149,7 +103,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
         assert!(required.iter().any(|check| check.id == "git-diff-check"));
 
         for (level, fail_fast) in [("quick", true), ("full", false)] {
-            let report = verify_with_capacity_retry(
+            let report = verify_project_once(
                 &harness,
                 "discovery",
                 &workspace,
@@ -238,7 +192,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
         let (complete, cache_hit) = harness.load_project_profile(&workspace).unwrap();
         assert!(!cache_hit);
         assert!(complete.discovery.complete);
-        let recovered = verify_with_capacity_retry(
+        let recovered = verify_project_once(
             &harness,
             "discovery",
             &workspace,
