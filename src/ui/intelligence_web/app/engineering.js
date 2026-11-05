@@ -405,7 +405,9 @@ function renderEngineeringFlow() {
   const stageHtml = stages.map((stage, index) => `<article class="cycle-stage cycle-${stage.id}"><div class="cycle-stage-top"><span class="cycle-number">0${index + 1}</span><span class="cycle-glyph">${uiIcon(stage.icon)}</span></div><h3>${esc(stage.title)}</h3><span class="cycle-en">${esc(stage.en)}</span><div class="cycle-input"><small>${esc(localized("Input", "输入"))}</small><strong>${esc(stage.input)}</strong></div><ul>${stage.bullets.map(item => `<li>${esc(item)}</li>`).join("")}</ul><span class="cycle-metric">${esc(stage.metric)}</span></article>`).join("");
   const support = [
     ["document", localized("Design State", "Design State"), localized(`${num((project.requirements || []).length)} requirements · ${project.design_valid === false ? localized("needs attention", "需要处理") : localized("valid", "有效")}`, `${num((project.requirements || []).length)} 个需求 · ${project.design_valid === false ? "需要处理" : "有效"}`), "design"],
-    ["code", localized("Codebase", "代码库"), localized(`${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} files · ${num(project.changes?.length || 0)} changed`, `${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} 个文件 · ${num(project.changes?.length || 0)} 个变更`), "code"],
+    ["code", localized("Codebase", "代码库"), project.git_review?.available === true
+      ? localized(`${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} files · ${num(project.changes?.length || 0)} changed`, `${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} 个文件 · ${num(project.changes?.length || 0)} 个变更`)
+      : localized(`${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} files · changed unknown`, `${num(project.code?.source_files || project.code?.files || project.structure?.entries?.length || 0)} 个文件 · 变更未知`), "code"],
     ["check", localized("Verification", "验证"), localized(`${num(proof.current_verification_ready || 0)} ready · ${num(proof.current_failed || 0)} failed`, `${num(proof.current_verification_ready || 0)} 个就绪 · ${num(proof.current_failed || 0)} 个失败`), "verify"],
     ["database", localized("Evidence Store", "证据库"), localized(`${num(proof.current_evidence || 0)} current · ${num(learning.records || 0)} learned`, `${num(proof.current_evidence || 0)} 条当前证据 · ${num(learning.records || 0)} 条经验`), "evidence"],
   ].map(([icon, title, detail, tone]) => `<div class="cycle-support cycle-support-${tone}"><span class="cycle-support-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><small>${esc(detail)}</small></div></div>`).join("");
@@ -485,18 +487,23 @@ function renderChangeConvergenceMap() {
 function renderChangeStory() {
   const p = state.project;
   if (!p) return;
+  // The change counts below come from the working-tree review. When that review
+  // is unavailable they are unknown, not zero, and must not be presented as an
+  // all-clear next to an attention list that says the review is unavailable.
+  const reviewAvailable = p.git_review?.available === true;
   const changes = p.changes || [], components = new Set(), requirements = new Set();
   changes.forEach(change => { (change.affected_components || []).forEach(id => components.add(id)); (change.affected_requirements || []).forEach(id => requirements.add(id)); });
   const impact = p.verification_impact, drift = Number(p.architecture?.blocking_drift_edges || 0), islands = impact?.affected_islands?.length || 0;
   const facts = [
-    [localized("Changed files", "变更文件"), changes.length, localized(`+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`, `+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`)],
-    [localized("Components", "组件"), components.size, localized("mapped owners", "映射归属")],
-    [localized("Requirements", "需求"), requirements.size, localized("affected intent", "受影响意图")],
+    [localized("Changed files", "变更文件"), reviewAvailable ? changes.length : "—", reviewAvailable ? localized(`+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`, `+${num(p.code?.additions || 0)} / -${num(p.code?.deletions || 0)}`) : localized("review unavailable", "检查不可用")],
+    [localized("Components", "组件"), reviewAvailable ? components.size : "—", reviewAvailable ? localized("mapped owners", "映射归属") : localized("unknown", "未知")],
+    [localized("Requirements", "需求"), reviewAvailable ? requirements.size : "—", reviewAvailable ? localized("affected intent", "受影响意图") : localized("unknown", "未知")],
     [localized("Verification islands", "验证项目岛"), islands, impact?.selective ? localized("selective", "选择性") : localized("broad fallback", "宽范围回退")],
     [localized("Confirmed drift", "确认偏离"), drift, drift ? localized("needs attention", "需要处理") : localized("none", "无")],
   ];
-  const html = facts.map(([label, value, detail]) => `<div class="change-impact-card"><span>${esc(label)}</span><strong>${num(value)}</strong><small>${esc(detail)}</small></div>`).join("");
-  setHtml("changeStory", els.changeStory, `<div class="change-impact-grid">${html}</div>`);
+  const note = reviewAvailable ? "" : `<div class="change-impact-unknown">${esc(localized("Working-tree review is unavailable, so the change counts above are unknown rather than zero.", "工作树检查不可用，以上变更计数未知，不能当作零。"))}</div>`;
+  const html = facts.map(([label, value, detail]) => `<div class="change-impact-card"><span>${esc(label)}</span><strong>${Number.isFinite(value) ? num(value) : esc(value)}</strong><small>${esc(detail)}</small></div>`).join("");
+  setHtml("changeStory", els.changeStory, `${note}<div class="change-impact-grid">${html}</div>`);
 }
 function renderRuntimeTopology() {
   if (!state.project || !els.runtimeTopology) return;
