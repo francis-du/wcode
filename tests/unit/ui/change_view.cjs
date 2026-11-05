@@ -6,7 +6,8 @@ const root = process.argv[2] || path.resolve(__dirname, '../../..');
 const source = [
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/code_graph_explorer.js'), 'utf8'),
   fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/historical_source.js'), 'utf8'),
-  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_requirements.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/features_changes.js'), 'utf8'),
 ].join('\n');
 const runtime = fs.readFileSync(path.join(root, 'src/ui/intelligence_web/app/runtime.js'), 'utf8');
 const results = [];

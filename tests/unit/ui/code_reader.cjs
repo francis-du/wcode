@@ -11,7 +11,7 @@ const results = [];
 const flush = () => new Promise(setImmediate);
 
 function productionSource() {
-  return ['code_reader.js', 'change_ranges.js', 'features.js', 'code_graph.js', 'design_sources.js', 'structure.js']
+  return ['code_reader.js', 'change_ranges.js', 'features_requirements.js', 'features_changes.js', 'code_graph.js', 'design_sources.js', 'structure.js']
     .map(APP).join('\n');
 }
 function escapeHtml(value) {
