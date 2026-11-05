@@ -60,11 +60,15 @@ impl ToolHarness {
                     None,
                 )
                 .await;
-            for delay_ms in [500_u64, 1_000] {
-                if !test_probe_capacity_artifact(&result) {
+            // A fixed retry count gives up while a loaded runner is still busy.
+            // Keep retrying until the budget runs out, so the wait tracks real
+            // contention instead of an arbitrary attempt limit.
+            let deadline = std::time::Instant::now() + TEST_PROBE_CAPACITY_RETRY_BUDGET;
+            while test_probe_capacity_artifact(&result) {
+                if std::time::Instant::now() >= deadline {
                     return result;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
                 result = self
                     .verify_project_candidate(
                         workspace_id.clone(),
@@ -528,6 +532,12 @@ impl ToolHarness {
         result
     }
 }
+
+/// How long a test waits for the shared probe semaphore to drain before it
+/// reports the capacity artifact. Real-Cargo fixtures allow a minute for a
+/// sibling suite to finish; this stays inside that envelope.
+#[cfg(test)]
+const TEST_PROBE_CAPACITY_RETRY_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// A verification outcome is a probe-capacity artifact only when the call
 /// failed by naming the saturated semaphore, or when a check never started
