@@ -857,14 +857,16 @@ fn tunnel_runtime_statuses(state: &MonitorState, now: Instant) -> Vec<MonitorTun
 }
 
 /// Keep the operator-facing task target bounded and single-line so a long or
-/// multi-line path cannot stretch the activity row or smuggle markup.
+/// multi-line path cannot stretch the activity row or smuggle markup. The value
+/// is stored verbatim: trimming would make a rejected call look like a real
+/// changed file, and would hide a legitimate path that merely has surrounding
+/// whitespace.
 fn bounded_target(target: Option<String>) -> Option<String> {
     let target = target?;
-    let target = target.trim();
-    if target.is_empty() || target.len() > 256 || target.contains(['\n', '\r']) {
+    if target.trim().is_empty() || target.len() > 256 || target.contains(['\n', '\r']) {
         return None;
     }
-    Some(target.to_owned())
+    Some(target)
 }
 
 pub(super) fn trim_history(state: &mut MonitorState, now: Instant) {

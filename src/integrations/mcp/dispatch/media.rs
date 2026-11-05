@@ -10,10 +10,11 @@ pub(super) async fn read_media_tool(state: &AppState, params: &Value) -> Result<
         .unwrap_or(state.workspaces.default_id())
         .to_owned();
     let request_bytes = serialized_size(&args) as u64;
-    let task = state.monitor.queue(
+    let task = mcp_leaf_task::queue_leaf_task(
+        &state.monitor,
         workspace_label,
         "read_media",
-        task_detail("read_media", &args),
+        &args,
         request_bytes,
     );
     let permit = acquire_tool_permit(state, false).await?;

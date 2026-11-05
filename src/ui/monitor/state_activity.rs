@@ -1,8 +1,12 @@
 use super::*;
 
 impl TaskMonitor {
-    /// Read-only projection for the protected WebUI. Never expose raw arguments
-    /// or reset the TUI's short-lived peak/traffic observation window.
+    /// Read-only projection for the protected WebUI. Never expose the free-form
+    /// tool-argument summary, and never reset the TUI's short-lived peak/traffic
+    /// observation window. The one exception is `target`: a single
+    /// workspace-relative path that already passed the same validator the tools
+    /// use, so it cannot carry an absolute path, traversal or a protected
+    /// location.
     pub(crate) fn observatory_activity(&self, workspace: &str) -> Value {
         let now = Instant::now();
         let state = self.state.lock().expect("task monitor lock poisoned");

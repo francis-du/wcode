@@ -55,6 +55,16 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
     let queued = state
         .monitor
         .queue(&workspace, "find_symbol", "PRIVATE-ARGUMENT", 1);
+    // A task recorded through the real leaf path with a target the tools would
+    // reject must not project that target either.
+    mcp_leaf_task::queue_leaf_task(
+        &state.monitor,
+        workspace.clone(),
+        "read_file",
+        &json!({"path": "/home/someone/.ssh/SECRET-TARGET"}),
+        1,
+    )
+    .finish(true, 1);
     let foreign = state
         .monitor
         .queue("unrelated-project", "FOREIGN-TOOL", "PRIVATE-ARGUMENT", 1);
@@ -78,6 +88,7 @@ async fn observatory_activity_is_protected_scoped_bounded_and_has_no_arguments()
     assert_eq!(body["activity"]["recent"][1]["status"], "queued");
     assert!(body["activity"]["recent"][1]["command_job_id"].is_null());
     assert!(!body.to_string().contains("PRIVATE-ARGUMENT"));
+    assert!(!body.to_string().contains("SECRET-TARGET"));
     assert!(!body.to_string().contains("FOREIGN-TOOL"));
     assert!(!body.to_string().contains(&foreign_job_id));
     assert!(!body.to_string().contains(state.auth.ui_token()));

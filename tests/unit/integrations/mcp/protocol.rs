@@ -757,6 +757,45 @@ fn task_details_explain_work_without_exposing_payloads() {
 }
 
 #[test]
+fn task_target_is_a_workspace_relative_path_or_nothing() {
+    assert_eq!(
+        mcp_leaf_task::task_target("apply_edits", &json!({"path": "src/main.rs"})).as_deref(),
+        Some("src/main.rs")
+    );
+    // A directory or a filter is allowed; it simply never matches a changed file.
+    assert_eq!(
+        mcp_leaf_task::task_target("list_files", &json!({"path": "."})).as_deref(),
+        Some(".")
+    );
+    assert_eq!(
+        mcp_leaf_task::task_target(
+            "move_path",
+            &json!({"source": "a.rs", "destination": "b.rs"})
+        )
+        .as_deref(),
+        Some("a.rs")
+    );
+    for rejected in [
+        json!({"path": "/Users/someone/.ssh/id_rsa"}),
+        json!({"path": "../../.env"}),
+        json!({"path": "src/../../etc/passwd"}),
+        json!({"path": "C:\\Windows\\System32"}),
+        json!({"path": ""}),
+        json!({"path": "   "}),
+        json!({"path": "src/main.rs\n"}),
+        json!({"other": "src/main.rs"}),
+    ] {
+        assert!(
+            mcp_leaf_task::task_target("read_file", &rejected).is_none(),
+            "must not project {rejected}"
+        );
+    }
+    assert!(mcp_leaf_task::task_target("run_command", &json!({"path": "src/main.rs"})).is_none());
+    let long = "a".repeat(300);
+    assert!(mcp_leaf_task::task_target("read_file", &json!({"path": long})).is_none());
+}
+
+#[test]
 fn estimates_context_avoided_only_for_precision_tools() {
     let value = json!({"source_bytes": 10_000});
     assert_eq!(
