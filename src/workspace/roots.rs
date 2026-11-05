@@ -538,7 +538,7 @@ impl Workspace {
             .join("/"))
     }
 
-    pub(super) fn validate_relative(path: &str) -> Result<PathBuf> {
+    pub(crate) fn validate_relative(path: &str) -> Result<PathBuf> {
         if path.contains('\0') || path.contains(['\n', '\r']) {
             bail!("path contains forbidden control characters");
         }

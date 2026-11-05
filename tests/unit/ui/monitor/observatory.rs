@@ -442,3 +442,34 @@ fn attention_enter_opens_selected_authorization_without_approving_it() {
         AuthorizationStatus::Pending
     );
 }
+
+#[test]
+fn activity_exposes_a_bounded_target_and_never_the_argument_summary() {
+    let monitor = TaskMonitor::new(["web".to_owned()]);
+    let ticket = monitor.queue_with_target(
+        "web",
+        "apply_edits",
+        "PRIVATE-ARGUMENT src/main.rs",
+        Some("src/main.rs".to_owned()),
+        64,
+    );
+    ticket.finish(true, 0);
+
+    let activity = monitor.observatory_activity("web");
+    let recent = activity["recent"].as_array().expect("recent activity rows");
+    let row = recent
+        .iter()
+        .find(|row| row["id"].as_u64() == Some(1))
+        .expect("the queued task row");
+    assert_eq!(row["target"], "src/main.rs");
+    assert!(
+        !activity.to_string().contains("PRIVATE-ARGUMENT"),
+        "the free-form argument summary stays out of the HTTP projection"
+    );
+
+    // A multi-line target is not an operator-facing link identity.
+    monitor.queue_with_target("web", "write_file", "write", Some("a\nb".to_owned()), 8);
+    let activity = monitor.observatory_activity("web");
+    let recent = activity["recent"].as_array().expect("recent activity rows");
+    assert!(recent.iter().all(|row| row["target"] != "a\nb"));
+}

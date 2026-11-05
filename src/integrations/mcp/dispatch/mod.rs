@@ -172,10 +172,13 @@ async fn call_leaf_tool_mode(
             .to_owned()
     };
     let request_bytes = serialized_size(&args) as u64;
-    let detail = task_detail(name, &args);
-    let task = state
-        .monitor
-        .queue(workspace_label.clone(), name, detail, request_bytes);
+    let task = mcp_leaf_task::queue_leaf_task(
+        &state.monitor,
+        workspace_label.clone(),
+        name,
+        &args,
+        request_bytes,
+    );
     crate::mcp_tasks::bind_monitor_task(name, &task);
     let permit = if name == "workspace_info" {
         match super::mcp_tools::acquire_status_permit(state).await {

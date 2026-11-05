@@ -56,7 +56,7 @@
 .execution-steering-card{display:grid;gap:10px;padding:12px;border:1px solid color-mix(in srgb,var(--warn) 30%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--surface-raised) 80%,transparent)}.execution-steering-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.execution-steering-summary{font-size:14px;line-height:1.45;overflow-wrap:anywhere}.execution-steering-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.execution-steering-facts span{display:grid;gap:3px;min-width:0}.execution-steering-facts i{color:var(--muted);font-size:12px;font-style:normal}.execution-steering-facts b{font-size:12px;font-weight:650;overflow-wrap:anywhere}
 .activity-row{position:relative;padding-left:14px!important}.activity-row::before{content:'';position:absolute;left:2px;top:15px;bottom:15px;width:2px;border-radius:999px;background:var(--line-strong)}
 .activity-row:has(.pill.info)::before{background:var(--info);box-shadow:0 0 10px color-mix(in srgb,var(--info) 42%,transparent)}.activity-row:has(.pill.bad)::before{background:var(--bad);box-shadow:0 0 10px color-mix(in srgb,var(--bad) 42%,transparent)}
-.activity-row strong{font-weight:680}.activity-duration{display:flex;gap:11px;justify-content:flex-end}.activity-duration span{display:inline!important}
+.activity-row strong{font-weight:680}.activity-change-open{margin-top:5px}.activity-duration{display:flex;gap:11px;justify-content:flex-end}.activity-duration span{display:inline!important}
 .resource-counts{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:color-mix(in srgb,var(--surface) 68%,transparent)}
 .resource-counts>*{min-height:78px}.resource-counts strong{font-size:22px}
 

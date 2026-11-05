@@ -944,6 +944,8 @@ fn modern_cacheable_result(value: Value) -> Value {
 
 #[path = "dispatch/mod.rs"]
 mod mcp_dispatch;
+#[path = "leaf_task.rs"]
+mod mcp_leaf_task;
 #[path = "tools.rs"]
 mod mcp_tools;
 #[cfg(test)]
