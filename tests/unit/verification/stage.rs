@@ -286,6 +286,7 @@ fn stage_receipt_digests_admitted_results_and_changes_with_content() {
                 redacted: false,
                 timed_out: false,
                 output_incomplete: false,
+                sandbox: "direct",
                 retry_guidance: None,
             },
         }

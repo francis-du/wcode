@@ -67,23 +67,27 @@ pub(crate) fn status() -> ExecutionSandboxStatus {
     }
 }
 
+/// Prepare a command, reporting whether the OS sandbox was actually applied.
+/// `sandbox_applied == false` means the caller asked for a sandbox but no usable
+/// backend existed or the backend failed to build a profile; the command still
+/// runs directly, and the caller can say so.
 pub(super) fn prepare(
     workspace_root: &Path,
     cwd: &Path,
     executable: &Path,
     args: &[String],
     allow_workspace_write: bool,
-) -> Result<(Command, SandboxGuard)> {
-    let direct = || {
+) -> Result<(Command, SandboxGuard, bool)> {
+    let direct = |sandbox_applied: bool| {
         let mut command = Command::new(executable);
         command.args(args).current_dir(cwd);
-        (command, SandboxGuard { scratch: None })
+        (command, SandboxGuard { scratch: None }, sandbox_applied)
     };
     let Some(backend) = detect_backend() else {
         // Opt-in sandbox: an unavailable backend must never be the reason a
         // requested sandboxed command does not run. Fall back to direct
-        // execution.
-        return Ok(direct());
+        // execution and report that the sandbox was not applied.
+        return Ok(direct(false));
     };
     let prepared: Result<(Command, SandboxGuard)> = match backend {
         #[cfg(target_os = "macos")]
@@ -96,8 +100,11 @@ pub(super) fn prepare(
         }
     };
     // A broken or incomplete sandbox backend must not be the reason a command
-    // does not run; fall back to the direct lane.
-    Ok(prepared.unwrap_or_else(|_| direct()))
+    // does not run; fall back to the direct lane and report it.
+    Ok(match prepared {
+        Ok((command, guard)) => (command, guard, true),
+        Err(_) => direct(false),
+    })
 }
 
 fn detect_backend() -> Option<SandboxBackend> {

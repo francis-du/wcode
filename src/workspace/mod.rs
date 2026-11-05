@@ -912,6 +912,8 @@ pub(crate) fn command_writes_workspace(program: &str, args: &[String]) -> bool {
     command_requires_workspace_write(program, args)
 }
 
+#[path = "operations/command_result.rs"]
+mod command_result;
 #[path = "operations/execution.rs"]
 mod execution;
 use execution::redact_sensitive_line;

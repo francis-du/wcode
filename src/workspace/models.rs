@@ -15,6 +15,9 @@ pub struct CommandResult {
     pub redacted: bool,
     pub timed_out: bool,
     pub output_incomplete: bool,
+    /// The lane this command actually ran on: `direct`, `sandbox`, or
+    /// `sandbox_unavailable` when a requested sandbox had no usable backend.
+    pub sandbox: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_guidance: Option<&'static str>,
 }

@@ -284,6 +284,7 @@ fn probe_result(
         redacted: false,
         timed_out: false,
         output_incomplete,
+        sandbox: "direct",
         retry_guidance: None,
     }
 }
