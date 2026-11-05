@@ -104,6 +104,8 @@ use monitor_metrics::*;
 
 #[path = "state.rs"]
 mod monitor_state;
+#[path = "state_activity.rs"]
+mod monitor_state_activity;
 #[path = "state_jev.rs"]
 mod monitor_state_jev;
 #[cfg(test)]
@@ -304,6 +306,7 @@ struct TaskRecord {
     workspace: String,
     tool: String,
     detail: String,
+    target: Option<String>,
     status: TaskStatus,
     slot_counted: bool,
     queued_at: Instant,

@@ -52,7 +52,7 @@ impl TaskMonitor {
         detail: impl Into<String>,
         request_bytes: u64,
     ) -> TaskTicket {
-        self.queue_task(workspace, tool, detail, request_bytes, true)
+        self.queue_task(workspace, tool, detail, None, request_bytes, true)
     }
 
     pub fn queue_orchestration(
@@ -62,7 +62,21 @@ impl TaskMonitor {
         detail: impl Into<String>,
         request_bytes: u64,
     ) -> TaskTicket {
-        self.queue_task(workspace, tool, detail, request_bytes, false)
+        self.queue_task(workspace, tool, detail, None, request_bytes, false)
+    }
+
+    /// Queue a tool call that names a single repository path, so the protected
+    /// operator views can link the task to the code it touched. The target is a
+    /// display/link identity only; it never authorizes a path.
+    pub fn queue_with_target(
+        &self,
+        workspace: impl Into<String>,
+        tool: impl Into<String>,
+        detail: impl Into<String>,
+        target: Option<String>,
+        request_bytes: u64,
+    ) -> TaskTicket {
+        self.queue_task(workspace, tool, detail, target, request_bytes, true)
     }
 
     fn queue_task(
@@ -70,6 +84,7 @@ impl TaskMonitor {
         workspace: impl Into<String>,
         tool: impl Into<String>,
         detail: impl Into<String>,
+        target: Option<String>,
         request_bytes: u64,
         slot_counted: bool,
     ) -> TaskTicket {
@@ -97,6 +112,7 @@ impl TaskMonitor {
             workspace,
             tool,
             detail,
+            target: bounded_target(target),
             status: TaskStatus::Queued,
             slot_counted,
             queued_at: now,
@@ -114,75 +130,6 @@ impl TaskMonitor {
                 finished: AtomicBool::new(false),
             }),
         }
-    }
-
-    /// Read-only projection for the protected WebUI. Never expose raw arguments
-    /// or reset the TUI's short-lived peak/traffic observation window.
-    pub(crate) fn observatory_activity(&self, workspace: &str) -> Value {
-        let now = Instant::now();
-        let state = self.state.lock().expect("task monitor lock poisoned");
-        let stats = state.workspaces.get(workspace).cloned().unwrap_or_default();
-        let mut tasks = state
-            .tasks
-            .iter()
-            .filter(|task| task.workspace == workspace)
-            .collect::<Vec<_>>();
-        tasks.sort_by_key(|task| {
-            (
-                match task.status {
-                    TaskStatus::Running => 0,
-                    TaskStatus::Queued => 1,
-                    TaskStatus::Failed => 2,
-                    TaskStatus::Completed => 3,
-                },
-                std::cmp::Reverse(task.id),
-            )
-        });
-        let retained = tasks.len();
-        let orchestration = tasks
-            .iter()
-            .filter(|task| !task.slot_counted && task.status == TaskStatus::Running)
-            .count();
-        let recent = tasks.into_iter().take(12).map(|task| {
-            let end = task.finished_at.unwrap_or(now);
-            serde_json::json!({
-                "id": task.id,
-                "command_job_id": task.command_job_id,
-                "tool": task.tool.chars().take(80).collect::<String>(),
-                "status": match task.status {
-                    TaskStatus::Queued => "queued", TaskStatus::Running => "running",
-                    TaskStatus::Completed => "completed", TaskStatus::Failed => "failed",
-                },
-                "slot_counted": task.slot_counted,
-                "wait_ms": task.started_at.unwrap_or(end).saturating_duration_since(task.queued_at).as_millis(),
-                "run_ms": task.started_at.map(|start| end.saturating_duration_since(start).as_millis()),
-                "finished_ago_ms": task.finished_at.map(|finished| now.saturating_duration_since(finished).as_millis()),
-            })
-        }).collect::<Vec<_>>();
-        let jev_runtime = super::monitor_state_jev::jev_runtime_json(&stats, now);
-        serde_json::json!({
-            "workspace": workspace, "available": true,
-            "active": stats.active, "queued": stats.queued,
-            "orchestration": orchestration, "calls": stats.calls,
-            "completed": stats.completed, "failed": stats.failed,
-            "counter_scope": "workspace_since_process_start",
-            "agent_context": {
-                "calls": stats.agent_context_calls,
-                "model_bytes": stats.agent_context_model_bytes,
-                "model_tokens": stats.agent_context_model_tokens,
-                "budget_tokens": stats.agent_context_budget_tokens,
-                "bytes_avoided": stats.agent_context_bytes_avoided,
-                "repo_map_cache_hits": stats.agent_repo_map_cache_hits,
-                "repo_map_candidates": stats.agent_repo_map_candidates,
-                "repo_map_delivered": stats.agent_repo_map_delivered,
-                "build_ms": stats.agent_context_build_ms,
-                "decision_runtime": {
-                    "jev": jev_runtime,
-                },
-            },
-            "recent": recent, "recent_truncated": retained > 12,
-            "history_scope": "bounded_process_memory",
-        })
     }
 
     pub fn register_workspace(&self, workspace: impl Into<String>) {
@@ -907,6 +854,17 @@ fn tunnel_runtime_statuses(state: &MonitorState, now: Instant) -> Vec<MonitorTun
                 .map(|connected| now.saturating_duration_since(connected).as_secs()),
         })
         .collect()
+}
+
+/// Keep the operator-facing task target bounded and single-line so a long or
+/// multi-line path cannot stretch the activity row or smuggle markup.
+fn bounded_target(target: Option<String>) -> Option<String> {
+    let target = target?;
+    let target = target.trim();
+    if target.is_empty() || target.len() > 256 || target.contains(['\n', '\r']) {
+        return None;
+    }
+    Some(target.to_owned())
 }
 
 pub(super) fn trim_history(state: &mut MonitorState, now: Instant) {
