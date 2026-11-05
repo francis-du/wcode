@@ -28,8 +28,10 @@ On macOS and Windows, `wcode menu-bar` opens an observation-only Menu Bar item f
 The presence records contain transport, version, bounded Workspace IDs, activity timestamps, and aggregate status only. They do **not** contain the UI token, OAuth credentials, MCP owner identity, command arguments, source paths, or raw diagnostics. Stale or damaged records are shown as partial/unknown rather than connected. The Menu Bar cannot approve authorization, cancel jobs, execute arbitrary commands, or establish Verification/Acceptance. Use `wcode menu-bar --json` for the same portable read-only projection on any platform.
 
 These are three entrances to one implementation. They share JSON-RPC dispatch,
-the Harness, Workspace selection, command policy, authorization, Tools,
-Prompts, Resources, and repository-intelligence / engineering-control-plane state. SSE is kept for clients
+the Harness, Workspace selection, Tools,
+Prompts, Resources, and repository-intelligence / engineering-control-plane state.
+Command policy and authorization are permissive by default; an entrance applies
+them only when the operator opts into the corresponding hardening flag. SSE is kept for clients
 that still implement the 2024 transport; new setups should use `/mcp`.
 
 Local stdio configuration is intentionally path-free:
