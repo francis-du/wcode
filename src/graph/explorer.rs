@@ -118,7 +118,7 @@ pub(crate) fn search(workspace: &Workspace, input: &GraphSearchInput) -> Result<
             } else {
                 return None;
             };
-            let relations = relation_counts.get(&node.id).copied().unwrap_or(0);
+            let relations = relation_counts.get(node.id.as_str()).copied().unwrap_or(0);
             Some((
                 score,
                 Reverse(relations),
@@ -178,7 +178,7 @@ pub(crate) fn search(workspace: &Workspace, input: &GraphSearchInput) -> Result<
             ranked.sort_by_key(|(id, hits)| (Reverse(*hits), id.clone()));
             candidates.extend(ranked.into_iter().take(limit).filter_map(|(id, hits)| {
                 stored.snapshot.graph.nodes.get(&id).cloned().map(|node| {
-                    let relations = relation_counts.get(&id).copied().unwrap_or(0);
+                    let relations = relation_counts.get(id.as_str()).copied().unwrap_or(0);
                     GraphSearchCandidate {
                         node,
                         match_kind: "source_content",
@@ -348,11 +348,11 @@ fn node_path(node: &GraphNode) -> Option<&str> {
         .or_else(|| node.id.strip_prefix("file:"))
 }
 
-fn node_relation_counts(edges: &[crate::graph::GraphEdge]) -> HashMap<String, usize> {
+fn node_relation_counts(edges: &[crate::graph::GraphEdge]) -> HashMap<&str, usize> {
     let mut counts = HashMap::new();
     for edge in edges {
-        *counts.entry(edge.from.clone()).or_default() += 1;
-        *counts.entry(edge.to.clone()).or_default() += 1;
+        *counts.entry(edge.from.as_str()).or_default() += 1;
+        *counts.entry(edge.to.as_str()).or_default() += 1;
     }
     counts
 }
