@@ -100,6 +100,8 @@ const els = {
   codeReaderBody: q("#codeReaderBody"),
   codeReaderClose: q("#codeReaderClose"),
   codeReaderReload: q("#codeReaderReload"),
+  codeReaderGoto: q("#codeReaderGoto"),
+  codeReaderGotoInput: q("#codeReaderGotoInput"),
   requirements: q("#requirements"),
   reqCount: q("#reqCount"),
   detail: q("#featureDetail"),

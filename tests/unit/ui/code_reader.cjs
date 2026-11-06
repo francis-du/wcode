@@ -116,6 +116,7 @@ function setup({ ablate = null } = {}) {
     els: {
       codeReaderPanel: host('#codeReaderPanel'), codeReaderPath: host('#codeReaderPath'), codeReaderBody: host('#codeReaderBody'),
       codeReaderClose: host('#codeReaderClose'), codeReaderReload: host('#codeReaderReload'),
+      codeReaderGoto: host('#codeReaderGoto'), codeReaderGotoInput: host('#codeReaderGotoInput'),
       search: host('#reqSearch'), detail: host('#featureDetail'), requirements: host('#requirements'), reqCount: host('#reqCount'),
       fileTree: host('#fileTree'), fileSearch: host('#fileSearch'), fileSearchStatus: host('#fileSearchStatus'),
       structureSummary: host('#structureSummary'), largeFiles: host('#largeFiles'),
@@ -477,6 +478,20 @@ async function test(name, fn) {
 
     const none = s.api.changeTable([{ path: 'src/a.rs', status: 'modified' }], false);
     assert.match(none, /—/, 'no requirements stays an em dash');
+  });
+  await test('the reader jumps to an explicit line through the goto form', async () => {
+    const s = setup();
+    await openAndResolve(s);
+    const input = s.host('#codeReaderGotoInput'), form = s.host('#codeReaderGoto');
+    assert.equal(typeof form.onsubmit, 'function', 'the goto form is wired');
+    input.value = '99';
+    form.onsubmit({ preventDefault() {} });
+    assert.equal(s.state.codeReader.focusLine, 99, 'a line outside the page becomes the focus target');
+    assert.equal(s.requests.length, 3, 'jumping loads the requested page');
+
+    input.value = 'not-a-number';
+    form.onsubmit({ preventDefault() {} });
+    assert.equal(s.state.codeReader.focusLine, 99, 'a non-numeric value is ignored');
   });
   await test('ablation: removing change-row parsing removes the overlay while source rendering remains', async () => {
     const anchor = 'for (const row of changeDisplayRows(change))';

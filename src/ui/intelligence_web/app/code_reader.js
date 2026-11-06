@@ -501,6 +501,14 @@ function renderCodeReader() {
   body.querySelectorAll("[data-reader-retry]").forEach(button => {
     button.addEventListener("click", () => { reloadCodeReader(); });
   });
+  if (els.codeReaderGoto) {
+    els.codeReaderGoto.onsubmit = event => {
+      event.preventDefault();
+      const line = Number(els.codeReaderGotoInput?.value);
+      if (Number.isInteger(line) && line > 0) codeReaderGotoLine(line);
+      return false;
+    };
+  }
   if (els.codeReaderClose) els.codeReaderClose.onclick = closeCodeReader;
   if (els.codeReaderReload) els.codeReaderReload.onclick = reloadCodeReader;
   const layers = document.getElementById("codeReaderLayers");
