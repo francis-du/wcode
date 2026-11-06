@@ -32,3 +32,13 @@ fn review_manifest_classification_covers_polyglot_project_files() {
         assert_eq!(file_category(path), "manifest", "{path}");
     }
 }
+
+#[test]
+fn review_classification_stays_case_insensitive() {
+    assert_eq!(file_category("CARGO.TOML"), "manifest");
+    assert_eq!(file_category("Docs/README.MD"), "docs");
+    assert_eq!(file_category("Src/Auth/Login_Test.RS"), "test");
+    assert_eq!(file_category(".GitHub/Workflows/CI.YML"), "workflow");
+    assert!(security_sensitive_path("src/OAuth/TokenStore.rs"));
+    assert!(!security_sensitive_path("src/author.rs"));
+}
