@@ -1,12 +1,5 @@
 use super::*;
 
-struct VerificationApprovalInput<'a> {
-    approver: &'a str,
-    statement: &'a str,
-    authority: EvidenceAuthority,
-    git_binding: Option<crate::verification::change::ExecutionGitBinding>,
-}
-
 impl SoftwareIntelligenceRuntime {
     pub(crate) fn current_revision(&self, workspace: &Workspace) -> Result<Revision> {
         let load = self.design_load(workspace)?;
@@ -785,11 +778,12 @@ impl SoftwareIntelligenceRuntime {
             workspace_id,
             workspace,
             plan_id,
-            VerificationApprovalInput {
+            crate::evidence::ApprovalRecord {
                 approver,
                 statement,
                 authority: EvidenceAuthority::LegacyUnknown,
-                git_binding: None,
+                kind: EvidenceKind::HumanApproval,
+                binding: None,
             },
         )
     }
@@ -808,11 +802,12 @@ impl SoftwareIntelligenceRuntime {
             workspace_id,
             workspace,
             plan_id,
-            VerificationApprovalInput {
+            crate::evidence::ApprovalRecord {
                 approver,
                 statement,
                 authority: EvidenceAuthority::LocalOperator,
-                git_binding: None,
+                kind: EvidenceKind::HumanApproval,
+                binding: None,
             },
         )
     }
@@ -822,21 +817,9 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
-        binding: Option<crate::verification::change::ExecutionGitBinding>,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<Evidence> {
-        self.record_verification_approval(
-            workspace_id,
-            workspace,
-            plan_id,
-            VerificationApprovalInput {
-                approver,
-                statement,
-                authority: EvidenceAuthority::LocalOperator,
-                git_binding: binding,
-            },
-        )
+        self.record_verification_approval(workspace_id, workspace, plan_id, approval)
     }
 
     fn record_verification_approval(
@@ -844,13 +827,14 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approval: VerificationApprovalInput<'_>,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<Evidence> {
-        let VerificationApprovalInput {
+        let crate::evidence::ApprovalRecord {
             approver,
             statement,
             authority,
-            git_binding,
+            kind,
+            binding: git_binding,
         } = approval;
         let approver = approver.trim();
         let statement = statement.trim();
@@ -885,11 +869,15 @@ impl SoftwareIntelligenceRuntime {
         if !plan.require_human_approval {
             return Err(anyhow!("verification plan does not require human approval"));
         }
+        let producer = match kind {
+            EvidenceKind::PolicyAuthorization => format!("policy:{approver}"),
+            _ => format!("human:{approver}"),
+        };
         let mut evidence = Evidence::new(
             self.next_id("EV"),
             plan.subject.clone(),
-            EvidenceKind::HumanApproval,
-            format!("human:{approver}"),
+            kind,
+            producer,
             revision.clone(),
             EvidenceResult::Pass,
             Confidence::High,

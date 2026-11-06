@@ -14,9 +14,13 @@ impl SoftwareIntelligenceRuntime {
             workspace_id,
             workspace,
             plan_id,
-            approver,
-            statement,
-            EvidenceAuthority::LegacyUnknown,
+            crate::evidence::ApprovalRecord {
+                approver,
+                statement,
+                authority: EvidenceAuthority::LegacyUnknown,
+                kind: EvidenceKind::HumanApproval,
+                binding: None,
+            },
         )
     }
 
@@ -25,17 +29,9 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<serde_json::Value> {
-        self.record_reconciliation_approval(
-            workspace_id,
-            workspace,
-            plan_id,
-            approver,
-            statement,
-            EvidenceAuthority::LocalOperator,
-        )
+        self.record_reconciliation_approval(workspace_id, workspace, plan_id, approval)
     }
 
     fn record_reconciliation_approval(
@@ -43,10 +39,15 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
-        authority: EvidenceAuthority,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<serde_json::Value> {
+        let crate::evidence::ApprovalRecord {
+            approver,
+            statement,
+            authority,
+            kind,
+            binding: _,
+        } = approval;
         let plan = self.reconciliation_status(workspace, plan_id)?;
         if plan.workspace != workspace_id {
             return Err(anyhow!(
@@ -75,11 +76,15 @@ impl SoftwareIntelligenceRuntime {
             workspace, &plan, &revision, approver, statement,
         )?;
 
+        let producer = match kind {
+            EvidenceKind::PolicyAuthorization => format!("policy:{}", approver.trim()),
+            _ => format!("human:{}", approver.trim()),
+        };
         let mut evidence = Evidence::new(
             self.next_id("EV"),
             format!("reconciliation-plan:{plan_id}"),
-            EvidenceKind::HumanApproval,
-            format!("human:{}", approver.trim()),
+            kind,
+            producer,
             revision.clone(),
             EvidenceResult::Pass,
             Confidence::High,

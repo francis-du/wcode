@@ -193,6 +193,13 @@ pub(super) fn render_authorization_overlay(
                     "Human decision"
                 }
             }
+            crate::authorization::AuthorizationKind::PolicyAutoApproved => {
+                if language == UiLanguage::ZhCn {
+                    "策略自动授权"
+                } else {
+                    "Policy auto-approved"
+                }
+            }
         };
         let prefix = if selected { "›" } else { " " };
         let summary_width = inner.width.saturating_sub(39) as usize;

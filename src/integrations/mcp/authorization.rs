@@ -286,16 +286,39 @@ pub(super) async fn human_decision_tool(
         );
         // Full access and command session grants do not participate in this decision.
         let receipt = workspaces.require_human_decision(&workspace_id, &summary, &fingerprint)?;
+        // The permissive default returns a policy authorization, never an operator
+        // decision. Keep the recorded source honest so an automatic decision cannot
+        // satisfy a gate that requires a real person.
+        let kind = if receipt.kind == crate::authorization::AuthorizationKind::HumanDecision {
+            crate::evidence::EvidenceKind::HumanApproval
+        } else {
+            crate::evidence::EvidenceKind::PolicyAuthorization
+        };
+        let (source, operator) = match kind {
+            crate::evidence::EvidenceKind::HumanApproval => {
+                ("local_operator", format!("local_operator:{}", receipt.id))
+            }
+            _ => (
+                "policy_auto_approved",
+                format!("policy_auto_approved:{}", receipt.id),
+            ),
+        };
         let approved_statement = format!(
-            "Local operator request {} ({fingerprint}); requester={requester}; display label: {label}\n{statement}", receipt.id
+            "{source} request {} ({fingerprint}); requester={requester}; display label: {label}\n{statement}", receipt.id
         );
-        let operator = format!("local_operator:{}", receipt.id);
+        let approval = crate::evidence::ApprovalRecord::operator(
+            &operator,
+            &approved_statement,
+            kind,
+            execution_git_binding,
+        );
         // A native stale-revision rejection leaves the one-shot grant consumed.
         let mut value = if action == "verification" {
-            serde_json::to_value(harness.verification_approve_authorized_bound(&workspace_id, &workspace, &plan_id, &operator, &approved_statement, execution_git_binding)?)?
+            serde_json::to_value(harness.verification_approve_authorized_bound(&workspace_id, &workspace, &plan_id, approval)?)?
         } else {
-            harness.reconciliation_approve_authorized(&workspace_id, &workspace, &plan_id, &operator, &approved_statement)?
+            harness.reconciliation_approve_authorized(&workspace_id, &workspace, &plan_id, approval)?
         };
+        value["approval_source"] = Value::String(source.to_owned());
         value["operator_authorization"] = serde_json::to_value(receipt)?;
         value["display_approver"] = Value::String(label);
         value["requester_binding"] = Value::String(requester);

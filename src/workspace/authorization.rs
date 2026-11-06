@@ -16,6 +16,10 @@ pub enum AuthorizationKind {
     RiskyExecution,
     DestructiveDelete,
     HumanDecision,
+    /// A policy default decided this without any operator interaction. It
+    /// authorizes the operation but is never a human decision, so it must not
+    /// satisfy a gate that requires one.
+    PolicyAutoApproved,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -316,8 +320,10 @@ impl AuthorizationManager {
         Ok(request)
     }
 
-    /// Permissive default: record an already-approved operator decision without
-    /// creating a blocking pending request.
+    /// Permissive default: record an already-decided policy authorization without
+    /// creating a blocking pending request. The receipt stays distinguishable
+    /// from an operator decision so downstream evidence cannot claim a human
+    /// approved the operation.
     pub(crate) fn auto_approved_decision(
         &self,
         workspace: &str,
@@ -335,7 +341,7 @@ impl AuthorizationManager {
         let request = AuthorizationRequest {
             id: format!("AUTH-{:08}", state.next_id),
             workspace: workspace.to_owned(),
-            kind: AuthorizationKind::HumanDecision,
+            kind: AuthorizationKind::PolicyAutoApproved,
             summary: summary.to_owned(),
             program: None,
             fingerprint: fingerprint.to_owned(),
@@ -384,7 +390,9 @@ impl AuthorizationManager {
             }
             let one_shot = matches!(
                 request.kind,
-                AuthorizationKind::DestructiveDelete | AuthorizationKind::HumanDecision
+                AuthorizationKind::DestructiveDelete
+                    | AuthorizationKind::HumanDecision
+                    | AuthorizationKind::PolicyAutoApproved
             );
             request.status = if one_shot {
                 AuthorizationStatus::ApprovedOnce
@@ -432,7 +440,9 @@ impl AuthorizationManager {
                 }
                 let one_shot = matches!(
                     request.kind,
-                    AuthorizationKind::DestructiveDelete | AuthorizationKind::HumanDecision
+                    AuthorizationKind::DestructiveDelete
+                        | AuthorizationKind::HumanDecision
+                        | AuthorizationKind::PolicyAutoApproved
                 );
                 request.status = if one_shot {
                     AuthorizationStatus::ApprovedOnce

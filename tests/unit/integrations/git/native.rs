@@ -224,9 +224,12 @@ impl NativeFixture {
                 ID,
                 &self.workspace,
                 &plan.id,
-                "fixture-local-operator",
-                "Approve this exact native plan after actual lint and test execution.",
-                binding,
+                crate::evidence::ApprovalRecord::operator(
+                    "fixture-local-operator",
+                    "Approve this exact native plan after actual lint and test execution.",
+                    crate::evidence::EvidenceKind::HumanApproval,
+                    binding,
+                ),
             )
             .unwrap();
         let ready = self.capture().await;

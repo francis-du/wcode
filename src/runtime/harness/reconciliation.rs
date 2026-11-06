@@ -51,15 +51,13 @@ impl ToolHarness {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<Value> {
         self.intelligence.reconciliation_approve_authorized(
             workspace_id,
             workspace,
             plan_id,
-            approver,
-            statement,
+            approval,
         )
     }
 
