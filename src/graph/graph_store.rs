@@ -541,7 +541,7 @@ fn graph_edge_order(left: &GraphEdge, right: &GraphEdge) -> std::cmp::Ordering {
     left.from
         .cmp(&right.from)
         .then_with(|| left.to.cmp(&right.to))
-        .then_with(|| format!("{:?}", left.kind).cmp(&format!("{:?}", right.kind)))
+        .then_with(|| left.kind.sort_name().cmp(right.kind.sort_name()))
         .then_with(|| left.provenance.provider.cmp(&right.provenance.provider))
         .then_with(|| left.provenance.revision.cmp(&right.provenance.revision))
 }

@@ -45,3 +45,27 @@ fn graph_precision_is_explicit_and_serializable() {
     assert_eq!(value["precision"], "syntax");
     assert_eq!(value["revision"], "sha256:fixture");
 }
+
+#[test]
+fn edge_kind_sort_name_matches_the_debug_rendering() {
+    for kind in [
+        EdgeKind::Contains,
+        EdgeKind::Defines,
+        EdgeKind::References,
+        EdgeKind::Calls,
+        EdgeKind::Imports,
+        EdgeKind::DependsOn,
+        EdgeKind::Implements,
+        EdgeKind::Extends,
+        EdgeKind::ImplementsRequirement,
+        EdgeKind::ConstrainedBy,
+        EdgeKind::TestedBy,
+        EdgeKind::VerifiedBy,
+        EdgeKind::GuardsAgainst,
+        EdgeKind::ProducesEvidence,
+        EdgeKind::RuntimeCalls,
+        EdgeKind::ConflictsWith,
+    ] {
+        assert_eq!(kind.sort_name(), format!("{kind:?}"));
+    }
+}
