@@ -11,7 +11,7 @@ permalink: /docs/paper/
 
 ## Manuscripts
 
-**wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents**
+**wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents**
 
 Read the [English manuscript](/paper/paper.en.md) or the [Chinese original](/paper/paper.zh-CN.md). English revision 2 adds explicit metric definitions, a concrete delivery-failure example, and a more precise baseline and ablation plan. It preserves the original measured results; it is not a new evaluation.
 
@@ -31,4 +31,4 @@ From the repository root, run the read-only artifact checks:
 python3 tests/paper_artifacts.py
 ```
 
-The check uses the canonical report named in `snapshot.json`, or a byte-identical archive when one exists. It checks retained data and manuscript consistency; it does not run a new Fitness experiment. See the [paper directory guide](/paper/README.md) for build requirements and the original experiment commands.
+The check uses the canonical report named in `snapshot.json`, or a byte-identical archive when one exists. It checks retained data and manuscript consistency; it does not run a new Fitness experiment. The raw report is currently absent and no archive exists, so the check reports `raw_report_unavailable` and verifies the manuscript against the retained selected fields only. See the [paper directory guide](/paper/README.md) for build requirements and the original experiment commands.

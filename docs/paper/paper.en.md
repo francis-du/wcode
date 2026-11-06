@@ -1,4 +1,4 @@
-# wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents
+# wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents
 
 *Technical paper draft · English revision 2 · September 18, 2026*
 
