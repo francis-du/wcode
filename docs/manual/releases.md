@@ -9,6 +9,8 @@ permalink: /docs/releases/
 
 # Releases
 
+- [v0.9.4 — Graph query efficiency and honest experience decay](v0.9.4/)
+
 - [v0.9.3 — Change observability and explicit trust boundaries](v0.9.3/)
 
 - [v0.9.2 — Standalone engineering and resilient Jobs observation](v0.9.2/)
