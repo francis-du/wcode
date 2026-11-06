@@ -857,7 +857,7 @@ pub(crate) async fn handle_message(
             let uri = message.pointer("/params/uri").and_then(Value::as_str);
             match uri {
                 Some(uri) => {
-                    mcp_catalog::resource_read(uri, Some(&mcp_catalog::observatory_url(&state)))
+                    mcp_catalog::resource_read(uri, mcp_catalog::observatory_url(&state).as_deref())
                         .map(|value| mcp_catalog::cacheable(value, modern))
                 }
                 None => Err("resources/read is missing params.uri".to_owned()),

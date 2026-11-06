@@ -7,11 +7,22 @@ use crate::workspace::Workspaces;
 fn fixture(root: &std::path::Path) -> Arc<AppState> {
     let workspaces = Workspaces::new([root], true, true).unwrap();
     let workspace_id = workspaces.default_id().to_owned();
+    let monitor = TaskMonitor::new([workspace_id]);
+    // The runtime serves HTTP, so the Observatory address must be offered.
+    let auth = Arc::new(
+        AuthState::new_with_monitor(
+            "http://127.0.0.1:8765".into(),
+            monitor.clone(),
+            &[root.to_path_buf()],
+            None,
+        )
+        .unwrap(),
+    );
     Arc::new(AppState {
-        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".into())),
+        auth,
         workspaces,
         harness: ToolHarness::new(1).unwrap(),
-        monitor: TaskMonitor::new([workspace_id]),
+        monitor,
         tasks: TaskRuntime::default(),
     })
 }
@@ -97,5 +108,46 @@ async fn observatory_ui_resource_and_tool_are_discoverable_and_authenticated() {
     assert!(
         url.starts_with("http://127.0.0.1:8765/intelligence#token="),
         "the returned address must be the authenticated local Observatory: {url}"
+    );
+}
+
+#[tokio::test]
+async fn plain_stdio_does_not_invent_an_observatory_address() {
+    let root = tempfile::tempdir().unwrap();
+    let workspaces = Workspaces::new([root.path()], true, true).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    // Plain stdio has no listener, so it must say so instead of handing out an
+    // address that cannot load.
+    let state = Arc::new(AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1".to_owned())),
+        workspaces,
+        harness: ToolHarness::new(1).unwrap(),
+        monitor: TaskMonitor::new([workspace_id]),
+        tasks: TaskRuntime::default(),
+    });
+    let owner = "a".repeat(64);
+    let opened = call(
+        state.clone(),
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"open_observatory","arguments":{},"_meta":request_meta()}}),
+        &owner,
+    )
+    .await;
+    assert_eq!(opened["result"]["isError"], false, "{opened}");
+    assert_eq!(
+        opened["result"]["structuredContent"]["served_by_this_process"],
+        false
+    );
+    assert!(opened["result"]["structuredContent"]["url"].is_null());
+
+    let read = call(
+        state.clone(),
+        json!({"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"ui://wcode/observatory","_meta":request_meta()}}),
+        &owner,
+    )
+    .await;
+    let html = read["result"]["contents"][0]["text"].as_str().unwrap();
+    assert!(
+        html.contains("unavailable"),
+        "an unserved Observatory must not frame an address: {html}"
     );
 }

@@ -324,6 +324,7 @@ pub(super) async fn call(
         "open_observatory" => Ok(json!({
             "url": mcp_catalog::observatory_url(state),
             "resource": "ui://wcode/observatory",
+            "served_by_this_process": mcp_catalog::observatory_url(state).is_some(),
             "workspace": state.workspaces.default_id(),
         })),
         "agent_context" => {

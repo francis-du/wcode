@@ -82,8 +82,9 @@ pub(crate) fn cacheable(value: Value, modern: bool) -> Value {
     }
 }
 
-/// The authenticated Observatory address for the running runtime.
-pub(crate) fn observatory_url(state: &crate::mcp::AppState) -> String {
+/// The authenticated Observatory address for the running runtime, when it
+/// serves HTTP.
+pub(crate) fn observatory_url(state: &crate::mcp::AppState) -> Option<String> {
     state.auth.observatory_url()
 }
 
