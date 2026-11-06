@@ -470,10 +470,9 @@ pub(super) fn merge(pack: &mut Value, mut records: Vec<Value>) {
     files.truncate(MAX_AGENT_FILES);
     pack["files"] = json!(files);
     // Anchor excerpts stay first (they are the caller's stated location), then
-    // the symbol bodies the request resolved are appended when the excerpt does
-    // not already cover the same span. Excerpts never replace those bodies: an
-    // explicit symbol name is the stronger locator and clearing them left
-    // requests that named a symbol with a path with no body at all.
+    // the symbol bodies the anchors resolved are appended when the excerpt does
+    // not already cover the same span. Excerpts never replace those bodies: the
+    // resolved definition is the stronger locator.
     let mut merged: Vec<Value> = sources;
     for source in pack["hot_source"].as_array().cloned().unwrap_or_default() {
         let duplicate = merged.iter().any(|existing| {
