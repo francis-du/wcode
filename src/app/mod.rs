@@ -244,6 +244,14 @@ struct Args {
     #[arg(long = "open", default_value_t = false, help_heading = "Experience")]
     open_setup: bool,
 
+    /// Open the Observatory in your browser once the runtime is reachable.
+    #[arg(
+        long = "open-observatory",
+        default_value_t = false,
+        help_heading = "Experience"
+    )]
+    open_observatory: bool,
+
     /// Allow idle system sleep while wcode is running.
     #[arg(long, help_heading = "Runtime", hide = true)]
     allow_sleep: bool,
@@ -745,6 +753,23 @@ pub async fn run() -> Result<()> {
             open_setup_hub(&base, &format!("{base}/mcp"), &setup_monitor);
         });
     }
+    if args.open_observatory {
+        let mut settled = tunnel_settled_rx.clone();
+        let url_slot = shared_public_url.clone();
+        let observatory_monitor = monitor.clone();
+        let token = auth.ui_token().to_owned();
+        tokio::spawn(async move {
+            if !*settled.borrow() {
+                let _ = timeout(Duration::from_secs(120), settled.changed()).await;
+            }
+            let base = url_slot.read().unwrap().clone();
+            open_in_browser(
+                &format!("{base}/intelligence#token={token}"),
+                "Observatory",
+                &observatory_monitor,
+            );
+        });
+    }
     let renderer = monitor.spawn_renderer(monitor_config, args.monitor);
     if renderer.is_none() {
         let mut settled = tunnel_settled_rx.clone();
@@ -947,17 +972,23 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
         "opening wcode setup hub",
     );
     monitor.operator_message(OperatorMessageKind::Info, "MCP URL", mcp_url);
+    open_in_browser(setup_url, "setup", monitor);
+}
+
+/// Open `url` in the platform browser. A missing opener is a warning, never a
+/// startup failure: the URL is still printed by the caller.
+fn open_in_browser(url: &str, label: &str, monitor: &TaskMonitor) {
     let mut command = if cfg!(target_os = "macos") {
         let mut command = StdCommand::new("open");
-        command.arg(setup_url);
+        command.arg(url);
         command
     } else if cfg!(target_os = "windows") {
         let mut command = StdCommand::new("explorer.exe");
-        command.arg(setup_url);
+        command.arg(url);
         command
     } else {
         let mut command = StdCommand::new("xdg-open");
-        command.arg(setup_url);
+        command.arg(url);
         command
     };
     if let Err(error) = command
@@ -968,8 +999,8 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
     {
         monitor.operator_message(
             OperatorMessageKind::Warning,
-            "setup",
-            format!("could not open the browser ({error}); visit {setup_url}"),
+            label,
+            format!("could not open the browser ({error}); visit {url}"),
         );
     }
 }
