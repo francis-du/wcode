@@ -10,7 +10,20 @@ function changeRequirementCells(item) {
   const rest = ids.length - Math.min(ids.length, 6);
   return rest > 0 ? `${chips} <span class="panel-meta">+${rest} ${localized("more", "个更多")}</span>` : chips;
 }
-function changeTable(items, compact = false) {
+// Paths wcode's own change tools touched, from the persistent engineering
+// journal. Returns null when the journal is unavailable so an unreadable
+// journal never reads as "wcode changed nothing".
+function wcodeChangedPaths() {
+  const journal = state.project?.engineering_journal;
+  if (journal?.available !== true) return null;
+  const paths = new Set();
+  for (const record of journal.records || []) {
+    if (record?.stage !== "change") continue;
+    for (const path of record.paths || []) paths.add(path);
+  }
+  return paths;
+}
+function changeTable(items, compact = false, touched = null) {
   return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
   }</th><th>${esc(t("Scope"))}</th><th>${esc(t("Diff"))}</th><th>${
@@ -20,7 +33,8 @@ function changeTable(items, compact = false) {
   }</tr></thead><tbody>${
     items.slice(0, 120).map((item) => {
       const tone = statusClass(item.untracked ? "untracked" : item.status);
-      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-path"><button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button><button type="button" class="quiet-action change-reader-open" data-reader-path="${esc(item.path)}">${esc(t("Open in code reader"))}</button></div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
+      const touchedBadge = touched?.has(item.path) ? pill(t("wcode"), "info") : "";
+      return `<tr class="change-row" data-tone="${esc(tone)}"><td data-label="${esc(t("Path"))}"><div class="change-cell"><div class="change-path"><button type="button" class="change-open" data-change-path="${esc(item.path)}">${esc(item.path)}</button><button type="button" class="quiet-action change-reader-open" data-reader-path="${esc(item.path)}">${esc(t("Open in code reader"))}</button></div>${touchedBadge}</div></td><td data-label="${esc(t("Status"))}"><span class="change-status">${pill(statusLabel(item.status), tone)}${
         item.untracked ? pill(t("untracked"), "info") : ""
       }</span></td><td data-label="${esc(t("Scope"))}"><span class="change-scope">${esc(item.scope || "—")}</span></td><td data-label="${esc(t("Diff"))}">${changeNums(item)}</td><td data-label="${esc(t("Changed lines"))}">${changeRangesCell(item)}</td>${
         compact
@@ -187,16 +201,36 @@ function renderVerifiedLearning() {
   );
 }
 function renderChanges() {
-  const items = state.project.changes || [],
-    html = items.length
-      ? changeTable(items, false)
-      : `<div class="section empty">${
+  const touched = wcodeChangedPaths();
+  const items = state.project.changes || [];
+  const legend = touched && items.length
+    ? `<p class="panel-meta">${esc(localized(
+        "“wcode” marks a file this runtime changed through its own edit tools.",
+        "“wcode” 标记本运行时通过自身编辑工具改动的文件。"
+      ))}${
+        state.project.engineering_journal?.truncated
+          ? ` ${esc(localized(
+              "The journal window is truncated, so earlier edits are not listed.",
+              "日志窗口已截断，更早的改动不在列表内。"
+            ))}`
+          : ""
+      }</p>`
+    : "";
+  const untouched = touched && items.length && !items.some((item) => touched.has(item.path))
+    ? `<p class="panel-meta">${esc(localized(
+        "None of these files were changed by wcode's own edit tools in the retained journal window.",
+        "在保留的日志窗口内，这些文件都不是 wcode 自身编辑工具改动的。"
+      ))}</p>`
+    : "";
+  const html = items.length
+    ? changeTable(items, false, touched)
+    : `<div class="section empty">${
         esc(state.project.git_review?.available === true ? localized("Working tree is clean.", "工作树没有未提交变更。") : localized("Git review is unavailable. This is not proof of a clean working tree.", "Git 检查不可用，不能据此判断工作树没有变更。"))
       }</div>`;
   setHtml(
     "changes",
     els.changes,
-    `${html}<div id="changeInspector"></div>`,
+    `${legend}${untouched}${html}<div id="changeInspector"></div>`,
     () =>
       els.changes.querySelectorAll("[data-req]").forEach((link) =>
         link.addEventListener("click", () => {

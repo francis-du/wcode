@@ -117,6 +117,24 @@ async function run(){
     const fallback=sandbox(false,true,{hash:'#token=test-ui&workspace=A&view=not-a-view'});
     assert.equal(fallback.run('state.workspaceTab'),'overview','an unknown view must fall back');
   });
+  await test('the change table marks files wcode itself changed',async()=>{
+    const change=(path,additions)=>({path,status:'modified',untracked:false,scope:'source',additions,deletions:0});
+    const s=sandbox();
+    s.context.fixture={...project(),changes:[change('src/wcode-edited.rs',2),change('src/pre-existing.rs',3)],
+      engineering_journal:{available:true,truncated:false,records:[
+        {stage:'change',tool:'apply_file_edits',paths:['src/wcode-edited.rs'],outcome:'succeeded',timestamp_ms:1},
+        {stage:'prove',tool:'verify_project',paths:['src/pre-existing.rs'],outcome:'succeeded',timestamp_ms:2},
+      ]}};
+    s.run('state.project=fixture;renderChanges();');
+    const html=s.node('#changes').innerHTML;
+    assert.ok(html.includes('>wcode<'),`the wcode badge must render: ${html}`);
+    assert.ok(html.includes('src/wcode-edited.rs'),'the edited file must be listed');
+    assert.equal((html.match(/>wcode</g)||[]).length,1,'only edit-tool paths are marked, not prove-stage ones');
+    const untouched=sandbox();
+    untouched.context.fixture={...project(),changes:[change('src/a.rs',1)],engineering_journal:{available:true,truncated:false,records:[]}};
+    untouched.run('state.project=fixture;renderChanges();');
+    assert.ok(untouched.node('#changes').innerHTML.includes('None of these files'),'an untouched change set must say so');
+  });
   await test('the workspace switcher lists every inherited workspace and marks the current one',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),workspace_options:[{id:'A',root:'/fixture/A'},{id:'B',root:'/fixture/B'},{id:'C',root:'/fixture/C'}]};
