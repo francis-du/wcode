@@ -67,6 +67,35 @@ fn credential_redaction_preserves_short_prefixes_identifiers_and_nonsecret_sourc
 }
 
 #[test]
+fn credential_redaction_keeps_numeric_counters_and_budgets_readable() {
+    for input in [
+        "estimated_tokens = 1234",
+        "current_tokens = 0",
+        "token_count = 42",
+        "let estimated_tokens = 4096;",
+        "max_tokens: 100000",
+        "estimated_tokens=\"8192\"",
+    ] {
+        let (safe, redacted) = crate::workspace::redact_sensitive_text(input);
+        assert!(!redacted, "numeric value must stay readable: {input}");
+        assert_eq!(safe, input);
+    }
+}
+
+#[test]
+fn credential_redaction_still_redacts_non_numeric_secret_values() {
+    for input in [
+        "access_token = abc123",
+        "password = hunter2",
+        "api_key: \"sk-live-abc\"",
+    ] {
+        let (safe, redacted) = crate::workspace::redact_sensitive_text(input);
+        assert!(redacted, "credential must stay redacted: {input}");
+        assert!(safe.contains("[REDACTED]"), "{safe}");
+    }
+}
+
+#[test]
 fn credential_redaction_canonical_source_and_command_text_keep_rows_and_safe_content() {
     let credential = format!("{}{}", "ghp_", "x".repeat(20));
     for input in [

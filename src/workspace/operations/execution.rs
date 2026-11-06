@@ -906,6 +906,15 @@ pub(super) fn redact_sensitive_line(line: &str) -> (String, bool) {
         return (line.to_owned(), recognized_redacted);
     }
     let value = line[separator + 1..].trim();
+    // A bare number is a counter or amount, not a credential. Redacting it
+    // corrupts ordinary source such as `estimated_tokens = 1234`.
+    let unquoted = value
+        .trim_matches(['"', '\'', '`'])
+        .trim_end_matches([';', ','])
+        .trim();
+    if !unquoted.is_empty() && unquoted.chars().all(|character| character.is_ascii_digit()) {
+        return (line.to_owned(), recognized_redacted);
+    }
     let looks_literal = (credential_header && !value.is_empty())
         || value.starts_with('"')
         || value.starts_with('\'')
