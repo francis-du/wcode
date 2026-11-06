@@ -1,4 +1,7 @@
-use crate::graph::{EdgeKind, GraphPrecision, NodeKind};
+use crate::graph::{
+    contains_ascii_case_insensitive, eq_ascii_case_insensitive, starts_with_ascii_case_insensitive,
+    EdgeKind, GraphPrecision, NodeKind,
+};
 use crate::graph_store::{
     load_selected, GraphChainInput, GraphChainMode, GraphChainNode, GraphChainResult,
 };
@@ -50,22 +53,21 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             .values()
             .filter(|node| code_chain_node_kind(node.kind))
             .filter_map(|node| {
-                let label = node.label.to_ascii_lowercase();
+                let label = &node.label;
                 let path = node
                     .attributes
                     .get("path")
                     .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_ascii_lowercase();
-                let score = if label == needle {
+                    .unwrap_or_default();
+                let score = if eq_ascii_case_insensitive(label, &needle) {
                     0
-                } else if graph_label_leaf(&label) == needle {
+                } else if eq_ascii_case_insensitive(graph_label_leaf(label), &needle) {
                     1
-                } else if label.starts_with(&needle) {
+                } else if starts_with_ascii_case_insensitive(label, &needle) {
                     2
-                } else if label.contains(&needle) {
+                } else if contains_ascii_case_insensitive(label, &needle) {
                     3
-                } else if path.contains(&needle) {
+                } else if contains_ascii_case_insensitive(path, &needle) {
                     4
                 } else {
                     return None;
@@ -92,6 +94,14 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
     }
 
     let root_set = root_ids.iter().cloned().collect::<BTreeSet<_>>();
+    // Index incident edges once. Scanning the full edge list for every visited
+    // node makes a bounded chain query O(component * total_edges); the index
+    // keeps it O(component + incident_edges).
+    let mut adjacency = HashMap::<&str, Vec<usize>>::new();
+    for (index, edge) in stored.snapshot.graph.edges.iter().enumerate() {
+        adjacency.entry(edge.from.as_str()).or_default().push(index);
+        adjacency.entry(edge.to.as_str()).or_default().push(index);
+    }
     let mut state = HashMap::<String, (usize, bool, bool)>::new();
     let mut queue = VecDeque::<(String, i8)>::new();
     for root in &root_ids {
@@ -113,7 +123,11 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             .nodes
             .get(&current)
             .map(|node| node.kind);
-        for edge in &stored.snapshot.graph.edges {
+        for &edge_index in adjacency
+            .get(current.as_str())
+            .map_or(&[][..], |incident| incident.as_slice())
+        {
+            let edge = &stored.snapshot.graph.edges[edge_index];
             let structural_root_edge = root_set.contains(&current)
                 && matches!(input.mode, GraphChainMode::Calls | GraphChainMode::Impact)
                 && matches!(

@@ -4,6 +4,53 @@ use std::collections::{BTreeMap, HashSet};
 
 pub type NodeId = String;
 
+/// ASCII case-insensitive comparisons that avoid allocating a lowercased copy
+/// of every node label and path on each query. Search needles are already
+/// lowercased, so only the haystack bytes are folded.
+pub(crate) fn eq_ascii_case_insensitive(left: &str, right: &str) -> bool {
+    left.len() == right.len()
+        && left
+            .bytes()
+            .zip(right.bytes())
+            .all(|(a, b)| a.to_ascii_lowercase() == b)
+}
+
+pub(crate) fn starts_with_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack.len() >= needle.len()
+        && haystack
+            .bytes()
+            .take(needle.len())
+            .zip(needle.bytes())
+            .all(|(a, b)| a.to_ascii_lowercase() == b)
+}
+
+pub(crate) fn ends_with_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack.len() >= needle.len()
+        && haystack
+            .bytes()
+            .rev()
+            .take(needle.len())
+            .zip(needle.bytes().rev())
+            .all(|(a, b)| a.to_ascii_lowercase() == b)
+}
+
+pub(crate) fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let haystack = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|window| {
+        window
+            .iter()
+            .zip(needle)
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {

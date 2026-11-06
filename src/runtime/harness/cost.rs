@@ -437,6 +437,7 @@ fn best_first_sentinel(
     history: &BTreeMap<(String, String), CheckHistory>,
 ) -> Option<(usize, f64, CheckHistory)> {
     let baseline_cost = estimated_static_cost(plan, history);
+    let later_cost = later_phase_cost(plan, history);
     let mut best: Option<(usize, f64, CheckHistory)> = None;
     for (index, check) in plan.iter().enumerate() {
         if check.phase != 0 {
@@ -445,7 +446,8 @@ fn best_first_sentinel(
         let Some(stats) = eligible_history(history.get(&check_key(check))) else {
             continue;
         };
-        let remaining_cost = estimated_remaining_cost_after(plan, history, &[index]);
+        let remaining_cost =
+            estimated_remaining_cost_after_with_later(plan, history, &[index], later_cost);
         if remaining_cost == 0 {
             continue;
         }
@@ -614,8 +616,23 @@ fn estimated_remaining_cost_after(
     history: &BTreeMap<(String, String), CheckHistory>,
     excluded_indices: &[usize],
 ) -> u128 {
-    phase_wall_cost(plan, history, 0, excluded_indices)
-        .saturating_add(later_phase_cost(plan, history))
+    estimated_remaining_cost_after_with_later(
+        plan,
+        history,
+        excluded_indices,
+        later_phase_cost(plan, history),
+    )
+}
+
+/// `later_phase_cost` does not depend on which phase-0 checks are excluded, so
+/// callers ranking several candidates compute it once instead of per candidate.
+fn estimated_remaining_cost_after_with_later(
+    plan: &[CheckSpec],
+    history: &BTreeMap<(String, String), CheckHistory>,
+    excluded_indices: &[usize],
+    later_cost: u128,
+) -> u128 {
+    phase_wall_cost(plan, history, 0, excluded_indices).saturating_add(later_cost)
 }
 
 fn later_phase_cost(

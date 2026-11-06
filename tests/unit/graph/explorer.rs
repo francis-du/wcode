@@ -165,6 +165,71 @@ fn graph_search_candidate_can_be_used_as_exact_focus_root() {
 }
 
 #[test]
+fn graph_search_is_case_insensitive_across_match_kinds() {
+    let (_dir, workspace) = fixture_workspace();
+    persist_fixture(&workspace);
+
+    // The fixture labels are lowercase; an uppercase query proves the haystack
+    // is folded without allocating a lowercased copy per node.
+    let exact = search(
+        &workspace,
+        &GraphSearchInput {
+            snapshot_id: None,
+            query: "ALPHA".into(),
+            limit: 20,
+        },
+    )
+    .unwrap();
+    assert_eq!(exact.results.len(), 1);
+    assert_eq!(exact.results[0].match_kind, "exact_label");
+
+    let prefix = search(
+        &workspace,
+        &GraphSearchInput {
+            snapshot_id: None,
+            query: "AL".into(),
+            limit: 20,
+        },
+    )
+    .unwrap();
+    assert!(prefix
+        .results
+        .iter()
+        .any(|candidate| candidate.node.id == "function:alpha"
+            && candidate.match_kind == "label_prefix"));
+
+    let contains = search(
+        &workspace,
+        &GraphSearchInput {
+            snapshot_id: None,
+            query: "LPH".into(),
+            limit: 20,
+        },
+    )
+    .unwrap();
+    assert!(contains
+        .results
+        .iter()
+        .any(|candidate| candidate.node.id == "function:alpha"
+            && candidate.match_kind == "label_contains"));
+
+    let path_suffix = search(
+        &workspace,
+        &GraphSearchInput {
+            snapshot_id: None,
+            query: "LIB.RS".into(),
+            limit: 20,
+        },
+    )
+    .unwrap();
+    assert!(path_suffix
+        .results
+        .iter()
+        .any(|candidate| candidate.node.id == "file:src/lib.rs"
+            && candidate.match_kind == "path_suffix"));
+}
+
+#[test]
 fn repository_overview_aggregates_cross_file_relations_from_same_snapshot() {
     let (_dir, workspace) = fixture_workspace();
     persist_fixture(&workspace);
