@@ -193,6 +193,10 @@ pub enum EvidenceKind {
     Reconciliation,
     ModelReview,
     HumanApproval,
+    /// A policy default authorized the operation without operator interaction.
+    /// Distinct from HumanApproval so an automatic decision can never satisfy a
+    /// gate that requires a real person.
+    PolicyAuthorization,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
@@ -214,8 +218,46 @@ pub enum EvidenceAuthority {
     NativeVerification,
     NativeStage,
     LocalOperator,
+    /// The permissive policy default, not a person. Recorded so the evidence
+    /// states who actually decided.
+    PolicyAutoApproved,
     SelfReported,
     ExternalReceipt,
+}
+
+/// A bounded approval handed to the recording call. Bundling the fields keeps
+/// the approval entry points from growing one argument per field and makes the
+/// recorded provenance explicit at the call site.
+#[derive(Clone, Debug)]
+pub(crate) struct ApprovalRecord<'a> {
+    pub approver: &'a str,
+    pub statement: &'a str,
+    pub kind: EvidenceKind,
+    pub authority: EvidenceAuthority,
+    pub binding: Option<crate::verification::change::ExecutionGitBinding>,
+}
+
+impl<'a> ApprovalRecord<'a> {
+    /// An operator-bound record: the authority follows the recorded kind so a
+    /// policy default can never be persisted as an operator decision.
+    pub(crate) fn operator(
+        approver: &'a str,
+        statement: &'a str,
+        kind: EvidenceKind,
+        binding: Option<crate::verification::change::ExecutionGitBinding>,
+    ) -> Self {
+        let authority = match kind {
+            EvidenceKind::PolicyAuthorization => EvidenceAuthority::PolicyAutoApproved,
+            _ => EvidenceAuthority::LocalOperator,
+        };
+        Self {
+            approver,
+            statement,
+            kind,
+            authority,
+            binding,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

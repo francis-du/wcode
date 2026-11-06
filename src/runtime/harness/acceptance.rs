@@ -273,17 +273,13 @@ impl ToolHarness {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
-        approver: &str,
-        statement: &str,
-        binding: Option<crate::verification::change::ExecutionGitBinding>,
+        approval: crate::evidence::ApprovalRecord<'_>,
     ) -> Result<crate::evidence::Evidence> {
         self.intelligence.verification_approve_authorized_bound(
             workspace_id,
             workspace,
             plan_id,
-            approver,
-            statement,
-            binding,
+            approval,
         )
     }
 }

@@ -175,12 +175,21 @@ async fn human_decisions_are_permissive_by_default_and_ignore_client_approver_au
         let approved = human_decision_call(&state, tool, plan, "I reviewed this exact plan.").await;
         assert_eq!(approved["isError"], false, "{approved}");
         let receipt = &approved["structuredContent"]["operator_authorization"];
-        assert_eq!(receipt["kind"], "human_decision");
+        // The permissive default is a policy authorization, never an operator
+        // decision, even though the MCP client supplied a display name.
+        assert_eq!(receipt["kind"], "policy_auto_approved");
         assert_eq!(receipt["status"], "approved_once");
         assert!(receipt["id"].as_str().unwrap().starts_with("AUTH-"));
         assert!(state.workspaces.latest_pending_authorization().is_none());
+        assert_eq!(
+            approved["structuredContent"]["approval_source"],
+            "policy_auto_approved"
+        );
         if tool == "verification_approve" {
-            assert_eq!(approved["structuredContent"]["authority"], "local_operator");
+            assert_eq!(
+                approved["structuredContent"]["authority"],
+                "policy_auto_approved"
+            );
         }
         assert_eq!(
             approved["structuredContent"]["display_approver"],
@@ -195,14 +204,21 @@ async fn human_decisions_are_permissive_by_default_and_ignore_client_approver_au
         )
         .unwrap();
         let serialized = evidence.to_string();
-        assert!(serialized.contains("human:local_operator:"), "{serialized}");
         assert!(
-            serialized.contains("\"authority\":\"local_operator\""),
+            serialized.contains("policy:policy_auto_approved:"),
+            "{serialized}"
+        );
+        assert!(
+            serialized.contains("\"authority\":\"policy_auto_approved\""),
             "{serialized}"
         );
         assert!(
             !serialized.contains("human:client-forged-admin"),
             "{serialized}"
+        );
+        assert!(
+            !serialized.contains("\"kind\":\"human_approval\""),
+            "a policy default must not be recorded as a human approval: {serialized}"
         );
         assert!(
             serialized.contains(receipt["fingerprint"].as_str().unwrap()),
@@ -240,11 +256,19 @@ async fn human_decision_revision_drift_still_requires_replanning() {
         "{stale}"
     );
     let (_, workspace) = state.workspaces.select(None).unwrap();
+    // The permissive default records a policy authorization, so the plan still
+    // lacks a real human approval after the stale-revision rejection.
     assert!(
-        state
+        !state
             .harness
             .verification_status(state.workspaces.default_id(), &workspace, "VP-human-bound")
             .unwrap()
             .human_approval
     );
+    assert!(state
+        .harness
+        .verification_status(state.workspaces.default_id(), &workspace, "VP-human-bound")
+        .unwrap()
+        .blockers
+        .contains(&"human-approval-required".to_owned()));
 }
