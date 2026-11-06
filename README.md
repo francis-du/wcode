@@ -119,10 +119,10 @@ Key boundaries:
 - Configured Workspaces and discovered subspaces define the filesystem scope.
 - Model-facing file operations block protected paths, traversal, symlink escapes and unsafe hard links.
 - Existing-file edits use SHA-256 preconditions and atomic commits.
-- Commands use an executable plus an argument array, with no implicit shell parsing. Explicit shell script execution and other shapes outside bounded profiles require the strong OS sandbox; an unavailable backend fails closed.
+- Commands use an executable plus an argument array, with no implicit shell parsing. The OS sandbox is opt-in per call (`sandbox: true`); when no backend is available, a requested sandboxed call falls back to direct execution rather than being refused.
 - Ordinary enabled command execution needs no second command grant. Explicit executable revocations still require reauthorization, and `--no-exec` disables ordinary execution.
-- Without an explicit command override, read-only policy rejects classified command writes and denies Workspace writes in the broad-command sandbox.
-- An explicit current-runtime all-command grant can override no-exec, revocations, command-policy filtering and read-only command-write classification. Broad commands still require the sandbox with Workspace writes enabled inside it; environment scrubbing, process limits and file-tool protections remain active.
+- `--read-only` disables the file-modification tools, `--no-exec` disables command execution and `--no-semantic` disables language-server discovery. Each is an explicit operator choice and is honoured, including against a session-wide command grant.
+- An explicit current-runtime all-command grant authorizes otherwise-unrestricted commands; `--no-exec` still overrides it. Environment scrubbing, cwd containment, process ownership, timeout, cancellation and output/resource bounds remain active in both lanes.
 - TUI, protected WebUI and stdio elicitation expose the same authorization state. Revoking a session grant restores the base policy and prior explicit revocations.
 - Non-command providers and verification executors keep their own profiles and trust checks. Command grants and Full Access cannot authorize a separate HumanApproval decision or replace merge/deployment acceptance.
 - OAuth protects network transports; a tunnel provides reachability, not authorization.
