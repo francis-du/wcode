@@ -469,7 +469,24 @@ pub(super) fn merge(pack: &mut Value, mut records: Vec<Value>) {
     }
     files.truncate(MAX_AGENT_FILES);
     pack["files"] = json!(files);
-    pack["hot_source"] = json!(sources);
+    // Anchor excerpts stay first (they are the caller's stated location), then
+    // the symbol bodies the request resolved are appended when the excerpt does
+    // not already cover the same span. Excerpts never replace those bodies: an
+    // explicit symbol name is the stronger locator and clearing them left
+    // requests that named a symbol with a path with no body at all.
+    let mut merged: Vec<Value> = sources;
+    for source in pack["hot_source"].as_array().cloned().unwrap_or_default() {
+        let duplicate = merged.iter().any(|existing| {
+            existing["path"] == source["path"]
+                && existing["sha256"] == source["sha256"]
+                && existing.pointer("/body/start_line") == source.pointer("/body/start_line")
+                && existing.pointer("/body/end_line") == source.pointer("/body/end_line")
+        });
+        if !duplicate {
+            merged.push(source);
+        }
+    }
+    pack["hot_source"] = json!(merged);
     pack["retrieval"] = json!({
         "strategy": "explicit-locations",
         "resolved": records.iter().filter(|record| record["status"] == "resolved").count(),
