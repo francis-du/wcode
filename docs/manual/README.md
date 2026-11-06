@@ -10,7 +10,7 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
-- [v0.9.3 — Change observability, graph query efficiency and explicit trust boundaries](releases/v0.9.3/)
+- [v0.9.3 — Change observability and explicit trust boundaries](releases/v0.9.3/)
 
 - [v0.9.2 — Standalone engineering and resilient Jobs observation](releases/v0.9.2/)
 

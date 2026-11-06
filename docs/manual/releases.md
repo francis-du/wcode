@@ -9,7 +9,7 @@ permalink: /docs/releases/
 
 # Releases
 
-- [v0.9.3 — Change observability, graph query efficiency and explicit trust boundaries](v0.9.3/)
+- [v0.9.3 — Change observability and explicit trust boundaries](v0.9.3/)
 
 - [v0.9.2 — Standalone engineering and resilient Jobs observation](v0.9.2/)
 
