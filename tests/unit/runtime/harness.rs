@@ -449,6 +449,13 @@ fn change_review_parsers_classify_status_metrics_and_risk() {
     assert_eq!(file_category("Cargo.lock"), "manifest");
     assert!(security_sensitive_path("src/auth.rs"));
     assert!(!security_sensitive_path("src/author.rs"));
+    // Classification stays case-insensitive without lowercasing the path.
+    assert_eq!(file_category("CARGO.TOML"), "manifest");
+    assert_eq!(file_category("Docs/README.MD"), "docs");
+    assert_eq!(file_category("Src/Auth/Login_Test.RS"), "test");
+    assert_eq!(file_category(".GitHub/Workflows/CI.YML"), "workflow");
+    assert!(security_sensitive_path("src/OAuth/TokenStore.rs"));
+    assert!(!security_sensitive_path("src/author.rs"));
     assert_eq!(
         normalize_numstat_path("src/{old.rs => new.rs}"),
         "src/new.rs"
