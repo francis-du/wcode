@@ -775,8 +775,10 @@ pub async fn run() -> Result<()> {
                 let _ = timeout(Duration::from_secs(120), settled.changed()).await;
             }
             let base = url_slot.read().unwrap().clone();
+            // Open on the current-changes view: the point of the automatic
+            // opener is to show what the runtime is doing right now.
             resources::open_in_browser(
-                &format!("{base}/intelligence#token={token}"),
+                &format!("{base}/intelligence#token={token}&view=changes"),
                 "Observatory",
                 &observatory_monitor,
             );

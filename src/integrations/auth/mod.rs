@@ -298,14 +298,24 @@ impl AuthState {
     /// `primary()` is the local endpoint until a tunnel is promoted, so the
     /// link always points at the address this process serves.
     pub fn observatory_url(&self) -> Option<String> {
+        self.observatory_url_in_view(None)
+    }
+
+    /// The Observatory address scoped to one view. `view` becomes a hash
+    /// parameter so a caller can deep-link to the current changes.
+    pub fn observatory_url_in_view(&self, view: Option<&str>) -> Option<String> {
         if !self.http_served {
             return None;
         }
-        Some(format!(
+        let base = format!(
             "{}/intelligence#token={}",
             self.public_endpoints.primary().trim_end_matches('/'),
             self.ui_token
-        ))
+        );
+        Some(match view {
+            Some(view) => format!("{base}&view={view}"),
+            None => base,
+        })
     }
 
     pub fn ui_authorized(&self, headers: &HeaderMap) -> bool {

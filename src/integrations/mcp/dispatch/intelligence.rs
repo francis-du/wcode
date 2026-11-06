@@ -322,8 +322,9 @@ pub(super) async fn call(
             .await
         }
         "open_observatory" => Ok(json!({
-            "url": mcp_catalog::observatory_url(state),
+            "url": mcp_catalog::observatory_changes_url(state),
             "resource": "ui://wcode/observatory",
+            "view": "changes",
             "served_by_this_process": mcp_catalog::observatory_url(state).is_some(),
             "workspace": state.workspaces.default_id(),
         })),

@@ -70,6 +70,10 @@ async fn observatory_ui_resource_and_tool_are_discoverable_and_authenticated() {
         html.contains("/intelligence#token="),
         "the UI resource must frame the authenticated Observatory: {html}"
     );
+    assert!(
+        html.contains("view=changes"),
+        "the workbench pane must open on the current changes: {html}"
+    );
 
     let tools = call(
         state.clone(),
@@ -108,6 +112,10 @@ async fn observatory_ui_resource_and_tool_are_discoverable_and_authenticated() {
     assert!(
         url.starts_with("http://127.0.0.1:8765/intelligence#token="),
         "the returned address must be the authenticated local Observatory: {url}"
+    );
+    assert!(
+        url.contains("view=changes"),
+        "the address must open on the current changes: {url}"
     );
 }
 

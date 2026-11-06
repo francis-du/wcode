@@ -88,6 +88,12 @@ pub(crate) fn observatory_url(state: &crate::mcp::AppState) -> Option<String> {
     state.auth.observatory_url()
 }
 
+/// The Observatory address opened on the current-changes view, which is what an
+/// operator watching the runtime wants to see.
+pub(crate) fn observatory_changes_url(state: &crate::mcp::AppState) -> Option<String> {
+    state.auth.observatory_url_in_view(Some("changes"))
+}
+
 pub(crate) fn resource_read(uri: &str, observatory_url: Option<&str>) -> Result<Value, String> {
     let (text, mime) = match uri {
         "wcode://runtime/workflow" => (
