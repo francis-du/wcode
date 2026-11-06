@@ -883,6 +883,15 @@ async function run(){
     nav.search.events.keydown({key:'Enter',preventDefault(){}});
     assert.deepEqual(s.context.activated,['one-new'],'same visible text must not retain a stale item ID');
   });
+  await test('change and file navigation opens the exact object instead of only revealing a section',async()=>{
+    const s=sandbox();
+    s.context.__openedChanges=[];s.context.__openedFiles=[];
+    s.run('openChangeInspection=path=>__openedChanges.push(path);openCodeReader=path=>__openedFiles.push(path);');
+    s.run('activateProjectNavigatorItem({kind:"change",id:"src/a.rs"});');
+    s.run('activateProjectNavigatorItem({kind:"file",id:"src/b.rs"});');
+    assert.deepEqual(s.context.__openedChanges,['src/a.rs'],'a change jump must open that change');
+    assert.deepEqual(s.context.__openedFiles,['src/b.rs'],'a file jump must open that file');
+  });
   await test('global shortcuts ignore held toggle keys and keep palette focus scoped',async()=>{
     const s=sandbox();let navigatorFocus=0;
     s.node('#projectNavigator').focus=()=>{navigatorFocus++;};
