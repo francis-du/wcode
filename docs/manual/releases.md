@@ -9,6 +9,8 @@ permalink: /docs/releases/
 
 # Releases
 
+- [v0.9.3 — Change observability, graph query efficiency and explicit trust boundaries](v0.9.3/)
+
 - [v0.9.2 — Standalone engineering and resilient Jobs observation](v0.9.2/)
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
