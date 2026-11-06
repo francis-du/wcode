@@ -95,7 +95,12 @@ function engineeringStage(tool) {
 }
 function engineeringAge(at, active = false) {
   if (active) return localized("now", "现在");
-  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  // A future or malformed timestamp is an observation problem, not something
+  // that just happened; clamping it to zero would claim an impossible age.
+  if (!Number.isFinite(at)) return localized("unknown time", "时间未知");
+  const delta = Math.round((Date.now() - at) / 1000);
+  if (delta < 0) return localized("in the future", "时间在未来");
+  const seconds = delta;
   if (seconds < 60) return localized(`${seconds}s ago`, `${seconds} 秒前`);
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return localized(`${minutes}m ago`, `${minutes} 分钟前`);
