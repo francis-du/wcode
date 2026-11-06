@@ -1,6 +1,7 @@
 use crate::evidence_store::workspace_state_directory;
 use crate::graph::{
-    EdgeKind, GraphEdge, GraphNode, GraphPrecision, NodeKind, SoftwareGraphSnapshot,
+    contains_ascii_case_insensitive, EdgeKind, GraphEdge, GraphNode, GraphPrecision, NodeKind,
+    SoftwareGraphSnapshot,
 };
 use crate::workspace::Workspace;
 use anyhow::{bail, Context, Result};
@@ -306,7 +307,7 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<Gr
             || input.kind.is_some_and(|kind| kind != node.kind)
             || label
                 .as_ref()
-                .is_some_and(|needle| !node.label.to_ascii_lowercase().contains(needle))
+                .is_some_and(|needle| !contains_ascii_case_insensitive(&node.label, needle))
         {
             continue;
         }
