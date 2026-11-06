@@ -9,24 +9,19 @@ permalink: /docs/releases/
 
 # Releases
 
+## Recent
+
 - [v0.9.6 — Allocation-free repo map and change classification](v0.9.6/)
-
 - [v0.9.5 — Allocation-free graph search and diff ordering](v0.9.5/)
-
 - [v0.9.4 — Graph query efficiency and honest experience decay](v0.9.4/)
 
-- [v0.9.3 — Change observability and explicit trust boundaries](v0.9.3/)
-
-- [v0.9.2 — Standalone engineering and resilient Jobs observation](v0.9.2/)
-
-Release notes are indexed here instead of being expanded in the global documentation sidebar. The newest release stays prominent; older releases remain permanently linkable and are grouped by minor series.
+Release notes are indexed here instead of being expanded in the global documentation sidebar. The three newest releases stay prominent; every older release remains permanently linkable in its minor-series group below, and no release is listed twice.
 
 ## 0.9.x
 
+- [v0.9.3](v0.9.3/) — change observability, symbol-level change inspection and explicit trust boundaries.
 - [v0.9.2](v0.9.2/) — engineering work queues, retained-output search, guarded source navigation and bounded observation recovery.
-
 - [v0.9.1](v0.9.1/) — upgrade and reconnection guide, scoped job controls, independent Cargo checks, TLS patches, and troubleshooting.
-
 - [v0.9.0](v0.9.0/) — shared attention, terminal observation, guarded source paging, scoped model-worker coordination, and compact context.
 
 ## 0.8.x
@@ -42,7 +37,6 @@ Release notes are indexed here instead of being expanded in the global documenta
 - [v0.7.6](v0.7.6/) — model-free Check history, edit-ready 1K context, multi-target retrieval and stronger adversarial verification.
 - [v0.7.5](v0.7.5/) — concurrent instance-verified endpoints, generation-safe trust, isolated TUI shortcuts and real-WebKit responsive Observatory layouts.
 - [v0.7.4](v0.7.4/) — Workspace-session command trust, standard MCP image/audio Tool Results, and a current-product docs/UI refresh.
-
 - [v0.7.3](v0.7.3/) — lower-friction autonomous development commands, broader polyglot quality, stronger context/cache correctness, and WebUI/verification reliability.
 - [v0.7.2](v0.7.2/) — clearer Observatory/TUI/Setup state, model-host efficiency, precise advanced verification targets, and safer low-friction repository inspection.
 - [v0.7.1](v0.7.1/) — network-jitter tolerant stable endpoints, faster project switching, stronger parallel execution, and lower development authorization friction.
@@ -73,7 +67,7 @@ Release notes are indexed here instead of being expanded in the global documenta
 
 ## Release policy
 
-Each release page is immutable historical documentation. New versions add one release page per language and one entry at the top of this index; the global sidebar continues to expose only the single Releases entry so navigation stays bounded as history grows.
+Each release page is immutable historical documentation. New versions add one release page per language and one entry under **Recent**; once three newer releases exist, the oldest of those moves into its minor-series group so no release is listed twice. The global sidebar continues to expose only the single Releases entry so navigation stays bounded as history grows.
 
 ## Verifying an already published release
 
