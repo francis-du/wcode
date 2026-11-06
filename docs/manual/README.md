@@ -10,6 +10,8 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.6 — Allocation-free repo map and change classification](releases/v0.9.6/)
+
 - [v0.9.5 — Allocation-free graph search and diff ordering](releases/v0.9.5/)
 
 - [v0.9.4 — Graph query efficiency and honest experience decay](releases/v0.9.4/)

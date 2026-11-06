@@ -9,6 +9,8 @@ permalink: /docs/releases/
 
 # Releases
 
+- [v0.9.6 — Allocation-free repo map and change classification](v0.9.6/)
+
 - [v0.9.5 — Allocation-free graph search and diff ordering](v0.9.5/)
 
 - [v0.9.4 — Graph query efficiency and honest experience decay](v0.9.4/)
