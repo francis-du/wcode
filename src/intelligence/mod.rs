@@ -5,7 +5,10 @@ use crate::evidence::{
     RequiredVerificationCheck, Revision, VerificationCheckReceipt, VerificationExecutionReceipt,
 };
 use crate::evidence_store;
-use crate::graph::{EdgeKind, NodeKind, SoftwareGraphSnapshot};
+use crate::graph::{
+    contains_ascii_case_insensitive, push_ascii_lowercased, EdgeKind, NodeKind,
+    SoftwareGraphSnapshot,
+};
 use crate::graph_provider_store;
 use crate::reconcile::{
     ChangeIntent, DesignChange, DesignChangeKind, ImpactAnalysis, ReconciliationExecution,
@@ -629,11 +632,12 @@ fn provider_graph_context(
                 .attributes
                 .get("path")
                 .and_then(serde_json::Value::as_str);
-            let mut haystack = node.label.to_ascii_lowercase();
+            let mut haystack = String::with_capacity(node.label.len() + 32);
+            push_ascii_lowercased(&mut haystack, &node.label);
             for key in ["name", "qualified_name", "path"] {
                 if let Some(value) = node.attributes.get(key).and_then(serde_json::Value::as_str) {
                     haystack.push(' ');
-                    haystack.push_str(&value.to_ascii_lowercase());
+                    push_ascii_lowercased(&mut haystack, value);
                 }
             }
             let exact = usize::from(!needle.is_empty() && haystack.contains(&needle));
@@ -821,14 +825,16 @@ fn ranked_context_ids(
     let mut ranked = items
         .into_iter()
         .filter_map(|(id, text)| {
-            let haystack = text.to_ascii_lowercase();
-            let exact = usize::from(haystack.contains(&needle));
+            let exact = usize::from(contains_ascii_case_insensitive(&text, &needle));
             let token_hits = tokens
                 .iter()
-                .filter(|token| haystack.contains(token.as_str()))
+                .filter(|token| contains_ascii_case_insensitive(&text, token))
                 .count();
-            let id_lower = id.to_ascii_lowercase();
-            let id_match = usize::from(tokens.iter().any(|token| id_lower.contains(token)));
+            let id_match = usize::from(
+                tokens
+                    .iter()
+                    .any(|token| contains_ascii_case_insensitive(&id, token)),
+            );
             let score = exact
                 .saturating_mul(100)
                 .saturating_add(token_hits.saturating_mul(10))

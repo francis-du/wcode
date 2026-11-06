@@ -521,3 +521,31 @@ fn transitive_call_impact_walks_reverse_callers() {
     assert!(symbols.contains("src/caller.rs::caller"));
     assert_eq!(callers, 1);
 }
+
+#[test]
+fn context_ranking_matches_case_insensitively() {
+    let items = vec![
+        (
+            "REQ-1".to_owned(),
+            "Workspace isolation boundary".to_owned(),
+        ),
+        (
+            "REQ-2".to_owned(),
+            "Unrelated analytics dashboard".to_owned(),
+        ),
+    ];
+    let tokens = vec!["workspace".to_owned(), "isolation".to_owned()];
+    let ranked = ranked_context_ids(items, "WORKSPACE ISOLATION", &tokens, 4);
+    assert_eq!(ranked, vec!["REQ-1"]);
+}
+
+#[test]
+fn pushed_lowercase_haystack_keeps_field_boundaries() {
+    let mut haystack = String::new();
+    push_ascii_lowercased(&mut haystack, "Workspace_Command");
+    haystack.push(' ');
+    push_ascii_lowercased(&mut haystack, "Guard");
+    assert_eq!(haystack, "workspace_command guard");
+    assert!(contains_ascii_case_insensitive(&haystack, "command guard"));
+    assert!(!contains_ascii_case_insensitive(&haystack, "commandguard"));
+}

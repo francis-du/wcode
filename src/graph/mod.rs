@@ -51,6 +51,15 @@ pub(crate) fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> b
     })
 }
 
+/// Appends the ASCII-lowercased form of `value` without allocating a copy per
+/// field. Fields are joined with spaces, so callers that need the boundary
+/// semantics of the joined haystack must keep appending to one buffer.
+pub(crate) fn push_ascii_lowercased(target: &mut String, value: &str) {
+    for character in value.chars() {
+        target.push(character.to_ascii_lowercase());
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
