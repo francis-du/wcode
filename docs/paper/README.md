@@ -1,6 +1,6 @@
 # wcode Research Paper
 
-**wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents**
+**wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents**
 
 [English manuscript — revision 2](paper.en.md) · [中文原稿](paper.zh-CN.md)
 
@@ -36,7 +36,7 @@ SHA-256: b117266f8c33cebcef26cb2fc9d56a5bf50b48f604d67ffab1944a16b4807ffc
 
 There are 60 synthetic development scenarios, three budgets, two cache phases, one observation per cell, 360 measured queries, and 180 separate warmups. Model calls are zero for this measurement only, not for development or writing. Budgets are serialized-byte proxies, not model-token billing. Evidence coverage is not autonomous bug detection or patch correctness.
 
-The raw report remains under `target/`. The attempt to create a document-directory archive was blocked by execution safety checks; no `fitness.raw.json` archive is claimed. Do not remove the original report before arranging a separately authorized archive. Selected fields and hashes do not reconstruct raw samples or uncommitted source, and raw sample scores do not contain all original tool responses.
+The raw report is **no longer present** at `target/engineering-fitness-1789665000441866000-37653.json`, and no `docs/paper/fitness.raw.json` archive exists. The earlier archival attempt was blocked by execution safety checks, so the raw bytes were never copied into the document directory. Raw-sample aggregates, the concrete example, and the nine historical controls therefore **cannot be re-verified**; only the retained selected fields in `snapshot.json` and the manuscript tables derived from them can still be checked. The expected size and SHA-256 above remain the identity of the original report, not a claim that its bytes are currently readable. Selected fields and hashes do not reconstruct raw samples or uncommitted source, and raw sample scores do not contain all original tool responses. Do not treat a passing check as raw-report verification.
 
 ## Validate retained data
 
@@ -46,7 +46,7 @@ From the repository root:
 python3 tests/paper_artifacts.py
 ```
 
-This read-only check compares the selected fields, raw-sample aggregates, manuscript tables, concrete example, and local documentation links. It uses the original report or an identical archive when available. It does not execute a new experiment or certify the full product. The original experiment commands and the separately available release-trial command are recorded in `evidence.en.md`.
+This read-only check compares the selected fields, manuscript tables, and local documentation links. When the canonical report or a byte-identical archive is present it also verifies raw-sample aggregates, the concrete example, and the recorded controls; otherwise it reports `raw_report_unavailable` with `raw_verified: false` and checks the manuscript against the retained selected fields only. It does not execute a new experiment or certify the full product. The original experiment commands and the separately available release-trial command are recorded in `evidence.en.md`.
 
 ## Build the English paper
 

@@ -31,4 +31,4 @@ permalink: /zh/docs/paper/
 python3 tests/paper_artifacts.py
 ```
 
-检查使用 `snapshot.json` 指定的原始报告，或存在时使用字节一致的归档；它核对已有数据与论文，不运行新的 Fitness 实验。构建要求和原始实验命令见[论文目录说明](/paper/README.md)。
+检查使用 `snapshot.json` 指定的原始报告，或存在时使用字节一致的归档；它核对已有数据与论文，不运行新的 Fitness 实验。原始报告目前不存在，也没有归档，因此检查会报告 `raw_report_unavailable`，只按保留的选定字段核对论文。构建要求和原始实验命令见[论文目录说明](/paper/README.md)。

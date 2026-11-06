@@ -1,6 +1,6 @@
 # wcode：面向编码智能体的证据驱动项目工具与无模型适应度评测
 
-*wcode: An Evidence-Driven Project tools and Model-Free Fitness Evaluation for Coding Agents*
+*wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents*
 
 技术论文初稿 · 2026 年 9 月 18 日
 

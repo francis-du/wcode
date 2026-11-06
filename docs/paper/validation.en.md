@@ -2,6 +2,18 @@
 
 Date: September 18, 2026. This record concerns document delivery and retained-data consistency, not a new Check history experiment.
 
+## Current availability of the raw report (checked 2026-11-06)
+
+The canonical raw report at `target/engineering-fitness-1789665000441866000-37653.json` is **no longer present**, and no `docs/paper/fitness.raw.json` archive exists. The archival attempt described below was blocked, so the raw bytes were never copied into the document directory and the file has since disappeared from `target/`.
+
+Consequences, stated plainly:
+
+- `python3 tests/paper_artifacts.py` now reports `raw_report_unavailable` with `raw_verified: false`. It still verifies the manuscript structure, the two manuscript tables against the retained selected fields in `snapshot.json`, and the bilingual documentation links.
+- The raw-sample aggregates, the concrete delivery-failure example, and the nine historical controls recorded on September 18 cannot be re-verified against the original bytes. Their recorded values remain in this document and in `snapshot.json`, but they are historical claims, not currently checkable ones.
+- The expected report size and SHA-256 remain the identity of the original report; they are not evidence that the bytes are readable now.
+
+A future archival copy with the recorded SHA-256 would restore full verification; the check detects either location.
+
 ## Repository checks
 
 `python3 tests/paper_artifacts.py` completed successfully. It verified 360 unique measurement cells, 180 separately recorded warmups, six selected-data groups against the canonical raw report, two manuscript tables, the recorded delivery-failure example, and reciprocal bilingual document links. The nine controls are historical results read from the report, not newly executed controls.
