@@ -173,9 +173,10 @@ function renderRevisions() {
       }</div></div><div class="revision-meta">${num(entry.nodes)} ${
         esc(t("nodes"))
       } / ${num(entry.edges)} ${esc(t("edges"))}</div></div>`
-    ).join("")
+    ).join("") || `<div class="empty">${esc(t("No retained graph revisions yet."))}</div>`
   }</div>${
     risks.length
+
       ? `<h3 class="risk-heading">${
         esc(t("Current structured risks"))
       }</h3><div class="risk-list">${
