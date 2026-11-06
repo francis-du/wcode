@@ -112,12 +112,14 @@ impl ToolHarness {
                     .get("signature")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                let mut haystack = qualified_name.to_ascii_lowercase();
+                let mut haystack =
+                    String::with_capacity(qualified_name.len() + path.len() + signature.len() + 8);
+                crate::graph::push_ascii_lowercased(&mut haystack, &qualified_name);
                 haystack.push(' ');
-                haystack.push_str(&path.to_ascii_lowercase());
+                crate::graph::push_ascii_lowercased(&mut haystack, &path);
                 if !signature.is_empty() {
                     haystack.push(' ');
-                    haystack.push_str(&signature.to_ascii_lowercase());
+                    crate::graph::push_ascii_lowercased(&mut haystack, signature);
                 }
                 let token_hits = query_tokens
                     .iter()

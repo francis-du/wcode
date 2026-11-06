@@ -35,6 +35,33 @@ fn repo_map_common_scope_keeps_root_level_sources() {
 }
 
 #[test]
+fn repo_map_matches_name_path_and_signature_tokens() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src/quantum")).unwrap();
+    fs::write(
+        root.path().join("src/quantum/leap_module.rs"),
+        "pub fn baryonium_handler() -> BaryoniumPayload { BaryoniumPayload::default() }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let mut missing = Vec::new();
+    for query in ["baryonium_handler", "leap_module", "BaryoniumPayload"] {
+        let pack = harness
+            .agent_context("demo", &workspace, query, 4_000, &[])
+            .unwrap();
+        let items = pack["repo_map"]["items"].as_array().unwrap();
+        if !items
+            .iter()
+            .any(|item| item["qualified_name"] == "baryonium_handler")
+        {
+            missing.push(format!("query={query} map={}", pack["repo_map"]));
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+#[test]
 fn repo_map_relation_queries_preserve_cross_directory_recall() {
     let root = tempfile::tempdir().unwrap();
     for directory in ["src/domain", "src/adapter", "tests"] {
