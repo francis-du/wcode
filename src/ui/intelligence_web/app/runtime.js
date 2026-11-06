@@ -21,6 +21,13 @@ function renderWorkspaceIdentity() {
     els.workspaceRevision.textContent = revision ? revision.slice(0, 19) : "";
     els.workspaceRevision.title = revision ? localized(`Observed source revision: ${revision}`, `观测源码版本：${revision}`) : "";
   }
+  const build = typeof project?.runtime?.version === "string" ? project.runtime.version : "";
+  if (els.workspaceBuild) {
+    els.workspaceBuild.textContent = build ? `wcode ${build}` : "";
+    els.workspaceBuild.title = build
+      ? localized(`Running wcode build: ${build}. This is separate from the observed source revision.`, `运行中的 wcode 版本：${build}。它与观测源码版本是两个身份。`)
+      : "";
+  }
   const page = els.workspaceTitle?.textContent || t("Project Status");
   document.title = `${page} · ${name} · wcode`;
 }

@@ -102,6 +102,16 @@ async function run(){
     assert.equal(s.node('#workspaceName').textContent,'B');
     assert.equal(s.node('#workspaceRoot').textContent,'');assert.equal(s.node('#workspaceRevision').textContent,'');
   });
+  await test('workspace identity shows the running build separately from the observed source revision',async()=>{
+    const s=sandbox();
+    s.context.fixture={...project(),project:'Demo',root:'/fixture/Demo',proof:{revision_code:'sha256:current-source'},runtime:{version:'9.9.9',process_id:4242}};
+    s.run('state.project=fixture;renderWorkspaceIdentity();');
+    assert.equal(s.node('#workspaceRevision').textContent,'sha256:current-source'.slice(0,19));
+    assert.equal(s.node('#workspaceBuild').textContent,'wcode 9.9.9');
+    assert.match(s.node('#workspaceBuild').title,/Running wcode build: 9\.9\.9/);
+    s.run('state.project={...fixture,runtime:{}};renderWorkspaceIdentity();');
+    assert.equal(s.node('#workspaceBuild').textContent,'','an unknown build must not invent a version');
+  });
   await test('the workspace switcher lists every inherited workspace and marks the current one',async()=>{
     const s=sandbox();
     s.context.fixture={...project(),workspace_options:[{id:'A',root:'/fixture/A'},{id:'B',root:'/fixture/B'},{id:'C',root:'/fixture/C'}]};

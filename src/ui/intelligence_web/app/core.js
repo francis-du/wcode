@@ -23,6 +23,7 @@ const els = {
   workspaceName: q("#workspaceName"),
   workspaceRoot: q("#workspaceRoot"),
   workspaceRevision: q("#workspaceRevision"),
+  workspaceBuild: q("#workspaceBuild"),
   snapshotState: q("#snapshotState"),
   language: q("#language"),
   theme: q("#theme"),

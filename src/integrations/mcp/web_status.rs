@@ -105,6 +105,12 @@ pub(super) fn snapshot(
         "reconciliation": reconciliation,
         "reconciliation_execution": reconciliation_execution,
         "verification": verification,
+        // The running build is a separate identity from the observed source
+        // revision; the Observatory shows both so a stale server is visible.
+        "runtime": {
+            "version": env!("CARGO_PKG_VERSION"),
+            "process_id": std::process::id(),
+        },
     }))
 }
 
