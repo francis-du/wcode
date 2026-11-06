@@ -35,8 +35,8 @@ function changeWcodeEditsPanel(path) {
   const header = `<h4>${esc(localized("wcode edits to this file", "wcode 对该文件的改动"))}</h4>`;
   if (!edits.length) {
     return `<section class="change-wcode-edits">${header}<p class="panel-meta">${esc(localized(
-      "No wcode edit is recorded for this file in the retained journal window.",
-      "在保留的日志窗口内，没有该文件的 wcode 改动记录。"
+      "No wcode edit is recorded for this file in the retained journal window; the journal covers wcode's edit tools.",
+      "在保留的日志窗口内，没有该文件的 wcode 改动记录；日志覆盖 wcode 自身的编辑工具。"
     ))}</p></section>`;
   }
   const rows = edits.slice(0, 8).map((record) => {
@@ -227,8 +227,8 @@ function renderChanges() {
   const items = state.project.changes || [];
   const legend = touched && items.length
     ? `<p class="panel-meta">${esc(localized(
-        "“wcode” marks a file this runtime changed through its own edit tools.",
-        "“wcode” 标记本运行时通过自身编辑工具改动的文件。"
+        "“wcode” marks a file this runtime changed through its own edit tools, as recorded in the engineering journal.",
+        "“wcode” 标记本运行时通过自身编辑工具改动的文件，来源为工程日志。"
       ))}${
         state.project.engineering_journal?.truncated
           ? ` ${esc(localized(
