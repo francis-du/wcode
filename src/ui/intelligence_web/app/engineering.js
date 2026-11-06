@@ -49,12 +49,25 @@ function activateProjectNavigatorItem(item) {
     state.filter = "all"; state.selected = item.id; els.search.value = "";
     invalidate("requirements", "detail"); renderRequirements(); renderDetail(); revealSection("requirementsSection");
     requestAnimationFrame(() => focusSelectedRequirement({ focus: true }));
-  } else if (item.kind === "change") revealSection("changesSection");
-  else if (item.kind === "file") revealSection("filesSection");
+  } else if (item.kind === "change") {
+    revealSection("changesSection");
+    void openChangeInspection(item.id);
+    requestAnimationFrame(() => focusSelectedChangePath(item.id));
+  } else if (item.kind === "file") {
+    revealSection("filesSection");
+    void openCodeReader(item.id);
+  }
   els.projectNavigator.value = "";
   els.navigatorResults.classList.add("hidden");
   els.projectNavigator.setAttribute("aria-expanded", "false");
   els.projectNavigator.removeAttribute("aria-activedescendant");
+}
+function focusSelectedChangePath(path) {
+  const target = [...(els.changes?.querySelectorAll("[data-change-path]") || [])]
+    .find(button => button.dataset.changePath === path);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  target.focus({ preventScroll: true });
 }
 function navigatorKindLabel(kind) {
   return ({ subsystem: localized("Subsystem", "子系统"), component: localized("Component", "组件"), requirement: localized("Requirement", "需求"), change: localized("Change", "变更"), file: localized("File", "文件") })[kind] || kind;
