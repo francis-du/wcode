@@ -62,3 +62,7 @@ button.code-reader-range.added{border-color:color-mix(in srgb,var(--good) 44%,va
 .code-reader-symbol-reqs:empty{display:none}
 .code-reader-symbol-reqs .code-reader-requirement{display:inline-grid;width:auto;min-height:24px;padding:2px 7px}
 .code-reader-symbol-reqs .code-reader-requirement span{font-size:12px}
+.code-reader-goto{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+.code-reader-goto input{width:64px;height:30px;padding:0 7px;border:1px solid var(--glass-line);border-radius:8px;background:transparent;color:var(--text);font:12px var(--font-mono)}
+.code-reader-goto input:focus{border-color:var(--accent);outline:none}
+.code-reader-goto button{min-height:30px;padding:0 9px;font-size:12px}

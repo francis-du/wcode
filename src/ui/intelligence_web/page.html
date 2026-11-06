@@ -109,6 +109,10 @@
         <code id="codeReaderPath"></code>
       </div>
       <div class="code-reader-actions">
+        <form id="codeReaderGoto" class="code-reader-goto" role="search">
+          <input id="codeReaderGotoInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Line" data-i18n-placeholder="Line" aria-label="Go to line" data-i18n-aria-label="Go to line" autocomplete="off" spellcheck="false">
+          <button id="codeReaderGotoButton" type="submit" data-i18n="Go">Go</button>
+        </form>
         <div id="codeReaderLayers" class="code-reader-layers" role="group" aria-label="Change layer" data-i18n-aria-label="Change layer"></div>
         <button id="codeReaderReload" type="button" data-i18n="Reload">Reload</button>
         <button id="codeReaderClose" type="button" data-i18n="Close">Close</button>
