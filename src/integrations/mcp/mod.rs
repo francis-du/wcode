@@ -849,21 +849,18 @@ pub(crate) async fn handle_message(
                 None => Err("prompts/get is missing params.name".to_owned()),
             }
         }
-        "resources/list" => Ok(if modern {
-            modern_cacheable_result(mcp_catalog::resources_list())
-        } else {
-            mcp_catalog::resources_list()
-        }),
+        "resources/list" => Ok(mcp_catalog::cacheable(
+            mcp_catalog::resources_list(),
+            modern,
+        )),
         "resources/read" => {
-            let params = message.get("params").cloned().unwrap_or_default();
-            match params.get("uri").and_then(Value::as_str) {
-                Some(uri) => mcp_catalog::resource_read(uri).map(|value| {
-                    if modern {
-                        modern_cacheable_result(value)
-                    } else {
-                        value
-                    }
-                }),
+            let uri = message.pointer("/params/uri").and_then(Value::as_str);
+            match uri {
+                Some(uri) => mcp_catalog::resource_read(
+                    uri,
+                    mcp_catalog::observatory_changes_url(&state).as_deref(),
+                )
+                .map(|value| mcp_catalog::cacheable(value, modern)),
                 None => Err("resources/read is missing params.uri".to_owned()),
             }
         }
@@ -933,7 +930,7 @@ pub(crate) fn modern_result(mut value: Value) -> Value {
     value
 }
 
-fn modern_cacheable_result(value: Value) -> Value {
+pub(crate) fn modern_cacheable_result(value: Value) -> Value {
     let mut value = modern_result(value);
     if let Some(object) = value.as_object_mut() {
         object.insert("ttlMs".to_owned(), json!(300_000));

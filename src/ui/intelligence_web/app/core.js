@@ -1,6 +1,7 @@
 const fragment = new URLSearchParams(location.hash.slice(1));
 const token = fragment.get("token") || "";
 const initialWorkspace = fragment.get("workspace") || "";
+const initialView = fragment.get("view") || "";
 function readPreference(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -187,7 +188,9 @@ const state = {
   syncError: false,
   syncFailure: null,
   lastChecked: 0,
-  workspaceTab: workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
+  workspaceTab: workspaceTabs.includes(initialView)
+    ? initialView
+    : workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
   architectureView: "blueprint",
   systemMapScale: 1,
   systemMapFit: true,

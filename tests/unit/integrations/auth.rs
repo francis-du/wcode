@@ -76,6 +76,7 @@ fn startup_password_is_an_alternative_to_the_pairing_code() {
         "https://example.com".to_owned(),
         None,
         Some("correct horse battery staple".to_owned()),
+        true,
     )
     .unwrap();
     assert_eq!(

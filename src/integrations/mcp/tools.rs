@@ -264,6 +264,13 @@ fn tool(
     if crate::harness::model_tool_preload_recommended(name) {
         meta["dev.wcode/preloadRecommended"] = Value::Bool(true);
     }
+    // OpenAI clients render a registered ui:// resource beside the conversation
+    // (thread entrypoint) or from the sidebar (global entrypoint). Other clients
+    // still receive the address as text.
+    if name == "open_observatory" {
+        meta["ui"] = json!({"resourceUri": "ui://wcode/observatory"});
+        meta["openai/ui"] = json!({"entrypoints": [{"type": "thread"}, {"type": "global"}]});
+    }
     json!({
         "name": name,
         "description": compact_tool_description(name, description),

@@ -43,7 +43,7 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
   const languages=options.languages||['en-US'];
   const context={console,URL,URLSearchParams,AbortController,Date,Intl,Map,Set,Promise,JSON,Number,String,Math,Error,DOMException,
     navigator:{languages,language:languages[0]||'en-US'},
-    location:{hash:authenticated?'#token=test-ui&workspace=A':'#workspace=A'},localStorage:{getItem(key){if(storageBlocked)throw new Error('storage denied');return storage[key]??null;},setItem(key,value){if(storageBlocked)throw new Error('storage denied');storage[key]=String(value);}},
+    location:{hash:options.hash ?? (authenticated?'#token=test-ui&workspace=A':'#workspace=A')},localStorage:{getItem(key){if(storageBlocked)throw new Error('storage denied');return storage[key]??null;},setItem(key,value){if(storageBlocked)throw new Error('storage denied');storage[key]=String(value);}},
     document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{const callbacks=listeners.get(name)||[];callbacks.push(handler);listeners.set(name,callbacks);events[name]=event=>{for(const callback of callbacks)callback(event);};},getElementById:id=>node('#'+id)},
     window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){}},requestAnimationFrame:fn=>fn(),queueMicrotask,
     setTimeout:(fn,ms)=>{if(options.fakeTimers){timers.set(++timerId,{fn,ms});return timerId;}const timer=setTimeout(fn,ms);timer.unref();return timer;},clearTimeout:id=>options.fakeTimers?timers.delete(id):clearTimeout(id),
@@ -102,8 +102,7 @@ async function run(){
     assert.equal(s.node('#workspaceName').textContent,'B');
     assert.equal(s.node('#workspaceRoot').textContent,'');assert.equal(s.node('#workspaceRevision').textContent,'');
   });
-  await test('workspace identity shows the running build separately from the observed source revision',async()=>{
-    const s=sandbox();
+  await test('workspace identity shows the running build separately from the observed source revision',async()=>{    const s=sandbox();
     s.context.fixture={...project(),project:'Demo',root:'/fixture/Demo',proof:{revision_code:'sha256:current-source'},runtime:{version:'9.9.9',process_id:4242}};
     s.run('state.project=fixture;renderWorkspaceIdentity();');
     assert.equal(s.node('#workspaceRevision').textContent,'sha256:current-source'.slice(0,19));
@@ -111,6 +110,12 @@ async function run(){
     assert.match(s.node('#workspaceBuild').title,/Running wcode build: 9\.9\.9/);
     s.run('state.project={...fixture,runtime:{}};renderWorkspaceIdentity();');
     assert.equal(s.node('#workspaceBuild').textContent,'','an unknown build must not invent a version');
+  });
+  await test('the initial workspace view can be deep-linked from the URL hash',async()=>{
+    const changes=sandbox(false,true,{hash:'#token=test-ui&workspace=A&view=changes'});
+    assert.equal(changes.run('state.workspaceTab'),'changes','view=changes must open the current changes');
+    const fallback=sandbox(false,true,{hash:'#token=test-ui&workspace=A&view=not-a-view'});
+    assert.equal(fallback.run('state.workspaceTab'),'overview','an unknown view must fall back');
   });
   await test('the workspace switcher lists every inherited workspace and marks the current one',async()=>{
     const s=sandbox();

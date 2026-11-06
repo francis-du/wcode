@@ -571,7 +571,10 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     }
 
     let bytes = serde_json::to_vec(first).unwrap().len();
-    assert!(bytes <= 60_300, "tool catalog is {bytes} bytes");
+    // Raised from 60,300 when open_observatory was added: the UI entrypoint that
+    // lets OpenAI clients render the Observatory beside the conversation costs
+    // roughly 500 bytes of catalog, which no description edit can reclaim.
+    assert!(bytes <= 61_000, "tool catalog is {bytes} bytes");
     assert!(
         first.iter().all(|tool| tool.get("title").is_none()),
         "tool catalog must not repeat display titles mechanically derived from canonical names"

@@ -67,6 +67,9 @@ pub struct AuthState {
     mutation_lock: Arc<Mutex<()>>,
     store: Option<Arc<AuthStore>>,
     monitor: Option<Arc<dyn AuthTelemetry>>,
+    /// Whether this process serves the Observatory over HTTP. Plain stdio mode
+    /// has no listener, so it must not hand out an address that cannot load.
+    http_served: bool,
 }
 
 struct PairingAttempt {
@@ -114,13 +117,15 @@ struct AuthorizeForm {
 
 impl AuthState {
     pub fn new(initial_public_url: String) -> Self {
-        Self::from_parts(initial_public_url, None, None).expect("ephemeral auth state cannot fail")
+        Self::from_parts(initial_public_url, None, None, false)
+            .expect("ephemeral auth state cannot fail")
     }
 
     fn from_parts(
         initial_public_url: String,
         store: Option<AuthStore>,
         authorization_password: Option<String>,
+        http_served: bool,
     ) -> Result<Self> {
         let pairing_code = format!("{:06}", Uuid::new_v4().as_u128() % 1_000_000);
         let ui_token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
@@ -165,6 +170,7 @@ impl AuthState {
             mutation_lock: Default::default(),
             store: store.map(Arc::new),
             monitor: None,
+            http_served,
         })
     }
 
@@ -178,6 +184,7 @@ impl AuthState {
             initial_public_url,
             Some(AuthStore::for_workspaces(workspace_roots)?),
             authorization_password,
+            true,
         )?;
         state.attach_monitor(monitor);
         Ok(state)
@@ -185,7 +192,12 @@ impl AuthState {
 
     #[cfg(test)]
     fn new_persistent(initial_public_url: String, path: PathBuf) -> Result<Self> {
-        Self::from_parts(initial_public_url, Some(AuthStore::at_path(path)), None)
+        Self::from_parts(
+            initial_public_url,
+            Some(AuthStore::at_path(path)),
+            None,
+            true,
+        )
     }
 
     #[cfg(test)]
@@ -278,6 +290,32 @@ impl AuthState {
 
     pub fn ui_token(&self) -> &str {
         &self.ui_token
+    }
+
+    /// The authenticated Observatory address for this runtime, when this
+    /// process actually serves it. Plain stdio mode has no listener, so it
+    /// returns `None` rather than an address that cannot load.
+    /// `primary()` is the local endpoint until a tunnel is promoted, so the
+    /// link always points at the address this process serves.
+    pub fn observatory_url(&self) -> Option<String> {
+        self.observatory_url_in_view(None)
+    }
+
+    /// The Observatory address scoped to one view. `view` becomes a hash
+    /// parameter so a caller can deep-link to the current changes.
+    pub fn observatory_url_in_view(&self, view: Option<&str>) -> Option<String> {
+        if !self.http_served {
+            return None;
+        }
+        let base = format!(
+            "{}/intelligence#token={}",
+            self.public_endpoints.primary().trim_end_matches('/'),
+            self.ui_token
+        );
+        Some(match view {
+            Some(view) => format!("{base}&view={view}"),
+            None => base,
+        })
     }
 
     pub fn ui_authorized(&self, headers: &HeaderMap) -> bool {
