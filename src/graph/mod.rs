@@ -110,6 +110,31 @@ pub enum EdgeKind {
     ConflictsWith,
 }
 
+impl EdgeKind {
+    /// Allocation-free name for sort tiebreakers. Matches the `Debug` rendering
+    /// that `graph_edge_order` used to format once per comparison.
+    pub(crate) const fn sort_name(self) -> &'static str {
+        match self {
+            Self::Contains => "Contains",
+            Self::Defines => "Defines",
+            Self::References => "References",
+            Self::Calls => "Calls",
+            Self::Imports => "Imports",
+            Self::DependsOn => "DependsOn",
+            Self::Implements => "Implements",
+            Self::Extends => "Extends",
+            Self::ImplementsRequirement => "ImplementsRequirement",
+            Self::ConstrainedBy => "ConstrainedBy",
+            Self::TestedBy => "TestedBy",
+            Self::VerifiedBy => "VerifiedBy",
+            Self::GuardsAgainst => "GuardsAgainst",
+            Self::ProducesEvidence => "ProducesEvidence",
+            Self::RuntimeCalls => "RuntimeCalls",
+            Self::ConflictsWith => "ConflictsWith",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphPrecision {
