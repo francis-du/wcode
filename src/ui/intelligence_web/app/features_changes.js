@@ -23,6 +23,28 @@ function wcodeChangedPaths() {
   }
   return paths;
 }
+// The change inspector answers "what changed here". This panel answers "did this
+// runtime change it", from the same persistent journal the change table marks.
+// An unavailable journal renders nothing rather than claiming wcode did nothing.
+function changeWcodeEditsPanel(path) {
+  const journal = state.project?.engineering_journal;
+  if (journal?.available !== true) return "";
+  const edits = (journal.records || []).filter(
+    (record) => record?.stage === "change" && (record.paths || []).includes(path)
+  );
+  const header = `<h4>${esc(localized("wcode edits to this file", "wcode 对该文件的改动"))}</h4>`;
+  if (!edits.length) {
+    return `<section class="change-wcode-edits">${header}<p class="panel-meta">${esc(localized(
+      "No wcode edit is recorded for this file in the retained journal window; the journal covers wcode's edit tools.",
+      "在保留的日志窗口内，没有该文件的 wcode 改动记录；日志覆盖 wcode 自身的编辑工具。"
+    ))}</p></section>`;
+  }
+  const rows = edits.slice(0, 8).map((record) => {
+    const duration = record.duration_ms == null ? "" : ` · ${num(record.duration_ms)}ms`;
+    return `<li><span class="pill ${record.outcome === "succeeded" ? "good" : "bad"}">${esc(statusLabel(record.outcome))}</span><strong>${esc(record.tool)}</strong><span class="panel-meta">${esc(time(Number(record.timestamp_ms) || 0))}${duration}</span></li>`;
+  }).join("");
+  return `<section class="change-wcode-edits">${header}<ul class="change-wcode-edit-list">${rows}</ul></section>`;
+}
 function changeTable(items, compact = false, touched = null) {
   return `<table class="table change-table"><thead><tr><th>${esc(t("Path"))}</th><th>${
     esc(t("Status"))
@@ -205,8 +227,8 @@ function renderChanges() {
   const items = state.project.changes || [];
   const legend = touched && items.length
     ? `<p class="panel-meta">${esc(localized(
-        "“wcode” marks a file this runtime changed through its own edit tools.",
-        "“wcode” 标记本运行时通过自身编辑工具改动的文件。"
+        "“wcode” marks a file this runtime changed through its own edit tools, as recorded in the engineering journal.",
+        "“wcode” 标记本运行时通过自身编辑工具改动的文件，来源为工程日志。"
       ))}${
         state.project.engineering_journal?.truncated
           ? ` ${esc(localized(
@@ -580,7 +602,7 @@ function renderChangeInspector() {
     body = `${warning}<p class="panel-meta">${esc(label)}</p>` + (view.content.length
       ? `<pre class="change-source" tabindex="0" role="region" aria-label="${esc(localized("Read-only source difference", "只读源码差异"))}">${rows.slice(0,1500).map(row => { const before = Number.isInteger(row.before) ? ` data-change-before-line="${row.before}"` : ""; const after = Number.isInteger(row.after) ? ` data-change-after-line="${row.after}"` : ""; return `<span class="change-source-line ${row.tone}" tabindex="-1"${before}${after}><span class="change-gutter">${row.before}</span><span class="change-gutter">${row.after}</span><span>${esc(row.text) || " "}</span></span>`; }).join("")}</pre>`
       : `<p>${esc(localized("No differences in this selected layer. This does not mean every layer is clean.", "所选层没有差异，不代表其他层也没有改动。"))}</p>`);
-    body += changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
+    body += changeWcodeEditsPanel(current.path) + changeSymbolImpactPanel(current.symbolImpact, current.repositoryRevision) + changeRelationImpactPanel(current) + changeProofPanel(current);
   }
   const linkage = changeInspectorLinkage(current.path);
   body += linkage.html + historicalSourcePanel(current);

@@ -16,8 +16,13 @@ function setup() {
   const host = {innerHTML:'', querySelectorAll:()=>[], querySelector:()=>null};
   const requests = [], navigation = [];
   const state = {current:'A', workspaceEpoch:1};
-  const context = {state, q:()=>host, URLSearchParams, AbortController,
-    localized:(en)=>en, esc:value=>String(value).replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])),
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const context = {state, q:()=>host, URLSearchParams, AbortController, Date, Number, String, Math,
+    localized:(en)=>en, esc:escapeHtml,
+    pill:(label, cls = "") => `<span class="pill ${cls}">${escapeHtml(label)}</span>`,
+    num:value=>Number(value).toLocaleString('en'),
+    time:ms=>ms ? new Date(ms).toLocaleString('en') : '—',
+    statusLabel:value=>String(value),
     requestFailureMessage:error=>error.message,
     uiJson:(url, method, body, options)=>new Promise((resolve,reject)=>requests.push({url,method,body,options,resolve,reject})),
     revealSection:id=>navigation.push({type:'reveal',id}),
@@ -63,6 +68,28 @@ async function test(name, fn) {
     assert.equal(rows[4].before,3); assert.equal(rows[4].after,3);
     assert.equal(rows[5].before,4); assert.equal(rows[5].after,'');
     assert.equal(rows[6].before,''); assert.equal(rows[6].after,4);
+  });
+  await test('the inspector lists the wcode edits recorded for the inspected file', ()=>{
+    const s=setup();
+    s.state.project={workspace:'A',engineering_journal:{available:true,truncated:false,records:[
+      {stage:'change',tool:'apply_file_edits',paths:['main.rs'],outcome:'succeeded',duration_ms:42,timestamp_ms:1},
+      {stage:'prove',tool:'verify_project',paths:['main.rs'],outcome:'succeeded',duration_ms:9,timestamp_ms:2},
+      {stage:'change',tool:'write_file',paths:['other.rs'],outcome:'succeeded',duration_ms:5,timestamp_ms:3},
+    ]}};
+    render(s, view());
+    const html=s.host.innerHTML;
+    assert.ok(html.includes('apply_file_edits'),`the edit tool must be listed: ${html}`);
+    assert.ok(html.includes('42ms'),'the edit duration must be listed');
+    assert.ok(!html.includes('verify_project'),'a prove-stage record must not be listed as an edit');
+    assert.ok(!html.includes('other.rs'),'another file\'s edit must not be listed');
+    const none=setup();
+    none.state.project={workspace:'A',engineering_journal:{available:true,truncated:false,records:[]}};
+    render(none, view());
+    assert.ok(none.host.innerHTML.includes('No wcode edit is recorded'),'an empty journal must say so');
+    const unavailable=setup();
+    unavailable.state.project={workspace:'A',engineering_journal:{available:false,records:[]}};
+    render(unavailable, view());
+    assert.ok(!unavailable.host.innerHTML.includes('wcode edits to this file'),'an unavailable journal must not claim anything');
   });
   await test('the inspector links the change to the requirements and components it affects', ()=>{
     const s=setup();
