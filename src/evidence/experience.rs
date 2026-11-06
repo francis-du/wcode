@@ -360,11 +360,26 @@ struct EvaluationCounters {
     true_positives: usize,
 }
 
-#[derive(Default)]
 struct NormalizedCochangeModel {
     last_timestamp_ms: Option<u64>,
     path_support: BTreeMap<String, f64>,
     cochange: BTreeMap<String, BTreeMap<String, f64>>,
+    /// Accumulated decay factor. Stored weights are pre-scaled (divided by this
+    /// factor) so advancing time is one multiply instead of a pass over every
+    /// entry; ratios cancel it, and `pair_score` restores it where the value is
+    /// compared against a fixed prior.
+    scale: f64,
+}
+
+impl Default for NormalizedCochangeModel {
+    fn default() -> Self {
+        Self {
+            last_timestamp_ms: None,
+            path_support: BTreeMap::new(),
+            cochange: BTreeMap::new(),
+            scale: 1.0,
+        }
+    }
 }
 
 impl NormalizedCochangeModel {
@@ -378,22 +393,30 @@ impl NormalizedCochangeModel {
         }
         let age = timestamp_ms.saturating_sub(previous) as f64;
         let factor = (-(age / EXPERIENCE_DECAY_HALF_LIFE_MS as f64)).exp2();
-        for support in self.path_support.values_mut() {
-            *support *= factor;
-        }
-        for candidates in self.cochange.values_mut() {
-            for weight in candidates.values_mut() {
-                *weight *= factor;
-            }
-        }
+        self.scale *= factor;
         self.last_timestamp_ms = Some(timestamp_ms);
+        if self.scale < 1e-12 {
+            // Renormalize so newly learned weights stay representable. Every
+            // stored value is multiplied by the same constant, so all ratios
+            // (and therefore the ranking) are unchanged.
+            let inverse = 1.0 / self.scale;
+            for support in self.path_support.values_mut() {
+                *support *= inverse;
+            }
+            for candidates in self.cochange.values_mut() {
+                for weight in candidates.values_mut() {
+                    *weight *= inverse;
+                }
+            }
+            self.scale = 1.0;
+        }
     }
 
     fn learn(&mut self, paths: &[String], level: &str, original_path_count: usize) {
         if paths.is_empty() {
             return;
         }
-        let support_weight = level_weight(level);
+        let support_weight = level_weight(level) / self.scale;
         for path in paths {
             *self.path_support.entry(path.clone()).or_default() += support_weight;
         }
@@ -422,7 +445,8 @@ impl NormalizedCochangeModel {
         if context_paths.is_empty() || changed_paths.is_empty() || intent_factor <= 0.0 {
             return;
         }
-        let support_weight = level_weight(level) * CONTEXT_TRAJECTORY_WEIGHT * intent_factor;
+        let support_weight =
+            level_weight(level) * CONTEXT_TRAJECTORY_WEIGHT * intent_factor / self.scale;
         for path in context_paths {
             *self.path_support.entry(path.clone()).or_default() += support_weight;
         }
@@ -492,7 +516,10 @@ impl NormalizedCochangeModel {
         // shrinkage prevents one accidental co-change from looking certain.
         // Pair weight is already discounted by the original change-set breadth.
         let association = (2.0 * cochange / denominator).clamp(0.0, 1.0);
-        let confidence = cochange / (cochange + EXPERIENCE_CONFIDENCE_PRIOR);
+        // The association ratio cancels `scale`, but confidence is compared
+        // against a fixed prior, so it needs the true (unscaled) weight.
+        let true_cochange = cochange * self.scale;
+        let confidence = true_cochange / (true_cochange + EXPERIENCE_CONFIDENCE_PRIOR);
         (association * confidence * EXPERIENCE_SCORE_SCALE)
             .round()
             .clamp(0.0, EXPERIENCE_SCORE_SCALE) as u16
