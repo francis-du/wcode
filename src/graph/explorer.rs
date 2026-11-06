@@ -1,4 +1,7 @@
-use crate::graph::{EdgeKind, GraphNode, GraphPrecision, NodeKind};
+use crate::graph::{
+    contains_ascii_case_insensitive, ends_with_ascii_case_insensitive, eq_ascii_case_insensitive,
+    starts_with_ascii_case_insensitive, EdgeKind, GraphNode, GraphPrecision, NodeKind,
+};
 use crate::graph_store::load_selected;
 use crate::workspace::{SearchMode, Workspace};
 use anyhow::{bail, Result};
@@ -95,22 +98,22 @@ pub(crate) fn search(workspace: &Workspace, input: &GraphSearchInput) -> Result<
         .values()
         .filter(|node| code_node_kind(node.kind))
         .filter_map(|node| {
-            let label = node.label.to_ascii_lowercase();
-            let path = node_path(node).unwrap_or_default().to_ascii_lowercase();
-            let leaf = graph_label_leaf(&label);
-            let (score, match_kind) = if label == needle {
+            let label = &node.label;
+            let path = node_path(node).unwrap_or_default();
+            let leaf = graph_label_leaf(label);
+            let (score, match_kind) = if eq_ascii_case_insensitive(label, &needle) {
                 (0, "exact_label")
-            } else if path == needle {
+            } else if eq_ascii_case_insensitive(path, &needle) {
                 (0, "exact_path")
-            } else if leaf == needle {
+            } else if eq_ascii_case_insensitive(leaf, &needle) {
                 (1, "exact_leaf")
-            } else if label.starts_with(&needle) {
+            } else if starts_with_ascii_case_insensitive(label, &needle) {
                 (2, "label_prefix")
-            } else if path.ends_with(&needle) {
+            } else if ends_with_ascii_case_insensitive(path, &needle) {
                 (2, "path_suffix")
-            } else if label.contains(&needle) {
+            } else if contains_ascii_case_insensitive(label, &needle) {
                 (3, "label_contains")
-            } else if path.contains(&needle) {
+            } else if contains_ascii_case_insensitive(path, &needle) {
                 (4, "path_contains")
             } else {
                 return None;
