@@ -234,7 +234,7 @@ pub(crate) struct ApprovalRecord<'a> {
     pub statement: &'a str,
     pub kind: EvidenceKind,
     pub authority: EvidenceAuthority,
-    pub binding: Option<crate::verification::change::ExecutionGitBinding>,
+    pub binding: Option<ExecutionGitBinding>,
 }
 
 impl<'a> ApprovalRecord<'a> {
@@ -244,7 +244,7 @@ impl<'a> ApprovalRecord<'a> {
         approver: &'a str,
         statement: &'a str,
         kind: EvidenceKind,
-        binding: Option<crate::verification::change::ExecutionGitBinding>,
+        binding: Option<ExecutionGitBinding>,
     ) -> Self {
         let authority = match kind {
             EvidenceKind::PolicyAuthorization => EvidenceAuthority::PolicyAutoApproved,
