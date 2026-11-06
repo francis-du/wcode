@@ -763,7 +763,7 @@ pub async fn run() -> Result<()> {
                 let _ = timeout(Duration::from_secs(120), settled.changed()).await;
             }
             let base = url_slot.read().unwrap().clone();
-            open_in_browser(
+            resources::open_in_browser(
                 &format!("{base}/intelligence#token={token}"),
                 "Observatory",
                 &observatory_monitor,
@@ -972,37 +972,7 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
         "opening wcode setup hub",
     );
     monitor.operator_message(OperatorMessageKind::Info, "MCP URL", mcp_url);
-    open_in_browser(setup_url, "setup", monitor);
-}
-
-/// Open `url` in the platform browser. A missing opener is a warning, never a
-/// startup failure: the URL is still printed by the caller.
-fn open_in_browser(url: &str, label: &str, monitor: &TaskMonitor) {
-    let mut command = if cfg!(target_os = "macos") {
-        let mut command = StdCommand::new("open");
-        command.arg(url);
-        command
-    } else if cfg!(target_os = "windows") {
-        let mut command = StdCommand::new("explorer.exe");
-        command.arg(url);
-        command
-    } else {
-        let mut command = StdCommand::new("xdg-open");
-        command.arg(url);
-        command
-    };
-    if let Err(error) = command
-        .stdin(StdStdio::null())
-        .stdout(StdStdio::null())
-        .stderr(StdStdio::null())
-        .spawn()
-    {
-        monitor.operator_message(
-            OperatorMessageKind::Warning,
-            label,
-            format!("could not open the browser ({error}); visit {url}"),
-        );
-    }
+    resources::open_in_browser(setup_url, "setup", monitor);
 }
 
 #[cfg(test)]
