@@ -280,6 +280,17 @@ impl AuthState {
         &self.ui_token
     }
 
+    /// The authenticated Observatory address for this runtime. `primary()` is
+    /// the local endpoint until a tunnel is promoted, so the link always points
+    /// at the address this process actually serves.
+    pub fn observatory_url(&self) -> String {
+        format!(
+            "{}/intelligence#token={}",
+            self.public_endpoints.primary().trim_end_matches('/'),
+            self.ui_token
+        )
+    }
+
     pub fn ui_authorized(&self, headers: &HeaderMap) -> bool {
         headers
             .get("x-wcode-ui-token")

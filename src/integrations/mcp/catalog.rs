@@ -61,23 +61,64 @@ pub(crate) fn resources_list() -> Value {
                 "name":"wcode product scopes",
                 "description":"Canonical wcode capability scopes used by source architecture, semantic filtering, software_context, project_context, and MCP tool metadata.",
                 "mimeType":"text/markdown"
+            },
+            {
+                "uri":"ui://wcode/observatory",
+                "name":"wcode Observatory",
+                "description":"Live project status for the selected workspace: changes, verification evidence, risk and convergence. Clients that render UI resources open this beside the conversation.",
+                "mimeType":"text/html"
             }
         ]
     })
 }
 
-pub(crate) fn resource_read(uri: &str) -> Result<Value, String> {
-    let text = match uri {
-        "wcode://runtime/workflow" => format!(
-            "# wcode agent workflow\n\n## Implement\n{IMPLEMENT_PROMPT}\n\n## Review\n{REVIEW_PROMPT}\n\n## Verify\n{VERIFY_PROMPT}\n"
+/// Legacy protocols have no cache metadata; keep the two response shapes in one
+/// place so resource arms do not grow a formatted conditional each.
+pub(crate) fn cacheable(value: Value, modern: bool) -> Value {
+    if modern {
+        crate::mcp::modern_cacheable_result(value)
+    } else {
+        value
+    }
+}
+
+/// The authenticated Observatory address for the running runtime.
+pub(crate) fn observatory_url(state: &crate::mcp::AppState) -> String {
+    state.auth.observatory_url()
+}
+
+pub(crate) fn resource_read(uri: &str, observatory_url: Option<&str>) -> Result<Value, String> {
+    let (text, mime) = match uri {
+        "wcode://runtime/workflow" => (
+            format!(
+                "# wcode agent workflow\n\n## Implement\n{IMPLEMENT_PROMPT}\n\n## Review\n{REVIEW_PROMPT}\n\n## Verify\n{VERIFY_PROMPT}\n"
+            ),
+            "text/markdown",
         ),
-        "wcode://runtime/security" => format!("# wcode security boundary\n\n{SECURITY_RESOURCE}\n"),
-        "wcode://runtime/product-scopes" => product_scopes_markdown(),
+        "wcode://runtime/security" => (format!("# wcode security boundary\n\n{SECURITY_RESOURCE}\n"), "text/markdown"),
+        "wcode://runtime/product-scopes" => (product_scopes_markdown(), "text/markdown"),
+        "ui://wcode/observatory" => (observatory_resource(observatory_url), "text/html"),
         _ => return Err(format!("unknown resource URI: {uri}")),
     };
     Ok(json!({
-        "contents": [{"uri":uri,"mimeType":"text/markdown","text":text}]
+        "contents": [{"uri":uri,"mimeType":mime,"text":text}]
     }))
+}
+
+/// A UI resource must render without a build step, so it embeds the
+/// authenticated Observatory address in a bounded page that frames it. Clients
+/// without UI support still receive the address as text.
+fn observatory_resource(url: Option<&str>) -> String {
+    let Some(url) = url else {
+        return "<!doctype html><meta charset=\"utf-8\"><title>wcode Observatory</title><p>The Observatory address is unavailable until the runtime endpoint is settled.</p>".to_owned();
+    };
+    let escaped = url
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;");
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>wcode Observatory</title><style>html,body{{margin:0;height:100%;background:#0b0812;color:#e8e6f0;font:14px/1.4 system-ui}}header{{padding:10px 14px;border-bottom:1px solid #2a2438;background:#12101c}}iframe{{border:0;width:100%;height:calc(100% - 42px);display:block}}</style></head><body><header><strong>wcode Observatory</strong> · live project status</header><iframe title=\"wcode Observatory\" src=\"{escaped}\"></iframe></body></html>"
+    )
 }
 
 fn product_scopes_markdown() -> String {

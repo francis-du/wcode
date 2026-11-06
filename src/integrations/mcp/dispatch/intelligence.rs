@@ -32,6 +32,7 @@ pub(super) fn handles(name: &str) -> bool {
             | "traceability_status"
             | "software_context"
             | "agent_context"
+            | "open_observatory"
             | "execution_status"
             | "execution_policy_status"
             | "execution_propose"
@@ -320,6 +321,11 @@ pub(super) async fn call(
             })
             .await
         }
+        "open_observatory" => Ok(json!({
+            "url": mcp_catalog::observatory_url(state),
+            "resource": "ui://wcode/observatory",
+            "workspace": state.workspaces.default_id(),
+        })),
         "agent_context" => {
             let query = required_string(args, "query")?.to_owned();
             let explicit_workspace = workspace_arg(args)?;

@@ -8,8 +8,8 @@ fn catalog_is_bounded_and_has_no_secret_or_hook_payloads() {
     assert!(text.contains("capabilities.recommended_actions"));
     assert!(text.contains("complete tools/list catalog"));
     assert!(!SECURITY_RESOURCE.contains("API_KEY="));
-    assert_eq!(resources_list()["resources"].as_array().unwrap().len(), 3);
-    let scopes = resource_read("wcode://runtime/product-scopes").unwrap();
+    assert_eq!(resources_list()["resources"].as_array().unwrap().len(), 4);
+    let scopes = resource_read("wcode://runtime/product-scopes", None).unwrap();
     let scopes_text = scopes["contents"][0]["text"].as_str().unwrap();
     assert!(scopes_text.contains("Software Graph (`graph`)"));
     assert!(scopes_text.contains("software_context.scopes"));

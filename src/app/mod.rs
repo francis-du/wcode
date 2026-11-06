@@ -253,6 +253,14 @@ struct Args {
     )]
     open_observatory: bool,
 
+    /// Do not open the Observatory automatically on an interactive terminal.
+    #[arg(
+        long = "no-open-observatory",
+        default_value_t = false,
+        help_heading = "Experience"
+    )]
+    no_open_observatory: bool,
+
     /// Allow idle system sleep while wcode is running.
     #[arg(long, help_heading = "Runtime", hide = true)]
     allow_sleep: bool,
@@ -754,7 +762,10 @@ pub async fn run() -> Result<()> {
             open_setup_hub(&base, &format!("{base}/mcp"), &setup_monitor);
         });
     }
-    if args.open_observatory {
+    // An interactive terminal gets the Observatory without an extra flag, since
+    // that is the surface a person can actually watch. Non-interactive callers
+    // must ask for it explicitly so CI and scripts never spawn a browser.
+    if args.open_observatory || (io::stdout().is_terminal() && !args.no_open_observatory) {
         let mut settled = tunnel_settled_rx.clone();
         let url_slot = shared_public_url.clone();
         let observatory_monitor = monitor.clone();
