@@ -276,6 +276,14 @@ async function run(){
     assert.match(knownTopology,/runtime-status-card good"><span>Workspace guard<\/span>/);
     assert.doesNotMatch(knownTopology,/runtime-status-card warn"><span>Workspace guard<\/span>/);
   });
+  await test('the engineering timeline labels a future timestamp instead of clamping it to now', () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), activity: { available: true, active: 0, queued: 0,
+      recent: [{ id: 1, tool: 'build', status: 'done', finished_ago_ms: -60_000, wait_ms: 0, run_ms: 10 }] } };
+    s.run('state.project=fixture;renderEngineeringTimeline();');
+    assert.match(s.node('#engineeringTimeline').innerHTML, /in the future/,
+      'a timestamp in the future is not clamped into a just-now age');
+  });
   await test('the change convergence map keeps unavailable counts unknown', async () => {
     const s = sandbox();
     s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' }, changes: [] };
