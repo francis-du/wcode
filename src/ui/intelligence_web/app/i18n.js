@@ -198,6 +198,7 @@ const translations = {
       "Working Tree 干净，或 Git Review 当前不可用。",
     "No previous meaningful graph revision yet.":
       "暂无上一版有意义的 Graph Revision。",
+    "No retained graph revisions yet.": "暂无保留的图谱版本。",
     "No data.": "暂无数据。",
     "No supported source language detected in the bounded repository snapshot.":
       "当前有界仓库快照中未检测到支持的源码语言。",

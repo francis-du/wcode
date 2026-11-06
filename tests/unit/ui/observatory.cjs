@@ -284,6 +284,19 @@ async function run(){
     assert.match(s.node('#engineeringTimeline').innerHTML, /in the future/,
       'a timestamp in the future is not clamped into a just-now age');
   });
+  await test('the architecture revisions list says when nothing is retained', () => {
+    const s = sandbox();
+    s.context.fixture = { ...project(), latest_delta: null, history: [], risk: { risks: [] } };
+    s.run('state.project=fixture;renderRevisions();');
+    assert.match(s.node('#revisions').innerHTML, /No retained graph revisions yet/);
+
+    s.context.fixture = { ...project(), latest_delta: null,
+      history: [{ id: 'rev-1', captured_at_ms: Date.now(), files_indexed: 3, nodes: 10, edges: 4 }],
+      risk: { risks: [] } };
+    s.run('state.project=fixture;renderRevisions();');
+    assert.doesNotMatch(s.node('#revisions').innerHTML, /No retained graph revisions yet/);
+    assert.match(s.node('#revisions').innerHTML, /rev-1/);
+  });
   await test('the change convergence map keeps unavailable counts unknown', async () => {
     const s = sandbox();
     s.context.fixture = { ...project(), git_review: { available: false, reason: 'cached_snapshot' }, changes: [] };
