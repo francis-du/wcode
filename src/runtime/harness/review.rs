@@ -1,4 +1,8 @@
 use super::*;
+use crate::graph::{
+    contains_ascii_case_insensitive, ends_with_ascii_case_insensitive, eq_ascii_case_insensitive,
+    starts_with_ascii_case_insensitive,
+};
 use crate::verification::change::{
     parse_raw_changes, parse_status_changes, ExecutionGitBinding, GitChangeSnapshot,
     GitChangeTarget,
@@ -765,90 +769,93 @@ pub(super) fn append_maintainability_findings(
 }
 
 pub(super) fn file_category(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    let name = lower.rsplit('/').next().unwrap_or(&lower);
-    if lower.starts_with("tests/")
-        || lower.contains("/tests/")
-        || lower.contains("/test/")
-        || name.contains("_test.")
-        || name.contains("_tests.")
-        || name.contains(".test.")
-        || name.contains(".spec.")
-        || name.contains("_spec.")
-        || name == "tests.rs"
-        || name.starts_with("test_")
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if starts_with_ascii_case_insensitive(path, "tests/")
+        || contains_ascii_case_insensitive(path, "/tests/")
+        || contains_ascii_case_insensitive(path, "/test/")
+        || contains_ascii_case_insensitive(name, "_test.")
+        || contains_ascii_case_insensitive(name, "_tests.")
+        || contains_ascii_case_insensitive(name, ".test.")
+        || contains_ascii_case_insensitive(name, ".spec.")
+        || contains_ascii_case_insensitive(name, "_spec.")
+        || eq_ascii_case_insensitive(name, "tests.rs")
+        || starts_with_ascii_case_insensitive(name, "test_")
     {
         "test"
-    } else if lower.starts_with("docs/")
-        || lower.contains("/docs/")
-        || name.ends_with(".md")
-        || matches!(name, "readme" | "license" | "changelog")
+    } else if starts_with_ascii_case_insensitive(path, "docs/")
+        || contains_ascii_case_insensitive(path, "/docs/")
+        || ends_with_ascii_case_insensitive(name, ".md")
+        || name_is_any(name, &["readme", "license", "changelog"])
     {
         "docs"
-    } else if lower.starts_with(".github/workflows/") {
+    } else if starts_with_ascii_case_insensitive(path, ".github/workflows/") {
         "workflow"
-    } else if lower.contains("/migrations/") || lower.starts_with("migrations/") {
+    } else if contains_ascii_case_insensitive(path, "/migrations/")
+        || starts_with_ascii_case_insensitive(path, "migrations/")
+    {
         "migration"
-    } else if matches!(
+    } else if name_is_any(
         name,
-        "cargo.toml"
-            | "cargo.lock"
-            | "package.json"
-            | "package-lock.json"
-            | "pnpm-lock.yaml"
-            | "yarn.lock"
-            | "bun.lock"
-            | "bun.lockb"
-            | "deno.json"
-            | "deno.jsonc"
-            | "deno.lock"
-            | "pyproject.toml"
-            | "requirements.txt"
-            | "poetry.lock"
-            | "uv.lock"
-            | "go.mod"
-            | "go.sum"
-            | "go.work"
-            | "go.work.sum"
-            | "pubspec.yaml"
-            | "pubspec.lock"
-            | "mix.exs"
-            | "mix.lock"
-            | "gemfile"
-            | "gemfile.lock"
-            | "composer.json"
-            | "composer.lock"
-            | "dune-project"
-            | "dune-workspace"
-            | "description"
-            | "renv.lock"
-            | "package.swift"
-            | "package.resolved"
-            | "pom.xml"
-            | "build.gradle"
-            | "build.gradle.kts"
-            | "settings.gradle"
-            | "settings.gradle.kts"
-            | "cmakelists.txt"
-            | "meson.build"
-            | "build.zig"
-            | "build.zig.zon"
-            | "makefile"
+        &[
+            "cargo.toml",
+            "cargo.lock",
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lock",
+            "bun.lockb",
+            "deno.json",
+            "deno.jsonc",
+            "deno.lock",
+            "pyproject.toml",
+            "requirements.txt",
+            "poetry.lock",
+            "uv.lock",
+            "go.mod",
+            "go.sum",
+            "go.work",
+            "go.work.sum",
+            "pubspec.yaml",
+            "pubspec.lock",
+            "mix.exs",
+            "mix.lock",
+            "gemfile",
+            "gemfile.lock",
+            "composer.json",
+            "composer.lock",
+            "dune-project",
+            "dune-workspace",
+            "description",
+            "renv.lock",
+            "package.swift",
+            "package.resolved",
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle",
+            "settings.gradle.kts",
+            "cmakelists.txt",
+            "meson.build",
+            "build.zig",
+            "build.zig.zon",
+            "makefile",
+        ],
     ) || [".sln", ".slnx", ".csproj", ".fsproj", ".vbproj"]
         .iter()
-        .any(|extension| name.ends_with(extension))
+        .any(|extension| ends_with_ascii_case_insensitive(name, extension))
     {
         "manifest"
     } else if crate::semantic_provider::language_for_path(path).is_some()
         || [".kt", ".kts", ".scala", ".vue", ".svelte"]
             .iter()
-            .any(|extension| name.ends_with(extension))
+            .any(|extension| ends_with_ascii_case_insensitive(name, extension))
     {
         "source"
     } else if name.starts_with('.')
         || [".toml", ".yaml", ".yml", ".json", ".ini", ".cfg", ".conf"]
             .iter()
-            .any(|extension| name.ends_with(extension))
+            .any(|extension| ends_with_ascii_case_insensitive(name, extension))
     {
         "config"
     } else {
@@ -856,30 +863,37 @@ pub(super) fn file_category(path: &str) -> &'static str {
     }
 }
 
+fn name_is_any(name: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| eq_ascii_case_insensitive(name, candidate))
+}
+
 pub(super) fn security_sensitive_path(path: &str) -> bool {
-    path.to_ascii_lowercase()
-        .split(|character: char| !character.is_ascii_alphanumeric())
+    path.split(|character: char| !character.is_ascii_alphanumeric())
         .any(|token| {
-            matches!(
+            name_is_any(
                 token,
-                "auth"
-                    | "authentication"
-                    | "authorization"
-                    | "authn"
-                    | "authz"
-                    | "oauth"
-                    | "token"
-                    | "tokens"
-                    | "session"
-                    | "sessions"
-                    | "permission"
-                    | "permissions"
-                    | "crypto"
-                    | "security"
-                    | "secret"
-                    | "secrets"
-                    | "credential"
-                    | "credentials"
+                &[
+                    "auth",
+                    "authentication",
+                    "authorization",
+                    "authn",
+                    "authz",
+                    "oauth",
+                    "token",
+                    "tokens",
+                    "session",
+                    "sessions",
+                    "permission",
+                    "permissions",
+                    "crypto",
+                    "security",
+                    "secret",
+                    "secrets",
+                    "credential",
+                    "credentials",
+                ],
             )
         })
 }
