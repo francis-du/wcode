@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::future::pending;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::{Command as StdCommand, Stdio as StdStdio};
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -243,6 +244,14 @@ struct Args {
     /// Open the WCode setup page in your browser after startup.
     #[arg(long = "open", default_value_t = false, help_heading = "Experience")]
     open_setup: bool,
+
+    /// Open the Observatory in your browser once the runtime is reachable.
+    #[arg(
+        long = "open-observatory",
+        default_value_t = false,
+        help_heading = "Experience"
+    )]
+    open_observatory: bool,
 
     /// Allow idle system sleep while wcode is running.
     #[arg(long, help_heading = "Runtime", hide = true)]
@@ -745,6 +754,23 @@ pub async fn run() -> Result<()> {
             open_setup_hub(&base, &format!("{base}/mcp"), &setup_monitor);
         });
     }
+    if args.open_observatory {
+        let mut settled = tunnel_settled_rx.clone();
+        let url_slot = shared_public_url.clone();
+        let observatory_monitor = monitor.clone();
+        let token = auth.ui_token().to_owned();
+        tokio::spawn(async move {
+            if !*settled.borrow() {
+                let _ = timeout(Duration::from_secs(120), settled.changed()).await;
+            }
+            let base = url_slot.read().unwrap().clone();
+            resources::open_in_browser(
+                &format!("{base}/intelligence#token={token}"),
+                "Observatory",
+                &observatory_monitor,
+            );
+        });
+    }
     let renderer = monitor.spawn_renderer(monitor_config, args.monitor);
     if renderer.is_none() {
         let mut settled = tunnel_settled_rx.clone();
@@ -947,31 +973,7 @@ fn open_setup_hub(setup_url: &str, mcp_url: &str, monitor: &TaskMonitor) {
         "opening wcode setup hub",
     );
     monitor.operator_message(OperatorMessageKind::Info, "MCP URL", mcp_url);
-    let mut command = if cfg!(target_os = "macos") {
-        let mut command = StdCommand::new("open");
-        command.arg(setup_url);
-        command
-    } else if cfg!(target_os = "windows") {
-        let mut command = StdCommand::new("explorer.exe");
-        command.arg(setup_url);
-        command
-    } else {
-        let mut command = StdCommand::new("xdg-open");
-        command.arg(setup_url);
-        command
-    };
-    if let Err(error) = command
-        .stdin(StdStdio::null())
-        .stdout(StdStdio::null())
-        .stderr(StdStdio::null())
-        .spawn()
-    {
-        monitor.operator_message(
-            OperatorMessageKind::Warning,
-            "setup",
-            format!("could not open the browser ({error}); visit {setup_url}"),
-        );
-    }
+    resources::open_in_browser(setup_url, "setup", monitor);
 }
 
 #[cfg(test)]

@@ -1,9 +1,11 @@
+use crate::monitor::{OperatorMessageKind, TaskMonitor};
 use crate::resource;
 use crate::workspace::WorkspaceSecurity;
 use anyhow::Result;
 use clap::{Args, ValueEnum};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::process::{Command as StdCommand, Stdio as StdStdio};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -208,6 +210,36 @@ impl super::Args {
                 "Performance presets never grant permissions; only an explicit setup operation saves agent launch options.",
             ],
         }))
+    }
+}
+
+/// Open `url` in the platform browser. A missing opener is a warning, never a
+/// startup failure: the caller still reports the URL.
+pub(super) fn open_in_browser(url: &str, label: &str, monitor: &TaskMonitor) {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = StdCommand::new("open");
+        command.arg(url);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = StdCommand::new("explorer.exe");
+        command.arg(url);
+        command
+    } else {
+        let mut command = StdCommand::new("xdg-open");
+        command.arg(url);
+        command
+    };
+    if let Err(error) = command
+        .stdin(StdStdio::null())
+        .stdout(StdStdio::null())
+        .stderr(StdStdio::null())
+        .spawn()
+    {
+        monitor.operator_message(
+            OperatorMessageKind::Warning,
+            label,
+            format!("could not open the browser ({error}); visit {url}"),
+        );
     }
 }
 
