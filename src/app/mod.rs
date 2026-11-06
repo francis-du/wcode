@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::future::pending;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::{Command as StdCommand, Stdio as StdStdio};
 use std::sync::Arc;
 use tokio::net::TcpListener;
