@@ -917,3 +917,50 @@ fn experience_rejects_partial_or_non_relational_learning_inputs() {
             .is_err()
     );
 }
+
+#[test]
+fn lazy_decay_preserves_confidence_and_recency_ranking() {
+    let mut model = NormalizedCochangeModel::default();
+    let t0 = 1_000_000;
+    let half_life = EXPERIENCE_DECAY_HALF_LIFE_MS;
+    let anchors = BTreeSet::from(["src/a.rs".to_owned()]);
+
+    model.decay_to(t0);
+    model.learn(&["src/a.rs".to_owned(), "src/old.rs".to_owned()], "full", 2);
+    let fresh_score = model.ranked_scores(&anchors)[0].1;
+
+    model.decay_to(t0 + half_life);
+    let decayed_score = model.ranked_scores(&anchors)[0].1;
+
+    model.learn(&["src/a.rs".to_owned(), "src/new.rs".to_owned()], "full", 2);
+    model.decay_to(t0 + 2 * half_life);
+    let scores = model.ranked_scores(&anchors);
+    let weight_of = |path: &str| {
+        scores
+            .iter()
+            .find(|(candidate, _)| candidate == path)
+            .map(|(_, score)| *score)
+            .unwrap_or(0)
+    };
+    let old = weight_of("src/old.rs");
+    let new = weight_of("src/new.rs");
+
+    // Confidence is measured against a fixed prior, so it must observe the true
+    // decayed weight even though storage stays pre-scaled. At the half-life the
+    // pair weight halves: confidence goes from 3/(3+3) to 1.5/(1.5+3).
+    assert_eq!(fresh_score, 500);
+    let confidence_ratio = decayed_score as f64 / fresh_score as f64;
+    assert!(
+        (confidence_ratio - 2.0 / 3.0).abs() < 0.02,
+        "confidence should follow the true decayed weight, got {confidence_ratio}"
+    );
+
+    // Weights learned after a decay must be stored pre-scaled too, otherwise the
+    // next decay would inflate them and erase the recency signal.
+    assert!(new > old, "fresh evidence must outrank stale evidence");
+    let recency_ratio = old as f64 / new as f64;
+    assert!(
+        (0.30..=0.45).contains(&recency_ratio),
+        "stale evidence should keep roughly its decayed share, got {recency_ratio}"
+    );
+}
