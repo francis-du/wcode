@@ -209,3 +209,29 @@ fn explicit_location_anchors_keep_supported_auxiliary_files() {
     assert_eq!(anchors[1].path, "schema.proto");
     assert_eq!(anchors[2].path, "component.vue");
 }
+
+#[test]
+fn line_anchor_keeps_the_resolved_symbol_body() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("src")).unwrap();
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn target() {\n    let _ = 1;\n    let _ = 2;\n}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(4).unwrap();
+    let pack = harness
+        .agent_context("demo", &workspace, "src/lib.rs:2", 8_000, &[])
+        .unwrap();
+    let hot = pack["hot_source"].as_array().unwrap();
+    assert!(
+        hot.iter().any(|item| {
+            item["qualified_name"].as_str() == Some("target")
+                && item["body"]["content"]
+                    .as_str()
+                    .is_some_and(|body| body.contains("let _ = 2"))
+        }),
+        "a line anchor that resolves to a symbol must keep its body: {hot:?}"
+    );
+}
