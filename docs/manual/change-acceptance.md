@@ -26,6 +26,8 @@ wcode acceptance history --json
 
 Only a current native ready Record passes `--check`; history has no such flag. Commands do not automatically activate Policy or approve human requests.
 
+`acceptance verify` bounds its own runtime with `--timeout-seconds` (default 600, accepted range 1–1800), which caps each native check rather than letting one slow check run unbounded.
+
 ## Engineering truth
 
 The Record retains Code/Design revision, Git base/head/tree/index/dirty identity, Policy generation/source seals, Plan, risk, independent check facts, Evidence metadata, structured reasons and actions. Capture timestamps are retained but excluded from the stable content identity.

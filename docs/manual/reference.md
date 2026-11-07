@@ -207,6 +207,10 @@ scope choice can be retried; EOF cancels instead of choosing the default.
 
 Use `wcode setup --performance fast --dry-run` to preview a selected launch, then
 `wcode setup --project --performance fast` to save it for detected local agents.
+`--global` configures detected agents at the user level instead of this project,
+and `--github-check-name` overrides the required Check name (default
+`wcode/change-acceptance`) when enrolling a GitHub publisher; it requires
+`--github-repository` and conflicts with `--global`.
 Setup validates numeric overrides before any write and propagates performance,
 `--read-only`, `--no-exec` and `--no-semantic` consistently to JSON, Codex TOML
 and supported OpenCode configurations. Its JSON report includes `launch` with

@@ -183,6 +183,9 @@ wcode --performance fast --show-config
 
 用 `wcode setup --performance fast --dry-run` 预览所选启动参数，再运行
 `wcode setup --project --performance fast`，即可为已检测到的本地智能体保存设置。
+`--global` 在用户级别配置检测到的智能体，而不是当前项目；`--github-check-name`
+在登记 GitHub Publisher 时覆盖必需的 Check 名称（默认 `wcode/change-acceptance`），
+它需要 `--github-repository`，且与 `--global` 互斥。
 Setup 在任何写入前校验数字参数，并把性能选项、`--read-only`、`--no-exec`、
 `--no-semantic` 一致地传给 JSON、Codex TOML 和受支持的 OpenCode 配置。
 JSON 安装报告中的 `launch` 分别展示 `command` 与 `args`；

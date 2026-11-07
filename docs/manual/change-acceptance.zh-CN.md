@@ -38,6 +38,8 @@ wcode acceptance history --json
 
 `--check` 只有当前原生 Record 为 ready 才成功；历史不提供该开关。命令没有 Policy 自动激活或人工自批准功能。验证失败的 Record 保留真实失败，运行后还需要独立 reviewer／操作者流程时仍显示 needs_review。
 
+`acceptance verify` 用 `--timeout-seconds`（默认 600，接受范围 1–1800）限定自身运行时，该上界作用于每一项原生检查，避免单个慢检查无限运行。
+
 ## Record 与失败语义
 
 Record 包含 Code／Design revision、原生 Git base/head/tree/index/dirty 绑定、Policy generation 与配置来源摘要、所选 Plan、风险、每个 required check 的独立事实、Evidence 元数据、结构化原因及下一步动作。执行时间保留在捕获元数据中；稳定内容摘要不因再次读取时间改变。
