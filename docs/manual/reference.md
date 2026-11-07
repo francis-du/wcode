@@ -308,6 +308,16 @@ evidence_status
 | `worklist_status` / `worklist_update` | Recover and update the durable model work plan across reconnects/model switches without dropping unfinished items; updates are revision-guarded. |
 | `software_context` | Deeper budget-aware software-intelligence context with optional Product Scope narrowing and graph context. |
 
+### Durable execution state
+
+| Tool | Use it for |
+| --- | --- |
+| `execution_status` | Read the durable Execution checkpoint, phase, objective, revision, proposal, pending directive, verification floor and lineage for the selected Workspace. A completed execution stays authoritative context rather than disappearing. |
+| `execution_policy_status` | Explain the runtime controls that apply to one tool call (tool name plus arguments) without executing it. |
+| `execution_propose` | Record an advisory terminal proposal (`complete` / `blocked`) against an expected revision. Advisory only: it cannot change the Execution phase, and current-revision Worklist/Reconciliation/Verification authority settles terminal state. |
+| `execution_steer` | Record one bounded, revision-guarded steering directive (`refine_objective`, `change_scope`, or `strengthen_verification`). It never mutates Worklist, Plan or Verification authority. |
+| `execution_handoff` | Create a clean continuation with checkpoints, directives and structured lineage. No chat transcript is stored or transferred. |
+
 ### Source navigation and bounded I/O
 
 | Tool | Use it for |
@@ -342,6 +352,7 @@ evidence_status
 | `semantic_status` / `semantic_query` | Persistent candidate/confirmed/retired semantic facts. |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | Human-governed semantic lifecycle. |
 | `semantic_provider_status` / `semantic_provider_refresh` | Inspect first-party LSP availability/automatic eligibility or force a bounded refresh. `runnable` becomes true only after a real live initialization. |
+| `semantic_provider_install` | Install a canonical missing LSP for one language. Returns the install plan; execution requires the approval gate, and an already-available provider is reported without changes. |
 | `semantic_navigation` | Reuse the warm LSP session for navigation plus guarded `rename_plan`, `organize_imports_plan`, or `quick_fix_plan`. Read-only navigation may explicitly fall back to Tree-sitter/search; mutation plans never do. Rename is SHA-pinned and all-or-nothing; organize-imports is current-file only; quick-fix requires version-matched LSP diagnostics at `line + character`. Provider commands, external/resource/stale/partial/ambiguous/sensitive edits are rejected, and plans never write automatically. |
 | `language_quality_status` / `language_quality_run` | Explicit 22-language syntax/initialized-semantic/format/lint/type/static/test/security capability matrix; only declared + available + check-only + runnable providers count as covered, and one provider may expose bounded secondary `covers` dimensions without duplicate execution. |
 
@@ -357,6 +368,7 @@ evidence_status
 | `risk_status` | Structured risks and risk-adaptive verification profile. |
 | `reconciliation_plan` | Persist a desired-to-actual convergence plan. |
 | `reconciliation_status` / `reconciliation_history` | Recover prior plans across reconnects/restarts. |
+| `reconciliation_approve` | Request approval for one exact Plan in the TUI/WebUI. Client confirmation is not authority: approval is a one-use digest/revision/policy grant, and a stale plan needs replanning. |
 | `reconciliation_execution_status` / `reconciliation_claim` / `reconciliation_submit` / `reconciliation_retry` | Durable dependency-aware convergence execution. |
 | `verification_plan` | Create risk-adaptive deterministic/stage/reviewer requirements. |
 | `verification_claim` / `verification_submit` | Blind independent reviewer jobs. |

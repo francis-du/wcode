@@ -284,6 +284,16 @@ evidence_status
 | `worklist_status` / `worklist_update` | 跨重连 / 换模型恢复并更新持久工作清单；Revision Guard 防止并发模型覆盖未完成任务。 |
 | `software_context` | 更深层的仓库智能上下文，可按 Product Scope 收窄并包含 Graph Context。 |
 
+### 持久化执行状态
+
+| 工具 | 用途 |
+| --- | --- |
+| `execution_status` | 读取所选工作区的持久化 Execution Checkpoint、Phase、目标、版本、Proposal、待处理 Directive、验证下限与 Lineage。已完成的执行仍是权威上下文，不会消失。 |
+| `execution_policy_status` | 说明某一次工具调用（工具名加参数）会命中哪些运行时控制，不实际执行。 |
+| `execution_propose` | 针对预期版本记录一条建议性终止 Proposal（`complete` / `blocked`）。仅为建议：它不能改变 Execution Phase，终止状态由当前版本的 Worklist / Reconciliation / Verification 权威决定。 |
+| `execution_steer` | 记录一条有界、带版本保护的 Steering Directive（`refine_objective`、`change_scope` 或 `strengthen_verification`）。它不会修改 Worklist、Plan 或 Verification 授权。 |
+| `execution_handoff` | 创建带 Checkpoint、Directive 与结构化 Lineage 的干净接续。不存储、不转移任何聊天记录。 |
+
 ### 源码导航与有界 I/O
 
 | Tool | 用途 |
@@ -318,6 +328,7 @@ evidence_status
 | `semantic_status` / `semantic_query` | 持久化 Candidate / Confirmed / Retired Semantic Fact。 |
 | `semantic_record` / `semantic_confirm` / `semantic_retire` | 人工治理的 Semantic Lifecycle。 |
 | `semantic_provider_status` / `semantic_provider_refresh` | 查看第一方 LSP 可用性 / 自动运行资格，或强制执行一次有界 Refresh。只有真实完成 Initialize 后 `runnable` 才为 true。 |
+| `semantic_provider_install` | 为一种语言安装缺失的 Canonical LSP。返回安装计划；执行需要审批门禁，已可用的 Provider 只报告状态、不做改动。 |
 | `semantic_navigation` | 复用 Warm LSP Session 做 Navigation，并生成受保护的 `rename_plan`、`organize_imports_plan` 或 `quick_fix_plan`。只读 Navigation 可明确回退 Tree-sitter/Search；Mutation Plan 绝不猜测回退。Rename 为带 SHA 的全量计划；Organize Imports 只允许当前文件；Quick Fix 必须命中 `line + character` 上当前 Document Version 的 LSP Diagnostic。Provider Command、外部路径、Resource Operation、过期、部分、歧义或敏感源码编辑都会被拒绝，且计划绝不自动写文件。 |
 | `language_quality_status` / `language_quality_run` | 22 语言 Syntax / 已 Initialize Semantic / Format / Lint / Type / Static / Test / Security 能力矩阵；只有 declared + available + check-only + runnable Provider 才算 Covered，一个 Provider 可用有界 `covers` 同时贡献多个 Dimension 而不重复执行。 |
 
@@ -333,6 +344,7 @@ evidence_status
 | `risk_status` | 结构化 Risk 与风险自适应 Verification Profile。 |
 | `reconciliation_plan` | 持久化 Desired → Actual 收敛计划。 |
 | `reconciliation_status` / `reconciliation_history` | 跨重连 / 重启恢复计划。 |
+| `reconciliation_approve` | 在 TUI / WebUI 中为某一个精确 Plan 请求批准。客户端确认不构成授权：批准是一次性的 Digest / Revision / Policy 授予，过期计划需要重新规划。 |
 | `reconciliation_execution_status` / `reconciliation_claim` / `reconciliation_submit` / `reconciliation_retry` | 持久化依赖感知收敛执行。 |
 | `verification_plan` | 生成确定性 / Stage / Reviewer 验证要求。 |
 | `verification_claim` / `verification_submit` | 独立盲审 Reviewer Job。 |
