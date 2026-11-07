@@ -173,6 +173,22 @@ pub(super) fn overlay_design_graph(
         precision: GraphPrecision::Declared,
         revision,
     };
+    // Seed the identity index with the source graph so overlay insertion stays
+    // linear instead of rescanning the growing edge list for every design edge.
+    // The key matches `SoftwareGraph::add_edge`'s duplicate predicate exactly.
+    let mut edge_keys = snapshot
+        .graph
+        .edges
+        .iter()
+        .map(|edge| {
+            (
+                edge.from.clone(),
+                edge.to.clone(),
+                edge.kind,
+                edge.provenance.clone(),
+            )
+        })
+        .collect::<HashSet<_>>();
 
     if let Some(product) = &state.product {
         let mut attributes = BTreeMap::new();
@@ -271,12 +287,13 @@ pub(super) fn overlay_design_graph(
         )?;
     }
 
-    overlay_design_documents(snapshot, workspace, &provenance)?;
+    overlay_design_documents(snapshot, workspace, &provenance, &mut edge_keys)?;
 
     for requirement in state.requirements.values() {
         for component in &requirement.implemented_by {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 component,
                 &requirement.id,
                 EdgeKind::ImplementsRequirement,
@@ -286,6 +303,7 @@ pub(super) fn overlay_design_graph(
         for constraint in &requirement.constraints {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 &requirement.id,
                 constraint,
                 EdgeKind::ConstrainedBy,
@@ -295,6 +313,7 @@ pub(super) fn overlay_design_graph(
         for criterion in &requirement.acceptance {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 &requirement.id,
                 criterion,
                 EdgeKind::VerifiedBy,
@@ -307,6 +326,7 @@ pub(super) fn overlay_design_graph(
         for dependency in &component.depends_on {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 &component.id,
                 dependency,
                 EdgeKind::DependsOn,
@@ -316,6 +336,7 @@ pub(super) fn overlay_design_graph(
         for constraint in &component.constraints {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 &component.id,
                 constraint,
                 EdgeKind::ConstrainedBy,
@@ -326,18 +347,27 @@ pub(super) fn overlay_design_graph(
             let target = match reference {
                 CodeRef::File { path } => Some(format!("file:{path}")),
                 CodeRef::Symbol { path, symbol } => {
-                    match code_index.resolve_symbol(workspace, path, symbol) {
-                        Ok(resolution) => {
-                            resolution.map(|resolution| format!("symbol:{}", resolution.id))
+                    // A symbol node can only exist when its source file was
+                    // indexed into the bounded graph. Resolving a symbol from
+                    // an excluded file would parse the file only to discard
+                    // the edge, so skip the lookup instead.
+                    if !indexed_source_file(snapshot, path) {
+                        None
+                    } else {
+                        match code_index.resolve_symbol(workspace, path, symbol) {
+                            Ok(resolution) => {
+                                resolution.map(|resolution| format!("symbol:{}", resolution.id))
+                            }
+                            Err(error) if missing_design_reference(&error) => None,
+                            Err(error) => return Err(error),
                         }
-                        Err(error) if missing_design_reference(&error) => None,
-                        Err(error) => return Err(error),
                     }
                 }
             };
             if let Some(target) = target {
                 add_graph_edge_if_possible(
                     snapshot,
+                    &mut edge_keys,
                     &component.id,
                     &target,
                     EdgeKind::Implements,
@@ -351,6 +381,7 @@ pub(super) fn overlay_design_graph(
         for target in &constraint.applies_to {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 target,
                 &constraint.id,
                 EdgeKind::ConstrainedBy,
@@ -362,6 +393,7 @@ pub(super) fn overlay_design_graph(
         for target in &decision.affects {
             add_graph_edge_if_possible(
                 snapshot,
+                &mut edge_keys,
                 &decision.id,
                 target,
                 EdgeKind::References,
@@ -373,14 +405,21 @@ pub(super) fn overlay_design_graph(
         for verification in &criterion.verification {
             match verification {
                 VerificationRef::Test { path, symbol } => {
-                    if let Some(resolution) = code_index.resolve_symbol(workspace, path, symbol)? {
-                        add_graph_edge_if_possible(
-                            snapshot,
-                            &criterion.id,
-                            &format!("symbol:{}", resolution.id),
-                            EdgeKind::TestedBy,
-                            &provenance,
-                        )?;
+                    // Same bounded-graph guard as component implementation
+                    // references: an unindexed file cannot contribute a node.
+                    if indexed_source_file(snapshot, path) {
+                        if let Some(resolution) =
+                            code_index.resolve_symbol(workspace, path, symbol)?
+                        {
+                            add_graph_edge_if_possible(
+                                snapshot,
+                                &mut edge_keys,
+                                &criterion.id,
+                                &format!("symbol:{}", resolution.id),
+                                EdgeKind::TestedBy,
+                                &provenance,
+                            )?;
+                        }
                     }
                 }
                 VerificationRef::Check { id } => {
@@ -400,6 +439,7 @@ pub(super) fn overlay_design_graph(
                     )?;
                     add_graph_edge_if_possible(
                         snapshot,
+                        &mut edge_keys,
                         &criterion.id,
                         &node_id,
                         EdgeKind::VerifiedBy,
@@ -416,6 +456,7 @@ fn overlay_design_documents(
     snapshot: &mut SoftwareGraphSnapshot,
     workspace: &Workspace,
     provenance: &GraphProvenance,
+    edge_keys: &mut HashSet<(String, String, EdgeKind, GraphProvenance)>,
 ) -> Result<()> {
     let (mut paths, _) = workspace.source_files(design::DESIGN_ROOT, design::MAX_DESIGN_FILES)?;
     if workspace.root().join(design::PROJECT_FILE).is_file() {
@@ -447,6 +488,7 @@ fn overlay_design_documents(
         for target in target_ids {
             add_graph_edge_if_possible(
                 snapshot,
+                edge_keys,
                 &node_id,
                 &target,
                 EdgeKind::Contains,
@@ -519,6 +561,13 @@ fn missing_design_reference(error: &anyhow::Error) -> bool {
         .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
 }
 
+/// Whether the bounded source graph indexed this file. Symbol nodes are only
+/// emitted for indexed files, so a reference into any other file cannot match
+/// a node and must not pay for an on-demand parse.
+fn indexed_source_file(snapshot: &SoftwareGraphSnapshot, path: &str) -> bool {
+    snapshot.graph.nodes.contains_key(&format!("file:{path}"))
+}
+
 fn design_state_revision(state: &design::DesignState) -> Result<String> {
     let encoded = serde_json::to_vec(state)?;
     let mut hasher = Sha256::new();
@@ -535,6 +584,7 @@ fn add_graph_node_if_absent(snapshot: &mut SoftwareGraphSnapshot, node: GraphNod
 
 fn add_graph_edge_if_possible(
     snapshot: &mut SoftwareGraphSnapshot,
+    edge_keys: &mut HashSet<(String, String, EdgeKind, GraphProvenance)>,
     from: &str,
     to: &str,
     kind: EdgeKind,
@@ -543,15 +593,11 @@ fn add_graph_edge_if_possible(
     if from == to
         || !snapshot.graph.nodes.contains_key(from)
         || !snapshot.graph.nodes.contains_key(to)
-        || snapshot
-            .graph
-            .edges
-            .iter()
-            .any(|edge| edge.from == from && edge.to == to && edge.kind == kind)
+        || !edge_keys.insert((from.to_owned(), to.to_owned(), kind, provenance.clone()))
     {
         return Ok(());
     }
-    snapshot.graph.add_edge(GraphEdge {
+    snapshot.graph.add_edge_after_dedup(GraphEdge {
         from: from.to_owned(),
         to: to.to_owned(),
         kind,

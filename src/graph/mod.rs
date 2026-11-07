@@ -147,7 +147,7 @@ pub enum GraphPrecision {
     Mixed,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphProvenance {
     pub provider: String,
@@ -309,6 +309,21 @@ impl SoftwareGraph {
                 && existing.provenance == edge.provenance
         }) {
             return Err(GraphError::DuplicateEdge);
+        }
+        validate_provenance(&edge.provenance)?;
+        self.edges.push(edge);
+        Ok(())
+    }
+
+    /// Append an edge whose endpoints and uniqueness the caller already
+    /// established. Provenance is still validated; only the O(E) duplicate
+    /// rescan is skipped, so a bulk overlay stays linear in its edge count.
+    pub fn add_edge_after_dedup(&mut self, edge: GraphEdge) -> Result<(), GraphError> {
+        if !self.nodes.contains_key(&edge.from) || !self.nodes.contains_key(&edge.to) {
+            return Err(GraphError::UnknownEndpoint);
+        }
+        if edge.from == edge.to && edge.kind != EdgeKind::ConflictsWith {
+            return Err(GraphError::InvalidSelfEdge);
         }
         validate_provenance(&edge.provenance)?;
         self.edges.push(edge);
