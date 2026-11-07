@@ -1,5 +1,48 @@
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EvidenceDetail {
+    Summary,
+    Full,
+}
+
+fn evidence_detail_arg(args: &Value) -> Result<EvidenceDetail, String> {
+    match string_arg(args, "detail") {
+        None | Some("summary") => Ok(EvidenceDetail::Summary),
+        Some("full") => Ok(EvidenceDetail::Full),
+        Some(other) => Err(format!(
+            "detail must be \"summary\" or \"full\", got {other:?}"
+        )),
+    }
+}
+
+/// The status contract (identity, producer, revision, confidence, policy and
+/// result) is what callers read first. Per-check execution receipts and git
+/// bindings are retained for `detail=full`; carrying them for every record
+/// made the default response an order of magnitude larger than the status it
+/// describes. The omission is declared, never silent.
+fn compact_evidence_status(value: &mut Value) {
+    let Some(evidence) = value.get_mut("evidence").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for record in evidence {
+        let Some(object) = record.as_object_mut() else {
+            continue;
+        };
+        for key in [
+            "execution_receipt",
+            "execution_git_binding",
+            "execution_policy_binding",
+            "external_receipt",
+        ] {
+            object.remove(key);
+        }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert("receipts_omitted".to_owned(), Value::Bool(true));
+    }
+}
+
 async fn convention_status_tool(state: &AppState, args: &Value) -> AnyResult<Value> {
     let (_workspace_id, workspace) = selected_workspace(state, args).map_err(anyhow::Error::msg)?;
     let harness = state.harness.clone();
@@ -559,11 +602,16 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let subject = string_arg(args, "subject").map(str::to_owned);
             let limit = bounded_usize_arg(args, "limit", 50, 1, 500)?;
+            let detail = evidence_detail_arg(args)?;
             let harness = state.harness.clone();
             run_blocking(move || {
-                harness
+                let mut value = harness
                     .evidence_status(&workspace_id, &workspace, subject.as_deref(), limit)
-                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))?;
+                if detail == EvidenceDetail::Summary {
+                    compact_evidence_status(&mut value);
+                }
+                Ok(value)
             })
             .await
         }
