@@ -25,6 +25,7 @@ const translations = {
     "Find subsystem, component, requirement or file…": "搜索子系统、组件、需求或文件…",
     "Search systems, components, requirements…": "搜索系统、组件、需求…",
     "Project navigator": "项目导航",
+    "Project navigator results": "项目导航结果",
     "observatory subtitle":
       "不打开代码编辑器，也能看懂项目架构、Vibe Coding 做了什么、设计与现实是否偏离，以及哪些结果已经被证明。",
     "auto refresh": "自动刷新",

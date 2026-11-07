@@ -62,22 +62,22 @@ const flush=()=>new Promise(setImmediate);
 function respond(request,data,ok=true){request.resolve({ok,status:ok?200:503,json:async()=>data});}
 const project=(workspace='A')=>({workspace,project:workspace,root:'/fixture/'+workspace,design_valid:true,workspace_options:[],requirements:[],code:{changed_files:0},proof:{current_evidence:0,acceptance:{total:0,mapped:0,executed:0,passed:0,fresh:0}},convergence:{},coverage:{},architecture:{components:[],dependencies:[],desired_edges:0,observed_edges:0,blocking_drift_edges:0},git_review:{available:false,reason:'execution_disabled'}});
 function navigatorFixture(s){
-  const search=s.node('#projectNavigator'),results=s.node('#navigatorResults');let html='',buttons=[];
-  Object.defineProperty(results,'innerHTML',{get:()=>html,set:value=>{
+  const search=s.node('#projectNavigator'),results=s.node('#navigatorResults'),listbox=s.node('#navigatorListbox');let html='',buttons=[];
+  Object.defineProperty(listbox,'innerHTML',{get:()=>html,set:value=>{
     html=value;
     buttons=[...value.matchAll(/<button id="([^"]+)"[^>]*data-nav-index="(\d+)"[^>]*aria-selected="([^"]+)"/g)].map(match=>{
       const button=new Element();button.id=match[1];button.dataset.navIndex=match[2];
       button.setAttribute('aria-selected',match[3]);button.click=()=>button.events.click?.();return button;
     });
   }});
-  results.querySelectorAll=()=>buttons;
+  listbox.querySelectorAll=()=>buttons;
   s.context.navFixture={...project(),architecture:{components:[
     {id:'one',name:'Engine One',responsibilities:['first']},
     {id:'two',name:'Engine Two',responsibilities:['second']},
   ]}};
   s.context.activated=[];s.run('state.project=navFixture;activateProjectNavigatorItem=item=>activated.push(item.id);');
   search.value='engine';s.run('renderProjectNavigator({open:true});');
-  return {search,results,get buttons(){return buttons;}};
+  return {search,results,listbox,get buttons(){return buttons;}};
 }
 async function run(){
   const results=[];

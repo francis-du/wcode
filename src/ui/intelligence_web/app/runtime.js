@@ -762,7 +762,7 @@ els.projectNavigator?.addEventListener("keydown", event => {
     return;
   }
   if (els.navigatorResults?.classList.contains("hidden") || els.projectNavigator.getAttribute("aria-expanded") !== "true") return;
-  const results = [...(els.navigatorResults?.querySelectorAll("[data-nav-index]") || [])];
+  const results = [...(els.navigatorListbox?.querySelectorAll("[data-nav-index]") || [])];
   if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && results.length) {
     event.preventDefault();
     const current = results.findIndex(item => item.getAttribute("aria-selected") === "true"),

@@ -72,8 +72,26 @@ function focusSelectedChangePath(path) {
 function navigatorKindLabel(kind) {
   return ({ subsystem: localized("Subsystem", "子系统"), component: localized("Component", "组件"), requirement: localized("Requirement", "需求"), change: localized("Change", "变更"), file: localized("File", "文件") })[kind] || kind;
 }
+// The navigator only searches the snapshot this page already loaded, so it must
+// say what it covered instead of reading as a whole-repository search.
+function navigatorScopeNote() {
+  const project = state.project || {}, architecture = architectureData();
+  const counts = [
+    [`${num((architecture.subsystems || []).length)} ${localized("systems", "系统")}`, (architecture.subsystems || []).length],
+    [`${num((architecture.components || []).length)} ${localized("components", "组件")}`, (architecture.components || []).length],
+    [`${num((project.requirements || []).length)} ${localized("requirements", "需求")}`, (project.requirements || []).length],
+    [`${num((project.changes || []).length)} ${localized("changes", "变更")}`, (project.changes || []).length],
+    [`${num(project.structure?.entries?.length || 0)} ${localized("files", "文件")}`, project.structure?.entries?.length || 0],
+  ];
+  const covered = counts.filter(([, count]) => count > 0).map(([label]) => label);
+  const partial = Boolean(project.structure?.truncated || project.git_review?.truncated);
+  const body = covered.length
+    ? covered.join(" · ")
+    : localized("no loaded objects", "已加载对象为空");
+  return `${localized("Searching the loaded snapshot", "仅搜索已加载的快照")} · ${body}${partial ? ` · ${localized("partial", "不完整")}` : ""}`;
+}
 function renderProjectNavigator({ open = false } = {}) {
-  if (!els.projectNavigator || !els.navigatorResults) return;
+  if (!els.projectNavigator || !els.navigatorResults || !els.navigatorListbox) return;
   const query = els.projectNavigator.value.trim().toLowerCase();
   if (!query || (!open && els.projectNavigator.getAttribute("aria-expanded") !== "true")) {
     els.navigatorResults.classList.add("hidden");
@@ -83,10 +101,11 @@ function renderProjectNavigator({ open = false } = {}) {
   }
   const matches = projectNavigatorItems().filter(item => `${item.kind} ${item.label} ${item.detail}`.toLowerCase().includes(query)).slice(0, 14);
   const html = matches.length ? matches.map((item, index) => `<button id="navigator-result-${index}" type="button" class="navigator-result" data-nav-index="${index}" data-nav-kind="${esc(item.kind)}" data-nav-id="${esc(item.id)}" role="option" aria-selected="${index === 0}"><span class="navigator-kind">${esc(navigatorKindLabel(item.kind))}</span><span class="navigator-copy"><strong>${esc(item.label)}</strong><small>${esc(item.detail)}</small></span></button>`).join("") : `<div class="empty">${esc(localized("No project item matches this search.", "没有匹配的项目项。"))}</div>`;
-  setHtml("navigatorResults", els.navigatorResults, html, () => els.navigatorResults.querySelectorAll("[data-nav-index]").forEach(button => button.addEventListener("click", () => activateProjectNavigatorItem(matches[Number(button.dataset.navIndex)]))));
+  setHtml("navigatorListbox", els.navigatorListbox, html, () => els.navigatorListbox.querySelectorAll("[data-nav-index]").forEach(button => button.addEventListener("click", () => activateProjectNavigatorItem(matches[Number(button.dataset.navIndex)]))));
+  if (els.navigatorScope) els.navigatorScope.textContent = navigatorScopeNote();
   els.navigatorResults.classList.remove("hidden");
   els.projectNavigator.setAttribute("aria-expanded", "true");
-  const selected = [...els.navigatorResults.querySelectorAll("[data-nav-index]")].find(button => button.getAttribute("aria-selected") === "true");
+  const selected = [...els.navigatorListbox.querySelectorAll("[data-nav-index]")].find(button => button.getAttribute("aria-selected") === "true");
   if (matches.length) els.projectNavigator.setAttribute("aria-activedescendant", selected?.id || "navigator-result-0");
   else els.projectNavigator.removeAttribute("aria-activedescendant");
 }

@@ -24,10 +24,13 @@
     <section class="project-navigator" aria-label="Project navigator" data-i18n-aria-label="Project navigator">
       <div class="navigator-shell">
         <span class="navigator-mark" aria-hidden="true"><svg class="control-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg></span>
-        <input id="projectNavigator" type="search" role="combobox" aria-autocomplete="list" autocomplete="off" spellcheck="false" enterkeyhint="search" placeholder="Search systems, components, requirements…" data-i18n-placeholder="Search systems, components, requirements…" aria-controls="navigatorResults" aria-expanded="false">
+        <input id="projectNavigator" type="search" role="combobox" aria-autocomplete="list" autocomplete="off" spellcheck="false" enterkeyhint="search" placeholder="Search systems, components, requirements…" data-i18n-placeholder="Search systems, components, requirements…" aria-controls="navigatorListbox" aria-expanded="false">
         <kbd>⌘ K</kbd>
       </div>
-      <div id="navigatorResults" class="navigator-results hidden" role="listbox"></div>
+      <div id="navigatorResults" class="navigator-results hidden">
+        <div id="navigatorListbox" class="navigator-listbox" role="listbox" aria-label="Project navigator results" data-i18n-aria-label="Project navigator results"></div>
+        <div id="navigatorScope" class="navigator-scope" role="note"></div>
+      </div>
     </section>
 
     <div class="global-controls" aria-label="Project controls" data-i18n-aria-label="Project controls">

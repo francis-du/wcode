@@ -52,6 +52,11 @@ fn attention_signals_navigate_to_the_object_they_name() {
 }
 
 #[test]
+fn project_navigator_declares_the_loaded_snapshot_scope() {
+    run_observatory_contract("tests/unit/ui/navigator_scope.cjs", 3);
+}
+
+#[test]
 fn oauth_session_administration_requires_confirmation_and_reports_persistence() {
     run_observatory_contract("tests/unit/ui/session_admin.cjs", 7);
 }

@@ -132,6 +132,8 @@ const els = {
   tunnels: q("#tunnels"),
   projectNavigator: q("#projectNavigator"),
   navigatorResults: q("#navigatorResults"),
+  navigatorListbox: q("#navigatorListbox"),
+  navigatorScope: q("#navigatorScope"),
   commandPalette: q("#commandPalette"),
   closeCommandPalette: q("#closeCommandPalette"),
   commandPaletteSearch: q("#commandPaletteSearch"),
