@@ -611,6 +611,54 @@ fn diagnostic_context_readiness_rejects_unusable_target_bodies() {
 }
 
 #[test]
+fn readiness_edit_scope_qualifies_partial_target_coverage() {
+    let base = json!({
+        "project": {"write_enabled": true},
+        "targets": [
+            {"id": "ts:one", "path": "src/one.rs", "qualified_name": "one"},
+            {"id": "ts:two", "path": "src/two.rs", "qualified_name": "two"}
+        ],
+        "files": [
+            {"path": "src/one.rs", "sha256": "a".repeat(64), "readonly": false},
+            {"path": "src/two.rs", "sha256": "b".repeat(64), "readonly": false}
+        ],
+        "hot_source": [
+            {"id": "ts:one", "path": "src/one.rs", "qualified_name": "one", "sha256": "a".repeat(64),
+             "body": {"start_line": 1, "end_line": 1, "content": "fn one() {}", "redacted": false, "truncated": false}},
+            {"id": "ts:two", "path": "src/two.rs", "qualified_name": "two", "sha256": "b".repeat(64),
+             "body": {"start_line": 1, "end_line": 1, "content": "fn two() {}", "redacted": false, "truncated": false}}
+        ]
+    });
+
+    let mut complete = base.clone();
+    update_agent_readiness(&mut complete);
+    assert_eq!(complete["readiness"]["edit"], "ready");
+    assert!(
+        complete["readiness"].get("edit_scope").is_none(),
+        "a fully covered task must not carry the qualifier"
+    );
+
+    // Drop the second target's source body. The remaining target is still
+    // editable, so `edit` stays `ready`, but the scope must say it is partial
+    // and the incomplete-coverage advisory must still be present.
+    let mut partial = base.clone();
+    partial["hot_source"].as_array_mut().unwrap().remove(1);
+    update_agent_readiness(&mut partial);
+    assert_eq!(partial["readiness"]["edit"], "ready");
+    assert_eq!(partial["readiness"]["edit_scope"], "partial_targets");
+    assert!(partial["readiness"]["advisories"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("target_source_coverage_incomplete")));
+
+    let mut none = base.clone();
+    none["hot_source"] = json!([]);
+    update_agent_readiness(&mut none);
+    assert_eq!(none["readiness"]["edit"], "needs_source");
+    assert_eq!(none["readiness"]["edit_scope"], "none_usable");
+}
+
+#[test]
 fn streaming_json_size_matches_real_serialization() {
     let value = json!({
         "text": "unicode-你好-🚀",

@@ -160,6 +160,18 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
     } else {
         "ready"
     };
+    // `ready` only asserts that at least one declared target is editable. Say
+    // whether that covers every target, so a multi-target task cannot read as
+    // fully prepared while `target_source_coverage_incomplete` is present.
+    let edit_scope = if targets == 0 {
+        "no_targets"
+    } else if usable_sources == 0 {
+        "none_usable"
+    } else if usable_sources == targets {
+        "all_targets"
+    } else {
+        "partial_targets"
+    };
     let verify = if convention_errors > 0 || convention_scan_truncated {
         "blocked_by_core_policy"
     } else if tests.is_empty() {
@@ -385,7 +397,7 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         }),
     };
 
-    value["readiness"] = json!({
+    let mut readiness = json!({
         "edit": edit,
         "verify": verify,
         "graph_precision": graph_precision,
@@ -426,6 +438,12 @@ pub(super) fn update_agent_readiness(value: &mut Value) {
         "convention_scan_truncated": convention_scan_truncated,
         "advisories": advisories,
     });
+    // Absence means every declared target is covered; the qualifier is only
+    // emitted when `ready` would otherwise overstate the task's preparation.
+    if edit_scope != "all_targets" {
+        readiness["edit_scope"] = json!(edit_scope);
+    }
+    value["readiness"] = readiness;
     if semantic_rename_task {
         value["readiness"]["semantic_navigation_intent"] = json!("rename_plan");
     } else if semantic_organize_imports_task {
