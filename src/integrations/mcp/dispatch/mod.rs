@@ -13,8 +13,8 @@ use change::change_intelligence_tool;
 mod checkpoint;
 mod policy;
 mod review;
+mod workspace_selection;
 use review::review_changes_tool;
-
 #[path = "evidence_export.rs"]
 mod evidence_export;
 #[path = "intelligence.rs"]
