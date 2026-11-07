@@ -720,7 +720,7 @@ run_command
 - 统一的 12 个 Product Scope Registry：驱动源码架构、`workspace_info` / `project_context`、`software_context.scopes`、`semantic_query.scopes`、Convention Scope Mapping、MCP Tool `_meta.dev.wcode/productScopes` 和 `wcode://runtime/product-scopes` Resource，同时继续支持自由业务 Scope；`scope_status` 会审计当前 Workspace 的真实映射并返回有界的未映射源码路径
 - 跨语言 Convention Policy 与仓库结构检查：`project_context` 会携带有界报告，也可用 `convention_status` 单独查看，其中包含 Product Scope Mapping Gap
 - 独立 Workspace 读写任务的依赖感知调度：按路径冲突排序，并在同一文件、同一 SHA 且 Edit Range 不冲突时安全合并 `apply_edits`
-- `delete_path` 的精确一次性人工授权：只能删除普通文件或空目录；文件删除要求当前 SHA-256，递归删除、Workspace Root、受保护路径、Symlink Alias、Hard-linked File 永久禁止
+- `delete_path` 的有界删除：只能删除普通文件或空目录；文件删除要求当前 SHA-256，递归删除、Workspace Root、受保护路径、Symlink Alias、Hard-linked File 永久禁止
 - 持久化 Semantic Registry；Conversation/Model 推断默认只能成为 Candidate，必须显式人工确认后才进入权威 Context
 - Design + Tree-sitter + Fresh 第一方 LSP + External Provider Composite Software Graph
 - 全部 22 种索引语言的第一方 LSP 支持；真实 LSP Document Symbol / Call Hierarchy / Implementation 才会成为 `precision=semantic` 事实，并支持 Source Hash Freshness / Stale Exclusion / Revision Cache
@@ -744,7 +744,7 @@ run_command
 - 拥有 Hardened Profile 的第一方 LSP Server 可以通过有界 LSP Lane 自动刷新，并可用 `--no-semantic` 关闭；没有 Profile 的 LSP Refresh 与 Property / Mutation / Fuzz / Runtime-Canary 继续要求显式操作者信任，`--allow-risky-exec` 仍是进程级预授权；这些机制都不是 OS Sandbox。
 - Model-facing Command Execution 对内置 Development CLI Catalog 使用 Command-specific Policy，对有界 Repository/Remote Operation 使用精确 `RiskyExecution` Fingerprint。Repository Mutation 只允许显式 Path 的 `git add`、Message-only `git commit`、显式 Remote+Ref 的 Non-force `git push` 进入授权；批准后的 SSH Push 只通过固定非交互 SSH 命令使用当前 SSH Agent。Force/Delete/Reset/Restore、Shell Interpreter、Credential-bypass Surface、Workspace Escape 与 Protected Resource 继续阻断。
 - Reconciliation 可以持久化编排并跨模型继续执行，但实际源码修改仍走 wcode 的受限、原子、SHA-256 Guarded Edit Tool，不存在绕过安全边界的隐藏自动 Patch。
-- 删除是单独的破坏性授权路径：第一次 `delete_path` 会创建精确的本地 Authorization Request，操作者在 TUI 或受保护 WebUI 中批准或拒绝；只有参数和目标完全匹配的重试才能消耗这一次性 Grant。
+- 删除独立于普通写入流程：`delete_path` 只能删除带当前 SHA-256 前置条件的普通文件或空目录，递归删除、Workspace Root、受保护路径、符号链接与硬链接删除被路径不变量永久阻断。在默认的宽松策略下没有审批门禁，授权由调用方 Agent 决定；`--read-only` 仍会禁用该操作。
 
 ## 8. 直接 Dogfood wcode
 
