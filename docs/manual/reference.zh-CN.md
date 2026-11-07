@@ -218,7 +218,7 @@ Operator/Development Catalog 包含 `gh`、`just`、`task`、`uv`、`ruff`、`bi
 
 | 按键 | 动作 |
 | --- | --- |
-| `I` | 打开当前项目的仓库理解视图。 |
+| `I` | 打开当前项目的仓库理解视图。该界面承载 Summary、Attention、Tasks、Providers 与 Agents 分区；用 `Tab` / `Shift+Tab` 或 `1`–`6` 切换，Observations 分区属于同一界面，而不是独立面板。 |
 | `W` | 为当前 Workspace 打开受保护 Project Status。 |
 | `O` | 重新打开 Setup Hub。 |
 | `L` | 切换 TUI 语言。 |

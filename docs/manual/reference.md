@@ -251,7 +251,7 @@ trust controls are documented in [Security](../security/).
 
 | Key | Action |
 | --- | --- |
-| `I` | Open repository intelligence for the focused project. |
+| `I` | Open repository intelligence for the focused project. This surface carries the Summary, Attention, Tasks, Providers and Agents tabs; `Tab` / `Shift+Tab` or `1`–`6` switch between them, and the Observations tab is the same surface rather than a separate pane. |
 | `W` | Open the protected Project Status for the focused Workspace. |
 | `O` | Reopen Setup Hub. |
 | `L` | Switch TUI language. |
