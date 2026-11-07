@@ -37,6 +37,8 @@ Convergence
 
 日常编程时，`agent_context` 是主入口。它的有界自适应上下文包可以包含相关 Design State、按 Scope 收窄的仓库地图、少量热源、编辑 SHA 前置条件、相关测试、就绪度（Readiness）、确定性的下一步动作与显式并行策略。就绪度还会给出 `change_strategy` 与 `complexity_budget`：普通单目标任务默认是 `minimal_patch`，预算为 0 个新增 Production File、0 个新增 Abstraction、0 个新增 Config Knob、0 个 Public API 变化。只有当前 Requirement、已经存在的重复实现，或已证实的 Ownership / Boundary 问题要求时才能升级；“未来可能会用”本身不算证据。MCP 调用保持最小：默认 Workspace，以及服务端默认的 Path / Limit / Timeout / Budget 都不要传，除非任务确实需要覆盖。只有 Pack 明确需要更多上下文时，再使用 `symbol_context`、`software_context`、`scope_status`、`language_quality_status` 或更深的 Graph / Traceability 工具。
 
+六个重详情响应 —— `evidence_status`、`project_context`、`software_context`、`traceability_status`、`risk_status` 与 `worklist_status` —— 默认使用 `detail=summary`。每个响应都会保留 agent 据此行动的 Identity、计数与 Provenance，并逐项声明省略；只有在确实需要执行回执、完整 Findings、完整 Guidance 摘录、每一个已解析引用或完成历史时，才传入 `detail=full`。
+
 ### 2. Skill：渐进披露，不是隐藏执行
 
 可移植的 wcode Agent Skill 只有指令，不包含 Hook、凭据、脚本，也不会隐式扩大 Workspace。Skill 可以说明什么时候调用哪些能力，但 Prompt 里写了“永远执行 X”并不等于真正强制执行。必须执行的规则应落在 Workspace Policy、Authorization、Harness Verification 或 Evidence Readiness 中。
