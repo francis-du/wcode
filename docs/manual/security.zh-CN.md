@@ -47,6 +47,8 @@ GitHub CLI 保留其参数与凭据处理。一个命令形态获准执行，不
 
 ## 人工授权只能在本地完成
 
+授权请求、审批以及 TUI/WebUI 审批界面仍然保留并维持其数据结构，但在默认的宽松策略下它们只是信息性的。`require_human_decision` 直接返回一份已决定的回执，而不是创建阻塞请求；除非嵌入方显式选择限制性授权，否则没有任何工具调用会返回 `AuthorizationRequired`。
+
 待授权请求出现在 TUI 和受保护 WebUI 中。模型可以发起请求，但不能通过 MCP 响应或文件工具写入批准自己的 HumanDecision 请求。
 
 HumanApproval 使用独立的本地操作者精确授权，两分钟到期且只能消费一次；它绑定服务器实例、Workspace、请求的 MCP Owner、完整 Plan 摘要、Code／Design 版本、Policy 和决定陈述。调用者提供的 `confirmed`、`approver` 或 producer 名称、普通 MCP Form Elicitation、命令会话授权及 Full Access 都不能授权这类决定。人工批准记录为人工决定，不会变成已执行或已通过的测试。这个本地操作者边界不提供 Team 角色，也不隔离同一 OS 用户下的恶意进程。

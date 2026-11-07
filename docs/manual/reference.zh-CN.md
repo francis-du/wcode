@@ -323,7 +323,7 @@ evidence_status
 | `apply_edits` / `write_file` / `replace_text` | 使用已观测 SHA 原子修改已有文件。 |
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
-| `delete_path` | 经过精确一次性本地授权后删除一个文件或空目录。 |
+| `delete_path` | 删除一个文件或空目录。不需要人工审批；递归、Root、符号链接与硬链接删除保持阻断。 |
 | `run_command` | 通过可执行程序加 argv 直接启动，不会隐式解析 Shell 字符串。普通 exec 开启时，通过校验的命令不再额外要求 CommandAccess / RiskyExecution；显式撤销过的可执行程序仍需重新授权，`--no-exec` 关闭普通执行。默认走直接执行；强 OS 沙箱按次通过 `sandbox: true` 选择加入，无后端时回退直接执行。普通的操作后果检查和受保护 CWD 仍生效。显式会话命令授权不能覆盖 no-exec；撤权、命令策略过滤和只读命令写入分类在默认宽松策略下不生效。同步与 Task 模式默认 600 秒，显式超时须为 1 到 1800 的整数；普通调用保持同步。`task_mode=true` 对支持 Tasks 的现代客户端返回标准 Task，对其他/旧协议客户端返回普通持久收据。可选 `env` 不是任意进程环境：最多接受 5 个强类型、非敏感启动参数，仅限非特权端口 `PORT=1024..65535`、数值 loopback `HOST`、`NODE_ENV=development|test`、`RUST_LOG`、`LOG_LEVEL`。显式提供 `env` 时会先清除这组受管变量的宿主继承值，再写入通过校验的覆盖值；未知变量、凭据、PATH/配置重定向、非 loopback Host、控制字符和任意值全部 fail closed。策略执行的子进程还会清理常见 Runtime / Loader 注入环境变量。 |
 | `command_task` | 普通 `create` / `status` / `result` / `cancel` 调用复用同一份持久 `run_command` 状态；使用返回的 Task ID 与 Workspace，遵守轮询间隔，不得为了轮询重跑命令。检查精确 Transport Owner 与所选 Workspace，拒绝 Owner/Actor 参数。Terminal 不等于成功，应检查内层命令结果；日志不生成 Verification Evidence，不承诺 exactly-once 或旧 stdio Owner 恢复。 |
 
@@ -373,16 +373,18 @@ Tree-sitter Fact 是 `precision=syntax`；真实 LSP Fact 才是 `precision=sema
 
 ## 授权模型
 
-模型可以请求权限，但不能自批。待授权请求只能在本地 TUI 或 Token 保护的 WebUI 决策。
+授权请求、审批以及 TUI/WebUI 审批界面仍然保留并维持其数据结构，但在默认的宽松策略下它们只是信息性的。`require_human_decision` 直接返回一份已决定的回执，而不是创建阻塞请求；除非嵌入方显式选择限制性授权，否则没有任何工具调用会返回 `AuthorizationRequired`。
 
-- **可执行程序访问（`CommandAccess`）**：执行显式的可执行程序撤权。exec 开启时，通过校验的普通命令无需额外授权。本次运行全部命令覆盖优先于撤权和 `--no-exec`；撤销覆盖后恢复基础策略与原有显式撤权。
-- **Fingerprint-scoped Trust（`RiskyExecution`）**：用于自动 Profile 之外的非普通命令执行，例如没有 Automatic Profile 的 LSP Server 或高级 Stage Executor。普通命令准入不会自行授予这些信任；显式 Runtime Risk/全部命令授权可满足支持路径的信任检查。非自动 Warm LSP 的精确授权绑定 Workspace + Server + 当前 Binary Identity，不会授权替换后的 Binary 或其他 Server。
-- **Destructive delete**：一次性授权，与可复用 Session Grant 分离。
-- **HumanApproval**：需要精确的本地操作者决定；命令授权、Full Access 和命令成功不能代替这一决定或发布/部署验收。
+重要区别：
 
-普通执行下，支持的有界 Git 生命周期形态无需第二层命令授权：显式 Pathspec 或 `-A` 暂存、仅通过消息参数创建提交、非强制的 Upstream/显式 Branch Push、显式 Branch Fetch、`pull --ff-only`、有界 Branch/Switch/Tag 操作，以及针对显式路径的 `restore --staged`。形态检查和 Git Hardening 仍拒绝 Force/Delete/Mirror Push、Reset/Clean、工作树内容 Restore 与 Config/Helper 注入。只有有界 Git Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass 与任意 Git Config 仍会清除。命令准入与用户的发布意图、HumanApproval 及外部合并/部署门禁相互独立。
+- **可执行程序访问（`CommandAccess`）** 只作为记录保存；默认宽松策略不会阻断可执行程序。
+- **Fingerprint-scoped Trust（`RiskyExecution`）** 对自动 Profile 之外的非命令执行默认满足，例如没有 Automatic Profile 的 LSP Server 与高级 Stage Executor。非自动 Warm LSP 的精确信任仍然绑定 Workspace + Server + 当前 Binary Identity。
+- **Destructive delete** 默认允许；递归、Root、符号链接与硬链接删除保持阻断。
+- **HumanApproval** 记录一份本地操作者决定回执而不阻塞；命令授权、Full Access 与成功的命令仍然独立于发布/部署验收。
 
-普通命令策略下，所有已索引语言的已知开发 CLI 继续采用命令级后果检查。有界的本地测试、检查、构建、格式化/Lint、Workspace 脚本、代码生成和依赖维护在 Hardened Direct Lane 自动执行。显式 Shell 调用通过宽命令沙箱支持；工具专属策略仍拒绝不安全的 Compiler/Plugin/Agent 注入、Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改和凭据/配置重定向。仓库声明的 Verification Executor 使用独立的 Hardened Autonomous Profile；普通命令准入不会扩大其可执行程序、参数或信任边界。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时优先使用 nextest，否则保留 `cargo test` 回退。
+在默认宽松策略下，受支持的有界 Git 生命周期形态无需命令审批：显式 Pathspec 或 `-A` 暂存、仅通过消息参数创建提交、非强制的 Upstream/显式 Branch Push、显式 Branch Fetch、`pull --ff-only`、有界 Branch/Switch/Tag 操作，以及针对显式路径的 `restore --staged`。参数包容与 Git Hardening 仍拒绝 Force/Delete/Mirror Push、Reset/Clean、工作树内容 Restore 与 Config/Helper 注入。只有有界 Git Push 可以通过 wcode 固定的非交互 SSH 命令使用当前 SSH Agent；Token 环境变量、Credential Helper、AskPass 与任意 Git Config 仍会清除。命令准入与用户的发布意图、HumanApproval 及任何外部合并/部署门禁相互独立。
+
+当嵌入方选择限制性的 `WorkspaceSecurity` 时，所有已索引语言的已知开发 CLI 继续采用命令级后果检查。有界的本地测试、检查、构建、格式化/Lint、Workspace 脚本、代码生成和依赖维护在直接通道上自动执行。显式 Shell 调用同样默认在直接通道执行；OS 沙箱按次通过 `sandbox: true` / `run_command_sandboxed` 选择加入，无后端时回退直接执行；不安全的 Compiler/Plugin/Agent 注入、Kubernetes Cluster Mutation、Terraform Apply/Destroy/State Secret、Gradle/Maven 发布、Host Toolchain 修改与凭据/配置重定向仍被参数包容或非法输入检查阻断。仓库声明的 Verification Executor 使用独立的 No-Shell Profile；普通命令准入不会扩大其可执行程序、参数或信任边界。Rust Full Verification 在仓库声明且本机安装 cargo-nextest 时可优先使用 nextest，并保留 `cargo test` 作为回退。
 
 ## 诊断
 
