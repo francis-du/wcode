@@ -464,12 +464,60 @@ function renderTraceabilityMap() {
   });
 }
 
+// A convergence card names the object it talks about. Revealing only the
+// section would drop the investigation context, so the card carries the id of
+// the first object in its set and the destination focuses that object.
+function convergenceFocus(target, id) {
+  if (target === "architectureSection" && id) {
+    if (!(architectureData().components || []).some(component => component.id === id)) { revealSection(target); return; }
+    state.selectedComponent = id;
+    state.architectureView = "components";
+    renderArchitecture();
+    revealSection(target);
+    requestAnimationFrame(() => focusSelectedComponentCard({ focus: true }));
+    return;
+  }
+  if (target === "requirementsSection" && id) {
+    if (!(state.project?.requirements || []).some(item => item.id === id)) { revealSection(target); return; }
+    state.filter = "all";
+    state.selected = id;
+    if (els.search) els.search.value = "";
+    document.querySelectorAll(".filter").forEach(button => {
+      button.classList.toggle("active", button.dataset.filter === "all");
+      button.setAttribute("aria-pressed", String(button.dataset.filter === "all"));
+    });
+    invalidate("requirements", "detail");
+    renderRequirements();
+    renderDetail();
+    revealSection(target);
+    requestAnimationFrame(() => focusSelectedRequirement({ focus: true }));
+    return;
+  }
+  if (target === "overviewSection" && id === "acceptance") {
+    revealSection(target);
+    const binding = document.getElementById("acceptancePolicyBinding");
+    if (binding) { binding.open = true; binding.scrollIntoView({ block: "nearest" }); binding.focus({ preventScroll: true }); }
+    return;
+  }
+  if (target === "overviewSection" && id === "attention") {
+    revealSection(target);
+    els.attention?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  revealSection(target);
+}
 function renderChangeConvergenceMap() {
   if (!state.project || !els.changeConvergenceMap) return;
   const project = state.project, changes = project.changes || [], impact = project.verification_impact || {}, proof = effectiveProof(),
     reviewAvailable = project.git_review?.available === true,
     components = new Set(), requirements = new Set();
   for (const change of changes) { for (const id of change.affected_components || []) components.add(id); for (const id of change.affected_requirements || []) requirements.add(id); }
+  // Only objects the destination can actually show are named; an unknown id
+  // must not be invented just to make the card look precise.
+  const firstComponent = reviewAvailable
+    ? (architectureData().components || []).find(component => components.has(component.id))?.id || "" : "";
+  const firstRequirement = reviewAvailable
+    ? (state.project?.requirements || []).find(item => requirements.has(item.id))?.id || "" : "";
   const reasons = impact.reasons || [], contracts = reasons.filter(item => item.kind === "contract_bridge"),
     configChanges = changes.filter(item => /(config|toml|json|ya?ml|lock|schema|proto|graphql|openapi|dependency|cargo)/i.test(String(item.path || ""))),
     risks = project.risk?.risks || [], drift = Number(project.architecture?.blocking_drift_edges || 0),
@@ -483,25 +531,25 @@ function renderChangeConvergenceMap() {
     inputCard("network", localized("Shared contract / schema", "共享契约 / Schema"), num(contracts.length), localized("API, generated-code and cross-island bridges", "API、生成代码与跨项目岛桥接"), "info"),
     inputCard("settings", localized("Config & dependency", "配置与依赖"), num(configChanges.length), localized("Configuration, manifests and dependency surfaces", "配置、清单与依赖面"), "good"),
   ].join("");
-  const impactCard = (icon, title, value, detail, tone, target) => `<button type="button" class="impact-analysis-card ${tone}" data-convergence-target="${target}"><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
+  const impactCard = (icon, title, value, detail, tone, target, id = "") => `<button type="button" class="impact-analysis-card ${tone}" data-convergence-target="${target}"${id ? ` data-convergence-id="${esc(id)}"` : ""}><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
   const middleHtml = [
-    impactCard("layers", localized("Affected components", "受影响组件"), reviewAvailable ? num(components.size) : "—", reviewAvailable ? localized("Owners, modules and dependency surface", "服务、模块与依赖关系") : localized("unknown", "未知"), "primary", "architectureSection"),
-    impactCard("document", localized("Affected requirements", "受影响需求"), reviewAvailable ? num(requirements.size) : "—", reviewAvailable ? localized("Intent, scenarios and acceptance criteria", "业务意图、场景与验收标准") : localized("unknown", "未知"), "info", "requirementsSection"),
-    impactCard("warning", localized("Risk / drift", "风险 / 偏离"), num(risks.length + drift), localized(`${num(drift)} confirmed architecture drift`, `${num(drift)} 条确认架构偏离`), "warn", "overviewSection"),
+    impactCard("layers", localized("Affected components", "受影响组件"), reviewAvailable ? num(components.size) : "—", reviewAvailable ? localized("Owners, modules and dependency surface", "服务、模块与依赖关系") : localized("unknown", "未知"), "primary", "architectureSection", firstComponent),
+    impactCard("document", localized("Affected requirements", "受影响需求"), reviewAvailable ? num(requirements.size) : "—", reviewAvailable ? localized("Intent, scenarios and acceptance criteria", "业务意图、场景与验收标准") : localized("unknown", "未知"), "info", "requirementsSection", firstRequirement),
+    impactCard("warning", localized("Risk / drift", "风险 / 偏离"), num(risks.length + drift), localized(`${num(drift)} confirmed architecture drift`, `${num(drift)} 条确认架构偏离`), "warn", "overviewSection", "attention"),
     impactCard("check", localized("Suggested verification", "建议验证集"), impact.affected_islands?.length ? num(impact.affected_islands.length) : "—", impact.selective ? localized("Selective verification is available", "可进行选择性验证") : impact.affected_islands ? localized("Broad fallback / incomplete topology", "宽范围回退 / 拓扑不完整") : localized("No verification impact selection is recorded", "未记录验证影响选择"), "accent", "proofSection"),
   ].join("");
-  const outcomeCard = (icon, title, value, detail, tone, target) => `<button type="button" class="convergence-outcome ${tone}" data-convergence-target="${target}"><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
+  const outcomeCard = (icon, title, value, detail, tone, target, id = "") => `<button type="button" class="convergence-outcome ${tone}" data-convergence-target="${target}"${id ? ` data-convergence-id="${esc(id)}"` : ""}><span class="impact-glyph">${uiIcon(icon)}</span><div><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(detail)}</small></div></button>`;
   const outcomeHtml = [
     outcomeCard("check", localized("Effective evidence", "有效证据"), num(currentEvidence), localized(`${num(proof.current_passed || 0)} passing · ${num(currentFailed)} failing`, `${num(proof.current_passed || 0)} 通过 · ${num(currentFailed)} 失败`), currentFailed ? "warn" : "good", "proofSection"),
-    outcomeCard("warning", localized("Residual risk", "剩余风险"), num(risks.filter(item => ["critical", "high", "medium"].includes(item.level)).length), localized("Uncovered or unresolved risk signals", "尚未覆盖或未解决的风险信号"), "warn", "overviewSection"),
+    outcomeCard("warning", localized("Residual risk", "剩余风险"), num(risks.filter(item => ["critical", "high", "medium"].includes(item.level)).length), localized("Uncovered or unresolved risk signals", "尚未覆盖或未解决的风险信号"), "warn", "overviewSection", "attention"),
     outcomeCard("network", localized("Drift state", "偏离状态"), num(drift), drift ? localized("Confirmed design-vs-actual drift", "存在确认的设计 / 实现偏离") : localized("No confirmed blocking drift", "没有确认的阻塞偏离"), drift ? "warn" : "good", "architectureSection"),
-    outcomeCard("chart", localized("Change acceptance", "变更验收"), confidence, localized("Canonical record; evidence counts do not establish readiness", "统一记录；证据数量不能决定就绪状态"), confidenceTone, "overviewSection"),
+    outcomeCard("chart", localized("Change acceptance", "变更验收"), confidence, localized("Canonical record; evidence counts do not establish readiness", "统一记录；证据数量不能决定就绪状态"), confidenceTone, "overviewSection", "acceptance"),
   ].join("");
   const acceptance = proof.acceptance || {}, coverage = Number(acceptance.total || 0) ? Math.round(Number(acceptance.fresh || 0) * 100 / Number(acceptance.total || 1)) : 0,
     activity = state.activitySnapshot?.activity || project.activity, evidenceAge = proof.latest_current_evidence_at_ms ? engineeringAge(Number(proof.latest_current_evidence_at_ms)) : "—";
   const signals = [["link", localized("Change chain", "变更链"), num(changes.length), localized("files", "文件")], ["sync", localized("Runtime signals", "运行时信号"), activity?.available === true ? `${num(activity.active || 0)} / ${num(activity.queued || 0)}` : "—", localized("active / queued", "执行 / 排队")], ["shield", localized("Verification health", "验证健康"), `${num(proof.current_passed || 0)} / ${num(proof.current_evidence || 0)}`, localized("pass / evidence", "通过 / 证据")], ["clock", localized("Evidence freshness", "证据新鲜度"), evidenceAge, localized("latest current proof", "最近当前证据")], ["chart", localized("Coverage", "覆盖趋势"), acceptance.total ? `${coverage}%` : "—", localized("fresh acceptance coverage", "新鲜验收覆盖")]].map(([icon, label, value, detail]) => `<div class="impact-signal"><span>${uiIcon(icon)}</span><div><small>${esc(label)}</small><strong>${esc(value)}</strong><em>${esc(detail)}</em></div></div>`).join("");
   const html = `<div class="impact-legend"><span><i class="legend-dot primary"></i>${esc(localized("See impact", "看清影响"))}</span><span><i class="legend-dot good"></i>${esc(localized("Sufficient proof", "验证充分"))}</span><span><i class="legend-dot warn"></i>${esc(localized("Controlled risk", "风险可控"))}</span><span><i class="legend-dot info"></i>${esc(localized("Change acceptance", "变更验收"))}</span></div><div class="change-convergence-flow"><section class="impact-zone impact-input-zone"><header><strong>${esc(localized("Change inputs", "变更输入"))}</strong><small>${esc(localized("Build complete context from multiple change sources", "从多源变更构建完整上下文"))}</small></header>${inputHtml}</section><span class="impact-flow-arrow" aria-hidden="true"></span><section class="impact-zone impact-analysis-zone"><header><strong>${esc(localized("Impact propagation", "影响扩散"))}</strong><small>${esc(localized("Identify affected scope, risk and proof", "识别影响范围、风险与验证需求"))}</small></header><div class="impact-analysis-grid">${middleHtml}</div></section><span class="impact-flow-arrow" aria-hidden="true"></span><section class="impact-zone convergence-zone"><header><strong>${esc(localized("Convergence outcome", "收敛结果"))}</strong><small>${esc(localized("Judge confidence from proof and residual risk", "基于证据与剩余风险判断信心"))}</small></header>${outcomeHtml}</section></div><div class="impact-signal-strip"><div class="impact-signal-title"><strong>${esc(localized("Engineering signals", "工程信号"))}</strong><small>${esc(localized("Key indicators from change, runtime and verification", "来自代码、运行与验证的关键指标"))}</small></div>${signals}</div>`;
-  setHtml("changeConvergenceMap", els.changeConvergenceMap, html, () => els.changeConvergenceMap.querySelectorAll("[data-convergence-target]").forEach(button => button.addEventListener("click", () => revealSection(button.dataset.convergenceTarget))));
+  setHtml("changeConvergenceMap", els.changeConvergenceMap, html, () => els.changeConvergenceMap.querySelectorAll("[data-convergence-target]").forEach(button => button.addEventListener("click", () => convergenceFocus(button.dataset.convergenceTarget, button.dataset.convergenceId))));
 }
 function renderChangeStory() {
   const p = state.project;

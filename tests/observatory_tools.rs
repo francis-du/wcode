@@ -42,6 +42,11 @@ fn design_source_navigation_preserves_observed_paths_and_revision() {
 }
 
 #[test]
+fn convergence_cards_navigate_to_the_object_they_name() {
+    run_observatory_contract("tests/unit/ui/convergence_navigation.cjs", 3);
+}
+
+#[test]
 fn oauth_session_administration_requires_confirmation_and_reports_persistence() {
     run_observatory_contract("tests/unit/ui/session_admin.cjs", 7);
 }
