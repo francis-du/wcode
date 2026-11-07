@@ -6,6 +6,8 @@ use serde_json::json;
 mod admission;
 #[path = "dispatch/argument_bounds.rs"]
 mod argument_bounds;
+#[path = "context_detail.rs"]
+mod context_detail;
 #[path = "dispatch/limit_bounds.rs"]
 mod limit_bounds;
 #[path = "dispatch/parallel_command.rs"]
