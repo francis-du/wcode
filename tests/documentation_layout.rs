@@ -755,6 +755,136 @@ fn assert_bilingual_tokens(docs_root: &Path, base: &str, required: &[&str]) {
     }
 }
 
+fn collect_published_files(directory: &Path, base: &Path, published: &mut BTreeSet<String>) {
+    for entry in fs::read_dir(directory).unwrap().filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_published_files(&path, base, published);
+        } else {
+            let relative = path.strip_prefix(base).unwrap();
+            published.insert(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// Collapse `.`/`..` and drop empty segments so a permalink and a raw asset
+/// path compare equal. The result has no leading slash.
+fn normalize_url(url: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in url.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            other => segments.push(other),
+        }
+    }
+    segments.join("/")
+}
+
+fn resolve_url(base: &str, target: &str) -> String {
+    if target.starts_with('/') {
+        return normalize_url(target);
+    }
+    let directory = base.rsplit_once('/').map(|(head, _)| head).unwrap_or("");
+    normalize_url(&format!("{directory}/{target}"))
+}
+
+/// A published link may name a file, a directory index, or a page whose
+/// permalink differs from its source path.
+fn is_published_target(published: &BTreeSet<String>, resolved: &str) -> bool {
+    published.contains(resolved)
+        || published.contains(&format!("{resolved}/README.md"))
+        || published.contains(&format!("{resolved}/index.md"))
+        || published.contains(&format!("{resolved}/index.html"))
+}
+
+/// The link target of every `](...)` in the document, without trimming code
+/// fences: the manual does not embed markdown links in code samples.
+fn markdown_link_targets(content: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut index = 0;
+    while let Some(offset) = content[index..].find("](") {
+        let start = index + offset + 2;
+        let Some(end) = content[start..].find(')') else {
+            break;
+        };
+        targets.push(content[start..start + end].trim().to_owned());
+        index = start + end + 1;
+    }
+    targets
+}
+
+fn page_url(content: &str, relative: &Path) -> String {
+    if let Some(permalink) = content
+        .lines()
+        .find_map(|line| line.strip_prefix("permalink: "))
+    {
+        return permalink.trim().to_owned();
+    }
+    let without_extension = relative.with_extension("");
+    let text = without_extension.to_string_lossy().replace('\\', "/");
+    // A directory index is served from its directory, so links inside it
+    // resolve against the directory rather than against the index file.
+    if relative
+        .file_name()
+        .is_some_and(|name| matches!(name.to_string_lossy().as_ref(), "README.md" | "index.md"))
+    {
+        return match text.rsplit_once('/') {
+            Some((head, _)) => format!("{head}/"),
+            None => text,
+        };
+    }
+    format!("{text}/")
+}
+
+#[test]
+fn published_documentation_links_resolve_to_pages_or_assets() {
+    let docs_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
+    let mut published = BTreeSet::new();
+    collect_published_files(&docs_root, &docs_root, &mut published);
+    for page in markdown_files(&docs_root) {
+        let content = fs::read_to_string(&page).unwrap();
+        if let Some(permalink) = content
+            .lines()
+            .find_map(|line| line.strip_prefix("permalink: "))
+        {
+            published.insert(normalize_url(permalink.trim()));
+        }
+    }
+    let mut broken = Vec::new();
+    for page in markdown_files(&docs_root) {
+        let relative = page.strip_prefix(&docs_root).unwrap().to_path_buf();
+        let content = fs::read_to_string(&page).unwrap();
+        let base = page_url(&content, &relative);
+        for target in markdown_link_targets(&content) {
+            if target.starts_with("http://")
+                || target.starts_with("https://")
+                || target.starts_with("mailto:")
+                || target.starts_with("{{")
+            {
+                continue;
+            }
+            // A `#fragment` suffix selects a heading on the resolved page; only
+            // the path part participates in link resolution.
+            let path = target.split('#').next().unwrap_or("");
+            if path.is_empty() {
+                continue;
+            }
+            let resolved = resolve_url(&base, path);
+            if !is_published_target(&published, &resolved) {
+                broken.push(format!("{} -> {target} ({resolved})", relative.display()));
+            }
+        }
+    }
+    assert!(
+        broken.is_empty(),
+        "broken published links:\n{}",
+        broken.join("\n")
+    );
+}
+
 fn parse_page(docs_root: &Path, path: PathBuf) -> DocPage {
     let relative = path.strip_prefix(docs_root).unwrap().to_path_buf();
     let content = fs::read_to_string(&path).unwrap();
