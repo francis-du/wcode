@@ -226,6 +226,126 @@ fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRe
     })
 }
 
+const GUIDANCE_EXCERPT_LIMIT: usize = 4_000;
+const CONVENTION_FINDING_SAMPLE: usize = 16;
+
+fn bound_string(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    limit: usize,
+    marker: &str,
+) {
+    let Some(text) = object.get(key).and_then(Value::as_str) else {
+        return;
+    };
+    if text.chars().count() <= limit {
+        return;
+    }
+    let bounded: String = text.chars().take(limit).collect();
+    object.insert(key.to_owned(), Value::String(bounded));
+    object.insert(marker.to_owned(), Value::Bool(true));
+}
+
+/// A repository profile carries every convention finding, every quality
+/// provider reason and whole guidance excerpts. Those are what make the
+/// default response far larger than the guidance an agent acts on, so the
+/// summary keeps the counts, a bounded sample and bounded text, and declares
+/// every omission. `detail=full` restores the complete projection.
+fn compact_project_context(value: &mut Value) {
+    if let Some(guidance) = value.get_mut("guidance").and_then(Value::as_array_mut) {
+        for document in guidance {
+            let Some(object) = document.as_object_mut() else {
+                continue;
+            };
+            bound_string(
+                object,
+                "excerpt",
+                GUIDANCE_EXCERPT_LIMIT,
+                "excerpt_truncated",
+            );
+        }
+    }
+    if let Some(conventions) = value.get_mut("conventions").and_then(Value::as_object_mut) {
+        if let Some(mut findings) = conventions
+            .get_mut("findings")
+            .and_then(Value::as_array_mut)
+            .map(std::mem::take)
+        {
+            let total = findings.len();
+            let mut counts = std::collections::BTreeMap::<String, (usize, Value)>::new();
+            for finding in &findings {
+                let code = finding
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let severity = finding
+                    .get("severity")
+                    .cloned()
+                    .unwrap_or(Value::String("warning".to_owned()));
+                counts
+                    .entry(code)
+                    .and_modify(|entry| entry.0 += 1)
+                    .or_insert((1, severity));
+            }
+            let mut by_code = counts
+                .into_iter()
+                .map(|(code, (count, severity))| json!({"code": code, "count": count, "severity": severity}))
+                .collect::<Vec<_>>();
+            by_code.sort_by(|left, right| {
+                right["count"]
+                    .as_u64()
+                    .cmp(&left["count"].as_u64())
+                    .then_with(|| left["code"].as_str().cmp(&right["code"].as_str()))
+            });
+            findings.truncate(CONVENTION_FINDING_SAMPLE);
+            conventions.insert("findings".to_owned(), Value::Array(findings));
+            conventions.insert("findings_by_code".to_owned(), Value::Array(by_code));
+            conventions.insert("findings_total".to_owned(), Value::from(total));
+            if total > CONVENTION_FINDING_SAMPLE {
+                conventions.insert("findings_truncated".to_owned(), Value::Bool(true));
+            }
+        }
+    }
+    if let Some(languages) = value
+        .get_mut("language_quality")
+        .and_then(|quality| quality.get_mut("languages"))
+        .and_then(Value::as_array_mut)
+    {
+        for language in languages {
+            let Some(providers) = language.get_mut("providers").and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+            for provider in providers {
+                let Some(object) = provider.as_object_mut() else {
+                    continue;
+                };
+                // The provider's command line, reason and execution lane are
+                // what language_quality_status is for; the summary keeps the
+                // identity and the availability decision only.
+                for key in [
+                    "root",
+                    "source",
+                    "covers",
+                    "command",
+                    "reason",
+                    "execution_lane",
+                    "check_only",
+                    "external_advisory_data",
+                    "authorization_required",
+                    "machine_format",
+                ] {
+                    object.remove(key);
+                }
+            }
+        }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert("detail".to_owned(), Value::String("summary".to_owned()));
+    }
+}
+
 pub(super) async fn call(
     state: &AppState,
     name: &str,
@@ -234,11 +354,16 @@ pub(super) async fn call(
     let outcome: AnyResult<Value> = match name {
         "project_context" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let detail = super::leaf_intelligence::detail_arg(args)?;
             let harness = state.harness.clone();
             run_blocking(move || {
-                harness
+                let mut value = harness
                     .project_context(workspace_id, &workspace)
-                    .and_then(|context| serde_json::to_value(context).map_err(Into::into))
+                    .and_then(|context| serde_json::to_value(context).map_err(Into::into))?;
+                if detail == super::leaf_intelligence::Detail::Summary {
+                    compact_project_context(&mut value);
+                }
+                Ok(value)
             })
             .await
         }
