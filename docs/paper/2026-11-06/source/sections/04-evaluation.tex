@@ -1,0 +1,29 @@
+\section{Evaluation Design}
+\label{sec:evaluation}
+We evaluate the implemented boundaries through four questions: (RQ1) do selected contract tests and operational controls preserve their stated boundaries; (RQ2) does bounded context deliver its annotated source obligations; (RQ3) which readiness errors are hidden by weaker predicates; and (RQ4) how do response size, visible decision records, and latency vary across the tested budgets? The unit under study is a runtime call, without a language-model invocation.
+
+\subsection{Corpus and execution protocol}
+The diagnostic contains 60 synthetic, developer-authored scenarios: 27 Rust and 11 each in Go, TypeScript, and Python. Fixtures range from 26 to 644 files. Each scenario has explicit Gold source obligations, including path-qualified identities and original source ranges. Among the 59 answerable scenarios, the union of required original source is small: 61--220 bytes per scenario, with a median of 162 bytes. One scenario is unanswerable and one is answerable but read-only; 58 are eligible for editing. These properties make the corpus useful for contract diagnostics but easy for source-delivery recall.
+
+We run budgets $B\in\{1000,2000,4000\}$, two harness-cache phases, and seven repetitions per scenario and condition. This yields $60\times3\times2\times7=2520$ measured queries, plus 180 separate warm-up queries. ``Cold'' creates a new tool harness; ``warm'' uses its primed state. Operating-system caches are not cleared. Budget order is fixed, and phase order alternates by scenario. Repetition characterizes execution variability on the same tasks rather than creating new independent tasks.
+
+The primary run uses an archived source tree at commit \code{584abd88}, package version 0.9.6, and a retained debug executable. It ran on an Apple M5 system with ten physical/logical cores and 16\,GiB memory, macOS 27.2 on arm64. The runtime toolchain probe reported rustc 1.99.1; it is not a separate attestation of the compilation toolchain. The harness is configured for four slots. Host load was not controlled. The complete source and executable identities, protocol, and recovery history are recorded in Appendix~\ref{sec:artifact} and the accompanying evidence inventory.
+
+\subsection{Delivery and readiness measures}
+For each condition, the 420 measured attempts contain 686 required source instances, 413 answerable observations, and 406 eligible editable observations. We score the following nested delivery predicates against the final response:
+\begin{description}[style=unboxed,leftmargin=0pt,font=\bfseries]
+\item[Identity.] The annotated path-qualified target is present.
+\item[Original body.] The required source is delivered without truncation; this predicate already checks the source-window hash.
+\item[File metadata.] The associated \code{files[]} entry also reports the current SHA-256.
+\item[Editable input.] The response satisfies the complete editing-input contract, including write eligibility.
+\end{description}
+The first three source-instance measures use 686 obligations per condition; editable-input success uses 406 eligible observations. Separately, an attempt-level readiness analysis compares positive classifications among the 413 answerable observations. Keeping these denominators explicit prevents source recall from being reported as edit readiness.
+
+We also measure the presence of a serialized \code{DecisionBatch}, an optional structured decision record in the final response. Its denominator is all 420 attempts. Exposure measures what the caller can inspect; it is not decision correctness. The raw report additionally retains shadow context-sufficiency scoring, which is a separate diagnostic and does not change the exposure measure.
+
+\subsection{Controls, ablation, and timing}
+Eleven operational controls cover four language-specific syntax graphs, guarded editing and invalidation, read-only admission, competing same-hash writes, workspace boundaries, partial-graph reporting, syntax-cache pressure, and workspace-relative verification singleflight. They exercise selected mechanisms alongside the primary trial.
+
+We additionally replay 22 existing selected counterexample tests on the same retained executable, once per exact test name. They cover evidence identity and authority (11), producer conflict (2), dependency ownership (2), scope and observability (2), and scoring (5). Each invocation records its arguments, result, and before/after executable hashes. The source manifests and primary raw report are checked before and after the replay. Earlier executions under another build remain historical; the new replay supplies the results reported here.
+
+The predicate analysis recombines retained per-sample score fields produced by grading the final responses; full serialized tool responses are not archived. It is an observational ablation of readiness definitions, not a runtime experiment that disables a module. For cost, we report serialized bytes and wall-clock latency of the context call. Timing excludes compilation, fixture construction, grading, model inference, network transport, and client retries. Table~\ref{tab:cost} summarizes all 420 observations per condition. Figure~\ref{fig:latency} instead plots 60 scenario medians, each formed from seven repetitions, so heavily repeated fixtures are not visually presented as independent tasks. We report descriptive distributions without inferential confidence intervals.

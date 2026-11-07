@@ -1,0 +1,74 @@
+\section{An Evidence Admission Contract}
+\label{sec:contract}
+\subsection{State and observations}
+Let the workspace state be
+\begin{equation}
+ S=(D,C,P,G,E,W),
+\end{equation}
+where $D$ is declared design, $C$ is code, $P$ is applicable policy, $G$ is the observed software graph, $E$ is the evidence history, and $W$ is work state. Its revision is $\rho(S)=(\rho_C,\rho_D)$, with an optional design component. Policy has a separate binding; it is not a third revision field. Keeping design in the revision matters because a changed acceptance criterion can invalidate the use of a previous result even when the code bytes are unchanged.
+
+For exposition, represent an evidence record as
+\begin{equation}
+ e=(u,k,p,\rho,\sigma,a,o,\pi,\tau),
+\end{equation}
+where $u$ is the subject, $k$ the evidence kind, $p$ the producer, $\rho$ the captured revision, $\sigma$ the covered targets, $a$ the authority, $o$ the outcome, $\pi$ the relevant policy binding, and $\tau$ an ordering or execution receipt. This tuple summarizes checks distributed across the implementation; it is not a claim that every subsystem has one identical record schema.
+
+Provenance and authority serve different purposes. A producer identifier records who supplied an observation. Authority determines which claims that entry point is allowed to establish. A self-reported producer name or confidence score cannot turn external evidence into native verification. Similarly, automated policy authorization and an explicit human approval are distinct evidence kinds. Replacing either distinction with a generic ``success'' would change the meaning of the decision.
+
+\subsection{Applicability and producer conflicts}
+For a request $q$, define the applicable subset
+\begin{align}
+ E_q(S)&=\{e\in E:\App(e,S,q)\},\\
+ \App(e,S,q)&=\operatorname{Complete}(e.\rho) \nonumber\\
+ &\quad\land(e.\rho=\rho(S)) \nonumber\\
+ &\quad\land\operatorname{Relevant}(e.\sigma,q) \nonumber\\
+ &\quad\land\operatorname{Authorized}(e.a,P,q) \nonumber\\
+ &\quad\land\operatorname{Compatible}(e.\pi,P,q).
+ \label{eq:applicable}
+\end{align}
+The predicates are operation-specific. Relevance admits observations about the request's targets; exact coverage is checked when a record supports an individual obligation. Compatibility concerns the policy conditions relevant to that evidence kind. An incomplete revision fingerprint cannot establish exact-revision native evidence. Retaining such a record for inspection does not make it applicable.
+
+Applicability alone does not resolve conflicting records. We reduce records within keys that retain subject, evidence kind, producer, and applicability scope. A newer record can supersede an older one only under the applicable typed-receipt and coverage rules. Let $L_q$ denote the resulting retained records. A global ``latest result wins'' reduction is unsuitable: a pass from producer $p_2$ must not erase an applicable failure from $p_1$.
+
+Let $Q$ be the nonempty set of required checks, $A$ the additional configured acceptance gates, and $\bar S=(D,C,P,G,W)$ the state excluding evidence history. A simplified admission rule is
+\begin{align}
+ \Accept(S,q) \iff{}& Q\ne\varnothing \nonumber\\
+ &\land\ \forall t\in Q:\Pass(t,L_q) \nonumber\\
+ &\land\ \nexists e\in L_q:\Fail_q(e) \nonumber\\
+ &\land\ \operatorname{GatesSatisfied}(A,\bar S,L_q).
+ \label{eq:accept}
+\end{align}
+Here, $\Pass(t,L_q)$ requires applicable support whose coverage, kind, authority, and receipt satisfy check $t$; an outstanding skipped check cannot supply it. $\Fail_q(e)$ denotes a blocking failure under the request's policy, rather than every negative or advisory observation. Configured gates consult evidence only through $L_q$. The implementation distinguishes check aggregation from broader reconciliation and acceptance. Equation~\eqref{eq:accept} makes their logical dependency explicit rather than replacing them with a single execution-status flag.
+
+\begin{proposition}[Preservation under irrelevant additions]
+\label{prop:preservation}
+Fix $\bar S$, the request $q$, the required checks and gates, and the reduction rules. Adding inapplicable evidence does not change admission. If a retained applicable blocking failure from producer $p_1$ remains, adding a passing record from a different producer $p_2$ cannot make admission true.
+\end{proposition}
+\begin{proof}
+Inapplicable records are removed before reduction and therefore leave $L_q$ unchanged. All other arguments to the checks and gates are fixed, so admission is unchanged. Records from distinct producers occupy distinct reduction keys, so the added pass cannot supersede the blocking failure. The failure makes the third conjunct of Equation~\eqref{eq:accept} false.
+\end{proof}
+
+The proposition concerns the specified admission rule under truthful, complete, correctly bound inputs. It does not establish that a test is adequate, that a producer is trustworthy, or that an implementation is formally verified. In particular, a captured revision label alone cannot prove that a process read an immutable snapshot throughout execution. These assumptions separate what the contract guarantees from what evidence capture must establish.
+
+\subsection{A running change scenario}
+Table~\ref{tab:trace} gives a schematic trace for the session-refresh example. The identifiers are illustrative, not an additional empirical task. The trace exposes two independent validity boundaries: the file observation used by an edit and the revision-bound support used by acceptance.
+
+\begin{table}[t]
+\small
+\caption{Illustrative evidence transitions for one change.}
+\label{tab:trace}
+\begin{tabularx}{\columnwidth}{@{}p{0.19\columnwidth}X@{}}
+\toprule
+Event & Consequence for the next operation\\
+\midrule
+Read $h_0$ & The response identifies the function, original body, and current file hash.\\
+Peer edits & File state becomes $h_1$; an edit still expecting $h_0$ must refresh its input.\\
+Old pass & Evidence bound to $\rho_0$ remains historical when the current revision is $\rho_1$.\\
+$p_1$ fails & A current failure remains visible for its subject and scope.\\
+$p_2$ passes & A pass from another producer does not supersede $p_1$'s failure.\\
+Task ends & Completion updates work state; acceptance still requires applicable checks and gates.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+There is no universal ordering in which a source excerpt, a test pass, and a human approval are interchangeable amounts of confidence. They support different predicates. The runtime consequently exposes both the observations and the remaining obligations, allowing a caller to choose a targeted re-read, re-verification, or review instead of inferring readiness from an undifferentiated score.

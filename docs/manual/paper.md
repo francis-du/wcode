@@ -1,34 +1,39 @@
 ---
 layout: docs
 title: Research Paper
-description: The wcode system-paper draft, English manuscript, Chinese original, and measurement evidence.
+description: A preprint by Francis Du on revision-bound evidence for stateful software agents.
+author: Francis Du
 lang: en
 alternate: /zh/docs/paper/
 permalink: /docs/paper/
 ---
 
-# Research Paper
+# WCode: Revision-Bound Evidence for Stateful Software Agents
 
-## Manuscripts
+**Francis Du** · **6 November 2026** · Preprint
 
-**wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents**
+WCode treats evidence as an observation bound to its subject, producer, authority, coverage, policy, and code–design revision. The paper specifies an evidence-admission contract and studies how the runtime connects bounded source delivery, guarded edits, verification reuse, and producer-aware reconciliation.
 
-Read the [English manuscript](/paper/paper.en.md) or the [Chinese original](/paper/paper.zh-CN.md). English revision 2 adds explicit metric definitions, a concrete delivery-failure example, and a more precise baseline and ablation plan. It preserves the original measured results; it is not a new evaluation.
+## Read the paper
 
-This is a technical draft, not a peer-reviewed publication or an accepted submission. Author information and venue formatting remain to be finalized.
+[English PDF — 10 pages](/paper/2026-11-06/wcode-preprint.en.pdf) · [Chinese PDF — 8 pages](/paper/2026-11-06/wcode-preprint.zh-CN.pdf) · [LaTeX source ZIP](/paper/2026-11-06/wcode-arxiv-source.zip)
 
-## Evidence and scope
+<p><a href="/paper/2026-11-06/wcode-preprint.en.pdf" target="_blank" rel="noopener">Open the English PDF in a new tab</a> · <a href="/paper/2026-11-06/wcode-preprint.en.pdf" download>Download the English PDF</a></p>
 
-The fixed study has 60 synthetic development scenarios, three budgets, two cache phases, 360 measured queries, and 180 separate warmups. A budget unit is an estimate from serialized JSON bytes divided by four, not model-token billing. Evidence delivery and edit inputs do not establish autonomous bug discovery or patch correctness.
+<object data="/paper/2026-11-06/wcode-preprint.en.pdf" type="application/pdf" aria-label="WCode preprint by Francis Du, English edition" style="display:block;width:100%;height:75vh;min-height:420px">
+  <p>The embedded PDF viewer is unavailable in this browser. <a href="/paper/2026-11-06/wcode-preprint.en.pdf">Open or download the English PDF</a>.</p>
+</object>
 
-See the [English evidence record](/paper/evidence.en.md), [selected data](/paper/snapshot.json), [bibliography](/paper/references.bib), and [revision notes](/paper/revision.en.md). The selected data is not the full raw report or a frozen source artifact.
+## Study and scope
 
-## Reproduction
+The model-free diagnostic covers 60 developer-authored synthetic scenarios in four languages, three response budgets, two harness-cache phases, and seven repetitions, yielding 2,520 measured calls. Twenty-two selected contract counterexamples were replayed individually on the same retained executable; all 22 tests and eleven operational controls passed.
 
-From the repository root, run the read-only artifact checks:
+The results distinguish source delivery, edit-input readiness, and the visibility of structured decision records. The required source is small, and repetitions reuse the same fixtures. The findings support the tested runtime contracts. Independent real-repository issue resolution, matched agent comparisons, and operator studies remain future evaluation.
 
-```sh
-python3 tests/paper_artifacts.py
-```
+## Source and citation
 
-The check uses the canonical report named in `snapshot.json`, or a byte-identical archive when one exists. It checks retained data and manuscript consistency; it does not run a new Fitness experiment. The raw report is currently absent and no archive exists, so the check reports `raw_report_unavailable` and verifies the manuscript against the retained selected fields only. See the [paper directory guide](/paper/README.md) for build requirements and the original experiment commands.
+The [versioned English and Chinese LaTeX sources](https://github.com/francis-du/wcode/tree/main/docs/paper/2026-11-06/source) support rebuilding the manuscript. See the [build and artifact guide](/paper/2026-11-06/README.md), [BibTeX citation](/paper/2026-11-06/citation.bib), and [SHA-256 checksums](/paper/2026-11-06/SHA256SUMS).
+
+Francis Du. 2026. *WCode: Revision-Bound Evidence for Stateful Software Agents*. Preprint, 6 November 2026.
+
+The [earlier draft](/paper/README.md) documents a separate 360-query diagnostic snapshot.

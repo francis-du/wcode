@@ -1,0 +1,98 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{paper-style}[2026/11/06 WCode preprint typography]
+\usepackage[letterpaper,left=0.72in,right=0.72in,top=0.72in,bottom=0.76in]{geometry}
+\setlength{\columnsep}{0.25in}
+\ifdefined\ChineseVersion
+  \usepackage{fontspec}
+  \setmainfont{Noto Serif CJK SC}[ItalicFont={Noto Serif CJK SC},ItalicFeatures={FakeSlant=0.15}]
+  \setsansfont{Noto Sans CJK SC}
+  \setmonofont{Latin Modern Mono}
+  \XeTeXlinebreaklocale "zh"
+  \XeTeXlinebreakskip=0pt plus 1pt
+  \renewcommand{\abstractname}{摘要}
+  \renewcommand{\refname}{参考文献}
+  \renewcommand{\figurename}{图}
+  \renewcommand{\tablename}{表}
+\else
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+\fi
+\usepackage{microtype,amsmath,amssymb,amsthm}
+\usepackage{graphicx,booktabs,tabularx,array,multirow}
+\usepackage[font=small,labelfont=bf,labelsep=period]{caption}
+\usepackage{enumitem,float,xcolor,tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{xurl}
+\usepackage[unicode,colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
+\usepackage{fancyhdr,titlesec,flushend}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\scshape WCode}
+\ifdefined\ChineseVersion
+  \fancyhead[R]{\small 修订绑定证据}
+\else
+  \fancyhead[R]{\small Revision-bound evidence for software agents}
+\fi
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.2pt}
+\setlength{\headheight}{14pt}
+\titleformat{\section}{\large\bfseries}{\thesection}{0.55em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{2.0ex plus .6ex minus .3ex}{.8ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{1.5ex plus .5ex minus .2ex}{.5ex plus .2ex}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0pt}
+\setlist{nosep,leftmargin=1.4em,topsep=3pt}
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{9pt plus 2pt minus 2pt}
+\setlength{\intextsep}{9pt plus 2pt minus 2pt}
+\setlength{\emergencystretch}{1.5em}
+\renewcommand{\topfraction}{.92}
+\renewcommand{\bottomfraction}{.85}
+\renewcommand{\textfraction}{.07}
+\renewcommand{\floatpagefraction}{.85}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+\widowpenalty=10000
+\clubpenalty=10000
+\raggedbottom
+\definecolor{inkblue}{RGB}{40,74,104}
+\definecolor{palegray}{RGB}{246,247,248}
+\newcommand{\wcode}{\textsc{wcode}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\App}{\operatorname{App}}
+\newcommand{\Pass}{\operatorname{Pass}}
+\newcommand{\Fail}{\operatorname{Fail}}
+\newcommand{\Accept}{\operatorname{Accept}}
+\newcommand{\Req}{\operatorname{Req}}
+\newcommand{\Latest}{\operatorname{Latest}}
+\newcommand{\Hash}{\operatorname{H}}
+\newcommand{\Covers}{\operatorname{Covers}}
+\ifdefined\ChineseVersion
+  \newtheorem{proposition}{命题}
+  \renewcommand{\proofname}{证明}
+\else
+  \newtheorem{proposition}{Proposition}
+\fi
+\floatstyle{ruled}
+\newfloat{algorithm}{tbp}{loa}
+\ifdefined\ChineseVersion\floatname{algorithm}{算法}\else\floatname{algorithm}{Algorithm}\fi
+\newcommand{\paperheading}[3]{%
+\twocolumn[{%
+\begin{center}
+{\LARGE\bfseries #1\par}
+\vspace{9pt}
+{\normalsize \@author\par}
+\vspace{4pt}
+{\small #2\par}
+\vspace{10pt}
+\begin{minipage}{0.95\textwidth}
+\small\noindent\textbf{\abstractname.}\enspace #3
+\end{minipage}
+\vspace{13pt}
+\end{center}
+}]\thispagestyle{plain}}
+\AtBeginEnvironment{thebibliography}{\small\setlength{\itemsep}{3pt}\setlength{\parskip}{0pt}}

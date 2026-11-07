@@ -1,0 +1,28 @@
+\section{Artifact Identity and Reproduction}
+\label{sec:artifact}
+The primary dataset is \path{frozen-trial/fitness.raw.json}, produced from archived commit \code{584abd88} (tree \code{12586d3e}). Table~\ref{tab:identity} gives short locators; the evidence inventory supplies complete hashes, sizes, and paths. All 1003 archived source files were checked against the export. Before/after manifests contain the same 774 paths and content hashes, and code/design revisions are unchanged.
+
+\begin{table}[H]
+\small\centering
+\caption{Primary artifact identities (SHA-256 prefixes).}
+\label{tab:identity}
+\begin{tabularx}{\columnwidth}{@{}Xl@{}}
+\toprule
+Artifact & SHA-256 prefix\\
+\midrule
+Raw trial report & \code{cf2575276eef583d}\\
+Retained executable, uncompressed & \code{2ffaac58a3fe25ef}\\
+Executable gzip archive & \code{56b39d3c254318ad}\\
+Source tar archive & \code{1ed5157ce1165927}\\
+Corpus definition & \code{6cf6d8403c48ac25}\\
+Evaluator definition & \code{43e5455c5758bd11}\\
+Final run validation & \code{e4c1887409b26ad6}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The initial frozen invocation exited with code 101 because its report-output directory was missing; it produced no primary raw report. After that process ended, the directory was created and the retained executable was restored, hash-checked, and invoked directly without recompilation. The recovery run exited with code 0 and produced the primary report. The failed invocation remains recorded as a failure. The final validator passes 29 checks and explicitly reconciles two manifest-ordering conventions; the original validator and recovery receipts remain available.
+
+The research-source bundle includes the summary, per-scenario and predicate CSVs, their source-hash manifest, and scripts for regenerating the vector figures. The accompanying evidence archive retains the full raw report, source tar archive, compressed executable, validators, and separate historical runs. Reanalysis uses these retained data without a model service. The separate frozen-contract replay retains one receipt for each of 22 exact tests and verifies the same executable and unchanged source. Historical observations are not pooled into these results.
+
+Re-execution requires a new run record. The preserved executable targets macOS arm64 and contains absolute compile-time paths; rebuilding elsewhere requires a compatible Rust toolchain and dependencies and creates a new executable identity. The artifact documentation provides the command and environment details. A public deposit and an archival identifier should identify an actual released version; neither is implied by the local reproduction package.

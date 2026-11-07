@@ -1,0 +1,129 @@
+\begin{thebibliography}{12}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Debenedetti et~al.(2024)Debenedetti, Zhang, Balunovi{\'c},
+  Beurer-Kellner, Fischer, and Tram{\`e}r]{debenedetti2024agentdojo}
+Edoardo Debenedetti, Jie Zhang, Mislav Balunovi{\'c}, Luca Beurer-Kellner, Marc
+  Fischer, and Florian Tram{\`e}r.
+\newblock {AgentDojo}: A dynamic environment to evaluate prompt injection
+  attacks and defenses for {LLM} agents.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~37, 2024.
+\newblock \doi{10.52202/079017-2636}.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2024/hash/97091a5177d8dc64b1da8bf3e1f6fb54-Abstract-Datasets_and_Benchmarks_Track.html}.
+
+\bibitem[Debenedetti et~al.(2025)Debenedetti, Shumailov, Fan, Hayes, Carlini,
+  Fabian, Kern, Shi, Terzis, and Tram{\`e}r]{debenedetti2025camel}
+Edoardo Debenedetti, Ilia Shumailov, Tianqi Fan, Jamie Hayes, Nicholas Carlini,
+  Daniel Fabian, Christoph Kern, Chongyang Shi, Andreas Terzis, and Florian
+  Tram{\`e}r.
+\newblock Defeating prompt injections by design, 2025.
+\newblock URL \url{https://arxiv.org/abs/2503.18813v2}.
+\newblock arXiv:2503.18813v2.
+
+\bibitem[Jimenez et~al.(2024)Jimenez, Yang, Wettig, Yao, Pei, Press, and
+  Narasimhan]{jimenez2024swebench}
+Carlos~E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir
+  Press, and Karthik Narasimhan.
+\newblock {SWE-bench}: Can language models resolve real-world {GitHub} issues?
+\newblock In \emph{International Conference on Learning Representations}, 2024.
+\newblock URL \url{https://openreview.net/forum?id=VTF8yNQM66}.
+
+\bibitem[Mokhov et~al.(2018)Mokhov, Mitchell, and
+  Peyton~Jones]{mokhov2018buildsystems}
+Andrey Mokhov, Neil Mitchell, and Simon Peyton~Jones.
+\newblock Build systems {\`a} la carte.
+\newblock \emph{Proceedings of the ACM on Programming Languages}, 2\penalty0
+  (ICFP):\penalty0 79:1--79:29, September 2018.
+\newblock \doi{10.1145/3236774}.
+\newblock URL
+  \url{https://simon.peytonjones.org/assets/pdfs/build-systems-original.pdf}.
+
+\bibitem[Murphy et~al.(1995)Murphy, Notkin, and Sullivan]{murphy1995reflexion}
+Gail~C. Murphy, David Notkin, and Kevin Sullivan.
+\newblock Software reflexion models: Bridging the gap between source and
+  high-level models.
+\newblock In \emph{Proceedings of the Third ACM SIGSOFT Symposium on
+  Foundations of Software Engineering}, pages 18--28. ACM, October 1995.
+\newblock URL \url{https://www.cs.ubc.ca/~murphy/papers/rm/fse95.html}.
+
+\bibitem[Souza et~al.(2025)Souza, Gueroudji, DeWitt, Rosendo, Ghosal, Ross,
+  Balaprakash, and da~Silva]{souza2025provagent}
+Renan Souza, Amal Gueroudji, Stephen DeWitt, Daniel Rosendo, Tirthankar Ghosal,
+  Robert Ross, Prasanna Balaprakash, and Rafael~Ferreira da~Silva.
+\newblock {PROV-AGENT}: Unified provenance for tracking {AI} agent interactions
+  in agentic workflows.
+\newblock In \emph{2025 IEEE International Conference on eScience (eScience)},
+  pages 467--473. IEEE, 2025.
+\newblock \doi{10.1109/eScience65000.2025.00093}.
+\newblock URL \url{https://arxiv.org/abs/2508.02866v3}.
+
+\bibitem[Wang et~al.(2025)Wang, Li, Song, Xu, Tang, Zhuge, Pan, Song, Li,
+  Singh, Tran, Li, Ma, Zheng, Qian, Shao, Muennighoff, Zhang, Hui, Lin,
+  Brennan, Peng, Ji, and Neubig]{wang2025openhands}
+Xingyao Wang, Boxuan Li, Yufan Song, Frank~F. Xu, Xiangru Tang, Mingchen Zhuge,
+  Jiayi Pan, Yueqi Song, Bowen Li, Jaskirat Singh, Hoang Tran, Fuqiang Li, Ren
+  Ma, Mingzhang Zheng, Bill Qian, Daniel Shao, Niklas Muennighoff, Yizhe Zhang,
+  Binyuan Hui, Junyang Lin, Robert Brennan, Hao Peng, Heng Ji, and Graham
+  Neubig.
+\newblock {OpenHands}: An open platform for {AI} software developers as
+  generalist agents.
+\newblock In \emph{International Conference on Learning Representations}, 2025.
+\newblock URL
+  \url{https://proceedings.iclr.cc/paper_files/paper/2025/hash/a4b6ad6b48850c0c331d1259fc66a69c-Abstract-Conference.html}.
+
+\bibitem[{World Wide Web Consortium}(2013)]{w3c2013provdm}
+{World Wide Web Consortium}.
+\newblock {PROV-DM}: The {PROV} data model.
+\newblock W3C Recommendation REC-prov-dm-20130430, W3C, April 2013.
+\newblock URL \url{https://www.w3.org/TR/2013/REC-prov-dm-20130430/}.
+\newblock Edited by Luc Moreau and Paolo Missier; 30 April 2013.
+
+\bibitem[Wu et~al.(2024)Wu, Ahmad, Zhang, Ramanathan, and Ma]{wu2024repoformer}
+Di~Wu, Wasi~Uddin Ahmad, Dejiao Zhang, Murali~Krishna Ramanathan, and Xiaofei
+  Ma.
+\newblock {Repoformer}: Selective retrieval for repository-level code
+  completion.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
+  pages 53270--53290. PMLR, 2024.
+\newblock URL \url{https://proceedings.mlr.press/v235/wu24a.html}.
+
+\bibitem[Xia et~al.(2025)Xia, Deng, Dunn, and Zhang]{xia2025agentless}
+Chunqiu~Steven Xia, Yinlin Deng, Soren Dunn, and Lingming Zhang.
+\newblock Demystifying {LLM}-based software engineering agents.
+\newblock \emph{Proceedings of the ACM on Software Engineering}, 2\penalty0
+  (FSE), July 2025.
+\newblock \doi{10.1145/3715754}.
+\newblock URL \url{https://lingming.cs.illinois.edu/publications/fse2025.pdf}.
+
+\bibitem[Yang et~al.(2024)Yang, Jimenez, Wettig, Lieret, Yao, Narasimhan, and
+  Press]{yang2024sweagent}
+John Yang, Carlos~E. Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao,
+  Karthik Narasimhan, and Ofir Press.
+\newblock {SWE-agent}: Agent-computer interfaces enable automated software
+  engineering.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~37, 2024.
+\newblock \doi{10.52202/079017-1601}.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2024/hash/5a7c947568c1b1328ccc5230172e1e7c-Abstract-Conference.html}.
+
+\bibitem[Zhang et~al.(2023)Zhang, Chen, Zhang, Keung, Liu, Zan, Mao, Lou, and
+  Chen]{zhang2023repocoder}
+Fengji Zhang, Bei Chen, Yue Zhang, Jacky Keung, Jin Liu, Daoguang Zan, Yi~Mao,
+  Jian-Guang Lou, and Weizhu Chen.
+\newblock {RepoCoder}: Repository-level code completion through iterative
+  retrieval and generation.
+\newblock In \emph{Proceedings of the 2023 Conference on Empirical Methods in
+  Natural Language Processing}, pages 2471--2484. Association for Computational
+  Linguistics, December 2023.
+\newblock \doi{10.18653/v1/2023.emnlp-main.151}.
+\newblock URL \url{https://aclanthology.org/2023.emnlp-main.151/}.
+
+\end{thebibliography}

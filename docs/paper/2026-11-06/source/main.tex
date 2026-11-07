@@ -1,0 +1,20 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage{paper-style}
+\author{Francis Du}
+\hypersetup{pdfauthor={Francis Du},pdftitle={WCode: Revision-Bound Evidence for Stateful Software Agents},pdfsubject={Software engineering runtime and evidence applicability}}
+\begin{document}
+\paperheading{WCode: Revision-Bound Evidence\\for Stateful Software Agents}{6 November 2026}{%
+Software agents operate through sequences of repository reads, edits, checks, and acceptance decisions. Evidence produced at one step can become inapplicable after a code or design change, and a successful check from one producer can obscure a conflicting result from another. We present \wcode{}, a Rust runtime that makes these boundaries explicit. Its central abstraction is revision-bound evidence: observations retain their subject, producer, authority, coverage, and code--design revision, while policy determines whether they can support a current operation. The runtime combines bounded source delivery, optimistic file mutation, verification reuse, and producer-aware reconciliation. We specify the resulting admission contract and examine its implementation using a frozen executable. A model-free diagnostic covers 60 synthetic scenarios in four languages, three response budgets, two harness-cache phases, and seven repetitions, yielding 2,520 measured queries. Twenty-two selected contract counterexamples replay successfully on that same executable, and eleven operational controls pass. Every diagnostic condition delivers all 686 required source instances and all 406 eligible editing inputs. Nevertheless, serialized decision-record exposure varies from 0\% to 70\%, and removing writability from a readiness predicate creates seven false positives among 413 answerable observations per condition. The results show why successful retrieval and readiness for action need separate measurements. They support the tested runtime contracts; generalization to real-repository issue resolution remains an empirical question.}
+\input{sections/01-introduction}
+\input{sections/02-contract}
+\input{sections/03-implementation}
+\input{sections/04-evaluation}
+\input{sections/05-results}
+\input{sections/06-discussion}
+\input{sections/07-related}
+\input{sections/08-conclusion}
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\appendix
+\input{sections/09-artifact}
+\end{document}

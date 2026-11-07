@@ -85,7 +85,7 @@ A mapped check has not necessarily run. A historical pass may belong to an older
 ## Reference, operations and development
 
 - [Check history](engineering-fitness/) — model-free retrieval, context, edit-readiness and safety evaluation; separate correctness gates from descriptive performance trials.
-- [Research paper](paper/) — English manuscript, Chinese original, metric definitions, diagnostic results, and reproducibility limits.
+- [Research paper](paper/) — Francis Du's 6 November 2026 preprint on revision-bound evidence, with English and Chinese PDFs, LaTeX sources, and evaluation scope.
 
 - [CLI & MCP Reference](reference/) — canonical commands, operator controls, transports, and Tool families.
 - [Development](development/) — module boundaries, runtime invariants, release gates, and maintenance constraints.

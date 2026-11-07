@@ -1,0 +1,21 @@
+\def\ChineseVersion{1}
+\documentclass[10pt,twocolumn]{article}
+\usepackage{paper-style}
+\author{Francis Du}
+\hypersetup{pdfauthor={Francis Du},pdftitle={WCode：面向有状态软件智能体的修订绑定证据},pdfsubject={软件工程运行时与证据适用性}}
+\begin{document}
+\paperheading{WCode：面向有状态软件智能体的\\修订绑定证据}{2026 年 11 月 6 日}{%
+软件智能体通过一系列仓库读取、编辑、检查和验收决策开展工作。某一步产生的证据可能在代码或设计变更后失去适用性，而一个生产者给出的成功检查结果也可能掩盖另一个生产者的冲突结果。本文介绍 Rust 运行时 \wcode{}，它将这些边界显式化。其核心抽象是修订绑定证据：观察记录保留对象、生产者、权威性、覆盖范围以及代码与设计修订，由策略决定其能否支持当前操作。该运行时结合了有界源码交付、基于乐观并发控制的文件修改、验证复用以及保留生产者区分的协调核对。本文给出由此形成的准入契约，并使用冻结的可执行文件考察其实现。无模型诊断覆盖四种语言的 60 个合成场景、三档响应预算、两个执行框架缓存阶段和七次重复，共产生 2,520 次实测查询。选定的 22 项契约反例在同一可执行文件上成功重放，十一项运行控制检查也全部通过。在每种诊断条件下，全部 686 个必需源码实例和全部 406 项符合条件的编辑输入均得到交付。然而，序列化决策记录的对外暴露率从 0\% 到 70\% 不等；从就绪判定谓词中移除可写性条件后，每种条件下的 413 次可回答观察中均出现七个假阳性。这些结果说明，成功检索与可执行操作的就绪状态需要分别测量。结果支持本次测试所覆盖的运行时契约；能否推广到真实仓库的问题修复，仍需实证检验。}
+\input{zh/01-introduction}
+\input{zh/02-contract}
+\input{zh/03-implementation}
+\input{zh/04-evaluation}
+\input{zh/05-results}
+\input{zh/06-discussion}
+\input{zh/07-related}
+\input{zh/08-conclusion}
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\appendix
+\input{zh/09-artifact}
+\end{document}

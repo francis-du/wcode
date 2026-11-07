@@ -1,4 +1,17 @@
-# wcode Research Paper
+# wcode Research Papers
+
+## Current preprint — 6 November 2026
+
+**WCode: Revision-Bound Evidence for Stateful Software Agents** — Francis Du.
+
+[Read online](https://wcode.francis.run/docs/paper/) · [English PDF](2026-11-06/wcode-preprint.en.pdf) · [Chinese PDF](2026-11-06/wcode-preprint.zh-CN.pdf) · [LaTeX source ZIP](2026-11-06/wcode-arxiv-source.zip) · [Buildable bilingual sources](2026-11-06/source/)
+
+The current preprint reports 2,520 measured calls and 22 selected counterexamples replayed on the same retained executable. Build and artifact details are in the [dated publication guide](2026-11-06/README.md).
+
+## Earlier draft and diagnostic snapshot
+
+The remaining sections preserve an earlier manuscript and its separate 360-query diagnostic snapshot. Their provenance and availability statements apply to that historical study.
+
 
 **wcode: Evidence-Driven Project Tooling and Model-Free Fitness Evaluation for Coding Agents**
 

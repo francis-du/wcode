@@ -1,0 +1,24 @@
+\section{Discussion and Validity}
+\label{sec:discussion}
+\subsection{What the contract changes}
+The central design consequence is that readiness is relational. A record supports a particular operation under a particular state and policy; it does not carry a context-free ``valid'' bit. Keeping the bindings explicit makes three responses available: accept applicable support, expose an applicable blocker, or identify missing required support. The latter two both prevent admission, but lead to different next actions. A stale source requires another observation; a current failing check requires resolution; a missing approval requires the configured approval process.
+
+This design also separates explanation from authorization. A historical pass can explain why a worker acted, even though it cannot authorize acceptance of a later revision. A syntax edge can guide investigation without establishing semantic conformance. A completed work item can describe progress without satisfying verification. Preserving those records is useful precisely because their role is narrower than acceptance.
+
+The trade-off is additional state and response metadata. Revision bindings, producer keys, and coverage fields consume bytes and require explicit invalidation and reduction rules. The budget experiment shows one manifestation: full source delivery can coexist with missing decision records. Progressive disclosure can expose deeper evidence on demand, but whether it improves human or agent decisions remains to be measured. Interface compactness should therefore be evaluated against the obligations that disappear, not only against response length.
+
+\subsection{Threats to validity}
+\paragraph{Construct validity.}
+Gold source delivery and edit-input readiness are prerequisites for some operations, not measures of patch correctness. The nested predicate analysis uses a reference definition that already includes writability, so its observed error is a diagnostic consequence of omitting that condition. Similarly, serialized decision exposure measures availability for inspection. The retained shadow scores concern the same development fixtures and cannot establish calibrated decisions on independent tasks.
+
+\paragraph{Internal validity.}
+Fixed budget order, debug compilation, and uncontrolled host load limit causal interpretations of timing. A fresh harness leaves operating-system caches intact. Before/after source checks and a retained executable improve attribution of the reported run, but do not establish hermetic execution or prove that every process dependency was captured. The 22 counterexample replays share the retained executable but are single, developer-selected tests; they do not sample the space of concurrent schedules or possible failures.
+
+\paragraph{External validity.}
+The corpus is synthetic, authored during development, and organized into related language families. Required source is unusually small, and fixture size does not approximate the dependency and build diversity of independent industrial repositories. Repetitions do not increase the number of independent tasks. There is no fixed-model issue-resolution study, matched retrieval or agent baseline, independent adversarial evaluation, or operator study. Results therefore support the tested contracts rather than general superiority in autonomy, security, or usability.
+
+\paragraph{Implementation boundary.}
+The formalization abstracts implementation intent; no refinement proof connects every code path to the equations. File atomicity is per file, and external editors can escape cooperative locking. Revision equality is only as informative as the captured inputs and fingerprints. These boundaries identify the assumptions under which the contract is useful and the places where stronger isolation or instrumentation would be required.
+
+\subsection{A discriminating next experiment}
+A downstream evaluation should hold the model, task set, budgets, and execution environment fixed while comparing matched interfaces on independent repository issues. It should record patch correctness, stale-edit rejections, evidence-refresh cost, unresolved failures, and false acceptance separately. A mechanism intervention could then disable producer-aware reduction or revision checks under controlled fault injection, measuring whether the hypothesized acceptance errors occur. Such a design would test causal benefit; increasing repetitions of the present fixtures would not resolve that question.

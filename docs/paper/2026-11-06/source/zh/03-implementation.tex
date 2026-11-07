@@ -1,0 +1,79 @@
+\section{运行时设计与实现}
+\label{sec:implementation}
+\wcode{} 通过四项相互连接的职责实现这一契约：观察软件状态、构造有界上下文、判定修改是否准入，以及协调核对验证证据。图~\ref{fig:architecture} 展示了它们之间的关系。运行时不规定调用方使用何种模型或规划策略，而是约束调用方可用操作的含义。
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  block/.style={draw=inkblue!75,rounded corners=2pt,align=center,inner sep=7pt,font=\small,text width=1.83in,minimum height=.55in},
+  store/.style={block,fill=palegray},
+  arr/.style={-{Latex[length=2mm]},line width=.6pt,draw=inkblue!90},
+  note/.style={font=\footnotesize,fill=white,inner sep=2pt,align=center}]
+\node[block] (context) {有界上下文\\身份、源码、文件哈希};
+\node[block,right=.44in of context] (edit) {受保护修改\\策略、锁、哈希检查};
+\node[block,right=.44in of edit] (verify) {验证\\执行、复用、记录};
+\node[store,below=.64in of context] (state) {软件状态\\设计、代码、已观察图};
+\node[store,below=.64in of edit] (ledger) {证据历史\\修订、生产者、权威性};
+\node[block,below=.64in of verify] (reconcile) {协调核对\\覆盖范围、冲突、门控};
+\draw[arr] (context) -- node[note,above]{编辑输入} (edit);
+\draw[arr] (edit) -- node[note,above]{新修订} (verify);
+\draw[arr] (state) -- node[note,left]{观察} (context);
+\draw[arr] (edit.south west) -- node[note,above,sloped]{失效} (state.north east);
+\draw[arr] (verify.south west) -- node[note,above,sloped]{回执} (ledger.north east);
+\draw[arr] (ledger) -- node[note,above]{适用证据集} (reconcile);
+\draw[arr] (state) -- node[note,above]{修订绑定} (ledger);
+\draw[arr] (verify) -- node[note,right]{结果} (reconcile);
+\end{tikzpicture}
+\caption{运行时将证据贯穿于操作边界。源码身份约束修改；修订与来源约束验证复用和协调核对。调用方获得操作结果和尚待满足的要求。历史记录失去适用性后，仍可供检查。}
+\label{fig:architecture}
+\end{figure*}
+
+\subsection{观察设计与实现}
+设计声明表示需求、组件、约束、决策与验收标准。引用将组件连接到文件或符号，并将需求连接到实现与验证目标。这些引用提供可追溯性：解析一个符号能够确立映射关系，而行为本身仍需要适当验证。
+
+软件图将声明与文件、符号、测试、风险和证据关联起来。已观察的关系保留其提供者、精度和修订。因此，来自语法的结构与新鲜的语义提供者结果仍可区分。有界遍历会报告覆盖不完整；存在歧义的符号匹配或多个组件归属会继续作为候选保留。在架构比较中，如果观察不足，未观察到某条边会被记为尚未验证的实际结构，而不会转化为某项依赖确定缺失的结论。
+
+设计准入规则仅适用于已经初始化产品设计的情况。在这一范围内，无效的设计状态或缺失的实现归属可以阻止修改。该规则不要求每个无关工作区都定义产品模型。这一适用范围很重要：如果不满足初始化前提就施加设计门控，原本有用的项目契约就会变成缺乏解释的全局禁令。
+
+\subsection{作为输出契约的有界上下文}
+上下文接口汇集任务目标、原始源码、文件元数据、图关系、可用检查和工作项状态。选择阶段优先考虑明确目标与有用的可执行定义；彼此独立的源码项可以并发加载。随后，打包过程压缩可重建的元数据，并裁减较低优先级的内容，以满足明确的响应预算。
+
+对于序列化响应 $y$，计量大小定义为
+\begin{equation}
+ b(y)=\left\lceil\frac{|\operatorname{JSON}(y)|_{\mathrm{bytes}}}{4}\right\rceil.
+ \label{eq:budget}
+\end{equation}
+请求要求满足 $b(y)\le B$。这一基于字节数的代理量是接口计量规则，不是模型分词器。完整的源码窗口保留原始内容与起止行号；摘要不能替代缺失的原始源码。打包后会刷新就绪状态，因为内部找到的符号可能并未出现在实际交付的响应中。最终序列化结果会再次接受预算检查；无法满足上限时返回错误。
+
+这种以输出为中心的设计形成了一个可测试的不变量：就绪状态必须由调用方实际收到的内容支持。内部检索命中不能证明所交付函数体的覆盖性，当前哈希也不能弥补遗漏的函数体。第~\ref{sec:results} 节分别评估这些谓词。
+
+\subsection{明确范围内的乐观修改}
+修改已有文件时，调用方需提供预期的 SHA-256 哈希。准入过程检查写策略、解析路径、获取该文件的锁，再次解析路径，拒绝不受支持的链接条件，并比较当前哈希与预期哈希。运行时验证拟写入内容后，执行原子的单文件替换，并返回修改前后的哈希。算法~\ref{alg:edit} 概括了这一过程。
+
+\begin{algorithm}[t]
+\small
+\caption{受保护编辑的准入过程（契约抽象）}
+\label{alg:edit}
+\textbf{输入：} 路径 $f$、已观察哈希 $h$、请求的编辑 $\Delta$\\
+\textbf{输出：} 提交前后的哈希，或带类型的拒绝结果
+\begin{enumerate}[label=\arabic*.,leftmargin=1.6em]
+\item 检查适用的工作区、设计与写策略。
+\item 解析 $f$，并获取该文件的修改锁。
+\item 重新解析 $f$；验证路径与链接条件。
+\item 读取当前字节 $x$。若 $\Hash(x)\ne h$，则以输入过期为由拒绝。
+\item 构造 $x'=\Delta(x)$；验证编辑前置条件与拟写入内容。失败则拒绝。
+\item 以 $x'$ 原子替换该单个文件；释放锁；返回 $\Hash(x),\Hash(x')$。
+\end{enumerate}
+每条退出路径都会释放锁。批量操作中，各独立文件具有各自的结果。
+\end{algorithm}
+
+在所有写入都配合使用该锁的前提下，两个基于同一哈希的请求，不可能在连续两次改变字节内容的状态转换中都提交成功：第一次写入改变字节后，第二个请求会读到不同的哈希，从而不满足前置条件。这一结论假设第一次写入改变了哈希，并排除哈希碰撞。无实际变化的写入不一定使第二个请求失效。外部编辑器未必配合使用该锁，批量 API 也不是多文件事务。调用方必须检查部分成功或失败的结果，并在冲突后刷新输入。
+
+命令执行具有独立的策略边界。获准编辑文件并不意味着获准启动任意进程。区分文件准入与进程准入，能够将拒绝归因于相应操作，而不会悄然扩大权限。
+
+\subsection{验证与协调核对}
+验证过程在执行计划前采集输入修订。报告区分已执行、复用、失败和跳过的检查。聚合后的执行通过状态要求至少存在一项检查、没有失败且没有尚未补做的跳过检查。对于修订匹配的情况，符合条件的在途工作可以合并，但每个调用方仍会收到明确结果。复用指向已有的确切修订证据，不会生成一份新的执行回执。
+
+原生记录入口拒绝标记为不完整的修订指纹。受信任入口确定证据的权威性。区分生产者的归约会保留相关失败，直至满足允许取代它的条件。因此，工作项可能已经完成，其验收要求却仍未解决。
+
+协调核对连接设计中声明的变更、受影响组件、实现任务、验证计划与验收门控条件。面向操作者的状态保留缺失映射、冲突结果和待完成审查。仅设计发生变更可能意味着实现滞后；对于已有映射的代码变更，即使设计没有变化，系统也可提出审查请求，但这不意味着每项仅改动实现的重构都有问题。运行时队列观察若未绑定源码修订，就只能作为提示信息。这些区别可避免将操作活动误认为软件已经通过验收。

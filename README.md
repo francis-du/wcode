@@ -17,11 +17,19 @@ The workflow is **Understand → Change → Inspect → Verify → Evidence → 
 
 > Checks are tied to the code they ran against. A past passing result does not approve a later change.
 
-[Website](https://wcode.francis.run/) · [Documentation](https://wcode.francis.run/docs/) · [Getting started](https://wcode.francis.run/docs/getting-started/)
+[Website](https://wcode.francis.run/) · [Documentation](https://wcode.francis.run/docs/) · [Getting started](https://wcode.francis.run/docs/getting-started/) · [Research paper](https://wcode.francis.run/docs/paper/)
 
 The Apache-2.0 Core and complete local product remain independently useful. New commercial composition packages consume OSS public contracts in a separate workspace; see the [OSS / Commercial architecture audit and migration boundaries](docs/manual/oss-boundary.md).
 
 The website is the canonical product documentation and includes its own language switcher. The four system SVGs below are **living product documentation**: when wcode changes its engineering loop, repository model, verification contract, or security boundary, the diagrams are expected to evolve with the product.
+
+## Research paper
+
+**WCode: Revision-Bound Evidence for Stateful Software Agents** — Francis Du, 6 November 2026.
+
+[Read online](https://wcode.francis.run/docs/paper/) · [English PDF](docs/paper/2026-11-06/wcode-preprint.en.pdf) · [LaTeX source ZIP](docs/paper/2026-11-06/wcode-arxiv-source.zip)
+
+The preprint specifies an evidence-admission contract and evaluates the runtime with 60 synthetic scenarios, 2,520 measured calls, and 22 selected counterexamples replayed on the same retained executable. Its findings are scoped to the tested runtime contracts and synthetic fixtures.
 
 ## Get started
 

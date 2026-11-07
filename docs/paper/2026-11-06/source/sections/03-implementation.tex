@@ -1,0 +1,79 @@
+\section{Runtime Design and Implementation}
+\label{sec:implementation}
+\wcode{} implements the contract through four connected responsibilities: observing software state, constructing bounded context, admitting mutations, and reconciling verification evidence. Figure~\ref{fig:architecture} shows their relationship. The runtime does not prescribe the caller's model or planning policy; it constrains the meaning of the operations available to that caller.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  block/.style={draw=inkblue!75,rounded corners=2pt,align=center,inner sep=7pt,font=\small,text width=1.83in,minimum height=.55in},
+  store/.style={block,fill=palegray},
+  arr/.style={-{Latex[length=2mm]},line width=.6pt,draw=inkblue!90},
+  note/.style={font=\footnotesize,fill=white,inner sep=2pt,align=center}]
+\node[block] (context) {Bounded context\\identity, source, file hash};
+\node[block,right=.44in of context] (edit) {Guarded mutation\\policy, lock, hash check};
+\node[block,right=.44in of edit] (verify) {Verification\\execute, reuse, record};
+\node[store,below=.64in of context] (state) {Software state\\design, code, observed graph};
+\node[store,below=.64in of edit] (ledger) {Evidence history\\revision, producer, authority};
+\node[block,below=.64in of verify] (reconcile) {Reconciliation\\coverage, conflicts, gates};
+\draw[arr] (context) -- node[note,above]{edit inputs} (edit);
+\draw[arr] (edit) -- node[note,above]{new revision} (verify);
+\draw[arr] (state) -- node[note,left]{observe} (context);
+\draw[arr] (edit.south west) -- node[note,above,sloped]{invalidate} (state.north east);
+\draw[arr] (verify.south west) -- node[note,above,sloped]{receipts} (ledger.north east);
+\draw[arr] (ledger) -- node[note,above]{applicable set} (reconcile);
+\draw[arr] (state) -- node[note,above]{revision binding} (ledger);
+\draw[arr] (verify) -- node[note,right]{outcomes} (reconcile);
+\end{tikzpicture}
+\caption{The runtime carries evidence across operation boundaries. Source identity constrains mutation; revision and provenance constrain verification reuse and reconciliation. The caller receives operation results and remaining obligations. Historical records remain inspectable after they lose applicability.}
+\label{fig:architecture}
+\end{figure*}
+
+\subsection{Observing design and implementation}
+Declared design represents requirements, components, constraints, decisions, and acceptance criteria. References connect components to files or symbols, and requirements to implementation and verification targets. These references provide traceability: resolving a symbol establishes a mapping, while behavior still requires appropriate verification.
+
+The software graph joins declarations with files, symbols, tests, risks, and evidence. Observed relationships retain their provider, precision, and revision. Syntax-derived structure and fresh semantic-provider results therefore remain distinguishable. A bounded traversal reports incomplete coverage; ambiguous symbol matches or multiple component owners remain candidates. For architectural comparison, the absence of an observed edge is recorded as unverified actual structure when the observation is insufficient. It is not converted into a definite missing dependency.
+
+Design admission is scoped to initialized product designs. In that setting, invalid design state or missing implementation ownership can block a mutation. The rule does not require every unrelated workspace to define a product model. This scope is important: applying a design gate without its initialization precondition would turn a useful project contract into an unexplained global prohibition.
+
+\subsection{Bounded context as an output contract}
+The context interface assembles task targets, original source, file metadata, graph relationships, available checks, and work state. Selection prioritizes explicit targets and useful executable definitions; independent source items can be loaded concurrently. Packing then compacts reconstructible metadata and trims lower-priority content to satisfy an explicit response budget.
+
+For serialized response $y$, the accounted size is
+\begin{equation}
+ b(y)=\left\lceil\frac{|\operatorname{JSON}(y)|_{\mathrm{bytes}}}{4}\right\rceil.
+ \label{eq:budget}
+\end{equation}
+The requested bound is $b(y)\le B$. This byte-based proxy is an interface accounting rule, not a model tokenizer. A complete source window retains original content and line bounds; summaries do not stand in for missing original source. Readiness is refreshed after packing because a symbol found internally may be absent from the delivered response. Final serialization is checked against the budget, with an error if the bound cannot be met.
+
+This output-centered design creates a testable invariant: readiness must be supported by what the caller actually receives. An internal retrieval hit cannot establish delivered-body coverage, and a current hash cannot compensate for an omitted body. Section~\ref{sec:results} evaluates these predicates separately.
+
+\subsection{Optimistic mutation at a defined scope}
+An existing-file mutation supplies an expected SHA-256 hash. Admission checks write policy, resolves the path, acquires its per-file lock, resolves the path again, rejects unsupported link conditions, and compares the current hash with the expected hash. The runtime validates the proposed content before an atomic single-file replacement and returns before/after hashes. Algorithm~\ref{alg:edit} abstracts this sequence.
+
+\begin{algorithm}[t]
+\small
+\caption{Guarded edit admission (contract abstraction)}
+\label{alg:edit}
+\textbf{Input:} path $f$, observed hash $h$, requested edit $\Delta$\\
+\textbf{Output:} committed hashes or a typed rejection
+\begin{enumerate}[label=\arabic*.,leftmargin=1.6em]
+\item Check applicable workspace, design, and write policy.
+\item Resolve $f$ and acquire its per-file mutation lock.
+\item Re-resolve $f$; validate path and link conditions.
+\item Read current bytes $x$. If $\Hash(x)\ne h$, reject as stale.
+\item Construct $x'=\Delta(x)$; validate edit preconditions and proposed content. Reject on failure.
+\item Atomically replace the single file with $x'$; release the lock; return $\Hash(x),\Hash(x')$.
+\end{enumerate}
+The lock is released on every exit path. Independent files in a batch have independent outcomes.
+\end{algorithm}
+
+Under cooperating writes protected by this lock, two requests based on the same hash cannot both commit over successive byte-changing states: after the first changes the bytes, the second sees a different hash and fails its precondition. This consequence assumes the first write changes the hash and excludes a hash collision. A no-op write need not invalidate the second request. External editors need not cooperate with the lock, and the batch API is not a multi-file transaction. Callers must inspect partial outcomes and refresh after conflicts.
+
+Command execution has a separate policy boundary. Permission to edit a file does not confer permission to launch an arbitrary process. Keeping file and process admission distinct makes rejection attributable to the relevant operation instead of silently widening authority.
+
+\subsection{Verification and reconciliation}
+Verification captures its input revision before executing a plan. Reports distinguish executed, reused, failed, and skipped checks. The aggregate execution pass requires at least one check, no failures, and no outstanding skipped checks. Eligible in-flight work can be coalesced for a matching revision, while each caller receives an explicit result. Reuse points to existing exact-revision evidence; it does not manufacture a new execution receipt.
+
+Native recording rejects revision fingerprints marked as partial. Trusted entry points assign evidence authority. Producer-aware reduction retains relevant failures until the permitted supersession conditions are met. Consequently, a work item can be complete while its acceptance obligations remain unresolved.
+
+Reconciliation connects declared changes, affected components, implementation tasks, verification plans, and acceptance gates. Its operator-facing state preserves missing mappings, conflicting results, and outstanding review. A design-only change can indicate implementation lag; a mapped code change without a design change can request review without asserting that every implementation-only refactoring is wrong. Runtime queue observations remain advisory when they lack source-revision binding. These distinctions prevent operational activity from being mistaken for accepted software.

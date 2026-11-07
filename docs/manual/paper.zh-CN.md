@@ -1,34 +1,39 @@
 ---
 layout: docs
-title: 技术论文
-description: wcode 系统论文初稿、英文正文、中文原稿与实验依据。
+title: 研究论文
+description: Francis Du 关于有状态软件智能体与修订绑定证据的预印本。
+author: Francis Du
 lang: zh-CN
 alternate: /docs/paper/
 permalink: /zh/docs/paper/
 ---
 
-# 技术论文
+# WCode：面向有状态软件智能体的修订绑定证据
 
-## 论文正文
+**Francis Du** · **2026 年 11 月 6 日** · 预印本
 
-**wcode：面向编码智能体的证据驱动项目工具与无模型适应度评测**
+WCode 将证据视为绑定到对象、生产者、权威性、覆盖范围、策略以及代码与设计修订的观察。论文给出证据准入契约，研究运行时如何通过这些区别连接有界源码交付、受保护编辑、验证复用与区分生产者的协调核对。
 
-阅读[英文正文](/paper/paper.en.md)或[中文原稿](/paper/paper.zh-CN.md)。英文修订版 2 补充了明确的指标定义、具体的证据交付失败示例，以及更精确的基线与消融计划。实验结果沿用原始快照，不冒充一次新评测。
+## 阅读论文
 
-这是技术初稿，不是已通过同行评审或已被录用的论文。作者信息与投稿格式仍待最终确定。
+[英文 PDF — 10 页](/paper/2026-11-06/wcode-preprint.en.pdf) · [中文 PDF — 8 页](/paper/2026-11-06/wcode-preprint.zh-CN.pdf) · [LaTeX 源码包](/paper/2026-11-06/wcode-arxiv-source.zip)
 
-## 实验与边界
+<p><a href="/paper/2026-11-06/wcode-preprint.zh-CN.pdf" target="_blank" rel="noopener">在新标签页中打开中文 PDF</a> · <a href="/paper/2026-11-06/wcode-preprint.zh-CN.pdf" download>下载中文 PDF</a></p>
 
-原始研究包含 60 个合成开发场景、三个预算、两个缓存阶段、360 次测量查询，以及另外 180 次预热。预算单位是序列化 JSON 字节数除以四的估算，不是模型 token 计费量。证据交付与编辑输入完整不等于自主发现缺陷或生成正确补丁。
+<object data="/paper/2026-11-06/wcode-preprint.zh-CN.pdf" type="application/pdf" aria-label="Francis Du 的 WCode 论文中文版" style="display:block;width:100%;height:75vh;min-height:420px">
+  <p>此浏览器无法显示内嵌 PDF 阅读器。请<a href="/paper/2026-11-06/wcode-preprint.zh-CN.pdf">打开或下载中文 PDF</a>。</p>
+</object>
 
-参见[英文证据记录](/paper/evidence.en.md)、[实验摘录](/paper/snapshot.json)、[参考文献](/paper/references.bib)和[修订记录](/paper/revision.en.md)。实验摘录不等于完整原始报告，也不是已冻结的源码制品。
+## 研究与适用范围
 
-## 复现方式
+无模型诊断覆盖开发者编写的 60 个合成场景、四种语言、三档响应预算、两个执行框架缓存阶段和七次重复，共得到 2,520 次实测调用。22 项选定的契约反例在同一保留可执行文件上逐项重放；这 22 项测试与十一项运行控制检查均通过。
 
-在仓库根目录运行只读的论文一致性检查：
+结果区分了源码交付、编辑输入就绪状态与结构化决策记录的可见性。所需源码规模较小，重复运行使用同一组夹具。研究结果支持本次测试覆盖的运行时契约。独立真实仓库的问题修复、匹配的智能体比较和操作者研究仍有待后续评估。
 
-```sh
-python3 tests/paper_artifacts.py
-```
+## 源码与引用
 
-检查使用 `snapshot.json` 指定的原始报告，或存在时使用字节一致的归档；它核对已有数据与论文，不运行新的 Fitness 实验。原始报告目前不存在，也没有归档，因此检查会报告 `raw_report_unavailable`，只按保留的选定字段核对论文。构建要求和原始实验命令见[论文目录说明](/paper/README.md)。
+[按版本保存的中英文 LaTeX 源码](https://github.com/francis-du/wcode/tree/main/docs/paper/2026-11-06/source)支持重新构建论文。另见[构建与工件说明](/paper/2026-11-06/README.md)、[BibTeX 引用](/paper/2026-11-06/citation.bib)和 [SHA-256 校验值](/paper/2026-11-06/SHA256SUMS)。
+
+Francis Du. 2026. *WCode: Revision-Bound Evidence for Stateful Software Agents*. 预印本，2026 年 11 月 6 日。
+
+[早期稿件](/paper/README.md)记录了较早的 360 次查询诊断快照。

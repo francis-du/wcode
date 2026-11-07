@@ -57,6 +57,7 @@
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-label">{% if is_zh %}参考{% else %}Reference{% endif %}</div>
+        <a {% if page.url contains '/paper/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/paper/' | relative_url }}{% else %}{{ '/docs/paper/' | relative_url }}{% endif %}">{% if is_zh %}研究论文{% else %}Research Paper{% endif %}</a>
         <a {% if page.url contains '/reference/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/reference/' | relative_url }}{% else %}{{ '/docs/reference/' | relative_url }}{% endif %}">{% if is_zh %}CLI 与 MCP 参考手册{% else %}CLI &amp; MCP Reference{% endif %}</a>
         <a {% if page.url contains '/development/' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/development/' | relative_url }}{% else %}{{ '/docs/development/' | relative_url }}{% endif %}">{% if is_zh %}开发说明{% else %}Development{% endif %}</a>
         <a {% if page.url == '/docs/releases/' or page.url == '/zh/docs/releases/' or page.url contains '/releases/v' %}class="active"{% endif %} href="{% if is_zh %}{{ '/zh/docs/releases/' | relative_url }}{% else %}{{ '/docs/releases/' | relative_url }}{% endif %}">{% if is_zh %}发布版本{% else %}Releases{% endif %}</a>
