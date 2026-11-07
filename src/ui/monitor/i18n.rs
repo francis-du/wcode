@@ -20,7 +20,7 @@ impl UiLanguage {
         }
     }
 
-    pub(super) fn tr(self, key: &'static str) -> &'static str {
+    pub(super) fn tr(self, key: &str) -> &str {
         match (self, key) {
             (Self::ZhCn, "workspace") => "工作区",
             (Self::ZhCn, "add") => "添加",
@@ -226,6 +226,7 @@ impl UiLanguage {
             (Self::ZhCn, "Stale") => "已过期",
             (Self::ZhCn, "Unknown") => "未知",
             (Self::ZhCn, "Evidence counts do not determine Acceptance") => "证据数量不能决定验收",
+            (Self::ZhCn, "Verification gates") => "验证门禁",
             (Self::ZhCn, "No canonical decision · inspect current context before accepting") => "无原生验收结论 · 请先检查当前上下文",
             (Self::ZhCn, "R refresh · 2 Attention · 6 Observations · W Web") => "R 刷新 · 2 关注 · 6 高级观测 · W Web",
             (Self::ZhCn, "Check and exact Evidence") => "检查与精确证据",
@@ -245,6 +246,7 @@ impl UiLanguage {
             (Self::ZhCn, "DESIGN") => "设计",
             (Self::ZhCn, "SCOPES") => "范围",
             (Self::ZhCn, "TRACE") => "追踪",
+            (Self::ZhCn, "POLICY") => "策略",
             (Self::ZhCn, "GRAPH") => "软件图",
             (Self::ZhCn, "GRAPH Δ") => "软件图 Δ",
             (Self::ZhCn, "SEMANTICS") => "语义",
