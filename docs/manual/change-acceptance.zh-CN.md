@@ -22,7 +22,7 @@ permalink: /zh/docs/change-acceptance/
 工具名是 `change_acceptance`。默认观察 HEAD 到 worktree；明确 PR 候选时同时提供完整 `base_revision` 和 `target_revision` SHA。不能输入 Evidence、PASS、actor 或 approval JSON。
 
 - `inspect`：捕获当前 Record，不运行验证，也不追加历史。
-- `plan`：冻结指定候选的 Policy 要求、风险底线和原生命令绑定。
+- `plan`：冻结指定候选的 Policy 要求（检查、Stage、Reviewer，以及触发人工批准的最低风险等级）与原生命令绑定。
 - `verify`：执行该候选所需的完整原生矩阵与 Stage；缺失 executor 或人工要求继续阻止验收。
 - `record`：追加有界本地历史并重新确认输入。
 - `history`：读取历史；历史记录不能证明当前 revision。

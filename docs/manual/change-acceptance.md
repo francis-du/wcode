@@ -15,7 +15,7 @@ Keep your existing coding agent. wcode captures a Change Acceptance Record from 
 
 Approve a baseline using the [local Policy operator flow](../acceptance-policy/). The MCP tool is `change_acceptance`: inspect, plan, verify, record or history. Its default candidate is HEAD to worktree; for a PR provide complete `base_revision` and `target_revision` SHAs. The tool cannot import proof or self-approve a human requirement.
 
-Plan freezes candidate requirements and native command bindings. Verify executes that candidate's required matrix and native stages. Missing executors, independent review and human requirements remain visible blockers. Record appends bounded history and recaptures inputs. History is historical_only and cannot approve a current revision.
+Plan freezes the candidate's Policy requirements — checks, stages, reviewers, and the minimum risk level that triggers human approval — plus the native command bindings. Verify executes that candidate's required matrix and native stages. Missing executors, independent review and human requirements remain visible blockers. Record appends bounded history and recaptures inputs. History is historical_only and cannot approve a current revision.
 
 ```text
 wcode acceptance inspect --base <fullSHA> --head <fullSHA> --json
