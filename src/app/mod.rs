@@ -327,6 +327,20 @@ fn session_workspace_roots() -> Option<Vec<PathBuf>> {
     }
 }
 
+/// Session inheritance can supply several roots. Naming them turns a dead end
+/// into the `-w` choice the operator needs; the caller adds its own suffix.
+fn single_workspace<'a>(roots: &'a [PathBuf], what: &str) -> Result<&'a PathBuf> {
+    if roots.len() == 1 {
+        return Ok(&roots[0]);
+    }
+    let list = roots
+        .iter()
+        .map(|root| root.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    bail!("{what} accepts one project workspace; inherited {list}")
+}
+
 fn resolved_workspace_roots(explicit: &[PathBuf]) -> Vec<PathBuf> {
     if !explicit.is_empty() {
         return explicit.to_vec();
@@ -367,13 +381,9 @@ pub async fn run() -> Result<()> {
                 github_check_name,
                 json,
             } => {
-                if workspace_roots.len() != 1 {
-                    bail!("setup accepts one project workspace; configure each project separately");
-                }
-                let root = workspace_roots
-                    .first()
-                    .map(PathBuf::as_path)
-                    .unwrap_or_else(|| std::path::Path::new("."));
+                let root = single_workspace(&workspace_roots, "setup").map_err(|error| {
+                    anyhow::anyhow!("{error}, configure each project separately")
+                })?;
                 let launch_args = args.setup_launch_args()?;
                 setup::run(
                     root,
@@ -395,13 +405,8 @@ pub async fn run() -> Result<()> {
                 return crate::menu_bar::run(*json);
             }
             ControlCommand::Telemetry { to, limit } => {
-                if workspace_roots.len() != 1 {
-                    bail!("telemetry accepts one project workspace");
-                }
-                let root = workspace_roots
-                    .first()
-                    .map(PathBuf::as_path)
-                    .unwrap_or_else(|| std::path::Path::new("."));
+                let root = single_workspace(&workspace_roots, "telemetry")
+                    .map_err(|error| anyhow::anyhow!("{error}, pass -w <path> to choose one"))?;
                 crate::telemetry::run_export(root, to.as_deref(), *limit)?;
                 return Ok(());
             }
