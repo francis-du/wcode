@@ -27,6 +27,7 @@ wcode keeps product responsibility explicit rather than growing one generic runt
 - `src/intelligence/` — repository-intelligence contracts: traceability, scoped/task context, drift/impact/risk, and Project Status projections. `src/intelligence/observatory/architecture.rs` owns the System → Subsystem → Component blueprint plus Design-vs-Actual architecture projection.
 - `src/verification/` — Verification Plans, blind reviewer/readiness state, Language Quality providers, and Property/Mutation/Fuzz/Runtime executors.
 - `src/evidence/` — provenance-bearing Evidence contracts and bounded persistent storage.
+- `src/telemetry.rs` — opt-in local engineering-observation export: reads one Workspace's retained journal milestones and encodes them as bounded JSON-lines. There is no default collection upload and no background sender, and exported events never carry credentials, tokens, raw source, prompts or query text. The export is an observation record, not Evidence or Acceptance.
 - `src/reconciliation/` — durable desired-to-actual plans plus dependency-aware execution/retry state.
 - `src/ui/` — operator experience. `src/ui/monitor/` owns Ratatui runtime, state, metrics, commands, detail panels, overlays, shell actions, i18n, and theme; `src/ui/intelligence_web.rs` plus `src/ui/intelligence_web/` assets serve the protected Project Status and its project-digital-twin views.
 
