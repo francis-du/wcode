@@ -69,6 +69,8 @@ fn snapshot(nodes: Vec<GraphNode>, edges: Vec<GraphEdge>) -> SoftwareGraphSnapsh
         truncated: false,
         node_count: nodes.len(),
         edge_count: edges.len(),
+        source_node_count: None,
+        source_edge_count: None,
         failures: Vec::new(),
         graph: SoftwareGraph {
             nodes: nodes

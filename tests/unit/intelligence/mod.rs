@@ -58,6 +58,8 @@ fn observatory_file_snapshot(
         truncated: false,
         node_count: graph.nodes.len(),
         edge_count: 0,
+        source_node_count: None,
+        source_edge_count: None,
         failures: Vec::new(),
         graph,
     }
@@ -511,6 +513,8 @@ fn transitive_call_impact_walks_reverse_callers() {
         truncated: false,
         node_count: 2,
         edge_count: 1,
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };

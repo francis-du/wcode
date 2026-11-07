@@ -118,6 +118,8 @@ impl ToolHarness {
             max_symbols,
             &priority_symbol_ids,
         )?;
+        let source_node_count = snapshot.node_count;
+        let source_edge_count = snapshot.edge_count;
         let mut composite = false;
         if load.initialized {
             overlay_design_graph(&mut snapshot, &load.state, &self.code_index, workspace)?;
@@ -129,6 +131,8 @@ impl ToolHarness {
         if composite {
             snapshot.provider = "wcode-composite".to_owned();
             snapshot.precision = GraphPrecision::Mixed;
+            snapshot.source_node_count = Some(source_node_count);
+            snapshot.source_edge_count = Some(source_edge_count);
         }
         snapshot.node_count = snapshot.graph.nodes.len();
         snapshot.edge_count = snapshot.graph.edges.len();

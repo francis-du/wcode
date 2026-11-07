@@ -273,6 +273,15 @@ pub struct SoftwareGraphSnapshot {
     pub truncated: bool,
     pub node_count: usize,
     pub edge_count: usize,
+    /// Source-scan counts before the Design and provider overlays are applied.
+    /// Present only on a composite snapshot, so a caller that asked for a small
+    /// graph can see how much of `node_count` the overlays added rather than
+    /// reading `truncated` (which describes the source scan) as a statement
+    /// about the whole response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_node_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_edge_count: Option<usize>,
     pub failures: Vec<GraphBuildFailure>,
     pub graph: SoftwareGraph,
 }

@@ -349,6 +349,26 @@ impl Workspace {
         )
     }
 
+    /// Like [`Self::source_files`], but the bound counts only files a language
+    /// provider can handle. Callers building a code graph mean "at most N
+    /// source files"; without the predicate a small bound is consumed by
+    /// dotfiles and manifests and yields an empty graph.
+    pub(crate) fn source_code_files(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<String>, bool)> {
+        let scan = self.scan_source_files_filtered(
+            path,
+            max_entries,
+            crate::resource::WorkClass::Interactive,
+            true,
+            false,
+            |path| crate::semantic_provider::language_for_path(&path.to_string_lossy()).is_some(),
+        )?;
+        Ok((scan.paths, scan.truncated))
+    }
+
     pub(crate) fn source_files_with_stamps(
         &self,
         path: &str,
@@ -434,9 +454,40 @@ impl Workspace {
         readable_only: bool,
         capture_stamps: bool,
     ) -> Result<SourceScan> {
+        self.scan_source_files_filtered(
+            path,
+            max_entries,
+            work_class,
+            readable_only,
+            capture_stamps,
+            |_| true,
+        )
+    }
+
+    /// The plain scan bounds every walked path, so a small bound can be
+    /// consumed entirely by files no language provider handles (dotfiles,
+    /// manifests, docs) and return no source at all. Callers that mean "at
+    /// most N source files" pass a predicate and the bound then counts only
+    /// matching files.
+    fn scan_source_files_filtered(
+        &self,
+        path: &str,
+        max_entries: usize,
+        work_class: crate::resource::WorkClass,
+        readable_only: bool,
+        capture_stamps: bool,
+        mut indexable: impl FnMut(&Path) -> bool,
+    ) -> Result<SourceScan> {
         let start = self.existing_path(path)?;
         if start.is_file() {
             let relative = portable_relative_path(start.strip_prefix(&self.root)?);
+            if !indexable(Path::new(&relative)) {
+                return Ok(SourceScan {
+                    paths: Vec::new(),
+                    stamps: capture_stamps.then(Vec::new),
+                    truncated: false,
+                });
+            }
             let stamps = if capture_stamps {
                 let metadata = fs::metadata(&start)?;
                 let stamp = source_stamp(&metadata);
@@ -493,13 +544,15 @@ impl Workspace {
             {
                 continue;
             }
+            let relative = portable_relative_path(entry.path().strip_prefix(&self.root)?);
+            if !indexable(Path::new(&relative)) {
+                continue;
+            }
             if paths.len() == limit {
                 truncated = true;
                 break;
             }
-            paths.push(portable_relative_path(
-                entry.path().strip_prefix(&self.root)?,
-            ));
+            paths.push(relative);
             if let (Some(stamps), Some(metadata)) = (stamps.as_mut(), metadata.as_ref()) {
                 let stamp = source_stamp(metadata);
                 stamps.push(stamp.metadata_stamp());

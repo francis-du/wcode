@@ -311,7 +311,10 @@ impl CodeIndex {
         priority_symbol_ids: &HashSet<String>,
     ) -> Result<SoftwareGraphSnapshot> {
         let max_files = max_files.clamp(1, MAX_GRAPH_FILES);
-        let (paths, scan_truncated) = workspace.source_files(path, max_files)?;
+        // Bound indexable source files, not every walked path: a bound below
+        // the dotfile count would otherwise scan zero source and return a
+        // design-only graph.
+        let (paths, scan_truncated) = workspace.source_code_files(path, max_files)?;
         let mut snapshot = self.software_graph_from_paths(
             workspace,
             paths,
@@ -393,6 +396,8 @@ impl CodeIndex {
             truncated: graph_truncated || files_failed > failures.len(),
             node_count,
             edge_count,
+            source_node_count: None,
+            source_edge_count: None,
             failures,
             graph,
         })

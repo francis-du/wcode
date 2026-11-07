@@ -121,6 +121,8 @@ fn persist_fixture(workspace: &Workspace) {
         truncated: false,
         node_count: graph.nodes.len(),
         edge_count: graph.edges.len(),
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };
