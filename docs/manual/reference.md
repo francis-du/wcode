@@ -39,6 +39,7 @@ The default command catalog is intentionally task-level and model-readable:
 wcode setup
 wcode update
 wcode mcp-stdio
+wcode telemetry --help
 wcode intelligence --help
 wcode verification --help
 wcode help-all
@@ -48,6 +49,16 @@ The generated `help` subcommand is disabled; use `--help` and
 `<command> --help`. `agent-plugin` remains available only for advanced package
 export and older automation. Process lifecycle belongs to the terminal/OS or
 the MCP Host; `restart` and `stop` are no longer public wcode commands.
+
+`wcode telemetry` writes one workspace's retained engineering observations as
+bounded JSON-lines to stdout, or to a file with `--to <path>`. `--limit` caps the
+event count (default 256, at most 512). Each event carries the schema version,
+timestamp, kind (`command` or `verification`), tool, stage, outcome, duration, an
+`event_id` that correlates with the retained journal record, and a non-reversible
+workspace key that is never a path. Collection is opt-in: there is no default
+upload and no background sender, and exported events never contain credentials,
+tokens, raw source, prompts or query text. The export is a local observation
+record, not Verification Evidence or Acceptance.
 
 ### Complete command and parameter discovery
 

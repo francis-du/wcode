@@ -39,6 +39,7 @@ wcode
 wcode setup
 wcode update
 wcode mcp-stdio
+wcode telemetry --help
 wcode intelligence --help
 wcode verification --help
 wcode help-all
@@ -47,6 +48,8 @@ wcode help-all
 重复的 `help` 子命令已经取消，统一使用 `--help` 或
 `<command> --help`。`agent-plugin` 只保留给高级插件包导出和旧自动化；进程
 生命周期交给终端 / OS 或 MCP Host 管理，`restart` / `stop` 不再是公开命令。
+
+`wcode telemetry` 把一个工作区保留的工程观测以有界的 JSON-lines 写入标准输出，或用 `--to <path>` 写入文件。`--limit` 限制事件数量（默认 256，最多 512）。每条事件包含 Schema 版本、时间戳、类型（`command` 或 `verification`）、工具、阶段、结果、耗时、与保留日志记录相关联的 `event_id`，以及一个不可逆、绝不是路径的工作区 Key。采集是选择加入的：没有默认上传，也没有后台发送器；导出事件永不包含凭证、Token、原始源码、Prompt 或查询文本。该导出是本地观测记录，不是 Verification Evidence，也不是 Acceptance。
 
 ### 完整命令与参数查询
 
