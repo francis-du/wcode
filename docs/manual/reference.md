@@ -323,7 +323,7 @@ evidence_status
 | `design_status` | Validate structured Desired State. |
 | `traceability_status` | Requirement → Component → implementation and Acceptance → verification coverage. |
 | `agent_context` | Primary coding entry point: adaptive/explicit token budget, relevant design, scope-aware repo-map, bounded hot source, SHA edit targets, active Worklist recovery, verification refs, readiness and next actions. |
-| `worklist_status` / `worklist_update` | Recover and update the durable model work plan across reconnects/model switches without dropping unfinished items; updates are revision-guarded. |
+| `worklist_status` / `worklist_update` / `worklist_claim` / `worklist_submit` | Recover and update the durable model work plan across reconnects/model switches without dropping unfinished items; updates are revision-guarded, and a claimed lane is submitted with its evidence IDs against the expected revision. |
 | `software_context` | Deeper budget-aware software-intelligence context with optional Product Scope narrowing and graph context. |
 
 ### Durable execution state
@@ -345,6 +345,7 @@ evidence_status
 | `scan_patterns` | Batch text patterns with comment filtering, or `preset=go_common_bugs` / one `pattern` for AST-validated Go bug candidates. |
 | `search_syntax` | Tree-sitter node search across up to 50,000 files with optional regex, comment inclusion, guard evidence, and bug-pattern filters. |
 | `read_file` / `read_files` | Original-format UTF-8 reads with SHA-256 edit preconditions, bounded to at most 1,000 source lines per file/call. |
+| `path_info` | Bounded file metadata — kind, size, line count and content hashes — without reading the body. |
 | `list_files` | Bounded listing of regular Workspace files; protected credential/control/internal paths are blocked and symlinks are not followed. |
 | `read_media` | Metadata-first bounded media inspection; binary content requires explicit client capability. |
 | `parallel_tools` | Completion-driven path-resource batches; successors start when ready, failed dependencies skip, and queued children remain parent-owned. Parent/subspace aliases share dependency identity. |
@@ -388,6 +389,7 @@ evidence_status
 | `reconciliation_status` / `reconciliation_history` | Recover prior plans across reconnects/restarts. |
 | `reconciliation_approve` | Request approval for one exact Plan in the TUI/WebUI. Client confirmation is not authority: approval is a one-use digest/revision/policy grant, and a stale plan needs replanning. |
 | `reconciliation_execution_status` / `reconciliation_claim` / `reconciliation_submit` / `reconciliation_retry` | Durable dependency-aware convergence execution. |
+| `change_acceptance` / `acceptance_policy` | Inspect, plan, verify, record and review a Change Acceptance Record, and preview, activate or revoke the local Policy that binds it. |
 | `verification_plan` | Create risk-adaptive deterministic/stage/reviewer requirements. |
 | `verification_claim` / `verification_submit` | Blind independent reviewer jobs. |
 | `verification_executor_status` / `verification_execute_stages` | Property/Mutation/Fuzz/Runtime-Canary runner state and execution. |

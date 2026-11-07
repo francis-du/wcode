@@ -290,7 +290,7 @@ evidence_status
 | `design_status` | 校验结构化 Desired State。 |
 | `traceability_status` | Requirement → Component → implementation、Acceptance → verification 覆盖。 |
 | `agent_context` | 编程主入口：自适应 / 显式 Token Budget、相关 Design、按任务收窄的 Repo Map、Hot Source、SHA 编辑目标、活动 Worklist 恢复、验证引用、Readiness 与下一步动作。 |
-| `worklist_status` / `worklist_update` | 跨重连 / 换模型恢复并更新持久工作清单；Revision Guard 防止并发模型覆盖未完成任务。 |
+| `worklist_status` / `worklist_update` / `worklist_claim` / `worklist_submit` | 跨重连 / 换模型恢复并更新持久工作清单；Revision Guard 防止并发模型覆盖未完成任务，已认领的 Lane 携带 Evidence ID 按预期 Revision 提交。 |
 | `software_context` | 更深层的仓库智能上下文，可按 Product Scope 收窄并包含 Graph Context。 |
 
 ### 持久化执行状态
@@ -312,6 +312,7 @@ evidence_status
 | `scan_patterns` | 批量文本 Pattern 并默认过滤纯注释；也可用 `preset=go_common_bugs` / 单个 `pattern` 获取 AST 验证的 Go Bug 候选。 |
 | `search_syntax` | Tree-sitter 结构搜索，单次默认覆盖最多 50,000 文件，并支持正则、注释开关、守卫证据与 Bug Pattern 过滤。 |
 | `read_file` / `read_files` | 保留源码原格式的 UTF-8 读取，并返回 SHA-256；每个文件 / 调用最多返回 1,000 行。 |
+| `path_info` | 有界的文件元数据（类型、大小、行数与内容哈希），无需读取正文。 |
 | `list_files` | 有界地列出工作区内的常规文件；受保护的凭证 / 控制 / 内部路径被阻断，不跟随符号链接。 |
 | `read_media` | Metadata-first 媒体检查；二进制内容需要客户端显式声明能力。 |
 | `parallel_tools` | 完成驱动的路径资源批次；后续任务就绪即启动，失败依赖跳过，排队子任务归父任务管理。父子空间别名共享依赖身份。 |
@@ -355,6 +356,7 @@ evidence_status
 | `reconciliation_status` / `reconciliation_history` | 跨重连 / 重启恢复计划。 |
 | `reconciliation_approve` | 在 TUI / WebUI 中为某一个精确 Plan 请求批准。客户端确认不构成授权：批准是一次性的 Digest / Revision / Policy 授予，过期计划需要重新规划。 |
 | `reconciliation_execution_status` / `reconciliation_claim` / `reconciliation_submit` / `reconciliation_retry` | 持久化依赖感知收敛执行。 |
+| `change_acceptance` / `acceptance_policy` | 检查、规划、验证、记录并复核变更验收记录（Change Acceptance Record），并预览、激活或撤销绑定它的本地 Policy。 |
 | `verification_plan` | 生成确定性 / Stage / Reviewer 验证要求。 |
 | `verification_claim` / `verification_submit` | 独立盲审 Reviewer Job。 |
 | `verification_executor_status` / `verification_execute_stages` | Property / Mutation / Fuzz / Runtime-Canary Runner。 |
