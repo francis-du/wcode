@@ -61,8 +61,26 @@ function bindSummaryActions(node) {
     else if (target) {
       if (button.dataset.summaryPath && target === "filesSection") await openRepositoryFile(button.dataset.summaryPath);
       else {
-        if (button.dataset.summaryRequirement && (state.project?.requirements || []).some(item => item.id === button.dataset.summaryRequirement)) {
-          state.selected = button.dataset.summaryRequirement; invalidate("requirements", "detail");
+        const requirementId = button.dataset.summaryRequirement;
+        const requirement = requirementId
+          && (state.project?.requirements || []).find(item => item.id === requirementId);
+        // A drift signal names the requirement it affects, but the architecture
+        // view cannot show a requirement selection. Resolve the owning component
+        // through the explicit requirement→component mapping and focus that
+        // instead of dropping the investigation on an unfocused section.
+        const componentId = requirement && target === "architectureSection"
+          && (requirement.components || []).find(id => (architectureData().components || []).some(component => component.id === id));
+        if (componentId) {
+          state.selectedComponent = componentId;
+          state.architectureView = "components";
+          renderArchitecture();
+          revealSection(target);
+          requestAnimationFrame(() => focusSelectedComponentCard({ focus: true }));
+          return;
+        }
+        if (requirement) {
+          state.selected = requirementId;
+          invalidate("requirements", "detail");
         }
         revealSection(target);
       }
