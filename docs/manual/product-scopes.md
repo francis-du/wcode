@@ -15,16 +15,16 @@ wcode organizes its control-plane capabilities by product behavior rather than g
 
 | Scope | Product responsibility | Primary source roots |
 | --- | --- | --- |
-| `runtime` | Harness, scheduling/runtime control, power/process coordination | `src/main.rs`, `src/runtime/`, `src/scopes/` |
+| `runtime` | Harness, scheduling/runtime control, power/process coordination | `src/main.rs`, `src/lib.rs`, `src/app/`, `src/runtime/`, `src/scopes/` |
 | `integrations` | MCP, OAuth, agent plugins, connector-facing tasks/resources/prompts | `src/integrations/` |
 | `workspace` | Secure filesystem primitives, authorization, scheduler, conventions | `src/workspace/` |
 | `design` | Structured Desired Software State and validation | `src/design/` |
 | `graph` | Syntax index, composite Software Graph, graph persistence/providers | `src/graph/` |
 | `semantics` | Persistent semantic registry and first-party LSP adapters | `src/semantics/` |
-| `traceability` | Requirement traceability, scoped context, Project Status architecture projection, drift and impact | `src/intelligence/` traceability/observatory sources excluding `risk.rs` |
+| `traceability` | Requirement traceability, scoped context, Project Status architecture projection, drift and impact | `src/intelligence/` excluding `risk.rs` |
 | `risk` | Risk-adaptive policy and verification depth | `src/intelligence/risk.rs` |
 | `verification` | Deterministic and staged verification, blind review mesh | `src/verification/` |
-| `evidence` | Provenance-bearing persistent evidence | `src/evidence/` |
+| `evidence` | Provenance-bearing persistent evidence | `src/evidence/`, `src/telemetry.rs` |
 | `reconciliation` | Durable convergence planning and dependency-aware execution | `src/reconciliation/` |
 | `experience` | TUI/WebUI operator experience | `src/ui/` |
 

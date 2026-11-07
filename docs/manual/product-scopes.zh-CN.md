@@ -15,16 +15,16 @@ wcode 按产品行为组织 Control-plane 能力，而不是按通用 Backend La
 
 | Scope | 产品责任 | 主要源码根 |
 | --- | --- | --- |
-| `runtime` | Harness、调度/运行时控制、电源与进程协调 | `src/main.rs`, `src/runtime/`, `src/scopes/` |
+| `runtime` | Harness、调度/运行时控制、电源与进程协调 | `src/main.rs`、`src/lib.rs`、`src/app/`、`src/runtime/`、`src/scopes/` |
 | `integrations` | MCP、OAuth、Agent Plugin、Connector-facing Task/Resource/Prompt | `src/integrations/` |
 | `workspace` | 安全文件原语、授权、Scheduler、Convention、命令策略 | `src/workspace/` |
 | `design` | 结构化 Desired Software State 与校验 | `src/design/` |
 | `graph` | Syntax Index、Composite Software Graph、Graph Persistence/Provider | `src/graph/` |
 | `semantics` | 持久化 Semantic Registry 与第一方 LSP Adapter | `src/semantics/` |
-| `traceability` | Requirement Traceability、Drift、Impact、Scoped Software Context、Project Architecture Projection | `src/intelligence/` 中除 Risk 外的 Traceability/Observatory 逻辑 |
+| `traceability` | Requirement Traceability、Drift、Impact、Scoped Software Context、Project Architecture Projection | `src/intelligence/`（除 `risk.rs`） |
 | `risk` | Risk-adaptive Policy 与 Verification 深度 | `src/intelligence/risk.rs` |
 | `verification` | Deterministic / Stage Verification 与 Blind Review Mesh | `src/verification/` |
-| `evidence` | 带 Provenance 的持久化 Evidence | `src/evidence/` |
+| `evidence` | 带 Provenance 的持久化 Evidence | `src/evidence/`、`src/telemetry.rs` |
 | `reconciliation` | Durable Convergence Plan 与依赖感知执行 | `src/reconciliation/` |
 | `experience` | TUI / WebUI Operator Experience | `src/ui/` |
 
