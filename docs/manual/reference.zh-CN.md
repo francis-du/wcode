@@ -254,7 +254,7 @@ agent_context(goal, scopes=...)
 apply_edits 或 apply_file_edits
 ```
 
-`agent_context` 省略 `budget` 时使用有界自适应预算。`workspace_info`、`scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status` 用于按需深入检查，不再作为每次编码的固定启动序列。对于“启动项目 / 运行应用 / start server”这类纯启动请求，会走不扫描源码的 Operator Fast Route：先读取 `workspace_info` 的启动 Profile，再把选中的 Profile 交给 `run_command`；长驻进程建议使用 `task_mode=true`，让实时输出与取消继续归 Tasks 所有。
+`agent_context` 省略 `budget` 时使用有界自适应预算。未显式传 `workspace` 时，命中某个非默认 Workspace 的查询会路由到该 Workspace，响应在 `workspace_selection`（`mode`、`workspace`、`default_workspace`）中报告该选择。该选择只属于本次请求：无状态传输无法把它带入后续调用，因此本会话后续的每个工具调用都要显式传回该 `workspace` handle；省略它会退回默认 Workspace，而那可能是另一个仓库。`workspace_info`、`scope_status`、`design_status`、`project_context`、`software_context`、`language_quality_status` 用于按需深入检查，不再作为每次编码的固定启动序列。对于“启动项目 / 运行应用 / start server”这类纯启动请求，会走不扫描源码的 Operator Fast Route：先读取 `workspace_info` 的启动 Profile，再把选中的 Profile 交给 `run_command`；长驻进程建议使用 `task_mode=true`，让实时输出与取消继续归 Tasks 所有。
 
 改动后：
 

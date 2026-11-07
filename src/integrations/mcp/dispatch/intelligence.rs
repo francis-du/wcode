@@ -475,15 +475,19 @@ pub(super) async fn call(
         "agent_context" => {
             let query = required_string(args, "query")?.to_owned();
             let explicit_workspace = workspace_arg(args)?;
-            let (workspace_id, workspace) = if explicit_workspace.is_some() {
-                selected_workspace(state, args)?
+            let default_workspace = state.workspaces.default_id().to_owned();
+            let (workspace_id, workspace, selection) = if explicit_workspace.is_some() {
+                let (workspace_id, workspace) = selected_workspace(state, args)?;
+                (workspace_id, workspace, "explicit")
             } else if let Some(preferred) = state.workspaces.prefer_specific_for_query(&query) {
-                state
+                let (workspace_id, workspace) = state
                     .workspaces
                     .select(Some(&preferred))
-                    .map_err(|error| error.to_string())?
+                    .map_err(|error| error.to_string())?;
+                (workspace_id, workspace, "query_routed")
             } else {
-                selected_workspace(state, args)?
+                let (workspace_id, workspace) = selected_workspace(state, args)?;
+                (workspace_id, workspace, "default")
             };
             let budget = bounded_usize_arg_range(args, "budget", 0, 1_000, 12_000)?;
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
@@ -504,6 +508,27 @@ pub(super) async fn call(
             let worktree_future = worktree_harness.worktree_status_snapshot(&workspace);
             let (context, worktree) = tokio::join!(context_future, worktree_future);
             let mut context = context.map_err(|error| error.to_string())?;
+            context["workspace_selection"] = json!({
+                "mode": selection,
+                "workspace": workspace_id,
+                "default_workspace": default_workspace,
+            });
+            if selection != "explicit" {
+                // A query-routed or default selection is per-request state: the
+                // stateless MCP transport cannot carry it into later calls. Say so
+                // and name the handle to reuse, so a multi-root session cannot
+                // silently read or write a different repository.
+                let reason = if selection == "query_routed" {
+                    "matched by the query"
+                } else {
+                    "the default selection"
+                };
+                if let Some(workflow) = context["workflow"].as_array_mut() {
+                    workflow.push(json!(format!(
+                        "This context resolved to Workspace `{workspace_id}` ({reason}); the default Workspace is `{default_workspace}`. Pass `workspace: \"{workspace_id}\"` on every later tool call in this session so reads, edits and verification stay in the same repository."
+                    )));
+                }
+            }
             if let Ok(worktree) = worktree {
                 merge_agent_worktree_status(&mut context, &worktree);
                 if let Ok(impact) = state

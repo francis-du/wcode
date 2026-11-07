@@ -287,7 +287,7 @@ symbol_context only when more source is required
 apply_edits or apply_file_edits
 ```
 
-`agent_context` uses adaptive bounded sizing when `budget` is omitted. Use `workspace_info`, `scope_status`, `design_status`, `project_context`, `software_context`, and `language_quality_status` only for deeper inspection rather than as a mandatory startup sequence. Exact launch-only requests such as `run app` / `start server` use a source-free operator route: inspect `workspace_info` launch profiles, then pass the selected profile through `run_command`; long-lived runs should use `task_mode=true` so output and cancellation stay owned by Tasks.
+`agent_context` uses adaptive bounded sizing when `budget` is omitted. With no explicit `workspace`, a query that names a non-default Workspace routes to it, and the response reports that choice in `workspace_selection` (`mode`, `workspace`, `default_workspace`). The selection is per request: the stateless transport cannot carry it into later calls, so pass the returned `workspace` handle on every later tool call in the session. Omitting it resolves to the default Workspace, which may be a different repository. Use `workspace_info`, `scope_status`, `design_status`, `project_context`, `software_context`, and `language_quality_status` only for deeper inspection rather than as a mandatory startup sequence. Exact launch-only requests such as `run app` / `start server` use a source-free operator route: inspect `workspace_info` launch profiles, then pass the selected profile through `run_command`; long-lived runs should use `task_mode=true` so output and cancellation stay owned by Tasks.
 
 After the edit:
 
