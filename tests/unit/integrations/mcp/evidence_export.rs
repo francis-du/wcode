@@ -1,5 +1,10 @@
 use super::*;
 use crate::engineering_journal::{change_fingerprint, load_recent, persist, EngineeringMilestone};
+use crate::evidence::{
+    Evidence, EvidenceKind, EvidenceResult, RequiredVerificationCheck, Revision,
+    VerificationCheckExecution, VerificationCheckReceipt, VerificationExecutionReceipt,
+};
+use crate::evidence_store::persist as persist_evidence;
 use crate::workspace::{Workspace, Workspaces};
 use std::sync::Arc;
 
@@ -122,6 +127,111 @@ async fn evidence_journal_export_is_read_only_and_preserves_journal_state() {
         crate::mcp::mcp_writer::tool_effect("evidence_journal_export", &json!({})),
         crate::execution_policy::ExecutionEffect::Read
     );
+}
+
+fn receipt_evidence(id: &str) -> Evidence {
+    let check = RequiredVerificationCheck::from_command(
+        "cargo-test",
+        "cargo",
+        &["test".to_owned()],
+        ".",
+        "workspace",
+    );
+    let receipt = VerificationExecutionReceipt {
+        schema_version: 1,
+        level: "full".into(),
+        required_checks: vec![check.clone()],
+        checks: vec![VerificationCheckReceipt {
+            check,
+            result: EvidenceResult::Pass,
+            execution: VerificationCheckExecution::Executed,
+            reused_from: None,
+        }],
+        skipped_checks: vec![],
+        execution_git_binding: Some(crate::core_types::ExecutionGitBinding {
+            repository: format!("sha256:{}", "a".repeat(64)),
+            head_sha: "a".repeat(40),
+            tree_sha: "b".repeat(40),
+            index_fingerprint: format!("sha256:{}", "c".repeat(64)),
+            dirty: false,
+        }),
+    };
+    let mut record = Evidence::new(
+        id.into(),
+        "change:code:1".into(),
+        EvidenceKind::Verification,
+        "cargo".into(),
+        Revision {
+            code: "code:1".into(),
+            design: None,
+        },
+        EvidenceResult::Pass,
+        crate::evidence::Confidence::Deterministic,
+    )
+    .unwrap();
+    record.execution_git_binding = receipt.execution_git_binding.clone();
+    record.execution_receipt = Some(receipt);
+    record
+}
+
+async fn evidence_status(state: &AppState, arguments: Value) -> Value {
+    let response = call_tool(
+        state,
+        json!({"name": "evidence_status", "arguments": arguments}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["isError"], false, "{response}");
+    response["structuredContent"].clone()
+}
+
+#[tokio::test]
+async fn evidence_status_defaults_to_summary_and_restores_receipts_on_demand() {
+    let (_root, state) = fixture();
+    let (_, workspace) = state.workspaces.select(None).unwrap();
+    persist_evidence(&workspace, &receipt_evidence("EV-detail")).unwrap();
+
+    let summary = evidence_status(&state, json!({})).await;
+    assert_eq!(summary["total"], 1);
+    assert_eq!(summary["receipts_omitted"], true);
+    let record = &summary["evidence"][0];
+    assert!(record.get("execution_receipt").is_none());
+    assert!(record.get("execution_git_binding").is_none());
+    // The status contract itself is preserved, not just the receipt removed.
+    assert_eq!(record["subject"], "change:code:1");
+    assert_eq!(record["result"], "pass");
+    assert_eq!(record["confidence"], "deterministic");
+    assert_eq!(record["revision"]["code"], "code:1");
+
+    let full = evidence_status(&state, json!({"detail": "full"})).await;
+    assert!(full.get("receipts_omitted").is_none());
+    let record = &full["evidence"][0];
+    assert_eq!(record["execution_receipt"]["schema_version"], 1);
+    assert_eq!(
+        record["execution_receipt"]["checks"][0]["check"]["id"],
+        "cargo-test"
+    );
+    assert_eq!(record["execution_git_binding"]["head_sha"], "a".repeat(40));
+
+    let rejected = call_tool(
+        &state,
+        json!({"name": "evidence_status", "arguments": {"detail": "everything"}}),
+    )
+    .await;
+    assert!(rejected.is_err(), "unknown detail must fail closed");
+
+    // The routing description must survive the on-demand compaction limit,
+    // otherwise agents never learn that detail=full exists.
+    let tool = crate::mcp::mcp_tools::tools()
+        .iter()
+        .find(|tool| tool["name"] == "evidence_status")
+        .unwrap();
+    let description = tool["description"].as_str().unwrap();
+    assert!(
+        !description.ends_with('…'),
+        "evidence_status routing description was truncated"
+    );
+    assert!(description.contains("detail=summary"));
 }
 
 #[tokio::test]
