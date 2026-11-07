@@ -146,6 +146,7 @@ Binary 中。
 | `--full-access` | 为兼容性保留。加入当前用户 Home 并开启 Runtime 能力；默认策略已经是宽松的，授权由调用方 Agent 负责。 |
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
+| `--no-menu-bar` | 不启动原生菜单栏伴生进程。CI 与 SSH 会话会自动跳过。 |
 | `--open` | 启动后在浏览器打开 Setup Hub。 |
 | `--open-observatory` / `--no-open-observatory` | 运行时可达后在浏览器打开 Observatory，或关闭自动打开。交互式终端会自动打开并落在当前变更视图；非交互式调用方必须显式传参，CI 与脚本不会打开浏览器。 |
 

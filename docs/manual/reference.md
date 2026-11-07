@@ -164,6 +164,7 @@ embedded in the binary.
 | `--full-access` | Accepted for compatibility. Exposes the current-user Home and enables runtime capabilities; the default policy is already permissive and the calling agent owns authorization. |
 | `--no-tunnel` | Keep the runtime local-only. |
 | `--no-monitor` | Disable the live terminal dashboard. |
+| `--no-menu-bar` | Do not start the native menu bar companion. CI and SSH sessions skip it automatically. |
 | `--open` | Open Setup Hub in the browser after startup. |
 | `--open-observatory` / `--no-open-observatory` | Open the Observatory in the browser once the runtime is reachable, or suppress the automatic open. An interactive terminal opens it automatically and lands on the current-changes view; non-interactive callers must pass the flag, so CI and scripts never spawn a browser. |
 
