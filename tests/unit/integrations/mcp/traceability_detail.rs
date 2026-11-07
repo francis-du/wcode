@@ -121,6 +121,70 @@ async fn traceability_status_defaults_to_summary_and_restores_full_references() 
 }
 
 #[tokio::test]
+async fn software_context_summary_bounds_the_embedded_traceability() {
+    let root = tempfile::tempdir().unwrap();
+    design_fixture(root.path());
+    let state = batch_test_state(root.path());
+
+    let response = call_tool(
+        &state,
+        json!({"name": "software_context", "arguments": {"query": "workspace isolation"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["isError"], false, "{response}");
+    let summary = &response["structuredContent"];
+    let coverage = &summary["coverage"];
+    assert_eq!(coverage["detail"], "summary");
+    let requirements = coverage["requirements"].as_array().unwrap();
+    assert!(!requirements.is_empty(), "{coverage}");
+    for requirement in requirements {
+        for key in ["implementation", "verification"] {
+            let total = requirement[format!("{key}_total")].as_u64().unwrap();
+            let resolved = requirement[format!("{key}_resolved")].as_u64().unwrap();
+            let unresolved = requirement[format!("{key}_unresolved")].as_u64().unwrap();
+            assert_eq!(resolved + unresolved, total, "{requirement}");
+            assert!(
+                requirement[key].as_array().unwrap().len() as u64 <= total.min(4),
+                "the embedded traceability keeps a bounded reference sample"
+            );
+        }
+        if let Some(message) = requirement["verification"]
+            .as_array()
+            .unwrap()
+            .first()
+            .and_then(|reference| reference["message"].as_str())
+        {
+            assert!(message.chars().count() <= 160);
+        }
+    }
+    // The surrounding context the caller asked for is untouched.
+    assert!(summary["symbols"].is_array());
+    assert!(!summary["design_items"].as_array().unwrap().is_empty());
+    assert_eq!(summary["query"], "workspace isolation");
+
+    let response = call_tool(
+        &state,
+        json!({"name": "software_context", "arguments": {"query": "workspace isolation", "detail": "full"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["isError"], false, "{response}");
+    let full = &response["structuredContent"];
+    assert!(full["coverage"].get("detail").is_none());
+    for requirement in full["coverage"]["requirements"].as_array().unwrap() {
+        assert!(requirement.get("verification_total").is_none());
+    }
+
+    let rejected = call_tool(
+        &state,
+        json!({"name": "software_context", "arguments": {"query": "workspace isolation", "detail": "everything"}}),
+    )
+    .await;
+    assert!(rejected.is_err(), "unknown detail must fail closed");
+}
+
+#[tokio::test]
 async fn risk_status_summary_keeps_the_verdict_and_compacts_traceability() {
     let root = tempfile::tempdir().unwrap();
     git(root.path(), &["init", "-q"]);

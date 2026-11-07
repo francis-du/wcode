@@ -413,9 +413,10 @@ pub(super) async fn call(
             let intent = string_arg(args, "intent").unwrap_or("inspect").to_owned();
             let budget = bounded_usize_arg_range(args, "budget", 12_000, 1_000, 64_000)?;
             let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
+            let detail = detail_arg(args)?;
             let harness = state.harness.clone();
             run_blocking(move || {
-                harness
+                let mut value = harness
                     .software_context(
                         workspace_id,
                         &workspace,
@@ -424,7 +425,18 @@ pub(super) async fn call(
                         budget,
                         &requested_scopes,
                     )
-                    .and_then(|context| serde_json::to_value(context).map_err(Into::into))
+                    .and_then(|context| serde_json::to_value(context).map_err(Into::into))?;
+                // The embedded traceability projection is the same RequirementTrace
+                // payload traceability_status serves. The budget caps how many
+                // requirements come back, not how many resolved references each
+                // one carries, so without this the declared budget understates the
+                // response by an order of magnitude.
+                if detail == Detail::Summary {
+                    if let Some(coverage) = value.get_mut("coverage") {
+                        compact_traceability(coverage);
+                    }
+                }
+                Ok(value)
             })
             .await
         }
