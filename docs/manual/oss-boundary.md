@@ -23,8 +23,9 @@ Code/Rust/
 │   ├── tests/
 │   └── docs/
 └── wteam/                 # separate private enterprise repository
-    ├── team/
-    ├── enterprise/
+    ├── crates/team/
+    ├── crates/enterprise/
+    ├── apps/console/
     ├── docs/
     └── Cargo.toml
 ```

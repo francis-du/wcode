@@ -23,8 +23,9 @@ Code/Rust/
 │   ├── tests/
 │   └── docs/
 └── wteam/                 # 独立的私有企业版仓库
-    ├── team/
-    ├── enterprise/
+    ├── crates/team/
+    ├── crates/enterprise/
+    ├── apps/console/
     ├── docs/
     └── Cargo.toml
 ```
