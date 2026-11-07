@@ -102,6 +102,31 @@ fn compact_evidence_status(value: &mut Value) {
     }
 }
 
+/// A worklist accumulates one entry per completed task, so a long-running
+/// worklist returns its whole history even though only unfinished items are
+/// actionable; agent_context already summarizes this way. The summary keeps the
+/// goal, counts, coordination and unfinished items, and declares the omission.
+fn compact_worklist_status(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let Some(mut items) = object
+        .get_mut("items")
+        .and_then(Value::as_array_mut)
+        .map(std::mem::take)
+    else {
+        return;
+    };
+    let total = items.len();
+    let (kept, done) = items
+        .drain(..)
+        .partition(|item| item.get("status").and_then(Value::as_str) != Some("done"));
+    object.insert("items".to_owned(), Value::Array(kept));
+    object.insert("items_total".to_owned(), Value::from(total));
+    object.insert("items_omitted".to_owned(), Value::from(done.len()));
+    object.insert("detail".to_owned(), Value::String("summary".to_owned()));
+}
+
 async fn convention_status_tool(state: &AppState, args: &Value) -> AnyResult<Value> {
     let (_workspace_id, workspace) = selected_workspace(state, args).map_err(anyhow::Error::msg)?;
     let harness = state.harness.clone();
@@ -535,7 +560,15 @@ pub(super) async fn call(
         }
         "worklist_status" => {
             let (_workspace_id, workspace) = selected_workspace(state, args)?;
-            run_blocking(move || crate::worklist::status(&workspace)).await
+            let detail = detail_arg(args)?;
+            run_blocking(move || {
+                let mut value = crate::worklist::status(&workspace)?;
+                if detail == Detail::Summary {
+                    compact_worklist_status(&mut value);
+                }
+                Ok(value)
+            })
+            .await
         }
         "worklist_update" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;

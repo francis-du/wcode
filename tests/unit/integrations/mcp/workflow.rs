@@ -977,16 +977,17 @@ mod worker_lanes {
         let observed = tool(&state, "worklist_status", json!({})).await;
         assert_eq!(observed["structuredContent"]["items_included"], true);
         assert_eq!(
-            observed["structuredContent"]["items"]
-                .as_array()
-                .unwrap()
-                .len(),
-            3
-        );
-        assert_eq!(
             observed["structuredContent"]["revision"],
             data["worklist"]["revision"]
         );
+        // The default summary omits the completed item "a" and declares it.
+        assert_eq!(observed["structuredContent"]["items_omitted"], 1);
+        let full = tool(&state, "worklist_status", json!({"detail": "full"})).await;
+        assert_eq!(
+            full["structuredContent"]["items"].as_array().unwrap().len(),
+            3
+        );
+
         let signal = intelligence_web_revision(State(state.clone()), headers(&state)).await;
         let signal = to_bytes(signal.into_body(), 256 * 1024).await.unwrap();
         let signal: Value = serde_json::from_slice(&signal).unwrap();
