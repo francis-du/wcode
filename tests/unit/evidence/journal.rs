@@ -497,7 +497,12 @@ fn engineering_journal_bounded_old_overflow_is_recovered_before_append() {
         fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
     }
     assert_eq!(fs::read_dir(&directory).unwrap().count(), 514);
-    assert!(load_recent(&workspace, 512).is_err());
+    // An over-large journal is the recoverable state pruning exists for, not an
+    // error: the reader returns the newest window and declares the truncation.
+    let overflow = load_recent(&workspace, 512).unwrap();
+    assert_eq!(overflow.retained_records, 514);
+    assert_eq!(overflow.records.len(), 512);
+    assert!(overflow.truncated);
     let mut event =
         EngineeringMilestone::new("run_command", "understand", "failed", 1, Vec::new()).unwrap();
     event.failure_codes = vec![crate::engineering_journal::EngineeringFailureCode::Timeout];
@@ -513,22 +518,38 @@ fn engineering_journal_bounded_old_overflow_is_recovered_before_append() {
 }
 
 #[test]
-fn engineering_journal_excessive_recovery_scan_fails_before_new_append() {
+fn engineering_journal_over_large_recovery_scan_is_pruned_not_rejected() {
     let root = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(root.path(), true, false).unwrap();
     let directory = crate::evidence_store::workspace_state_directory(&workspace)
         .unwrap()
         .join("engineering-journal");
     fs::create_dir_all(&directory).unwrap();
+    // Real milestone filenames are zero-padded timestamps, so an overflow made
+    // of them sorts ahead of a new record the way a real old journal does.
     for index in 0..=super::MAX_RECOVERY_SCAN_ENTRIES {
-        fs::write(directory.join(format!("invalid-{index:04}.json")), b"{}").unwrap();
+        fs::write(directory.join(format!("{index:020}-overflow.json")), b"{}").unwrap();
     }
     let before = fs::read_dir(&directory).unwrap().count();
+    assert!(
+        before > super::MAX_ENGINEERING_MILESTONES,
+        "the fixture must exceed the retention ring"
+    );
     let event =
         EngineeringMilestone::new("agent_context", "understand", "succeeded", 1, Vec::new())
             .unwrap();
-    assert!(persist(&workspace, &event).is_err());
-    assert_eq!(fs::read_dir(directory).unwrap().count(), before);
+    persist(&workspace, &event).unwrap();
+    let after = fs::read_dir(&directory).unwrap().count();
+    assert!(
+        after <= super::MAX_ENGINEERING_MILESTONES,
+        "an over-large journal must be pruned back to the retention ring, not rejected"
+    );
+    let history = load_recent(&workspace, super::MAX_ENGINEERING_MILESTONES).unwrap();
+    assert_eq!(history.retained_records, after);
+    assert!(history
+        .records
+        .iter()
+        .any(|record| record.event_id == event.event_id));
 }
 
 #[test]

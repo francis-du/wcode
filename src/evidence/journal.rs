@@ -18,6 +18,10 @@ mod workspace_access;
 
 const JOURNAL_VERSION: u8 = 1;
 pub(crate) const MAX_ENGINEERING_MILESTONES: usize = 512;
+/// Safety cap on directory entries examined in one scan. A journal beyond this
+/// is pathological rather than merely full; real journals are pruned back to
+/// [`MAX_ENGINEERING_MILESTONES`] and never approach it.
+const MAX_JOURNAL_SCAN_ENTRIES: usize = 100_000;
 const MAX_MILESTONE_BYTES: u64 = 16 * 1024;
 const MAX_MILESTONE_PATHS: usize = 32;
 const MAX_FAILURE_CODES: usize = 8;
@@ -532,7 +536,7 @@ fn ensure_existing_directory(directory: &Path) -> Result<()> {
 }
 
 fn journal_paths(directory: &Path) -> Result<Vec<PathBuf>> {
-    journal_paths_with_bound(directory, MAX_ENGINEERING_MILESTONES.saturating_add(1))
+    journal_paths_with_bound(directory, MAX_JOURNAL_SCAN_ENTRIES)
 }
 
 fn journal_paths_with_bound(directory: &Path, max_entries: usize) -> Result<Vec<PathBuf>> {
@@ -541,6 +545,12 @@ fn journal_paths_with_bound(directory: &Path, max_entries: usize) -> Result<Vec<
     collect_journal_paths(entries, max_entries)
 }
 
+/// The scan bound caps how many directory entries may be examined, not how
+/// many records a caller keeps. An over-large journal is the ordinary state
+/// that pruning exists to recover, so treating it as an error would make every
+/// reader fail on a real workspace and leave pruning unable to run at all.
+/// Callers apply their own retention limit and report truncation from the real
+/// total.
 fn collect_journal_paths(
     entries: impl IntoIterator<Item = std::io::Result<fs::DirEntry>>,
     max_entries: usize,
@@ -564,16 +574,24 @@ fn collect_journal_paths(
 }
 
 fn prune_directory(directory: &Path) -> Result<()> {
-    let paths = journal_paths_with_bound(directory, MAX_RECOVERY_SCAN_ENTRIES)?;
+    let paths = journal_paths_with_bound(directory, MAX_JOURNAL_SCAN_ENTRIES)?;
     if paths.len() <= MAX_ENGINEERING_MILESTONES {
         return Ok(());
     }
     // Keep at most two distinct observations per fixed failure category. These
     // sixteen maximum anchors survive successful context traffic; they remain
-    // bounded historical advice, never a lifetime count or authority.
+    // bounded historical advice, never a lifetime count or authority. Only the
+    // newest records can supply them, so a long history is not re-read on
+    // every persist just to rediscover the same recent anchors.
+    let anchor_scan = paths
+        .iter()
+        .rev()
+        .take(MAX_RECOVERY_SCAN_ENTRIES)
+        .cloned()
+        .collect::<Vec<_>>();
     let mut seen: BTreeMap<EngineeringFailureCode, BTreeSet<String>> = BTreeMap::new();
     let mut retained = BTreeSet::new();
-    for path in paths.iter().rev() {
+    for path in anchor_scan.iter() {
         let Some(event) = read_milestone(path)? else {
             continue;
         };
