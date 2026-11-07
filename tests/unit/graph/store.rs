@@ -32,6 +32,8 @@ fn graph_history_round_trips_and_queries_nodes() {
         truncated: false,
         node_count: 1,
         edge_count: 0,
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };
@@ -96,6 +98,8 @@ fn graph_query_node_filter_misses_do_not_return_unrelated_edges() {
         truncated: false,
         node_count: graph.nodes.len(),
         edge_count: graph.edges.len(),
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };
@@ -347,6 +351,8 @@ fn graph_chain_traces_calls_and_keeps_precision_provenance() {
         truncated: false,
         node_count: graph.nodes.len(),
         edge_count: graph.edges.len(),
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };
@@ -490,6 +496,8 @@ fn graph_change_signal_uses_metadata_without_reading_snapshot_content() {
         truncated: false,
         node_count: 1,
         edge_count: 0,
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph,
     };
@@ -546,6 +554,8 @@ fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
             truncated: false,
             node_count: 1,
             edge_count: 0,
+            source_node_count: None,
+            source_edge_count: None,
             failures: vec![],
             graph,
         };
@@ -613,6 +623,8 @@ fn graph_diff_separates_structural_changes_from_revision_churn() {
         truncated: false,
         node_count: 3,
         edge_count: 1,
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph: before_graph,
     };
@@ -648,6 +660,8 @@ fn graph_diff_separates_structural_changes_from_revision_churn() {
         truncated: false,
         node_count: 3,
         edge_count: 1,
+        source_node_count: None,
+        source_edge_count: None,
         failures: vec![],
         graph: after_graph,
     };

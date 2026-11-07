@@ -377,6 +377,45 @@ fn software_graph_preserves_rust_module_struct_trait_and_enum_kinds() {
 }
 
 #[test]
+fn software_graph_file_bound_counts_source_files_not_every_walked_path() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".config")).unwrap();
+    // These sort ahead of the Rust files. A bound that counts walked paths
+    // spends itself entirely on files no language provider handles and
+    // returns an empty source graph.
+    for index in 0..8 {
+        fs::write(
+            dir.path().join(format!(".config/file{index}.toml")),
+            "key = 1\n",
+        )
+        .unwrap();
+    }
+    fs::write(dir.path().join("a.rs"), "pub fn a() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "pub fn b() {}\n").unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+
+    let snapshot = index
+        .software_graph("demo", &workspace, ".", 2, 100)
+        .unwrap();
+
+    assert_eq!(
+        snapshot.files_considered, 2,
+        "the bound must count source files, not dotfiles"
+    );
+    assert_eq!(snapshot.files_indexed, 2);
+    assert!(
+        snapshot.source_node_count.is_none(),
+        "no design overlay here"
+    );
+    assert!(
+        snapshot.node_count >= 4,
+        "two file nodes plus two definitions, got {}",
+        snapshot.node_count
+    );
+}
+
+#[test]
 fn software_graph_resolves_rust_qualified_calls_without_guessing_ambiguous_bare_calls() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("alpha.rs"), "pub fn helper() -> u8 { 1 }\n").unwrap();
