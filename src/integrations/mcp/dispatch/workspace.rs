@@ -229,22 +229,6 @@ fn search_request(name: &str, args: &Value) -> Result<crate::workspace::SearchRe
 const GUIDANCE_EXCERPT_LIMIT: usize = 4_000;
 const CONVENTION_FINDING_SAMPLE: usize = 16;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ProjectContextDetail {
-    Summary,
-    Full,
-}
-
-fn project_context_detail_arg(args: &Value) -> Result<ProjectContextDetail, String> {
-    match string_arg(args, "detail") {
-        None | Some("summary") => Ok(ProjectContextDetail::Summary),
-        Some("full") => Ok(ProjectContextDetail::Full),
-        Some(other) => Err(format!(
-            "detail must be \"summary\" or \"full\", got {other:?}"
-        )),
-    }
-}
-
 fn bound_string(
     object: &mut serde_json::Map<String, Value>,
     key: &str,
@@ -370,13 +354,13 @@ pub(super) async fn call(
     let outcome: AnyResult<Value> = match name {
         "project_context" => {
             let (workspace_id, workspace) = selected_workspace(state, args)?;
-            let detail = project_context_detail_arg(args)?;
+            let detail = super::leaf_intelligence::detail_arg(args)?;
             let harness = state.harness.clone();
             run_blocking(move || {
                 let mut value = harness
                     .project_context(workspace_id, &workspace)
                     .and_then(|context| serde_json::to_value(context).map_err(Into::into))?;
-                if detail == ProjectContextDetail::Summary {
+                if detail == super::leaf_intelligence::Detail::Summary {
                     compact_project_context(&mut value);
                 }
                 Ok(value)
