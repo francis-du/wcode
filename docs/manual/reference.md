@@ -260,7 +260,9 @@ trust controls are documented in [Security](../security/).
 | `C` / `F` | Open the command view / toggle its Workspace command authorization. |
 | `R` | Refresh the open intelligence view. |
 | `← / →`, `Shift + ← / →` | Move Workspace focus / move one Workspace page when no authorization overlay is active. |
-| `PgUp / PgDn` | Page the command list or scroll the visible authorization details. |
+| `PgUp / PgDn` | Page the command list, scroll the visible authorization details, or page the source inspection; at a page boundary the adjacent page is loaded. |
+| `Home / End` | Jump the source inspection to its first or last line. |
+| `Tab / Shift+Tab` | Cycle console sections. From a source inspection, `Tab` and `1`–`6` return to console navigation. |
 | `?` / `Esc` | Open help / dismiss the current overlay. |
 | `Ctrl-C` | Stop wcode gracefully. |
 
