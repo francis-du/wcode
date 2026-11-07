@@ -79,3 +79,48 @@ test('a signal whose requirement cannot be resolved keeps the plain section reve
   assert.equal(s.run('state.selectedComponent'), '',
     'an unresolvable requirement must not select an invented component');
 });
+
+test('a change signal opens the change it names instead of only revealing the section', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path, layer, fresh)=>__openedChanges.push({ path, layer, fresh });');
+  const view = attentionHost(s);
+  s.context.fixture = { ...fixture(), attention: { revision: { code: 'code-1', design: 'design-1' }, total: 2, items: [
+    { id: 'failure', kind: 'evidence_failed', severity: 'critical', subject: 'Failing check',
+      message: 'Current producer failed', provider: 'verification', precision: 'deterministic',
+      section: 'proof' },
+    { id: 'risk:1', kind: 'risk', severity: 'high', subject: 'src/a.rs',
+      message: 'Changed file needs inspection', provider: 'risk-analysis', precision: 'heuristic',
+      section: 'changes', path: 'src/a.rs' } ] } };
+  s.run('state.project=fixture;renderAttention();');
+  const signal = view.buttons.find(button => button.dataset.summaryAction === 'changesSection'
+    && button.dataset.summaryPath === 'src/a.rs');
+  assert.ok(signal, 'the change signal must carry its path');
+  assert.equal(typeof signal.events.click, 'function', 'the signal must be bound');
+  signal.events.click();
+  assert.equal(s.context.__openedChanges.length, 1, 'a change signal must open that change');
+  assert.equal(s.context.__openedChanges[0].path, 'src/a.rs');
+  assert.equal(s.context.__openedChanges[0].layer, 'working');
+  assert.equal(s.context.__openedChanges[0].fresh, true);
+});
+
+test('a change signal without a path keeps the plain section reveal', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path, layer, fresh)=>__openedChanges.push({ path, layer, fresh });');
+  const view = attentionHost(s);
+  s.context.fixture = { ...fixture(), attention: { revision: { code: 'code-1', design: 'design-1' }, total: 2, items: [
+    { id: 'failure', kind: 'evidence_failed', severity: 'critical', subject: 'Failing check',
+      message: 'Current producer failed', provider: 'verification', precision: 'deterministic',
+      section: 'proof' },
+    { id: 'risk:2', kind: 'risk', severity: 'high', subject: 'workspace:A',
+      message: 'No single file named', provider: 'risk-analysis', precision: 'heuristic',
+      section: 'changes' } ] } };
+  s.run('state.project=fixture;renderAttention();');
+  const signal = view.buttons.find(button => button.dataset.summaryAction === 'changesSection');
+  assert.ok(signal, 'the change signal must be rendered');
+  assert.equal(signal.dataset.summaryPath, undefined, 'no path may be invented');
+  signal.events.click();
+  assert.deepEqual(s.context.__openedChanges, [],
+    'a path-less signal must not open an invented change');
+});

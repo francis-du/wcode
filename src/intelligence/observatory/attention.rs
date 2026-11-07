@@ -258,6 +258,13 @@ pub(crate) fn build(
                 "heuristic",
             );
             item.id = stable_id("risk", &finding.id);
+            // A review finding names the file it is about; carry that path so
+            // the workbench opens the change instead of an unfocused section.
+            item.path = finding
+                .signals
+                .iter()
+                .find_map(|signal| signal.strip_prefix("path:"))
+                .map(str::to_owned);
             items.push(item);
         }
         for finding in &risk.drift.findings {

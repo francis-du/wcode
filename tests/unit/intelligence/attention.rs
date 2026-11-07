@@ -268,6 +268,53 @@ fn attention_includes_high_risk_without_drift_and_routes_provider_gaps() {
 }
 
 #[test]
+fn attention_risk_carries_the_named_path_for_change_navigation() {
+    let (_root, mut p) = project();
+    p.risk = Some(crate::intelligence_types::RiskStatus {
+        workspace: p.workspace.clone(),
+        revision: p.repository_revision.clone(),
+        level: crate::risk::RiskLevel::High,
+        profile: crate::risk::VerificationProfile::for_risk(crate::risk::RiskLevel::High),
+        risks: vec![crate::risk::Risk {
+            id: "review-risk".into(),
+            subject: "src/lib.rs".into(),
+            category: crate::risk::RiskCategory::Reliability,
+            level: crate::risk::RiskLevel::High,
+            summary: "Inspect the changed file.".into(),
+            signals: vec!["path:src/lib.rs".into(), "path:src/other.rs".into()],
+            guards: vec![],
+        }],
+        bug_patterns: crate::risk::BugPatternStatus {
+            precision: "heuristic",
+            patterns_scanned: 0,
+            matches: 0,
+            files: 0,
+            findings: vec![],
+            truncated: false,
+        },
+        drift: crate::intelligence_types::DriftStatus {
+            workspace: p.workspace.clone(),
+            design_changed: false,
+            implementation_changed: false,
+            implementation_drift: 0,
+            design_drift: 0,
+            runtime_drift: 0,
+            findings: vec![],
+            truncated: false,
+        },
+        traceability: p.coverage.clone(),
+    });
+    let view = build(&p, None, &[]);
+    let risk = view
+        .items
+        .iter()
+        .find(|item| item.kind == "risk")
+        .expect("the review risk must be projected");
+    assert_eq!(risk.section, "changes");
+    assert_eq!(risk.path.as_deref(), Some("src/lib.rs"));
+}
+
+#[test]
 fn attention_selection_identity_survives_unrelated_evidence_insertion() {
     let (_root, mut p) = project();
     p.proof.effective.items = vec![failed("check:selected")];

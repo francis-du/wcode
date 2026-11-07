@@ -60,6 +60,11 @@ function bindSummaryActions(node) {
     }
     else if (target) {
       if (button.dataset.summaryPath && target === "filesSection") await openRepositoryFile(button.dataset.summaryPath);
+      else if (button.dataset.summaryPath && target === "changesSection") {
+        revealSection(target);
+        void openChangeInspection(button.dataset.summaryPath, "working", true);
+        requestAnimationFrame(() => focusSelectedChangePath(button.dataset.summaryPath));
+      }
       else {
         const requirementId = button.dataset.summaryRequirement;
         const requirement = requirementId
