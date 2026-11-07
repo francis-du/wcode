@@ -81,7 +81,10 @@ Before editing:
    single-target task starts as `minimal_patch` with no new production file,
    abstraction, config knob, or public API change. Escalate only when current
    requirements, existing duplication, or a proven ownership/boundary problem
-   requires it. If an active Worklist is returned, treat it as the task-progress authority: preserve unfinished
+   requires it. When `readiness.edit` is `ready` but `readiness.edit_scope` is
+   present, it names the targets that are actually prepared
+   (`partial_targets` or `none_usable`); scope the edit to those and say so,
+   because `ready` alone means only that one target has a usable source body. If an active Worklist is returned, treat it as the task-progress authority: preserve unfinished
    items, use `worklist_status` when resuming, and use revision-safe
    `worklist_update` to append work or advance status instead of replacing the
    list. Omit `workspace`, `budget`, limits, timeouts, and default paths unless
