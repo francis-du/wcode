@@ -85,7 +85,11 @@ Before editing:
    items, use `worklist_status` when resuming, and use revision-safe
    `worklist_update` to append work or advance status instead of replacing the
    list. Omit `workspace`, `budget`, limits, timeouts, and default paths unless
-   the task actually needs an override. Use `workspace_info` only when multiple roots/subspaces make the
+   the task actually needs an override. `evidence_status`, `project_context`,
+   `software_context`, `traceability_status`, `risk_status` and `worklist_status`
+   return a bounded summary by default and declare what they omitted; pass
+   `detail=full` only when every reference, finding or completion record is
+   actually required. Use `workspace_info` only when multiple roots/subspaces make the
    target ambiguous. Call `scope_status`, `design_status`, `project_context`, or
    `language_quality_status` only when readiness or the task requires deeper
    inspection. Do not call `project_context` as a second mandatory startup
