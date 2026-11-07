@@ -154,6 +154,7 @@ embedded in the binary.
 | `--no-tunnel` | Keep the runtime local-only. |
 | `--no-monitor` | Disable the live terminal dashboard. |
 | `--open` | Open Setup Hub in the browser after startup. |
+| `--open-observatory` / `--no-open-observatory` | Open the Observatory in the browser once the runtime is reachable, or suppress the automatic open. An interactive terminal opens it automatically and lands on the current-changes view; non-interactive callers must pass the flag, so CI and scripts never spawn a browser. |
 
 ### Simple performance configuration
 
@@ -294,6 +295,7 @@ evidence_status
 | `project_context` | Project type, repository guidance, inferred checks, bounded convention report. |
 | `scope_status` | Product Scope mapping and bounded unmapped source paths. |
 | `convention_status` | Naming, architecture-domain, oversized-module and repository-structure findings. |
+| `open_observatory` | Open the Observatory workbench for the running runtime, landing on the current-changes view. Clients with a side panel (Codex, ChatGPT) render it beside the conversation through the registered `ui://wcode/observatory` resource; other clients receive the authenticated URL as text. |
 
 ### Desired state and context
 
@@ -315,6 +317,7 @@ evidence_status
 | `scan_patterns` | Batch text patterns with comment filtering, or `preset=go_common_bugs` / one `pattern` for AST-validated Go bug candidates. |
 | `search_syntax` | Tree-sitter node search across up to 50,000 files with optional regex, comment inclusion, guard evidence, and bug-pattern filters. |
 | `read_file` / `read_files` | Original-format UTF-8 reads with SHA-256 edit preconditions, bounded to at most 1,000 source lines per file/call. |
+| `list_files` | Bounded listing of regular Workspace files; protected credential/control/internal paths are blocked and symlinks are not followed. |
 | `read_media` | Metadata-first bounded media inspection; binary content requires explicit client capability. |
 | `parallel_tools` | Completion-driven path-resource batches; successors start when ready, failed dependencies skip, and queued children remain parent-owned. Parent/subspace aliases share dependency identity. |
 

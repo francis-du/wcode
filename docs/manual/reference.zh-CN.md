@@ -144,6 +144,7 @@ Binary 中。
 | `--no-tunnel` | 只保留本机 Runtime，不启动公网连接。 |
 | `--no-monitor` | 关闭实时终端面板。 |
 | `--open` | 启动后在浏览器打开 Setup Hub。 |
+| `--open-observatory` / `--no-open-observatory` | 运行时可达后在浏览器打开 Observatory，或关闭自动打开。交互式终端会自动打开并落在当前变更视图；非交互式调用方必须显式传参，CI 与脚本不会打开浏览器。 |
 
 ### 简单的性能配置
 
@@ -270,6 +271,7 @@ evidence_status
 | `project_context` | 项目类型、仓库指导、推断检查、Convention Report。 |
 | `scope_status` | Product Scope 映射与有界未映射源码。 |
 | `convention_status` | 命名、Architecture Domain、过大模块和仓库结构 Finding。 |
+| `open_observatory` | 为当前运行的 Runtime 打开 Observatory 工作台，并落在当前变更视图。带侧栏的客户端（Codex、ChatGPT）通过注册的 `ui://wcode/observatory` Resource 在对话旁渲染；其他客户端以文本形式收到带鉴权的 URL。 |
 
 ### Desired State 与 Context
 
@@ -291,6 +293,7 @@ evidence_status
 | `scan_patterns` | 批量文本 Pattern 并默认过滤纯注释；也可用 `preset=go_common_bugs` / 单个 `pattern` 获取 AST 验证的 Go Bug 候选。 |
 | `search_syntax` | Tree-sitter 结构搜索，单次默认覆盖最多 50,000 文件，并支持正则、注释开关、守卫证据与 Bug Pattern 过滤。 |
 | `read_file` / `read_files` | 保留源码原格式的 UTF-8 读取，并返回 SHA-256；每个文件 / 调用最多返回 1,000 行。 |
+| `list_files` | 有界地列出工作区内的常规文件；受保护的凭证 / 控制 / 内部路径被阻断，不跟随符号链接。 |
 | `read_media` | Metadata-first 媒体检查；二进制内容需要客户端显式声明能力。 |
 | `parallel_tools` | 完成驱动的路径资源批次；后续任务就绪即启动，失败依赖跳过，排队子任务归父任务管理。父子空间别名共享依赖身份。 |
 
