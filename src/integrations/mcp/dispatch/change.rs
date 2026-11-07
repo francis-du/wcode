@@ -26,10 +26,28 @@ pub(super) async fn change_intelligence_tool(
             .harness
             .drift_status(workspace_id.clone(), &workspace, &review)
             .and_then(|status| serde_json::to_value(status).map_err(Into::into)),
-        "risk_status" => state
-            .harness
-            .risk_status(workspace_id.clone(), &workspace, &review)
-            .and_then(|status| serde_json::to_value(status).map_err(Into::into)),
+        "risk_status" => {
+            let detail = super::leaf_intelligence::detail_arg(args)?;
+            let outcome: AnyResult<Value> = state
+                .harness
+                .risk_status(workspace_id.clone(), &workspace, &review)
+                .and_then(|status| serde_json::to_value(status).map_err(Into::into));
+            match outcome {
+                Ok(mut value) => {
+                    // Risk status embeds the whole traceability projection.
+                    // Compacting it keeps the risk verdict, drift and bug
+                    // candidates intact while the requirement traces stay
+                    // available through traceability_status.
+                    if detail == super::leaf_intelligence::Detail::Summary {
+                        if let Some(traceability) = value.get_mut("traceability") {
+                            super::leaf_intelligence::compact_traceability(traceability);
+                        }
+                    }
+                    Ok(value)
+                }
+                Err(error) => Err(error),
+            }
+        }
         "impact_analysis" => state
             .harness
             .impact_analysis(workspace_id.clone(), &workspace, &review)

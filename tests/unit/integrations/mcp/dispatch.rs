@@ -16,6 +16,8 @@ mod parallel_command;
 mod preview;
 #[path = "dispatch/sandbox_argument.rs"]
 mod sandbox_argument;
+#[path = "traceability_detail.rs"]
+mod traceability_detail;
 
 fn batch_test_state(root: &std::path::Path) -> AppState {
     let workspaces = Workspaces::new([root], true, false).unwrap();

@@ -574,7 +574,11 @@ fn tool_catalog_is_deterministic_compact_and_unique() {
     // Raised from 60,300 when open_observatory was added: the UI entrypoint that
     // lets OpenAI clients render the Observatory beside the conversation costs
     // roughly 500 bytes of catalog, which no description edit can reclaim.
-    assert!(bytes <= 61_000, "tool catalog is {bytes} bytes");
+    // Raised again from 61,000 when evidence_status, traceability_status,
+    // risk_status and project_context each gained a bounded `detail` argument:
+    // four two-value enums cost roughly 200 bytes that no description edit can
+    // reclaim, and the default belongs in the description agents read first.
+    assert!(bytes <= 61_200, "tool catalog is {bytes} bytes");
     assert!(
         first.iter().all(|tool| tool.get("title").is_none()),
         "tool catalog must not repeat display titles mechanically derived from canonical names"
