@@ -219,6 +219,19 @@ async fn evidence_status_defaults_to_summary_and_restores_receipts_on_demand() {
     )
     .await;
     assert!(rejected.is_err(), "unknown detail must fail closed");
+
+    // The routing description must survive the on-demand compaction limit,
+    // otherwise agents never learn that detail=full exists.
+    let tool = crate::mcp::mcp_tools::tools()
+        .iter()
+        .find(|tool| tool["name"] == "evidence_status")
+        .unwrap();
+    let description = tool["description"].as_str().unwrap();
+    assert!(
+        !description.ends_with('…'),
+        "evidence_status routing description was truncated"
+    );
+    assert!(description.contains("detail=summary"));
 }
 
 #[tokio::test]
