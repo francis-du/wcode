@@ -166,8 +166,9 @@ function activateWorkspaceTab(tab, { scroll = false, fromHistory = false } = {})
   if (!fromHistory) {
     try {
       const entry = { wcodeView: next, wcodeWorkspace: state.current };
-      if (state.historyPushed) window.history?.pushState?.(entry, "", "");
-      else { window.history?.replaceState?.(entry, "", ""); state.historyPushed = true; }
+      const url = `#view=${encodeURIComponent(next)}&workspace=${encodeURIComponent(state.current)}`;
+      if (state.historyPushed) window.history?.pushState?.(entry, "", url);
+      else { window.history?.replaceState?.(entry, "", url); state.historyPushed = true; }
     } catch {}
   }
   renderWorkspaceHero(next);
@@ -693,6 +694,18 @@ function executeCommand(command) {
   if (paletteExecute(command)) return;
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
 }
+// The investigation position is both a history entry and a shareable hash:
+// #view=<tab>&ws=<workspace>. A hash from another workspace is ignored, so an old
+// link cannot pull the page into a different repository's view.
+function investigationHash() {
+  const params = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
+  return { view: params.get("view") || "", workspace: params.get("workspace") || params.get("ws") || "" };
+}
+function initialViewFromHash() {
+  const { view, workspace } = investigationHash();
+  if (!view) return state.workspaceTab;
+  return workspaceTabs.includes(view) && workspace === state.current ? view : "overview";
+}
 // Browser back/forward restores the investigation position. The handler only
 // accepts an entry recorded for the current workspace, so a stale entry from
 // another root cannot pull the page into a different repository's view.
@@ -700,6 +713,12 @@ function wireHistoryRestoration() {
   window.addEventListener?.("popstate", event => {
     const view = event?.state?.wcodeView;
     if (workspaceTabs.includes(view) && event.state.wcodeWorkspace === state.current) {
+      activateWorkspaceTab(view, { fromHistory: true, scroll: false });
+    }
+  });
+  window.addEventListener?.("hashchange", () => {
+    const { view, workspace } = investigationHash();
+    if (workspaceTabs.includes(view) && workspace === state.current && view !== state.workspaceTab) {
       activateWorkspaceTab(view, { fromHistory: true, scroll: false });
     }
   });
@@ -901,7 +920,7 @@ function startObservatory() {
   wireCommandPalette();
   wireHistoryRestoration();
   if (typeof wireCodeGraph === "function") wireCodeGraph();
-  activateWorkspaceTab(state.workspaceTab);
+  activateWorkspaceTab(initialViewFromHash());
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();
   void activityTick();

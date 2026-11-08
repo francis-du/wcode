@@ -111,12 +111,7 @@ async function run(){
     s.run('state.project={...fixture,runtime:{}};renderWorkspaceIdentity();');
     assert.equal(s.node('#workspaceBuild').textContent,'','an unknown build must not invent a version');
   });
-  await test('the initial workspace view can be deep-linked from the URL hash',async()=>{
-    const changes=sandbox(false,true,{hash:'#token=test-ui&workspace=A&view=changes'});
-    assert.equal(changes.run('state.workspaceTab'),'changes','view=changes must open the current changes');
-    const fallback=sandbox(false,true,{hash:'#token=test-ui&workspace=A&view=not-a-view'});
-    assert.equal(fallback.run('state.workspaceTab'),'overview','an unknown view must fall back');
-  });
+
   await test('the change table marks files wcode itself changed',async()=>{
     const change=(path,additions)=>({path,status:'modified',untracked:false,scope:'source',additions,deletions:0});
     const s=sandbox();

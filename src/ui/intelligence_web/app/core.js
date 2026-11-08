@@ -1,7 +1,7 @@
 const fragment = new URLSearchParams(location.hash.slice(1));
 const token = fragment.get("token") || "";
 const initialWorkspace = fragment.get("workspace") || "";
-const initialView = fragment.get("view") || "";
+
 function readPreference(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -192,9 +192,9 @@ const state = {
   syncError: false,
   syncFailure: null,
   lastChecked: 0,
-  workspaceTab: workspaceTabs.includes(initialView)
-    ? initialView
-    : workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
+  // A hash view is applied at startup through initialViewFromHash so it can be
+  // guarded by workspace; the saved preference is the pre-hash default.
+  workspaceTab: workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
   architectureView: "blueprint",
   consistencyKind: "all",
   consistencyState: "all",

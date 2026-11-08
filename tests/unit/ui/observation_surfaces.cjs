@@ -45,6 +45,34 @@ test('a history entry recorded for another workspace is ignored', () => {
     'a foreign workspace entry must not move this workspace');
 });
 
+test('a shared hash restores the view it names', () => {
+  const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
+  s.run('state.current="A";');
+  assert.equal(s.run('initialViewFromHash()'), 'proof');
+});
+
+test('a hash for another workspace is ignored on load', () => {
+  const s = sandbox(false, true, { hash: '#view=proof&ws=B' });
+  s.run('state.current="A";');
+  assert.equal(s.run('initialViewFromHash()'), 'overview');
+});
+
+test('an external hash change restores that view for this workspace', () => {
+  const s = sandbox(false, true, { hash: '#view=files&ws=A' });
+  s.run('state.current="A";wireHistoryRestoration();state.workspaceTab="proof";');
+  s.run('location.hash="#view=changes&ws=A";');
+  s.events.hashchange();
+  assert.equal(s.run('state.workspaceTab'), 'changes');
+});
+
+test('an external hash change for another workspace is ignored', () => {
+  const s = sandbox(false, true, { hash: '#view=files&ws=A' });
+  s.run('state.current="A";wireHistoryRestoration();state.workspaceTab="proof";');
+  s.run('location.hash="#view=changes&ws=B";');
+  s.events.hashchange();
+  assert.equal(s.run('state.workspaceTab'), 'proof');
+});
+
 test('the home status surface reaches the structured risk list', () => {
   const s = sandbox();
   s.context.fixture = { ...project(), risk: { risks: [
