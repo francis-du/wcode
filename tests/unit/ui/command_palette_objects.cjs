@@ -115,6 +115,30 @@ test('the palette reaches a worklist task and filters the list to it', () => {
   assert.equal(s.run('state.workspaceTab'), 'activity');
 });
 
+test('the palette reaches a symbol in the loaded code graph', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.codeGraph={nodes:[{node:{id:"sym:1",label:"process_queue",kind:"function",attributes:{path:"src/a.rs",source_kind:"function"}}}],snapshot_id:"g1"};wireCommandPalette();');
+  const search = s.node('#commandPaletteSearch');
+  const commands = feedPaletteOptions(s);
+  search.value = 'process_queue'; s.run('renderCommandPalette();');
+  assert.ok(commands().includes('object:symbol:sym:1'), 'a symbol must be reachable by label');
+  assert.match(s.node('#commandPaletteList').innerHTML, /Symbol/);
+  search.events.keydown({ key: 'Enter', isComposing: false, preventDefault() {} });
+  assert.equal(s.run('state.selectedCodeNode'), 'sym:1');
+  assert.equal(s.run('state.architectureView'), 'codegraph');
+});
+
+test('symbol search says when no code graph is loaded instead of returning nothing', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.codeGraph=null;wireCommandPalette();');
+  const search = s.node('#commandPaletteSearch');
+  feedPaletteOptions(s);
+  search.value = 'process_queue'; s.run('renderCommandPalette();');
+  assert.match(s.node('#commandPaletteList').innerHTML, /needs the loaded code graph/);
+});
+
 test('the palette reaches a loaded component and opens it in the components view', () => {
   const s = sandbox();
   s.context.fixture = fixture();

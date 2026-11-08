@@ -639,65 +639,6 @@ const commandActions = () => [
   ["access", localized("Manage access", "管理访问权限"), localized("Workspace, executable and operation policy", "工作区、可执行文件与操作策略"), "settings"],
   ["theme", localized("Toggle theme", "切换主题"), localized("System, dark and light appearance", "系统、深色和浅色外观"), "monitor"],
 ];
-// Requirements and architecture components are the two object kinds the
-// Observatory already holds in the loaded snapshot, so the same search entry can
-// reach them instead of only switching views. Each row carries its kind so the
-// list shows what the object is before its name.
-// Attention signals resolve through the same summary action path as the list, so
-// the palette keeps the named destination here instead of a second copy.
-let paletteSignalActions = {};
-let paletteEvidenceKeys = {};
-let paletteTaskIds = {};
-const commandObjectActions = (query) => {
-  paletteSignalActions = {};
-  paletteEvidenceKeys = {};
-  paletteTaskIds = {};
-  const project = state.project;
-  // Objects only join a search: an empty palette stays the short command list,
-  // and a query bounds how many object rows are built and rendered.
-  if (!project || !query) return [];
-  const rows = [];
-  for (const requirement of (project.requirements || [])) {
-    const id = requirement?.id;
-    if (typeof id !== "string" || !id) continue;
-    rows.push([`object:requirement:${id}`, requirement.title || id, requirement.id, "target", localized("Requirement", "需求")]);
-  }
-  for (const component of (architectureData().components || [])) {
-    const id = component?.id;
-    if (typeof id !== "string" || !id) continue;
-    rows.push([`object:component:${id}`, component.name || id, (component.responsibilities || [])[0] || localized("No responsibility declared", "未声明职责"), "layers", localized("Component", "组件")]);
-  }
-  for (const file of (project.structure?.entries || [])) {
-    const path = file?.path;
-    if (typeof path !== "string" || !path) continue;
-    rows.push([`object:file:${path}`, file.name || path, path, "document", localized("File", "文件")]);
-  }
-  for (const signal of attentionSignals()) {
-    const id = signal?.id;
-    if (typeof id !== "string" || !id) continue;
-    const key = `object:signal:${id}`;
-    paletteSignalActions[key] = { action: signal.target, path: signal.path, requirement: signal.requirement };
-    rows.push([key, signal.title, signal.detail, "shield", localized("Signal", "信号")]);
-  }
-  const evidenceItems = (project.proof?.effective?.items || []).slice(0, 32);
-  for (const [index, item] of evidenceItems.entries()) {
-    const key = evidenceKey(item, index);
-    paletteEvidenceKeys[index] = key;
-    rows.push([`object:evidence:${index}`, item.subject || key,
-      `${item.producer || "—"} · ${item.result || "unknown"}`, "cube", localized("Evidence", "证据")]);
-  }
-  // Worklist tasks use the existing filtered list rather than a second selection
-  // concept: the palette names the task, the list filters to it.
-  const worklist = worklistObservation(project.execution?.worklist);
-  if (worklist.known && worklist.exists) {
-    for (const [index, item] of worklist.items.entries()) {
-      paletteTaskIds[index] = item.id;
-      rows.push([`object:task:${index}`, item.title || item.id,
-        `${worklistStateLabel(worklistTaskState(item))} · ${item.id}`, "monitor", localized("Task", "任务")]);
-    }
-  }
-  return rows;
-};
 function renderCommandPalette() {
   if (!els.commandPaletteList) return;
   const query = String(els.commandPaletteSearch?.value || "").trim().toLowerCase();
@@ -707,10 +648,13 @@ function renderCommandPalette() {
   const rows = matches.slice(0, limit);
   const omitted = matches.length - rows.length;
   state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, rows.length - 1));
-  const note = omitted
+  const note = (omitted
     ? `<div class="empty">${esc(localized(`${num(omitted)} more matches not shown. Narrow the search.`, `另有 ${num(omitted)} 项匹配未显示，请缩小搜索范围。`))}</div>`
-    : "";
-  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") + note : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
+    : "") + (paletteScopeNote ? `<div class="empty">${esc(paletteScopeNote)}</div>` : "");
+  const body = rows.length
+    ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("")
+    : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`;
+  setHtml("commandPaletteList", els.commandPaletteList, body + note, () => {
     els.commandPaletteList.querySelectorAll("[data-command]").forEach((button, index) => button.addEventListener("click", () => { state.commandPaletteIndex = index; executeCommand(button.dataset.command); }));
   });
 }
@@ -736,41 +680,7 @@ function executeCommand(command) {
   if (command === "refresh") { els.refresh?.click(); return; }
   if (command === "access") { els.manage?.click(); return; }
   if (command === "theme") { els.theme?.click(); return; }
-  if (command.startsWith("object:requirement:")) {
-    state.selected = command.slice("object:requirement:".length);
-    state.filter = "all";
-    activateWorkspaceTab("requirements", { scroll: true });
-    return;
-  }
-  if (command.startsWith("object:component:")) {
-    state.selectedComponent = command.slice("object:component:".length);
-    state.architectureView = "components";
-    activateWorkspaceTab("architecture", { scroll: true });
-    return;
-  }
-  if (command.startsWith("object:file:")) {
-    void openRepositoryFile(command.slice("object:file:".length));
-    return;
-  }
-  if (command.startsWith("object:signal:")) {
-    const signal = paletteSignalActions[command];
-    if (signal) void runSummaryAction(signal);
-    return;
-  }
-  if (command.startsWith("object:evidence:")) {
-    const key = paletteEvidenceKeys[command.slice("object:evidence:".length)];
-    if (key) openEvidenceKey(key);
-    return;
-  }
-  if (command.startsWith("object:task:")) {
-    const id = paletteTaskIds[command.slice("object:task:".length)];
-    if (!id) return;
-    const scope = worklistViewScope();
-    scope.filter = "all"; scope.query = id; scope.page = 0;
-    setWorklistView("all", id, 0, scope);
-    revealSection("activitySection");
-    return;
-  }
+  if (paletteExecute(command)) return;
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
 }
 function wireCommandPalette() {
