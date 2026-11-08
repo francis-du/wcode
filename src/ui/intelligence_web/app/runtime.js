@@ -647,9 +647,11 @@ const commandActions = () => [
 // the palette keeps the named destination here instead of a second copy.
 let paletteSignalActions = {};
 let paletteEvidenceKeys = {};
+let paletteTaskIds = {};
 const commandObjectActions = (query) => {
   paletteSignalActions = {};
   paletteEvidenceKeys = {};
+  paletteTaskIds = {};
   const project = state.project;
   // Objects only join a search: an empty palette stays the short command list,
   // and a query bounds how many object rows are built and rendered.
@@ -683,6 +685,16 @@ const commandObjectActions = (query) => {
     paletteEvidenceKeys[index] = key;
     rows.push([`object:evidence:${index}`, item.subject || key,
       `${item.producer || "—"} · ${item.result || "unknown"}`, "cube", localized("Evidence", "证据")]);
+  }
+  // Worklist tasks use the existing filtered list rather than a second selection
+  // concept: the palette names the task, the list filters to it.
+  const worklist = worklistObservation(project.execution?.worklist);
+  if (worklist.known && worklist.exists) {
+    for (const [index, item] of worklist.items.entries()) {
+      paletteTaskIds[index] = item.id;
+      rows.push([`object:task:${index}`, item.title || item.id,
+        `${worklistStateLabel(worklistTaskState(item))} · ${item.id}`, "monitor", localized("Task", "任务")]);
+    }
   }
   return rows;
 };
@@ -748,6 +760,15 @@ function executeCommand(command) {
   if (command.startsWith("object:evidence:")) {
     const key = paletteEvidenceKeys[command.slice("object:evidence:".length)];
     if (key) openEvidenceKey(key);
+    return;
+  }
+  if (command.startsWith("object:task:")) {
+    const id = paletteTaskIds[command.slice("object:task:".length)];
+    if (!id) return;
+    const scope = worklistViewScope();
+    scope.filter = "all"; scope.query = id; scope.page = 0;
+    setWorklistView("all", id, 0, scope);
+    revealSection("activitySection");
     return;
   }
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });

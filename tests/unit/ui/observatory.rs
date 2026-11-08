@@ -288,8 +288,8 @@ fn command_palette_reaches_loaded_requirements_and_components() {
         String::from_utf8_lossy(&output.stderr)
     );
     for summary in [
-        "# tests 5",
-        "# pass 5",
+        "# tests 6",
+        "# pass 6",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",

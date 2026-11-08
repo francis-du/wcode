@@ -97,6 +97,24 @@ test('the palette reaches an evidence record and opens its inspector', () => {
   assert.equal(s.run('state.workspaceTab'), 'proof');
 });
 
+test('the palette reaches a worklist task and filters the list to it', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    execution: { worklist: { available: true, exists: true, revision: 1, items_included: true,
+      counts: { pending: 1 },
+      items: [{ id: 'TASK-1', title: 'Fix the leak', status: 'pending' }] } } };
+  s.run('state.project=fixture;wireCommandPalette();');
+  const search = s.node('#commandPaletteSearch');
+  const commands = feedPaletteOptions(s);
+  search.value = 'leak'; s.run('renderCommandPalette();');
+  assert.ok(commands().includes('object:task:0'), 'a task must be reachable by title');
+  assert.ok(s.node('#commandPaletteList').innerHTML.includes('Task'), 'the task kind must be shown');
+  search.events.keydown({ key: 'Enter', isComposing: false, preventDefault() {} });
+  assert.equal(s.run('state.worklistViewScope.query'), 'TASK-1');
+  assert.equal(s.run('state.worklistViewScope.filter'), 'all');
+  assert.equal(s.run('state.workspaceTab'), 'activity');
+});
+
 test('the palette reaches a loaded component and opens it in the components view', () => {
   const s = sandbox();
   s.context.fixture = fixture();
