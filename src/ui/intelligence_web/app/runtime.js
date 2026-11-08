@@ -79,6 +79,7 @@ function renderProject(force = false) {
     renderCodeStats(); renderRevisions(); renderConstraintObservations(); renderLanguageQuality();
     renderExecutionStatus(); renderActivity(); renderProofSummary(); renderRuntimeJobs();
     renderAdaptiveVerification(); renderVerifiedLearning();
+    renderInvestigationDrawer();
     if (typeof renderCodeReader === "function") renderCodeReader();
     return;
   }
@@ -950,6 +951,14 @@ function startObservatory() {
   state.started = true;
   wireCommandPalette();
   wireHistoryRestoration();
+  document.querySelectorAll("[data-drawer-section]").forEach(button => button.addEventListener("click", () => {
+    state.drawerSection = button.dataset.drawerSection;
+    renderInvestigationDrawer();
+  }));
+  els.drawerToggle?.addEventListener("click", () => {
+    state.drawerCollapsed = !state.drawerCollapsed;
+    renderInvestigationDrawer();
+  });
   if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(initialViewFromHash());
   // A link may name an object directly; the palette command already knows how to

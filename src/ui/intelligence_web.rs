@@ -31,6 +31,7 @@ pub(crate) const INTELLIGENCE_JS: &str = concat!(
     include_str!("intelligence_web/app/design_sources.js"),
     include_str!("intelligence_web/app/architecture.js"),
     include_str!("intelligence_web/app/consistency.js"),
+    include_str!("intelligence_web/app/investigation_drawer.js"),
     include_str!("intelligence_web/app/code_graph_explorer.js"),
     include_str!("intelligence_web/app/code_graph.js"),
     include_str!("intelligence_web/app/historical_source.js"),
