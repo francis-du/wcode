@@ -639,12 +639,33 @@ const commandActions = () => [
   ["access", localized("Manage access", "管理访问权限"), localized("Workspace, executable and operation policy", "工作区、可执行文件与操作策略"), "settings"],
   ["theme", localized("Toggle theme", "切换主题"), localized("System, dark and light appearance", "系统、深色和浅色外观"), "monitor"],
 ];
+// Requirements and architecture components are the two object kinds the
+// Observatory already holds in the loaded snapshot, so the same search entry can
+// reach them instead of only switching views. Each row carries its kind so the
+// list shows what the object is before its name.
+const commandObjectActions = () => {
+  const project = state.project;
+  if (!project) return [];
+  const rows = [];
+  for (const requirement of (project.requirements || [])) {
+    const id = requirement?.id;
+    if (typeof id !== "string" || !id) continue;
+    rows.push([`object:requirement:${id}`, requirement.title || id, requirement.id, "target", localized("Requirement", "需求")]);
+  }
+  for (const component of (architectureData().components || [])) {
+    const id = component?.id;
+    if (typeof id !== "string" || !id) continue;
+    rows.push([`object:component:${id}`, component.name || id, (component.responsibilities || [])[0] || localized("No responsibility declared", "未声明职责"), "layers", localized("Component", "组件")]);
+  }
+  return rows;
+};
 function renderCommandPalette() {
   if (!els.commandPaletteList) return;
   const query = String(els.commandPaletteSearch?.value || "").trim().toLowerCase();
-  const rows = commandActions().filter(item => !query || item[1].toLowerCase().includes(query) || item[2].toLowerCase().includes(query));
+  const rows = commandActions().concat(commandObjectActions())
+    .filter(item => !query || [item[1], item[2], item[4]].filter(Boolean).some(text => String(text).toLowerCase().includes(query)));
   state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, rows.length - 1));
-  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
+  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
     els.commandPaletteList.querySelectorAll("[data-command]").forEach((button, index) => button.addEventListener("click", () => { state.commandPaletteIndex = index; executeCommand(button.dataset.command); }));
   });
 }
@@ -670,6 +691,18 @@ function executeCommand(command) {
   if (command === "refresh") { els.refresh?.click(); return; }
   if (command === "access") { els.manage?.click(); return; }
   if (command === "theme") { els.theme?.click(); return; }
+  if (command.startsWith("object:requirement:")) {
+    state.selected = command.slice("object:requirement:".length);
+    state.filter = "all";
+    activateWorkspaceTab("requirements", { scroll: true });
+    return;
+  }
+  if (command.startsWith("object:component:")) {
+    state.selectedComponent = command.slice("object:component:".length);
+    state.architectureView = "components";
+    activateWorkspaceTab("architecture", { scroll: true });
+    return;
+  }
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
 }
 function wireCommandPalette() {
