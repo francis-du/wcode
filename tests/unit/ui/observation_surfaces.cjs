@@ -25,6 +25,26 @@ test('the home status surface reaches Fitness and the language providers', () =>
   assert.match(html, /1 gaps/);
 });
 
+test('browser back restores the previous view', () => {
+  const s = sandbox();
+  s.run('state.current="A";wireHistoryRestoration();activateWorkspaceTab("files");');
+  assert.equal(s.history.length, 1, 'the first activation replaces the load entry');
+  s.run('activateWorkspaceTab("proof");activateWorkspaceTab("changes");');
+  assert.equal(s.run('state.workspaceTab'), 'changes');
+  s.history.back();
+  assert.equal(s.run('state.workspaceTab'), 'proof', 'back must restore the previous view');
+  s.history.back();
+  assert.equal(s.run('state.workspaceTab'), 'files');
+});
+
+test('a history entry recorded for another workspace is ignored', () => {
+  const s = sandbox();
+  s.run('state.current="A";wireHistoryRestoration();activateWorkspaceTab("files");');
+  s.events.popstate({ state: { wcodeView: 'proof', wcodeWorkspace: 'B' } });
+  assert.equal(s.run('state.workspaceTab'), 'files',
+    'a foreign workspace entry must not move this workspace');
+});
+
 test('the home status surface reaches the structured risk list', () => {
   const s = sandbox();
   s.context.fixture = { ...project(), risk: { risks: [

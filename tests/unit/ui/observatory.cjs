@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const createHistoryHarness = require('./history_harness.cjs');
 const root = process.argv[2] || path.resolve(__dirname, '../../..');
 const manifest=fs.readFileSync(path.join(root,'src/ui/intelligence_web.rs'),'utf8');
 function manifestFiles(constant,folder,extension){
@@ -39,13 +40,13 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
   node('#accessPanel').classes.add('hidden');
   const requests=[],timers=new Map(),events={},listeners=new Map();let timerId=0;
-  const storage={...(options.storage||{})};
-  const languages=options.languages||['en-US'];
+  const {history, listen} = createHistoryHarness(events, listeners);
+  const storage={...(options.storage||{})},languages=options.languages||['en-US'];
   const context={console,URL,URLSearchParams,AbortController,Date,Intl,Map,Set,Promise,JSON,Number,String,Math,Error,DOMException,
     navigator:{languages,language:languages[0]||'en-US'},
     location:{hash:options.hash ?? (authenticated?'#token=test-ui&workspace=A':'#workspace=A')},localStorage:{getItem(key){if(storageBlocked)throw new Error('storage denied');return storage[key]??null;},setItem(key,value){if(storageBlocked)throw new Error('storage denied');storage[key]=String(value);}},
-    document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:(name,handler)=>{const callbacks=listeners.get(name)||[];callbacks.push(handler);listeners.set(name,callbacks);events[name]=event=>{for(const callback of callbacks)callback(event);};},getElementById:id=>node('#'+id)},
-    window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){}},requestAnimationFrame:fn=>fn(),queueMicrotask,
+    document:{hidden:false,documentElement:{dataset:{},classList:{toggle(){}},setAttribute(){}},querySelector:node,querySelectorAll:()=>[],addEventListener:listen,getElementById:id=>node('#'+id)},
+    window:{matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener:listen,history},requestAnimationFrame:fn=>fn(),queueMicrotask,
     setTimeout:(fn,ms)=>{if(options.fakeTimers){timers.set(++timerId,{fn,ms});return timerId;}const timer=setTimeout(fn,ms);timer.unref();return timer;},clearTimeout:id=>options.fakeTimers?timers.delete(id):clearTimeout(id),
     fetch:(url,requestOptions={})=>url==='/healthz'&&!options.controlTunnels
       ? Promise.resolve({ok:true,status:200,json:async()=>({public_endpoint:'pending',tunnels:[]})})
@@ -56,10 +57,9 @@ function sandbox(storageBlocked=false,authenticated=true,options={}){
     source=file==='runtime'?stripRuntimeBootstrap(source):source.replace(/\r\n?/g,'\n');
     vm.runInContext(source,context,{filename:file+'.js'});
   }
-  return {context,nodes,requests,timers,events,run:code=>vm.runInContext(code,context),node};
+  return {context,nodes,requests,timers,events,history,run:code=>vm.runInContext(code,context),node};
 }
-const flush=()=>new Promise(setImmediate);
-function respond(request,data,ok=true){request.resolve({ok,status:ok?200:503,json:async()=>data});}
+const flush=()=>new Promise(setImmediate),respond=(request,data,ok=true)=>request.resolve({ok,status:ok?200:503,json:async()=>data});
 const project=(workspace='A')=>({workspace,project:workspace,root:'/fixture/'+workspace,design_valid:true,workspace_options:[],requirements:[],code:{changed_files:0},proof:{current_evidence:0,acceptance:{total:0,mapped:0,executed:0,passed:0,fresh:0}},convergence:{},coverage:{},architecture:{components:[],dependencies:[],desired_edges:0,observed_edges:0,blocking_drift_edges:0},git_review:{available:false,reason:'execution_disabled'}});
 function navigatorFixture(s){
   const search=s.node('#projectNavigator'),results=s.node('#navigatorResults'),listbox=s.node('#navigatorListbox');let html='',buttons=[];

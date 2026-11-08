@@ -156,10 +156,20 @@ function renderWorkspaceHero(tab) {
   if (els.workspaceTitle) els.workspaceTitle.textContent = copy[1] || "";
   if (els.workspaceSubtitle) els.workspaceSubtitle.textContent = copy[2] || "";
 }
-function activateWorkspaceTab(tab, { scroll = false } = {}) {
+function activateWorkspaceTab(tab, { scroll = false, fromHistory = false } = {}) {
   const next = workspaceTabs.includes(tab) ? tab : "overview";
   state.workspaceTab = next;
   savePreference("wcode.ui.page", next);
+  // The view is the restorable unit. Workspace switches go through their own
+  // refresh, so a history entry only claims the workspace it was recorded in.
+  // The first activation replaces the load entry instead of stacking a duplicate.
+  if (!fromHistory) {
+    try {
+      const entry = { wcodeView: next, wcodeWorkspace: state.current };
+      if (state.historyPushed) window.history?.pushState?.(entry, "", "");
+      else { window.history?.replaceState?.(entry, "", ""); state.historyPushed = true; }
+    } catch {}
+  }
   renderWorkspaceHero(next);
   renderWorkspaceIdentity();
   let activeTabButton = null;
@@ -683,6 +693,17 @@ function executeCommand(command) {
   if (paletteExecute(command)) return;
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
 }
+// Browser back/forward restores the investigation position. The handler only
+// accepts an entry recorded for the current workspace, so a stale entry from
+// another root cannot pull the page into a different repository's view.
+function wireHistoryRestoration() {
+  window.addEventListener?.("popstate", event => {
+    const view = event?.state?.wcodeView;
+    if (workspaceTabs.includes(view) && event.state.wcodeWorkspace === state.current) {
+      activateWorkspaceTab(view, { fromHistory: true, scroll: false });
+    }
+  });
+}
 function wireCommandPalette() {
   els.closeCommandPalette?.addEventListener("click", () => setCommandPalette(false));
   els.commandPaletteSearch?.addEventListener("input", () => { state.commandPaletteIndex = 0; renderCommandPalette(); });
@@ -878,6 +899,7 @@ function startObservatory() {
   if (state.started) return;
   state.started = true;
   wireCommandPalette();
+  wireHistoryRestoration();
   if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(state.workspaceTab);
   // Neither the initial render nor later project refreshes own the activity loop.
