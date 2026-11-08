@@ -718,6 +718,12 @@ function maybeLoadCodeGraph() {
     }
     return;
   }
+  if (!state.codeGraph?.nodes?.length && state.selectedCodeNode) {
+    // A palette selection or a link names a node before the graph exists. Load
+    // the graph focused on that node instead of painting an empty canvas.
+    void loadCodeGraph({ nodeId: state.selectedCodeNode, query: state.codeGraphQuery });
+    return;
+  }
   const paintKey = `${codeGraphViewKey()}|lang:${state.language}`;
   if (state.codeGraphPaintKey === paintKey && state.codeGraphWorkspace === state.current) return;
   renderCodeGraph();

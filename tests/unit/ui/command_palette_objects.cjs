@@ -129,6 +129,13 @@ test('the palette reaches a symbol in the loaded code graph', () => {
   assert.equal(s.run('state.architectureView'), 'codegraph');
 });
 
+test('a symbol result loads the graph focused on that node', () => {
+  const s = sandbox();
+  s.run('state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";state.codeGraphView="focus";state.selectedCodeNode="sym:1";state.codeGraph=null;state.codeGraphLoading=false;maybeLoadCodeGraph();');
+  assert.equal(s.requests.length, 1, 'the graph load must be requested');
+  assert.match(s.requests[0].url, /^\/intelligence\/code-graph\?/);
+});
+
 test('symbol search says when no code graph is loaded instead of returning nothing', () => {
   const s = sandbox();
   s.context.fixture = fixture();
