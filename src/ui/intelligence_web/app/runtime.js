@@ -643,9 +643,11 @@ const commandActions = () => [
 // Observatory already holds in the loaded snapshot, so the same search entry can
 // reach them instead of only switching views. Each row carries its kind so the
 // list shows what the object is before its name.
-const commandObjectActions = () => {
+const commandObjectActions = (query) => {
   const project = state.project;
-  if (!project) return [];
+  // Objects only join a search: an empty palette stays the short command list,
+  // and a query bounds how many object rows are built and rendered.
+  if (!project || !query) return [];
   const rows = [];
   for (const requirement of (project.requirements || [])) {
     const id = requirement?.id;
@@ -657,15 +659,26 @@ const commandObjectActions = () => {
     if (typeof id !== "string" || !id) continue;
     rows.push([`object:component:${id}`, component.name || id, (component.responsibilities || [])[0] || localized("No responsibility declared", "未声明职责"), "layers", localized("Component", "组件")]);
   }
+  for (const file of (project.structure?.entries || [])) {
+    const path = file?.path;
+    if (typeof path !== "string" || !path) continue;
+    rows.push([`object:file:${path}`, file.name || path, path, "document", localized("File", "文件")]);
+  }
   return rows;
 };
 function renderCommandPalette() {
   if (!els.commandPaletteList) return;
   const query = String(els.commandPaletteSearch?.value || "").trim().toLowerCase();
-  const rows = commandActions().concat(commandObjectActions())
+  const matches = commandActions().concat(commandObjectActions(query))
     .filter(item => !query || [item[1], item[2], item[4]].filter(Boolean).some(text => String(text).toLowerCase().includes(query)));
+  const limit = 100;
+  const rows = matches.slice(0, limit);
+  const omitted = matches.length - rows.length;
   state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, rows.length - 1));
-  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
+  const note = omitted
+    ? `<div class="empty">${esc(localized(`${num(omitted)} more matches not shown. Narrow the search.`, `另有 ${num(omitted)} 项匹配未显示，请缩小搜索范围。`))}</div>`
+    : "";
+  setHtml("commandPaletteList", els.commandPaletteList, rows.length ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("") + note : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`, () => {
     els.commandPaletteList.querySelectorAll("[data-command]").forEach((button, index) => button.addEventListener("click", () => { state.commandPaletteIndex = index; executeCommand(button.dataset.command); }));
   });
 }
@@ -701,6 +714,10 @@ function executeCommand(command) {
     state.selectedComponent = command.slice("object:component:".length);
     state.architectureView = "components";
     activateWorkspaceTab("architecture", { scroll: true });
+    return;
+  }
+  if (command.startsWith("object:file:")) {
+    void openRepositoryFile(command.slice("object:file:".length));
     return;
   }
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
