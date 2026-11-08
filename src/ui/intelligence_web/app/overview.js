@@ -109,6 +109,30 @@ function renderObservationCoverage() {
     [localized("Evidence", "证据"), "proofSection", proof.current_evidence ? localized(`${num(proof.current_failed || 0)} failures · ${num(proof.current_inconclusive || 0)} inconclusive`, `${num(proof.current_failed || 0)} 项失败 · ${num(proof.current_inconclusive || 0)} 项未定`) : localized("No current-version evidence", "无当前版本证据"), proof.current_failed ? localized("Failing", "存在失败") : proof.current_evidence ? localized("Recorded", "已记录") : localized("Unverified", "未验证")],
     [localized("Architecture", "架构"), "architectureSection", localized(`${num(p.architecture?.components?.length || 0)} components · ${statusLabel(graphPrecision().primary)}`, `${num(p.architecture?.components?.length || 0)} 个组件 · ${statusLabel(graphPrecision().primary)}`), p.code?.graph_truncated ? localized("Partial", "不完整") : statusLabel(graphPrecision().primary)],
     [localized("Tasks & runtime", "任务与运行时"), "activitySection", activity?.available === true && !state.activityError ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 项执行 · ${num(activity.queued || 0)} 项排队`) : localized("Unavailable, not idle", "数据不可用，不代表空闲"), state.activityError ? localized("Stale", "已过期") : activity?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")],
+    // The production-capability matrix keeps Fitness and the language providers
+    // reachable from the home status surface rather than only by scrolling.
+    (() => {
+      const benchmark = p.fitness?.benchmark;
+      const report = benchmark?.available === true ? benchmark.latest : null;
+      return [localized("Fitness", "Fitness"), "fitnessSection",
+        report
+          ? localized(`${num(report.case_count)} cases · ${report.profile || "—"}`, `${num(report.case_count)} 个用例 · ${report.profile || "—"}`)
+          : localized("No benchmark report available", "没有可用的基准报告"),
+        !report ? localized("Unavailable", "不可用")
+          : benchmark.partial || benchmark.status !== "current"
+            ? localized("Historical or partial", "历史或部分")
+            : localized("Observed", "已观测")];
+    })(),
+    (() => {
+      const quality = p.language_quality || {};
+      const languages = (quality.languages || []).filter(language => Number(language.detected_files || 0) > 0);
+      const gaps = languages.reduce((sum, language) => sum + (language.gaps || []).length, 0);
+      return [localized("Language providers", "语言提供方"), "qualitySection",
+        languages.length
+          ? localized(`${languages.length} languages · ${gaps} gaps`, `${languages.length} 种语言 · ${gaps} 个缺口`)
+          : localized("No detected language files", "未检测到语言文件"),
+        !languages.length ? localized("Unavailable", "不可用") : gaps ? localized("Gaps", "有缺口") : localized("Observed", "已观测")];
+    })(),
   ];
   const html = `<nav class="observation-coverage-grid" aria-label="${esc(localized('Observation coverage and drilldowns', '观测范围与深入检查'))}">${surfaces.map(([label, target, detail, status]) => `<button type="button" class="observation-surface" data-summary-action="${target}" title="${esc(detail)}"><strong>${esc(label)}</strong><span class="observation-state">${esc(target === 'activitySection' ? status : projectState || status)}</span><small>${esc(detail)}</small></button>`).join('')}</nav>`;
   setHtml("observationCoverage", els.observationCoverage, html, () => bindSummaryActions(els.observationCoverage));

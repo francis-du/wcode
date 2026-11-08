@@ -256,7 +256,9 @@ async function run(){
     assert.match(s.node('#attention').innerHTML,/Attention revision does not match/);
     assert.match(s.node('#attention').innerHTML,/Partial attention coverage/);
     const html=s.node('#observationCoverage').innerHTML;
-    assert.equal((html.match(/>Stale<\/span>/g)||[]).length,4);
+    // Every surface except Tasks & runtime carries the shared snapshot state, so
+    // a stale snapshot must be visible on all six of them.
+    assert.equal((html.match(/>Stale<\/span>/g)||[]).length,6);
     assert.match(html,/Unavailable, not idle/);
     s.run('clearWorkspaceView();');assert.equal(s.node('#observationCoverage').innerHTML,'','old observation cards must not cross workspace switches');
   });
