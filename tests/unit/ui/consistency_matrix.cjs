@@ -17,7 +17,7 @@ const fixture = () => ({
     implementation_files: 2, depends_on: [], changed: true }],
     dependencies: [], desired_edges: 0, observed_edges: 0, blocking_drift_edges: 0 },
   risk: { drift: { findings: [{ id: 'D-1', kind: 'runtime_drift', subject: 'C-1',
-    risk_level: 'medium', message: 'm', affected_requirements: ['REQ-A'], paths: [],
+    risk_level: 'medium', message: 'm', affected_requirements: ['REQ-A'], paths: ['src/queue.rs'],
     deviation: { metric: 'wait', expected_max: 30000, observed: 45000, deviation_percent: 50,
       unit: 'ms', precision: 'runtime', revision_bound: false } }] } },
 });
@@ -29,6 +29,7 @@ test('the matrix shows design, observed state and delta for each kind', () => {
   const html = s.node('#consistencySection').innerHTML;
   assert.match(html, /REQ-A/);
   assert.match(html, /component:one/);
+  assert.match(html, /src\/queue\.rs/, 'the drift source path must be visible');
   assert.match(html, /C-1/);
   assert.match(html, /45,?000 \/ 30,?000 ms/);
   assert.match(html, /Needs attention/);

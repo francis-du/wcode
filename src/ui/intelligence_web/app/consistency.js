@@ -43,6 +43,7 @@ const consistencyRows = () => {
         blocking ? `${num(blocking)} ${t("blockers")}` : t("no blockers"),
         requirement.changed ? t("changed") : t("unchanged"),
         unit(requirement.implementation_lines || 0, "line", "lines", "行"),
+        affecting.flatMap(finding => finding.paths || []).slice(0, 3).map(esc).join(", "),
         convergence].filter(Boolean).join(" · "),
       state: needs ? "needs_attention" : requirement.convergence === "stable" ? "stable" : "unobserved",
       navigate: `object:requirement:${requirement.id}`,
