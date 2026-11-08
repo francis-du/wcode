@@ -646,8 +646,10 @@ const commandActions = () => [
 // Attention signals resolve through the same summary action path as the list, so
 // the palette keeps the named destination here instead of a second copy.
 let paletteSignalActions = {};
+let paletteEvidenceKeys = {};
 const commandObjectActions = (query) => {
   paletteSignalActions = {};
+  paletteEvidenceKeys = {};
   const project = state.project;
   // Objects only join a search: an empty palette stays the short command list,
   // and a query bounds how many object rows are built and rendered.
@@ -674,6 +676,13 @@ const commandObjectActions = (query) => {
     const key = `object:signal:${id}`;
     paletteSignalActions[key] = { action: signal.target, path: signal.path, requirement: signal.requirement };
     rows.push([key, signal.title, signal.detail, "shield", localized("Signal", "信号")]);
+  }
+  const evidenceItems = (project.proof?.effective?.items || []).slice(0, 32);
+  for (const [index, item] of evidenceItems.entries()) {
+    const key = evidenceKey(item, index);
+    paletteEvidenceKeys[index] = key;
+    rows.push([`object:evidence:${index}`, item.subject || key,
+      `${item.producer || "—"} · ${item.result || "unknown"}`, "cube", localized("Evidence", "证据")]);
   }
   return rows;
 };
@@ -734,6 +743,11 @@ function executeCommand(command) {
   if (command.startsWith("object:signal:")) {
     const signal = paletteSignalActions[command];
     if (signal) void runSummaryAction(signal);
+    return;
+  }
+  if (command.startsWith("object:evidence:")) {
+    const key = paletteEvidenceKeys[command.slice("object:evidence:".length)];
+    if (key) openEvidenceKey(key);
     return;
   }
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });

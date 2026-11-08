@@ -309,17 +309,25 @@ function acceptanceVerificationGates(record) {
   return `<details class="acceptance-gates"><summary>${esc(localized("Review, stages and human approval", "复核、Stage 与人工批准"))}</summary><div class="acceptance-gate-results"><span><strong>${esc(localized("Deterministic result", "确定性结果"))}</strong>${result(gates.deterministic_result)}</span>${stages}<span><strong>${esc(localized("Human approval result", "人工批准结果"))}</strong>${result(gates.human_approval)}</span></div><p class="panel-meta">${esc(localized(`${num(gates.queued)} reviews queued · ${num(gates.claimed)} claimed · ${num(gates.submitted)} submitted · ${num(gates.reviewer_failures)} failed · ${num(gates.reviewer_inconclusive)} inconclusive · ${num(gates.disagreements)} disagreements`, `${num(gates.queued)} 项复核排队 · ${num(gates.claimed)} 项已领取 · ${num(gates.submitted)} 项已提交 · ${num(gates.reviewer_failures)} 项失败 · ${num(gates.reviewer_inconclusive)} 项未定 · ${num(gates.disagreements)} 项分歧`))}</p><small class="panel-meta">${esc(localized("Reported results are separate from whether the active policy requires each gate.", "报告结果与当前策略是否要求该门禁分别呈现。"))}</small></details>`;
 }
 
-function openAcceptanceEvidence(id) {
-  const rows = (state.project?.proof?.effective?.items || []).slice(0, 32);
-  const index = rows.findIndex(item => item.id === id || item.artifact_digest === id);
-  state.selectedEvidenceReference = index < 0 ? id : "";
-  if (index >= 0) {
-    const item = rows[index];
-    state.selectedEvidenceKey = String(item.artifact_digest || item.id || `${item.subject || "evidence"}:${item.producer || "unknown"}:${item.timestamp_ms || index}`);
-  }
+function evidenceKey(item, index) {
+  return String(item.artifact_digest || item.id || `${item.subject || "evidence"}:${item.producer || "unknown"}:${item.timestamp_ms || index}`);
+}
+function openEvidenceKey(key, reference = "") {
+  // The reference has to be in place before the reveal renders the ledger: the
+  // notice that no substitute record was selected is part of that render.
+  state.selectedEvidenceReference = reference;
+  state.selectedEvidenceKey = key;
   state.evidenceInspectorOpen = true;
   invalidate("proofSummary");
   revealSection("proofSection");
+}
+function openAcceptanceEvidence(id) {
+  const rows = (state.project?.proof?.effective?.items || []).slice(0, 32);
+  const index = rows.findIndex(item => item.id === id || item.artifact_digest === id);
+  openEvidenceKey(
+    index >= 0 ? evidenceKey(rows[index], index) : state.selectedEvidenceKey,
+    index >= 0 ? "" : id,
+  );
 }
 function acceptanceInspectionView() {
   const view = acceptanceView(), record = view.record, data = record?.inspection;
@@ -465,7 +473,6 @@ function renderProofSummary() {
   if (!state.project) return;
   const proof = state.project.proof || {}, acceptance = proof.acceptance || {}, effective = proof.effective || {},
     rows = Array.isArray(effective.items) ? effective.items.slice(0, 32) : [],
-    evidenceKey = (item, index) => String(item.artifact_digest || item.id || `${item.subject || "evidence"}:${item.producer || "unknown"}:${item.timestamp_ms || index}`),
     keyed = rows.map((item, index) => ({ item, key: evidenceKey(item, index), index }));
   if (!keyed.some(entry => entry.key === state.selectedEvidenceKey)) state.selectedEvidenceKey = keyed[0]?.key || "";
   const referenceMissing = Boolean(state.selectedEvidenceReference), referencedMetadata = referenceMissing ? acceptanceEvidenceMetadata(state.selectedEvidenceReference) : null;

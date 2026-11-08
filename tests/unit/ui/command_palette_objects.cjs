@@ -78,6 +78,25 @@ test('the palette reaches an attention signal and runs its named destination', (
   assert.equal(s.context.__openedChanges[0].path, 'src/a.rs');
 });
 
+test('the palette reaches an evidence record and opens its inspector', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    proof: { revision_code: 'code-1', revision_design: 'design-1',
+      effective: { total: 1, failed: 0, passed: 1, inconclusive: 0, disagreed: 0,
+        items: [{ id: 'ev-1', subject: 'cargo test', producer: 'cargo-nextest',
+          result: 'pass', timestamp_ms: 1, stage: 'deterministic' }] } } };
+  s.run('state.project=fixture;wireCommandPalette();');
+  const search = s.node('#commandPaletteSearch');
+  const commands = feedPaletteOptions(s);
+  search.value = 'cargo test'; s.run('renderCommandPalette();');
+  assert.ok(commands().includes('object:evidence:0'), 'an evidence record must be reachable by subject');
+  assert.ok(s.node('#commandPaletteList').innerHTML.includes('Evidence'), 'the evidence kind must be shown');
+  search.events.keydown({ key: 'Enter', isComposing: false, preventDefault() {} });
+  assert.equal(s.run('state.selectedEvidenceKey'), 'ev-1');
+  assert.equal(s.run('state.evidenceInspectorOpen'), true);
+  assert.equal(s.run('state.workspaceTab'), 'proof');
+});
+
 test('the palette reaches a loaded component and opens it in the components view', () => {
   const s = sandbox();
   s.context.fixture = fixture();
