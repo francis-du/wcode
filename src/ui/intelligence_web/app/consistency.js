@@ -16,6 +16,23 @@ const consistencyRows = () => {
     const dependencies = requirement.dependency_alignment || [];
     const blocking = dependencies.filter(dependency => dependency.blocking).length;
     const needs = requirement.convergence === "needs_convergence" || blocking > 0;
+    // A drift affecting this requirement is only actionable next to the
+    // convergence plan that claims it; an unclaimed drift says so instead.
+    const affecting = findings.filter(finding => (finding.affected_requirements || []).includes(requirement.id));
+    const plans = affecting.length
+      ? (project.reconciliation || []).filter(plan => (plan.drift_ids || []).some(id => affecting.some(finding => finding.id === id)))
+      : [];
+    const convergence = !affecting.length ? ""
+      : !plans.length ? [t("no convergence plan references this drift")]
+        : plans.map(plan => {
+          const tasks = plan.implementation_tasks || [];
+          const execution = project.reconciliation_execution;
+          const matched = execution?.execution?.plan_id === plan.id ? execution : null;
+          const detail = matched
+            ? `${matched.pending} ${t("pending")} · ${matched.completed} ${t("completed")} · ${matched.failed} ${t("failed")} · ${matched.converged ? t("converged") : t("not converged")}`
+            : unit(tasks.length, "task", "tasks", "个任务");
+          return `${plan.id} (${detail})`;
+        });
     rows.push({
       id: requirement.id,
       kind: "requirement",
@@ -25,7 +42,8 @@ const consistencyRows = () => {
       actual: [statusLabel(requirement.convergence),
         blocking ? `${num(blocking)} ${t("blockers")}` : t("no blockers"),
         requirement.changed ? t("changed") : t("unchanged"),
-        unit(requirement.implementation_lines || 0, "line", "lines", "行")].join(" · "),
+        unit(requirement.implementation_lines || 0, "line", "lines", "行"),
+        convergence].filter(Boolean).join(" · "),
       state: needs ? "needs_attention" : requirement.convergence === "stable" ? "stable" : "unobserved",
       navigate: `object:requirement:${requirement.id}`,
     });

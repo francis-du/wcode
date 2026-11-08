@@ -57,6 +57,27 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
   assert.doesNotMatch(html, /REQ-A/);
 });
 
+test('a requirement row links the drift to the convergence plan that claims it', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    reconciliation: [{ id: 'PLAN-1', drift_ids: ['D-1'], implementation_tasks: [
+      { id: 'T-1', kind: 'implementation', subject: 'Fix the queue', description: '', write_scopes: [], depends_on: [] }] }],
+    reconciliation_execution: { execution: { plan_id: 'PLAN-1' },
+      pending: 1, claimed: 0, completed: 0, failed: 0, converged: false } };
+  s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /PLAN-1/);
+  assert.match(html, /1 pending/);
+  assert.doesNotMatch(html, /no convergence plan references this drift/);
+});
+
+test('a drift that no plan claims says so instead of implying convergence', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(), reconciliation: [] };
+  s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
+  assert.match(s.node('#consistencySection').innerHTML, /no convergence plan references this drift/);
+});
+
 test('the matrix filters by kind and an empty match says so', () => {
   const s = sandbox();
   s.context.fixture = fixture();
