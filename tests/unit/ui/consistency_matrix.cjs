@@ -14,8 +14,10 @@ const fixture = () => ({
     dependency_alignment: [{ id: 'component:one', blocking: true }],
     acceptance: [{ id: 'AC-1' }], implementation_lines: 40, changed: true }],
   architecture: { components: [{ id: 'component:one', name: 'One', responsibilities: ['a'],
-    implementation_files: 2, depends_on: [], changed: true }],
-    dependencies: [], desired_edges: 0, observed_edges: 0, blocking_drift_edges: 0 },
+    implementation_files: 2, depends_on: ['component:two'], changed: true }],
+    dependencies: [{ from: 'component:one', to: 'component:two', from_name: 'One', to_name: 'Two',
+      desired: true, actual: false, status: 'unverified_actual', precision: 'syntax', blocking: false }],
+    desired_edges: 1, observed_edges: 0, blocking_drift_edges: 0 },
   risk: { drift: { findings: [{ id: 'D-1', kind: 'runtime_drift', subject: 'C-1',
     risk_level: 'medium', message: 'm', affected_requirements: ['REQ-A'], paths: ['src/queue.rs'],
     deviation: { metric: 'wait', expected_max: 30000, observed: 45000, deviation_percent: 50,
@@ -30,6 +32,7 @@ test('the matrix shows design, observed state and delta for each kind', () => {
   assert.match(html, /REQ-A/);
   assert.match(html, /component:one/);
   assert.match(html, /src\/queue\.rs/, 'the drift source path must be visible');
+  assert.match(html, /declared, not observed/, 'an unverified declared dependency stays advisory');
   assert.match(html, /C-1/);
   assert.match(html, /45,?000 \/ 30,?000 ms/);
   assert.match(html, /Needs attention/);
@@ -86,6 +89,6 @@ test('the matrix filters by kind and an empty match says so', () => {
   const kindOnly = s.node('#consistencySection').innerHTML;
   assert.match(kindOnly, /C-1/);
   assert.doesNotMatch(kindOnly, /REQ-A/);
-  s.run('state.consistencyKind="component";state.consistencyState="unobserved";renderConsistencyMatrix();');
+  s.run('state.consistencyKind="constraint";state.consistencyState="unobserved";renderConsistencyMatrix();');
   assert.match(s.node('#consistencySection').innerHTML, /No design object matches this filter./);
 });

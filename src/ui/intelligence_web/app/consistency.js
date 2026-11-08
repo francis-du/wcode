@@ -52,6 +52,21 @@ const consistencyRows = () => {
   for (const component of (architectureData().components || [])) {
     const tone = architectureNodeTone(component, architectureData().dependencies || []);
     const changed = Boolean(component.changed);
+    // Dependency alignment keeps the four evidence states apart: an unverified
+    // declared dependency is not missing implementation, and an undeclared
+    // observation is only actionable when its provider is stronger than syntax.
+    const edges = (architectureData().dependencies || [])
+      .filter(edge => edge.from === component.id || edge.to === component.id);
+    const count = status => edges.filter(edge => edge.status === status).length;
+    const alignment = [
+      count("aligned") ? `${num(count("aligned"))} ${t("aligned")}` : "",
+      count("unverified_actual") ? `${num(count("unverified_actual"))} ${t("declared, not observed")}` : "",
+      count("undeclared_actual") ? `${num(count("undeclared_actual"))} ${t("observed, not declared")}` : "",
+      count("observed_actual") ? `${num(count("observed_actual"))} ${t("observed candidate")}` : "",
+      count("unknown") ? `${num(count("unknown"))} ${t("unknown")}` : "",
+    ].filter(Boolean).join(" · ");
+    const hasBlocking = edges.some(edge => edge.blocking);
+    const hasCandidate = edges.some(edge => ["unverified_actual", "observed_actual", "unknown"].includes(edge.status));
     rows.push({
       id: component.id,
       kind: "component",
@@ -59,8 +74,9 @@ const consistencyRows = () => {
         unit((component.depends_on || []).length, "declared dependency", "declared dependencies", "条声明依赖")].join(" · "),
       actual: [statusLabel(tone),
         unit(component.implementation_files || 0, "mapped file", "mapped files", "个映射文件"),
-        changed ? t("changed") : t("unchanged")].join(" · "),
-      state: tone === "drift" || tone === "uncertain" ? "needs_attention" : changed ? "stable" : "stable",
+        changed ? t("changed") : t("unchanged"),
+        alignment].filter(Boolean).join(" · "),
+      state: hasBlocking || tone === "drift" ? "needs_attention" : hasCandidate ? "unobserved" : "stable",
       navigate: `object:component:${component.id}`,
     });
   }
