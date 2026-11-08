@@ -5,6 +5,7 @@
 // assert both the restore and the cross-workspace guard.
 module.exports = (events, listeners) => {
   const stack = [{ state: { wcodeView: 'overview', wcodeWorkspace: 'A' } }];
+  let lastUrl = '';
   const listen = (name, handler) => {
     const callbacks = listeners.get(name) || [];
     callbacks.push(handler);
@@ -13,11 +14,13 @@ module.exports = (events, listeners) => {
   };
   const history = {
     get length() { return stack.length; },
-    pushState(state) { stack.push({ state }); },
-    replaceState(state) { stack[stack.length - 1] = { state }; },
+    get lastUrl() { return lastUrl; },
+    pushState(state, title, url) { stack.push({ state }); lastUrl = url || ''; },
+    replaceState(state, title, url) { stack[stack.length - 1] = { state }; lastUrl = url || ''; },
     back() {
       if (stack.length > 1) {
         stack.pop();
+        lastUrl = '';
         events.popstate?.({ state: stack[stack.length - 1].state });
       }
     },

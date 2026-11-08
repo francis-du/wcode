@@ -61,6 +61,7 @@ function renderTabPanels(tab) {
     default:
       break;
   }
+  syncInvestigationHash();
 }
 function renderProject(force = false) {
   if (!state.project) return;
@@ -699,7 +700,37 @@ function executeCommand(command) {
 // link cannot pull the page into a different repository's view.
 function investigationHash() {
   const params = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
-  return { view: params.get("view") || "", workspace: params.get("workspace") || params.get("ws") || "" };
+  return {
+    view: params.get("view") || "",
+    workspace: params.get("workspace") || params.get("ws") || "",
+    object: params.get("o") || "",
+  };
+}
+// The selected object joins the view in the same history entry. Rewriting the
+// current entry keeps a selection from adding a history step of its own.
+function investigationObjectSpec() {
+  if (state.selectedCodeNode) return `object:symbol:${state.selectedCodeNode}`;
+  if (state.selectedComponent) return `object:component:${state.selectedComponent}`;
+  if (state.selected) return `object:requirement:${state.selected}`;
+  return "";
+}
+let lastInvestigationSpec = "";
+function syncInvestigationHash() {
+  const object = investigationObjectSpec();
+  const spec = `${state.workspaceTab}|${state.current}|${object}`;
+  if (spec === lastInvestigationSpec) return;
+  lastInvestigationSpec = spec;
+  const params = new URLSearchParams();
+  params.set("view", state.workspaceTab);
+  params.set("workspace", state.current);
+  if (object) params.set("o", object);
+  try {
+    window.history?.replaceState?.(
+      { wcodeView: state.workspaceTab, wcodeWorkspace: state.current },
+      "",
+      `#${params.toString()}`,
+    );
+  } catch {}
 }
 function initialViewFromHash() {
   const { view, workspace } = investigationHash();
@@ -921,6 +952,10 @@ function startObservatory() {
   wireHistoryRestoration();
   if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(initialViewFromHash());
+  // A link may name an object directly; the palette command already knows how to
+  // open each kind, so the hash reuses that single navigation path.
+  const hashObject = investigationHash().object;
+  if (hashObject) executeCommand(hashObject);
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();
   void activityTick();
