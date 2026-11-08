@@ -25,6 +25,18 @@ test('the home status surface reaches Fitness and the language providers', () =>
   assert.match(html, /1 gaps/);
 });
 
+test('the home status surface reaches the structured risk list', () => {
+  const s = sandbox();
+  s.context.fixture = { ...project(), risk: { risks: [
+    { id: 'R-1', category: 'coverage', level: 'high', summary: 'Thin verification' },
+    { id: 'R-2', category: 'drift', level: 'low', summary: 'Minor drift' }] } };
+  s.run('state.project=fixture;renderObservationCoverage();');
+  const html = s.node('#observationCoverage').innerHTML;
+  assert.match(html, /data-summary-action="diagnosticsSection"/);
+  assert.match(html, /2 structured risks/);
+  assert.match(html, /Needs attention/);
+});
+
 test('an unavailable benchmark and no detected language are reported as unavailable', () => {
   const s = sandbox();
   s.context.fixture = project();

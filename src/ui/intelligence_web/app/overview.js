@@ -133,6 +133,16 @@ function renderObservationCoverage() {
           : localized("No detected language files", "未检测到语言文件"),
         !languages.length ? localized("Unavailable", "不可用") : gaps ? localized("Gaps", "有缺口") : localized("Observed", "已观测")];
     })(),
+    (() => {
+      const risks = p.risk?.risks || [];
+      const rank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+      const worst = risks.map(risk => risk.level).sort((left, right) => (rank[left] ?? 5) - (rank[right] ?? 5))[0];
+      return [localized("Risk", "风险"), "diagnosticsSection",
+        risks.length
+          ? localized(`${num(risks.length)} structured risks · worst ${worst || "unknown"}`, `${num(risks.length)} 项结构化风险 · 最高 ${worst || "未知"}`)
+          : localized("No structured risks recorded", "未记录结构化风险"),
+        !risks.length ? localized("Unavailable", "不可用") : worst === "critical" || worst === "high" ? localized("Needs attention", "需处理") : localized("Recorded", "已记录")];
+    })(),
   ];
   const html = `<nav class="observation-coverage-grid" aria-label="${esc(localized('Observation coverage and drilldowns', '观测范围与深入检查'))}">${surfaces.map(([label, target, detail, status]) => `<button type="button" class="observation-surface" data-summary-action="${target}" title="${esc(detail)}"><strong>${esc(label)}</strong><span class="observation-state">${esc(target === 'activitySection' ? status : projectState || status)}</span><small>${esc(detail)}</small></button>`).join('')}</nav>`;
   setHtml("observationCoverage", els.observationCoverage, html, () => bindSummaryActions(els.observationCoverage));
