@@ -612,9 +612,9 @@ function renderArchitecture() {
   renderChangeStory();
   renderEngineeringTimeline();
   renderRuntimeTopology();
-  const view = ["blueprint", "components", "graph", "codegraph"].includes(state.architectureView) ? state.architectureView : "blueprint";
+  const view = ["blueprint", "components", "graph", "codegraph", "consistency"].includes(state.architectureView) ? state.architectureView : "blueprint";
   state.architectureView = view;
-  const blueprint = view === "blueprint", components = view === "components", graph = view === "graph", codegraph = view === "codegraph";
+  const blueprint = view === "blueprint", components = view === "components", graph = view === "graph", codegraph = view === "codegraph", consistency = view === "consistency";
   if (!blueprint && state.systemMapFull) setSystemMapFull(false);
   if (!codegraph && state.codeGraphFull) setCodeGraphFull(false);
   document.querySelectorAll("[data-architecture-view]").forEach(button => {
@@ -622,7 +622,8 @@ function renderArchitecture() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  els.architectureLayout?.classList.toggle("hidden", codegraph);
+  els.architectureLayout?.classList.toggle("hidden", codegraph || consistency);
+  els.architectureDrilldown?.classList.toggle("hidden", consistency);
   els.codeGraphSection?.classList.toggle("hidden", !codegraph);
   document.querySelector(".system-map-controls")?.classList.toggle("hidden", !blueprint);
   els.architectureBlueprint.classList.toggle("hidden", !blueprint);
@@ -630,6 +631,7 @@ function renderArchitecture() {
   els.componentCards.classList.toggle("hidden", !components);
   els.architectureGraph.closest(".architecture-graph-shell")?.classList.toggle("hidden", !graph);
   if (codegraph) maybeLoadCodeGraph();
+  else if (consistency) renderConsistencyMatrix();
   else if (blueprint) renderArchitectureBlueprint();
   else if (graph) renderArchitectureGraph();
   else renderComponentCards();

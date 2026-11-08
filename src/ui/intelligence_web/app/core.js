@@ -115,6 +115,7 @@ const els = {
   codeStats: q("#codeStats"),
   revisions: q("#revisions"),
   constraintObservations: q("#constraintObservations"),
+  consistencySection: q("#consistencySection"),
   changes: q("#changes"),
   verificationImpact: q("#verificationImpact"),
   structureSummary: q("#structureSummary"),
@@ -195,6 +196,8 @@ const state = {
     ? initialView
     : workspaceTabs.includes(savedWorkspaceTab) ? savedWorkspaceTab : "overview",
   architectureView: "blueprint",
+  consistencyKind: "all",
+  consistencyState: "all",
   systemMapScale: 1,
   systemMapFit: true,
   systemMapFull: false,
