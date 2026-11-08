@@ -1,11 +1,21 @@
 'use strict';
-// A designed runtime bound is only actionable next to the observation that
-// applies to it. The panel keeps the designed bound, the observed value, the
-// unit, the precision and the revision binding together, and an empty list must
-// never read as "every bound holds".
+// A designed constraint is only actionable next to the observation that applies
+// to it. The Design State supplies every declared constraint; a runtime drift
+// finding supplies the bound, the observed value, the unit, the precision and
+// the revision binding. A declared constraint with no finding must appear as
+// unobserved rather than disappear, because absence of an observation is not
+// evidence that the bound holds.
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { sandbox, project } = require('./observatory.cjs');
+
+const constraint = {
+  schema_version: 1,
+  id: 'CONSTRAINT-PARALLEL-FIRST',
+  title: 'Parallel-first admission',
+  statement: 'Recent process admission stays within the designed queue-wait bound.',
+  applies_to: ['REQ-A'],
+};
 
 const finding = exceeded => ({
   id: 'DRIFT-1',
@@ -26,12 +36,19 @@ const finding = exceeded => ({
   },
 });
 
-test('a constraint observation shows the designed bound next to the observed value', () => {
+const fixtureWith = findings => ({
+  ...project(),
+  design: { constraints: { [constraint.id]: constraint } },
+  risk: { drift: { findings } },
+});
+
+test('a declared constraint shows its designed bound next to the observed value', () => {
   const s = sandbox();
-  s.context.fixture = { ...project(), risk: { drift: { findings: [finding(true)] } } };
+  s.context.fixture = fixtureWith([finding(true)]);
   s.run('state.project=fixture;renderConstraintObservations();');
   const html = s.node('#constraintObservations').innerHTML;
   assert.match(html, /CONSTRAINT-PARALLEL-FIRST/);
+  assert.match(html, /Parallel-first admission/);
   assert.match(html, /Exceeds bound/);
   assert.match(html, /process_queue_wait/);
   assert.match(html, /30,?000 ms/);
@@ -43,28 +60,39 @@ test('a constraint observation shows the designed bound next to the observed val
 
 test('an observation inside its bound is not reported as a violation', () => {
   const s = sandbox();
-  s.context.fixture = { ...project(), risk: { drift: { findings: [finding(false)] } } };
+  s.context.fixture = fixtureWith([finding(false)]);
   s.run('state.project=fixture;renderConstraintObservations();');
   const html = s.node('#constraintObservations').innerHTML;
   assert.match(html, /Within bound for this observation/);
   assert.doesNotMatch(html, /Exceeds bound/);
 });
 
-test('an empty observation list never reads as every bound holding', () => {
+test('a declared constraint with no observation is shown as unobserved, not omitted', () => {
   const s = sandbox();
-  s.context.fixture = { ...project(), risk: { drift: { findings: [] } } };
+  s.context.fixture = fixtureWith([]);
   s.run('state.project=fixture;renderConstraintObservations();');
-  assert.match(
-    s.node('#constraintObservations').innerHTML,
-    /not proof that every designed bound holds/,
-  );
+  const html = s.node('#constraintObservations').innerHTML;
+  assert.match(html, /CONSTRAINT-PARALLEL-FIRST/, 'the declared constraint must still appear');
+  assert.match(html, /No observation recorded/);
+  assert.match(html, /not recorded for this snapshot/);
+  assert.doesNotMatch(html, /Exceeds bound/);
 });
 
 test('a finding without a deviation records that no observation was kept', () => {
   const s = sandbox();
   const bare = finding(true);
   delete bare.deviation;
-  s.context.fixture = { ...project(), risk: { drift: { findings: [bare] } } };
+  s.context.fixture = fixtureWith([bare]);
   s.run('state.project=fixture;renderConstraintObservations();');
   assert.match(s.node('#constraintObservations').innerHTML, /not recorded/);
+});
+
+test('a Design that declares no constraints says so instead of implying success', () => {
+  const s = sandbox();
+  s.context.fixture = { ...project(), risk: { drift: { findings: [] } } };
+  s.run('state.project=fixture;renderConstraintObservations();');
+  assert.match(
+    s.node('#constraintObservations').innerHTML,
+    /declares no constraints/,
+  );
 });

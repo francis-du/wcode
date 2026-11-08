@@ -288,8 +288,8 @@ fn constraint_observations_keep_bounds_next_to_their_observation() {
         String::from_utf8_lossy(&output.stderr)
     );
     for summary in [
-        "# tests 4",
-        "# pass 4",
+        "# tests 5",
+        "# pass 5",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",

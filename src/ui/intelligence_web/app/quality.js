@@ -192,28 +192,49 @@ function renderRevisions() {
   }`;
   setHtml("revisions", els.revisions, html);
 }
-// A designed runtime bound is only useful next to the observation that applies
-// to it. The finding carries the constraint id, the designed bound, the observed
-// value, the unit, the precision and whether it is source-revision-bound; an
-// empty list means no observation was recorded, never that every bound holds.
+// A designed constraint is only useful next to the observation that applies to
+// it. The Design State supplies every declared constraint; a runtime drift
+// finding supplies the bound, the observed value, the unit, the precision and
+// whether it is source-revision-bound. A declared constraint with no finding is
+// shown as unobserved rather than left out, because absence of an observation is
+// not evidence that the bound holds.
 function renderConstraintObservations() {
   const findings = (state.project?.risk?.drift?.findings || [])
     .filter(item => item.kind === "runtime_drift");
-  const rows = findings.map(finding => {
-    const deviation = finding.deviation,
-      exceeded = Boolean(deviation) && Number(deviation.deviation_percent) > 0;
-    return `<div class="constraint-observation ${exceeded ? "exceeded" : "within"}"><div class="req-top"><span class="constraint-id">${esc(finding.subject || finding.id)}</span><span class="pill ${exceeded ? "bad" : "good"}">${esc(exceeded ? t("Exceeds bound") : t("Within bound for this observation"))}</span></div><div class="panel-meta card-copy">${esc(finding.message)}</div>${
+  const constraints = state.project?.design?.constraints || {};
+  const declared = Object.values(constraints);
+  const rows = declared.map(constraint => {
+    const finding = findings.find(item => item.subject === constraint.id);
+    const deviation = finding?.deviation;
+    const exceeded = Boolean(deviation) && Number(deviation.deviation_percent) > 0;
+    const stateLabel = !finding
+      ? t("No observation recorded")
+      : !deviation
+        ? t("Observation without a comparable value")
+        : exceeded
+          ? t("Exceeds bound")
+          : t("Within bound for this observation");
+    const tone = !finding || !deviation ? "warn" : exceeded ? "bad" : "good";
+    return `<div class="constraint-observation ${!finding ? "unobserved" : exceeded ? "exceeded" : "within"}"><div class="req-top"><span class="constraint-id">${esc(constraint.id)}</span><span class="pill ${tone}">${esc(stateLabel)}</span></div><div class="constraint-title">${esc(constraint.title || constraint.id)}</div><div class="panel-meta card-copy">${esc(constraint.statement)}</div>${
+      finding
+        ? `<div class="panel-meta card-copy">${esc(finding.message)}</div>${
+          deviation
+            ? ""
+            : `<div class="constraint-facts"><span><i>${esc(t("Comparable value"))}</i><b>${esc(t("not recorded"))}</b></span></div>`
+        }`
+        : `<div class="constraint-facts"><span><i>${esc(t("Observation"))}</i><b>${esc(t("not recorded for this snapshot"))}</b></span></div>`
+    }${
       deviation
         ? `<div class="constraint-facts"><span><i>${esc(t("Metric"))}</i><b>${esc(deviation.metric)}</b></span><span><i>${esc(t("Designed bound"))}</i><b>${num(deviation.expected_max)} ${esc(deviation.unit)}</b></span><span><i>${esc(t("Observed"))}</i><b>${num(deviation.observed)} ${esc(deviation.unit)}</b></span><span><i>${esc(t("Deviation"))}</i><b>${num(deviation.deviation_percent)}%</b></span><span><i>${esc(t("Precision"))}</i><b>${esc(deviation.precision)}</b></span><span><i>${esc(t("Revision binding"))}</i><b>${esc(deviation.revision_bound ? t("source-revision-bound") : t("advisory only, not source-revision-bound"))}</b></span></div>`
-        : `<div class="constraint-facts"><span><i>${esc(t("Observation"))}</i><b>${esc(t("not recorded"))}</b></span></div>`
+        : ""
     }${
-      finding.affected_requirements?.length
-        ? `<div class="constraint-requirements">${esc(t("Applies to"))}: ${finding.affected_requirements.map(esc).join(", ")}</div>`
+      (constraint.applies_to || finding?.affected_requirements || []).length
+        ? `<div class="constraint-requirements">${esc(t("Applies to"))}: ${(constraint.applies_to?.length ? constraint.applies_to : finding.affected_requirements).map(esc).join(", ")}</div>`
         : ""
     }</div>`;
   }).join("");
   const html = rows
-    || `<div class="empty">${esc(t("No runtime constraint observation was recorded for this snapshot. That is not proof that every designed bound holds."))}</div>`;
+    || `<div class="empty">${esc(t("This Design declares no constraints, so there is no bound to observe here."))}</div>`;
   setHtml("constraintObservations", els.constraintObservations, html);
 }
 function qualityMatches(language, capability) {

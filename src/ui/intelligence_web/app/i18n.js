@@ -135,6 +135,8 @@ const translations = {
       "设计的运行期上界与适用于它的观测并列。缺少观测不代表上界成立。",
     "Exceeds bound": "超出上界",
     "Within bound for this observation": "本次观测在上界内",
+    "Observation without a comparable value": "观测没有可比较的数值",
+    "Comparable value": "可比较数值",
     "Metric": "指标",
     "Designed bound": "设计上界",
     "Observed": "观测值",
