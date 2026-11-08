@@ -104,6 +104,8 @@ Client 注册继续持久保存，不设置时钟 TTL。Access Token 在一小�
 
 Host 校验与 Origin 校验分别执行。请求携带 Origin 时，它必须是单个有效 HTTP(S) 来源，并匹配已配置或通过当前实例健康验证的**有效**入口，包括仍有效的非主隧道别名。非浏览器客户端可以不发送 Origin；畸形、重复、带凭据以及仅存在于历史记录的来源仍会被拒绝。不会隐式信任任意客户端网站来源。请求仍须提供原有 Bearer 或受保护 WebUI 凭据，旧版 SSE Session 继续绑定 Owner 和入口。
 
+请求 Host 解析刻意弱于 Origin 校验，二者不能读成同一条规则。解析先匹配已配置或经当前实例健康验证的有效入口；不在该集合内但形式合法的 HTTPS authority 仍会被接受，以便运行时前面的自定义反向代理继续提供服务。该回退不会把该 authority 加入有效 Origin 白名单，不会把它变成 OAuth resource，也不会放宽上面的 Origin 校验：携带 Origin 的浏览器请求仍必须匹配有效入口。因此 `untrusted_host` 表示请求 authority 未匹配任何已登记入口，而不是拒绝所有非有效 Host。
+
 已验证隧道先进入可信入口登记表，再显示链接或发出设置就绪信号。拒绝响应通过 `untrusted_host` 或 `untrusted_origin` 区分原因，不回显凭据。遇到 `untrusted_host`，应重连当前登记的入口并确保反向代理保留该公网 Host；不可信的 `Forwarded` / `X-Forwarded-Host` 不能登记新入口。不要通过关闭 Origin 校验或信任全部 Host 修复连接。
 
 公网隧道只解决可达性，不提供授权。
