@@ -643,7 +643,11 @@ const commandActions = () => [
 // Observatory already holds in the loaded snapshot, so the same search entry can
 // reach them instead of only switching views. Each row carries its kind so the
 // list shows what the object is before its name.
+// Attention signals resolve through the same summary action path as the list, so
+// the palette keeps the named destination here instead of a second copy.
+let paletteSignalActions = {};
 const commandObjectActions = (query) => {
+  paletteSignalActions = {};
   const project = state.project;
   // Objects only join a search: an empty palette stays the short command list,
   // and a query bounds how many object rows are built and rendered.
@@ -663,6 +667,13 @@ const commandObjectActions = (query) => {
     const path = file?.path;
     if (typeof path !== "string" || !path) continue;
     rows.push([`object:file:${path}`, file.name || path, path, "document", localized("File", "文件")]);
+  }
+  for (const signal of attentionSignals()) {
+    const id = signal?.id;
+    if (typeof id !== "string" || !id) continue;
+    const key = `object:signal:${id}`;
+    paletteSignalActions[key] = { action: signal.target, path: signal.path, requirement: signal.requirement };
+    rows.push([key, signal.title, signal.detail, "shield", localized("Signal", "信号")]);
   }
   return rows;
 };
@@ -718,6 +729,11 @@ function executeCommand(command) {
   }
   if (command.startsWith("object:file:")) {
     void openRepositoryFile(command.slice("object:file:".length));
+    return;
+  }
+  if (command.startsWith("object:signal:")) {
+    const signal = paletteSignalActions[command];
+    if (signal) void runSummaryAction(signal);
     return;
   }
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });

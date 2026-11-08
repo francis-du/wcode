@@ -58,6 +58,26 @@ test('the palette reaches a loaded file and inspects its source', () => {
   assert.deepEqual(s.context.__openedFiles, ['src/a.rs'], 'the palette must inspect the named file');
 });
 
+test('the palette reaches an attention signal and runs its named destination', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path, layer, fresh)=>__openedChanges.push({ path, layer, fresh });');
+  s.context.fixture = { ...fixture(),
+    attention: { revision: { code: 'code-1', design: 'design-1' }, total: 1, items: [
+      { id: 'risk:1', kind: 'risk', severity: 'high', subject: 'src/a.rs',
+        message: 'Changed file needs inspection', provider: 'risk-analysis', precision: 'heuristic',
+        section: 'changes', path: 'src/a.rs' }] } };
+  s.run('state.project=fixture;wireCommandPalette();');
+  const search = s.node('#commandPaletteSearch');
+  const commands = feedPaletteOptions(s);
+  search.value = 'inspection'; s.run('renderCommandPalette();');
+  assert.ok(commands().includes('object:signal:risk:1'), 'a signal must be reachable by its message');
+  assert.ok(s.node('#commandPaletteList').innerHTML.includes('Signal'), 'the signal kind must be shown');
+  search.events.keydown({ key: 'Enter', isComposing: false, preventDefault() {} });
+  assert.equal(s.context.__openedChanges.length, 1, 'the signal must run its named destination');
+  assert.equal(s.context.__openedChanges[0].path, 'src/a.rs');
+});
+
 test('the palette reaches a loaded component and opens it in the components view', () => {
   const s = sandbox();
   s.context.fixture = fixture();

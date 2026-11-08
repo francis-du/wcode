@@ -48,49 +48,56 @@ function effectiveProof() {
     current_failed: effective.failed, current_passed: effective.passed,
     current_inconclusive: effective.inconclusive, current_disagreed: effective.disagreed } : proof;
 }
-function bindSummaryActions(node) {
-  node.querySelectorAll("[data-summary-action]").forEach(button => button.addEventListener("click", async () => {
-    const target = button.dataset.summaryAction;
-    if (target === "access") { setAccessPanel(true); await loadAccess(); }
-    else if (target === "refresh") { els.refresh?.click(); }
-    else if (target === "acceptancePolicyBinding") {
+// One resolution path for a named engineering signal: the attention list and the
+// command palette both describe the same object, so neither may grow its own
+// variant of what a signal's destination means.
+function runSummaryAction({ action, path = "", requirement = "" }) {
+  return (async () => {
+    if (action === "access") { setAccessPanel(true); await loadAccess(); return; }
+    if (action === "refresh") { els.refresh?.click(); return; }
+    if (action === "acceptancePolicyBinding") {
       revealSection("overviewSection");
       const binding = document.getElementById("acceptancePolicyBinding");
       if (binding) { binding.open = true; binding.scrollIntoView({ block: "nearest" }); binding.focus({ preventScroll: true }); }
+      return;
     }
-    else if (target) {
-      if (button.dataset.summaryPath && target === "filesSection") await openRepositoryFile(button.dataset.summaryPath);
-      else if (button.dataset.summaryPath && target === "changesSection") {
-        revealSection(target);
-        void openChangeInspection(button.dataset.summaryPath, "working", true);
-        requestAnimationFrame(() => focusSelectedChangePath(button.dataset.summaryPath));
-      }
-      else {
-        const requirementId = button.dataset.summaryRequirement;
-        const requirement = requirementId
-          && (state.project?.requirements || []).find(item => item.id === requirementId);
-        // A drift signal names the requirement it affects, but the architecture
-        // view cannot show a requirement selection. Resolve the owning component
-        // through the explicit requirement→component mapping and focus that
-        // instead of dropping the investigation on an unfocused section.
-        const componentId = requirement && target === "architectureSection"
-          && (requirement.components || []).find(id => (architectureData().components || []).some(component => component.id === id));
-        if (componentId) {
-          state.selectedComponent = componentId;
-          state.architectureView = "components";
-          renderArchitecture();
-          revealSection(target);
-          requestAnimationFrame(() => focusSelectedComponentCard({ focus: true }));
-          return;
-        }
-        if (requirement) {
-          state.selected = requirementId;
-          invalidate("requirements", "detail");
-        }
-        revealSection(target);
-      }
+    if (!action) return;
+    if (path && action === "filesSection") { await openRepositoryFile(path); return; }
+    if (path && action === "changesSection") {
+      revealSection(action);
+      void openChangeInspection(path, "working", true);
+      requestAnimationFrame(() => focusSelectedChangePath(path));
+      return;
     }
-  }));
+    const resolved = requirement
+      && (state.project?.requirements || []).find(item => item.id === requirement);
+    // A drift signal names the requirement it affects, but the architecture
+    // view cannot show a requirement selection. Resolve the owning component
+    // through the explicit requirement→component mapping and focus that
+    // instead of dropping the investigation on an unfocused section.
+    const componentId = resolved && action === "architectureSection"
+      && (resolved.components || []).find(id => (architectureData().components || []).some(component => component.id === id));
+    if (componentId) {
+      state.selectedComponent = componentId;
+      state.architectureView = "components";
+      renderArchitecture();
+      revealSection(action);
+      requestAnimationFrame(() => focusSelectedComponentCard({ focus: true }));
+      return;
+    }
+    if (resolved) {
+      state.selected = requirement;
+      invalidate("requirements", "detail");
+    }
+    revealSection(action);
+  })();
+}
+function bindSummaryActions(node) {
+  node.querySelectorAll("[data-summary-action]").forEach(button => button.addEventListener("click", () => runSummaryAction({
+    action: button.dataset.summaryAction,
+    path: button.dataset.summaryPath,
+    requirement: button.dataset.summaryRequirement,
+  })));
 }
 function renderObservationCoverage() {
   if (!state.project || !els.observationCoverage) return;
