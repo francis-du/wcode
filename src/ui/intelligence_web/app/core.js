@@ -114,6 +114,7 @@ const els = {
   qualitySummary: q("#qualitySummary"),
   codeStats: q("#codeStats"),
   revisions: q("#revisions"),
+  constraintObservations: q("#constraintObservations"),
   changes: q("#changes"),
   verificationImpact: q("#verificationImpact"),
   structureSummary: q("#structureSummary"),

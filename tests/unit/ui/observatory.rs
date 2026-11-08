@@ -267,6 +267,42 @@ fn observatory_layout_regressions_cover_long_content_and_nested_grids() {
 }
 
 #[test]
+fn constraint_observations_keep_bounds_next_to_their_observation() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("node")
+        .args([
+            "--test",
+            "--test-isolation=none",
+            "--test-reporter=tap",
+            "--test-timeout=20000",
+        ])
+        .arg(root.join("tests/unit/ui/constraint_observations.cjs"))
+        .env_remove("NODE_TEST_CONTEXT")
+        .output()
+        .expect("Node must run the constraint observation contract");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for summary in [
+        "# tests 4",
+        "# pass 4",
+        "# fail 0",
+        "# cancelled 0",
+        "# skipped 0",
+        "# todo 0",
+    ] {
+        assert!(
+            stdout.lines().any(|line| line.trim() == summary),
+            "Missing complete test summary {summary}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn command_palette_reaches_loaded_requirements_and_components() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = std::process::Command::new("node")

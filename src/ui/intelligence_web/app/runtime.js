@@ -40,7 +40,7 @@ function renderTabPanels(tab) {
       break;
     case "overview":
       renderFitnessObservatory();
-      renderCodeStats(); renderRevisions(); renderLanguageQuality();
+      renderCodeStats(); renderRevisions(); renderConstraintObservations(); renderLanguageQuality();
       renderExecutionStatus(); renderAdaptiveVerification(); renderVerifiedLearning();
       break;
     case "activity":
@@ -75,7 +75,7 @@ function renderProject(force = false) {
     // Code graph is mounted lazily via maybeLoadCodeGraph when the operator
     // is on the codegraph architecture surface — not on every force refresh.
     renderFitnessObservatory();
-    renderCodeStats(); renderRevisions(); renderLanguageQuality();
+    renderCodeStats(); renderRevisions(); renderConstraintObservations(); renderLanguageQuality();
     renderExecutionStatus(); renderActivity(); renderProofSummary(); renderRuntimeJobs();
     renderAdaptiveVerification(); renderVerifiedLearning();
     if (typeof renderCodeReader === "function") renderCodeReader();

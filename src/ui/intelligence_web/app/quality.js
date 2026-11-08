@@ -192,6 +192,30 @@ function renderRevisions() {
   }`;
   setHtml("revisions", els.revisions, html);
 }
+// A designed runtime bound is only useful next to the observation that applies
+// to it. The finding carries the constraint id, the designed bound, the observed
+// value, the unit, the precision and whether it is source-revision-bound; an
+// empty list means no observation was recorded, never that every bound holds.
+function renderConstraintObservations() {
+  const findings = (state.project?.risk?.drift?.findings || [])
+    .filter(item => item.kind === "runtime_drift");
+  const rows = findings.map(finding => {
+    const deviation = finding.deviation,
+      exceeded = Boolean(deviation) && Number(deviation.deviation_percent) > 0;
+    return `<div class="constraint-observation ${exceeded ? "exceeded" : "within"}"><div class="req-top"><span class="constraint-id">${esc(finding.subject || finding.id)}</span><span class="pill ${exceeded ? "bad" : "good"}">${esc(exceeded ? t("Exceeds bound") : t("Within bound for this observation"))}</span></div><div class="panel-meta card-copy">${esc(finding.message)}</div>${
+      deviation
+        ? `<div class="constraint-facts"><span><i>${esc(t("Metric"))}</i><b>${esc(deviation.metric)}</b></span><span><i>${esc(t("Designed bound"))}</i><b>${num(deviation.expected_max)} ${esc(deviation.unit)}</b></span><span><i>${esc(t("Observed"))}</i><b>${num(deviation.observed)} ${esc(deviation.unit)}</b></span><span><i>${esc(t("Deviation"))}</i><b>${num(deviation.deviation_percent)}%</b></span><span><i>${esc(t("Precision"))}</i><b>${esc(deviation.precision)}</b></span><span><i>${esc(t("Revision binding"))}</i><b>${esc(deviation.revision_bound ? t("source-revision-bound") : t("advisory only, not source-revision-bound"))}</b></span></div>`
+        : `<div class="constraint-facts"><span><i>${esc(t("Observation"))}</i><b>${esc(t("not recorded"))}</b></span></div>`
+    }${
+      finding.affected_requirements?.length
+        ? `<div class="constraint-requirements">${esc(t("Applies to"))}: ${finding.affected_requirements.map(esc).join(", ")}</div>`
+        : ""
+    }</div>`;
+  }).join("");
+  const html = rows
+    || `<div class="empty">${esc(t("No runtime constraint observation was recorded for this snapshot. That is not proof that every designed bound holds."))}</div>`;
+  setHtml("constraintObservations", els.constraintObservations, html);
+}
 function qualityMatches(language, capability) {
   return (language.providers || []).filter((provider) =>
     provider.capability === capability || (provider.covers || []).includes(capability)
