@@ -48,7 +48,7 @@ fn convergence_cards_navigate_to_the_object_they_name() {
 
 #[test]
 fn attention_signals_navigate_to_the_object_they_name() {
-    run_observatory_contract("tests/unit/ui/attention_navigation.cjs", 4);
+    run_observatory_contract("tests/unit/ui/attention_navigation.cjs", 6);
 }
 
 #[test]

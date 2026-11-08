@@ -154,7 +154,7 @@ function legacyAttentionSignals() {
   const p = state.project, items = [];
   if (!p) return items;
   const proof = effectiveProof(), conv = p.convergence || {}, pending = pendingCount();
-  const add = (id, tone, title, detail, target) => items.push({ id, tone, title, detail, target });
+  const add = (id, tone, title, detail, target, path = "", requirement = "") => items.push({ id, tone, title, detail, target, path, requirement });
   if (state.syncError) add("snapshot_stale", "bad", localized("Snapshot is stale", "快照已过期"), localized("The last refresh failed. Do not judge current state from these numbers.", "最近刷新失败，请勿把下方旧数据当作当前状态。"), "refresh");
   if (p.design_valid === false) add("design_invalid", "bad", localized("Design needs attention", "设计状态需要处理"), localized("Missing or invalid design; inspect requirements and diagnostics.", "设计未初始化或校验失败，请查看需求与诊断。"), "requirementsSection");
   const oversized = Number(p.structure?.oversized_files || 0), lineLimit = Number(p.structure?.line_limit || 1000);
@@ -169,7 +169,17 @@ function legacyAttentionSignals() {
   else if (proof.current_disagreed || proof.current_inconclusive) add("unresolved_evidence", "warn", localized("Evidence has unresolved conclusions", "证据仍有未定结论"), localized("Resolve disagreement or incomplete checks before claiming completion.", "先处理分歧与不完整检查，再判断是否完成。"), "proofSection");
   if (p.git_review?.available !== true) add("working_tree_unknown", "info", localized("Working-tree status is unknown", "工作树状态未知"), gitReviewReason(p.git_review?.reason), "changesSection");
   const risks = (p.risk?.risks || []).filter(item => ["critical", "high"].includes(item.level));
-  if (risks.length) add("high_priority_risks", risks.some(item => item.level === "critical") ? "bad" : "warn", localized(`${risks.length} high-priority risk signals`, `${risks.length} 项高优先级风险信号`), risks[0].summary || localized("Inspect the recorded risk reasons.", "查看已记录的风险原因。"), "diagnosticsSection");
+  // Mirror the primary projection: a review finding that names a file carries
+  // that path so the workbench opens the change instead of an unfocused section.
+  for (const finding of risks) {
+    const path = (finding.signals || []).find(signal => signal.startsWith("path:"));
+    add(`high_priority_risk:${finding.id || finding.subject || finding.summary || "unknown"}`,
+      finding.level === "critical" ? "bad" : "warn",
+      finding.subject || finding.summary,
+      finding.summary,
+      path ? "changesSection" : "diagnosticsSection",
+      path ? path.slice(5) : "");
+  }
   const needs = Number(conv.needs_convergence_requirements || 0) + Number(conv.incomplete_requirements || 0);
   if (needs) add("requirements_need_work", "warn", localized(`${needs} requirements need work`, `${needs} 项需求需要处理`), localized("Inspect incomplete implementation and dependency evidence.", "查看不完整实现和依赖证据。"), "requirementsSection");
   if (p.code?.graph_truncated || proof.evidence_scan_truncated) add("partial_snapshot", "info", localized("Partial snapshot", "快照不完整"), localized("A bounded scan omitted data; an absent item is not proof of absence.", "有界扫描省略了部分数据；未展示不代表不存在。"), "diagnosticsSection");

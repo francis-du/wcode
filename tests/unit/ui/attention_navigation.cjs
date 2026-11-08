@@ -124,3 +124,39 @@ test('a change signal without a path keeps the plain section reveal', () => {
   assert.deepEqual(s.context.__openedChanges, [],
     'a path-less signal must not open an invented change');
 });
+
+test('the legacy projection carries a risk finding path like the primary one', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path, layer, fresh)=>__openedChanges.push({ path, layer, fresh });');
+  const view = attentionHost(s);
+  // No attention report: this is the fallback projection used by a stale or
+  // partial cached snapshot, so it must not drop the path the report would carry.
+  s.context.fixture = { ...fixture(), attention: undefined,
+    proof: { revision_code: 'code-1', revision_design: 'design-1', current_evidence: 1, current_failed: 1 },
+    risk: { risks: [{ id: 'risk:legacy', level: 'critical', subject: 'src/a.rs',
+      summary: 'Changed file needs inspection', signals: ['path:src/a.rs'] }] } };
+  s.run('state.project=fixture;renderAttention();');
+  const signal = view.buttons.find(button => button.dataset.summaryAction === 'changesSection'
+    && button.dataset.summaryPath === 'src/a.rs');
+  assert.ok(signal, 'the legacy risk signal must carry its path');
+  assert.equal(typeof signal.events.click, 'function', 'the signal must be bound');
+  signal.events.click();
+  assert.equal(s.context.__openedChanges.length, 1, 'the legacy signal must open that change');
+  assert.equal(s.context.__openedChanges[0].path, 'src/a.rs');
+});
+
+test('the legacy projection never invents a path for a path-less risk', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path, layer, fresh)=>__openedChanges.push({ path, layer, fresh });');
+  const view = attentionHost(s);
+  s.context.fixture = { ...fixture(), attention: undefined,
+    proof: { revision_code: 'code-1', revision_design: 'design-1', current_evidence: 1, current_failed: 1 },
+    risk: { risks: [{ id: 'risk:legacy', level: 'critical', subject: 'workspace:A',
+      summary: 'No single file named', signals: [] }] } };
+  s.run('state.project=fixture;renderAttention();');
+  const signal = view.buttons.find(button => button.dataset.summaryAction === 'diagnosticsSection');
+  assert.ok(signal, 'the path-less risk must stay on the diagnostics section');
+  assert.equal(signal.dataset.summaryPath, undefined, 'no path may be invented');
+});
