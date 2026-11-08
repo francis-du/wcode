@@ -6,6 +6,11 @@ pub(super) async fn change_intelligence_tool(
     args: &Value,
 ) -> Result<Value, String> {
     let (workspace_id, workspace) = selected_workspace(state, args)?;
+    // Validate the bounded-detail argument before spending a repository scan:
+    // a bad argument must fail closed regardless of whether the review could run.
+    if name == "risk_status" {
+        super::leaf_intelligence::detail_arg(args)?;
+    }
     let timeout_seconds = bounded_usize_arg_range(args, "timeout_seconds", 30, 1, 120)? as u64;
     let review = match state
         .harness

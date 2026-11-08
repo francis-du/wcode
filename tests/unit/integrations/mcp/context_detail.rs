@@ -100,3 +100,68 @@ async fn project_context_defaults_to_summary_and_restores_full_projection() {
     let rejected = project_context(&state, json!({"detail": "everything"})).await;
     assert!(rejected.is_err(), "unknown detail must fail closed");
 }
+
+/// Every tool that gained a bounded default must actually default to it. The
+/// v0.9.7 release notes promise this for all six; a shared contract keeps one
+/// tool's default from silently drifting back to the full projection.
+fn projection(mut value: Value) -> Value {
+    // cache_hit records how this call reached the snapshot, not what it returned.
+    if let Some(object) = value.as_object_mut() {
+        object.remove("cache_hit");
+    }
+    value
+}
+
+#[tokio::test]
+async fn bounded_detail_defaults_to_summary_for_every_declared_tool() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(root.path().join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+    std::fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let state = batch_test_state(root.path());
+
+    for (name, arguments) in [
+        ("project_context", json!({})),
+        ("traceability_status", json!({})),
+        ("software_context", json!({"query": "fixture"})),
+        ("worklist_status", json!({})),
+        ("evidence_status", json!({})),
+        ("risk_status", json!({})),
+    ] {
+        let default = call_tool(&state, json!({"name": name, "arguments": arguments}))
+            .await
+            .unwrap();
+        let mut summary_args = arguments.clone();
+        summary_args["detail"] = json!("summary");
+        let summary = call_tool(&state, json!({"name": name, "arguments": summary_args}))
+            .await
+            .unwrap();
+        assert_eq!(
+            projection(default["structuredContent"].clone()),
+            projection(summary["structuredContent"].clone()),
+            "{name} must omit detail only when it means summary"
+        );
+        assert_eq!(default["isError"], summary["isError"], "{name}");
+
+        let mut full_args = arguments;
+        full_args["detail"] = json!("full");
+        let full = call_tool(&state, json!({"name": name, "arguments": full_args}))
+            .await
+            .unwrap();
+        assert_eq!(
+            full["isError"], summary["isError"],
+            "{name}: detail=full must not change whether the call succeeds"
+        );
+
+        let rejected = {
+            let mut args = full_args;
+            args["detail"] = json!("everything");
+            call_tool(&state, json!({"name": name, "arguments": args})).await
+        };
+        assert!(rejected.is_err(), "{name}: unknown detail must fail closed");
+    }
+}
