@@ -28,6 +28,8 @@ WCode treats evidence as an observation bound to its subject, producer, authorit
 
 The model-free diagnostic covers 60 developer-authored synthetic scenarios in four languages, three response budgets, two harness-cache phases, and seven repetitions, yielding 2,520 measured calls. Twenty-two selected contract counterexamples were replayed individually on the same retained executable; all 22 tests and eleven operational controls passed.
 
+The preprint is a frozen experiment bound to the source commit and executable recorded in its artifact guide. It does not describe the current product: capability pages such as the [MCP reference](../reference/) and the [Observatory review](../ide-independent-observatory/) cover later behavior, and no claim on this page should be read as attributing those later capabilities to the measured revision.
+
 The results distinguish source delivery, edit-input readiness, and the visibility of structured decision records. The required source is small, and repetitions reuse the same fixtures. The findings support the tested runtime contracts. Independent real-repository issue resolution, matched agent comparisons, and operator studies remain future evaluation.
 
 ## Source and citation
