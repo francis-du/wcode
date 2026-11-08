@@ -174,6 +174,7 @@ const translations = {
     "no observation recorded": "没有记录到观测",
     "observation without a comparable value": "观测没有可比较的数值",
     "No design object matches this filter.": "没有设计对象匹配该筛选。",
+    "no acceptance criterion references this check": "没有验收准则引用此检查",
     "not mapped": "未映射",
     "mapped but not executed": "已映射但未执行",
     "executed and failed": "已执行且失败",

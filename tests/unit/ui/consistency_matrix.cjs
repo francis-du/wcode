@@ -38,6 +38,8 @@ test('the matrix shows design, observed state and delta for each kind', () => {
 test('acceptance rows keep mapped, executed, outcome and freshness independent', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(),
+    design: { acceptance: { 'AC-1': { id: 'AC-1', title: 'Tests stay green',
+        statement: 'The suite passes', verification: [{ kind: 'check', id: 'CHK-1' }] } } },
     proof: { acceptance: { checks: [
       { id: 'CHK-1', required: true, required_level: 'quick', level: 'quick',
         mapped: true, execution: 'executed', outcome: 'pass', freshness: 'current', evidence_ids: [] },
@@ -47,6 +49,9 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
   const html = s.node('#consistencySection').innerHTML;
   assert.match(html, /CHK-1/);
   assert.match(html, /CHK-2/);
+  assert.match(html, /Tests stay green/, 'the referencing criterion must be named');
+  assert.match(html, /no acceptance criterion references this check/,
+    'an unreferenced check must not borrow a criterion');
   assert.match(html, /passed and current/);
   assert.match(html, /mapped but not executed/);
   assert.doesNotMatch(html, /REQ-A/);

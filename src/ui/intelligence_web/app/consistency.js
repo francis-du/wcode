@@ -46,7 +46,9 @@ const consistencyRows = () => {
     });
   }
   // Acceptance and behaviour contracts come from the required-verification rows,
-  // which already separate mapped, executed, outcome and freshness.
+  // which already separate mapped, executed, outcome and freshness. A check id is
+  // not a criterion id, so the design text comes from the criteria that declare
+  // this check through an explicit verification reference.
   for (const check of (project.proof?.acceptance?.checks || [])) {
     const mapped = Boolean(check.mapped), executed = check.execution === "executed";
     const failed = check.outcome === "fail", fresh = check.freshness === "current";
@@ -55,14 +57,20 @@ const consistencyRows = () => {
         : failed ? t("executed and failed")
           : !fresh ? t("passed but stale")
             : t("passed and current");
+    const criteria = Object.values(design.acceptance || {}).filter(criterion =>
+      (criterion.verification || []).some(reference => reference.kind === "check" && reference.id === check.id));
     rows.push({
       id: check.id,
       kind: "acceptance",
-      design: [t("Required"), check.required_level || "—", check.level ? `${t("Reported")} ${check.level}` : ""].filter(Boolean).join(" · "),
+      design: criteria.length
+        ? criteria.map(criterion => criterion.title || criterion.id).join(" / ")
+        : t("no acceptance criterion references this check"),
       actual: [mapped ? t("mapped") : t("not mapped"),
+        `${t("Required")}: ${check.required_level || "—"}`,
+        check.level ? `${t("Reported")}: ${check.level}` : "",
         `${t("Execution")}: ${check.execution || "—"}`,
         `${t("Outcome")}: ${check.outcome || "—"}`,
-        `${t("Freshness")}: ${check.freshness || "—"}`].join(" · "),
+        `${t("Freshness")}: ${check.freshness || "—"}`].filter(Boolean).join(" · "),
       state: !mapped || !executed || failed ? "needs_attention" : !fresh ? "needs_attention" : "stable",
       delta,
       navigate: "proofSection",
