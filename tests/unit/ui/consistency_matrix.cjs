@@ -35,6 +35,23 @@ test('the matrix shows design, observed state and delta for each kind', () => {
   assert.match(html, /Stable|Unobserved/);
 });
 
+test('acceptance rows keep mapped, executed, outcome and freshness independent', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    proof: { acceptance: { checks: [
+      { id: 'CHK-1', required: true, required_level: 'quick', level: 'quick',
+        mapped: true, execution: 'executed', outcome: 'pass', freshness: 'current', evidence_ids: [] },
+      { id: 'CHK-2', required: true, required_level: 'full', level: 'full',
+        mapped: true, execution: 'unavailable', outcome: 'unknown', freshness: 'stale', evidence_ids: [] }] } } };
+  s.run('state.project=fixture;state.consistencyKind="acceptance";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /CHK-1/);
+  assert.match(html, /CHK-2/);
+  assert.match(html, /passed and current/);
+  assert.match(html, /mapped but not executed/);
+  assert.doesNotMatch(html, /REQ-A/);
+});
+
 test('the matrix filters by kind and an empty match says so', () => {
   const s = sandbox();
   s.context.fixture = fixture();
