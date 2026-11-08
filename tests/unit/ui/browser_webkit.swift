@@ -85,7 +85,7 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         }
         check(inspector?.querySelectorAll('[data-change-layer]').length===3,'comparison layers missing',inspector);
       }
-      check(document.querySelectorAll('.observation-surface').length===5,'observation drilldowns missing',document.getElementById('observationCoverage'));
+      check(document.querySelectorAll('.observation-surface').length===8,'observation drilldowns missing',document.getElementById('observationCoverage'));
       if(state.workspaceTab==='files'){
         for(const area of ['fileTree','largeFiles']){
           const buttons=[...document.getElementById(area).querySelectorAll('[data-source-path]')];
