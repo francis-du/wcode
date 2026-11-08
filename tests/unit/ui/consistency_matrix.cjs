@@ -82,6 +82,19 @@ test('a drift that no plan claims says so instead of implying convergence', () =
   assert.match(s.node('#consistencySection').innerHTML, /no convergence plan references this drift/);
 });
 
+test('component rows carry truncation and empty-sample boundaries', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    architecture: { components: [{ id: 'component:one', name: 'One', responsibilities: ['a'],
+      implementation_files: 2, depends_on: [], changed: true }],
+      dependencies: [], desired_edges: 0, observed_edges: 0, blocking_drift_edges: 0,
+      dependency_candidates: [], dependency_candidates_total: 5, dependency_candidates_truncated: true } };
+  s.run('state.project=fixture;state.consistencyKind="component";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /bounded sample/, 'a truncated candidate sample must be stated');
+  assert.match(html, /No observed dependency edges/, 'an empty sample must not read as having no dependencies');
+});
+
 test('the matrix filters by kind and an empty match says so', () => {
   const s = sandbox();
   s.context.fixture = fixture();

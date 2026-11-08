@@ -58,12 +58,23 @@ const consistencyRows = () => {
     const edges = (architectureData().dependencies || [])
       .filter(edge => edge.from === component.id || edge.to === component.id);
     const count = status => edges.filter(edge => edge.status === status).length;
+    const architecture = architectureData();
+    const candidateTotal = Number(architecture.dependency_candidates_total ?? (architecture.dependency_candidates || []).length);
+    const ownersIncomplete = architectureOwnerSamplesIncomplete();
+    // Truncation and a zero denominator have to travel with the counts: an empty
+    // sample is not evidence that the component has no dependencies.
+    const evidenceLimited = edges.some(edge => edge.evidence_truncated)
+      || architecture.dependency_candidates_truncated
+      || candidateTotal > (architecture.dependency_candidates || []).length;
     const alignment = [
       count("aligned") ? `${num(count("aligned"))} ${t("aligned")}` : "",
       count("unverified_actual") ? `${num(count("unverified_actual"))} ${t("declared, not observed")}` : "",
       count("undeclared_actual") ? `${num(count("undeclared_actual"))} ${t("observed, not declared")}` : "",
       count("observed_actual") ? `${num(count("observed_actual"))} ${t("observed candidate")}` : "",
       count("unknown") ? `${num(count("unknown"))} ${t("unknown")}` : "",
+      !edges.length ? localized("No observed dependency edges for this component.", "该组件没有被观测到的依赖边。") : "",
+      evidenceLimited ? localized("Dependency evidence is a bounded sample; absence is not proof.", "依赖证据为有界样本；未出现不代表不存在。") : "",
+      ownersIncomplete ? localized("Owner samples are incomplete; more affected components may be omitted.", "归属样本不完整；可能还有未显示的受影响组件。") : "",
     ].filter(Boolean).join(" · ");
     const hasBlocking = edges.some(edge => edge.blocking);
     const hasCandidate = edges.some(edge => ["unverified_actual", "observed_actual", "unknown"].includes(edge.status));
