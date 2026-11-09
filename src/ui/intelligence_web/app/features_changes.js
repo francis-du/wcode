@@ -230,7 +230,7 @@ function renderChanges() {
         "“wcode” marks a file this runtime changed through its own edit tools, as recorded in the engineering journal.",
         "“wcode” 标记本运行时通过自身编辑工具改动的文件，来源为工程日志。"
       ))}${
-        state.project.engineering_journal?.truncated
+        state.project?.engineering_journal?.truncated
           ? ` ${esc(localized(
               "The journal window is truncated, so earlier edits are not listed.",
               "日志窗口已截断，更早的改动不在列表内。"
@@ -247,7 +247,7 @@ function renderChanges() {
   const html = items.length
     ? changeTable(items, false, touched)
     : `<div class="section empty">${
-        esc(state.project.git_review?.available === true ? localized("Working tree is clean.", "工作树没有未提交变更。") : localized("Git review is unavailable. This is not proof of a clean working tree.", "Git 检查不可用，不能据此判断工作树没有变更。"))
+        esc(state.project?.git_review?.available === true ? localized("Working tree is clean.", "工作树没有未提交变更。") : localized("Git review is unavailable. This is not proof of a clean working tree.", "Git 检查不可用，不能据此判断工作树没有变更。"))
       }</div>`;
   setHtml(
     "changes",
