@@ -16,11 +16,7 @@ permalink: /docs/
 
 - [v0.9.5 — Allocation-free graph search and diff ordering](releases/v0.9.5/)
 
-- [v0.9.4 — Graph query efficiency and honest experience decay](releases/v0.9.4/)
-
-- [v0.9.3 — Change observability and explicit trust boundaries](releases/v0.9.3/)
-
-- [v0.9.2 — Standalone engineering and resilient Jobs observation](releases/v0.9.2/)
+- [All releases](releases/)
 
 **wcode helps coding assistants read repositories, change code and run checks.** It supplies relevant source, code relationships and task history through MCP. File changes require the expected file hash, and check results identify the code revision they tested.
 
