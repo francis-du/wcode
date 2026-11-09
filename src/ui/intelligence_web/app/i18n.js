@@ -131,6 +131,10 @@ const translations = {
     "Architecture revisions": "架构版本",
     "meaningful graph snapshots": "有意义的 Composite Graph 快照与结构化风险。",
     "Constraint observations": "约束观测",
+    "No observation recorded": "没有记录到观测",
+    "not recorded for this snapshot": "此快照没有记录",
+    "This Design declares no constraints, so there is no bound to observe here.":
+      "此设计没有声明约束，因此这里没有可观测的上界。",
     "constraint observation meta":
       "设计的运行期上界与适用于它的观测并列。缺少观测不代表上界成立。",
     "Exceeds bound": "超出上界",
