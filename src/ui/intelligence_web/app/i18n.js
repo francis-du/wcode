@@ -188,6 +188,7 @@ const translations = {
     "Expand panel": "展开面板",
     "No known blockers in this snapshot": "此快照中没有已知阻塞",
     "No retained jobs in this snapshot": "此快照中没有保留的任务",
+    "Reading retained jobs for this workspace…": "正在读取该工作区的保留任务…",
     "Select a job to read its retained output.": "选择一个任务以读取其保留输出。",
     "Open task activity": "打开任务活动",
     "Open retained output": "打开保留输出",

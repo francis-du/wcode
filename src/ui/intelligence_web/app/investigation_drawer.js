@@ -13,7 +13,13 @@ function drawerProblemsHtml() {
 
 function drawerJobsHtml() {
   const jobs = (state.runtimeJobs || []).slice(0, 10);
-  if (!jobs.length) return `<p class="drawer-empty">${esc(t("No retained jobs in this snapshot"))}</p>`;
+  if (!jobs.length) {
+    // A scope change clears the list before the next read lands, so an unread
+    // list must not claim the workspace has no jobs.
+    return `<p class="drawer-empty">${esc(state.runtimeJobsLoaded
+      ? t("No retained jobs in this snapshot")
+      : t("Reading retained jobs for this workspace…"))}</p>`;
+  }
   return jobs.map(job => `<button type="button" class="drawer-row${job.task_id === state.drawerJob ? " active" : ""}" data-drawer-action="select-job" data-drawer-job="${esc(job.task_id)}"><span class="drawer-row-mark job-${esc(job.status || "unknown")}"></span><span class="drawer-row-text"><strong>${esc(job.task_id)}</strong><small>${esc(localized(`status ${job.status || "unknown"} · origin ${job.origin || "unknown"}`, `状态 ${job.status || "未知"} · 来源 ${job.origin || "未知"}`))}</small></span></button>`).join("");
 }
 

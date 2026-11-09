@@ -39,6 +39,15 @@ test('the drawer lists retained jobs and keeps a selection for logs', () => {
   assert.match(s.node('#drawerBody').innerHTML, /TASK-1/);
 });
 
+test('the drawer does not read an unread job list as empty', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.runtimeJobs=[];state.runtimeJobsLoaded=false;state.drawerSection="jobs";renderInvestigationDrawer();');
+  assert.match(s.node('#drawerBody').innerHTML, /Reading retained jobs/);
+  s.run('state.runtimeJobsLoaded=true;renderInvestigationDrawer();');
+  assert.match(s.node('#drawerBody').innerHTML, /No retained jobs in this snapshot/);
+});
+
 test('the drawer collapses without losing the selected section', () => {
   const s = sandbox();
   s.context.fixture = fixtureWith();
