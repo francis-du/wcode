@@ -37,11 +37,13 @@ async fn real_cargo_phase(hold: Duration) {
 }
 
 async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
-    // Cold Windows toolchains need bounded startup/cleanup headroom. These
-    // fixture-only deadlines leave the real hold and production wait cap intact.
-    let startup_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 10 });
-    let check_timeout = if cfg!(windows) { 180 } else { 60 };
-    let finish_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 30 });
+    // Cold toolchains on a loaded CI runner need bounded startup/cleanup
+    // headroom. These fixture-only deadlines leave the real hold and the
+    // production wait cap intact; they only decide how long the coordinator
+    // waits before reporting that the fixture never reached its barrier.
+    let startup_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 30 });
+    let check_timeout = if cfg!(windows) { 180 } else { 120 };
+    let finish_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 60 });
     let root = tempfile::tempdir().unwrap();
     for (relative, name) in [(".", "phase_root"), ("apps/console", "phase_console")] {
         let directory = root.path().join(relative);

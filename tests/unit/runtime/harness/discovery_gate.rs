@@ -3,6 +3,17 @@ use crate::evidence::{EvidenceAuthority, EvidenceResult};
 use crate::monitor::TaskMonitor;
 use std::{fs, path::Path, process::Command};
 
+/// Fixture-only deadline for real Git and static-check work. A loaded CI runner
+/// needs more headroom than a warm laptop; the production wait caps are
+/// unchanged, so this only decides when the fixture reports a stalled check.
+fn fixture_timeout_seconds() -> u64 {
+    if cfg!(windows) {
+        180
+    } else {
+        90
+    }
+}
+
 /// `verify_project_mode` retries a saturated probe semaphore itself, so these
 /// cases call it directly and keep exercising one honest verification attempt.
 async fn verify_project_once(
@@ -90,7 +101,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
             .iter()
             .any(|value| value == reason));
         let review = harness
-            .review_changes("discovery", &workspace, 30, &monitor)
+            .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
             .await
             .unwrap();
         let plan = harness
@@ -108,7 +119,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
                 "discovery",
                 &workspace,
                 (level, fail_fast),
-                30,
+                fixture_timeout_seconds(),
                 &monitor,
             )
             .await
@@ -197,7 +208,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
             "discovery",
             &workspace,
             ("full", false),
-            30,
+            fixture_timeout_seconds(),
             &monitor,
         )
         .await
@@ -208,7 +219,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
             .iter()
             .any(|check| check.id == "profile-discovery-completeness"));
         let review = harness
-            .review_changes("discovery", &workspace, 30, &monitor)
+            .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
             .await
             .unwrap();
         let new_plan = harness
