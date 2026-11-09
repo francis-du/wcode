@@ -495,6 +495,7 @@ function acceptanceEvidenceMetadataHtml(row) {
   return `<section class="evidence-inspector-section"><h4>${esc(localized("Canonical evidence metadata", "统一证据元数据"))}</h4><code>${esc(row.id)}</code><p>${esc(localized("Exact referenced metadata only; no receipt outcome or diagnostic body was returned here.", "仅精确引用元数据；此处未返回回执结果或诊断正文。"))}</p><dl class="acceptance-evidence-metadata"><dt>${esc(localized("Producer / authority", "来源 / 权威"))}</dt><dd>${esc(row.producer)} · ${esc(row.authority)} · ${esc(row.confidence)}</dd><dt>${esc(localized("Freshness / relation", "新鲜度 / 关系"))}</dt><dd>${esc(statusLabel(row.freshness))} · ${esc(row.verification_relation)}${acceptanceView().status === "stale" ? " · " + esc(localized("Snapshot stale", "快照已过期")) : ""}</dd><dt>${esc(localized("Code / Design", "代码 / 设计"))}</dt><dd><code>${esc(row.revision.code)}</code><small>${esc(row.revision.design || "—")}</small></dd><dt>${esc(localized("Targets", "目标"))}</dt><dd>${row.targets.map(target => `<code>${esc(target)}</code>`).join("")}</dd><dt>${esc(localized("Observed time", "观测时间"))}</dt><dd>${esc(time(row.timestamp_ms))}</dd></dl></section>`;
 }
 function renderAcceptanceSummary(first) {
+  if (!state.project) return;
   const view = acceptanceView(), record = view.record, tone = view.status === "ready" ? "good"
     : view.status === "blocked" ? "bad" : ["stale", "incomplete", "needs_review"].includes(view.status) ? "warn" : "info";
   const reasons = record?.reasons || [], summary = record?.summary;
