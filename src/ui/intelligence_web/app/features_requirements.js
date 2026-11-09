@@ -321,7 +321,7 @@ function featureFlow(r) {
   }</div>`;
 }
 function requirementChanges(r) {
-  return (state.project.changes || []).filter((change) =>
+  return (state.project?.changes || []).filter((change) =>
     (change.affected_requirements || []).includes(r.id)
   );
 }

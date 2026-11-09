@@ -460,7 +460,7 @@ function acceptanceInspectionHtml() {
       ? `<button type="button" class="acceptance-scope-row" data-acceptance-symbol="${esc(row.id)}">${label}</button>`
       : `<span class="acceptance-scope-row">${label}</span>`;
   }).join("");
-  const references = (values, label, requirement = false) => `<div><h4>${esc(label)}</h4>${values.map(id => requirement && (state.project.requirements || []).some(row => row.id === id)
+  const references = (values, label, requirement = false) => `<div><h4>${esc(label)}</h4>${values.map(id => requirement && (state.project?.requirements || []).some(row => row.id === id)
     ? `<button type="button" class="quiet-action" data-summary-action="requirementsSection" data-summary-requirement="${esc(id)}">${esc(id)}</button>`
     : `<code class="inspector-chip">${esc(id)}</code>`).join("") || esc(localized("None observed", "未观测到"))}</div>`;
   const mappings = data.mapped_verification.map(row => `<div class="acceptance-scope-row"><code>${esc(row.target)}</code><small>${esc(row.owner)} · ${esc(row.kind)} · ${esc(row.provider)} / ${esc(row.precision)} · ${esc(row.resolved ? localized("Resolved mapping", "映射已解析") : localized("Unresolved mapping", "映射未解析"))}</small></div>`).join("");
