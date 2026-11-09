@@ -58,7 +58,7 @@ fn project_navigator_declares_the_loaded_snapshot_scope() {
 
 #[test]
 fn oauth_session_administration_requires_confirmation_and_reports_persistence() {
-    run_observatory_contract("tests/unit/ui/session_admin.cjs", 7);
+    run_observatory_contract("tests/unit/ui/session_admin.cjs", 8);
 }
 
 #[test]

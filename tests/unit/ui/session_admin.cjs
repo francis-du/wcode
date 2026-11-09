@@ -46,6 +46,17 @@ test('session listing shows bounded metadata and escapes untrusted fields', () =
   assert.ok(html.includes('2') && html.includes('1'), 'counts stay visible');
 });
 
+test('session status reflects the current time, not just the timestamps', () => {
+  const s = setup();
+  loadListedSessions(s, [session()]);
+  assert.match(s.node('#sessionList').innerHTML, /Active/, 'a session whose tokens are ahead is active');
+  loadListedSessions(s, [session({ refresh_expires_at_ms: 1 })]);
+  assert.match(s.node('#sessionList').innerHTML, /Expired/, 'a dead refresh token ends the session');
+  loadListedSessions(s, [session({ access_expires_at_ms: 1 })]);
+  assert.match(s.node('#sessionList').innerHTML, /Access expired/,
+    'an expired access token alone is not a dead session');
+});
+
 test('session revoke is confirmed explicitly and persists before success', async () => {
   const s = setup();
   loadListedSessions(s);

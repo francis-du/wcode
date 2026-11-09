@@ -34,6 +34,23 @@ function sessionExpiry(session) {
   const refresh = session.refresh_expires_at_ms ? time(session.refresh_expires_at_ms) : "—";
   return `${t("access")} ${access} · ${t("refresh")} ${refresh}`;
 }
+// The timestamps say when a token ends; the status says what the session can
+// still do right now. A dead refresh token ends the session, an expired access
+// token only means the next refresh has to happen first.
+function sessionStatus(session) {
+  const now = Date.now();
+  const access = session.access_expires_at_ms, refresh = session.refresh_expires_at_ms;
+  if (typeof refresh === "number" && refresh <= now) {
+    return { label: localized("Expired", "已过期"), tone: "warn" };
+  }
+  if (typeof access === "number" && access <= now) {
+    return { label: localized("Access expired", "访问已过期"), tone: "info" };
+  }
+  if (typeof access === "number" || typeof refresh === "number") {
+    return { label: localized("Active", "有效"), tone: "good" };
+  }
+  return null;
+}
 function renderSessions() {
   const unknown = localized("Session state unavailable; refresh before deciding.", "会话状态尚未取得，请刷新后再操作。");
   const sessions = state.sessions || [];
@@ -45,7 +62,8 @@ function renderSessions() {
         const actions = confirming
           ? `<button class="danger" type="button" data-confirm-revoke="${esc(session.id)}">${esc(t("Confirm revoke"))}</button><button type="button" data-cancel-revoke="1">${esc(t("Cancel"))}</button>`
           : `<button class="danger-quiet" type="button" data-revoke-session="${esc(session.id)}" aria-label="${esc(`${t("Revoke session")} ${session.id.slice(0, 12)}`)}">${esc(t("Revoke"))}</button>`;
-        return `<div class="session-item${confirming ? " confirming" : ""}"><div class="session-head"><code>${esc(sessionLabel(session))}</code>${pill(t("local operator"), "info")}</div><div class="session-meta">${esc(t("Client"))}: ${esc(session.client_id || "—")} · ${esc(t("Access tokens"))}: ${num(session.access_count)} · ${esc(t("Refresh tokens"))}: ${num(session.refresh_count)}</div><div class="session-meta">${esc(sessionExpiry(session))}</div><div class="session-actions">${actions}</div></div>`;
+        const status = sessionStatus(session);
+        return `<div class="session-item${confirming ? " confirming" : ""}"><div class="session-head"><code>${esc(sessionLabel(session))}</code>${pill(t("local operator"), "info")}${status ? pill(status.label, status.tone) : ""}</div><div class="session-meta">${esc(t("Client"))}: ${esc(session.client_id || "—")} · ${esc(t("Access tokens"))}: ${num(session.access_count)} · ${esc(t("Refresh tokens"))}: ${num(session.refresh_count)}</div><div class="session-meta">${esc(sessionExpiry(session))}</div><div class="session-actions">${actions}</div></div>`;
       }).join("")
     : `<span class="panel-meta">${esc(t("No active sessions"))}</span>`;
   setHtml("sessionList", els.sessionList, html, () => {
