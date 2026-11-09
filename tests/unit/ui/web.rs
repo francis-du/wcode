@@ -420,7 +420,8 @@ fn observatory_visual_contract_stays_compact_brand_aligned_with_acceptance_first
     assert!(INTELLIGENCE_JS.contains("activeTabButton?.scrollIntoView"));
     assert!(INTELLIGENCE_JS.contains("[\"ArrowDown\", \"ArrowUp\", \"Home\", \"End\"]"));
     assert!(INTELLIGENCE_JS.contains("navigatorKindLabel"));
-    assert!(INTELLIGENCE_JS.contains("activateRequirement(buttons[nextIndex]?.dataset.id, { focus: true })"));
+    assert!(INTELLIGENCE_JS
+        .contains("activateRequirement(buttons[nextIndex]?.dataset.id, { focus: true })"));
     assert!(INTELLIGENCE_JS.contains("activateRequirement(button.dataset.id)"));
     assert!(!INTELLIGENCE_JS.contains("\"△\""));
     for glyph in ["⌕", "⌄", "⌃", "‹", "›", "×", "＋", "−"] {
