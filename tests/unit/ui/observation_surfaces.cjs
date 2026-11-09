@@ -107,12 +107,14 @@ test('the context budget shows its tokens, not a percentage alone', () => {
   assert.match(html, /50%/, 'the derived percentage still appears');
 });
 
-test('the home status surfaces the worklist queue', () => {
+test('the home status carries the work queue counts', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(), execution: { available: true, exists: true,
     checkpoint: { open_items: 4, blocked_items: 2, done_items: 9, runnable: ['lane-a'] } } };
   s.run('state.project=fixture;renderObservationCoverage();');
   const html = s.node('#observationCoverage').innerHTML;
+  assert.equal((html.match(/class="observation-surface"/g) || []).length, 8,
+    'the drilldown count stays at the contracted eight');
   assert.match(html, /4 open · 2 blocked/, 'unfinished and blocked counts are visible at home');
   assert.match(html, /data-summary-action="activitySection"/, 'the entry opens the task progress');
   s.run('state.language="zh-CN";renderObservationCoverage();');
@@ -120,8 +122,8 @@ test('the home status surfaces the worklist queue', () => {
     'the counts keep their Simplified Chinese form');
   s.context.fixture = { ...fixture(), execution: { available: false } };
   s.run('state.language="en";state.project=fixture;renderObservationCoverage();');
-  assert.match(s.node('#observationCoverage').innerHTML, /Execution state unavailable/,
-    'a failed read is not reported as an absent checkpoint');
+  assert.doesNotMatch(s.node('#observationCoverage').innerHTML, /open · /,
+    'an unread checkpoint adds no counts');
 });
 
 test('a shared hash restores the view it names', () => {

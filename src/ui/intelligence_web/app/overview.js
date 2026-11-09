@@ -108,22 +108,22 @@ function renderObservationCoverage() {
     [localized("Changes", "变更"), "changesSection", p.git_review?.available === true ? localized(`${num(p.code?.changed_files || 0)} changed files`, `${num(p.code?.changed_files || 0)} 个变更文件`) : gitReviewReason(p.git_review?.reason), p.git_review?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")],
     [localized("Evidence", "证据"), "proofSection", proof.current_evidence ? localized(`${num(proof.current_failed || 0)} failures · ${num(proof.current_inconclusive || 0)} inconclusive`, `${num(proof.current_failed || 0)} 项失败 · ${num(proof.current_inconclusive || 0)} 项未定`) : localized("No current-version evidence", "无当前版本证据"), proof.current_failed ? localized("Failing", "存在失败") : proof.current_evidence ? localized("Recorded", "已记录") : localized("Unverified", "未验证")],
     [localized("Architecture", "架构"), "architectureSection", localized(`${num(p.architecture?.components?.length || 0)} components · ${statusLabel(graphPrecision().primary)}`, `${num(p.architecture?.components?.length || 0)} 个组件 · ${statusLabel(graphPrecision().primary)}`), p.code?.graph_truncated ? localized("Partial", "不完整") : statusLabel(graphPrecision().primary)],
-    [localized("Tasks & runtime", "任务与运行时"), "activitySection", activity?.available === true && !state.activityError ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 项执行 · ${num(activity.queued || 0)} 项排队`) : localized("Unavailable, not idle", "数据不可用，不代表空闲"), state.activityError ? localized("Stale", "已过期") : activity?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")],
-    // The work queue keeps its own entry: unfinished items and blockers are
-    // the two numbers an operator acts on, and they should not wait behind a
-    // tab switch.
     (() => {
-      const execution = p.execution, checkpoint = execution?.checkpoint;
-      const open = Number(checkpoint?.open_items || 0), blocked = Number(checkpoint?.blocked_items || 0);
-      // A failed read and a checkpoint that was never created are different
-      // states; the surface says which one it is looking at.
-      const detail = execution?.available === false
-        ? localized("Execution state unavailable", "执行状态不可用")
-        : checkpoint
-          ? localized(`${num(open)} open · ${num(blocked)} blocked`, `${num(open)} 项未完成 · ${num(blocked)} 项阻塞`)
-          : localized("No durable checkpoint yet", "暂无持久化检查点");
-      return [localized("Worklist", "任务队列"), "activitySection", detail,
-        !checkpoint ? localized("Unavailable", "不可用") : blocked ? localized("Blocked", "有阻塞") : localized("Observed", "已观测")];
+      const checkpoint = p.execution?.checkpoint;
+      const runtime = activity?.available === true && !state.activityError
+        ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 项执行 · ${num(activity.queued || 0)} 项排队`)
+        : localized("Unavailable, not idle", "数据不可用，不代表空闲");
+      // The unfinished and blocked counts belong on the same entry: the task
+      // progress panel behind this surface is the Worklist inspector, and the
+      // counts are what an operator acts on.
+      const queue = checkpoint
+        ? localized(` · ${num(checkpoint.open_items || 0)} open · ${num(checkpoint.blocked_items || 0)} blocked`,
+          ` · ${num(checkpoint.open_items || 0)} 项未完成 · ${num(checkpoint.blocked_items || 0)} 项阻塞`)
+        : "";
+      return [localized("Tasks & runtime", "任务与运行时"), "activitySection", runtime + queue,
+        state.activityError ? localized("Stale", "已过期")
+          : checkpoint?.blocked_items ? localized("Blocked", "有阻塞")
+            : activity?.available === true ? localized("Observed", "已观测") : localized("Unknown", "未知")];
     })(),
     // The production-capability matrix keeps Fitness and the language providers
     // reachable from the home status surface rather than only by scrolling.
