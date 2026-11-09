@@ -389,6 +389,7 @@ Object.assign(translations["zh-CN"], {
   "renamed": "重命名",
   "none": "无",
   "No requirements match this filter.": "没有符合当前筛选条件的需求。",
+  "Selected requirement is outside the current filter.": "所选需求不在当前筛选范围内。",
   "No implementation component declared.": "没有声明实现组件。",
   "No acceptance criterion declared.": "没有声明验收条件。",
   "Bounded snapshot": "有界快照",

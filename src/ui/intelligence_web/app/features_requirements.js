@@ -22,9 +22,18 @@ function renderRequirements() {
   const all = state.project?.requirements || [],
     items = all.filter(requirementMatches);
   els.reqCount.textContent = `${items.length} / ${all.length}`;
-  if (!state.selected || !items.some((r) => r.id === state.selected)) {
+  // Changing the filter picks the first visible item. A view switch keeps the
+  // selection even when the active filter hides it, and the list says so.
+  if (state.selected && !all.some((r) => r.id === state.selected)) state.selected = "";
+  const selectionFromAnotherFilter = Boolean(state.selected)
+    && state.selectedFilter !== state.filter
+    && !items.some((r) => r.id === state.selected);
+  if (!state.selected || selectionFromAnotherFilter) {
     state.selected = (items.find((r) => r.changed) || items[0] || {}).id || "";
   }
+  state.selectedFilter = state.filter;
+  const selectionFilteredOut = Boolean(state.selected)
+    && !items.some((r) => r.id === state.selected);
   const html = items.map((r) => {
     const dependencies = r.dependency_alignment || [],
       blocking = dependencies.filter((d) => d.blocking).length,
@@ -67,7 +76,9 @@ function renderRequirements() {
   setHtml(
     "requirements",
     els.requirements,
-    html,
+    html + (selectionFilteredOut
+      ? `<p class="panel-meta" role="status">${esc(t("Selected requirement is outside the current filter."))}</p>`
+      : ""),
     () => {
       const buttons = [...els.requirements.querySelectorAll(".req")];
       const activate = (button, { focus = false } = {}) => {

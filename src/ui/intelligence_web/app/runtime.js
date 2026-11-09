@@ -333,7 +333,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
   state.fitnessSnapshotFromCache = false;
-  state.project = null; state.selected = ""; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true;
+  state.project = null; state.selected = ""; state.selectedFilter = "all"; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true;
   renderWorkspaceIdentity();
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;

@@ -206,6 +206,9 @@ const state = {
   drawerCollapsed: false,
   drawerJob: "",
   drawerLabel: "",
+  // The requirement filter the current selection was made under. Changing the
+  // filter re-selects the first visible item; switching views does not.
+  selectedFilter: "all",
   systemMapScale: 1,
   systemMapFit: true,
   systemMapFull: false,

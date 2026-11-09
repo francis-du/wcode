@@ -5,6 +5,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { sandbox, project } = require('./observatory.cjs');
+const { fixture } = require('./acceptance.cjs');
 
 test('the home status surface reaches Fitness and the language providers', () => {
   const s = sandbox();
@@ -43,6 +44,18 @@ test('a history entry recorded for another workspace is ignored', () => {
   s.events.popstate({ state: { wcodeView: 'proof', wcodeWorkspace: 'B' } });
   assert.equal(s.run('state.workspaceTab'), 'files',
     'a foreign workspace entry must not move this workspace');
+});
+
+test('switching views keeps the selection even when the filter hides it', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    requirements: [{ id: 'REQ-A', title: 'Isolation', intent: '', priority: 'high', status: 'active',
+      components: [], convergence: 'stable', dependency_alignment: [], acceptance: [], constraints: [],
+      decisions: [], drift: [], implementation_lines: 1, changed: false }] };
+  s.run('state.project=fixture;state.current="A";');
+  s.run('state.filter="changed";state.selectedFilter="changed";state.selected="REQ-A";activateWorkspaceTab("files");activateWorkspaceTab("requirements");');
+  assert.equal(s.run('state.selected'), 'REQ-A', 'a view switch must not drop the selection');
+  assert.match(s.node('#requirements').innerHTML, /outside the current filter/);
 });
 
 test('a shared hash restores the view it names', () => {
