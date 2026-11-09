@@ -100,3 +100,22 @@ test('clearing the job scope drops the drawer selection', () => {
   assert.match(s.node('#drawerBody').innerHTML, /Select a job/,
     'a cleared scope must not keep waiting on the previous workspace job');
 });
+
+test('the session record counts distinct positions once', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.current="A";state.investigationEvents=[];state.investigationStartedAtMs=0;');
+  s.run('activateWorkspaceTab("requirements");activateWorkspaceTab("files");syncInvestigationHash();syncInvestigationHash();');
+  const telemetry = JSON.parse(s.run('JSON.stringify(investigationTelemetry())'));
+  assert.equal(telemetry.views, 2, 'repeated syncs of one position count once');
+  assert.equal(telemetry.objects, 0);
+  s.run('state.selected="REQ-A";syncInvestigationHash();');
+  const after = JSON.parse(s.run('JSON.stringify(investigationTelemetry())'));
+  assert.equal(after.objects, 1, 'an object selection is recorded');
+  assert.equal(after.views, 2);
+  assert.match(s.node('#drawerTelemetry').textContent, /3 jumps/,
+    'the readout follows a selection without waiting for a drawer repaint');
+  s.run('renderInvestigationDrawer();');
+  assert.match(s.node('#drawerTelemetry').textContent, /3 jumps · 1 min/,
+    'the drawer shows the session record');
+});

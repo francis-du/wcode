@@ -120,6 +120,7 @@ const els = {
   drawerBody: q("#drawerBody"),
   drawerToggle: q("#drawerToggle"),
   drawerLabel: q("#drawerLabel"),
+  drawerTelemetry: q("#drawerTelemetry"),
   changes: q("#changes"),
   verificationImpact: q("#verificationImpact"),
   structureSummary: q("#structureSummary"),
@@ -205,6 +206,11 @@ const state = {
   consistencyDriftKind: "all",
   drawerSection: "problems",
   drawerCollapsed: false,
+  // Session-local investigation record: each distinct position the operator
+  // landed on, with the workspace it belonged to. It measures this session
+  // only; it is not a durable baseline.
+  investigationEvents: [],
+  investigationStartedAtMs: 0,
   drawerJob: "",
   drawerLabel: "",
   // The requirement filter the current selection was made under. Changing the
@@ -373,6 +379,42 @@ const requestHeaders = (workspace = state.current) => {
 function observationStamp() {
   return { workspace: state.current, view: state.workspaceEpoch,
     mutation: state.accessMutationEpoch, sequence: ++state.pendingSequence };
+}
+const INVESTIGATION_EVENT_LIMIT = 100;
+// One entry per distinct investigation position, so a view switch or an object
+// selection counts once no matter how many renders follow from it.
+function recordInvestigationEvent(kind, detail) {
+  const now = Date.now();
+  if (!state.investigationStartedAtMs) state.investigationStartedAtMs = now;
+  state.investigationEvents.push({
+    at: now, kind, workspace: state.current, detail: String(detail || "").slice(0, 120),
+  });
+  if (state.investigationEvents.length > INVESTIGATION_EVENT_LIMIT) {
+    state.investigationEvents.splice(0, state.investigationEvents.length - INVESTIGATION_EVENT_LIMIT);
+  }
+  renderInvestigationTelemetry();
+}
+function investigationTelemetry() {
+  const events = state.investigationEvents;
+  const views = events.filter(event => event.kind === "view").length;
+  const objects = events.filter(event => event.kind === "object").length;
+  const minutes = state.investigationStartedAtMs
+    ? Math.max(1, Math.round((Date.now() - state.investigationStartedAtMs) / 60000))
+    : 0;
+  return { events: events.length, views, objects, minutes };
+}
+// The readout lives in the drawer head, which object selection does not
+// repaint, so every recorded event refreshes it directly.
+function renderInvestigationTelemetry() {
+  if (!els.drawerTelemetry) return;
+  const telemetry = investigationTelemetry();
+  els.drawerTelemetry.textContent = telemetry.events
+    ? `${telemetry.events} ${localized("jumps", "次跳转")} · ${telemetry.minutes} ${localized("min", "分钟")}`
+    : "";
+  els.drawerTelemetry.title = telemetry.events
+    ? localized(`${telemetry.views} view switches · ${telemetry.objects} object selections · this session only`,
+      `${telemetry.views} 次视图切换 · ${telemetry.objects} 次对象选择 · 仅本次会话`)
+    : "";
 }
 function observationCurrent(stamp) {
   return stamp.workspace === state.current && stamp.view === state.workspaceEpoch;

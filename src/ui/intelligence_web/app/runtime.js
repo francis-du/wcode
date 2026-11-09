@@ -735,6 +735,7 @@ function syncInvestigationHash() {
   // The workspace is part of the link. Before the snapshot names one, writing
   // the hash would advertise an empty workspace that restores nothing.
   if (!state.current) return;
+  recordInvestigationEvent(object ? "object" : "view", object || state.workspaceTab);
   const params = new URLSearchParams();
   params.set("view", state.workspaceTab);
   params.set("workspace", state.current);

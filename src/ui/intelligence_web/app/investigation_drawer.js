@@ -76,6 +76,7 @@ function renderInvestigationDrawer() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+  renderInvestigationTelemetry();
   if (els.drawerToggle) {
     els.drawerToggle.setAttribute("aria-expanded", String(!state.drawerCollapsed));
     els.drawerToggle.textContent = t(state.drawerCollapsed ? "Expand panel" : "Collapse panel");
