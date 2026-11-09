@@ -75,7 +75,7 @@ fn retained_job_output_search_preserves_scope_focus_and_scroll() {
             && report.as_ref().ok().is_some_and(|report| {
                 report["suite"] == "retained-job-output"
                     && report["results"].as_array().is_some_and(|results| {
-                        results.len() == 24 && results.iter().all(|row| row["passed"] == true)
+                        results.len() == 25 && results.iter().all(|row| row["passed"] == true)
                     })
             }),
         "{}\n{}",

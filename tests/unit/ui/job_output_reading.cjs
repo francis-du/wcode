@@ -234,6 +234,14 @@ async function main() {
     input.fire('compositionend');assert.equal(s.run('runtimeJobOutputScope().query'),'定位');
     assert.equal(s.output('stdout').textContent,'1: 定位 fresh');assert.equal(s.context.document.activeElement,input);assert.equal(s.requests.length,0);
   });
+  await test('selecting another task clears the prior query immediately', async () => {
+    const s = prepared();
+    s.search('compile');
+    assert.equal(s.output('stdout').textContent, '2: [ERR] compile 海');
+    s.select(B);
+    assert.equal(s.control('query').value, '', 'the query must not survive a task change');
+    assert.match(s.node('#runtimeJobOutput').innerHTML, /Showing the selected retained output/);
+  });
   console.log(JSON.stringify({suite:'retained-job-output',results},null,2));
   assert.ok(results.length > 0 && results.every(row=>row.passed),results.filter(row=>!row.passed).map(row=>row.name).join('\n'));
 }
