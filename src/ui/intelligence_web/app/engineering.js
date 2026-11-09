@@ -46,7 +46,7 @@ function activateProjectNavigatorItem(item) {
     renderArchitecture(); revealSection("architectureSection");
     requestAnimationFrame(() => focusSelectedComponentCard({ focus: true }));
   } else if (item.kind === "requirement") {
-    state.filter = "all"; state.selected = item.id; els.search.value = "";
+    setRequirementFilter("all"); state.selected = item.id; els.search.value = "";
     invalidate("requirements", "detail"); renderRequirements(); renderDetail(); revealSection("requirementsSection");
     requestAnimationFrame(() => focusSelectedRequirement({ focus: true }));
   } else if (item.kind === "change") {
@@ -479,7 +479,7 @@ function renderTraceabilityMap() {
   const html = `<div class="trace-legend"><span><i class="legend-dot primary"></i>${esc(localized("Trace chain", "追踪主链"))}</span><span><i class="legend-dot good"></i>${esc(localized("Design mapping", "设计映射"))}</span><span><i class="legend-dot warn"></i>${esc(localized("Verification result", "验证结果"))}</span></div><div class="trace-flow">${flow}</div><div class="trace-convergence"><div><strong>${esc(localized("Convergence criteria", "收敛判断"))}</strong><small>${esc(localized("Independent dimensions — never substitute one for another.", "相互独立的判断维度，不可互相替代或混淆。"))}</small></div>${metrics}</div>`;
   setHtml("traceabilityMap", els.traceabilityMap, html, () => {
     els.traceabilityMap.querySelectorAll("[data-trace-req]").forEach(button => button.addEventListener("click", () => {
-      state.filter = "all"; state.selected = button.dataset.traceReq; els.search.value = ""; invalidate("requirements", "detail"); renderRequirements(); renderDetail(); syncInvestigationHash(); requestAnimationFrame(() => els.detail.scrollIntoView({ behavior: "smooth", block: "start" }));
+      setRequirementFilter("all"); state.selected = button.dataset.traceReq; els.search.value = ""; invalidate("requirements", "detail"); renderRequirements(); renderDetail(); syncInvestigationHash(); requestAnimationFrame(() => els.detail.scrollIntoView({ behavior: "smooth", block: "start" }));
     }));
     els.traceabilityMap.querySelectorAll("[data-trace-component]").forEach(button => button.addEventListener("click", () => {
       state.selectedComponent = button.dataset.traceComponent; state.architectureView = "components"; revealSection("architectureSection"); renderArchitecture(); syncInvestigationHash();
@@ -502,13 +502,9 @@ function convergenceFocus(target, id) {
   }
   if (target === "requirementsSection" && id) {
     if (!(state.project?.requirements || []).some(item => item.id === id)) { revealSection(target); return; }
-    state.filter = "all";
+    setRequirementFilter("all");
     state.selected = id;
     if (els.search) els.search.value = "";
-    document.querySelectorAll(".filter").forEach(button => {
-      button.classList.toggle("active", button.dataset.filter === "all");
-      button.setAttribute("aria-pressed", String(button.dataset.filter === "all"));
-    });
     invalidate("requirements", "detail");
     renderRequirements();
     renderDetail();

@@ -93,6 +93,14 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
           buttons.forEach(button=>check(button.tagName==='BUTTON'&&button.type==='button'&&Boolean(button.getAttribute('aria-label')),'source row not keyboard accessible',button));
         }
       }
+      if(state.workspaceTab==='requirements'){
+        setRequirementFilter('changed');
+        const pressed=[...document.querySelectorAll('.filter')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.filter);
+        check(pressed.length===1&&pressed[0]==='changed','requirement filter buttons follow the state');
+        setRequirementFilter('all');
+        const restored=[...document.querySelectorAll('.filter')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.filter);
+        check(restored.length===1&&restored[0]==='all','requirement filter buttons follow a programmatic reset');
+      }
       if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'&&state.codeGraphInspectorOpen){
         const source=document.querySelector('.code-graph-source'),paging=source?.querySelector('.code-graph-source-paging');
         check(source&&visible(source),'source preview hidden',source);

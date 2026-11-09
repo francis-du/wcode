@@ -223,11 +223,7 @@ function renderComponentInspector() {
       els.componentInspector.classList.remove("open");
     });
     els.componentInspector.querySelectorAll("[data-inspector-req]").forEach(button => button.addEventListener("click", () => {
-      state.filter = "all"; els.search.value = "";
-      document.querySelectorAll(".filter").forEach(item => {
-        item.classList.toggle("active", item.dataset.filter === "all");
-        item.setAttribute("aria-pressed", String(item.dataset.filter === "all"));
-      });
+      setRequirementFilter("all"); els.search.value = "";
       state.selected = button.dataset.inspectorReq;
       revealSection("requirementsSection");
       invalidate("requirements", "detail");

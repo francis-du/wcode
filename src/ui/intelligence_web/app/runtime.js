@@ -887,8 +887,8 @@ document.addEventListener("click", event => {
   }
 });
 document.querySelectorAll(".filter").forEach(button => button.addEventListener("click", () => {
-  document.querySelectorAll(".filter").forEach(item => { item.classList.toggle("active", item === button); item.setAttribute("aria-pressed", String(item === button)); });
-  state.filter = button.dataset.filter; invalidate("requirements", "detail"); renderRequirements(); renderDetail();
+  setRequirementFilter(button.dataset.filter);
+  invalidate("requirements", "detail"); renderRequirements(); renderDetail();
 }));
 document.querySelectorAll(".arch-mode").forEach(button => button.addEventListener("click", () => {
   document.querySelectorAll(".arch-mode").forEach(item => { item.classList.toggle("active", item === button); item.setAttribute("aria-pressed", String(item === button)); });

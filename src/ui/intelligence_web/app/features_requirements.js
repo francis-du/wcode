@@ -1,3 +1,12 @@
+// The filter lives in state and in the button row; setting it in one place
+// only would leave the buttons highlighting a filter the list no longer uses.
+function setRequirementFilter(filter) {
+  state.filter = filter;
+  document.querySelectorAll(".filter").forEach(button => {
+    button.classList.toggle("active", button.dataset.filter === filter);
+    button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+  });
+}
 function requirementMatches(r) {
   const query = els.search.value.trim().toLowerCase();
   const hay = [

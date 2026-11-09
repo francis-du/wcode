@@ -256,8 +256,7 @@ function renderChanges() {
     () =>
       els.changes.querySelectorAll("[data-req]").forEach((link) =>
         link.addEventListener("click", () => {
-          state.filter = "all"; els.search.value = "";
-          document.querySelectorAll(".filter").forEach(button => { button.classList.toggle("active", button.dataset.filter === "all"); button.setAttribute("aria-pressed", String(button.dataset.filter === "all")); });
+          setRequirementFilter("all"); els.search.value = "";
           state.selected = link.dataset.req;
           revealSection("requirementsSection");
           invalidate("requirements", "detail");
@@ -633,7 +632,7 @@ function renderChangeInspector() {
   host.querySelectorAll("[data-change-linkage-req]").forEach(button => {
     button.onclick = () => {
       state.selected = button.dataset.changeLinkageReq;
-      state.filter = "all";
+      setRequirementFilter("all");
       if (els.search) els.search.value = "";
       revealSection("requirementsSection");
       invalidate("requirements", "detail");

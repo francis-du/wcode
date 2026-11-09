@@ -428,12 +428,8 @@ function openCodeReaderRequirement(id) {
   if (typeof id !== "string" || !id) return false;
   const requirement = (state.project?.requirements || []).find(item => item.id === id);
   if (!requirement) return false;
-  state.filter = "all";
+  setRequirementFilter("all");
   if (els.search) els.search.value = "";
-  document.querySelectorAll(".filter").forEach(button => {
-    button.classList.toggle("active", button.dataset.filter === "all");
-    button.setAttribute("aria-pressed", String(button.dataset.filter === "all"));
-  });
   state.selected = id;
   closeCodeReader();
   revealSection("requirementsSection");

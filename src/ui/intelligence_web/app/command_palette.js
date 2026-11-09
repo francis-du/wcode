@@ -80,7 +80,7 @@ const commandObjectActions = (query) => {
 const paletteExecute = (command) => {
   if (command.startsWith("object:requirement:")) {
     state.selected = command.slice("object:requirement:".length);
-    state.filter = "all";
+    setRequirementFilter("all");
     activateWorkspaceTab("requirements", { scroll: true });
     return true;
   }
