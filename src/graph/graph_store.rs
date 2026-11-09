@@ -11,10 +11,23 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_GRAPH_SNAPSHOTS: usize = 64;
 const MAX_GRAPH_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
+/// Snapshots are immutable in production: every persist writes a new
+/// monotonically named file, so a given path is parsed once. The bound keeps a
+/// handful of recent workspaces resident instead of growing with the machine.
+const SNAPSHOT_CACHE_ENTRIES: usize = 4;
+
+type CachedSnapshot = (SystemTime, u64, Option<StoredGraphSnapshot>);
+type SnapshotCache = HashMap<PathBuf, CachedSnapshot>;
+
+fn snapshot_cache() -> &'static Mutex<SnapshotCache> {
+    static CACHE: OnceLock<Mutex<SnapshotCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[cfg(test)]
 thread_local! {
@@ -702,8 +715,6 @@ fn graph_snapshot_id_from_name(name: &str) -> Option<&str> {
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
-    #[cfg(test)]
-    READ_SNAPSHOT_CALLS.with(|count| count.set(count.get() + 1));
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(None),
@@ -714,6 +725,33 @@ fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
     {
         return Ok(None);
     }
+    // A rewrite or replacement changes the modification time or the length, so
+    // a cached entry can never serve a snapshot that no longer matches the file.
+    let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+    let len = metadata.len();
+    if let Some(cached) = snapshot_cache().lock().ok().and_then(|cache| {
+        cache
+            .get(path)
+            .filter(|(cached_modified, cached_len, _)| {
+                *cached_modified == modified && *cached_len == len
+            })
+            .map(|(_, _, snapshot)| snapshot.clone())
+    }) {
+        return Ok(cached);
+    }
+    let stored = read_snapshot_from_disk(path)?;
+    if let Ok(mut cache) = snapshot_cache().lock() {
+        if cache.len() >= SNAPSHOT_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (modified, len, stored.clone()));
+    }
+    Ok(stored)
+}
+
+fn read_snapshot_from_disk(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
+    #[cfg(test)]
+    READ_SNAPSHOT_CALLS.with(|count| count.set(count.get() + 1));
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(_) => return Ok(None),

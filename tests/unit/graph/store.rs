@@ -523,6 +523,61 @@ fn graph_change_signal_uses_metadata_without_reading_snapshot_content() {
 }
 
 #[test]
+fn repeated_snapshot_loads_are_served_from_the_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let mut graph = SoftwareGraph::default();
+    graph
+        .add_node(GraphNode {
+            id: "function:cached".into(),
+            kind: NodeKind::Function,
+            label: "cached".into(),
+            attributes: BTreeMap::new(),
+            provenance: crate::graph::GraphProvenance {
+                provider: "tree-sitter".into(),
+                precision: GraphPrecision::Syntax,
+                revision: "syntax:cached".into(),
+            },
+        })
+        .unwrap();
+    let snapshot = SoftwareGraphSnapshot {
+        workspace: "demo".into(),
+        path: ".".into(),
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        files_considered: 1,
+        files_indexed: 1,
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: 1,
+        edge_count: 0,
+        source_node_count: None,
+        source_edge_count: None,
+        failures: vec![],
+        graph,
+    };
+    let stored = persist(&workspace, &snapshot).unwrap();
+
+    READ_SNAPSHOT_CALLS.with(|count| count.set(0));
+    let first = load_selected(&workspace, None).unwrap().unwrap();
+    assert_eq!(first.id, stored.id);
+    let reads_after_first = READ_SNAPSHOT_CALLS.with(|count| count.get());
+    assert!(
+        reads_after_first > 0,
+        "the first load must read the snapshot"
+    );
+
+    let second = load_selected(&workspace, None).unwrap().unwrap();
+    assert_eq!(second.id, stored.id);
+    assert_eq!(
+        READ_SNAPSHOT_CALLS.with(|count| count.get()),
+        reads_after_first,
+        "an unchanged snapshot must not be read again"
+    );
+}
+
+#[test]
 fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
