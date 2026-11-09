@@ -351,6 +351,7 @@ fn report_projection(report: &Value) -> Value {
         "phase":check["phase"].as_u64(), "success":check["success"].as_bool(),
         "execution":check["execution"].as_str().filter(|v|matches!(*v,"executed"|"unavailable"|"unknown")),
         "reused":check["reused"].as_bool(), "exit_code":check["exit_code"].as_i64(),
+        "queue_wait_ms":check["queue_wait_ms"].as_u64(), "execution_ms":check["execution_ms"].as_u64(),
         "elapsed_ms":check["elapsed_ms"].as_u64(),
         "command":check["command"].as_str().map(|v|safe_text(v,1024)),
         "stdout_tail":check["stdout_tail"].as_str().map(|v|safe_text(v,1024)),

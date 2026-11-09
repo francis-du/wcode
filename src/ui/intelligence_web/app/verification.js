@@ -66,6 +66,8 @@ function validVerificationTaskReport(report, workspace) {
       && (row.success === null || typeof row.success === "boolean")
       && (row.execution === null || ["executed", "unavailable", "unknown"].includes(row.execution))
       && (row.reused === null || typeof row.reused === "boolean") && (row.exit_code === null || Number.isSafeInteger(row.exit_code))
+      && (row.queue_wait_ms == null || count(row.queue_wait_ms))
+      && (row.execution_ms == null || count(row.execution_ms))
       && (row.elapsed_ms === null || count(row.elapsed_ms)) && text(row.command, 1024)
       && text(row.stdout_tail, 1024) && text(row.stderr_tail, 1024) && text(row.evidence_id, 160)
       && typeof row.output_truncated === "boolean");
@@ -182,7 +184,14 @@ async function refreshVerificationAcceptance(entry) {
 function verificationReportHtml(receipt) {
   const report = receipt?.report;
   if (!report) return `<p class="panel-meta">${esc(localized("No typed verification report was returned; task completion does not mean Pass.", "未返回类型化验证报告；任务完成不代表通过。"))}</p>`;
-  const rows = report.checks.map(row => `<details class="verification-check"><summary><code>${esc(row.id || localized("Unknown check", "未知检查"))}</code> · ${esc(statusLabel(row.execution || "unknown"))} · ${esc(row.success === null ? localized("Outcome unknown", "结果未知") : row.success ? localized("Reported pass", "报告通过") : localized("Reported failure", "报告失败"))}${row.reused ? " · " + esc(localized("Reused", "已复用")) : ""}</summary><p class="panel-meta">${esc(row.command || localized("Command unavailable", "命令不可用"))} · ${esc(localized("Exit", "退出码"))}: ${esc(row.exit_code ?? "—")} · ${esc(localized("queued", "排队"))} ${num(row.queue_wait_ms || 0)} ms · ${esc(localized("ran", "执行"))} ${num(row.execution_ms || 0)} ms · ${num(row.elapsed_ms || 0)} ms</p>${row.evidence_id ? `<button type="button" class="acceptance-evidence-link" data-acceptance-evidence="${esc(row.evidence_id)}">${esc(row.evidence_id)}</button>` : ""}<label>stdout</label><pre>${esc(row.stdout_tail ?? localized("Output unavailable", "输出不可用"))}</pre><label>stderr</label><pre>${esc(row.stderr_tail ?? localized("Output unavailable", "输出不可用"))}</pre>${row.output_truncated ? `<p class="warn">${esc(localized("Output is bounded and truncated.", "输出有界且已截断。"))}</p>` : ""}</details>`).join("");
+  const rows = report.checks.map(row => {
+    const timing = [
+      row.queue_wait_ms == null ? "" : `${esc(localized("queued", "排队"))} ${num(row.queue_wait_ms)} ms`,
+      row.execution_ms == null ? "" : `${esc(localized("ran", "执行"))} ${num(row.execution_ms)} ms`,
+      row.elapsed_ms == null ? "" : `${num(row.elapsed_ms)} ms`,
+    ].filter(Boolean).join(" · ");
+    return `<details class="verification-check"><summary><code>${esc(row.id || localized("Unknown check", "未知检查"))}</code> · ${esc(statusLabel(row.execution || "unknown"))} · ${esc(row.success === null ? localized("Outcome unknown", "结果未知") : row.success ? localized("Reported pass", "报告通过") : localized("Reported failure", "报告失败"))}${row.reused ? " · " + esc(localized("Reused", "已复用")) : ""}</summary><p class="panel-meta">${esc(row.command || localized("Command unavailable", "命令不可用"))} · ${esc(localized("Exit", "退出码"))}: ${esc(row.exit_code ?? "—")}${timing ? ` · ${timing}` : ` · ${esc(localized("Timing unknown", "耗时未知"))}`}</p>${row.evidence_id ? `<button type="button" class="acceptance-evidence-link" data-acceptance-evidence="${esc(row.evidence_id)}">${esc(row.evidence_id)}</button>` : ""}<label>stdout</label><pre>${esc(row.stdout_tail ?? localized("Output unavailable", "输出不可用"))}</pre><label>stderr</label><pre>${esc(row.stderr_tail ?? localized("Output unavailable", "输出不可用"))}</pre>${row.output_truncated ? `<p class="warn">${esc(localized("Output is bounded and truncated.", "输出有界且已截断。"))}</p>` : ""}</details>`;
+  }).join("");
   return `<p>${esc(localized("Reported verification", "报告的验证"))}: ${esc(report.level)} · ${esc(report.passed === null ? localized("Unknown", "未知") : report.passed ? localized("Passed", "已通过") : localized("Failed", "失败"))} · ${num(report.checks_run)} ${esc(localized("checks", "项检查"))} · ${num(report.checks_failed)} ${esc(localized("failures", "项失败"))}</p><p class="panel-meta">${esc(localized("This report is distinct from the freshly captured canonical Acceptance decision.", "此报告与重新捕获的统一验收结论分别呈现。"))}</p>${report.skipped_checks.length ? `<p class="warn">${esc(localized("Skipped", "已跳过"))}: ${report.skipped_checks.map(esc).join(" · ")}</p>` : ""}${report.checks_truncated ? `<p class="warn">${report.checks.length} / ${report.checks_total} ${esc(localized("checks returned; remaining diagnostics are not in this bounded response.", "项检查已返回；其余诊断不在此有界响应中。"))}</p>` : ""}<div class="verification-checks">${rows}</div>`;
 }
 function bindVerificationControls(host, entry, page = state.workspaceTab) {

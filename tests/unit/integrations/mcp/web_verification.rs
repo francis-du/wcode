@@ -267,6 +267,13 @@ async fn web_verification_runs_native_checks_and_polling_never_reexecutes() {
         .unwrap()
         .iter()
         .any(|check| check["id"] == "git-diff-check" && check["execution"] == "executed"));
+    let projected = result["report"]["checks"].as_array().unwrap();
+    assert!(
+        projected.iter().all(|check| check["queue_wait_ms"].is_u64()
+            && check["execution_ms"].is_u64()
+            && check["elapsed_ms"].is_u64()),
+        "per-check timing must survive the bounded web projection: {result}"
+    );
     let (_, workspace) = state.workspaces.select(Some(id)).unwrap();
     let evidence = crate::evidence_store::load(&workspace).unwrap();
     assert!(evidence.iter().any(|record| record.kind

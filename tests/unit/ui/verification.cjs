@@ -137,11 +137,15 @@ async function main() {
     const html = s.run('verificationReportHtml(receipt)'); assert.match(html, /Outcome unknown/); assert.match(html, /Output unavailable/);
     assert.match(html, /Skipped.*native-skip/); assert.match(html, /1 \/ 80/);
     assert.doesNotMatch(html, /Reported pass|EV-native/);
+    assert.match(html, /Timing unknown/, 'absent timings stay unknown instead of reading as zero');
+    assert.doesNotMatch(html, /queued 0 ms|ran 0 ms/);
   });
   await test('malformed report and task identity never replaces the existing task or canonical decision', async () => {
     for (const mutate of [value => { value.task_id = 'other-task'; }, value => { value.report = report({ workspace: 'B' }); },
       value => { value.report = report({ checks: Array.from({ length: 65 }, () => report().checks[0]) }); },
-      value => { value.report = report({ checks_failed: -1 }); }, value => { value.report = report({ checks: [{ ...report().checks[0], stdout_tail: 'x'.repeat(1025) }] }); }]) {
+      value => { value.report = report({ checks_failed: -1 }); }, value => { value.report = report({ checks: [{ ...report().checks[0], stdout_tail: 'x'.repeat(1025) }] }); },
+      value => { value.report = report({ checks: [{ ...report().checks[0], queue_wait_ms: '3' }] }); },
+      value => { value.report = report({ checks: [{ ...report().checks[0], execution_ms: -1 }] }); }]) {
       const s = prepared(); attach(s); const promise = s.run('observeVerificationTask({result:true})'); await flush();
       const value = task({ status: 'completed', terminal: true, result_available: true }); mutate(value); respond(s.requests[0], value); await promise;
       assert.equal(s.run('verificationEntry().task.status'), 'working'); assert.equal(s.run('verificationEntry().result'), null);
