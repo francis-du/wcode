@@ -96,6 +96,17 @@ test('a runtime drift signal keeps its percentage next to the values it came fro
   assert.doesNotMatch(uncomparable.detail, /0 \/ 0/, 'absent values must not render as zero');
 });
 
+test('the context budget shows its tokens, not a percentage alone', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    activity: { available: true, recent: [], completed: 0, failed: 0,
+      agent_context: { calls: 3, model_tokens: 4096, budget_tokens: 8192 } } };
+  s.run('state.project=fixture;state.activitySnapshot=fixture;renderActivity();');
+  const html = s.node('#resourceStatus').innerHTML;
+  assert.match(html, /4,096 \/ 8,192/, 'the budget keeps its numerator and denominator');
+  assert.match(html, /50%/, 'the derived percentage still appears');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');
