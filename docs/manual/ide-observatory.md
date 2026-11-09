@@ -134,6 +134,20 @@ Search state binds the exact task, Workspace, session owner and epoch. Selecting
 
 The exact-task Jobs detail now shows deterministic runner metadata retained with the completed command result: process queue wait, timeout state and output-capture completeness. A working job has no completed result, so those fields stay explicitly unknown. Check/test identity and structured failure location remain explicitly unknown for command jobs: the observation contract does not retain or export command program, arguments or cwd, and it does not parse arbitrary output into invented locations. Native verification results keep their own projection with check identities, per-check outcomes and coverage counts; this slice does not merge that surface into command-job inspection.
 
+### Design consistency and investigation continuity (fourth iteration)
+
+The architecture workbench carries a ninth surface, **Design consistency**, beside the system map, components, dependencies and code graph. It combines existing design identities with their observed state; it does not define a new state model and does not replace the requirements or architecture views.
+
+| Surface | Implemented change | Boundary |
+| --- | --- | --- |
+| Design consistency matrix | One row per requirement, component, acceptance check or constraint, with the design statement, the observed state and the delta between them. | Dependency alignment keeps the four evidence states apart: an unverified declared dependency is not missing implementation, and an undeclared observation is only actionable when its provider is stronger than syntax. Truncation and a zero denominator travel with the counts. |
+| Drift queue | Every recorded drift, separated by the three existing kinds: implementation drift, design drift and runtime drift. Each finding carries its id, kind, risk, subject, message, affected requirements and paths; numeric drift also carries metric, expected bound, observed value, unit, deviation, precision and revision binding. | A finding is a prompt to confirm, not a verdict on the code. A truncated queue says so; the absence of a finding is not an all-clear. Runtime percentages are never combined with structural dependency percentages. |
+| Investigation continuity | Switching the main view preserves the active filter, scroll position and selected object. The investigation link names the workspace, view, object and label, and a copied link restores the object the operator was looking at. | Filtering re-selects the first visible item; a view switch does not. A selected object that the current filter hides stays selected and the list says so. |
+
+A command that names a section resolves through the same reveal the in-page links use, so a constraint row opens the constraint observations and an acceptance row opens the proof surface instead of a dead end.
+
+`tests/unit/ui/consistency_matrix.cjs` covers the matrix and the drift queue against the production bundle: the three kinds stay separate, a numeric deviation keeps its numerator, denominator and unit together, and filtering to one kind leaves the others out. These are functional behavior comparisons over fixed inputs, not a benchmark and not a claim about autonomous patch correctness.
+
 ### Primary-source research refresh (2026-10-30 UTC)
 
 Search became available after the initial source audit. The following primary sources were rechecked; this is a bounded review, not an exhaustive claim about the newest research.
