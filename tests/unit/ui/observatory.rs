@@ -360,8 +360,8 @@ fn home_status_surface_reaches_fitness_and_language_providers() {
         String::from_utf8_lossy(&output.stderr)
     );
     for summary in [
-        "# tests 13",
-        "# pass 13",
+        "# tests 14",
+        "# pass 14",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",

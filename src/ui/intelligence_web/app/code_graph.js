@@ -365,6 +365,7 @@ function selectCodeGraphNode(nodeId) {
   els.codeGraphMap?.querySelectorAll("[data-edge-from]").forEach(edge =>
     edge.classList.toggle("selected", edge.dataset.edgeFrom === nodeId || edge.dataset.edgeTo === nodeId));
   renderCodeGraphInspector();
+  syncInvestigationHash();
 }
 function renderCodeGraphInspector() {
   if (!els.codeGraphInspector) return;

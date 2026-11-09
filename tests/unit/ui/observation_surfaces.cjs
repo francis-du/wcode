@@ -58,6 +58,23 @@ test('switching views keeps the selection even when the filter hides it', () => 
   assert.match(s.node('#requirements').innerHTML, /outside the current filter/);
 });
 
+test('the investigation link follows the selected requirement', () => {
+  const requirement = (id, changed) => ({ id, title: id, intent: '', priority: 'high', status: 'active',
+    components: [], convergence: 'stable', dependency_alignment: [], acceptance: [], constraints: [],
+    decisions: [], drift: [], implementation_lines: 1, changed });
+  const s = sandbox();
+  s.context.fixture = { ...fixture(), requirements: [requirement('REQ-A', false), requirement('REQ-B', true)] };
+  s.run('state.project=fixture;state.current="A";state.filter="all";renderRequirements();');
+  s.run('activateWorkspaceTab("requirements");');
+  assert.match(s.history.lastUrl, /o=object%3Arequirement%3AREQ-B/,
+    'the requirement the view selects names the link');
+  s.run('activateRequirement("REQ-A");');
+  assert.equal(s.run('state.selected'), 'REQ-A');
+  assert.match(s.history.lastUrl, /o=object%3Arequirement%3AREQ-A/,
+    'selecting another requirement rewrites the link');
+  assert.doesNotMatch(s.history.lastUrl, /REQ-B/, 'the previous object leaves the link');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');

@@ -249,6 +249,7 @@ function renderComponentCards() {
       state.selectedComponent = button.dataset.cardComponent;
       renderComponentCards();
       renderComponentInspector();
+      syncInvestigationHash();
       requestAnimationFrame(() => {
         const selected = [...els.componentCards.querySelectorAll("[data-card-component]")].find(item => item.dataset.cardComponent === state.selectedComponent);
         selected?.scrollIntoView({ behavior: "smooth", block: "nearest" });

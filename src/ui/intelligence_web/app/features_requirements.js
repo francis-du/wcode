@@ -81,30 +81,33 @@ function renderRequirements() {
       : ""),
     () => {
       const buttons = [...els.requirements.querySelectorAll(".req")];
-      const activate = (button, { focus = false } = {}) => {
-        if (!button) return;
-        state.selected = button.dataset.id;
-        invalidate("requirements", "detail");
-        renderRequirements();
-        renderDetail();
-        if (focus) requestAnimationFrame(() => [...els.requirements.querySelectorAll(".req")].find(item => item.dataset.id === state.selected)?.focus());
-        if (window.matchMedia("(max-width: 720px)").matches) {
-          requestAnimationFrame(() =>
-            els.detail.scrollIntoView({ behavior: "smooth", block: "start" })
-          );
-        }
-      };
       buttons.forEach((button, index) => {
-        button.addEventListener("click", () => activate(button));
+        button.addEventListener("click", () => activateRequirement(button.dataset.id));
         button.addEventListener("keydown", event => {
           if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
           event.preventDefault();
           const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowDown" ? Math.min(buttons.length - 1, index + 1) : Math.max(0, index - 1);
-          activate(buttons[nextIndex], { focus: true });
+          activateRequirement(buttons[nextIndex]?.dataset.id, { focus: true });
         });
       });
     },
   );
+}
+function activateRequirement(id, { focus = false } = {}) {
+  if (!id) return;
+  state.selected = id;
+  invalidate("requirements", "detail");
+  renderRequirements();
+  renderDetail();
+  // The selection is part of the shareable investigation link, so a copied URL
+  // restores the object the operator actually looking at.
+  syncInvestigationHash();
+  if (focus) requestAnimationFrame(() => [...els.requirements.querySelectorAll(".req")].find(item => item.dataset.id === state.selected)?.focus());
+  if (window.matchMedia("(max-width: 720px)").matches) {
+    requestAnimationFrame(() =>
+      els.detail.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  }
 }
 function implementationRows(items, sourcePaths = repositorySourcePaths()) {
   if (!items.length) {
