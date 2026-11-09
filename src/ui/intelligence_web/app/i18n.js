@@ -216,6 +216,7 @@ const translations = {
     "Collapse panel": "收起面板",
     "Expand panel": "展开面板",
     "Session investigation record": "会话调查记录",
+    "wcode": "wcode",
     "No known blockers in this snapshot": "此快照中没有已知阻塞",
     "No retained jobs in this snapshot": "此快照中没有保留的任务",
     "Reading retained jobs for this workspace…": "正在读取该工作区的保留任务…",

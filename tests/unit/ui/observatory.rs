@@ -669,7 +669,7 @@ fn observatory_web_i18n_honors_locale_and_covers_static_copy() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 8
+                .is_some_and(|results| results.len() == 9
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

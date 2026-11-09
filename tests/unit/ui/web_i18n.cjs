@@ -8,6 +8,17 @@ const root=path.resolve(process.argv[2]||'.');
 function decodeAttribute(value){
   return value.replaceAll('&amp;','&').replaceAll('&quot;','"').replaceAll('&#39;',"'").replaceAll('&lt;','<').replaceAll('&gt;','>');
 }
+// The bundle's own copy calls are not visible to the page-marker scan, so they
+// are read from the same manifest the app is served from.
+function bundleSource(){
+  const manifest=fs.readFileSync(path.join(root,'src/ui/intelligence_web.rs'),'utf8');
+  const start=manifest.indexOf('pub(crate) const INTELLIGENCE_JS');
+  const to=manifest.indexOf('\n);',start);
+  return [...manifest.slice(start,to).matchAll(/include_str!\("([^"]+)"\)/g)]
+    .map(match=>match[1]).filter(file=>file.startsWith('intelligence_web/app/')&&file.endsWith('.js'))
+    .map(file=>fs.readFileSync(path.join(root,'src/ui/intelligence_web/app',path.basename(file)),'utf8'))
+    .join('\n');
+}
 function run(){
   const results=[];
   function test(name,fn){
@@ -27,6 +38,16 @@ function run(){
     const s=sandbox();
     assert.equal(s.run('initialLanguage(null,["zh-Hant-TW"])'),'en');
     assert.equal(s.run('initialLanguage(null,["zh-Hans-CN"])'),'zh-CN');
+  });
+  test('every copy key the bundle looks up has Simplified Chinese coverage',()=>{
+    const s=sandbox();
+    const zh=JSON.parse(s.run('JSON.stringify(translations["zh-CN"])'));
+    const source=bundleSource();
+    const used=new Set();
+    for(const match of source.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)*)"/g)) used.add(match[1].replace(/\\"/g,'"'));
+    for(const match of source.matchAll(/\bt\(\s*'([^']+)'/g)) used.add(match[1]);
+    const missing=[...used].filter(key=>!Object.prototype.hasOwnProperty.call(zh,key)).sort();
+    assert.deepEqual(missing,[],`untranslated copy keys: ${missing.join(', ')}`);
   });
   test('every marked WebUI string, placeholder and ARIA label has Simplified Chinese coverage',()=>{
     const page=fs.readFileSync(path.join(root,'src/ui/intelligence_web/page.html'),'utf8');
