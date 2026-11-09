@@ -35,6 +35,13 @@ The software graph joins declarations with files, symbols, tests, risks, and evi
 
 Design admission is scoped to initialized product designs. In that setting, invalid design state or missing implementation ownership can block a mutation. The rule does not require every unrelated workspace to define a product model. This scope is important: applying a design gate without its initialization precondition would turn a useful project contract into an unexplained global prohibition.
 
+\subsection{Observation surfaces over the same contract}
+Operator surfaces are projections of the same recorded state rather than a parallel evidence store. The architecture workbench carries a design consistency view beside the system map, component, dependency and code graph surfaces. One row per requirement, component, acceptance check or constraint states the design intent, the observed state, and the delta between them. Dependency alignment keeps four evidence states apart: an unverified declared dependency is not missing implementation, and an undeclared observation is actionable only when its provider is stronger than syntax. Truncation and a zero denominator travel with the counts.
+
+Every recorded drift is queued separately by the three existing kinds: implementation drift, design drift, and runtime drift. A finding carries its identifier, kind, risk, subject, message, affected requirements and paths; numeric drift additionally carries its metric, expected bound, observed value, unit, deviation, precision and revision binding. A finding is a prompt to confirm, not a verdict on the code. A truncated queue says so, the absence of a finding is not an all-clear, and runtime percentages are never combined with structural dependency percentages.
+
+Investigation continuity keeps the operator's place. Switching the main view preserves the active filter, scroll position and selected object, while changing a filter re-selects the first visible item. A shareable link names the workspace, view, object and investigation label, so a copied link restores the object the operator was reading rather than an earlier selection. These are presentation guarantees over recorded state: they create no evidence, execute no check and grant no acceptance.
+
 \subsection{Bounded context as an output contract}
 The context interface assembles task targets, original source, file metadata, graph relationships, available checks, and work state. Selection prioritizes explicit targets and useful executable definitions; independent source items can be loaded concurrently. Packing then compacts reconstructible metadata and trims lower-priority content to satisfy an explicit response budget.
 
